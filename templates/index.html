@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="ru" class="h-full bg-zinc-950 text-zinc-100">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JIN Core Engine — Control Panel</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        ::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #09090b;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #3f3f46;
+            border-radius: 2px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #52525b;
+        }
+    </style>
+</head>
+
+<body class="h-screen overflow-hidden flex flex-col font-mono antialiased bg-zinc-950 text-zinc-100">
+
+    <!-- TOP BAR -->
+
+    <header
+        class="h-10 border-b border-zinc-800 bg-zinc-900 flex items-center justify-between px-4 text-xs tracking-wider text-zinc-400 shrink-0">
+
+        <div>[PROJECT: JIN CORE ENGINE]</div>
+
+        <div class="flex items-center gap-5">
+
+    <!-- BRAIN -->
+
+    <div id="brain-status"
+        class="flex items-center gap-1.5 text-zinc-400">
+
+        <span id="brain-dot"
+            class="h-2 w-2 rounded-full bg-red-500 transition-all duration-300">
+        </span>
+
+        <span id="brain-label">
+            BRAIN: OFFLINE
+        </span>
+
+    </div>
+
+    <!-- SERVICE -->
+
+    <div id="service-status"
+        class="flex items-center gap-1.5 text-zinc-400">
+
+        <span id="service-dot"
+            class="h-2 w-2 rounded-full bg-red-500 transition-all duration-300">
+        </span>
+
+        <span id="service-label">
+            SERVICE: OFFLINE
+        </span>
+
+    </div>
+
+</div>
+
+    </header>
+
+    <!-- MAIN -->
+
+    <main class="flex flex-1 overflow-hidden">
+
+        <!-- LEFT CONSOLE -->
+
+        <section
+            class="w-[330px] min-w-[330px] border-r border-zinc-800 bg-zinc-950 flex flex-col shrink-0">
+
+            <div
+                class="h-12 border-b border-zinc-800 flex items-center justify-between px-4 bg-zinc-900/40">
+
+                <h2 class="text-xs font-bold uppercase tracking-widest text-zinc-300">
+                    DATA STREAM CONSOLE
+                </h2>
+
+                <span
+                    class="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">
+                    Live
+                </span>
+
+            </div>
+
+            <div id="console-stream"
+                class="flex-1 overflow-y-auto p-4 space-y-4 text-[11px] leading-relaxed text-zinc-400">
+
+<!--
+                <div>
+                    <span class="text-amber-400">[BEFORE_HOOK]</span>
+                    Polling room_state.json...
+                </div>
+
+                <div>
+                    <span class="text-sky-400">[FFT]</span>
+                    Audio spectrum snapshot capture: OK
+                </div>
+
+                <div>
+                    <span class="text-fuchsia-400">[GEMMA_3]</span>
+                    Translation complete (Ru -> En)
+                </div>
+
+                <div
+                    class="p-2 rounded border border-zinc-800 bg-zinc-900/60 text-zinc-500 overflow-x-auto">
+                    <pre>{"status":"ready","tokens_in_window":1024}</pre>
+                </div>
+-->
+            </div>
+
+        </section>
+
+        <!-- CENTER CHAT -->
+
+        <section id="chat-drop-zone"
+            class="flex-1 flex flex-col bg-slate-700 border-r border-slate-500">
+
+            <!-- CHAT HEADER -->
+
+            <div
+                class="h-12 border-b border-slate-500 flex items-center justify-between px-6 shrink-0 bg-slate-700">
+
+                <span class="text-xs font-bold tracking-wider text-zinc-100">
+                    Qwen 3.5 21B [Q3] — Isolated Brain
+                </span>
+
+                <span class="text-xs text-zinc-300">
+                    Context: 0 / 4096 ctx
+                </span>
+
+            </div>
+
+            <!-- CHAT HISTORY -->
+
+            <div id="chat-history"
+                class="flex-1 overflow-y-auto p-6 space-y-6 text-sm bg-slate-700">
+
+                <div class="space-y-2">
+
+                    <div class="text-xs text-zinc-300">
+                        &lt;think&gt;
+                    </div>
+
+                    <div
+                        class="border-l border-slate-500 pl-4 text-xs text-zinc-300 italic leading-relaxed">
+                        User requested a layout. Enforcing zero-fluff principle. Testing token budget logic...
+                    </div>
+
+                </div>
+
+                <!-- MESSAGE -->
+
+                <div class="flex items-start gap-3 max-w-3xl">
+
+                    <div
+                        class="h-6 w-6 rounded bg-slate-600 border border-slate-500 flex items-center justify-center text-[10px] text-zinc-200 shrink-0">
+                        JN
+                    </div>
+
+                    <div
+                        class="bg-slate-600 border border-slate-500 rounded-xl px-4 py-3 text-sm text-zinc-100 shadow-sm">
+                        Интерфейс развернут. Ожидаю привязки WebSocket-сервера для вывода отладки в левую панель.
+                    </div>
+
+                </div>
+
+            </div>
+
+            <!-- INPUT -->
+
+            <div
+                class="border-t border-slate-500 bg-slate-700 p-5 shrink-0">
+
+                <form id="chat-form"
+                    class="max-w-4xl mx-auto flex items-end gap-2 bg-slate-600 border border-slate-500 rounded-xl p-3">
+
+                    <!-- ATTACH -->
+
+                    <label for="file-input"
+                        class="p-2 rounded-lg cursor-pointer text-zinc-200 hover:bg-slate-500 transition shrink-0">
+
+                        <svg xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke-width="1.5"
+                            stroke="currentColor"
+                            class="w-5 h-5">
+
+                            <path stroke-linecap="round"
+                                stroke-linejoin="round"
+                                d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94a3 3 0 114.243 4.243L8.63 15.347a1.5 1.5 0 11-2.122-2.122l8-8" />
+
+                        </svg>
+
+                        <input type="file"
+                            id="file-input"
+                            class="hidden"
+                            multiple
+                            accept="image/*,application/json,text/*">
+
+                    </label>
+
+                    <!-- TEXTAREA -->
+
+                    <textarea id="user-input"
+                        rows="1"
+                        placeholder="Запрос в Jin Core Engine..."
+                        class="w-full bg-transparent resize-none border-0 outline-none text-sm text-zinc-100 placeholder-zinc-300 max-h-32 py-2"></textarea>
+
+                    <!-- SEND -->
+
+                    <button type="submit"
+                        class="p-2 rounded-lg bg-slate-500 hover:bg-slate-400 transition text-zinc-100 shrink-0">
+
+                        <svg xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke-width="1.5"
+                            stroke="currentColor"
+                            class="w-5 h-5">
+
+                            <path stroke-linecap="round"
+                                stroke-linejoin="round"
+                                d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+
+                        </svg>
+
+                    </button>
+
+                </form>
+
+                <!-- ATTACHED FILES -->
+
+                <div id="attached-files"
+                    class="max-w-4xl mx-auto mt-3 flex flex-wrap gap-2">
+                </div>
+
+                <div
+                    class="text-[10px] text-zinc-300 text-center mt-3 tracking-wide">
+                    Ctrl + Enter для отправки. Мониторинг токенов активен.
+                </div>
+
+            </div>
+
+        </section>
+
+        <!-- RIGHT SETTINGS -->
+
+        <section
+            class="w-[260px] min-w-[260px] border-l border-slate-500 bg-slate-700 flex flex-col shrink-0">
+
+            <div
+                class="h-12 border-b border-slate-500 flex items-center px-4 bg-slate-700">
+
+                <h2
+                    class="text-xs font-bold uppercase tracking-widest text-zinc-100">
+                    НАСТРОЙКИ
+                </h2>
+
+            </div>
+
+            <div
+                class="flex-1 p-4 text-xs text-zinc-300 italic leading-relaxed">
+
+                // Блок конфигурации параметров весов,
+                переключателей хуков и порогов FFT будет здесь.
+
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- AUTO HEIGHT -->
+
+    <script>
+
+        const textarea = document.getElementById("user-input");
+
+        textarea.addEventListener("input", function () {
+
+            this.style.height = "auto";
+            this.style.height = this.scrollHeight + "px";
+
+        });
+
+    </script>
+	<script>
+    // Подключаемся к WebSocket бэкенда
+    const ws = new WebSocket(`ws://${window.location.host}/ws/chat`);
+    
+    const chatForm = document.getElementById('chat-form');
+    const userInput = document.getElementById('user-input');
+    const chatHistory = document.getElementById('chat-history');
+    const consoleStream = document.getElementById('console-stream');
+
+    // Автовысота поля ввода
+    userInput.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = this.scrollHeight + 'px';
+    });
+
+    // Обработка отправки по Ctrl+Enter
+    userInput.addEventListener('keydown', function(e) {
+        if (e.ctrlKey && e.key === 'Enter') {
+            e.preventDefault();
+            chatForm.requestSubmit();
+        }
+    });
+
+    // Функция добавления логов в левую консоль
+    function appendLog(tag, message) {
+        const logDiv = document.createElement('div');
+        let tagClass = 'text-zinc-500';
+        
+        if (tag.includes('BEFORE')) tagClass = 'text-amber-500';
+        if (tag.includes('BRAIN')) tagClass = 'text-blue-500';
+        if (tag.includes('AFTER')) tagClass = 'text-purple-500';
+        if (tag.includes('SYSTEM')) tagClass = 'text-emerald-500';
+
+        logDiv.innerHTML = `<span class="${tagClass}">${tag}</span> ${message}`;
+        consoleStream.appendChild(logDiv);
+        consoleStream.scrollTop = consoleStream.scrollHeight;
+    }
+
+    // Функция добавления сообщений в центральный чат
+    function appendChatMessage(role, text) {
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'flex items-start gap-3 max-w-3xl';
+        
+        const avatar = role === 'user' ? 'US' : 'JN';
+        const bgClass = role === 'user' ? 'bg-slate-500 border-slate-400' : 'bg-slate-600 border-slate-500';
+        
+        msgDiv.innerHTML = `
+            <div class="h-6 w-6 rounded bg-zinc-800 border border-zinc-700 flex items-center justify-center text-[10px] text-zinc-400 shrink-0">${avatar}</div>
+            <div class="space-y-1 ${bgClass} p-3 rounded-lg border">
+                <p class="text-zinc-200 leading-relaxed">${text}</p>
+            </div>
+        `;
+        chatHistory.appendChild(msgDiv);
+        chatHistory.scrollTop = chatHistory.scrollHeight;
+    }
+
+    // Прием данных от сервера
+    ws.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'log') {
+            appendLog(data.tag, data.message);
+        } else if (data.type === 'message') {
+            appendChatMessage('jin', data.text);
+        }
+    };
+
+    // Отправка формы
+    chatForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        const text = userInput.value.trim();
+        if (!text) return;
+
+        // Добавляем реплику юзера на экран
+        appendChatMessage('user', text);
+        
+        // Шлем по WebSocket
+        ws.send(JSON.stringify({ text: text }));
+        
+        // Очищаем инпут
+        userInput.value = '';
+        userInput.style.height = 'auto';
+    });
+
+    ws.onopen = () => appendLog('[SYSTEM]', 'Веб-интерфейс подключен к локальному ядру Jin.');
+	console.log("WS CONNECTED");
+    ws.onclose = () => appendLog('[SYSTEM]', 'Критическая ошибка: Соединение с ядром разорвано.');
+</script>
+
+<script src="/static/status.js"></script>
+<script src="/static/dragdrop.js"></script>
+
+</body>
+
+</html>
