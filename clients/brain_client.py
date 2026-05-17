@@ -5,12 +5,16 @@ from clients.errors import format_client_error
 from clients.url_utils import join_url
 
 
-def _build_payload(prompt: str, temperature: float, max_tokens: int) -> dict:
+def _build_payload(system_prompt: str, user_prompt: str, temperature: float, max_tokens: int) -> dict:
     payload = {
         "messages": [
             {
+                "role": "system",
+                "content": system_prompt,
+            },
+            {
                 "role": "user",
-                "content": prompt,
+                "content": user_prompt,
             }
         ],
         "temperature": temperature,
@@ -19,37 +23,25 @@ def _build_payload(prompt: str, temperature: float, max_tokens: int) -> dict:
 
     return payload
 
-
-def _build_service_brain_prompt(contract_xml: str) -> str:
-    try:
-        root = ElementTree.fromstring(contract_xml)
-        user_input = root.findtext("ACTIVE_USER_INPUT", default="").strip()
-        compressed_history = root.findtext("COMPRESSED_HISTORY", default="").strip()
-    except ElementTree.ParseError:
-        user_input = contract_xml.strip()
-        compressed_history = ""
-
-    history_block = f"\nContext memory: {compressed_history}" if compressed_history else ""
-
+def build_system_prompt():
     return (
-        "You are JIN brain emulator running on the small service model. "
-        "The user input is already translated to English. "
-        "Answer in plain natural English only. Be direct, concise, and useful. "
-        "Do not mention XML, runtime, models, or internal pipeline."
-        f"{history_block}\nUser input: {user_input}"
+        "You are JIN Core Engine. "
+        "Respond naturally in English. "
+        "Be concise and coherent."
     )
 
 
 async def _ask_model(
     url: str,
     model: str,
-    prompt: str,
+    user_prompt: str,
     *,
     timeout: float,
     temperature: float,
     max_tokens: int,
 ) -> str:
-    payload = _build_payload(prompt, temperature, max_tokens)
+    system_prompt = build_system_prompt()
+    payload = _build_payload(system_prompt, user_prompt, temperature, max_tokens)
     payload["model"] = model
 
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -60,22 +52,36 @@ async def _ask_model(
 
         response.raise_for_status()
         result = response.json()
+        print("RAW MODEL RESPONSE:")
+        print(result)
+        print("RAW RESPONSE TEXT:")
+        print(response.text)
+        content = (
+            result
+            .get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+        )
 
-        return result["choices"][0]["message"]["content"].strip()
+        content = content.strip()
+
+        if not content:
+            return "[EMPTY_MODEL_RESPONSE]"
+
+        return content
 
 
-async def ask_brain(prompt: str) -> str:
+async def ask_brain(user_prompt: str) -> str:
     if config.USE_SERVICE_AS_BRAIN:
         try:
             url = join_url(config.SERVICE_API_BASE, config.CHAT_ENDPOINT)
-            service_prompt = _build_service_brain_prompt(prompt)
             return await _ask_model(
                 url,
                 config.SERVICE_MODEL_UID,
-                service_prompt,
-                timeout=getattr(config, "SERVICE_BRAIN_TIMEOUT", 90.0),
-                temperature=getattr(config, "SERVICE_BRAIN_TEMPERATURE", 0.4),
-                max_tokens=getattr(config, "SERVICE_BRAIN_MAX_TOKENS", 512),
+                user_prompt,
+                timeout=getattr(config, "SERVICE_BRAIN_TIMEOUT", config.SERVICE_BRAIN_TIMEOUT),
+                temperature=getattr(config, "SERVICE_BRAIN_TEMPERATURE", config.SERVICE_BRAIN_TEMPERATURE),
+                max_tokens=getattr(config, "SERVICE_BRAIN_MAX_TOKENS", config.SERVICE_BRAIN_MAX_TOKENS),
             )
         except Exception as service_error:
             error = format_client_error(
@@ -91,22 +97,21 @@ async def ask_brain(prompt: str) -> str:
         return await _ask_model(
             url,
             config.BRAIN_MODEL_UID,
-            prompt,
+            user_prompt,
             timeout=getattr(config, "BRAIN_REQUEST_TIMEOUT", config.HTTP_TIMEOUT),
-            temperature=getattr(config, "BRAIN_TEMPERATURE", 0.7),
-            max_tokens=getattr(config, "BRAIN_MAX_TOKENS", 2048),
+            temperature=getattr(config, "BRAIN_TEMPERATURE", config.BRAIN_TEMPERATURE),
+            max_tokens=getattr(config, "BRAIN_MAX_TOKENS", config.BRAIN_MAX_TOKENS),
         )
     except Exception as brain_error:
         try:
             url = join_url(config.SERVICE_API_BASE, config.CHAT_ENDPOINT)
-            service_prompt = _build_service_brain_prompt(prompt)
             return await _ask_model(
                 url,
                 config.SERVICE_MODEL_UID,
-                service_prompt,
-                timeout=getattr(config, "SERVICE_BRAIN_TIMEOUT", 90.0),
-                temperature=getattr(config, "SERVICE_BRAIN_TEMPERATURE", 0.4),
-                max_tokens=getattr(config, "SERVICE_BRAIN_MAX_TOKENS", 512),
+                user_prompt,
+                timeout=getattr(config, "SERVICE_BRAIN_TIMEOUT", config.SERVICE_BRAIN_TIMEOUT),
+                temperature=getattr(config, "SERVICE_BRAIN_TEMPERATURE", config.SERVICE_BRAIN_TEMPERATURE),
+                max_tokens=getattr(config, "SERVICE_BRAIN_MAX_TOKENS", config.SERVICE_BRAIN_MAX_TOKENS),
             )
         except Exception as service_error:
             brain_error_text = format_client_error(

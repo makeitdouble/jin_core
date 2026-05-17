@@ -79,25 +79,17 @@ async def websocket_endpoint(websocket: WebSocket):
             })
 
             # Step 2: brain node receives English context and returns English text.
+
+            if config.USE_SERVICE_AS_BRAIN:
+                message = "Building lightweight EN payload for service brain emulator."
+            else:
+                message = "Building XML context contract for primary brain node."
             await websocket.send_json({
                 "type": "log",
                 "tag": "[BRAIN_NODE]",
-                "message": "Building XML context contract for the English brain payload.",
+                "message": message,
             })
 
-            contract = ContextContract(
-                user_input=text_en,
-                original_user_input=user_text_ru,
-                compressed_history="",
-                system_state="ACTIVE",
-            )
-
-            contract_xml = contract.to_xml()
-            await websocket.send_json({
-                "type": "log",
-                "tag": "[CONTRACT]",
-                "message": contract_xml[:500],
-            })
 
             brain_route = (
                 "service node brain emulator"
@@ -110,12 +102,32 @@ async def websocket_endpoint(websocket: WebSocket):
                 "tag": "[BRAIN_NODE]",
                 "message": (
                     f"Sending English brain payload to {brain_route}. "
-                    f"service_timeout={getattr(config, 'SERVICE_BRAIN_TIMEOUT', 90.0)}s, "
-                    f"service_max_tokens={getattr(config, 'SERVICE_BRAIN_MAX_TOKENS', 512)}"
+                    f"service_timeout={getattr(config, 'SERVICE_BRAIN_TIMEOUT', config.SERVICE_BRAIN_TIMEOUT)}s, "
+                    f"service_max_tokens={getattr(config, 'SERVICE_BRAIN_MAX_TOKENS', config.SERVICE_BRAIN_MAX_TOKENS)}"
                 ),
             })
 
-            brain_response_en = await ask_brain(contract_xml)
+            if config.USE_SERVICE_AS_BRAIN:
+
+                brain_payload = text_en
+
+            else:
+
+                contract = ContextContract(
+                    user_input=text_en,
+                    compressed_history="",
+                    system_state="ACTIVE"
+                )
+
+                brain_payload = contract.to_xml()
+
+            await websocket.send_json({"type": "log", "tag": "[PAYLOAD]", "message":brain_payload[:500],})
+            brain_response_en = await ask_brain(brain_payload)
+            await websocket.send_json({
+                "type": "log",
+                "tag": "[RAW_BRAIN_RESPONSE]",
+                "message": brain_response_en[:1000],
+            })
 
             if (
                 brain_response_en.startswith("[QWEN_ERROR")

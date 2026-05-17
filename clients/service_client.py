@@ -7,13 +7,13 @@ from clients.url_utils import join_url
 
 def _translation_token_limit(text: str, minimum: int, maximum: int) -> int:
     estimated_tokens = max(1, len(text) // 3)
-    return min(maximum, max(minimum, estimated_tokens + 32))
+    return min(maximum, max(minimum, estimated_tokens + config.TRANSLATION_EN_TO_RU_MIN_TOKENS))
 
 
 async def _post_translation(payload: dict, stage: str, *, timeout: float | None = None) -> str:
     url = join_url(config.SERVICE_API_BASE, config.CHAT_ENDPOINT)
-    request_timeout = timeout or getattr(config, "TRANSLATION_TIMEOUT", 30.0)
-    retries = getattr(config, "TRANSLATION_RETRIES", 1)
+    request_timeout = timeout or getattr(config, "TRANSLATION_TIMEOUT", config.TRANSLATION_TIMEOUT)
+    retries = getattr(config, "TRANSLATION_RETRIES", config.TRANSLATION_RETRIES)
     last_error = None
 
     for attempt in range(retries + 1):
@@ -49,11 +49,11 @@ async def translate_ru_to_en(text_ru: str) -> str:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"<text>{text_ru}</text>"},
         ],
-        "temperature": 0.1,
+        "temperature": config.TRANSLATION_TEMPERATURE,
         "max_tokens": _translation_token_limit(
             text_ru,
-            minimum=32,
-            maximum=getattr(config, "TRANSLATION_RU_TO_EN_MAX_TOKENS", 256),
+            minimum=getattr(config, "TRANSLATION_EN_TO_RU_MAX_TOKENS", config.TRANSLATION_EN_TO_RU_MIN_TOKENS),
+            maximum=getattr(config, "TRANSLATION_RU_TO_EN_MAX_TOKENS", config.TRANSLATION_RU_TO_EN_MAX_TOKENS),
         ),
     }
 
@@ -72,11 +72,11 @@ async def translate_en_to_ru(text_en: str) -> str:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"<text>{text_en}</text>"},
         ],
-        "temperature": 0.1,
+        "temperature": config.TRANSLATION_TEMPERATURE,
         "max_tokens": _translation_token_limit(
             text_en,
-            minimum=32,
-            maximum=getattr(config, "TRANSLATION_EN_TO_RU_MAX_TOKENS", 384),
+            minimum=getattr(config, "TRANSLATION_EN_TO_RU_MAX_TOKENS", config.TRANSLATION_EN_TO_RU_MIN_TOKENS),
+            maximum=getattr(config, "TRANSLATION_EN_TO_RU_MAX_TOKENS", config.TRANSLATION_EN_TO_RU_MAX_TOKENS),
         ),
     }
 
@@ -86,6 +86,6 @@ async def translate_en_to_ru(text_en: str) -> str:
         timeout=getattr(
             config,
             "TRANSLATION_EN_TO_RU_TIMEOUT",
-            getattr(config, "TRANSLATION_TIMEOUT", 30.0),
+            getattr(config, "TRANSLATION_TIMEOUT", config.TRANSLATION_TIMEOUT),
         ),
     )
