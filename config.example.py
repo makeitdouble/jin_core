@@ -1,9 +1,24 @@
 # Copy this file to config.py and adjust values for your local nodes.
+USE_SERVICE_AS_BRAIN = True
 
-SERVICE_API_URL = "http://SERVICE_NODE_HOST:1234/v1/chat/completions"
-SERVICE_MODEL_UID = "service-model-id"
+SERVICE_API_BASE = "http://service-host:1234"
+BRAIN_API_BASE = "http://brain-host:1234"
 
-BRAIN_API_URL = "http://BRAIN_NODE_HOST:1234/v1/chat/completions"
-BRAIN_MODEL_UID = "brain-model-id"
+CHAT_ENDPOINT = "/v1/chat/completions"
+MODELS_ENDPOINT = "/v1/models"
+
+SERVICE_MODEL_UID = "service-model"
+BRAIN_MODEL_UID = "brain_model"
 
 HTTP_TIMEOUT = 120.0
+BRAIN_REQUEST_TIMEOUT = 30.0
+SERVICE_BRAIN_TIMEOUT = 90.0
+BRAIN_MAX_TOKENS = 2048
+SERVICE_BRAIN_MAX_TOKENS = 512
+BRAIN_TEMPERATURE = 0.7
+SERVICE_BRAIN_TEMPERATURE = 0.4
+SERVICE_BRAIN_COMPACT_PROMPT = True
+SERVICE_BRAIN_OUTPUT_LANGUAGE = "Russian"
+SERVICE_BRAIN_USE_ORIGINAL_INPUT = True
+TRANSLATION_TIMEOUT = 30.0
+TRANSLATION_RETRIES = 1

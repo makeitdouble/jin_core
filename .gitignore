@@ -11,5 +11,7 @@ config.py
 
 .idea/
 
+*.zip
+
 # Legacy module kept locally while the client split settles.
 translator.py
