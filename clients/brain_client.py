@@ -1,6 +1,5 @@
 import httpx
 import config
-from xml.etree import ElementTree
 from clients.errors import format_client_error
 from clients.url_utils import join_url
 
