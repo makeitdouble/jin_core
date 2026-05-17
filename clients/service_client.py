@@ -5,15 +5,20 @@ from clients.errors import format_client_error
 from clients.url_utils import join_url
 
 
-async def _post_translation(payload: dict, stage: str) -> str:
+def _translation_token_limit(text: str, minimum: int, maximum: int) -> int:
+    estimated_tokens = max(1, len(text) // 3)
+    return min(maximum, max(minimum, estimated_tokens + 32))
+
+
+async def _post_translation(payload: dict, stage: str, *, timeout: float | None = None) -> str:
     url = join_url(config.SERVICE_API_BASE, config.CHAT_ENDPOINT)
-    timeout = getattr(config, "TRANSLATION_TIMEOUT", 30.0)
+    request_timeout = timeout or getattr(config, "TRANSLATION_TIMEOUT", 30.0)
     retries = getattr(config, "TRANSLATION_RETRIES", 1)
     last_error = None
 
     for attempt in range(retries + 1):
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(timeout=request_timeout) as client:
                 response = await client.post(url, json=payload)
                 response.raise_for_status()
                 result = response.json()
@@ -35,17 +40,21 @@ async def _post_translation(payload: dict, stage: str) -> str:
 async def translate_ru_to_en(text_ru: str) -> str:
     system_prompt = (
         "You are an expert, strict translator. Translate the user's input from Russian to English. "
-        "Do not add any explanations, introductory text, or corporate fluff. Output ONLY the raw translation."
+        "Return ONLY the raw English translation. Stop immediately after the translation."
     )
 
     payload = {
         "model": config.SERVICE_MODEL_UID,
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Translate this text: {text_ru}"},
+            {"role": "user", "content": f"<text>{text_ru}</text>"},
         ],
         "temperature": 0.1,
-        "max_tokens": 1024,
+        "max_tokens": _translation_token_limit(
+            text_ru,
+            minimum=32,
+            maximum=getattr(config, "TRANSLATION_RU_TO_EN_MAX_TOKENS", 256),
+        ),
     }
 
     return await _post_translation(payload, "translate_ru_to_en")
@@ -54,17 +63,29 @@ async def translate_ru_to_en(text_ru: str) -> str:
 async def translate_en_to_ru(text_en: str) -> str:
     system_prompt = (
         "You are an expert, strict translator. Translate the user's input from English to Russian. "
-        "Maintain a realistic, non-corporate, blunt tone. Output ONLY the raw translation."
+        "Return ONLY the raw Russian translation. Stop immediately after the translation."
     )
 
     payload = {
         "model": config.SERVICE_MODEL_UID,
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Translate this text: {text_en}"},
+            {"role": "user", "content": f"<text>{text_en}</text>"},
         ],
-        "temperature": 0.3,
-        "max_tokens": 2048,
+        "temperature": 0.1,
+        "max_tokens": _translation_token_limit(
+            text_en,
+            minimum=32,
+            maximum=getattr(config, "TRANSLATION_EN_TO_RU_MAX_TOKENS", 384),
+        ),
     }
 
-    return await _post_translation(payload, "translate_en_to_ru")
+    return await _post_translation(
+        payload,
+        "translate_en_to_ru",
+        timeout=getattr(
+            config,
+            "TRANSLATION_EN_TO_RU_TIMEOUT",
+            getattr(config, "TRANSLATION_TIMEOUT", 30.0),
+        ),
+    )

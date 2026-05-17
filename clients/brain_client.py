@@ -20,29 +20,21 @@ def _build_payload(prompt: str, temperature: float, max_tokens: int) -> dict:
     return payload
 
 
-def _compact_service_brain_prompt(contract_xml: str) -> str:
-    if not getattr(config, "SERVICE_BRAIN_COMPACT_PROMPT", True):
-        return contract_xml
-
+def _build_service_brain_prompt(contract_xml: str) -> str:
     try:
         root = ElementTree.fromstring(contract_xml)
         user_input = root.findtext("ACTIVE_USER_INPUT", default="").strip()
-        original_user_input = root.findtext("ORIGINAL_USER_INPUT", default="").strip()
         compressed_history = root.findtext("COMPRESSED_HISTORY", default="").strip()
     except ElementTree.ParseError:
         user_input = contract_xml.strip()
-        original_user_input = ""
         compressed_history = ""
 
-    if getattr(config, "SERVICE_BRAIN_USE_ORIGINAL_INPUT", True) and original_user_input:
-        user_input = original_user_input
-
     history_block = f"\nContext memory: {compressed_history}" if compressed_history else ""
-    output_language = getattr(config, "SERVICE_BRAIN_OUTPUT_LANGUAGE", "Russian")
 
     return (
-        "You are JIN fallback brain running on the small service model. "
-        f"Answer in {output_language}. Be direct, concise, and useful. "
+        "You are JIN brain emulator running on the small service model. "
+        "The user input is already translated to English. "
+        "Answer in plain natural English only. Be direct, concise, and useful. "
         "Do not mention XML, runtime, models, or internal pipeline."
         f"{history_block}\nUser input: {user_input}"
     )
@@ -76,7 +68,7 @@ async def ask_brain(prompt: str) -> str:
     if config.USE_SERVICE_AS_BRAIN:
         try:
             url = join_url(config.SERVICE_API_BASE, config.CHAT_ENDPOINT)
-            service_prompt = _compact_service_brain_prompt(prompt)
+            service_prompt = _build_service_brain_prompt(prompt)
             return await _ask_model(
                 url,
                 config.SERVICE_MODEL_UID,
@@ -107,7 +99,7 @@ async def ask_brain(prompt: str) -> str:
     except Exception as brain_error:
         try:
             url = join_url(config.SERVICE_API_BASE, config.CHAT_ENDPOINT)
-            service_prompt = _compact_service_brain_prompt(prompt)
+            service_prompt = _build_service_brain_prompt(prompt)
             return await _ask_model(
                 url,
                 config.SERVICE_MODEL_UID,
