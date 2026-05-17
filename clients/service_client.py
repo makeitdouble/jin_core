@@ -7,7 +7,7 @@ from clients.url_utils import join_url
 
 def _translation_token_limit(text: str, minimum: int, maximum: int) -> int:
     estimated_tokens = max(1, len(text) // 3)
-    return min(maximum, max(minimum, estimated_tokens + config.TRANSLATION_EN_TO_RU_MIN_TOKENS))
+    return min(maximum, max(minimum, estimated_tokens))
 
 
 async def _post_translation(payload: dict, stage: str, *, timeout: float | None = None) -> str:
@@ -52,7 +52,7 @@ async def translate_ru_to_en(text_ru: str) -> str:
         "temperature": config.TRANSLATION_TEMPERATURE,
         "max_tokens": _translation_token_limit(
             text_ru,
-            minimum=getattr(config, "TRANSLATION_EN_TO_RU_MAX_TOKENS", config.TRANSLATION_EN_TO_RU_MIN_TOKENS),
+            minimum=getattr(config, "TRANSLATION_RU_TO_EN_MIN_TOKENS", config.TRANSLATION_RU_TO_EN_MIN_TOKENS),
             maximum=getattr(config, "TRANSLATION_RU_TO_EN_MAX_TOKENS", config.TRANSLATION_RU_TO_EN_MAX_TOKENS),
         ),
     }
@@ -75,7 +75,7 @@ async def translate_en_to_ru(text_en: str) -> str:
         "temperature": config.TRANSLATION_TEMPERATURE,
         "max_tokens": _translation_token_limit(
             text_en,
-            minimum=getattr(config, "TRANSLATION_EN_TO_RU_MAX_TOKENS", config.TRANSLATION_EN_TO_RU_MIN_TOKENS),
+            minimum=getattr(config, "TRANSLATION_EN_TO_RU_MIN_TOKENS", config.TRANSLATION_EN_TO_RU_MIN_TOKENS),
             maximum=getattr(config, "TRANSLATION_EN_TO_RU_MAX_TOKENS", config.TRANSLATION_EN_TO_RU_MAX_TOKENS),
         ),
     }
