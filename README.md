@@ -1,246 +1,310 @@
+# 🧞‍♂️ JIN Core Engine: Архитектура и Спецификация ИИ-агента
+
+![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg)
+![WebSocket](https://img.shields.io/badge/WebSocket-Streaming-orange.svg)
+![Vanilla JS](https://img.shields.io/badge/Frontend-Vanilla_JS-f7df1e.svg)
+
 # JIN Core Engine
 
-Локальный runtime-хост для двухузловой LLM-архитектуры.
+> Experimental local LLM runtime with a dual-node architecture, live telemetry, translation routing, and a clean WebSocket-driven UI.
 
-## Основная идея
+---
 
-Архитектура разделена на два независимых inference-узла:
+## Overview
 
-- service node
-- brain node
+JIN Core Engine is a local orchestration runtime for experimenting with multi-model inference pipelines.
 
-Service node отвечает за быстрые вспомогательные задачи:
+The current architecture separates responsibilities between two independent nodes:
 
-- перевод;
-- preprocessing;
-- lightweight inference;
-- bypass mode.
+- **Service Node** — lightweight utility model
+- **Brain Node** — primary reasoning / generation model
 
-Brain node отвечает за:
+The system already includes:
 
-- reasoning;
-- code generation;
-- planning;
-- future memory orchestration.
+- real-time WebSocket streaming
+- runtime telemetry
+- live logs
+- translation routing
+- dynamic frontend status updates
+- isolated runtime pipeline layers
+- configurable brain bypass mode
 
 ---
 
 # Runtime Pipeline
 
-## Normal Mode
+Current pipeline flow:
 
 ```text
-USER RU INPUT
-    ↓
+USER INPUT (RU)
+        ↓
 SERVICE NODE
 (RU → EN translation)
-    ↓
-BRAIN PAYLOAD BUILDER
-(XML contract)
-    ↓
+        ↓
+CONTEXT CONTRACT
+(XML payload builder)
+        ↓
 BRAIN NODE
 (reasoning / generation)
-    ↓
+        ↓
 SERVICE NODE
 (EN → RU translation)
-    ↓
+        ↓
 WEBSOCKET UI
 ```
 
+The pipeline structure remains stable even when the brain node is bypassed.
+
 ---
 
-## BYPASS MODE
+# Runtime Modes
+
+## 1. Normal Brain Mode
+
+```python
+USE_SERVICE_AS_BRAIN = False
+```
+
+Flow:
 
 ```text
-USER RU INPUT
-    ↓
-SERVICE NODE
-(emulates brain)
-    ↓
-WEBSOCKET UI
+RU
+→ translation
+→ brain generation
+→ translation
+→ RU
 ```
 
-В bypass режиме:
+In this mode:
 
-- brain считается OFFLINE;
-- service node временно работает как brain;
-- telemetry отображает BYPASSED state.
-
----
-
-# Runtime Architecture
-
-## app.py
-
-Главный orchestration layer.
-
-Отвечает за:
-
-- websocket lifecycle;
-- runtime pipeline;
-- telemetry dispatch;
-- frontend communication;
-- runtime error routing;
-- UI events.
+- the main reasoning model is active
+- service node handles translation and utility work
+- telemetry shows active brain execution
 
 ---
 
-## clients/model_client.py
+## 2. Service Bypass Mode
 
-Transport layer.
+```python
+USE_SERVICE_AS_BRAIN = True
+```
 
-Содержит:
+Flow:
 
-- ask_model()
-- ask_brain_model()
-- ask_service_model()
+```text
+RU
+→ translation
+→ service emulates brain
+→ translation
+→ RU
+```
 
-Отвечает за:
+In this mode:
 
-- HTTP transport;
-- payload delivery;
-- response parsing;
-- model validation.
+- primary brain requests are skipped
+- service node temporarily acts as a lightweight brain emulator
+- telemetry displays `BYPASSED`
 
----
+Useful for:
 
-## clients/brain_client.py
-
-Brain orchestration layer.
-
-Содержит:
-
-- build_brain_payload()
-- bypass routing
-- ContextContract integration
-- brain execution pipeline
-- brain exception handling
+- frontend testing
+- latency testing
+- pipeline debugging
+- offline runtime experiments
 
 ---
 
-## clients/service_client.py
+# Frontend Features
 
-Translation layer.
+Current UI already supports:
 
-Содержит:
-
-- translate_ru_to_en()
-- translate_en_to_ru()
-- retries
-- timeout handling
-
----
-
-## contracts/context_contract.py
-
-Контракт контекста brain node.
-
-Содержит:
-
-- XML serialization;
-- runtime state injection;
-- compressed history;
-- future memory integration.
+- live WebSocket chat
+- streaming responses
+- runtime telemetry
+- dynamic model labels
+- token counters
+- runtime console
+- drag-and-drop upload area
+- centered isolated chat layout
+- configuration/status panels
 
 ---
 
 # Telemetry System
 
-Frontend telemetry работает через единый websocket stream.
+Frontend telemetry is pushed through WebSocket events.
 
-Поддерживаются:
+Example payload:
 
-- runtime logs;
-- token counters;
-- model labels;
-- OFFLINE state;
-- BYPASSED state;
-- websocket error events.
+```json
+{
+  "type": "telemetry",
+  "brain": {
+    "model": "qwen2.5-coder-14b",
+    "used_tokens": 1200,
+    "max_tokens": 32768
+  },
+  "service": {
+    "model": "gemma-4-e2b",
+    "used_tokens": 220,
+    "max_tokens": 8192
+  }
+}
+```
 
----
+Telemetry currently tracks:
 
-
-# Frontend
-
-Frontend построен на:
-
-- Tailwind
-- Vanilla JS
-- WebSocket API
-
-## UI Panels
-
-### Left Panel
-
-Runtime console:
-
-- hooks;
-- logs;
-- errors;
-- telemetry events.
-
-### Center Panel
-
-Chat runtime:
-
-- live chat;
-- token counters;
-- model labels;
-- drag-and-drop zone.
-
-### Right Panel
-
-Будущая runtime configuration panel.
+- active models
+- token usage
+- bypass state
+- runtime status
+- node activity
 
 ---
 
-# Runtime UI
-
-- WebSocket streaming;
-- live runtime logs;
-- telemetry updates;
-- brain/service status;
-- dynamic token counters;
-- drag-and-drop upload UI;
-- separate runtime console;
-- isolated center chat;
-- runtime configuration panel.
-
----
-
-# Current Project Structure
+# Project Structure
 
 ```text
 jin_core/
 │
+├── app.py                     # Main FastAPI runtime orchestrator
+├── config.py                  # Local runtime configuration
+├── config.example.py          # Example configuration template
+├── logger.py                  # Runtime logging layer
 ├── README.md
-├── app.py
-├── config.py
-├── config.example.py
-├── logger.py
 │
 ├── clients/
-│   ├── brain_client.py
-│   ├── errors.py
-│   ├── model_client.py
-│   ├── service_client.py
-│   └── url_utils.py
+│   ├── brain_client.py        # Brain node execution layer
+│   ├── service_client.py      # Translation/service layer
+│   ├── model_client.py        # Shared model request helpers
+│   ├── errors.py              # Runtime exception definitions
+│   └── url_utils.py           # URL and endpoint helpers
 │
 ├── contracts/
-│   └── context_contract.py
+│   └── context_contract.py    # XML context payload builder
 │
 ├── memory/
-│   ├── memory.py
-│   └── runtime_state.py
+│   ├── memory.py              # Temporary memory layer
+│   └── runtime_state.py       # Runtime state container
 │
 ├── static/
-│   ├── dragdrop.js
-│   ├── status.js
-│   └── telemetry.js
+│   ├── dragdrop.js            # Upload/drop interactions
+│   ├── status.js              # Runtime status renderer
+│   └── telemetry.js           # Telemetry renderer
 │
 └── templates/
-    └── index.html
+    └── index.html             # Main frontend UI
 ```
+
+---
+
+# Core Modules
+
+## `app.py`
+
+Main runtime orchestrator.
+
+Responsibilities:
+
+- FastAPI routes
+- WebSocket lifecycle
+- pipeline execution
+- telemetry dispatch
+- frontend communication
+- runtime streaming
+
+---
+
+## `clients/service_client.py`
+
+Service node layer.
+
+Responsibilities:
+
+- RU ↔ EN translation
+- lightweight inference calls
+- timeout handling
+- utility routing
+
+---
+
+## `clients/brain_client.py`
+
+Brain node layer.
+
+Responsibilities:
+
+- primary reasoning requests
+- brain execution
+- bypass routing
+- response generation
+
+---
+
+## `contracts/context_contract.py`
+
+Context contract builder.
+
+Contains:
+
+- system identity
+- compressed runtime state
+- translated payloads
+- XML serialization
+- context packaging
+
+---
+
+## `logger.py`
+
+Centralized runtime logging layer.
+
+Goal:
+
+- avoid scattered websocket logging
+- standardize runtime events
+- separate transport from runtime diagnostics
+
+Planned future hook system:
+
+```text
+before_hook_log()
+after_hook_log()
+system_log()
+brain_log()
+service_log()
+```
+
+---
+
+# Current State
+
+The project is currently an MVP runtime skeleton focused on architecture validation and pipeline experimentation.
+
+Already implemented:
+
+- dual-node routing
+- translation pipeline
+- runtime telemetry
+- streaming UI
+- WebSocket infrastructure
+- modular runtime separation
+
+Not implemented yet:
+
+- persistent memory
+- vector database integration
+- autonomous hooks
+- multimodal ingestion
+- file processing pipeline
+- tool execution layer
+- auth system
+- production deployment layer
+
+---
+
+# Tech Stack
 
 ## Backend
 
@@ -251,54 +315,105 @@ jin_core/
 
 ## Frontend
 
+- Vanilla JavaScript
 - Tailwind CDN
-- Vanilla JS
 - WebSocket API
 
-## Runtime
+## LLM Runtime
 
 - LM Studio
-- OpenAI-compatible REST API
+- OpenAI-compatible endpoints
 
 ---
 
-# Local Launch
+# Quick Start
 
-## 1. Create config
+## 1. Clone project
 
-```powershell
-Copy-Item config.example.py config.py
+```bash
+git clone <repo>
+cd jin_core
 ```
 
 ---
 
-## 2. Configure models
+## 2. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## 3. Configure runtime
+
+Create local config:
+
+```bash
+cp config.example.py config.py
+```
+
+Adjust endpoints and models inside:
 
 ```python
-SERVICE_API_BASE =
-BRAIN_API_BASE =
-
-SERVICE_MODEL_UID =
-BRAIN_MODEL_UID =
+SERVICE_MODEL = "gemma"
+BRAIN_MODEL = "qwen"
 ```
 
 ---
 
-## 3. Start backend
+## 4. Run server
 
-```powershell
-python app.py
+```bash
+uvicorn app:app --reload
 ```
 
-# Planned Features
+---
 
-- autonomous hooks;
-- vector memory;
-- multimodal ingestion;
-- distributed nodes;
-- runtime graph execution;
-- persistent sessions;
-- tool routing;
-- live state synchronization.
+## 5. Open UI
+
+```text
+http://127.0.0.1:8000
+```
 
 ---
+
+# Design Philosophy
+
+JIN Core is intentionally being built as a layered runtime instead of a monolithic chatbot.
+
+The long-term goal is to evolve toward:
+
+```text
+translation layer
+    ↓
+memory layer
+    ↓
+context contracts
+    ↓
+reasoning layer
+    ↓
+tool execution
+    ↓
+autonomous runtime hooks
+```
+
+The current codebase is primarily focused on keeping these layers isolated early, before adding complex autonomous behavior.
+
+---
+
+# Status
+
+Current stage:
+
+```text
+Architecture Prototype / Runtime Skeleton
+```
+
+Main focus right now:
+
+- pipeline stability
+- clean separation of layers
+- telemetry visibility
+- runtime observability
+- future extensibility
