@@ -1,5 +1,3 @@
-# 🧞‍♂️ JIN Core Engine: Архитектура и Спецификация ИИ-агента
-
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg)
 ![WebSocket](https://img.shields.io/badge/WebSocket-Streaming-orange.svg)
