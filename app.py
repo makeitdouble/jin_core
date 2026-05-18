@@ -6,8 +6,9 @@ from fastapi.staticfiles import StaticFiles
 from clients.brain_client import ask_brain
 from clients.service_client import translate_en_to_ru, translate_ru_to_en
 from clients.url_utils import join_url
-from contracts.context_contract import ContextContract
+
 from logger import WebSocketLogger
+
 import config
 import httpx
 import json
@@ -107,44 +108,35 @@ async def websocket_endpoint(websocket: WebSocket):
 
             await logger.log_before_hook(f"Service translator returned EN text: '{text_en}'")
 
-            # Step 2: build brain payload
-
-            if config.USE_SERVICE_AS_BRAIN:
-                brain_payload = text_en
-            else:
-                await logger.log_service(f"Service translator returned EN text: '{text_en}'")
-                context_contract = ContextContract(
-                    user_input=text_en,
-                    compressed_history="",
-                    system_state="ACTIVE"
-                )
-                brain_payload = context_contract.to_xml()
-
-            await logger.log_payload(brain_payload)
-
-            brain_response_en = await ask_brain(brain_payload)
-
-            runtime_state.brain["model"] = config.BRAIN_MODEL_UID
-            runtime_state.brain["used_tokens"] = estimate_tokens(
-                brain_payload + brain_response_en
+            await logger.log_service(
+               f"Service translator returned EN text: '{text_en}'"
             )
-            runtime_state.brain["max_tokens"] = config.BRAIN_CONTEXT_WINDOW
 
-            await send_telemetry(websocket)
 
-            if (
-                brain_response_en.startswith("[QWEN_ERROR")
-                or brain_response_en.startswith("[SERVICE_BRAIN_ERROR")
-            ):
-                if config.USE_SERVICE_AS_BRAIN:
-                    await logger.log_service_as_brain(f"Brain request failed: {brain_response_en}")
-                else:
-                    await logger.log_brain(f"Brain request failed: {brain_response_en}")
+            try:
+                brain_response_en = await ask_brain(text_en)
+                print("BRAIN RAW RESPONSE:", brain_response_en)
+                runtime_state.brain["model"] = config.BRAIN_MODEL_UID
+                runtime_state.brain["used_tokens"] = estimate_tokens(text_en + brain_response_en)
+                runtime_state.brain["max_tokens"] = config.BRAIN_CONTEXT_WINDOW
 
-                brain_response_en = (
-                    "Temporary fallback response. "
-                    f"Received payload: '{text_en}'"
-                )
+                await send_telemetry(websocket)
+
+            except Exception as e:
+
+                runtime_state.brain["model"] = "OFFLINE"
+
+                await send_telemetry(websocket)
+
+                await logger.log_error(str(e))
+
+                await websocket.send_json({
+                    "type": "error",
+                    "source": "brain",
+                    "text": str(e),
+                })
+
+                continue
 
             if config.USE_SERVICE_AS_BRAIN:
                 await logger.log_service_as_brain(f"Brain returned raw EN answer: '{brain_response_en}'")

@@ -358,6 +358,7 @@
         if (tag.includes('BRAIN')) tagClass = 'text-blue-500';
         if (tag.includes('AFTER')) tagClass = 'text-purple-500';
         if (tag.includes('SYSTEM')) tagClass = 'text-emerald-500';
+        if (tag.includes('ERROR')) tagClass = 'text-red-500';
 
         logDiv.innerHTML = `<span class="${tagClass}">${tag}</span> ${message}`;
         consoleStream.appendChild(logDiv);
