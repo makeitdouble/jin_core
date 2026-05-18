@@ -103,9 +103,23 @@ async def websocket_endpoint(websocket: WebSocket):
             await send_telemetry(websocket)
 
             if text_en.startswith("[TRANSLATION_ERROR"):
-                await logger.log_before_hook(f"RU -> EN translation failed. Using original input. Details: {text_en}")
-                text_en = user_text_ru
 
+                runtime_state.service["model"] = "OFFLINE"
+
+                await send_telemetry(websocket)
+
+                await logger.log_error(
+                    f"Translator node failed: {text_en}"
+                )
+
+                await websocket.send_json({
+                    "type": "error",
+                    "source": "translator",
+                    "text": text_en,
+                })
+
+                continue
+                
             await logger.log_before_hook(f"Service translator returned EN text: '{text_en}'")
 
             await logger.log_service(

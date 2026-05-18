@@ -41,7 +41,13 @@ async def ask_brain(text_en: str) -> str:
     if config.USE_SERVICE_AS_BRAIN:
 
         try:
-            return await ask_service_model(brain_payload)
+
+            return await ask_service_model(
+                user_prompt=brain_payload,
+                system_prompt=build_brain_system_prompt(),
+                temperature=config.BRAIN_TEMPERATURE,
+                max_tokens=config.BRAIN_MAX_TOKENS,
+            )
 
         except Exception as service_error:
 
@@ -59,11 +65,11 @@ async def ask_brain(text_en: str) -> str:
 
     except Exception as brain_error:
 
-        brain_error_text = format_client_error(
-            config.BRAIN_MODEL_UID[:10],
+        error = format_client_error(
+            "brain",
             config.BRAIN_API_BASE,
             config.BRAIN_MODEL_UID,
             brain_error,
         )
 
-        raise RuntimeError(brain_error_text)
+        raise RuntimeError(error)
