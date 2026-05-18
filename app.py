@@ -55,6 +55,21 @@ async def websocket_endpoint(websocket: WebSocket):
             if not user_text_ru:
                 continue
 
+            if config.BYPASS_BRAIN:
+                await websocket.send_json({
+                    "type": "log",
+                    "tag": "[BYPASS]",
+                    "message": "Direct service chat mode enabled.",
+                })
+
+                response_ru = await ask_brain(user_text_ru)
+
+                await websocket.send_json({
+                    "type": "message",
+                    "text": response_ru,
+                })
+
+                continue
             # Step 1: service node translates the Russian chat input to English.
             await websocket.send_json({
                 "type": "log",
@@ -78,34 +93,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 "message": f"Service translator returned EN text: '{text_en}'",
             })
 
-            # Step 2: brain node receives English context and returns English text.
-
-            if config.USE_SERVICE_AS_BRAIN:
-                message = "Building lightweight EN payload for service brain emulator."
-            else:
-                message = "Building XML context contract for primary brain node."
-            await websocket.send_json({
-                "type": "log",
-                "tag": "[BRAIN_NODE]",
-                "message": message,
-            })
-
-
-            brain_route = (
-                "service node brain emulator"
-                if config.USE_SERVICE_AS_BRAIN
-                else "primary brain node"
-            )
-
-            await websocket.send_json({
-                "type": "log",
-                "tag": "[BRAIN_NODE]",
-                "message": (
-                    f"Sending English brain payload to {brain_route}. "
-                    f"service_timeout={getattr(config, 'SERVICE_BRAIN_TIMEOUT', config.SERVICE_BRAIN_TIMEOUT)}s, "
-                    f"service_max_tokens={getattr(config, 'SERVICE_BRAIN_MAX_TOKENS', config.SERVICE_BRAIN_MAX_TOKENS)}"
-                ),
-            })
+            # Step 2: build brain payload
+            BRAIN_TAG = "[SERVICE as BRAIN]" if config.USE_SERVICE_AS_BRAIN else "[OTHER_TAG]"
 
             if config.USE_SERVICE_AS_BRAIN:
 
@@ -113,16 +102,28 @@ async def websocket_endpoint(websocket: WebSocket):
 
             else:
 
-                contract = ContextContract(
+                await websocket.send_json({
+                    "type": "log",
+                    "tag": BRAIN_TAG,
+                    "message": "building xml contract",
+                })
+
+                context_contract = ContextContract(
                     user_input=text_en,
                     compressed_history="",
                     system_state="ACTIVE"
                 )
 
-                brain_payload = contract.to_xml()
+                brain_payload = context_contract.to_xml()
 
-            await websocket.send_json({"type": "log", "tag": "[PAYLOAD]", "message":brain_payload[:500],})
+            await websocket.send_json({
+                "type": "log",
+                "tag": "[PAYLOAD]",
+                "message": brain_payload[:500],
+            })
+
             brain_response_en = await ask_brain(brain_payload)
+
             await websocket.send_json({
                 "type": "log",
                 "tag": "[RAW_BRAIN_RESPONSE]",
@@ -135,7 +136,7 @@ async def websocket_endpoint(websocket: WebSocket):
             ):
                 await websocket.send_json({
                     "type": "log",
-                    "tag": "[BRAIN_NODE]",
+                    "tag": BRAIN_TAG,
                     "message": f"Brain request failed: {brain_response_en}",
                 })
 
@@ -146,7 +147,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
             await websocket.send_json({
                 "type": "log",
-                "tag": "[BRAIN_NODE]",
+                "tag": BRAIN_TAG,
                 "message": f"Brain returned raw EN answer: '{brain_response_en}'",
             })
 
