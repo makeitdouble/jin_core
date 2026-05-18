@@ -115,7 +115,6 @@ async def websocket_endpoint(websocket: WebSocket):
 
             try:
                 brain_response_en = await ask_brain(text_en)
-                print("BRAIN RAW RESPONSE:", brain_response_en)
                 runtime_state.brain["model"] = config.BRAIN_MODEL_UID
                 runtime_state.brain["used_tokens"] = estimate_tokens(text_en + brain_response_en)
                 runtime_state.brain["max_tokens"] = config.BRAIN_CONTEXT_WINDOW
@@ -139,20 +138,14 @@ async def websocket_endpoint(websocket: WebSocket):
                 continue
 
             if config.USE_SERVICE_AS_BRAIN:
-                await logger.log_service_as_brain(f"Brain returned raw EN answer: '{brain_response_en}'")
+                await logger.log_service_as_brain(f"'{brain_response_en}'")
             else:
-                await logger.log_brain(f"Brain returned raw EN answer: '{brain_response_en}'")
+                await logger.log_brain(f"'{brain_response_en}'")
 
             # Step 3: service node translates the English brain answer back to Russian.
             await logger.log_after_hook("Sending EN brain answer to service translator for RU output.")
 
             brain_response_ru = await translate_en_to_ru(brain_response_en)
-
-            if brain_response_ru.startswith("[TRANSLATION_ERROR"):
-                await logger.log_after_hook("EN -> RU translation failed. "
-                                          f"Showing raw EN brain answer. Details: {brain_response_ru}")
-
-                brain_response_ru = brain_response_en
 
             # Step 4: return the Russian answer to chat.
             await websocket.send_json({

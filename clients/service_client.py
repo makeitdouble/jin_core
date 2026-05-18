@@ -4,12 +4,22 @@ import config
 
 from clients.errors import format_client_error
 from clients.url_utils import join_url
-
+from clients.model_client import ask_model
 
 def _translation_token_limit(text: str) -> int:
     estimated_tokens = max(32, len(text) // 3)
     return min(config.TRANSLATION_MAX_TOKENS, estimated_tokens)
 
+async def ask_service_model(user_prompt: str) -> str:
+
+    return await ask_model(
+        api_base=config.SERVICE_API_BASE,
+        model_uid=config.SERVICE_MODEL_UID,
+        user_prompt=user_prompt,
+        timeout=config.SERVICE_REQUEST_TIMEOUT,
+        temperature=config.SERVICE_TEMPERATURE,
+        max_tokens=config.SERVICE_MAX_TOKENS,
+    )
 
 async def _post_translation(
     payload: dict,
@@ -97,5 +107,5 @@ async def translate_en_to_ru(text_en: str) -> str:
     return await _post_translation(
         payload,
         "translate_en_to_ru",
-        timeout=config.TRANSLATION_EN_TO_RU_TIMEOUT,
+        timeout=config.TRANSLATION_TIMEOUT,
     )

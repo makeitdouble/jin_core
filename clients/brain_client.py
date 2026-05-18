@@ -1,10 +1,25 @@
 import config
 from contracts.context_contract import ContextContract
 from clients.errors import format_client_error
-from clients.model_client import (
-    ask_brain_model,
-    ask_service_model,
-)
+from clients.model_client import ask_model
+from clients.service_client import ask_service_model
+
+def build_brain_system_prompt():
+    return (
+        "You are JIN, a human-like assistant.\n"
+    )
+
+async def ask_brain_model(user_prompt: str) -> str:
+    return await ask_model(
+        api_base=config.BRAIN_API_BASE,
+        model_uid=config.BRAIN_MODEL_UID,
+        user_prompt=user_prompt,
+        system_prompt=build_brain_system_prompt(),
+        timeout=config.BRAIN_REQUEST_TIMEOUT,
+        temperature=config.BRAIN_TEMPERATURE,
+        max_tokens=config.BRAIN_MAX_TOKENS,
+        validate_model=True,
+    )
 
 def build_brain_payload(text_en: str) -> str:
 
