@@ -12,11 +12,22 @@ import config
 import httpx
 import json
 
+from memory.runtime_state import runtime_state
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+def estimate_tokens(text: str) -> int:
+    return max(1, len(text) // config.TOKEN_ESTIMATION_DIVISOR)
+
+async def send_telemetry(websocket: WebSocket):
+    await websocket.send_json({
+        "type": "telemetry",
+        "brain": runtime_state.brain,
+        "service": runtime_state.service,
+    })
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -45,6 +56,7 @@ async def api_status():
 @app.websocket("/ws/chat")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
+    await send_telemetry(websocket)
     logger = WebSocketLogger(websocket)
     try:
         while True:
@@ -58,16 +70,36 @@ async def websocket_endpoint(websocket: WebSocket):
             if config.BYPASS_BRAIN:
 
                 response_ru = await ask_brain(user_text_ru)
+
+                runtime_state.brain["model"] = config.SERVICE_MODEL_UID
+
+                runtime_state.brain["used_tokens"] = estimate_tokens(
+                    user_text_ru + response_ru
+                )
+
+                runtime_state.brain["max_tokens"] = (
+                    config.SERVICE_CONTEXT_WINDOW
+                )
+
+                await send_telemetry(websocket)
+
                 await websocket.send_json({
                     "type": "message",
                     "text": response_ru,
                 })
+
                 continue
 
             # Step 1: service node translates the Russian chat input to English.
             await logger.log_before_hook(f"Sending RU input to service translator: '{user_text_ru}'")
 
             text_en = await translate_ru_to_en(user_text_ru)
+
+            runtime_state.service["model"] = config.SERVICE_MODEL_UID
+            runtime_state.service["used_tokens"] = estimate_tokens(user_text_ru + text_en)
+            runtime_state.service["max_tokens"] = config.SERVICE_CONTEXT_WINDOW
+
+            await send_telemetry(websocket)
 
             if text_en.startswith("[TRANSLATION_ERROR"):
                 await logger.log_before_hook(f"RU -> EN translation failed. Using original input. Details: {text_en}")
@@ -91,6 +123,14 @@ async def websocket_endpoint(websocket: WebSocket):
             await logger.log_payload(brain_payload)
 
             brain_response_en = await ask_brain(brain_payload)
+
+            runtime_state.brain["model"] = config.BRAIN_MODEL_UID
+            runtime_state.brain["used_tokens"] = estimate_tokens(
+                brain_payload + brain_response_en
+            )
+            runtime_state.brain["max_tokens"] = config.BRAIN_CONTEXT_WINDOW
+
+            await send_telemetry(websocket)
 
             if (
                 brain_response_en.startswith("[QWEN_ERROR")

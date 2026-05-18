@@ -28,7 +28,6 @@
         }
     </style>
 </head>
-
 <body class="h-screen overflow-hidden flex flex-col font-mono antialiased bg-zinc-950 text-zinc-100">
 
     <!-- TOP BAR -->
@@ -135,13 +134,37 @@
             <div
                 class="h-12 border-b border-slate-500 flex items-center justify-between px-6 shrink-0 bg-slate-700">
 
-                <span class="text-xs font-bold tracking-wider text-zinc-100">
-                    Qwen 3.5 21B [Q3] — Isolated Brain
-                </span>
+                <div class="flex flex-col min-w-0">
 
-                <span class="text-xs text-zinc-300">
-                    Context: 0 / 4096 ctx
-                </span>
+                    <span
+                      id="brain-model"
+                      class="text-xs font-bold tracking-wider text-zinc-100 truncate max-w-[520px]">
+
+                        BRAIN: UNKNOWN
+
+                    </span>
+
+                    <span
+                      id="service-model"
+                      class="text-[10px] tracking-wider text-zinc-400 mt-1 truncate max-w-[520px]">
+
+                        SERVICE: UNKNOWN
+
+                    </span>
+
+                </div>
+
+                <div class="text-xs text-zinc-300 text-right">
+
+                    <div id="brain-context">
+                        0 / 0 ctx
+                    </div>
+
+                    <div id="service-context">
+                        0 / 0 ctx
+                    </div>
+
+                </div>
 
             </div>
 
@@ -300,10 +323,13 @@
         });
 
     </script>
+    <script src="/static/status.js"></script>
+    <script src="/static/telemetry.js"></script>
+    <script src="/static/dragdrop.js"></script>
 	<script>
     // Подключаемся к WebSocket бэкенда
     const ws = new WebSocket(`ws://${window.location.host}/ws/chat`);
-    
+
     const chatForm = document.getElementById('chat-form');
     const userInput = document.getElementById('user-input');
     const chatHistory = document.getElementById('chat-history');
@@ -327,7 +353,7 @@
     function appendLog(tag, message) {
         const logDiv = document.createElement('div');
         let tagClass = 'text-zinc-500';
-        
+
         if (tag.includes('BEFORE')) tagClass = 'text-amber-500';
         if (tag.includes('BRAIN')) tagClass = 'text-blue-500';
         if (tag.includes('AFTER')) tagClass = 'text-purple-500';
@@ -342,10 +368,10 @@
     function appendChatMessage(role, text) {
         const msgDiv = document.createElement('div');
         msgDiv.className = 'flex items-start gap-3 max-w-3xl';
-        
+
         const avatar = role === 'user' ? 'US' : 'JN';
         const bgClass = role === 'user' ? 'bg-slate-500 border-slate-400' : 'bg-slate-600 border-slate-500';
-        
+
         msgDiv.innerHTML = `
             <div class="h-6 w-6 rounded bg-zinc-800 border border-zinc-700 flex items-center justify-center text-[10px] text-zinc-400 shrink-0">${avatar}</div>
             <div class="space-y-1 ${bgClass} p-3 rounded-lg border">
@@ -358,8 +384,14 @@
 
     // Прием данных от сервера
     ws.onmessage = function(event) {
+        console.log("RAW WS:", event.data);
+
         const data = JSON.parse(event.data);
-        
+
+        console.log("PARSED WS:", data);
+
+        handleTelemetryMessage(data);
+
         if (data.type === 'log') {
             appendLog(data.tag, data.message);
         } else if (data.type === 'message') {
@@ -375,10 +407,10 @@
 
         // Добавляем реплику юзера на экран
         appendChatMessage('user', text);
-        
+
         // Шлем по WebSocket
         ws.send(JSON.stringify({ text: text }));
-        
+
         // Очищаем инпут
         userInput.value = '';
         userInput.style.height = 'auto';
@@ -388,10 +420,6 @@
 	console.log("WS CONNECTED");
     ws.onclose = () => appendLog('[SYSTEM]', 'Критическая ошибка: Соединение с ядром разорвано.');
 </script>
-
-<script src="/static/status.js"></script>
-<script src="/static/dragdrop.js"></script>
-
 </body>
 
 </html>
