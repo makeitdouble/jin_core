@@ -72,14 +72,15 @@ async def websocket_endpoint(websocket: WebSocket):
             if text_en.startswith("[TRANSLATION_ERROR"):
                 await logger.log_before_hook(f"RU -> EN translation failed. Using original input. Details: {text_en}")
                 text_en = user_text_ru
-                await logger.log_before_hook(f"Service translator returned EN text: '{text_en}'")
+
+            await logger.log_before_hook(f"Service translator returned EN text: '{text_en}'")
 
             # Step 2: build brain payload
 
             if config.USE_SERVICE_AS_BRAIN:
                 brain_payload = text_en
             else:
-                await logger.log_service_as_brain(f"Service translator returned EN text: '{text_en}'")
+                await logger.log_service(f"Service translator returned EN text: '{text_en}'")
                 context_contract = ContextContract(
                     user_input=text_en,
                     compressed_history="",
@@ -87,7 +88,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 )
                 brain_payload = context_contract.to_xml()
 
-            await logger.log_payload(brain_payload[:500])
+            await logger.log_payload(brain_payload)
 
             brain_response_en = await ask_brain(brain_payload)
 
