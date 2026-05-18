@@ -1,158 +1,374 @@
 # JIN Core Engine
 
-Локальный FastAPI-хост для веб-чата JIN Core Engine и моста к двум OpenAI-compatible inference nodes: service node и brain node.
+Локальный runtime-хост для JIN Core Engine с двухузловой LLM-архитектурой:
 
-## Основной поток
+- service node — лёгкая сервисная модель;
+- brain node — основная reasoning/codegen модель.
 
-Проект держит один фиксированный message pipeline:
+Frontend работает через WebSocket и отображает live telemetry, runtime logs и состояние inference nodes.
 
-1. Пользователь пишет сообщение в чат на русском языке.
-2. Backend отправляет русский текст на service node.
-3. Лёгкая модель service node переводит RU -> EN.
-4. Backend собирает `ContextContract` с английским `ACTIVE_USER_INPUT`.
-5. Английский payload уходит на brain node.
-6. Brain node формирует ответ на английском.
-7. Английский ответ возвращается на service node.
-8. Service node переводит EN -> RU.
-9. Русский ответ отправляется обратно в чат.
+---
 
-Сейчас большая brain LLM отключена. Пока `USE_SERVICE_AS_BRAIN = True`, её роль эмулирует service node, но форма потока не меняется: перевод RU -> EN всё равно выполняется до “мозга”, а перевод EN -> RU всё равно выполняется после него.
+# Архитектура пайплайна
 
-## Быстрый старт
-
-Создай локальный конфиг из примера:
-
-```powershell
-Copy-Item config.example.py config.py
-```
-
-Проверь адреса inference nodes и model ids в `config.py`, затем запусти:
-
-```powershell
-python app.py
-```
-
-После запуска открой:
+Текущий pipeline фиксирован и всегда проходит через одинаковые этапы:
 
 ```text
-http://127.0.0.1:8000
+USER RU INPUT
+    ↓
+SERVICE NODE
+(RU → EN translation)
+    ↓
+CONTEXT CONTRACT
+(XML payload builder)
+    ↓
+BRAIN NODE
+(reasoning / generation)
+    ↓
+SERVICE NODE
+(EN → RU translation)
+    ↓
+WEBSOCKET UI
 ```
 
-Нужные Python-зависимости по текущему коду:
+Даже при bypass режиме структура пайплайна сохраняется.
 
-```text
-fastapi
-uvicorn
-httpx
-jinja2
-```
+---
 
-Отдельного `requirements.txt` пока нет.
+# Режимы работы
 
-## Структура
-
-```text
-jin_core/
-|-- app.py
-|-- config.example.py
-|-- config.py
-|-- clients/
-|   |-- brain_client.py
-|   |-- service_client.py
-|   |-- errors.py
-|   `-- url_utils.py
-|-- contracts/
-|   `-- context_contract.py
-|-- memory/
-|   `-- memory.py
-|-- static/
-|   |-- status.js
-|   `-- dragdrop.js
-|-- templates/
-|   `-- index.html
-`-- README.md
-```
-
-## Ключевые файлы
-
-`app.py`:
-
-- принимает WebSocket-сообщения из чата;
-- всегда запускает перевод RU -> EN через `translate_ru_to_en`;
-- собирает XML-контракт контекста;
-- отправляет английский payload в `ask_brain`;
-- всегда запускает перевод EN -> RU через `translate_en_to_ru`;
-- возвращает финальный русский текст в чат.
-
-`clients/service_client.py`:
-
-- содержит клиент service node;
-- переводит пользовательский ввод RU -> EN;
-- переводит ответ мозга EN -> RU;
-- возвращает `[TRANSLATION_ERROR: ...]`, если перевод не удался.
-
-`clients/brain_client.py`:
-
-- отправляет payload в brain node, когда `USE_SERVICE_AS_BRAIN = False`;
-- отправляет payload на service node как brain emulator, когда `USE_SERVICE_AS_BRAIN = True`;
-- в режиме эмуляции использует уже переведённый английский `ACTIVE_USER_INPUT`;
-- требует от эмулятора английский ответ, чтобы последующий EN -> RU hook оставался обязательной частью потока.
-
-`contracts/context_contract.py`:
-
-- хранит системную идентичность, runtime state, timestamp, compressed history, английский активный ввод и оригинальный русский ввод;
-- экранирует пользовательские поля перед вставкой в XML-подобный контракт.
-
-`config.py` / `config.example.py`:
-
-- `USE_SERVICE_AS_BRAIN` включает временную эмуляцию мозга на service node;
-- `SERVICE_API_BASE` и `BRAIN_API_BASE` задают адреса узлов;
-- `SERVICE_MODEL_UID` и `BRAIN_MODEL_UID` задают модели;
-- таймауты, лимиты токенов и температуры управляют HTTP-запросами и генерацией.
-
-В конфиге нет настройки языка ответа: язык задаётся архитектурой пайплайна, а не переключателем.
-
-## Режимы
-
-### Service as brain
-
-```python
-USE_SERVICE_AS_BRAIN = True
-```
-
-Фактический маршрут:
-
-```text
-Chat RU
-  -> service translate RU -> EN
-  -> service brain emulator answers EN
-  -> service translate EN -> RU
-  -> Chat RU
-```
-
-### Primary brain
+## 1. Normal Brain Mode
 
 ```python
 USE_SERVICE_AS_BRAIN = False
 ```
 
-Фактический маршрут:
+Маршрут:
 
 ```text
-Chat RU
-  -> service translate RU -> EN
-  -> brain node answers EN
-  -> service translate EN -> RU
-  -> Chat RU
+RU
+→ service translate
+→ brain generate
+→ service translate
+→ RU
 ```
 
-Если primary brain node падает, `clients/brain_client.py` пробует service node как fallback brain emulator. Даже в этом fallback финальный ответ остаётся английским до обязательного обратного перевода.
+---
 
-## Ограничения
+## 2. Service Bypass Mode
 
-- Нет `requirements.txt` или `pyproject.toml`.
-- Нет автоматических тестов.
-- `memory/memory.py` пока пустой.
-- Drag-and-drop файлы отображаются на фронтенде, но не отправляются на backend.
-- Tailwind подключён через CDN, поэтому внешний вид зависит от доступности сети.
-- В HTML/JS есть места с `innerHTML`; если туда попадут пользовательские данные, их стоит заменить на безопасную сборку DOM через `textContent`.
+```python
+USE_SERVICE_AS_BRAIN = True
+```
+
+Маршрут:
+
+```text
+RU
+→ service translate
+→ service emulate brain
+→ service translate
+→ RU
+```
+
+В этом режиме:
+- primary brain отключён;
+- telemetry показывает `BYPASSED`;
+- service node временно становится brain emulator.
+
+---
+
+# Текущий Runtime UI
+
+Интерфейс уже поддерживает:
+
+- WebSocket streaming;
+- live runtime logs;
+- telemetry updates;
+- brain/service status;
+- dynamic token counters;
+- drag-and-drop upload UI;
+- separate runtime console;
+- isolated center chat;
+- runtime configuration panel.
+
+---
+
+# Telemetry System
+
+Frontend получает telemetry через WebSocket:
+
+```json
+{
+  "type": "telemetry",
+  "brain": {
+    "model": "qwen2.5-coder-14b",
+    "used_tokens": 1200,
+    "max_tokens": 32768
+  },
+  "service": {
+    "model": "gemma-4-e2b",
+    "used_tokens": 220,
+    "max_tokens": 8192
+  }
+}
+```
+
+Telemetry обновляет:
+
+- model labels;
+- context counters;
+- bypass state;
+- runtime monitoring UI.
+
+---
+
+# Централизованный Logger
+
+Добавлен отдельный runtime logger:
+
+```text
+logger.py
+```
+
+Цели:
+
+- убрать размазанные websocket.send_json() по проекту;
+- стандартизировать runtime logs;
+- разделить:
+  - transport layer;
+  - logging layer;
+  - future hook system.
+
+Планируется:
+
+```text
+before_hook_log()
+after_hook_log()
+system_log()
+brain_log()
+service_log()
+```
+
+---
+
+# Структура проекта
+
+```text
+jin_core/
+│
+├── app.py
+├── config.py
+├── config.example.py
+├── logger.py
+├── README.md
+│
+├── clients/
+│   ├── brain_client.py
+│   ├── service_client.py
+│   ├── errors.py
+│   └── url_utils.py
+│
+├── contracts/
+│   └── context_contract.py
+│
+├── memory/
+│   └── memory.py
+│
+├── static/
+│   ├── dragdrop.js
+│   ├── status.js
+│   └── telemetry.js
+│
+└── templates/
+    └── index.html
+```
+
+---
+
+# Основные модули
+
+## app.py
+
+Главный runtime orchestrator.
+
+Отвечает за:
+
+- FastAPI routes;
+- WebSocket lifecycle;
+- message pipeline;
+- telemetry dispatch;
+- hook execution;
+- frontend communication.
+
+---
+
+## clients/service_client.py
+
+Service node layer.
+
+Содержит:
+
+- RU → EN translation;
+- EN → RU translation;
+- service inference calls;
+- timeout handling;
+- translation error handling.
+
+---
+
+## clients/brain_client.py
+
+Brain node layer.
+
+Содержит:
+
+- primary brain requests;
+- bypass logic;
+- fallback routing;
+- brain payload execution.
+
+---
+
+## contracts/context_contract.py
+
+Контракт контекста.
+
+Содержит:
+
+- system identity;
+- runtime state;
+- compressed history;
+- original RU input;
+- translated EN input;
+- XML serialization.
+
+---
+
+## static/telemetry.js
+
+Frontend telemetry renderer.
+
+Обновляет:
+
+- brain model label;
+- service model label;
+- token counters;
+- bypass state.
+
+---
+
+# Текущие ограничения
+
+Сейчас проект всё ещё является MVP skeleton.
+
+Пока отсутствуют:
+
+- полноценная memory system;
+- persistent sessions;
+- autonomous hooks;
+- real vector memory;
+- file ingestion pipeline;
+- multimodal processing;
+- structured runtime events;
+- automatic tool execution;
+- production auth layer.
+
+---
+
+# Текущий стек
+
+## Backend
+
+- FastAPI
+- Uvicorn
+- httpx
+- Jinja2
+
+## Frontend
+
+- Tailwind CDN
+- Vanilla JS
+- WebSocket API
+
+## LLM Runtime
+
+- LM Studio
+- OpenAI-compatible REST API
+- Local inference nodes
+
+---
+
+# Локальный запуск
+
+## 1. Создать конфиг
+
+```powershell
+Copy-Item config.example.py config.py
+```
+
+---
+
+## 2. Настроить модели
+
+В `config.py`:
+
+```python
+SERVICE_API_BASE =
+BRAIN_API_BASE =
+
+SERVICE_MODEL_UID =
+BRAIN_MODEL_UID =
+```
+
+---
+
+## 3. Запустить backend
+
+```powershell
+python app.py
+```
+
+---
+
+## 4. Открыть UI
+
+```text
+http://127.0.0.1:8000
+```
+
+---
+
+# Aider Workflow
+
+Проект тестируется с локальным Aider + LM Studio.
+
+Пример запуска:
+
+```powershell
+python -m aider ^
+  --model openai/qwen/qwen2.5-coder-14b ^
+  --openai-api-base http://127.0.0.1:1234/v1 ^
+  --openai-api-key dummy
+```
+
+Aider используется как:
+- repo-aware coding assistant;
+- multi-file editor;
+- fast refactor tool.
+
+Полный structural analysis всё ещё лучше делать отдельным review.
+
+---
+
+# Roadmap
+
+Следующий этап:
+
+1. Удаление runtime заглушек.
+2. Настоящая telemetry/state system.
+3. Hook architecture.
+4. Memory pipeline.
+5. Runtime state orchestration.
+6. Autonomous agent behaviors.
+7. Multi-node execution graph.
