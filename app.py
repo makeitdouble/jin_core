@@ -15,15 +15,14 @@ import json
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
-logger = WebSocketLogger(websocket)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse(
-        request=request,
-        name="index.html",
+        "index.html",
+        {"request": request},
     )
 
 
@@ -46,6 +45,7 @@ async def api_status():
 @app.websocket("/ws/chat")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
+    logger = WebSocketLogger(websocket)
     try:
         while True:
             data = await websocket.receive_text()
@@ -96,9 +96,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 or brain_response_en.startswith("[SERVICE_BRAIN_ERROR")
             ):
                 if config.USE_SERVICE_AS_BRAIN:
-                    logger.log_service_as_brain(f"Brain request failed: {brain_response_en}")
+                    await logger.log_service_as_brain(f"Brain request failed: {brain_response_en}")
                 else:
-                    logger.log_brain(f"Brain request failed: {brain_response_en}")
+                    await logger.log_brain(f"Brain request failed: {brain_response_en}")
 
                 brain_response_en = (
                     "Temporary fallback response. "
@@ -106,18 +106,18 @@ async def websocket_endpoint(websocket: WebSocket):
                 )
 
             if config.USE_SERVICE_AS_BRAIN:
-                logger.log_service_as_brain(f"Brain returned raw EN answer: '{brain_response_en}'")
+                await logger.log_service_as_brain(f"Brain returned raw EN answer: '{brain_response_en}'")
             else:
-                logger.log_brain(f"Brain returned raw EN answer: '{brain_response_en}'")
+                await logger.log_brain(f"Brain returned raw EN answer: '{brain_response_en}'")
 
             # Step 3: service node translates the English brain answer back to Russian.
-            logger.log_after_hook("Sending EN brain answer to service translator for RU output.")
+            await logger.log_after_hook("Sending EN brain answer to service translator for RU output.")
 
             brain_response_ru = await translate_en_to_ru(brain_response_en)
 
             if brain_response_ru.startswith("[TRANSLATION_ERROR"):
-                logger.log_after_hook("EN -> RU translation failed. "
-                                      f"Showing raw EN brain answer. Details: {brain_response_ru}")
+                await logger.log_after_hook("EN -> RU translation failed. "
+                                          f"Showing raw EN brain answer. Details: {brain_response_ru}")
 
                 brain_response_ru = brain_response_en
 
@@ -127,7 +127,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 "text": brain_response_ru,
             })
 
-            logger.log_system("Processing cycle complete. Pipeline is waiting for the next chat message.)
+            await logger.log_system("Processing cycle complete. Pipeline is waiting for the next chat message.")
 
     except WebSocketDisconnect:
         print("Client disconnected from WebSocket.")
