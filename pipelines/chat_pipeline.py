@@ -64,18 +64,11 @@ async def process_chat_message(
                 user_text_ru
             )
 
-            runtime_state.brain["model"] = (
-                config.SERVICE_MODEL_UID
-            )
-
-            runtime_state.brain["used_tokens"] = (
-                estimate_tokens(
-                    user_text_ru + response_ru
-                )
-            )
-
-            runtime_state.brain["max_tokens"] = (
-                config.SERVICE_CONTEXT_WINDOW
+            runtime_state.update_node_state(
+                "brain",
+                model=config.SERVICE_MODEL_UID,
+                used_tokens=estimate_tokens(user_text_ru + response_ru),
+                max_tokens=config.SERVICE_CONTEXT_WINDOW,
             )
 
             await send_telemetry(websocket)
@@ -99,18 +92,11 @@ async def process_chat_message(
             user_text_ru
         )
 
-        runtime_state.service["model"] = (
-            config.SERVICE_MODEL_UID
-        )
-
-        runtime_state.service["used_tokens"] = (
-            estimate_tokens(
-                user_text_ru + text_en
-            )
-        )
-
-        runtime_state.service["max_tokens"] = (
-            config.SERVICE_CONTEXT_WINDOW
+        runtime_state.update_node_state(
+            "service",
+            model=config.SERVICE_MODEL_UID,
+            used_tokens=estimate_tokens(user_text_ru + text_en),
+            max_tokens=config.SERVICE_CONTEXT_WINDOW,
         )
 
         await send_telemetry(websocket)
@@ -119,8 +105,9 @@ async def process_chat_message(
             "[TRANSLATION_ERROR"
         ):
 
-            runtime_state.service["model"] = (
-                "OFFLINE"
+            runtime_state.update_node_state(
+                "service",
+                model="OFFLINE",
             )
 
             await send_telemetry(websocket)
@@ -155,26 +142,20 @@ async def process_chat_message(
                 text_en
             )
 
-            runtime_state.brain["model"] = (
-                config.BRAIN_MODEL_UID
-            )
-
-            runtime_state.brain["used_tokens"] = (
-                estimate_tokens(
-                    text_en + brain_response_en
-                )
-            )
-
-            runtime_state.brain["max_tokens"] = (
-                config.BRAIN_CONTEXT_WINDOW
+            runtime_state.update_node_state(
+                "brain",
+                model=config.BRAIN_MODEL_UID,
+                used_tokens=estimate_tokens(text_en + brain_response_en),
+                max_tokens=config.BRAIN_CONTEXT_WINDOW,
             )
 
             await send_telemetry(websocket)
 
         except Exception as e:
 
-            runtime_state.brain["model"] = (
-                "OFFLINE"
+            runtime_state.update_node_state(
+                "brain",
+                model="OFFLINE",
             )
 
             await send_telemetry(websocket)
@@ -215,11 +196,9 @@ async def process_chat_message(
             )
         )
 
-        runtime_state.service["used_tokens"] += (
-            estimate_tokens(
-                brain_response_en
-                + brain_response_ru
-            )
+        runtime_state.update_node_state(
+            "service",
+            add_tokens=estimate_tokens(brain_response_en + brain_response_ru),
         )
 
         await send_telemetry(websocket)
