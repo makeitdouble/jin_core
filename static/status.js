@@ -14,7 +14,7 @@ const serviceLabel = document.querySelector("#service-label");
 // UPDATE UI
 // -----------------------------------
 
-function setNodeState(dot, label, name, online) {
+function setRuntimeState(dot, label, name, online) {
 
     if (online) {
 
@@ -40,21 +40,21 @@ function setNodeState(dot, label, name, online) {
 // MAIN LOOP
 // -----------------------------------
 
-async function updateStatuses() {
+async function updateRuntime() {
 
     try {
 
         const response = await fetch("/api/status");
         const data = await response.json();
 
-        setNodeState(
+        setRuntimeState(
           brainDot,
           brainLabel,
           "BRAIN",
           data.brain
         );
 
-        setNodeState(
+        setRuntimeState(
           serviceDot,
           serviceLabel,
           "SERVICE",
@@ -63,14 +63,14 @@ async function updateStatuses() {
 
     } catch (err) {
 
-        setNodeState(
+        setRuntimeState(
           brainDot,
           brainLabel,
           "BRAIN",
           false
         );
 
-        setNodeState(
+        setRuntimeState(
           serviceDot,
           serviceLabel,
           "SERVICE",
@@ -82,8 +82,8 @@ async function updateStatuses() {
 
 // FIRST RUN
 
-updateStatuses();
+updateRuntime();
 
 // LOOP
 
-setInterval(updateStatuses, 30000);
+setInterval(updateRuntime, 30000);

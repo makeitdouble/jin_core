@@ -1,21 +1,16 @@
-import traceback
-
 import config
 
-from clients.brain_client import ask_brain
-from utils.tokens import estimate_tokens
+from clients.brain_client import (
+    ask_brain,
+)
 
 from clients.translation_client import (
     translate_ru_to_en,
     translate_en_to_ru,
 )
 
-from memory.runtime_state import (
-    runtime_state,
-)
-
-from utils.telemetry import (
-    send_telemetry,
+from utils.tokens import (
+    estimate_tokens,
 )
 
 from utils.text_cleanup import (
@@ -26,6 +21,14 @@ from utils.brain import (
     get_brain_runtime_config,
 )
 
+from utils.runtime_state_sync import (
+    refresh_runtime_state,
+)
+
+from utils.ws_errors import (
+    handle_pipeline_error,
+    handle_fatal_pipeline_error,
+)
 
 
 class TranslationPipeline:
@@ -40,8 +43,10 @@ class TranslationPipeline:
         try:
 
             user_text_ru = (
-                message_data.get("text", "")
-                .strip()
+                message_data.get(
+                    "text",
+                    "",
+                ).strip()
             )
 
             if not user_text_ru:
@@ -62,47 +67,46 @@ class TranslationPipeline:
 
             try:
 
-                text_en = await (
-                    translate_ru_to_en(
+                text_en = (
+                    await translate_ru_to_en(
                         user_text_ru
                     )
                 )
 
-                runtime_state.update_node_state(
-                    "translator",
-                    model=config.TRANSLATOR_MODEL_UID,
-                    used_tokens=estimate_tokens(
-                        user_text_ru + text_en
+                await refresh_runtime_state(
+                    websocket,
+                    runtime_id=(
+                        config
+                        .TRANSLATOR_MODEL_UID
+                    ),
+                    used_tokens=(
+                        estimate_tokens(
+                            user_text_ru
+                            + text_en
+                        )
                     ),
                     max_tokens=(
-                        config.TRANSLATOR_CONTEXT_WINDOW
+                        config
+                        .TRANSLATOR_CONTEXT_WINDOW
                     ),
+                    last_error=None,
+                    status="online",
                 )
 
-                await send_telemetry(
-                    websocket
+            except Exception as error:
+
+                await handle_pipeline_error(
+                    websocket,
+                    logger,
+                    runtime_id=(
+                        config
+                        .TRANSLATOR_MODEL_UID
+                    ),
+                    public_message=(
+                        "Translation failed."
+                    ),
+                    exception=error,
                 )
-
-            except Exception as e:
-
-                runtime_state.update_node_state(
-                    "translator",
-                    model="OFFLINE",
-                )
-
-                await send_telemetry(
-                    websocket
-                )
-
-                await logger.log_error(
-                    f"Translation error: {e}"
-                )
-
-                await websocket.send_json({
-                    "type": "error",
-                    "source": "translator",
-                    "text": str(e),
-                })
 
                 return
 
@@ -118,6 +122,10 @@ class TranslationPipeline:
                 "Sending context to brain..."
             )
 
+            brain_runtime = (
+                get_brain_runtime_config()
+            )
+
             try:
 
                 brain_response_en = (
@@ -126,58 +134,57 @@ class TranslationPipeline:
                     )
                 )
 
-                brain_runtime = (
-                    get_brain_runtime_config()
-                )
-
-                runtime_state.update_node_state(
-                    "brain",
-                    model=(
-                        brain_runtime["model_uid"]
+                await refresh_runtime_state(
+                    websocket,
+                    runtime_id=(
+                        brain_runtime[
+                            "runtime_id"
+                        ]
                     ),
-                    used_tokens=estimate_tokens(
-                        text_en
-                        + brain_response_en
+                    used_tokens=(
+                        estimate_tokens(
+                            text_en
+                            + brain_response_en
+                        )
                     ),
                     max_tokens=(
                         brain_runtime[
                             "context_window"
                         ]
                     ),
+                    last_error=None,
+                    status="online",
                 )
 
-            except Exception as e:
+            except Exception as error:
 
-                runtime_state.update_node_state(
-                    "brain",
-                    model="OFFLINE",
+                await handle_pipeline_error(
+                    websocket,
+                    logger,
+                    runtime_id=(
+                        brain_runtime[
+                            "runtime_id"
+                        ]
+                    ),
+                    public_message=(
+                        "Brain request failed."
+                    ),
+                    exception=error,
                 )
-
-                await send_telemetry(
-                    websocket
-                )
-
-                await logger.log_error(
-                    f"Brain error: {e}"
-                )
-
-                await websocket.send_json({
-                    "type": "error",
-                    "source": "brain",
-                    "text": str(e),
-                })
 
                 return
 
             await getattr(
                 logger,
-                brain_runtime["log_method"],
+                brain_runtime[
+                    "log_method"
+                ],
             )(
                 brain_response_en
             )
 
             # ---------------------------------------------------------
-            # STEP 4: EN -> RU
+            # STEP 3: EN -> RU
             # ---------------------------------------------------------
 
             await logger.log_runtime(
@@ -210,38 +217,36 @@ class TranslationPipeline:
                         f"{removed_text}"
                     )
 
-                runtime_state.update_node_state(
-                    "translator",
-                    add_tokens=estimate_tokens(
-                        brain_response_en
-                        + brain_response_ru
+                await refresh_runtime_state(
+                    websocket,
+                    runtime_id=(
+                        config
+                        .TRANSLATOR_MODEL_UID
                     ),
+                    add_tokens=(
+                        estimate_tokens(
+                            brain_response_en
+                            + brain_response_ru
+                        )
+                    ),
+                    last_error=None,
+                    status="online",
                 )
 
-                await send_telemetry(
-                    websocket
+            except Exception as error:
+
+                await handle_pipeline_error(
+                    websocket,
+                    logger,
+                    runtime_id=(
+                        config
+                        .TRANSLATOR_MODEL_UID
+                    ),
+                    public_message=(
+                        "Reverse translation failed."
+                    ),
+                    exception=error,
                 )
-
-            except Exception as e:
-
-                runtime_state.update_node_state(
-                    "translator",
-                    model="OFFLINE",
-                )
-
-                await send_telemetry(
-                    websocket
-                )
-
-                await logger.log_error(
-                    f"Reverse translation error: {e}"
-                )
-
-                await websocket.send_json({
-                    "type": "error",
-                    "source": "translator",
-                    "text": str(e),
-                })
 
                 return
 
@@ -250,7 +255,7 @@ class TranslationPipeline:
             )
 
             # ---------------------------------------------------------
-            # STEP 5: SEND RESPONSE
+            # STEP 4: SEND RESPONSE
             # ---------------------------------------------------------
 
             await websocket.send_json({
@@ -267,18 +272,13 @@ class TranslationPipeline:
                 "Pipeline cycle complete."
             )
 
-        except Exception as e:
+        except Exception as error:
 
-            await logger.log_error(
-                traceback.format_exc()
-                )
-
-            await logger.log_error(
-                f"Pipeline error: {e}"
+            await handle_fatal_pipeline_error(
+                websocket,
+                logger,
+                pipeline_name=(
+                    "translation_pipeline"
+                ),
+                exception=error,
             )
-
-            await websocket.send_json({
-                "type": "error",
-                "source": "pipeline",
-                "text": str(e),
-            })

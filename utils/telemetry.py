@@ -3,11 +3,15 @@ from memory.runtime_state import (
 )
 
 
-async def send_telemetry(websocket):
+async def send_telemetry(
+    websocket,
+):
 
     await websocket.send_json({
         "type": "telemetry",
-        "brain": runtime_state.brain,
-        "service": runtime_state.service,
-        "translator": runtime_state.translator,
+
+        "runtime": (
+            runtime_state
+            .get_all_runtime_states()
+        ),
     })

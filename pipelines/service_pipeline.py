@@ -1,21 +1,20 @@
-import traceback
-
 import config
 
 from clients.service_client import (
     ask_service_model,
 )
 
-from memory.runtime_state import (
-    runtime_state,
-)
-
-from utils.telemetry import (
-    send_telemetry,
-)
-
 from utils.tokens import (
     estimate_tokens,
+)
+
+from utils.runtime_state_sync import (
+    refresh_runtime_state,
+)
+
+from utils.ws_errors import (
+    handle_pipeline_error,
+    handle_fatal_pipeline_error,
 )
 
 
@@ -31,8 +30,10 @@ class ServicePipeline:
         try:
 
             user_text = (
-                message_data.get("text", "")
-                .strip()
+                message_data.get(
+                    "text",
+                    "",
+                ).strip()
             )
 
             if not user_text:
@@ -64,9 +65,9 @@ class ServicePipeline:
                     )
                 )
 
-                runtime_state.update_node_state(
-                    "service",
-                    model=(
+                await refresh_runtime_state(
+                    websocket,
+                    runtime_id=(
                         config
                         .SERVICE_MODEL_UID
                     ),
@@ -80,36 +81,28 @@ class ServicePipeline:
                         config
                         .SERVICE_CONTEXT_WINDOW
                     ),
-                )
-
-                await send_telemetry(
-                    websocket
+                    last_error=None,
+                    status="online",
                 )
 
                 await logger.log_service(
                     response
                 )
 
-            except Exception as e:
+            except Exception as error:
 
-                runtime_state.update_node_state(
-                    "service",
-                    model="OFFLINE",
+                await handle_pipeline_error(
+                    websocket,
+                    logger,
+                    runtime_id=(
+                        config
+                        .SERVICE_MODEL_UID
+                    ),
+                    public_message=(
+                        "Service request failed."
+                    ),
+                    exception=error,
                 )
-
-                await send_telemetry(
-                    websocket
-                )
-
-                await logger.log_error(
-                    f"Service error: {e}"
-                )
-
-                await websocket.send_json({
-                    "type": "error",
-                    "source": "service",
-                    "text": str(e),
-                })
 
                 return
 
@@ -123,18 +116,13 @@ class ServicePipeline:
                 "Service pipeline complete."
             )
 
-        except Exception as e:
+        except Exception as error:
 
-            await logger.log_error(
-                traceback.format_exc()
+            await handle_fatal_pipeline_error(
+                websocket,
+                logger,
+                pipeline_name=(
+                    "service_pipeline"
+                ),
+                exception=error,
             )
-
-            await logger.log_error(
-                f"Service pipeline error: {e}"
-            )
-
-            await websocket.send_json({
-                "type": "error",
-                "source": "service_pipeline",
-                "text": str(e),
-            })
