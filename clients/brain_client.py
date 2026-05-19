@@ -23,9 +23,6 @@ async def ask_brain_model(user_prompt: str) -> str:
 
 def build_brain_payload(text_en: str) -> str:
 
-    if config.USE_SERVICE_AS_BRAIN:
-        return text_en
-
     context_contract = ContextContract(
         user_input=text_en,
         compressed_history="",

@@ -1,28 +1,40 @@
-// Подключаемся к WebSocket бэкенда
 const ws = new WebSocket(`ws://${window.location.host}/ws/chat`);
 
-const chatForm = document.getElementById('chat-form');
-const userInput = document.getElementById('user-input');
+const chatForm =
+  document.getElementById("chat-form");
 
-// Автовысота поля ввода
-userInput.addEventListener('input', function() {
-  this.style.height = 'auto';
-  this.style.height = this.scrollHeight + 'px';
+const userInput =
+  document.getElementById("user-input");
+
+
+// AUTO HEIGHT
+
+userInput.addEventListener("input", function () {
+
+  this.style.height = "auto";
+  this.style.height = this.scrollHeight + "px";
+
 });
 
-// Обработка отправки по Ctrl+Enter
-userInput.addEventListener('keydown', function(e) {
-  if (e.ctrlKey && e.key === 'Enter') {
+
+// CTRL + ENTER
+
+userInput.addEventListener("keydown", function (e) {
+
+  if (e.ctrlKey && e.key === "Enter") {
+
     e.preventDefault();
     chatForm.requestSubmit();
+
   }
+
 });
 
 
+// WS MESSAGE
 
+ws.onmessage = function (event) {
 
-// Прием данных от сервера
-ws.onmessage = function(event) {
   console.log("RAW WS:", event.data);
 
   const data = JSON.parse(event.data);
@@ -31,30 +43,91 @@ ws.onmessage = function(event) {
 
   handleTelemetryMessage(data);
 
-  if (data.type === 'log') {
+  if (data.type === "log") {
+
     appendLog(data.tag, data.message);
-  } else if (data.type === 'message') {
-    appendChatMessage('jin', data.text);
+    return;
+
   }
+
+  if (data.type === "message") {
+
+    const role =
+      resolveMessageRole(data);
+
+    appendChatMessage(
+      role,
+      data.text
+    );
+
+  }
+
 };
 
-// Отправка формы
-chatForm.addEventListener('submit', function(e) {
+
+// ROLE RESOLVER
+
+function resolveMessageRole(data) {
+
+  // backend explicit role
+  if (data.role) {
+    return data.role.toLowerCase();
+  }
+
+  // service-as-brain mode
+  if (
+    data.brain &&
+    data.service &&
+    data.brain.model === data.service.model
+  ) {
+    return "service";
+  }
+
+  return "brain";
+
+}
+
+
+// SEND MESSAGE
+
+chatForm.addEventListener("submit", function (e) {
+
   e.preventDefault();
-  const text = userInput.value.trim();
-  if (!text) return;
 
-  // Добавляем реплику юзера на экран
-  appendChatMessage('user', text);
+  const text =
+    userInput.value.trim();
 
-  // Шлем по WebSocket
-  ws.send(JSON.stringify({ text: text }));
+  if (!text) {
+    return;
+  }
 
-  // Очищаем инпут
-  userInput.value = '';
-  userInput.style.height = 'auto';
+  appendChatMessage(
+    "user",
+    text
+  );
+
+  ws.send(JSON.stringify({
+    text: text
+  }));
+
+  userInput.value = "";
+  userInput.style.height = "auto";
+
 });
 
-ws.onopen = () => appendLog('[SYSTEM]', 'Веб-интерфейс подключен к локальному ядру Jin.');
+
+// CONNECTION STATUS
+
+ws.onopen = () =>
+  appendLog(
+    "[SYSTEM]",
+    "WebSocket connected."
+  );
+
+ws.onclose = () =>
+  appendLog(
+    "[SYSTEM]",
+    "WebSocket disconnected."
+  );
+
 console.log("WS CONNECTED");
-ws.onclose = () => appendLog('[SYSTEM]', 'Критическая ошибка: Соединение с ядром разорвано.');

@@ -1,7 +1,6 @@
 # Copy this file to config.py and adjust values for your local nodes.
 
 USE_SERVICE_AS_BRAIN = False
-BYPASS_BRAIN = False
 
 CHAT_ENDPOINT = "/v1/chat/completions"
 MODELS_ENDPOINT = "/v1/models"
@@ -18,7 +17,7 @@ BRAIN_MODEL_UID = (
     "brain-model"
 )
 
-BRAIN_REQUEST_TIMEOUT = 90.0
+BRAIN_REQUEST_TIMEOUT = 200.0
 
 BRAIN_CONTEXT_WINDOW = 32768
 

@@ -22,12 +22,16 @@ window.handleTelemetryMessage = function (data) {
     const serviceText =
       `${data.service.used_tokens} / ${data.service.max_tokens} ctx`;
 
-    // BYPASS MODE
-    if (data.service.max_tokens === 0) {
+    const usingServiceAsBrain =
+      data.brain.model === data.service.model;
+
+    // SERVICE AS BRAIN MODE
+
+    if (usingServiceAsBrain) {
 
         if (brainModelElement) {
             brainModelElement.textContent =
-              "BRAIN: BYPASSED";
+              `BRAIN: ${data.brain.model}`;
         }
 
         if (serviceModelElement) {
@@ -36,17 +40,20 @@ window.handleTelemetryMessage = function (data) {
         }
 
         if (brainContextElement) {
-            brainContextElement.textContent = "BYPASSED";
+            brainContextElement.textContent =
+              brainText;
         }
 
         if (serviceContextElement) {
-            serviceContextElement.textContent = brainText;
+            serviceContextElement.textContent =
+              "BYPASSED";
         }
 
         return;
     }
 
     // NORMAL MODE
+
     if (brainModelElement) {
         brainModelElement.textContent =
           `BRAIN: ${data.brain.model}`;
@@ -58,10 +65,12 @@ window.handleTelemetryMessage = function (data) {
     }
 
     if (brainContextElement) {
-        brainContextElement.textContent = brainText;
+        brainContextElement.textContent =
+          brainText;
     }
 
     if (serviceContextElement) {
-        serviceContextElement.textContent = serviceText;
+        serviceContextElement.textContent =
+          serviceText;
     }
 };

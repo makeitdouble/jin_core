@@ -255,6 +255,11 @@ class TranslationPipeline:
 
             await websocket.send_json({
                 "type": "message",
+                "role": (
+                    "service"
+                    if config.USE_SERVICE_AS_BRAIN
+                    else "brain"
+                ),
                 "text": brain_response_ru,
             })
 

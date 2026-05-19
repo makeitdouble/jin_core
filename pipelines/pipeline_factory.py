@@ -8,10 +8,6 @@ from pipelines.service_pipeline import (
     ServicePipeline,
 )
 
-from pipelines.bypass_pipeline import (
-    BypassPipeline,
-)
-
 from utils.language import (
     contains_cyrillic,
 )
@@ -20,10 +16,6 @@ from utils.language import (
 def get_pipeline(
     user_text: str,
 ):
-
-    if config.BYPASS_BRAIN:
-
-        return BypassPipeline()
 
     if contains_cyrillic(user_text):
 

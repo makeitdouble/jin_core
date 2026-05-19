@@ -82,7 +82,7 @@ In this mode:
 
 ---
 
-## 2. Service Bypass Mode
+## 2. Use Service As Brain Mode
 
 ```python
 USE_SERVICE_AS_BRAIN = True

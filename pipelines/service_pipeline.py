@@ -115,6 +115,7 @@ class ServicePipeline:
 
             await websocket.send_json({
                 "type": "message",
+                "role": "service",
                 "text": response,
             })
 
