@@ -1,6 +1,6 @@
 import config
 from contracts.context_contract import ContextContract
-from clients.errors import format_client_error
+from utils.errors import format_client_error
 from clients.model_client import ask_model
 from clients.service_client import ask_service_model
 

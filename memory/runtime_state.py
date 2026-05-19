@@ -1,3 +1,5 @@
+# memory/runtime_state.py
+
 import config
 
 
@@ -5,45 +7,57 @@ class RuntimeState:
 
     def __init__(self):
 
-        if config.BYPASS_BRAIN:
+        brain_model = (
+            config.SERVICE_MODEL_UID
+            if config.USE_SERVICE_AS_BRAIN
+            else config.BRAIN_MODEL_UID
+        )
 
-            self.brain = {
-                "model": config.SERVICE_MODEL_UID,
-                "used_tokens": 0,
-                "max_tokens": config.SERVICE_CONTEXT_WINDOW,
-            }
+        brain_context = (
+            config.SERVICE_CONTEXT_WINDOW
+            if config.USE_SERVICE_AS_BRAIN
+            else config.BRAIN_CONTEXT_WINDOW
+        )
 
-            self.service = {
-                "model": "BYPASSED",
-                "used_tokens": 0,
-                "max_tokens": 0,
-            }
+        self.brain = {
+            "model": brain_model,
+            "used_tokens": 0,
+            "max_tokens": brain_context,
+        }
 
-        else:
+        self.service = {
+            "model": (
+                config.SERVICE_MODEL_UID
+            ),
+            "used_tokens": 0,
+            "max_tokens": (
+                config.SERVICE_CONTEXT_WINDOW
+            ),
+        }
 
-            self.brain = {
-                "model": config.BRAIN_MODEL_UID,
-                "used_tokens": 0,
-                "max_tokens": config.BRAIN_CONTEXT_WINDOW,
-            }
-
-            self.service = {
-                "model": config.SERVICE_MODEL_UID,
-                "used_tokens": 0,
-                "max_tokens": config.SERVICE_CONTEXT_WINDOW,
-            }
+        self.translator = {
+            "model": (
+                config.TRANSLATOR_MODEL_UID
+            ),
+            "used_tokens": 0,
+            "max_tokens": (
+                config.TRANSLATOR_CONTEXT_WINDOW
+            ),
+        }
 
     def update_node_state(
         self,
         node_name: str,
-        *,
-        model=None,
-        used_tokens=None,
-        max_tokens=None,
-        add_tokens=None,
+        model: str | None = None,
+        used_tokens: int | None = None,
+        max_tokens: int | None = None,
+        add_tokens: int | None = None,
     ):
 
-        node = getattr(self, node_name)
+        node = getattr(
+            self,
+            node_name,
+        )
 
         if model is not None:
             node["model"] = model
@@ -51,11 +65,11 @@ class RuntimeState:
         if used_tokens is not None:
             node["used_tokens"] = used_tokens
 
-        if add_tokens is not None:
-            node["used_tokens"] += add_tokens
-
         if max_tokens is not None:
             node["max_tokens"] = max_tokens
+
+        if add_tokens is not None:
+            node["used_tokens"] += add_tokens
 
 
 runtime_state = RuntimeState()

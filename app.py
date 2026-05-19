@@ -14,12 +14,15 @@ import json
 
 import config
 
-from clients.url_utils import join_url
+from utils.urls import join_url
 
 from logger import WebSocketLogger
 
-from pipelines.chat_pipeline import (
-    process_chat_message,
+from pipelines.pipeline_factory import (
+    get_pipeline,
+)
+
+from utils.telemetry import (
     send_telemetry,
 )
 
@@ -89,6 +92,9 @@ async def api_status():
         "service": await check(
             config.SERVICE_API_BASE
         ),
+        "translator": await check(
+            config.TRANSLATOR_API_BASE
+        ),
     }
 
 
@@ -127,7 +133,15 @@ async def websocket_endpoint(
                 raw_data
             )
 
-            await process_chat_message(
+            user_text = (
+                message_data.get("text", "")
+            )
+
+            pipeline = get_pipeline(
+                user_text
+            )
+
+            await pipeline.run(
                 websocket=websocket,
                 logger=logger,
                 message_data=message_data,

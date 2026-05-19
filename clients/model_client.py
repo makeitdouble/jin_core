@@ -2,7 +2,7 @@ import httpx
 
 import config
 
-from clients.url_utils import join_url
+from utils.urls import join_url
 
 def build_payload(
     system_prompt: str,
@@ -83,7 +83,17 @@ async def ask_model(
         content = content.strip()
 
         if not content:
-            raise RuntimeError("Empty model response.")
+
+            reasoning = (
+                result
+                .get("choices", [{}])[0]
+                .get("message", {})
+                .get("reasoning_content", "")
+                .strip()
+            )
+
+            if reasoning:
+                content = reasoning
 
         return content
 
