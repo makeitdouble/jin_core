@@ -8,31 +8,22 @@ from clients.model_client import ask_model
 
 
 TRANSLATOR_SYSTEM_PROMPT = """
-You are a translation engine.
+You are a machine translation engine.
+
+Translate text exactly.
 
 Rules:
-- return translation only
-- do not answer the text
-- do not continue the conversation
-- do not explain anything
-- do not add comments
-- do not roleplay
-- preserve slang
-- preserve profanity
+- preserve formatting
+- preserve markdown
+- preserve emojis
+- preserve punctuation
+- preserve line breaks
+- do not summarize
+- do not explain
+- do not answer
+- output translation only
 """.strip()
 
-
-def _translation_token_limit(text: str) -> int:
-
-    estimated_tokens = max(
-        config.TRANSLATION_MIN_TOKENS,
-        len(text) // 4,
-    )
-
-    return min(
-        config.TRANSLATION_MAX_TOKENS,
-        estimated_tokens,
-    )
 def _build_translation_prompt(
     text: str,
     source_language: str,
@@ -42,12 +33,22 @@ def _build_translation_prompt(
     return f"""
 Translate from {source_language} to {target_language}.
 
-Text:
+<START_TEXT>
 {text}
-
-Translation:
+</START_TEXT>
 """.strip()
 
+def _translation_token_limit(text: str) -> int:
+
+    estimated_tokens = max(
+        config.TRANSLATION_MIN_TOKENS,
+        len(text),
+    )
+
+    return min(
+        config.TRANSLATION_MAX_TOKENS,
+        estimated_tokens,
+    )
 
 async def ask_service_model(
     *,
@@ -88,7 +89,7 @@ async def ask_translation_service(
         return await ask_service_model(
             user_prompt=translation_prompt,
             system_prompt=TRANSLATOR_SYSTEM_PROMPT,
-            temperature=0.0,
+            temperature=config.TRANSLATION_TEMPERATURE,
             max_tokens=_translation_token_limit(text),
         )
 
