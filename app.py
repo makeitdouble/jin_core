@@ -5,18 +5,31 @@ from fastapi import (
     WebSocketDisconnect,
 )
 
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import (
+    HTMLResponse,
+)
 
+from fastapi.staticfiles import (
+    StaticFiles,
+)
+
+from fastapi.templating import (
+    Jinja2Templates,
+)
+
+import asyncio
 import httpx
 import json
 
 import config
 
-from utils.urls import join_url
+from utils.urls import (
+    join_url,
+)
 
-from logger import WebSocketLogger
+from logger import (
+    WebSocketLogger,
+)
 
 from pipelines.pipeline_factory import (
     get_pipeline,
@@ -34,7 +47,9 @@ templates = Jinja2Templates(
 
 app.mount(
     "/static",
-    StaticFiles(directory="static"),
+    StaticFiles(
+        directory="static"
+    ),
     name="static",
 )
 
@@ -47,7 +62,9 @@ app.mount(
     "/",
     response_class=HTMLResponse,
 )
-async def index(request: Request):
+async def index(
+    request: Request,
+):
 
     return templates.TemplateResponse(
         "index.html",
@@ -64,7 +81,9 @@ async def index(request: Request):
 @app.get("/api/status")
 async def api_status():
 
-    async def check(base_url):
+    async def check(
+        base_url,
+    ):
 
         try:
 
@@ -79,22 +98,38 @@ async def api_status():
                     )
                 )
 
-                return response.status_code == 200
+                return (
+                    response.status_code
+                    == 200
+                )
 
         except Exception:
 
             return False
 
-    return {
-        "brain": await check(
+    (
+        brain_status,
+        service_status,
+        translator_status,
+    ) = await asyncio.gather(
+
+        check(
             config.BRAIN_API_BASE
         ),
-        "service": await check(
+
+        check(
             config.SERVICE_API_BASE
         ),
-        "translator": await check(
+
+        check(
             config.TRANSLATOR_API_BASE
         ),
+    )
+
+    return {
+        "brain": brain_status,
+        "service": service_status,
+        "translator": translator_status,
     }
 
 
@@ -129,12 +164,25 @@ async def websocket_endpoint(
                 await websocket.receive_text()
             )
 
-            message_data = json.loads(
-                raw_data
-            )
+            try:
+
+                message_data = json.loads(
+                    raw_data
+                )
+
+            except json.JSONDecodeError:
+
+                await logger.log_error(
+                    "Invalid JSON payload."
+                )
+
+                continue
 
             user_text = (
-                message_data.get("text", "")
+                message_data.get(
+                    "text",
+                    ""
+                )
             )
 
             pipeline = get_pipeline(
@@ -153,10 +201,11 @@ async def websocket_endpoint(
             "Client disconnected."
         )
 
-    except Exception as e:
+    except Exception as error:
 
         await logger.log_error(
-            f"WebSocket session error: {e}"
+            "WebSocket session error: "
+            f"{error}"
         )
 
 

@@ -1,76 +1,94 @@
 window.handleTelemetryMessage = function (data) {
 
-    if (data.type !== "telemetry") {
-        return;
-    }
+  if (data.type !== "telemetry") {
+    return;
+  }
 
-    const brainModelElement =
-      document.getElementById("brain-model");
+  const runtimeStates =
+    Object.values(
+      data.runtime || {}
+    );
 
-    const serviceModelElement =
-      document.getElementById("service-model");
+  const serviceRuntime =
+    runtimeStates.find(
+      runtime =>
+        runtime.label === "service"
+    );
 
-    const brainContextElement =
-      document.getElementById("brain-context");
+  const brainRuntime =
+    runtimeStates.find(
+      runtime =>
+        runtime.label === "brain"
+    ) || serviceRuntime;
 
-    const serviceContextElement =
-      document.getElementById("service-context");
+  const brainModelElement =
+    document.getElementById(
+      "brain-model"
+    );
 
-    const brainText =
-      `${data.brain.used_tokens} / ${data.brain.max_tokens} ctx`;
+  const serviceModelElement =
+    document.getElementById(
+      "service-model"
+    );
 
-    const serviceText =
-      `${data.service.used_tokens} / ${data.service.max_tokens} ctx`;
+  const brainContextElement =
+    document.getElementById(
+      "brain-context"
+    );
 
-    const usingServiceAsBrain =
-      data.brain.model === data.service.model;
+  const serviceContextElement =
+    document.getElementById(
+      "service-context"
+    );
 
-    // SERVICE AS BRAIN MODE
+  // -----------------------------------
+  // BRAIN
+  // -----------------------------------
 
-    if (usingServiceAsBrain) {
+  if (
+    brainRuntime &&
+    brainModelElement
+  ) {
 
-        if (brainModelElement) {
-            brainModelElement.textContent =
-              `BRAIN: ${data.brain.model}`;
-        }
+    brainModelElement.textContent =
+      `BRAIN: ${brainRuntime.model}`;
 
-        if (serviceModelElement) {
-            serviceModelElement.textContent =
-              `SERVICE: ${data.brain.model}`;
-        }
+  }
 
-        if (brainContextElement) {
-            brainContextElement.textContent =
-              brainText;
-        }
+  if (
+    brainRuntime &&
+    brainContextElement
+  ) {
 
-        if (serviceContextElement) {
-            serviceContextElement.textContent =
-              "BYPASSED";
-        }
+    brainContextElement.textContent =
+      `${brainRuntime.used_tokens} / `
+      + `${brainRuntime.max_tokens} ctx`;
 
-        return;
-    }
+  }
 
-    // NORMAL MODE
+  // -----------------------------------
+  // SERVICE
+  // -----------------------------------
 
-    if (brainModelElement) {
-        brainModelElement.textContent =
-          `BRAIN: ${data.brain.model}`;
-    }
+  if (
+    serviceRuntime &&
+    serviceModelElement
+  ) {
 
-    if (serviceModelElement) {
-        serviceModelElement.textContent =
-          `SERVICE: ${data.service.model}`;
-    }
+    serviceModelElement.textContent =
+      `SERVICE: ${serviceRuntime.model}`;
 
-    if (brainContextElement) {
-        brainContextElement.textContent =
-          brainText;
-    }
+  }
 
-    if (serviceContextElement) {
-        serviceContextElement.textContent =
-          serviceText;
-    }
+  if (
+    serviceRuntime &&
+    serviceContextElement
+  ) {
+
+    serviceContextElement.textContent =
+      `${serviceRuntime.used_tokens} / `
+      + `${serviceRuntime.max_tokens} ctx`;
+
+  }
+
 };

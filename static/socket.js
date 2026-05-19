@@ -69,18 +69,8 @@ ws.onmessage = function (event) {
 
 function resolveMessageRole(data) {
 
-  // backend explicit role
   if (data.role) {
     return data.role.toLowerCase();
-  }
-
-  // service-as-brain mode
-  if (
-    data.brain &&
-    data.service &&
-    data.brain.model === data.service.model
-  ) {
-    return "service";
   }
 
   return "brain";
