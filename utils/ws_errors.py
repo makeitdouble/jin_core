@@ -5,6 +5,25 @@ from utils.runtime_state_sync import (
 )
 
 
+async def send_ws_error(
+    websocket,
+    *,
+    error_type: str,
+    message: str,
+    details: str | None = None,
+    runtime_id: str | None = None,
+    pipeline: str | None = None,
+):
+
+    await websocket.send_json({
+        "type": error_type,
+        "message": message,
+        "details": details,
+        "runtime_id": runtime_id,
+        "pipeline": pipeline,
+    })
+
+
 async def handle_pipeline_error(
     websocket,
     logger,
@@ -24,12 +43,13 @@ async def handle_pipeline_error(
         f"{error_text}"
     )
 
-    await websocket.send_json({
-        "type": "error",
-        "runtime_id": runtime_id,
-        "message": public_message,
-        "details": error_text,
-    })
+    await send_ws_error(
+        websocket,
+        error_type="error",
+        runtime_id=runtime_id,
+        message=public_message,
+        details=error_text,
+    )
 
     await set_runtime_offline(
         websocket,
@@ -46,10 +66,6 @@ async def handle_fatal_pipeline_error(
     exception: Exception,
 ):
 
-    error_text = str(
-        exception
-    )
-
     formatted_traceback = (
         traceback.format_exc()
     )
@@ -60,9 +76,38 @@ async def handle_fatal_pipeline_error(
         f"{formatted_traceback}"
     )
 
-    await websocket.send_json({
-        "type": "fatal_error",
-        "pipeline": pipeline_name,
-        "message": error_text,
-        "traceback": formatted_traceback,
-    })
+    await send_ws_error(
+        websocket,
+        error_type="fatal_error",
+        pipeline=pipeline_name,
+        message=str(exception),
+        details=formatted_traceback,
+    )
+
+    print(formatted_traceback)
+
+
+async def handle_websocket_error(
+    websocket,
+    logger,
+    *,
+    exception: Exception,
+):
+
+    formatted_traceback = (
+        traceback.format_exc()
+    )
+
+    await logger.log_error(
+        "WebSocket session error:\n"
+        f"{formatted_traceback}"
+    )
+
+    await send_ws_error(
+        websocket,
+        error_type="websocket_error",
+        message="WebSocket session crashed.",
+        details=str(exception),
+    )
+
+    print(formatted_traceback)

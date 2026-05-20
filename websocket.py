@@ -5,7 +5,6 @@ from fastapi import (
 )
 
 import json
-import traceback
 
 from logger import (
     WebSocketLogger,
@@ -17,6 +16,10 @@ from pipelines.pipeline_factory import (
 
 from utils.telemetry import (
     send_telemetry,
+)
+
+from utils.ws_errors import (
+    handle_websocket_error,
 )
 
 
@@ -67,7 +70,9 @@ async def websocket_endpoint(
 
         while True:
 
-            raw_data = await websocket.receive_text()
+            raw_data = (
+                await websocket.receive_text()
+            )
 
             try:
 
@@ -92,25 +97,11 @@ async def websocket_endpoint(
                 user_text
             )
 
-            try:
-
-                await pipeline.run(
-                    websocket=websocket,
-                    logger=logger,
-                    message_data=message_data,
-                )
-
-            except Exception as error:
-
-                traceback_text = (
-                    traceback.format_exc()
-                )
-
-                await logger.log_error(
-                    f"Pipeline error: {error}"
-                )
-
-                print(traceback_text)
+            await pipeline.run(
+                websocket=websocket,
+                logger=logger,
+                message_data=message_data,
+            )
 
     except WebSocketDisconnect:
 
@@ -120,12 +111,8 @@ async def websocket_endpoint(
 
     except Exception as error:
 
-        traceback_text = (
-            traceback.format_exc()
+        await handle_websocket_error(
+            websocket,
+            logger,
+            exception=error,
         )
-
-        await logger.log_error(
-            f"WebSocket session error: {error}"
-        )
-
-        print(traceback_text)

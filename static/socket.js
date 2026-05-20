@@ -1,4 +1,6 @@
-const ws = new WebSocket(`ws://${window.location.host}/ws/chat`);
+const ws = new WebSocket(
+  `ws://${window.location.host}/ws/chat`
+);
 
 const chatForm =
   document.getElementById("chat-form");
@@ -12,7 +14,8 @@ const userInput =
 userInput.addEventListener("input", function () {
 
   this.style.height = "auto";
-  this.style.height = this.scrollHeight + "px";
+  this.style.height =
+    this.scrollHeight + "px";
 
 });
 
@@ -21,9 +24,13 @@ userInput.addEventListener("input", function () {
 
 userInput.addEventListener("keydown", function (e) {
 
-  if (e.ctrlKey && e.key === "Enter") {
+  if (
+    e.ctrlKey
+    && e.key === "Enter"
+  ) {
 
     e.preventDefault();
+
     chatForm.requestSubmit();
 
   }
@@ -35,20 +42,66 @@ userInput.addEventListener("keydown", function (e) {
 
 ws.onmessage = function (event) {
 
-  console.log("RAW WS:", event.data);
+  console.log(
+    "RAW WS:",
+    event.data
+  );
 
-  const data = JSON.parse(event.data);
+  const data = JSON.parse(
+    event.data
+  );
 
-  console.log("PARSED WS:", data);
+  console.log(
+    "PARSED WS:",
+    data
+  );
 
-  handleTelemetryMessage(data);
+  handleTelemetryMessage(
+    data
+  );
+
+  // -----------------------------
+  // LOGS
+  // -----------------------------
 
   if (data.type === "log") {
 
-    appendLog(data.tag, data.message);
+    appendLog(
+      data.tag,
+      data.message
+    );
+
     return;
 
   }
+
+  // -----------------------------
+  // ERRORS
+  // -----------------------------
+
+  if (
+    data.type === "error"
+    || data.type === "fatal_error"
+    || data.type === "websocket_error"
+  ) {
+
+    const details =
+      data.details
+        ? `\n${data.details}`
+        : "";
+
+    appendLog(
+      "[ERROR]",
+      `${data.message}${details}`
+    );
+
+    return;
+
+  }
+
+  // -----------------------------
+  // CHAT MESSAGE
+  // -----------------------------
 
   if (data.type === "message") {
 
@@ -80,30 +133,35 @@ function resolveMessageRole(data) {
 
 // SEND MESSAGE
 
-chatForm.addEventListener("submit", function (e) {
+chatForm.addEventListener(
+  "submit",
+  function (e) {
 
-  e.preventDefault();
+    e.preventDefault();
 
-  const text =
-    userInput.value.trim();
+    const text =
+      userInput.value.trim();
 
-  if (!text) {
-    return;
+    if (!text) {
+      return;
+    }
+
+    appendChatMessage(
+      "user",
+      text
+    );
+
+    ws.send(JSON.stringify({
+      text: text
+    }));
+
+    userInput.value = "";
+
+    userInput.style.height =
+      "auto";
+
   }
-
-  appendChatMessage(
-    "user",
-    text
-  );
-
-  ws.send(JSON.stringify({
-    text: text
-  }));
-
-  userInput.value = "";
-  userInput.style.height = "auto";
-
-});
+);
 
 
 // CONNECTION STATUS
@@ -120,4 +178,6 @@ ws.onclose = () =>
     "WebSocket disconnected."
   );
 
-console.log("WS CONNECTED");
+console.log(
+  "WS CONNECTED"
+);
