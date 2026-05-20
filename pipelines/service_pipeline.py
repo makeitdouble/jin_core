@@ -1,7 +1,9 @@
+import uuid
+
 import config
 
 from clients.service_client import (
-    ask_service_model,
+    ask_service_model_stream,
 )
 
 from utils.tokens import (
@@ -48,10 +50,24 @@ class ServicePipeline:
                 "SERVICE pipeline started."
             )
 
+            response = ""
+
             try:
 
-                response = (
-                    await ask_service_model(
+                message_id = str(
+                    uuid.uuid4()
+                )
+
+                await websocket.send_json({
+                    "type": "message_start",
+                    "message_id": (
+                        message_id
+                    ),
+                    "role": "service",
+                })
+
+                async for chunk in (
+                    ask_service_model_stream(
                         user_prompt=user_text,
                         system_prompt="",
                         temperature=(
@@ -63,7 +79,56 @@ class ServicePipeline:
                             .SERVICE_MAX_TOKENS
                         ),
                     )
-                )
+                ):
+
+                    chunk_type = (
+                        chunk.get("type")
+                    )
+
+                    chunk_content = (
+                        chunk.get(
+                            "content",
+                            ""
+                        )
+                    )
+
+                    if (
+                        chunk_type
+                        == "thinking"
+                    ):
+
+                        await websocket.send_json({
+                            "type": "thinking_chunk",
+                            "message_id": (
+                                message_id
+                            ),
+                            "chunk": (
+                                chunk_content
+                            ),
+                        })
+
+                        continue
+
+                    response += (
+                        chunk_content
+                    )
+
+                    await websocket.send_json({
+                        "type": "message_chunk",
+                        "message_id": (
+                            message_id
+                        ),
+                        "chunk": (
+                            chunk_content
+                        ),
+                    })
+
+                await websocket.send_json({
+                    "type": "message_end",
+                    "message_id": (
+                        message_id
+                    ),
+                })
 
                 await refresh_runtime_state(
                     websocket,
@@ -105,12 +170,6 @@ class ServicePipeline:
                 )
 
                 return
-
-            await websocket.send_json({
-                "type": "message",
-                "role": "service",
-                "text": response,
-            })
 
             await logger.log_runtime(
                 "Service pipeline complete."

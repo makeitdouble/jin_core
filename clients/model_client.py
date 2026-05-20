@@ -188,9 +188,30 @@ async def ask_model_stream(
                     {}
                 )
 
+                reasoning = (
+                    delta.get(
+                        "reasoning_content"
+                    )
+                    or delta.get(
+                        "reasoning"
+                    )
+                )
+
+                if reasoning:
+
+                    yield {
+                        "type": "thinking",
+                        "content": reasoning,
+                    }
+
+
                 content = delta.get(
                     "content"
                 )
 
                 if content:
-                    yield content
+
+                    yield {
+                        "type": "content",
+                        "content": content,
+                    }

@@ -290,14 +290,41 @@ class TranslationPipeline:
                 )
             ):
 
-                response += chunk
+                chunk_type = (
+                    chunk.get("type")
+                )
+
+                chunk_content = (
+                    chunk.get(
+                        "content",
+                        ""
+                    )
+                )
+
+                if chunk_type == "thinking":
+
+                    await websocket.send_json({
+                        "type": "thinking_chunk",
+                        "message_id": (
+                            message_id
+                        ),
+                        "chunk": (
+                            chunk_content
+                        ),
+                    })
+
+                    continue
+
+                response += chunk_content
 
                 await websocket.send_json({
                     "type": "message_chunk",
                     "message_id": (
                         message_id
                     ),
-                    "chunk": chunk,
+                    "chunk": (
+                        chunk_content
+                    ),
                 })
 
             await websocket.send_json({

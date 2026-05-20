@@ -25,4 +25,4 @@ def get_pipeline(
 
         return TranslationPipeline()
 
-    return BrainPipeline()
+    return ServicePipeline()

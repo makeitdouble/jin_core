@@ -1,6 +1,9 @@
 from fastapi import (
     APIRouter,
     WebSocket,
+)
+
+from starlette.websockets import (
     WebSocketDisconnect,
 )
 
@@ -27,7 +30,7 @@ websocket_router = APIRouter()
 
 
 # ---------------------------------------------------------
-# WEBSOCKET HELPERS
+# CONNECTION SETUP
 # ---------------------------------------------------------
 
 async def initialize_connection(
@@ -43,6 +46,62 @@ async def initialize_connection(
 
     await send_telemetry(
         websocket
+    )
+
+
+# ---------------------------------------------------------
+# RECEIVE MESSAGE
+# ---------------------------------------------------------
+
+async def receive_message(
+    websocket: WebSocket,
+    logger: WebSocketLogger,
+):
+
+    raw_data = (
+        await websocket.receive_text()
+    )
+
+    try:
+
+        return json.loads(
+            raw_data
+        )
+
+    except json.JSONDecodeError as error:
+
+        await logger.log_error(
+            f"Invalid JSON payload: {error}"
+        )
+
+        return None
+
+
+# ---------------------------------------------------------
+# PROCESS MESSAGE
+# ---------------------------------------------------------
+
+async def process_message(
+    websocket: WebSocket,
+    logger: WebSocketLogger,
+    message_data: dict,
+):
+
+    user_text = (
+        message_data.get(
+            "text",
+            "",
+        )
+    )
+
+    pipeline = get_pipeline(
+        user_text
+    )
+
+    await pipeline.run(
+        websocket=websocket,
+        logger=logger,
+        message_data=message_data,
     )
 
 
@@ -70,43 +129,39 @@ async def websocket_endpoint(
 
         while True:
 
-            raw_data = (
-                await websocket.receive_text()
+            message_data = (
+                await receive_message(
+                    websocket,
+                    logger,
+                )
             )
 
-            try:
-
-                message_data = json.loads(
-                    raw_data
-                )
-
-            except json.JSONDecodeError as error:
-
-                await logger.log_error(
-                    f"Invalid JSON payload: {error}"
-                )
-
+            if not message_data:
                 continue
 
-            user_text = message_data.get(
-                "text",
-                "",
-            )
-
-            pipeline = get_pipeline(
-                user_text
-            )
-
-            await pipeline.run(
-                websocket=websocket,
-                logger=logger,
-                message_data=message_data,
+            await process_message(
+                websocket,
+                logger,
+                message_data,
             )
 
     except WebSocketDisconnect:
 
-        await logger.log_system(
-            "Client disconnected."
+        return
+
+    except RuntimeError as error:
+
+        if (
+            "disconnect"
+            in str(error).lower()
+        ):
+
+            return
+
+        await handle_websocket_error(
+            websocket,
+            logger,
+            exception=error,
         )
 
     except Exception as error:

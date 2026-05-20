@@ -1,6 +1,7 @@
 const chatHistory =
-  document.getElementById("chat-history");
-
+  document.getElementById(
+    "chat-history"
+  );
 
 const streamMessages =
   new Map();
@@ -51,7 +52,7 @@ function getRoleConfig(role) {
 }
 
 
-// CREATE MESSAGE ELEMENT
+// CREATE NORMAL MESSAGE
 
 function createMessageElement(role) {
 
@@ -116,6 +117,141 @@ function appendChatMessage(
 }
 
 
+// CREATE STREAM GROUP
+
+function createStreamGroup(
+  role
+) {
+
+  const config =
+    getRoleConfig(role);
+
+  const wrapper =
+    document.createElement("div");
+
+  wrapper.className =
+    "space-y-3 max-w-4xl";
+
+  // THINKING
+
+  const thinkWrapper =
+    document.createElement("div");
+
+  thinkWrapper.className =
+    "space-y-2";
+
+  const thinkHeader =
+    document.createElement("button");
+
+  thinkHeader.className =
+    "text-xs text-zinc-300 flex items-center gap-2 hover:text-zinc-100 transition";
+
+  thinkHeader.innerHTML =
+    `▼ &lt;think&gt;`;
+
+  const thinkContent =
+    document.createElement("div");
+
+  thinkContent.className =
+    "border-l border-slate-500 pl-4 text-xs text-zinc-300 italic leading-relaxed whitespace-pre-wrap";
+
+  let collapsed = false;
+
+  thinkHeader.onclick = () => {
+
+    collapsed =
+      !collapsed;
+
+    thinkContent.style.display =
+      collapsed
+        ? "none"
+        : "block";
+
+    thinkHeader.innerHTML =
+      collapsed
+        ? `▶ &lt;think&gt;`
+        : `▼ &lt;think&gt;`;
+
+  };
+
+  thinkWrapper.appendChild(
+    thinkHeader
+  );
+
+  thinkWrapper.appendChild(
+    thinkContent
+  );
+
+  // ANSWER
+
+  const messageRow =
+    document.createElement("div");
+
+  messageRow.className =
+    "flex items-start gap-3";
+
+  const pre =
+    document.createElement("pre");
+
+  pre.className =
+    "text-zinc-50 leading-relaxed whitespace-pre-wrap overflow-x-auto font-mono text-[13px]";
+
+  const bubble =
+    document.createElement("div");
+
+  bubble.className =
+    `${config.bgClass} px-4 py-3 rounded-xl border shadow-sm`;
+
+  bubble.appendChild(pre);
+
+  messageRow.innerHTML = `
+    <div class="h-6 w-6 rounded bg-zinc-800 border border-zinc-700 flex items-center justify-center text-[10px] text-zinc-400 shrink-0">
+      ${config.avatar}
+    </div>
+  `;
+
+  messageRow.appendChild(
+    bubble
+  );
+
+  chatHistory.appendChild(
+    wrapper
+  );
+
+  return {
+    wrapper,
+    thinkWrapper,
+    thinkContent,
+    messageRow,
+    answerContent: pre,
+  };
+
+}
+
+
+// ENSURE STREAM GROUP
+
+function ensureStreamGroup(
+  stream
+) {
+
+  if (stream.group.wrapper) {
+    return;
+  }
+
+  const realGroup =
+    createStreamGroup(
+      stream.role
+    );
+
+  stream.group = {
+    ...stream.group,
+    ...realGroup,
+  };
+
+}
+
+
 // STREAM START
 
 function startStreamMessage(
@@ -123,19 +259,76 @@ function startStreamMessage(
   role
 ) {
 
+  const group = {
+    createdThinking: false,
+    createdAnswer: false,
+    wrapper: null,
+    thinkWrapper: null,
+    thinkContent: null,
+    messageRow: null,
+    answerContent: null,
+  };
+
   streamMessages.set(
     messageId,
     {
-      role: role,
-      element: null,
-      text: "",
+      role,
+      group,
+      thinking: "",
+      answer: "",
     }
   );
 
 }
 
 
-// STREAM CHUNK
+// THINKING CHUNK
+
+function appendThinkingChunk(
+  messageId,
+  chunk
+) {
+
+  const stream =
+    streamMessages.get(
+      messageId
+    );
+
+  if (!stream) {
+    return;
+  }
+
+  ensureStreamGroup(
+    stream
+  );
+
+  if (
+    !stream.group.createdThinking
+  ) {
+
+    stream.group.wrapper.appendChild(
+      stream.group.thinkWrapper
+    );
+
+    stream.group.createdThinking =
+      true;
+
+  }
+
+  stream.thinking += chunk;
+
+  stream.group.thinkContent.innerHTML =
+    escapeHtml(
+      stream.thinking
+    );
+
+  chatHistory.scrollTop =
+    chatHistory.scrollHeight;
+
+}
+
+
+// ANSWER CHUNK
 
 function appendStreamChunk(
   messageId,
@@ -151,25 +344,28 @@ function appendStreamChunk(
     return;
   }
 
+  ensureStreamGroup(
+    stream
+  );
 
-// CREATE MESSAGE ONLY
-// AFTER FIRST CHUNK
+  if (
+    !stream.group.createdAnswer
+  ) {
 
-  if (!stream.element) {
+    stream.group.wrapper.appendChild(
+      stream.group.messageRow
+    );
 
-    stream.element =
-      createMessageElement(
-        stream.role
-      );
+    stream.group.createdAnswer =
+      true;
 
   }
 
+  stream.answer += chunk;
 
-  stream.text += chunk;
-
-  stream.element.innerHTML =
+  stream.group.answerContent.innerHTML =
     escapeHtml(
-      stream.text
+      stream.answer
     );
 
   chatHistory.scrollTop =
@@ -202,3 +398,6 @@ window.appendStreamChunk =
 
 window.finishStreamMessage =
   finishStreamMessage;
+
+window.appendThinkingChunk =
+  appendThinkingChunk;

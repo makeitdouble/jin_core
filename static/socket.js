@@ -55,18 +55,8 @@ function resolveMessageRole(data) {
 
 ws.onmessage = function (event) {
 
-  console.log(
-    "RAW WS:",
-    event.data
-  );
-
   const data = JSON.parse(
     event.data
-  );
-
-  console.log(
-    "PARSED WS:",
-    data
   );
 
   handleTelemetryMessage(
@@ -124,6 +114,24 @@ ws.onmessage = function (event) {
     appendChatMessage(
       role,
       data.text
+    );
+
+    return;
+
+  }
+
+  // -----------------------------
+  // THINKING STREAM
+  // -----------------------------
+
+  if (
+    data.type
+    === "thinking_chunk"
+  ) {
+
+    appendThinkingChunk(
+      data.message_id,
+      data.chunk
     );
 
     return;
