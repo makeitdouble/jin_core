@@ -19,6 +19,10 @@ from utils.ws_errors import (
     handle_fatal_pipeline_error,
 )
 
+from hooks.stream_validator import (
+    StreamValidator,
+)
+
 
 class ServicePipeline:
 
@@ -51,6 +55,20 @@ class ServicePipeline:
             )
 
             response = ""
+
+            # -------------------------------------------------
+            # DURING-HOOK VALIDATOR
+            # -------------------------------------------------
+            #
+            # Monitors streamed output for:
+            # - repetition loops
+            # - sentence duplication
+            # - paragraph duplication
+            # - runaway generation
+            #
+            # -------------------------------------------------
+
+            validator = StreamValidator()
 
             try:
 
@@ -92,6 +110,10 @@ class ServicePipeline:
                         )
                     )
 
+                    # -----------------------------------------
+                    # THINKING STREAM
+                    # -----------------------------------------
+
                     if (
                         chunk_type
                         == "thinking"
@@ -109,8 +131,56 @@ class ServicePipeline:
 
                         continue
 
+                    # -----------------------------------------
+                    # DURING STREAM VALIDATION
+                    # -----------------------------------------
+
+                    safe_chunk, is_valid = (
+                        validator.filter_chunk(
+                            chunk_content
+                        )
+                    )
+
+                    if not is_valid:
+
+                        await logger.log_validator(
+                            f"{validator.last_failure_reason}\n"
+                            f'Preview: "{validator.last_failure_preview}"'
+                        )
+
+                        await websocket.send_json({
+                            "type": "message_error",
+                            "message_id": (
+                                message_id
+                            ),
+                            "text": (
+                                "Generation stopped: "
+                                "model repetition detected."
+                            ),
+                        })
+
+                        if safe_chunk:
+
+                            response += safe_chunk
+
+                            await websocket.send_json({
+                                "type": "message_chunk",
+                                "message_id": (
+                                    message_id
+                                ),
+                                "chunk": (
+                                    safe_chunk
+                                ),
+                            })
+
+                        break
+
+                    # -----------------------------------------
+                    # STREAM OUTPUT
+                    # -----------------------------------------
+
                     response += (
-                        chunk_content
+                        safe_chunk
                     )
 
                     await websocket.send_json({
@@ -123,12 +193,20 @@ class ServicePipeline:
                         ),
                     })
 
+                # ---------------------------------------------
+                # STREAM COMPLETE
+                # ---------------------------------------------
+
                 await websocket.send_json({
                     "type": "message_end",
                     "message_id": (
                         message_id
                     ),
                 })
+
+                # ---------------------------------------------
+                # TELEMETRY UPDATE
+                # ---------------------------------------------
 
                 await refresh_runtime_state(
                     websocket,

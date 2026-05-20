@@ -43,3 +43,6 @@ class WebSocketLogger:
 
     async def log_runtime(self, message: str):
         await self.log("[RUNTIME]", message)
+
+    async def log_validator(self, message: str):
+        await self.log("[VALIDATOR]", message)
