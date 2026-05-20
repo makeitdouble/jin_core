@@ -40,10 +40,6 @@ async def initialize_connection(
 
     await websocket.accept()
 
-    await logger.log_system(
-        "WebSocket connected."
-    )
-
     await send_telemetry(
         websocket
     )
@@ -146,7 +142,6 @@ async def websocket_endpoint(
             )
 
     except WebSocketDisconnect:
-
         return
 
     except RuntimeError as error:
