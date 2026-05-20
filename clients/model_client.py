@@ -2,9 +2,14 @@ import httpx
 
 import config
 
-from utils.urls import join_url
+from utils.urls import (
+    join_url,
+)
+
 
 def build_payload(
+    *,
+    model_uid: str,
     system_prompt: str,
     user_prompt: str,
     temperature: float,
@@ -12,6 +17,7 @@ def build_payload(
 ) -> dict:
 
     return {
+        "model": model_uid,
         "messages": [
             {
                 "role": "system",
@@ -20,7 +26,7 @@ def build_payload(
             {
                 "role": "user",
                 "content": user_prompt,
-            }
+            },
         ],
         "temperature": temperature,
         "max_tokens": max_tokens,
@@ -31,29 +37,31 @@ async def ask_model(
     *,
     api_base: str,
     model_uid: str,
-    user_prompt: str,
     system_prompt: str,
+    user_prompt: str,
     timeout: float,
     temperature: float,
     max_tokens: int,
     validate_model: bool = False,
 ) -> str:
 
-    url = join_url(api_base, config.CHAT_ENDPOINT)
-
     payload = build_payload(
-        system_prompt,
-        user_prompt,
-        temperature,
-        max_tokens,
+        model_uid=model_uid,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        temperature=temperature,
+        max_tokens=max_tokens,
     )
 
-    payload["model"] = model_uid
-
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(
+        timeout=timeout,
+    ) as client:
 
         response = await client.post(
-            url,
+            join_url(
+                api_base,
+                config.CHAT_ENDPOINT,
+            ),
             json=payload,
         )
 
@@ -61,40 +69,42 @@ async def ask_model(
 
         result = response.json()
 
-        if validate_model:
+    if validate_model:
 
-            returned_model = result.get("model", "")
-
-            if returned_model != model_uid:
-
-                raise RuntimeError(
-                    f"Wrong model loaded. "
-                    f"Expected: '{model_uid}', "
-                    f"got: '{returned_model}'"
-                )
-
-        content = (
-            result
-            .get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
+        returned_model = result.get(
+            "model",
+            "",
         )
 
-        content = content.strip()
+        if returned_model != model_uid:
 
-        if not content:
-
-            reasoning = (
-                result
-                .get("choices", [{}])[0]
-                .get("message", {})
-                .get("reasoning_content", "")
-                .strip()
+            raise RuntimeError(
+                f"Wrong model loaded. "
+                f"Expected '{model_uid}', "
+                f"got '{returned_model}'"
             )
 
-            if reasoning:
-                content = reasoning
+    message = (
+        result
+        .get("choices", [{}])[0]
+        .get("message", {})
+    )
 
+    content = (
+        message.get(
+            "content",
+            "",
+        ).strip()
+    )
+
+    if content:
         return content
 
+    reasoning = (
+        message.get(
+            "reasoning_content",
+            "",
+        ).strip()
+    )
 
+    return reasoning
