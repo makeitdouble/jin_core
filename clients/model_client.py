@@ -1,3 +1,5 @@
+import json
+
 import httpx
 
 import config
@@ -14,6 +16,7 @@ def build_payload(
     user_prompt: str,
     temperature: float,
     max_tokens: int,
+    stream: bool = False,
 ) -> dict:
 
     return {
@@ -30,6 +33,7 @@ def build_payload(
         ],
         "temperature": temperature,
         "max_tokens": max_tokens,
+        "stream": stream,
     }
 
 
@@ -108,3 +112,85 @@ async def ask_model(
     )
 
     return reasoning
+
+
+async def ask_model_stream(
+    *,
+    api_base: str,
+    model_uid: str,
+    system_prompt: str,
+    user_prompt: str,
+    timeout: float,
+    temperature: float,
+    max_tokens: int,
+):
+
+    payload = build_payload(
+        model_uid=model_uid,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        stream=True,
+    )
+
+    async with httpx.AsyncClient(
+        timeout=None,
+    ) as client:
+
+        async with client.stream(
+            "POST",
+            join_url(
+                api_base,
+                config.CHAT_ENDPOINT,
+            ),
+            json=payload,
+        ) as response:
+
+            response.raise_for_status()
+
+            async for line in response.aiter_lines():
+
+                if not line:
+                    continue
+
+                if not line.startswith(
+                    "data:"
+                ):
+                    continue
+
+                data = line.removeprefix(
+                    "data:"
+                ).strip()
+
+                if data == "[DONE]":
+                    break
+
+                try:
+
+                    chunk = json.loads(
+                        data
+                    )
+
+                except Exception:
+                    continue
+
+                choices = chunk.get(
+                    "choices",
+                    []
+                )
+
+                if not choices:
+                    continue
+
+                delta = choices[0].get(
+                    "delta",
+                    {}
+                )
+
+                content = delta.get(
+                    "content"
+                )
+
+                if content:
+                    yield content

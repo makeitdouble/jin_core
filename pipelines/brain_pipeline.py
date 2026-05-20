@@ -1,7 +1,10 @@
+import uuid
+
 import config
 
 from clients.brain_client import (
     ask_brain,
+    ask_brain_stream,
 )
 
 from utils.tokens import (
@@ -56,13 +59,48 @@ class BrainPipeline:
                 get_brain_runtime_config()
             )
 
+            response = ""
+
             try:
 
-                response = (
-                    await ask_brain(
+                message_id = str(
+                    uuid.uuid4()
+                )
+
+                await websocket.send_json({
+                    "type": "message_start",
+                    "message_id": (
+                        message_id
+                    ),
+                    "role": (
+                        "service"
+                        if config.USE_SERVICE_AS_BRAIN
+                        else "brain"
+                    ),
+                })
+
+                async for chunk in (
+                    ask_brain_stream(
                         user_text
                     )
-                )
+                ):
+
+                    response += chunk
+
+                    await websocket.send_json({
+                        "type": "message_chunk",
+                        "message_id": (
+                            message_id
+                        ),
+                        "chunk": chunk,
+                    })
+
+                await websocket.send_json({
+                    "type": "message_end",
+                    "message_id": (
+                        message_id
+                    ),
+                })
 
                 await refresh_runtime_state(
                     websocket,
@@ -112,16 +150,6 @@ class BrainPipeline:
                 )
 
                 return
-
-            await websocket.send_json({
-                "type": "message",
-                "role": (
-                    "service"
-                    if config.USE_SERVICE_AS_BRAIN
-                    else "brain"
-                ),
-                "text": response,
-            })
 
             await logger.log_runtime(
                 "Brain pipeline complete."

@@ -38,6 +38,19 @@ userInput.addEventListener("keydown", function (e) {
 });
 
 
+// ROLE RESOLVER
+
+function resolveMessageRole(data) {
+
+  if (data.role) {
+    return data.role.toLowerCase();
+  }
+
+  return "brain";
+
+}
+
+
 // WS MESSAGE
 
 ws.onmessage = function (event) {
@@ -100,7 +113,7 @@ ws.onmessage = function (event) {
   }
 
   // -----------------------------
-  // CHAT MESSAGE
+  // NORMAL MESSAGE
   // -----------------------------
 
   if (data.type === "message") {
@@ -113,22 +126,64 @@ ws.onmessage = function (event) {
       data.text
     );
 
+    return;
+
+  }
+
+  // -----------------------------
+  // STREAM START
+  // -----------------------------
+
+  if (
+    data.type
+    === "message_start"
+  ) {
+
+    startStreamMessage(
+      data.message_id,
+      resolveMessageRole(data)
+    );
+
+    return;
+
+  }
+
+  // -----------------------------
+  // STREAM CHUNK
+  // -----------------------------
+
+  if (
+    data.type
+    === "message_chunk"
+  ) {
+
+    appendStreamChunk(
+      data.message_id,
+      data.chunk
+    );
+
+    return;
+
+  }
+
+  // -----------------------------
+  // STREAM END
+  // -----------------------------
+
+  if (
+    data.type
+    === "message_end"
+  ) {
+
+    finishStreamMessage(
+      data.message_id
+    );
+
+    return;
+
   }
 
 };
-
-
-// ROLE RESOLVER
-
-function resolveMessageRole(data) {
-
-  if (data.role) {
-    return data.role.toLowerCase();
-  }
-
-  return "brain";
-
-}
 
 
 // SEND MESSAGE
@@ -177,7 +232,3 @@ ws.onclose = () =>
     "[SYSTEM]",
     "WebSocket disconnected."
   );
-
-console.log(
-  "WS CONNECTED"
-);

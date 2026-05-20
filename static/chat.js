@@ -2,6 +2,12 @@ const chatHistory =
   document.getElementById("chat-history");
 
 
+const streamMessages =
+  new Map();
+
+
+// ESCAPE HTML
+
 function escapeHtml(text) {
 
   return text
@@ -45,9 +51,9 @@ function getRoleConfig(role) {
 }
 
 
-// CHAT MESSAGE
+// CREATE MESSAGE ELEMENT
 
-function appendChatMessage(role, text) {
+function createMessageElement(role) {
 
   const config =
     getRoleConfig(role);
@@ -58,17 +64,113 @@ function appendChatMessage(role, text) {
   msgDiv.className =
     "flex items-start gap-3 max-w-3xl";
 
+  const pre =
+    document.createElement("pre");
+
+  pre.className =
+    "text-zinc-50 leading-relaxed whitespace-pre-wrap overflow-x-auto font-mono text-[13px]";
+
+  const bubble =
+    document.createElement("div");
+
+  bubble.className =
+    `${config.bgClass} px-4 py-3 rounded-xl border shadow-sm`;
+
+  bubble.appendChild(pre);
+
   msgDiv.innerHTML = `
-        <div class="h-6 w-6 rounded bg-zinc-800 border border-zinc-700 flex items-center justify-center text-[10px] text-zinc-400 shrink-0">
-            ${config.avatar}
-        </div>
+    <div class="h-6 w-6 rounded bg-zinc-800 border border-zinc-700 flex items-center justify-center text-[10px] text-zinc-400 shrink-0">
+      ${config.avatar}
+    </div>
+  `;
 
-        <div class="${config.bgClass} px-4 py-3 rounded-xl border shadow-sm">
-            <pre class="text-zinc-50 leading-relaxed whitespace-pre-wrap overflow-x-auto font-mono text-[13px]">${escapeHtml(text)}</pre>
-        </div>
-    `;
+  msgDiv.appendChild(
+    bubble
+  );
 
-  chatHistory.appendChild(msgDiv);
+  chatHistory.appendChild(
+    msgDiv
+  );
+
+  chatHistory.scrollTop =
+    chatHistory.scrollHeight;
+
+  return pre;
+
+}
+
+
+// NORMAL MESSAGE
+
+function appendChatMessage(
+  role,
+  text
+) {
+
+  const pre =
+    createMessageElement(role);
+
+  pre.innerHTML =
+    escapeHtml(text);
+
+}
+
+
+// STREAM START
+
+function startStreamMessage(
+  messageId,
+  role
+) {
+
+  streamMessages.set(
+    messageId,
+    {
+      role: role,
+      element: null,
+      text: "",
+    }
+  );
+
+}
+
+
+// STREAM CHUNK
+
+function appendStreamChunk(
+  messageId,
+  chunk
+) {
+
+  const stream =
+    streamMessages.get(
+      messageId
+    );
+
+  if (!stream) {
+    return;
+  }
+
+
+// CREATE MESSAGE ONLY
+// AFTER FIRST CHUNK
+
+  if (!stream.element) {
+
+    stream.element =
+      createMessageElement(
+        stream.role
+      );
+
+  }
+
+
+  stream.text += chunk;
+
+  stream.element.innerHTML =
+    escapeHtml(
+      stream.text
+    );
 
   chatHistory.scrollTop =
     chatHistory.scrollHeight;
@@ -76,5 +178,27 @@ function appendChatMessage(role, text) {
 }
 
 
+// STREAM END
+
+function finishStreamMessage(
+  messageId
+) {
+
+  streamMessages.delete(
+    messageId
+  );
+
+}
+
+
 window.appendChatMessage =
   appendChatMessage;
+
+window.startStreamMessage =
+  startStreamMessage;
+
+window.appendStreamChunk =
+  appendStreamChunk;
+
+window.finishStreamMessage =
+  finishStreamMessage;

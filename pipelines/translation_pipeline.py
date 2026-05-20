@@ -2,6 +2,7 @@ import config
 
 from clients.brain_client import (
     ask_brain,
+    ask_brain_stream,
 )
 
 from clients.translation_client import (
@@ -92,11 +93,6 @@ class TranslationPipeline:
 
             if translated_response is None:
                 return
-
-            await self.send_response(
-                websocket,
-                translated_response,
-            )
 
             await logger.log_runtime(
                 "Translation pipeline complete."
@@ -266,13 +262,50 @@ class TranslationPipeline:
             get_brain_runtime_config()
         )
 
+        response = ""
+
         try:
 
-            brain_response_en = (
-                await ask_brain(
+            import uuid
+
+            message_id = str(
+                uuid.uuid4()
+            )
+
+            await websocket.send_json({
+                "type": "message_start",
+                "message_id": (
+                    message_id
+                ),
+                "role": (
+                    "service"
+                    if config.USE_SERVICE_AS_BRAIN
+                    else "brain"
+                ),
+            })
+
+            async for chunk in (
+                ask_brain_stream(
                     text_en
                 )
-            )
+            ):
+
+                response += chunk
+
+                await websocket.send_json({
+                    "type": "message_chunk",
+                    "message_id": (
+                        message_id
+                    ),
+                    "chunk": chunk,
+                })
+
+            await websocket.send_json({
+                "type": "message_end",
+                "message_id": (
+                    message_id
+                ),
+            })
 
             await refresh_runtime_state(
                 websocket,
@@ -284,7 +317,7 @@ class TranslationPipeline:
                 used_tokens=(
                     estimate_tokens(
                         text_en
-                        + brain_response_en
+                        + response
                     )
                 ),
                 max_tokens=(
@@ -302,10 +335,10 @@ class TranslationPipeline:
                     "log_method"
                 ],
             )(
-                brain_response_en
+                response
             )
 
-            return brain_response_en
+            return response
 
         except Exception as error:
 
