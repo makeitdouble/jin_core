@@ -35,8 +35,13 @@ async def translate(
     text: str,
     source_language: str,
     target_language: str,
-    stage: str,
 ) -> str:
+
+    stage = (
+        f"{source_language}"
+        f"_to_"
+        f"{target_language}"
+    ).lower()
 
     try:
 
@@ -85,27 +90,3 @@ async def translate(
         raise RuntimeError(
             formatted_error
         )
-
-
-async def translate_ru_to_en(
-    text: str,
-) -> str:
-
-    return await translate(
-        text=text,
-        source_language="Russian",
-        target_language="English",
-        stage="translate_ru_to_en",
-    )
-
-
-async def translate_en_to_ru(
-    text: str,
-) -> str:
-
-    return await translate(
-        text=text,
-        source_language="English",
-        target_language="Russian",
-        stage="translate_en_to_ru",
-    )

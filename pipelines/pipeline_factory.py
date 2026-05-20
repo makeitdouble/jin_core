@@ -8,6 +8,10 @@ from pipelines.service_pipeline import (
     ServicePipeline,
 )
 
+from pipelines.brain_pipeline import (
+    BrainPipeline,
+)
+
 from utils.language import (
     contains_cyrillic,
 )
@@ -21,4 +25,4 @@ def get_pipeline(
 
         return TranslationPipeline()
 
-    return ServicePipeline()
+    return BrainPipeline()

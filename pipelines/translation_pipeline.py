@@ -5,8 +5,7 @@ from clients.brain_client import (
 )
 
 from clients.translation_client import (
-    translate_ru_to_en,
-    translate_en_to_ru,
+    translate,
 )
 
 from utils.tokens import (
@@ -30,7 +29,8 @@ from utils.ws_errors import (
     handle_fatal_pipeline_error,
 )
 
-TRANSLATE_ANSWER = False
+TRANSLATE_RESPONSE = False
+
 
 class TranslationPipeline:
 
@@ -42,6 +42,10 @@ class TranslationPipeline:
     ):
 
         try:
+
+            await logger.log_runtime(
+                            "Translation pipeline started."
+                        )
 
             user_text_ru = (
                 message_data.get(
@@ -78,20 +82,20 @@ class TranslationPipeline:
             if brain_response_en is None:
                 return
 
-            final_response = (
-                await self.build_final_response(
+            translated_response = (
+                await self.translate_response(
                     websocket,
                     logger,
                     brain_response_en,
                 )
             )
 
-            if final_response is None:
+            if translated_response is None:
                 return
 
             await self.send_response(
                 websocket,
-                final_response,
+                translated_response,
             )
 
             await logger.log_runtime(
@@ -110,27 +114,61 @@ class TranslationPipeline:
             )
 
     # ---------------------------------------------------------
-    # STEP 1: INPUT TRANSLATION
+    # TRANSLATE TEXT
     # ---------------------------------------------------------
 
-    async def translate_input(
+    async def translate_text(
         self,
         websocket,
         logger,
-        user_text_ru: str,
+        *,
+        text: str,
+        source_language: str,
+        target_language: str,
+        public_error_message: str,
+        cleanup_output: bool = False,
     ) -> str | None:
 
         await logger.log_runtime(
-            "Translating RU -> EN..."
+            f"Translating "
+            f"{source_language} -> "
+            f"{target_language}"
         )
 
         try:
 
-            text_en = (
-                await translate_ru_to_en(
-                    user_text_ru
+            translated_text = (
+                await translate(
+                    text=text,
+                    source_language=(
+                        source_language
+                    ),
+                    target_language=(
+                        target_language
+                    ),
                 )
             )
+
+            if cleanup_output:
+
+                translated_text, removed_chunks = (
+                    cleanup_text(
+                        translated_text
+                    )
+                )
+
+                if removed_chunks:
+
+                    removed_text = "\n".join(
+                        f"  - {repr(chunk)}"
+                        for chunk
+                        in removed_chunks
+                    )
+
+                    await logger.log_runtime(
+                        "Removed junk tokens:\n"
+                        f"{removed_text}"
+                    )
 
             await refresh_runtime_state(
                 websocket,
@@ -138,10 +176,10 @@ class TranslationPipeline:
                     config
                     .TRANSLATOR_MODEL_UID
                 ),
-                used_tokens=(
+                add_tokens=(
                     estimate_tokens(
-                        user_text_ru
-                        + text_en
+                        text
+                        + translated_text
                     )
                 ),
                 max_tokens=(
@@ -152,11 +190,23 @@ class TranslationPipeline:
                 status="online",
             )
 
-            await logger.log_translation(
-                f"EN input: '{text_en}'"
+            source_short = (
+                source_language[:2]
+                .upper()
             )
 
-            return text_en
+            target_short = (
+                target_language[:2]
+                .upper()
+            )
+
+            await logger.log_translation(
+                f"{source_short} -> "
+                f"{target_short}: "
+                f"'{translated_text}'"
+            )
+
+            return translated_text
 
         except Exception as error:
 
@@ -168,7 +218,7 @@ class TranslationPipeline:
                     .TRANSLATOR_MODEL_UID
                 ),
                 public_message=(
-                    "Prompt translation failed."
+                    public_error_message
                 ),
                 exception=error,
             )
@@ -176,7 +226,29 @@ class TranslationPipeline:
             return None
 
     # ---------------------------------------------------------
-    # STEP 2: BRAIN
+    # STEP 1: INPUT TRANSLATION
+    # ---------------------------------------------------------
+
+    async def translate_input(
+        self,
+        websocket,
+        logger,
+        user_text_ru: str,
+    ) -> str | None:
+
+        return await self.translate_text(
+            websocket,
+            logger,
+            text=user_text_ru,
+            source_language="Russian",
+            target_language="English",
+            public_error_message=(
+                "Prompt translation failed."
+            ),
+        )
+
+    # ---------------------------------------------------------
+    # STEP 2: ASK BRAIN
     # ---------------------------------------------------------
 
     async def ask_brain(
@@ -187,7 +259,7 @@ class TranslationPipeline:
     ) -> str | None:
 
         await logger.log_runtime(
-            "Sending context to brain..."
+            "Send request to brain..."
         )
 
         brain_runtime = (
@@ -257,84 +329,27 @@ class TranslationPipeline:
     # STEP 3: OUTPUT TRANSLATION
     # ---------------------------------------------------------
 
-    async def build_final_response(
+    async def translate_response(
         self,
         websocket,
         logger,
         brain_response_en: str,
     ) -> str | None:
 
-        if not TRANSLATE_ANSWER:
+        if not TRANSLATE_RESPONSE:
             return brain_response_en
 
-        await logger.log_runtime(
-            "Translating EN -> RU..."
+        return await self.translate_text(
+            websocket,
+            logger,
+            text=brain_response_en,
+            source_language="English",
+            target_language="Russian",
+            public_error_message=(
+                "Answer translation failed."
+            ),
+            cleanup_output=True,
         )
-
-        try:
-
-            brain_response_ru = (
-                await translate_en_to_ru(
-                    brain_response_en
-                )
-            )
-
-            brain_response_ru, removed_chunks = (
-                cleanup_text(
-                    brain_response_ru
-                )
-            )
-
-            if removed_chunks:
-
-                removed_text = "\n".join(
-                    f"  - {repr(chunk)}"
-                    for chunk in removed_chunks
-                )
-
-                await logger.log_runtime(
-                    "Removed junk tokens:\n"
-                    f"{removed_text}"
-                )
-
-            await refresh_runtime_state(
-                websocket,
-                runtime_id=(
-                    config
-                    .TRANSLATOR_MODEL_UID
-                ),
-                add_tokens=(
-                    estimate_tokens(
-                        brain_response_en
-                        + brain_response_ru
-                    )
-                ),
-                last_error=None,
-                status="online",
-            )
-
-            await logger.log_translation(
-                f"RU output: '{brain_response_ru}'"
-            )
-
-            return brain_response_ru
-
-        except Exception as error:
-
-            await handle_pipeline_error(
-                websocket,
-                logger,
-                runtime_id=(
-                    config
-                    .TRANSLATOR_MODEL_UID
-                ),
-                public_message=(
-                    "Answer translation failed."
-                ),
-                exception=error,
-            )
-
-            return None
 
     # ---------------------------------------------------------
     # STEP 4: SEND RESPONSE
