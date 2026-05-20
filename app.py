@@ -1,8 +1,8 @@
+from contextlib import asynccontextmanager
+
 from fastapi import (
     FastAPI,
     Request,
-    WebSocket,
-    WebSocketDisconnect,
 )
 
 from fastapi.responses import (
@@ -19,7 +19,6 @@ from fastapi.templating import (
 
 import asyncio
 import httpx
-import json
 
 import config
 
@@ -27,30 +26,43 @@ from utils.urls import (
     join_url,
 )
 
-from logger import (
-    WebSocketLogger,
+from websocket import (
+    websocket_router,
 )
 
-from pipelines.pipeline_factory import (
-    get_pipeline,
-)
 
-from utils.telemetry import (
-    send_telemetry,
-)
+# ---------------------------------------------------------
+# APP LIFESPAN
+# ---------------------------------------------------------
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+
+    app.state.http_client = httpx.AsyncClient(
+        timeout=2.5,
+    )
+
+    yield
+
+    await app.state.http_client.aclose()
+
+
+app = FastAPI(
+    lifespan=lifespan,
+)
 
 templates = Jinja2Templates(
-    directory="templates"
+    directory="templates",
 )
 
 app.mount(
     "/static",
-    StaticFiles(
-        directory="static"
-    ),
+    StaticFiles(directory="static"),
     name="static",
+)
+
+app.include_router(
+    websocket_router
 )
 
 
@@ -78,51 +90,51 @@ async def index(
 # API STATUS
 # ---------------------------------------------------------
 
+async def check_api_status(
+    client: httpx.AsyncClient,
+    base_url: str,
+) -> bool:
+
+    try:
+
+        response = await client.get(
+            join_url(
+                base_url,
+                config.MODELS_ENDPOINT,
+            )
+        )
+
+        return response.status_code == 200
+
+    except (
+        httpx.HTTPError,
+        asyncio.TimeoutError,
+    ):
+
+        return False
+
+
 @app.get("/api/status")
 async def api_status():
 
-    async def check(
-        base_url,
-    ):
-
-        try:
-
-            async with httpx.AsyncClient(
-                timeout=2.5
-            ) as client:
-
-                response = await client.get(
-                    join_url(
-                        base_url,
-                        config.MODELS_ENDPOINT,
-                    )
-                )
-
-                return (
-                    response.status_code
-                    == 200
-                )
-
-        except Exception:
-
-            return False
+    client = app.state.http_client
 
     (
         brain_status,
         service_status,
         translator_status,
     ) = await asyncio.gather(
-
-        check(
-            config.BRAIN_API_BASE
+        check_api_status(
+            client,
+            config.BRAIN_API_BASE,
         ),
-
-        check(
-            config.SERVICE_API_BASE
+        check_api_status(
+            client,
+            config.SERVICE_API_BASE,
         ),
-
-        check(
-            config.TRANSLATOR_API_BASE
+        check_api_status(
+            client,
+            config.TRANSLATOR_API_BASE,
         ),
     )
 
@@ -131,82 +143,6 @@ async def api_status():
         "service": service_status,
         "translator": translator_status,
     }
-
-
-# ---------------------------------------------------------
-# WEBSOCKET CHAT
-# ---------------------------------------------------------
-
-@app.websocket("/ws/chat")
-async def websocket_endpoint(
-    websocket: WebSocket,
-):
-
-    await websocket.accept()
-
-    logger = WebSocketLogger(
-        websocket
-    )
-
-    await logger.log_system(
-        "WebSocket connected."
-    )
-
-    await send_telemetry(
-        websocket
-    )
-
-    try:
-
-        while True:
-
-            raw_data = (
-                await websocket.receive_text()
-            )
-
-            try:
-
-                message_data = json.loads(
-                    raw_data
-                )
-
-            except json.JSONDecodeError:
-
-                await logger.log_error(
-                    "Invalid JSON payload."
-                )
-
-                continue
-
-            user_text = (
-                message_data.get(
-                    "text",
-                    ""
-                )
-            )
-
-            pipeline = get_pipeline(
-                user_text
-            )
-
-            await pipeline.run(
-                websocket=websocket,
-                logger=logger,
-                message_data=message_data,
-            )
-
-    except WebSocketDisconnect:
-
-        await logger.log_system(
-            "Client disconnected."
-        )
-
-    except Exception as error:
-
-        await logger.log_error(
-            "WebSocket session error: "
-            f"{error}"
-        )
 
 
 # ---------------------------------------------------------
