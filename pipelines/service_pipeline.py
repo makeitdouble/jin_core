@@ -45,7 +45,7 @@ class ServicePipeline:
                 return
 
             await logger.log_runtime(
-                "SERVICE pipeline enabled."
+                "SERVICE pipeline started."
             )
 
             try:

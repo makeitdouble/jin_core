@@ -86,4 +86,4 @@ updateRuntime();
 
 // LOOP
 
-setInterval(updateRuntime, 30000);
+setInterval(updateRuntime, 240000);
