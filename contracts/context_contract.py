@@ -13,16 +13,47 @@ class ContextContract:
 
     def to_xml(self) -> str:
 
-        raw_data = asdict(self)
+        raw_data = asdict(
+            self
+        )
 
-        data = {k: escape(str(v)) for k, v in raw_data.items()}
+        data = {
+            key: escape(str(value))
+            for key, value
+            in raw_data.items()
+            if value not in (
+                "",
+                None,
+            )
+        }
 
-        return f"""
-<CONTEXT_INTERFACE>
-    <RUNTIME_STATE>{data['system_state']}</RUNTIME_STATE>
-    <TIMESTAMP>{data['timestamp']}</TIMESTAMP>
-    <COMPRESSED_HISTORY>{data['compressed_history']}</COMPRESSED_HISTORY>
-    <ACTIVE_USER_INPUT>{data['user_input']}</ACTIVE_USER_INPUT>
-    <ORIGINAL_USER_INPUT>{data['original_user_input']}</ORIGINAL_USER_INPUT>
-</CONTEXT_INTERFACE>
-""".strip()
+        fields = []
+
+        field_mapping = {
+            "system_state": "RUNTIME_STATE",
+            "timestamp": "TIMESTAMP",
+            "compressed_history": "COMPRESSED_HISTORY",
+            "user_input": "ACTIVE_USER_INPUT",
+            "original_user_input": "ORIGINAL_USER_INPUT",
+        }
+
+        for key, xml_tag in field_mapping.items():
+
+            value = data.get(key)
+
+            if not value:
+                continue
+
+            fields.append(
+                f"<{xml_tag}>{value}</{xml_tag}>"
+            )
+
+        fields_xml = "\n    ".join(
+            fields
+        )
+
+        return (
+            "<CONTEXT_INTERFACE>\n"
+            f"    {fields_xml}\n"
+            "</CONTEXT_INTERFACE>"
+        )
