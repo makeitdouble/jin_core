@@ -7,64 +7,42 @@ class RuntimeState:
 
         self.states = {}
 
-        self.register_runtime(
-            runtime_id=(
-                config
-                .SERVICE_MODEL_UID
+        runtimes = [
+            (
+                config.SERVICE_MODEL_UID,
+                "service",
+                config.SERVICE_CONTEXT_WINDOW,
             ),
-            label="service",
-            max_tokens=(
-                config
-                .SERVICE_CONTEXT_WINDOW
+            (
+                config.TRANSLATOR_MODEL_UID,
+                "translator",
+                config.TRANSLATOR_CONTEXT_WINDOW,
             ),
-        )
-
-        self.register_runtime(
-            runtime_id=(
-                config
-                .TRANSLATOR_MODEL_UID
-            ),
-            label="translator",
-            max_tokens=(
-                config
-                .TRANSLATOR_CONTEXT_WINDOW
-            ),
-        )
+        ]
 
         if not config.USE_SERVICE_AS_BRAIN:
-
-            self.register_runtime(
-                runtime_id=(
-                    config
-                    .BRAIN_MODEL_UID
-                ),
-                label="brain",
-                max_tokens=(
-                    config
-                    .BRAIN_CONTEXT_WINDOW
-                ),
+            runtimes.append(
+                (
+                    config.BRAIN_MODEL_UID,
+                    "brain",
+                    config.BRAIN_CONTEXT_WINDOW,
+                )
             )
 
-    def register_runtime(
-        self,
-        *,
-        runtime_id: str,
-        label: str,
-        max_tokens: int,
-    ):
+        for runtime_id, label, max_tokens in runtimes:
 
-        if runtime_id in self.states:
-            return
+            if runtime_id in self.states:
+                continue
 
-        self.states[runtime_id] = {
-            "id": runtime_id,
-            "label": label,
-            "model": runtime_id,
-            "used_tokens": 0,
-            "max_tokens": max_tokens,
-            "status": "online",
-            "last_error": None,
-        }
+            self.states[runtime_id] = {
+                "id": runtime_id,
+                "label": label,
+                "model": runtime_id,
+                "used_tokens": 0,
+                "max_tokens": max_tokens,
+                "status": "online",
+                "last_error": None,
+            }
 
     def update_runtime_state(
         self,
