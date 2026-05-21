@@ -6,20 +6,34 @@
 # - repeated word loops
 # - repeated sentences
 # - repeated paragraphs
-#
+# - provider artifact cleanup
 #
 # ---------------------------------------------------------
 
+# ---------------------------------------------------------
+# HTML TAG SANITIZATION
+# ---------------------------------------------------------
+
+HTML_TAGS = [
+
+    "textarea",
+    "div",
+    "span",
+    "p",
+    "pre",
+    "code",
+    "html",
+    "body",
+    "head",
+
+]
 
 # ---------------------------------------------------------
 # VALIDATION THRESHOLDS
 # ---------------------------------------------------------
 
-# How many recent words to keep in memory.
 WORD_WINDOW_SIZE = 30
 
-# How many repeated consecutive words
-# trigger repetition detection.
 MAX_REPEAT_WORDS = 8
 
 TRUNCATE = 10
@@ -41,28 +55,221 @@ class StreamValidator:
 
         self.last_failure_preview = ""
 
+        self.stream_started = False
+
+        self.failure_emitted = False
+
+        self.leading_tag_buffer = ""
+
+        self.leading_cleanup_done = False
+
+        self.visible_content_started = False
+
+        self.leading_buffer = ""
+
+        self.cleanup_events = []
+
     # -----------------------------------------------------
-    # FILTER STREAM CHUNK
+    # REMOVE LEADING ARTIFACT
     # -----------------------------------------------------
 
-    def filter_chunk(
+    def remove_leading_artifact(
+        self,
+        chunk: str,
+        artifacts: list[str],
+    ):
+
+        if self.stream_started:
+            return chunk
+
+        self.leading_buffer += chunk
+
+        normalized = (
+            "".join(
+                self.leading_buffer
+                .lower()
+                .split()
+            )
+        )
+
+        normalized_artifacts = [
+            "".join(
+                artifact
+                .strip()
+                .lower()
+                .split()
+            )
+            for artifact in artifacts
+        ]
+
+        # -------------------------------------------------
+        # FULL MATCH
+        # -------------------------------------------------
+
+        for artifact in normalized_artifacts:
+
+            if normalized.startswith(
+                artifact
+            ):
+
+                artifact_length = len(artifact)
+
+                removed = (
+                    self.leading_buffer[
+                        :artifact_length
+                    ]
+                )
+
+                remaining = (
+                    self.leading_buffer[
+                        artifact_length:
+                    ]
+                )
+
+                self.last_failure_reason = (
+                    "Leading artifact removed."
+                )
+
+                self.last_failure_preview = (
+                    removed
+                )
+
+                return remaining
+
+        # -------------------------------------------------
+        # PARTIAL MATCH
+        # -------------------------------------------------
+
+        for artifact in normalized_artifacts:
+
+            if artifact.startswith(
+                normalized
+            ):
+
+                return None
+
+        # -------------------------------------------------
+        # CLEAN START
+        # -------------------------------------------------
+
+        self.stream_started = True
+
+        clean = self.leading_buffer
+
+        self.leading_buffer = ""
+
+        return clean
+
+    # -----------------------------------------------------
+    # SANITIZE ARTIFACTS
+    # -----------------------------------------------------
+
+    def sanitize_artifacts(
         self,
         chunk: str,
     ):
 
-        """
-        Validate streamed chunk.
+        # -------------------------------------------------
+        # CLEANUP ALREADY FINISHED
+        # -------------------------------------------------
 
-        Returns:
-            (
-                chunk,
-                is_valid,
+        if self.leading_cleanup_done:
+            return chunk
+
+        self.leading_tag_buffer += chunk
+
+        working = self.leading_tag_buffer
+
+        # -------------------------------------------------
+        # REMOVE LEADING TAGS ONLY
+        # -------------------------------------------------
+
+        while True:
+
+            stripped = working.lstrip()
+
+            # ---------------------------------------------
+            # NORMAL CONTENT STARTED
+            # ---------------------------------------------
+
+            if not stripped.startswith("<"):
+
+                self.leading_cleanup_done = True
+
+                self.leading_tag_buffer = ""
+
+                return working
+
+            closing = stripped.find(">")
+
+            # ---------------------------------------------
+            # INCOMPLETE TAG
+            # ---------------------------------------------
+
+            if closing == -1:
+
+                return None
+
+            full_tag = stripped[:closing + 1]
+
+            normalized = (
+                full_tag
+                .lower()
+                .replace("<", "")
+                .replace(">", "")
+                .replace("/", "")
+                .strip()
+                .split()[0]
             )
-        """
 
-        # -------------------------------------------------
-        # WORD LOOP DETECTION
-        # -------------------------------------------------
+            # ---------------------------------------------
+            # UNKNOWN TAG
+            # ---------------------------------------------
+
+            if normalized not in HTML_TAGS:
+
+                self.leading_cleanup_done = True
+
+                self.leading_tag_buffer = ""
+
+                return working
+
+            # ---------------------------------------------
+            # REMOVE KNOWN TAG
+            # ---------------------------------------------
+
+            self.cleanup_events.append({
+                "reason": "HTML tag removed.",
+                "preview": full_tag,
+            })
+
+            tag_start = working.find(full_tag)
+
+            working = (
+                working[:tag_start]
+                + working[
+                    tag_start + len(full_tag):
+                ]
+            )
+
+            self.leading_tag_buffer = working
+
+            # ---------------------------------------------
+            # STILL ONLY TAGS
+            # ---------------------------------------------
+
+            if not working.strip():
+
+                return None
+
+    # -----------------------------------------------------
+    # VALIDATE WORD LOOPS
+    # -----------------------------------------------------
+
+    def validate_word_loops(
+        self,
+        chunk: str,
+    ):
 
         words = chunk.split()
 
@@ -123,18 +330,22 @@ class StreamValidator:
                         preview[:TRUNCATE]
                     )
 
-                    return (
-                        "",
-                        False,
-                    )
+                    return False
 
-        # -------------------------------------------------
-        # SENTENCE TRACKING
-        # -------------------------------------------------
+        return True
+
+    # -----------------------------------------------------
+    # VALIDATE SENTENCES
+    # -----------------------------------------------------
+
+    def validate_sentences(
+        self,
+        chunk: str,
+    ):
 
         self.current_sentence += chunk
 
-        if any(
+        if not any(
             char in chunk
             for char in [
                 ".",
@@ -144,74 +355,196 @@ class StreamValidator:
             ]
         ):
 
-            sentence = (
-                self.current_sentence
-                .strip()
-                .lower()
-                .rstrip(".!? \n")
+            return True
+
+        sentence = (
+            self.current_sentence
+            .strip()
+            .lower()
+            .rstrip(".!? \n")
+        )
+
+        if (
+            sentence
+            in self.history_sentences
+        ):
+
+            self.last_failure_reason = (
+                "Repeated sentence detected."
             )
 
+            self.last_failure_preview = (
+                sentence[:TRUNCATE]
+            )
+
+            return False
+
+        self.history_sentences.add(
+            sentence
+        )
+
+        self.current_sentence = ""
+
+        return True
+
+    # -----------------------------------------------------
+    # VALIDATE PARAGRAPHS
+    # -----------------------------------------------------
+
+    def validate_paragraphs(
+        self,
+        chunk: str,
+    ):
+
+        if "\n" not in chunk:
+            return True
+
+        paragraphs = [
+            p.strip().lower()
+            for p in (
+                chunk.split("\n")
+            )
+            if p.strip()
+        ]
+
+        for paragraph in paragraphs:
+
             if (
-                sentence
-                in self.history_sentences
+                paragraph
+                in self.history_paragraphs
             ):
 
                 self.last_failure_reason = (
-                    "Repeated sentence detected."
+                    "Repeated paragraph detected."
                 )
 
                 self.last_failure_preview = (
-                    sentence[:TRUNCATE]
+                    paragraph[:TRUNCATE]
                 )
+
+                return False
+
+            self.history_paragraphs.add(
+                paragraph
+            )
+
+        return True
+
+    # -----------------------------------------------------
+    # FILTER STREAM CHUNK
+    # -----------------------------------------------------
+
+    def filter_chunk(
+        self,
+        chunk: str,
+    ):
+
+        """
+        Validate streamed chunk.
+
+        Returns:
+            (
+                chunk,
+                is_valid,
+            )
+        """
+
+        # -------------------------------------------------
+        # SANITIZE ARTIFACTS
+        # -------------------------------------------------
+
+        chunk = (
+            self.sanitize_artifacts(
+                chunk
+            )
+        )
+
+        # -------------------------------------------------
+        # WAIT FOR REAL CONTENT
+        # -------------------------------------------------
+
+        if chunk is None:
+
+            return (
+                "",
+                True,
+            )
+
+        # -------------------------------------------------
+        # EMPTY CHUNK AFTER SANITIZATION
+        # -------------------------------------------------
+
+        if not chunk.strip():
+
+            # still waiting for real text
+            # after removing leading tags
+
+            if not self.leading_cleanup_done:
 
                 return (
                     "",
-                    False,
+                    True,
                 )
 
-            self.history_sentences.add(
-                sentence
+            self.last_failure_reason = (
+                "Empty chunk after sanitization."
             )
 
-            self.current_sentence = ""
+            self.last_failure_preview = ""
+
+            return (
+                "",
+                False,
+            )
 
         # -------------------------------------------------
-        # PARAGRAPH TRACKING
+        # WORD LOOPS
         # -------------------------------------------------
 
-        if "\n" in chunk:
+        if not (
+            self.validate_word_loops(
+                chunk
+            )
+        ):
 
-            paragraphs = [
-                p.strip().lower()
-                for p in (
-                    chunk.split("\n")
-                )
-                if p.strip()
-            ]
+            return (
+                "",
+                False,
+            )
 
-            for paragraph in paragraphs:
+        # -------------------------------------------------
+        # SENTENCES
+        # -------------------------------------------------
 
-                if (
-                    paragraph
-                    in self.history_paragraphs
-                ):
+        if not (
+            self.validate_sentences(
+                chunk
+            )
+        ):
 
-                    self.last_failure_reason = (
-                        "Repeated paragraph detected."
-                    )
+            return (
+                "",
+                False,
+            )
 
-                    self.last_failure_preview = (
-                        paragraph[:TRUNCATE]
-                    )
+        # -------------------------------------------------
+        # PARAGRAPHS
+        # -------------------------------------------------
 
-                    return (
-                        "",
-                        False,
-                    )
+        if not (
+            self.validate_paragraphs(
+                chunk
+            )
+        ):
 
-                self.history_paragraphs.add(
-                    paragraph
-                )
+            return (
+                "",
+                False,
+            )
+
+        if chunk.strip():
+
+            self.visible_content_started = True
 
         return (
             chunk,

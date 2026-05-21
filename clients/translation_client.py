@@ -12,6 +12,10 @@ from utils.tokens import (
     translation_token_limit,
 )
 
+from utils.response_extractor import (
+    ResponseExtractor,
+)
+
 
 translator_client = RuntimeClient(
     api_base=(

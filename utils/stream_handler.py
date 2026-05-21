@@ -87,6 +87,23 @@ class StreamHandler:
                 )
             )
 
+            # ---------------------------------------------------------
+            # CLEANUP EVENTS
+            # ---------------------------------------------------------
+
+            if self.validator.cleanup_events:
+
+                for event in (
+                    self.validator.cleanup_events
+                ):
+
+                    await self.logger.log_validator(
+                        f'{event["reason"]}\n'
+                        f'Preview: "{event["preview"]}"'
+                    )
+
+                self.validator.cleanup_events.clear()
+
             if not is_valid:
 
                 await self.logger.log_validator(
@@ -94,19 +111,27 @@ class StreamHandler:
                     f'Preview: "{self.validator.last_failure_preview}"'
                 )
 
+                reason = (
+                    self.validator.last_failure_reason
+                    or "Generation stopped."
+                )
+
                 await self.websocket.send_json({
                     "type": "message_error",
                     "message_id": (
                         self.message_id
                     ),
-                    "text": (
-                        "Generation stopped: "
-                        "model repetition detected."
-                    ),
+                    "text": reason,
                 })
 
                 return False
+            # ---------------------------------------------------------
+            # EMPTY SAFE CHUNK
+            # ---------------------------------------------------------
 
+            if not safe_chunk:
+
+                return True
         self.response += safe_chunk
 
         await self.websocket.send_json({
