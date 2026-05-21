@@ -19,7 +19,26 @@ function appendLog(tag, message) {
     logDiv.classList.add('font-mono', 'text-[12px]', 'bg-red-500/5', 'p-1', 'rounded');
   }
 
-  logDiv.innerHTML = `<span class="${tagClass}">${tag}</span>\n${message}`;
+  logDiv.innerHTML = "";
+
+  const tagSpan =
+    document.createElement("span");
+
+  tagSpan.className =
+    tagClass;
+
+  tagSpan.textContent =
+    tag;
+
+  logDiv.appendChild(
+    tagSpan
+  );
+
+  logDiv.appendChild(
+    document.createTextNode(
+      "\n" + message
+    )
+  );
 
   consoleStream.appendChild(logDiv);
   consoleStream.scrollTop = consoleStream.scrollHeight;
