@@ -13,3 +13,4 @@ config.py
 
 *.zip
 .aider*
+repomix-output.xml

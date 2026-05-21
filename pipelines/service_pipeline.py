@@ -1,5 +1,3 @@
-import uuid
-
 import config
 
 from clients.service_client import (
@@ -19,8 +17,8 @@ from utils.ws_errors import (
     handle_fatal_pipeline_error,
 )
 
-from hooks.stream_validator import (
-    StreamValidator,
+from utils.stream_handler import (
+    StreamHandler,
 )
 
 
@@ -54,35 +52,16 @@ class ServicePipeline:
                 "SERVICE pipeline started."
             )
 
-            response = ""
-
-            # -------------------------------------------------
-            # DURING-HOOK VALIDATOR
-            # -------------------------------------------------
-            #
-            # Monitors streamed output for:
-            # - repetition loops
-            # - sentence duplication
-            # - paragraph duplication
-            # - runaway generation
-            #
-            # -------------------------------------------------
-
-            validator = StreamValidator()
+            stream = StreamHandler(
+                websocket,
+                logger,
+                role="service",
+                enable_validator=True,
+            )
 
             try:
 
-                message_id = str(
-                    uuid.uuid4()
-                )
-
-                await websocket.send_json({
-                    "type": "message_start",
-                    "message_id": (
-                        message_id
-                    ),
-                    "role": "service",
-                })
+                await stream.start()
 
                 async for chunk in (
                     ask_service_model_stream(
@@ -119,94 +98,29 @@ class ServicePipeline:
                         == "thinking"
                     ):
 
-                        await websocket.send_json({
-                            "type": "thinking_chunk",
-                            "message_id": (
-                                message_id
-                            ),
-                            "chunk": (
-                                chunk_content
-                            ),
-                        })
+                        await stream.send_thinking(
+                            chunk_content
+                        )
 
                         continue
 
                     # -----------------------------------------
-                    # DURING STREAM VALIDATION
+                    # CONTENT STREAM
                     # -----------------------------------------
 
-                    safe_chunk, is_valid = (
-                        validator.filter_chunk(
+                    is_valid = (
+                        await stream.send_content(
                             chunk_content
                         )
                     )
 
                     if not is_valid:
 
-                        await logger.log_validator(
-                            f"{validator.last_failure_reason}\n"
-                            f'Preview: "{validator.last_failure_preview}"'
-                        )
+                        await stream.finish()
 
-                        await websocket.send_json({
-                            "type": "message_error",
-                            "message_id": (
-                                message_id
-                            ),
-                            "text": (
-                                "Generation stopped: "
-                                "model repetition detected."
-                            ),
-                        })
+                        return
 
-                        if safe_chunk:
-
-                            response += safe_chunk
-
-                            await websocket.send_json({
-                                "type": "message_chunk",
-                                "message_id": (
-                                    message_id
-                                ),
-                                "chunk": (
-                                    safe_chunk
-                                ),
-                            })
-
-                        break
-
-                    # -----------------------------------------
-                    # STREAM OUTPUT
-                    # -----------------------------------------
-
-                    response += (
-                        safe_chunk
-                    )
-
-                    await websocket.send_json({
-                        "type": "message_chunk",
-                        "message_id": (
-                            message_id
-                        ),
-                        "chunk": (
-                            chunk_content
-                        ),
-                    })
-
-                # ---------------------------------------------
-                # STREAM COMPLETE
-                # ---------------------------------------------
-
-                await websocket.send_json({
-                    "type": "message_end",
-                    "message_id": (
-                        message_id
-                    ),
-                })
-
-                # ---------------------------------------------
-                # TELEMETRY UPDATE
-                # ---------------------------------------------
+                await stream.finish()
 
                 await refresh_runtime_state(
                     websocket,
@@ -217,7 +131,7 @@ class ServicePipeline:
                     used_tokens=(
                         estimate_tokens(
                             user_text
-                            + response
+                            + stream.response
                         )
                     ),
                     max_tokens=(
@@ -229,7 +143,7 @@ class ServicePipeline:
                 )
 
                 await logger.log_service(
-                    response
+                    stream.response
                 )
 
             except Exception as error:

@@ -1,7 +1,6 @@
 import config
 
 from clients.brain_client import (
-    ask_brain,
     ask_brain_stream,
 )
 
@@ -30,7 +29,15 @@ from utils.ws_errors import (
     handle_fatal_pipeline_error,
 )
 
+from utils.stream_handler import (
+    StreamHandler,
+)
+
+
 TRANSLATE_RESPONSE = False
+
+SOURCE_LANGUAGE = "Russian"
+TARGET_LANGUAGE = "English"
 
 
 class TranslationPipeline:
@@ -45,17 +52,17 @@ class TranslationPipeline:
         try:
 
             await logger.log_runtime(
-                            "Translation pipeline started."
-                        )
+                "Translation pipeline started."
+            )
 
-            user_text_ru = (
+            user_text = (
                 message_data.get(
                     "text",
                     "",
                 ).strip()
             )
 
-            if not user_text_ru:
+            if not user_text:
 
                 await logger.log_error(
                     "Received empty message."
@@ -63,31 +70,45 @@ class TranslationPipeline:
 
                 return
 
-            text_en = await self.translate_input(
-                websocket,
-                logger,
-                user_text_ru,
-            )
+            # -------------------------------------------------
+            # STEP 1: INPUT TRANSLATION
+            # -------------------------------------------------
 
-            if text_en is None:
-                return
-
-            brain_response_en = (
-                await self.ask_brain(
+            user_text_translated = (
+                await self.translate_input(
                     websocket,
                     logger,
-                    text_en,
+                    user_text,
                 )
             )
 
-            if brain_response_en is None:
+            if user_text_translated is None:
                 return
+
+            # -------------------------------------------------
+            # STEP 2: ASK BRAIN
+            # -------------------------------------------------
+
+            brain_response = (
+                await self.ask_brain(
+                    websocket,
+                    logger,
+                    user_text_translated,
+                )
+            )
+
+            if brain_response is None:
+                return
+
+            # -------------------------------------------------
+            # STEP 3: OUTPUT TRANSLATION
+            # -------------------------------------------------
 
             translated_response = (
                 await self.translate_response(
                     websocket,
                     logger,
-                    brain_response_en,
+                    brain_response,
                 )
             )
 
@@ -145,6 +166,10 @@ class TranslationPipeline:
                 )
             )
 
+            # -------------------------------------------------
+            # CLEANUP
+            # -------------------------------------------------
+
             if cleanup_output:
 
                 translated_text, removed_chunks = (
@@ -166,6 +191,10 @@ class TranslationPipeline:
                         f"{removed_text}"
                     )
 
+            # -------------------------------------------------
+            # TELEMETRY
+            # -------------------------------------------------
+
             await refresh_runtime_state(
                 websocket,
                 runtime_id=(
@@ -185,6 +214,10 @@ class TranslationPipeline:
                 last_error=None,
                 status="online",
             )
+
+            # -------------------------------------------------
+            # LOGGING
+            # -------------------------------------------------
 
             source_short = (
                 source_language[:2]
@@ -222,36 +255,40 @@ class TranslationPipeline:
             return None
 
     # ---------------------------------------------------------
-    # STEP 1: INPUT TRANSLATION
+    # INPUT TRANSLATION
     # ---------------------------------------------------------
 
     async def translate_input(
         self,
         websocket,
         logger,
-        user_text_ru: str,
+        user_text: str,
     ) -> str | None:
 
         return await self.translate_text(
             websocket,
             logger,
-            text=user_text_ru,
-            source_language="Russian",
-            target_language="English",
+            text=user_text,
+            source_language=(
+                SOURCE_LANGUAGE
+            ),
+            target_language=(
+                TARGET_LANGUAGE
+            ),
             public_error_message=(
                 "Prompt translation failed."
             ),
         )
 
     # ---------------------------------------------------------
-    # STEP 2: ASK BRAIN
+    # ASK BRAIN
     # ---------------------------------------------------------
 
     async def ask_brain(
         self,
         websocket,
         logger,
-        text_en: str,
+        user_text_translated: str,
     ) -> str | None:
 
         await logger.log_runtime(
@@ -262,31 +299,24 @@ class TranslationPipeline:
             get_brain_runtime_config()
         )
 
-        response = ""
+        stream = StreamHandler(
+            websocket,
+            logger,
+            role=(
+                "service"
+                if config.USE_SERVICE_AS_BRAIN
+                else "brain"
+            ),
+            enable_validator=True,
+        )
 
         try:
 
-            import uuid
-
-            message_id = str(
-                uuid.uuid4()
-            )
-
-            await websocket.send_json({
-                "type": "message_start",
-                "message_id": (
-                    message_id
-                ),
-                "role": (
-                    "service"
-                    if config.USE_SERVICE_AS_BRAIN
-                    else "brain"
-                ),
-            })
+            await stream.start()
 
             async for chunk in (
                 ask_brain_stream(
-                    text_en
+                    user_text_translated
                 )
             ):
 
@@ -301,38 +331,35 @@ class TranslationPipeline:
                     )
                 )
 
+                # ---------------------------------------------
+                # THINKING STREAM
+                # ---------------------------------------------
+
                 if chunk_type == "thinking":
 
-                    await websocket.send_json({
-                        "type": "thinking_chunk",
-                        "message_id": (
-                            message_id
-                        ),
-                        "chunk": (
-                            chunk_content
-                        ),
-                    })
+                    await stream.send_thinking(
+                        chunk_content
+                    )
 
                     continue
 
-                response += chunk_content
+                # ---------------------------------------------
+                # CONTENT STREAM
+                # ---------------------------------------------
 
-                await websocket.send_json({
-                    "type": "message_chunk",
-                    "message_id": (
-                        message_id
-                    ),
-                    "chunk": (
+                is_valid = (
+                    await stream.send_content(
                         chunk_content
-                    ),
-                })
+                    )
+                )
 
-            await websocket.send_json({
-                "type": "message_end",
-                "message_id": (
-                    message_id
-                ),
-            })
+                if not is_valid:
+
+                    await stream.finish()
+
+                    return None
+
+            await stream.finish()
 
             await refresh_runtime_state(
                 websocket,
@@ -343,8 +370,8 @@ class TranslationPipeline:
                 ),
                 used_tokens=(
                     estimate_tokens(
-                        text_en
-                        + response
+                        user_text_translated
+                        + stream.response
                     )
                 ),
                 max_tokens=(
@@ -362,10 +389,10 @@ class TranslationPipeline:
                     "log_method"
                 ],
             )(
-                response
+                stream.response
             )
 
-            return response
+            return stream.response
 
         except Exception as error:
 
@@ -386,47 +413,31 @@ class TranslationPipeline:
             return None
 
     # ---------------------------------------------------------
-    # STEP 3: OUTPUT TRANSLATION
+    # OUTPUT TRANSLATION
     # ---------------------------------------------------------
 
     async def translate_response(
         self,
         websocket,
         logger,
-        brain_response_en: str,
+        brain_response: str,
     ) -> str | None:
 
         if not TRANSLATE_RESPONSE:
-            return brain_response_en
+            return brain_response
 
         return await self.translate_text(
             websocket,
             logger,
-            text=brain_response_en,
-            source_language="English",
-            target_language="Russian",
+            text=brain_response,
+            source_language=(
+                TARGET_LANGUAGE
+            ),
+            target_language=(
+                SOURCE_LANGUAGE
+            ),
             public_error_message=(
                 "Answer translation failed."
             ),
             cleanup_output=True,
         )
-
-    # ---------------------------------------------------------
-    # STEP 4: SEND RESPONSE
-    # ---------------------------------------------------------
-
-    async def send_response(
-        self,
-        websocket,
-        text: str,
-    ):
-
-        await websocket.send_json({
-            "type": "message",
-            "role": (
-                "service"
-                if config.USE_SERVICE_AS_BRAIN
-                else "brain"
-            ),
-            "text": text,
-        })

@@ -1,9 +1,6 @@
-import uuid
-
 import config
 
 from clients.brain_client import (
-    ask_brain,
     ask_brain_stream,
 )
 
@@ -22,6 +19,10 @@ from utils.runtime_state_sync import (
 from utils.ws_errors import (
     handle_pipeline_error,
     handle_fatal_pipeline_error,
+)
+
+from utils.stream_handler import (
+    StreamHandler,
 )
 
 
@@ -59,25 +60,20 @@ class BrainPipeline:
                 get_brain_runtime_config()
             )
 
-            response = ""
+            stream = StreamHandler(
+                websocket,
+                logger,
+                role=(
+                    "service"
+                    if config.USE_SERVICE_AS_BRAIN
+                    else "brain"
+                ),
+                enable_validator=True,
+            )
 
             try:
 
-                message_id = str(
-                    uuid.uuid4()
-                )
-
-                await websocket.send_json({
-                    "type": "message_start",
-                    "message_id": (
-                        message_id
-                    ),
-                    "role": (
-                        "service"
-                        if config.USE_SERVICE_AS_BRAIN
-                        else "brain"
-                    ),
-                })
+                await stream.start()
 
                 async for chunk in (
                     ask_brain_stream(
@@ -90,41 +86,44 @@ class BrainPipeline:
                     )
 
                     chunk_content = (
-                        chunk.get("content", "")
+                        chunk.get(
+                            "content",
+                            ""
+                        )
                     )
 
-                    if chunk_type == "thinking":
+                    # -----------------------------------------
+                    # THINKING STREAM
+                    # -----------------------------------------
 
-                        await websocket.send_json({
-                            "type": "thinking_chunk",
-                            "message_id": (
-                                message_id
-                            ),
-                            "chunk": (
-                                chunk_content
-                            ),
-                        })
+                    if (
+                        chunk_type
+                        == "thinking"
+                    ):
+
+                        await stream.send_thinking(
+                            chunk_content
+                        )
 
                         continue
 
-                    response += chunk_content
+                    # -----------------------------------------
+                    # CONTENT STREAM
+                    # -----------------------------------------
 
-                    await websocket.send_json({
-                        "type": "message_chunk",
-                        "message_id": (
-                            message_id
-                        ),
-                        "chunk": (
+                    is_valid = (
+                        await stream.send_content(
                             chunk_content
-                        ),
-                    })
+                        )
+                    )
 
-                await websocket.send_json({
-                    "type": "message_end",
-                    "message_id": (
-                        message_id
-                    ),
-                })
+                    if not is_valid:
+
+                        await stream.finish()
+
+                        return
+
+                await stream.finish()
 
                 await refresh_runtime_state(
                     websocket,
@@ -136,7 +135,7 @@ class BrainPipeline:
                     used_tokens=(
                         estimate_tokens(
                             user_text
-                            + response
+                            + stream.response
                         )
                     ),
                     max_tokens=(
@@ -154,7 +153,7 @@ class BrainPipeline:
                         "log_method"
                     ],
                 )(
-                    response
+                    stream.response
                 )
 
             except Exception as error:
