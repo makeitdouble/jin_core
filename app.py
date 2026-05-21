@@ -30,6 +30,10 @@ from websocket import (
     websocket_router,
 )
 
+from clients.clients_registry import (
+    build_clients,
+)
+
 
 # ---------------------------------------------------------
 # APP LIFESPAN
@@ -38,11 +42,35 @@ from websocket import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
+    # -----------------------------------------------------
+    # SHARED HTTP CLIENT
+    # -----------------------------------------------------
+
     app.state.http_client = httpx.AsyncClient(
-        timeout=2.5,
+
+        timeout=None,
+
+        limits=httpx.Limits(
+            max_connections=100,
+            max_keepalive_connections=20,
+        ),
+
+        http2=False,
+    )
+
+    # -----------------------------------------------------
+    # RUNTIME CLIENTS
+    # -----------------------------------------------------
+
+    app.state.clients = build_clients(
+        app.state.http_client
     )
 
     yield
+
+    # -----------------------------------------------------
+    # SHUTDOWN
+    # -----------------------------------------------------
 
     await app.state.http_client.aclose()
 

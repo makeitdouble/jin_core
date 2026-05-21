@@ -1,24 +1,3 @@
-import config
-
-from clients.runtime_client import (
-    RuntimeClient,
-)
-
-
-service_client = RuntimeClient(
-    api_base=(
-        config.SERVICE_API_BASE
-    ),
-    model_uid=(
-        config.SERVICE_MODEL_UID
-    ),
-    timeout=(
-        config
-        .SERVICE_REQUEST_TIMEOUT
-    ),
-)
-
-
 def build_service_system_prompt():
 
     return (
@@ -36,13 +15,14 @@ def build_service_system_prompt():
 
 async def ask_service_model(
     *,
+    client,
     user_prompt: str,
     system_prompt: str = "",
     temperature: float,
     max_tokens: int,
 ):
 
-    return await service_client.ask(
+    return await client.ask(
         system_prompt=(
             system_prompt
             or build_service_system_prompt()
@@ -55,6 +35,7 @@ async def ask_service_model(
 
 async def ask_service_model_stream(
     *,
+    client,
     user_prompt: str,
     system_prompt: str = "",
     temperature: float,
@@ -62,7 +43,7 @@ async def ask_service_model_stream(
 ):
 
     async for chunk in (
-        service_client.stream(
+        client.stream(
             system_prompt=(
                 system_prompt
                 or build_service_system_prompt()

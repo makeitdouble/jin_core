@@ -146,6 +146,12 @@ class TranslationPipeline:
         cleanup_output: bool = False,
     ) -> str | None:
 
+        translator_client = (
+            websocket.app.state.clients[
+                "translator"
+            ]
+        )
+
         await logger.log_runtime(
             f"Translating "
             f"{source_language} -> "
@@ -155,6 +161,7 @@ class TranslationPipeline:
         try:
 
             translated = await translate(
+                client=translator_client,
                 text=text,
                 source_language=(
                     source_language
@@ -305,6 +312,12 @@ class TranslationPipeline:
             get_brain_runtime_config()
         )
 
+        brain_client = (
+            websocket.app.state.clients[
+                "brain"
+            ]
+        )
+
         stream = StreamHandler(
             websocket,
             logger,
@@ -322,7 +335,8 @@ class TranslationPipeline:
 
             async for chunk in (
                 ask_brain_stream(
-                    user_text_translated
+                    client=brain_client,
+                    text=user_text_translated,
                 )
             ):
 

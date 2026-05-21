@@ -51,6 +51,12 @@ class BrainPipeline:
                 get_brain_runtime_config()
             )
 
+            brain_client = (
+                websocket.app.state.clients[
+                    "brain"
+                ]
+            )
+
             runtime = RuntimeStream(
                 websocket=websocket,
                 logger=logger,
@@ -80,7 +86,8 @@ class BrainPipeline:
 
             await runtime.run(
                 ask_brain_stream(
-                    user_text
+                    client=brain_client,
+                    text=user_text,
                 )
             )
 

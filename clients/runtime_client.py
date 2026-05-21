@@ -21,11 +21,13 @@ class RuntimeClient:
         api_base: str,
         model_uid: str,
         timeout: float,
+        client: httpx.AsyncClient,
     ):
 
         self.api_base = api_base
         self.model_uid = model_uid
         self.timeout = timeout
+        self.client = client
 
     # ---------------------------------------------------------
     # PAYLOAD
@@ -87,21 +89,18 @@ class RuntimeClient:
             stream=False,
         )
 
-        async with httpx.AsyncClient(
+        response = await self.client.post(
+            join_url(
+                self.api_base,
+                config.CHAT_ENDPOINT,
+            ),
+            json=payload,
             timeout=self.timeout,
-        ) as client:
+        )
 
-            response = await client.post(
-                join_url(
-                    self.api_base,
-                    config.CHAT_ENDPOINT,
-                ),
-                json=payload,
-            )
+        response.raise_for_status()
 
-            response.raise_for_status()
-
-            return response.json()
+        return response.json()
 
     # ---------------------------------------------------------
     # STREAM REQUEST
@@ -124,89 +123,84 @@ class RuntimeClient:
             stream=True,
         )
 
-        async with httpx.AsyncClient(
+        async with self.client.stream(
+            "POST",
+            join_url(
+                self.api_base,
+                config.CHAT_ENDPOINT,
+            ),
+            json=payload,
             timeout=None,
-        ) as client:
+        ) as response:
 
-            async with client.stream(
-                "POST",
-                join_url(
-                    self.api_base,
-                    config.CHAT_ENDPOINT,
-                ),
-                json=payload,
-            ) as response:
+            response.raise_for_status()
 
-                response.raise_for_status()
+            async for raw_line in response.aiter_lines():
 
-                buffer = ""
+                if raw_line is None:
+                    continue
 
-                async for raw_line in response.aiter_lines():
+                line = raw_line.strip()
 
-                    if raw_line is None:
-                        continue
+                if not line:
+                    continue
 
-                    line = raw_line.strip()
+                # only SSE payloads
 
-                    if not line:
-                        continue
+                if not line.startswith("data:"):
+                    continue
 
-                    # only SSE payloads
+                try:
 
-                    if not line.startswith("data:"):
-                        continue
-
-                    try:
-
-                        data = (
-                            line.split(
-                                "data:",
-                                1,
-                            )[1]
-                            .strip()
-                        )
-
-                    except Exception:
-                        continue
-
-                    if data == "[DONE]":
-                        break
-
-                    try:
-
-                        chunk = json.loads(
-                            data
-                        )
-
-                    except Exception:
-                        continue
-
-                    usage = (
-                        ResponseExtractor
-                        .extract_usage(
-                            chunk
-                        )
+                    data = (
+                        line.split(
+                            "data:",
+                            1,
+                        )[1]
+                        .strip()
                     )
 
-                    if usage:
-                        yield usage
+                except Exception:
+                    continue
 
-                    reasoning = (
-                        ResponseExtractor
-                        .extract_reasoning_chunk(
-                            chunk
-                        )
+                if data == "[DONE]":
+                    break
+
+                try:
+
+                    chunk = json.loads(
+                        data
                     )
 
-                    if reasoning:
-                        yield reasoning
+                except Exception:
+                    continue
 
-                    content = (
-                        ResponseExtractor
-                        .extract_content_chunk(
-                            chunk
-                        )
+                usage = (
+                    ResponseExtractor
+                    .extract_usage(
+                        chunk
                     )
+                )
 
-                    if content:
-                        yield content
+                if usage:
+                    yield usage
+
+                reasoning = (
+                    ResponseExtractor
+                    .extract_reasoning_chunk(
+                        chunk
+                    )
+                )
+
+                if reasoning:
+                    yield reasoning
+
+                content = (
+                    ResponseExtractor
+                    .extract_content_chunk(
+                        chunk
+                    )
+                )
+
+                if content:
+                    yield content

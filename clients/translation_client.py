@@ -1,9 +1,5 @@
 import config
 
-from clients.runtime_client import (
-    RuntimeClient,
-)
-
 from utils.errors import (
     format_client_error,
 )
@@ -14,20 +10,6 @@ from utils.tokens import (
 
 from utils.response_extractor import (
     ResponseExtractor,
-)
-
-
-translator_client = RuntimeClient(
-    api_base=(
-        config.TRANSLATOR_API_BASE
-    ),
-    model_uid=(
-        config.TRANSLATOR_MODEL_UID
-    ),
-    timeout=(
-        config
-        .TRANSLATOR_REQUEST_TIMEOUT
-    ),
 )
 
 
@@ -58,6 +40,7 @@ def build_translation_system_prompt(
 
 async def translate(
     *,
+    client,
     text: str,
     source_language: str,
     target_language: str,
@@ -71,7 +54,7 @@ async def translate(
 
     try:
 
-        result = await translator_client.ask(
+        result = await client.ask(
             system_prompt=(
                 build_translation_system_prompt(
                     source_language,

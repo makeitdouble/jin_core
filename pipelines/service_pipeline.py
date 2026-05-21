@@ -48,6 +48,12 @@ class ServicePipeline:
                 "SERVICE pipeline started."
             )
 
+            service_client = (
+                websocket.app.state.clients[
+                    "service"
+                ]
+            )
+
             stream = StreamHandler(
                 websocket,
                 logger,
@@ -61,6 +67,7 @@ class ServicePipeline:
 
                 async for chunk in (
                     ask_service_model_stream(
+                        client=service_client,
                         user_prompt=user_text,
                         system_prompt="",
                         temperature=(

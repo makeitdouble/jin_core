@@ -8,10 +8,6 @@ from utils.errors import (
     format_client_error,
 )
 
-from clients.runtime_client import (
-    RuntimeClient,
-)
-
 from clients.service_client import (
     ask_service_model,
     ask_service_model_stream,
@@ -19,19 +15,6 @@ from clients.service_client import (
 
 from utils.response_extractor import (
     ResponseExtractor,
-)
-
-brain_client = RuntimeClient(
-    api_base=(
-        config.BRAIN_API_BASE
-    ),
-    model_uid=(
-        config.BRAIN_MODEL_UID
-    ),
-    timeout=(
-        config
-        .BRAIN_REQUEST_TIMEOUT
-    ),
 )
 
 
@@ -57,11 +40,11 @@ def build_brain_system_prompt():
 # ---------------------------------------------------------
 
 def build_brain_payload(
-    text_en: str,
+    text: str,
 ) -> str:
 
     context_contract = ContextContract(
-        user_input=text_en,
+        user_input=text,
         compressed_history="",
         system_state="ACTIVE",
     )
@@ -74,12 +57,14 @@ def build_brain_payload(
 # ---------------------------------------------------------
 
 async def ask_brain(
-    text_en: str,
+    *,
+    client,
+    text: str,
 ) -> str:
 
     brain_payload = (
         build_brain_payload(
-            text_en
+            text
         )
     )
 
@@ -92,6 +77,7 @@ async def ask_brain(
         try:
 
             result = await ask_service_model(
+                client=client,
                 user_prompt=brain_payload,
                 system_prompt=(
                     build_brain_system_prompt()
@@ -104,7 +90,12 @@ async def ask_brain(
                 ),
             )
 
-            return  ResponseExtractor.extract_content_text(result)
+            return (
+                ResponseExtractor
+                .extract_content_text(
+                    result
+                )
+            )
 
         except Exception as error:
 
@@ -127,7 +118,7 @@ async def ask_brain(
 
     try:
 
-        result = await brain_client.ask(
+        result = await client.ask(
             system_prompt=(
                 build_brain_system_prompt()
             ),
@@ -200,12 +191,14 @@ async def ask_brain(
 # ---------------------------------------------------------
 
 async def ask_brain_stream(
-    text_en: str,
+    *,
+    client,
+    text: str,
 ):
 
     brain_payload = (
         build_brain_payload(
-            text_en
+            text
         )
     )
 
@@ -219,6 +212,7 @@ async def ask_brain_stream(
 
             async for chunk in (
                 ask_service_model_stream(
+                    client=client,
                     user_prompt=(
                         brain_payload
                     ),
@@ -262,7 +256,7 @@ async def ask_brain_stream(
     try:
 
         async for chunk in (
-            brain_client.stream(
+            client.stream(
                 system_prompt=(
                     build_brain_system_prompt()
                 ),
