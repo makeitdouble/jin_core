@@ -290,58 +290,7 @@ async def ask_brain_stream(
             )
         ):
 
-            usage = chunk.get(
-                "usage"
-            )
-
-            if usage:
-
-                yield {
-                    "type": "usage",
-                    **usage,
-                }
-
-                continue
-
-            choices = chunk.get(
-                "choices",
-                [],
-            )
-
-            if not choices:
-                continue
-
-            delta = choices[0].get(
-                "delta",
-                {},
-            )
-
-            reasoning = (
-                delta.get(
-                    "reasoning_content"
-                )
-                or delta.get(
-                    "reasoning"
-                )
-            )
-
-            if reasoning:
-
-                yield {
-                    "type": "thinking",
-                    "content": reasoning,
-                }
-
-            content = delta.get(
-                "content"
-            )
-
-            if content:
-
-                yield {
-                    "type": "content",
-                    "content": content,
-                }
+            yield chunk
 
     except Exception as error:
 

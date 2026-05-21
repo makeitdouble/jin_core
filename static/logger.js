@@ -9,7 +9,8 @@ function appendLog(tag, message) {
   let tagClass = 'text-zinc-500';
 
   if (tag.includes('BEFORE')) tagClass = 'text-amber-500';
-  if (tag.includes('BRAIN')) tagClass = 'text-blue-500';
+  if (tag.includes('BRAIN')) tagClass = 'text-pink-500';
+  if (tag.includes('SERVICE')) tagClass = 'text-blue-500';
   if (tag.includes('AFTER')) tagClass = 'text-purple-500';
   if (tag.includes('SYSTEM')) tagClass = 'text-emerald-500';
 
