@@ -15,7 +15,6 @@
 # ---------------------------------------------------------
 
 HTML_TAGS = [
-
     "textarea",
     "div",
     "span",
@@ -25,7 +24,6 @@ HTML_TAGS = [
     "html",
     "body",
     "head",
-
 ]
 
 # ---------------------------------------------------------
@@ -33,9 +31,7 @@ HTML_TAGS = [
 # ---------------------------------------------------------
 
 WORD_WINDOW_SIZE = 30
-
 MAX_REPEAT_WORDS = 8
-
 TRUNCATE = 10
 
 
@@ -46,26 +42,26 @@ class StreamValidator:
         self.current_sentence = ""
 
         self.history_sentences = set()
-
         self.history_paragraphs = set()
 
         self.recent_words = []
 
         self.last_failure_reason = None
-
         self.last_failure_preview = ""
 
         self.stream_started = False
-
         self.failure_emitted = False
+        self.leading_buffer = ""
 
-        self.leading_tag_buffer = ""
+        # -------------------------------------------------
+        # HTML CLEANUP
+        # -------------------------------------------------
 
         self.leading_cleanup_done = False
 
-        self.visible_content_started = False
+        self.leading_tag_buffer = ""
 
-        self.leading_buffer = ""
+        self.leading_tags_removed = False
 
         self.cleanup_events = []
 
@@ -78,7 +74,6 @@ class StreamValidator:
         chunk: str,
         artifacts: list[str],
     ):
-
         if self.stream_started:
             return chunk
 
@@ -102,55 +97,28 @@ class StreamValidator:
             for artifact in artifacts
         ]
 
-        # -------------------------------------------------
-        # FULL MATCH
-        # -------------------------------------------------
-
         for artifact in normalized_artifacts:
 
-            if normalized.startswith(
-                artifact
-            ):
+            if normalized.startswith(artifact):
 
                 artifact_length = len(artifact)
 
-                removed = (
-                    self.leading_buffer[
-                        :artifact_length
-                    ]
-                )
+                removed = self.leading_buffer[:artifact_length]
 
-                remaining = (
-                    self.leading_buffer[
-                        artifact_length:
-                    ]
-                )
+                remaining = self.leading_buffer[artifact_length:]
 
                 self.last_failure_reason = (
                     "Leading artifact removed."
                 )
 
-                self.last_failure_preview = (
-                    removed
-                )
+                self.last_failure_preview = removed
 
                 return remaining
 
-        # -------------------------------------------------
-        # PARTIAL MATCH
-        # -------------------------------------------------
-
         for artifact in normalized_artifacts:
 
-            if artifact.startswith(
-                normalized
-            ):
-
+            if artifact.startswith(normalized):
                 return None
-
-        # -------------------------------------------------
-        # CLEAN START
-        # -------------------------------------------------
 
         self.stream_started = True
 
@@ -168,9 +136,8 @@ class StreamValidator:
         self,
         chunk: str,
     ):
-
         # -------------------------------------------------
-        # CLEANUP ALREADY FINISHED
+        # SANITIZER DISABLED
         # -------------------------------------------------
 
         if self.leading_cleanup_done:
@@ -178,89 +145,209 @@ class StreamValidator:
 
         self.leading_tag_buffer += chunk
 
-        working = self.leading_tag_buffer
-
-        # -------------------------------------------------
-        # REMOVE LEADING TAGS ONLY
-        # -------------------------------------------------
-
         while True:
+
+            working = self.leading_tag_buffer
+
+            if not working:
+                return None
 
             stripped = working.lstrip()
 
-            # ---------------------------------------------
-            # NORMAL CONTENT STARTED
-            # ---------------------------------------------
+            left_spaces = len(working) - len(stripped)
+
+            if not stripped:
+                return None
+
+            # -------------------------------------------------
+            # REAL CONTENT STARTED
+            # -------------------------------------------------
 
             if not stripped.startswith("<"):
 
                 self.leading_cleanup_done = True
 
+                result = working
+
                 self.leading_tag_buffer = ""
 
-                return working
+                return result
 
-            closing = stripped.find(">")
+            # -------------------------------------------------
+            # TAG TYPE
+            # -------------------------------------------------
 
-            # ---------------------------------------------
-            # INCOMPLETE TAG
-            # ---------------------------------------------
+            is_closing = stripped.startswith("</")
 
-            if closing == -1:
+            tag_offset = 2 if is_closing else 1
+
+            # -------------------------------------------------
+            # EXTRACT ASCII TAG NAME
+            # -------------------------------------------------
+
+            chars = []
+
+            for char in stripped[tag_offset:]:
+
+                lower = char.lower()
+
+                if (
+                    "a" <= lower <= "z"
+                    or "0" <= char <= "9"
+                ):
+                    chars.append(lower)
+                    continue
+
+                break
+
+            candidate = "".join(chars)
+
+            # -------------------------------------------------
+            # "<" OR "</"
+            # -------------------------------------------------
+
+            if candidate == "":
+
+                # "<Привет"
+                if len(stripped) > tag_offset:
+
+                    self.leading_cleanup_done = True
+
+                    result = working
+
+                    self.leading_tag_buffer = ""
+
+                    return result
 
                 return None
 
-            full_tag = stripped[:closing + 1]
+            # -------------------------------------------------
+            # MATCH HTML TAG PREFIX
+            # -------------------------------------------------
 
-            normalized = (
-                full_tag
-                .lower()
-                .replace("<", "")
-                .replace(">", "")
-                .replace("/", "")
-                .strip()
-                .split()[0]
-            )
+            matching_tags = [
+                tag
+                for tag in HTML_TAGS
+                if tag.startswith(candidate)
+            ]
 
-            # ---------------------------------------------
-            # UNKNOWN TAG
-            # ---------------------------------------------
+            # -------------------------------------------------
+            # NOT TAG
+            # -------------------------------------------------
 
-            if normalized not in HTML_TAGS:
+            if not matching_tags:
 
                 self.leading_cleanup_done = True
 
+                result = working
+
                 self.leading_tag_buffer = ""
 
-                return working
+                return result
 
-            # ---------------------------------------------
-            # REMOVE KNOWN TAG
-            # ---------------------------------------------
+            # -------------------------------------------------
+            # NEXT CHAR
+            # -------------------------------------------------
+
+            next_index = tag_offset + len(candidate)
+
+            next_char = ""
+
+            if len(stripped) > next_index:
+                next_char = stripped[next_index]
+
+            is_full_tag = candidate in HTML_TAGS
+
+            # -------------------------------------------------
+            # PARTIAL TAG
+            # -------------------------------------------------
+
+            if not is_full_tag:
+
+                # "<teПривет"
+                if next_char:
+
+                    remove_len = (
+                        left_spaces
+                        + tag_offset
+                        + len(candidate)
+                    )
+
+                    removed = working[:remove_len]
+
+                    self.cleanup_events.append({
+                        "reason": "Broken HTML tag removed.",
+                        "preview": removed,
+                    })
+
+                    self.leading_tag_buffer = working[remove_len:]
+
+                    continue
+
+                return None
+
+            # -------------------------------------------------
+            # BROKEN FULL TAG
+            # -------------------------------------------------
+
+            # "<textareaПривет"
+            if (
+                next_char
+                and next_char not in [
+                    ">",
+                    "/",
+                    " ",
+                    "\t",
+                    "\r",
+                    "\n",
+                ]
+            ):
+
+                remove_len = (
+                    left_spaces
+                    + tag_offset
+                    + len(candidate)
+                )
+
+                removed = working[:remove_len]
+
+                self.cleanup_events.append({
+                    "reason": "Broken HTML tag removed.",
+                    "preview": removed,
+                })
+
+                self.leading_tag_buffer = working[remove_len:]
+
+                continue
+
+            # -------------------------------------------------
+            # WAIT FOR FULL TAG
+            # -------------------------------------------------
+
+            close_index = stripped.find(
+                ">",
+                next_index,
+            )
+
+            if close_index == -1:
+                return None
+
+            # -------------------------------------------------
+            # REMOVE CURRENT TAG
+            # -------------------------------------------------
+
+            remove_len = left_spaces + close_index + 1
+
+            removed = working[:remove_len]
 
             self.cleanup_events.append({
                 "reason": "HTML tag removed.",
-                "preview": full_tag,
+                "preview": removed,
             })
 
-            tag_start = working.find(full_tag)
+            self.leading_tag_buffer = working[remove_len:]
 
-            working = (
-                working[:tag_start]
-                + working[
-                    tag_start + len(full_tag):
-                ]
-            )
-
-            self.leading_tag_buffer = working
-
-            # ---------------------------------------------
-            # STILL ONLY TAGS
-            # ---------------------------------------------
-
-            if not working.strip():
-
-                return None
+            self.leading_tags_removed = True
 
     # -----------------------------------------------------
     # VALIDATE WORD LOOPS
@@ -270,58 +357,45 @@ class StreamValidator:
         self,
         chunk: str,
     ):
-
         words = chunk.split(" ")
 
         for word in words:
+
             if word == "":
                 continue
 
-            clean_word = (
-                word
-                .lower()
-                .strip(
-                    ".,!?()[]{}:;\"'"
-                )
-            )
+            clean_word = word.lower()
 
             if not clean_word:
                 continue
 
-            self.recent_words.append(
-                clean_word
-            )
+            if not any(
+                char.isalnum()
+                for char in clean_word
+            ):
+                continue
+
+            self.recent_words.append(clean_word)
 
             self.recent_words = (
-                self.recent_words[
-                    -WORD_WINDOW_SIZE:
-                ]
+                self.recent_words[-WORD_WINDOW_SIZE:]
             )
 
-            if (
-                len(self.recent_words)
-                >= MAX_REPEAT_WORDS
-            ):
+            if len(self.recent_words) >= MAX_REPEAT_WORDS:
 
-                last_word = (
-                    self.recent_words[-1]
-                )
+                last_word = self.recent_words[-1]
 
                 repeated = all(
                     recent_word == last_word
                     for recent_word in (
-                        self.recent_words[
-                            -MAX_REPEAT_WORDS:
-                        ]
+                        self.recent_words[-MAX_REPEAT_WORDS:]
                     )
                 )
 
                 if repeated:
 
                     preview = " ".join(
-                        self.recent_words[
-                            -MAX_REPEAT_WORDS:
-                        ]
+                        self.recent_words[-MAX_REPEAT_WORDS:]
                     )
 
                     self.last_failure_reason = (
@@ -344,19 +418,12 @@ class StreamValidator:
         self,
         chunk: str,
     ):
-
         self.current_sentence += chunk
 
         if not any(
             char in chunk
-            for char in [
-                ".",
-                "!",
-                "?",
-                "\n",
-            ]
+            for char in [".", "!", "?", "\n"]
         ):
-
             return True
 
         sentence = (
@@ -366,10 +433,7 @@ class StreamValidator:
             .rstrip(".!? \n")
         )
 
-        if (
-            sentence
-            in self.history_sentences
-        ):
+        if sentence in self.history_sentences:
 
             self.last_failure_reason = (
                 "Repeated sentence detected."
@@ -381,9 +445,7 @@ class StreamValidator:
 
             return False
 
-        self.history_sentences.add(
-            sentence
-        )
+        self.history_sentences.add(sentence)
 
         self.current_sentence = ""
 
@@ -397,24 +459,18 @@ class StreamValidator:
         self,
         chunk: str,
     ):
-
         if "\n" not in chunk:
             return True
 
         paragraphs = [
             p.strip().lower()
-            for p in (
-                chunk.split("\n")
-            )
+            for p in chunk.split("\n")
             if p.strip()
         ]
 
         for paragraph in paragraphs:
 
-            if (
-                paragraph
-                in self.history_paragraphs
-            ):
+            if paragraph in self.history_paragraphs:
 
                 self.last_failure_reason = (
                     "Repeated paragraph detected."
@@ -426,9 +482,7 @@ class StreamValidator:
 
                 return False
 
-            self.history_paragraphs.add(
-                paragraph
-            )
+            self.history_paragraphs.add(paragraph)
 
         return True
 
@@ -440,60 +494,17 @@ class StreamValidator:
         self,
         chunk: str,
     ):
-
-        """
-        Validate streamed chunk.
-
-        Returns:
-            (
-                chunk,
-                is_valid,
-            )
-        """
-
         # -------------------------------------------------
-        # SANITIZE ARTIFACTS
+        # SANITIZE
         # -------------------------------------------------
 
-        chunk = (
-            self.sanitize_artifacts(
-                chunk
-            )
-        )
+        chunk = self.sanitize_artifacts(chunk)
 
         # -------------------------------------------------
-        # WAIT FOR REAL CONTENT
+        # WAIT STREAM
         # -------------------------------------------------
 
         if chunk is None:
-
-            return (
-                "",
-                True,
-            )
-
-        # -------------------------------------------------
-        # EMPTY CHUNK AFTER SANITIZATION
-        # -------------------------------------------------
-
-        if not chunk.strip():
-
-            # still waiting for real text
-            # after removing leading tags
-
-            if not self.leading_cleanup_done:
-
-                return (
-                    "",
-                    True,
-                )
-
-            self.last_failure_reason = (
-                "Empty chunk after sanitization."
-            )
-
-            self.last_failure_preview = ""
-
             return (
                 "",
                 True,
@@ -503,12 +514,7 @@ class StreamValidator:
         # WORD LOOPS
         # -------------------------------------------------
 
-        if not (
-            self.validate_word_loops(
-                chunk
-            )
-        ):
-
+        if not self.validate_word_loops(chunk):
             return (
                 "",
                 False,
@@ -518,12 +524,7 @@ class StreamValidator:
         # SENTENCES
         # -------------------------------------------------
 
-        if not (
-            self.validate_sentences(
-                chunk
-            )
-        ):
-
+        if not self.validate_sentences(chunk):
             return (
                 "",
                 False,
@@ -533,20 +534,11 @@ class StreamValidator:
         # PARAGRAPHS
         # -------------------------------------------------
 
-        if not (
-            self.validate_paragraphs(
-                chunk
-            )
-        ):
-
+        if not self.validate_paragraphs(chunk):
             return (
                 "",
                 False,
             )
-
-        if chunk.strip():
-
-            self.visible_content_started = True
 
         return (
             chunk,
