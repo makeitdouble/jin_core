@@ -271,9 +271,11 @@ class StreamValidator:
         chunk: str,
     ):
 
-        words = chunk.split()
+        words = chunk.split(" ")
 
         for word in words:
+            if word == "":
+                continue
 
             clean_word = (
                 word
@@ -494,7 +496,7 @@ class StreamValidator:
 
             return (
                 "",
-                False,
+                True,
             )
 
         # -------------------------------------------------
