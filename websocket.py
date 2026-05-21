@@ -144,25 +144,7 @@ async def websocket_endpoint(
     except WebSocketDisconnect:
         return
 
-    except RuntimeError as error:
-
-        if (
-            "disconnect"
-            in str(error).lower()
-        ):
-
-            return
-
-        await handle_websocket_error(
-            websocket,
-            logger,
-            exception=error,
-        )
-
     except Exception as error:
-
-        await handle_websocket_error(
-            websocket,
-            logger,
-            exception=error,
-        )
+        if isinstance(error, RuntimeError) and "disconnect" in str(error).lower():
+            return
+        await handle_websocket_error(websocket, logger, exception=error)
