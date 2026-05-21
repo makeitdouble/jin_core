@@ -8,9 +8,8 @@ from utils.errors import (
     format_client_error,
 )
 
-from clients.model_client import (
-    ask_model,
-    ask_model_stream,
+from clients.runtime_client import (
+    RuntimeClient,
 )
 
 from clients.service_client import (
@@ -18,6 +17,24 @@ from clients.service_client import (
     ask_service_model_stream,
 )
 
+
+brain_client = RuntimeClient(
+    api_base=(
+        config.BRAIN_API_BASE
+    ),
+    model_uid=(
+        config.BRAIN_MODEL_UID
+    ),
+    timeout=(
+        config
+        .BRAIN_REQUEST_TIMEOUT
+    ),
+)
+
+
+# ---------------------------------------------------------
+# SYSTEM PROMPT
+# ---------------------------------------------------------
 
 def build_brain_system_prompt():
 
@@ -31,14 +48,27 @@ def build_brain_system_prompt():
         "Keep responses natural and conversational.\n"
     )
 
-def build_brain_payload(text_en: str) -> str:
+
+# ---------------------------------------------------------
+# PAYLOAD
+# ---------------------------------------------------------
+
+def build_brain_payload(
+    text_en: str,
+) -> str:
+
     context_contract = ContextContract(
-            user_input=text_en,
-            compressed_history="",
-            system_state="ACTIVE",
+        user_input=text_en,
+        compressed_history="",
+        system_state="ACTIVE",
     )
+
     return context_contract.to_xml()
 
+
+# ---------------------------------------------------------
+# NORMAL REQUEST
+# ---------------------------------------------------------
 
 async def ask_brain(
     text_en: str,
@@ -50,11 +80,15 @@ async def ask_brain(
         )
     )
 
+    # -----------------------------------------------------
+    # SERVICE AS BRAIN
+    # -----------------------------------------------------
+
     if config.USE_SERVICE_AS_BRAIN:
 
         try:
 
-            return await ask_service_model(
+            result = await ask_service_model(
                 user_prompt=brain_payload,
                 system_prompt=(
                     build_brain_system_prompt()
@@ -65,6 +99,19 @@ async def ask_brain(
                 max_tokens=(
                     config.BRAIN_MAX_TOKENS
                 ),
+            )
+
+            message = (
+                result
+                .get("choices", [{}])[0]
+                .get("message", {})
+            )
+
+            return (
+                message.get(
+                    "content",
+                    "",
+                ).strip()
             )
 
         except Exception as error:
@@ -82,23 +129,17 @@ async def ask_brain(
                 formatted_error
             )
 
+    # -----------------------------------------------------
+    # REAL BRAIN
+    # -----------------------------------------------------
+
     try:
 
-        return await ask_model(
-            api_base=(
-                config.BRAIN_API_BASE
-            ),
-            model_uid=(
-                config.BRAIN_MODEL_UID
-            ),
-            user_prompt=brain_payload,
+        result = await brain_client.ask(
             system_prompt=(
                 build_brain_system_prompt()
             ),
-            timeout=(
-                config
-                .BRAIN_REQUEST_TIMEOUT
-            ),
+            user_prompt=brain_payload,
             temperature=(
                 config
                 .BRAIN_TEMPERATURE
@@ -107,7 +148,47 @@ async def ask_brain(
                 config
                 .BRAIN_MAX_TOKENS
             ),
-            validate_model=True,
+        )
+
+        returned_model = result.get(
+            "model",
+            "",
+        )
+
+        if (
+            returned_model
+            != config.BRAIN_MODEL_UID
+        ):
+
+            raise RuntimeError(
+                f"Wrong model loaded. "
+                f"Expected "
+                f"'{config.BRAIN_MODEL_UID}', "
+                f"got "
+                f"'{returned_model}'"
+            )
+
+        message = (
+            result
+            .get("choices", [{}])[0]
+            .get("message", {})
+        )
+
+        content = (
+            message.get(
+                "content",
+                "",
+            ).strip()
+        )
+
+        if content:
+            return content
+
+        return (
+            message.get(
+                "reasoning_content",
+                "",
+            ).strip()
         )
 
     except Exception as error:
@@ -126,6 +207,10 @@ async def ask_brain(
         )
 
 
+# ---------------------------------------------------------
+# STREAM REQUEST
+# ---------------------------------------------------------
+
 async def ask_brain_stream(
     text_en: str,
 ):
@@ -135,6 +220,10 @@ async def ask_brain_stream(
             text_en
         )
     )
+
+    # -----------------------------------------------------
+    # SERVICE AS BRAIN
+    # -----------------------------------------------------
 
     if config.USE_SERVICE_AS_BRAIN:
 
@@ -178,34 +267,81 @@ async def ask_brain_stream(
                 formatted_error
             )
 
+    # -----------------------------------------------------
+    # REAL BRAIN
+    # -----------------------------------------------------
+
     try:
 
-        async for chunk in ask_model_stream(
-            api_base=(
-                config.BRAIN_API_BASE
-            ),
-            model_uid=(
-                config.BRAIN_MODEL_UID
-            ),
-            user_prompt=brain_payload,
-            system_prompt=(
-                build_brain_system_prompt()
-            ),
-            timeout=(
-                config
-                .BRAIN_REQUEST_TIMEOUT
-            ),
-            temperature=(
-                config
-                .BRAIN_TEMPERATURE
-            ),
-            max_tokens=(
-                config
-                .BRAIN_MAX_TOKENS
-            ),
+        async for chunk in (
+            brain_client.stream(
+                system_prompt=(
+                    build_brain_system_prompt()
+                ),
+                user_prompt=brain_payload,
+                temperature=(
+                    config
+                    .BRAIN_TEMPERATURE
+                ),
+                max_tokens=(
+                    config
+                    .BRAIN_MAX_TOKENS
+                ),
+            )
         ):
 
-            yield chunk
+            usage = chunk.get(
+                "usage"
+            )
+
+            if usage:
+
+                yield {
+                    "type": "usage",
+                    **usage,
+                }
+
+                continue
+
+            choices = chunk.get(
+                "choices",
+                [],
+            )
+
+            if not choices:
+                continue
+
+            delta = choices[0].get(
+                "delta",
+                {},
+            )
+
+            reasoning = (
+                delta.get(
+                    "reasoning_content"
+                )
+                or delta.get(
+                    "reasoning"
+                )
+            )
+
+            if reasoning:
+
+                yield {
+                    "type": "thinking",
+                    "content": reasoning,
+                }
+
+            content = delta.get(
+                "content"
+            )
+
+            if content:
+
+                yield {
+                    "type": "content",
+                    "content": content,
+                }
 
     except Exception as error:
 

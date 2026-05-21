@@ -4,10 +4,6 @@ from clients.service_client import (
     ask_service_model_stream,
 )
 
-from utils.tokens import (
-    estimate_tokens,
-)
-
 from utils.runtime_state_sync import (
     refresh_runtime_state,
 )
@@ -56,7 +52,7 @@ class ServicePipeline:
                 websocket,
                 logger,
                 role="service",
-                enable_validator=True,
+                enable_validator=False,
             )
 
             try:
@@ -90,6 +86,18 @@ class ServicePipeline:
                     )
 
                     # -----------------------------------------
+                    # USAGE
+                    # -----------------------------------------
+
+                    if chunk_type == "usage":
+
+                        stream.update_usage(
+                            chunk
+                        )
+
+                        continue
+
+                    # -----------------------------------------
                     # THINKING STREAM
                     # -----------------------------------------
 
@@ -108,17 +116,23 @@ class ServicePipeline:
                     # CONTENT STREAM
                     # -----------------------------------------
 
-                    is_valid = (
-                        await stream.send_content(
-                            chunk_content
+                    if (
+                        chunk_type
+                        == "content"
+                    ):
+
+                        is_valid = (
+                            await stream.send_content(
+                                chunk_content
+                            )
                         )
-                    )
 
-                    if not is_valid:
+                        if not is_valid:
+                            print("[VALIDATOR STOP]")
 
-                        await stream.finish()
+                            await stream.finish()
 
-                        return
+                            return
 
                 await stream.finish()
 
@@ -129,10 +143,7 @@ class ServicePipeline:
                         .SERVICE_MODEL_UID
                     ),
                     used_tokens=(
-                        estimate_tokens(
-                            user_text
-                            + stream.response
-                        )
+                        stream.total_tokens
                     ),
                     max_tokens=(
                         config

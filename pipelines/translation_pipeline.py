@@ -154,16 +154,22 @@ class TranslationPipeline:
 
         try:
 
+            translated = await translate(
+                text=text,
+                source_language=(
+                    source_language
+                ),
+                target_language=(
+                    target_language
+                ),
+            )
+
             translated_text = (
-                await translate(
-                    text=text,
-                    source_language=(
-                        source_language
-                    ),
-                    target_language=(
-                        target_language
-                    ),
-                )
+                translated["content"]
+            )
+
+            usage = (
+                translated["usage"]
             )
 
             # -------------------------------------------------
@@ -195,25 +201,25 @@ class TranslationPipeline:
             # TELEMETRY
             # -------------------------------------------------
 
-            await refresh_runtime_state(
-                websocket,
-                runtime_id=(
-                    config
-                    .TRANSLATOR_MODEL_UID
-                ),
-                add_tokens=(
-                    estimate_tokens(
-                        text
-                        + translated_text
-                    )
-                ),
-                max_tokens=(
-                    config
-                    .TRANSLATOR_CONTEXT_WINDOW
-                ),
-                last_error=None,
-                status="online",
-            )
+#            await refresh_runtime_state(
+#                websocket,
+#                runtime_id=(
+#                    config
+#                    .TRANSLATOR_MODEL_UID
+#                ),
+#                add_tokens=(
+#                    usage.get(
+#                        "total_tokens",
+#                        0,
+#                    )
+#                ),
+#                max_tokens=(
+#                    config
+#                    .TRANSLATOR_CONTEXT_WINDOW
+#                ),
+#                last_error=None,
+#                status="online",
+#            )
 
             # -------------------------------------------------
             # LOGGING
@@ -331,6 +337,12 @@ class TranslationPipeline:
                     )
                 )
 
+                if chunk_type == "usage":
+
+                    stream.update_usage(chunk)
+
+                    continue
+
                 # ---------------------------------------------
                 # THINKING STREAM
                 # ---------------------------------------------
@@ -347,17 +359,19 @@ class TranslationPipeline:
                 # CONTENT STREAM
                 # ---------------------------------------------
 
-                is_valid = (
-                    await stream.send_content(
-                        chunk_content
+                if chunk_type == "content":
+
+                    is_valid = (
+                        await stream.send_content(
+                            chunk_content
+                        )
                     )
-                )
 
-                if not is_valid:
+                    if not is_valid:
 
-                    await stream.finish()
+                        await stream.finish()
 
-                    return None
+                        return None
 
             await stream.finish()
 

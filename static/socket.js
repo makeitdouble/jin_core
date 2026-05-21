@@ -191,6 +191,20 @@ ws.onmessage = function (event) {
 
   }
 
+  if (data.type === "message_error") {
+
+    appendLog(
+      "[VALIDATOR]",
+      data.text
+    );
+
+    finishStreamMessage(
+      data.message_id
+    );
+
+    return;
+  }
+
 };
 
 

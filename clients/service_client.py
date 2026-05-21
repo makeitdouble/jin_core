@@ -1,8 +1,21 @@
 import config
 
-from clients.model_client import (
-    ask_model,
-    ask_model_stream,
+from clients.runtime_client import (
+    RuntimeClient,
+)
+
+
+service_client = RuntimeClient(
+    api_base=(
+        config.SERVICE_API_BASE
+    ),
+    model_uid=(
+        config.SERVICE_MODEL_UID
+    ),
+    timeout=(
+        config
+        .SERVICE_REQUEST_TIMEOUT
+    ),
 )
 
 
@@ -24,67 +37,40 @@ def build_service_system_prompt():
 async def ask_service_model(
     *,
     user_prompt: str,
-    system_prompt: str | None = None,
+    system_prompt: str = "",
     temperature: float,
     max_tokens: int,
-) -> str:
+):
 
-    final_system_prompt = (
-        system_prompt
-        or build_service_system_prompt()
-    )
-
-    return await ask_model(
-        api_base=(
-            config.SERVICE_API_BASE
-        ),
-        model_uid=(
-            config.SERVICE_MODEL_UID
+    return await service_client.ask(
+        system_prompt=(
+            system_prompt
+            or build_service_system_prompt()
         ),
         user_prompt=user_prompt,
-        system_prompt=(
-            final_system_prompt
-        ),
-        timeout=(
-            config
-            .SERVICE_REQUEST_TIMEOUT
-        ),
         temperature=temperature,
         max_tokens=max_tokens,
-        validate_model=False,
     )
 
 
 async def ask_service_model_stream(
     *,
     user_prompt: str,
-    system_prompt: str | None = None,
+    system_prompt: str = "",
     temperature: float,
     max_tokens: int,
 ):
 
-    final_system_prompt = (
-        system_prompt
-        or build_service_system_prompt()
-    )
-
-    async for chunk in ask_model_stream(
-        api_base=(
-            config.SERVICE_API_BASE
-        ),
-        model_uid=(
-            config.SERVICE_MODEL_UID
-        ),
-        user_prompt=user_prompt,
-        system_prompt=(
-            final_system_prompt
-        ),
-        timeout=(
-            config
-            .SERVICE_REQUEST_TIMEOUT
-        ),
-        temperature=temperature,
-        max_tokens=max_tokens,
+    async for chunk in (
+        service_client.stream(
+            system_prompt=(
+                system_prompt
+                or build_service_system_prompt()
+            ),
+            user_prompt=user_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
     ):
 
         yield chunk

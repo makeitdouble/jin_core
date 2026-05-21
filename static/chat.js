@@ -218,6 +218,9 @@ function createStreamGroup(
     wrapper
   );
 
+  chatHistory.scrollTop =
+    chatHistory.scrollHeight;
+
   return {
     wrapper,
     thinkWrapper,
@@ -235,8 +238,16 @@ function ensureStreamGroup(
   stream
 ) {
 
-  if (stream.group.wrapper) {
+  // already initialized
+
+  if (
+    stream.group.wrapper
+    && stream.group.answerContent
+    && stream.group.thinkContent
+  ) {
+
     return;
+
   }
 
   const realGroup =
@@ -244,10 +255,26 @@ function ensureStreamGroup(
       stream.role
     );
 
-  stream.group = {
-    ...stream.group,
-    ...realGroup,
-  };
+  stream.group.wrapper =
+    realGroup.wrapper;
+
+  stream.group.thinkWrapper =
+    realGroup.thinkWrapper;
+
+  stream.group.thinkContent =
+    realGroup.thinkContent;
+
+  stream.group.messageRow =
+    realGroup.messageRow;
+
+  stream.group.answerContent =
+    realGroup.answerContent;
+
+  stream.group.createdThinking =
+    false;
+
+  stream.group.createdAnswer =
+    false;
 
 }
 
@@ -317,10 +344,8 @@ function appendThinkingChunk(
 
   stream.thinking += chunk;
 
-  stream.group.thinkContent.innerHTML =
-    escapeHtml(
-      stream.thinking
-    );
+  stream.group.thinkContent.textContent =
+    stream.thinking;
 
   chatHistory.scrollTop =
     chatHistory.scrollHeight;
@@ -363,10 +388,8 @@ function appendStreamChunk(
 
   stream.answer += chunk;
 
-  stream.group.answerContent.innerHTML =
-    escapeHtml(
-      stream.answer
-    );
+  stream.group.answerContent.textContent =
+    stream.answer;
 
   chatHistory.scrollTop =
     chatHistory.scrollHeight;

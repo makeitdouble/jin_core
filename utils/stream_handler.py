@@ -27,6 +27,10 @@ class StreamHandler:
 
         self.response = ""
 
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
+        self.total_tokens = 0
+
         self.validator = (
             StreamValidator()
             if enable_validator
@@ -48,7 +52,7 @@ class StreamHandler:
         })
 
     # ---------------------------------------------------------
-    # THINKING CHUNK
+    # THINKING
     # ---------------------------------------------------------
 
     async def send_thinking(
@@ -65,7 +69,7 @@ class StreamHandler:
         })
 
     # ---------------------------------------------------------
-    # CONTENT CHUNK
+    # CONTENT
     # ---------------------------------------------------------
 
     async def send_content(
@@ -75,16 +79,18 @@ class StreamHandler:
 
         safe_chunk = chunk
 
-        # -----------------------------------------------------
-        # VALIDATION
-        # -----------------------------------------------------
-
         if self.validator:
 
             safe_chunk, is_valid = (
                 self.validator.filter_chunk(
                     chunk
                 )
+            )
+
+            print(
+                "[VALIDATOR RESULT]",
+                safe_chunk,
+                is_valid
             )
 
             if not is_valid:
@@ -107,15 +113,7 @@ class StreamHandler:
 
                 return False
 
-        # -----------------------------------------------------
-        # ACCUMULATE RESPONSE
-        # -----------------------------------------------------
-
         self.response += safe_chunk
-
-        # -----------------------------------------------------
-        # SEND CHUNK
-        # -----------------------------------------------------
 
         await self.websocket.send_json({
             "type": "message_chunk",
@@ -128,7 +126,37 @@ class StreamHandler:
         return True
 
     # ---------------------------------------------------------
-    # FINISH STREAM
+    # TOKEN USAGE
+    # ---------------------------------------------------------
+
+    def update_usage(
+        self,
+        usage_chunk: dict,
+    ):
+
+        self.prompt_tokens = (
+            usage_chunk.get(
+                "prompt_tokens",
+                0,
+            )
+        )
+
+        self.completion_tokens = (
+            usage_chunk.get(
+                "completion_tokens",
+                0,
+            )
+        )
+
+        self.total_tokens = (
+            usage_chunk.get(
+                "total_tokens",
+                0,
+            )
+        )
+
+    # ---------------------------------------------------------
+    # FINISH
     # ---------------------------------------------------------
 
     async def finish(self):

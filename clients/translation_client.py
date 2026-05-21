@@ -1,7 +1,7 @@
 import config
 
-from clients.model_client import (
-    ask_model,
+from clients.runtime_client import (
+    RuntimeClient,
 )
 
 from utils.errors import (
@@ -12,6 +12,24 @@ from utils.tokens import (
     translation_token_limit,
 )
 
+
+translator_client = RuntimeClient(
+    api_base=(
+        config.TRANSLATOR_API_BASE
+    ),
+    model_uid=(
+        config.TRANSLATOR_MODEL_UID
+    ),
+    timeout=(
+        config
+        .TRANSLATOR_REQUEST_TIMEOUT
+    ),
+)
+
+
+# ---------------------------------------------------------
+# SYSTEM PROMPT
+# ---------------------------------------------------------
 
 def build_translation_system_prompt(
     source_language: str,
@@ -30,12 +48,16 @@ def build_translation_system_prompt(
     )
 
 
+# ---------------------------------------------------------
+# TRANSLATE
+# ---------------------------------------------------------
+
 async def translate(
     *,
     text: str,
     source_language: str,
     target_language: str,
-) -> str:
+):
 
     stage = (
         f"{source_language}"
@@ -45,25 +67,15 @@ async def translate(
 
     try:
 
-        return await ask_model(
-            api_base=(
-                config.TRANSLATOR_API_BASE
-            ),
-            model_uid=(
-                config.TRANSLATOR_MODEL_UID
-            ),
-            user_prompt=(
-                f"<input>{text}</input>"
-            ),
+        result = await translator_client.ask(
             system_prompt=(
                 build_translation_system_prompt(
                     source_language,
                     target_language,
                 )
             ),
-            timeout=(
-                config
-                .TRANSLATOR_REQUEST_TIMEOUT
+            user_prompt=(
+                f"<input>{text}</input>"
             ),
             temperature=(
                 config
@@ -75,6 +87,48 @@ async def translate(
                 )
             ),
         )
+
+        message = (
+            result
+            .get("choices", [{}])[0]
+            .get("message", {})
+        )
+
+        content = (
+            message.get(
+                "content",
+                "",
+            ).strip()
+        )
+
+        if content:
+
+            return {
+                "content": content,
+                "usage": (
+                    result.get(
+                        "usage",
+                        {},
+                    )
+                ),
+            }
+
+        reasoning = (
+            message.get(
+                "reasoning_content",
+                "",
+            ).strip()
+        )
+
+        return {
+            "content": reasoning,
+            "usage": (
+                result.get(
+                    "usage",
+                    {},
+                )
+            ),
+        }
 
     except Exception as error:
 
