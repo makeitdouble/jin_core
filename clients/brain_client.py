@@ -17,6 +17,9 @@ from clients.service_client import (
     ask_service_model_stream,
 )
 
+from utils.response_extractor import (
+    ResponseExtractor,
+)
 
 brain_client = RuntimeClient(
     api_base=(
@@ -101,18 +104,7 @@ async def ask_brain(
                 ),
             )
 
-            message = (
-                result
-                .get("choices", [{}])[0]
-                .get("message", {})
-            )
-
-            return (
-                message.get(
-                    "content",
-                    "",
-                ).strip()
-            )
+            return  ResponseExtractor.extract_content_text(result)
 
         except Exception as error:
 
@@ -150,9 +142,11 @@ async def ask_brain(
             ),
         )
 
-        returned_model = result.get(
-            "model",
-            "",
+        returned_model = (
+            ResponseExtractor
+            .extract_model(
+                result
+            )
         )
 
         if (
@@ -168,27 +162,21 @@ async def ask_brain(
                 f"'{returned_model}'"
             )
 
-        message = (
-            result
-            .get("choices", [{}])[0]
-            .get("message", {})
-        )
-
         content = (
-            message.get(
-                "content",
-                "",
-            ).strip()
+            ResponseExtractor
+            .extract_content_text(
+                result
+            )
         )
 
         if content:
             return content
 
         return (
-            message.get(
-                "reasoning_content",
-                "",
-            ).strip()
+            ResponseExtractor
+            .extract_reasoning_text(
+                result
+            )
         )
 
     except Exception as error:

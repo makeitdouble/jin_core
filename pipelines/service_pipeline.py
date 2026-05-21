@@ -52,7 +52,7 @@ class ServicePipeline:
                 websocket,
                 logger,
                 role="service",
-                enable_validator=False,
+                enable_validator=True,
             )
 
             try:

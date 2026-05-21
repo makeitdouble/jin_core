@@ -87,12 +87,6 @@ class StreamHandler:
                 )
             )
 
-            print(
-                "[VALIDATOR RESULT]",
-                safe_chunk,
-                is_valid
-            )
-
             if not is_valid:
 
                 await self.logger.log_validator(

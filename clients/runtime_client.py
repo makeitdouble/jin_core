@@ -8,8 +8,8 @@ from utils.urls import (
     join_url,
 )
 
-from utils.chunk_extractor import (
-    ChunkExtractor,
+from utils.response_extractor import (
+    ResponseExtractor,
 )
 
 
@@ -182,7 +182,7 @@ class RuntimeClient:
                         continue
 
                     usage = (
-                        ChunkExtractor
+                        ResponseExtractor
                         .extract_usage(
                             chunk
                         )
@@ -192,8 +192,8 @@ class RuntimeClient:
                         yield usage
 
                     reasoning = (
-                        ChunkExtractor
-                        .extract_reasoning(
+                        ResponseExtractor
+                        .extract_reasoning_chunk(
                             chunk
                         )
                     )
@@ -202,8 +202,8 @@ class RuntimeClient:
                         yield reasoning
 
                     content = (
-                        ChunkExtractor
-                        .extract_content(
+                        ResponseExtractor
+                        .extract_content_chunk(
                             chunk
                         )
                     )

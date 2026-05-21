@@ -88,17 +88,11 @@ async def translate(
             ),
         )
 
-        message = (
-            result
-            .get("choices", [{}])[0]
-            .get("message", {})
-        )
-
         content = (
-            message.get(
-                "content",
-                "",
-            ).strip()
+            ResponseExtractor
+            .extract_content_text(
+                result
+            )
         )
 
         if content:
@@ -113,22 +107,12 @@ async def translate(
                 ),
             }
 
-        reasoning = (
-            message.get(
-                "reasoning_content",
-                "",
-            ).strip()
+        return (
+            ResponseExtractor
+            .extract_reasoning_text(
+                result
+            )
         )
-
-        return {
-            "content": reasoning,
-            "usage": (
-                result.get(
-                    "usage",
-                    {},
-                )
-            ),
-        }
 
     except Exception as error:
 
