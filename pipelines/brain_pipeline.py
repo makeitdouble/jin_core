@@ -1,3 +1,4 @@
+import asyncio
 import config
 
 from clients.brain_client import (
@@ -94,6 +95,18 @@ class BrainPipeline:
             await logger.log_runtime(
                 "Brain pipeline complete."
             )
+
+        # ---------------------------------------------------------
+        # TASK CANCELLED
+        # ---------------------------------------------------------
+
+        except asyncio.CancelledError:
+
+            await logger.log_runtime(
+                "Brain pipeline cancelled."
+            )
+
+            raise
 
         except Exception as error:
 

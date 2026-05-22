@@ -1,5 +1,5 @@
 import config
-
+import asyncio
 from utils.errors import (
     format_client_error,
 )
@@ -100,6 +100,9 @@ async def translate(
                 result
             )
         )
+
+    except asyncio.CancelledError:
+        raise
 
     except Exception as error:
 

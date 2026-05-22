@@ -7,6 +7,7 @@ from starlette.websockets import (
     WebSocketDisconnect,
 )
 
+import asyncio
 import json
 
 from logger import (
@@ -83,22 +84,60 @@ async def process_message(
     message_data: dict,
 ):
 
-    user_text = (
-        message_data.get(
-            "text",
-            "",
+    try:
+
+        user_text = (
+            message_data.get(
+                "text",
+                "",
+            )
         )
-    )
 
-    pipeline = get_pipeline(
-        user_text
-    )
+        pipeline = get_pipeline(
+            user_text
+        )
 
-    await pipeline.run(
-        websocket=websocket,
-        logger=logger,
-        message_data=message_data,
-    )
+        await pipeline.run(
+            websocket=websocket,
+            logger=logger,
+            message_data=message_data,
+        )
+
+    except asyncio.CancelledError:
+
+        await logger.log_runtime(
+            "Pipeline task cancelled."
+        )
+
+        raise
+
+
+# ---------------------------------------------------------
+# CANCEL CURRENT TASK
+# ---------------------------------------------------------
+
+async def cancel_current_task(
+    task: asyncio.Task | None,
+    logger: WebSocketLogger,
+):
+
+    if (
+        not task
+        or task.done()
+    ):
+        return
+
+    task.cancel()
+
+    try:
+
+        await task
+
+    except asyncio.CancelledError:
+
+        await logger.log_runtime(
+            "Generation cancelled."
+        )
 
 
 # ---------------------------------------------------------
@@ -115,6 +154,8 @@ async def websocket_endpoint(
     logger = WebSocketLogger(
         websocket
     )
+
+    current_task = None
 
     try:
 
@@ -135,16 +176,100 @@ async def websocket_endpoint(
             if not message_data:
                 continue
 
-            await process_message(
-                websocket,
-                logger,
-                message_data,
+            message_type = (
+                message_data.get(
+                    "type",
+                    "message",
+                )
+            )
+
+            # -------------------------------------------------
+            # ABORT GENERATION
+            # -------------------------------------------------
+
+            if message_type == "abort":
+
+                await cancel_current_task(
+                    current_task,
+                    logger,
+                )
+
+                current_task = None
+
+                continue
+
+            # -------------------------------------------------
+            # IGNORE EMPTY MESSAGE
+            # -------------------------------------------------
+
+            user_text = (
+                message_data.get(
+                    "text",
+                    "",
+                ).strip()
+            )
+
+            if not user_text:
+
+                await logger.log_error(
+                    "Received empty message."
+                )
+
+                continue
+
+            # -------------------------------------------------
+            # PREVENT PARALLEL GENERATION
+            # -------------------------------------------------
+
+            if (
+                current_task
+                and not current_task.done()
+            ):
+
+                await logger.log_runtime(
+                    "Generation already running."
+                )
+
+                continue
+
+            # -------------------------------------------------
+            # START BACKGROUND TASK
+            # -------------------------------------------------
+
+            current_task = (
+                asyncio.create_task(
+                    process_message(
+                        websocket,
+                        logger,
+                        message_data,
+                    )
+                )
             )
 
     except WebSocketDisconnect:
+
+        await cancel_current_task(
+            current_task,
+            logger,
+        )
+
         return
 
     except Exception as error:
-        if isinstance(error, RuntimeError) and "disconnect" in str(error).lower():
+
+        await cancel_current_task(
+            current_task,
+            logger,
+        )
+
+        if (
+            isinstance(error, RuntimeError)
+            and "disconnect" in str(error).lower()
+        ):
             return
-        await handle_websocket_error(websocket, logger, exception=error)
+
+        await handle_websocket_error(
+            websocket,
+            logger,
+            exception=error,
+        )

@@ -1,3 +1,4 @@
+import asyncio
 import config
 
 from clients.service_client import (
@@ -135,7 +136,6 @@ class ServicePipeline:
                         )
 
                         if not is_valid:
-                            print("[VALIDATOR STOP]")
 
                             await stream.finish()
 
@@ -164,6 +164,25 @@ class ServicePipeline:
                     stream.response
                 )
 
+            # ---------------------------------------------------------
+            # TASK CANCELLED
+            # ---------------------------------------------------------
+
+            except asyncio.CancelledError:
+
+                await logger.log_runtime(
+                    "Service stream cancelled."
+                )
+
+                try:
+
+                    await stream.finish()
+
+                except Exception:
+                    pass
+
+                raise
+
             except Exception as error:
 
                 await handle_pipeline_error(
@@ -184,6 +203,18 @@ class ServicePipeline:
             await logger.log_runtime(
                 "Service pipeline complete."
             )
+
+        # ---------------------------------------------------------
+        # TASK CANCELLED
+        # ---------------------------------------------------------
+
+        except asyncio.CancelledError:
+
+            await logger.log_runtime(
+                "Service pipeline cancelled."
+            )
+
+            raise
 
         except Exception as error:
 

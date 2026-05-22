@@ -1,3 +1,5 @@
+import asyncio
+
 from utils.runtime_state_sync import (
     refresh_runtime_state,
 )
@@ -55,88 +57,121 @@ class RuntimeStream:
         generator,
     ):
 
-        await self.stream.start()
+        try:
 
-        async for chunk in generator:
+            await self.stream.start()
 
-            chunk_type = chunk.get(
-                "type"
-            )
+            async for chunk in generator:
 
-            # -------------------------------------------------
-            # USAGE
-            # -------------------------------------------------
-
-            if chunk_type == "usage":
-
-                self.stream.update_usage(
-                    chunk
+                chunk_type = chunk.get(
+                    "type"
                 )
 
-                continue
+                # -------------------------------------------------
+                # USAGE
+                # -------------------------------------------------
 
-            # -------------------------------------------------
-            # THINKING
-            # -------------------------------------------------
+                if chunk_type == "usage":
 
-            if chunk_type == "thinking":
-
-                await self.stream.send_thinking(
-                    chunk.get(
-                        "content",
-                        "",
+                    self.stream.update_usage(
+                        chunk
                     )
-                )
 
-                continue
+                    continue
 
-            # -------------------------------------------------
-            # CONTENT
-            # -------------------------------------------------
+                # -------------------------------------------------
+                # THINKING
+                # -------------------------------------------------
 
-            if chunk_type == "content":
+                if chunk_type == "thinking":
 
-                is_valid = (
-                    await self.stream.send_content(
+                    await self.stream.send_thinking(
                         chunk.get(
                             "content",
                             "",
                         )
                     )
+
+                    continue
+
+                # -------------------------------------------------
+                # CONTENT
+                # -------------------------------------------------
+
+                if chunk_type == "content":
+
+                    is_valid = (
+                        await self.stream.send_content(
+                            chunk.get(
+                                "content",
+                                "",
+                            )
+                        )
+                    )
+
+                    if not is_valid:
+
+                        await self.stream.finish()
+
+                        return None
+
+            await self.stream.finish()
+
+            used_tokens = (
+                self.stream.total_tokens
+                or estimate_tokens(
+                    self.stream.response
                 )
+            )
 
-                if not is_valid:
+            await refresh_runtime_state(
+                self.websocket,
+                runtime_id=(
+                    self.runtime_id
+                ),
+                used_tokens=(
+                    used_tokens
+                ),
+                max_tokens=(
+                    self.context_window
+                ),
+                last_error=None,
+                status="online",
+            )
 
-                    await self.stream.finish()
-
-                    return None
-
-        await self.stream.finish()
-
-        used_tokens = (
-            self.stream.total_tokens
-            or estimate_tokens(
+            await self.log_method(
                 self.stream.response
             )
-        )
 
-        await refresh_runtime_state(
-            self.websocket,
-            runtime_id=(
-                self.runtime_id
-            ),
-            used_tokens=(
-                used_tokens
-            ),
-            max_tokens=(
-                self.context_window
-            ),
-            last_error=None,
-            status="online",
-        )
+            return self.stream.response
 
-        await self.log_method(
-            self.stream.response
-        )
+        # ---------------------------------------------------------
+        # TASK CANCELLED
+        # ---------------------------------------------------------
 
-        return self.stream.response
+        except asyncio.CancelledError:
+
+            await self.logger.log_runtime(
+                f"{self.runtime_id} stream cancelled."
+            )
+
+            try:
+
+                await self.websocket.send_json({
+                    "type": "message_end",
+                    "message_id": (
+                        self.stream.message_id
+                    ),
+                })
+
+            except Exception:
+                pass
+
+            try:
+
+                await self.stream.finish()
+
+            except Exception:
+                pass
+
+            raise

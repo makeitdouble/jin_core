@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import httpx
@@ -123,84 +124,109 @@ class RuntimeClient:
             stream=True,
         )
 
-        async with self.client.stream(
-            "POST",
-            join_url(
-                self.api_base,
-                config.CHAT_ENDPOINT,
-            ),
-            json=payload,
-            timeout=None,
-        ) as response:
+        response = None
 
-            response.raise_for_status()
+        try:
 
-            async for raw_line in response.aiter_lines():
+            async with self.client.stream(
+                "POST",
+                join_url(
+                    self.api_base,
+                    config.CHAT_ENDPOINT,
+                ),
+                json=payload,
+                timeout=None,
+            ) as response:
 
-                if raw_line is None:
-                    continue
+                response.raise_for_status()
 
-                line = raw_line.strip()
+                async for raw_line in response.aiter_lines():
 
-                if not line:
-                    continue
+                    if raw_line is None:
+                        continue
 
-                # only SSE payloads
+                    line = raw_line.strip()
 
-                if not line.startswith("data:"):
-                    continue
+                    if not line:
+                        continue
+
+                    # -------------------------------------------------
+                    # ONLY SSE
+                    # -------------------------------------------------
+
+                    if not line.startswith(
+                        "data:"
+                    ):
+                        continue
+
+                    try:
+
+                        data = (
+                            line.split(
+                                "data:",
+                                1,
+                            )[1]
+                            .strip()
+                        )
+
+                    except Exception:
+                        continue
+
+                    if data == "[DONE]":
+                        break
+
+                    try:
+
+                        chunk = json.loads(
+                            data
+                        )
+
+                    except Exception:
+                        continue
+
+                    usage = (
+                        ResponseExtractor
+                        .extract_usage(
+                            chunk
+                        )
+                    )
+
+                    if usage:
+                        yield usage
+
+                    reasoning = (
+                        ResponseExtractor
+                        .extract_reasoning_chunk(
+                            chunk
+                        )
+                    )
+
+                    if reasoning:
+                        yield reasoning
+
+                    content = (
+                        ResponseExtractor
+                        .extract_content_chunk(
+                            chunk
+                        )
+                    )
+
+                    if content:
+                        yield content
+
+        # ---------------------------------------------------------
+        # TASK CANCELLED
+        # ---------------------------------------------------------
+
+        except asyncio.CancelledError:
+
+            if response is not None:
 
                 try:
 
-                    data = (
-                        line.split(
-                            "data:",
-                            1,
-                        )[1]
-                        .strip()
-                    )
+                    await response.aclose()
 
                 except Exception:
-                    continue
+                    pass
 
-                if data == "[DONE]":
-                    break
-
-                try:
-
-                    chunk = json.loads(
-                        data
-                    )
-
-                except Exception:
-                    continue
-
-                usage = (
-                    ResponseExtractor
-                    .extract_usage(
-                        chunk
-                    )
-                )
-
-                if usage:
-                    yield usage
-
-                reasoning = (
-                    ResponseExtractor
-                    .extract_reasoning_chunk(
-                        chunk
-                    )
-                )
-
-                if reasoning:
-                    yield reasoning
-
-                content = (
-                    ResponseExtractor
-                    .extract_content_chunk(
-                        chunk
-                    )
-                )
-
-                if content:
-                    yield content
+            raise

@@ -1,5 +1,5 @@
 import config
-
+import asyncio
 from clients.brain_client import (
     ask_brain_stream,
 )
@@ -118,6 +118,14 @@ class TranslationPipeline:
             await logger.log_runtime(
                 "Translation pipeline complete."
             )
+
+        except asyncio.CancelledError:
+
+                    await logger.log_runtime(
+                        "Translation pipeline cancelled."
+                    )
+
+                    raise
 
         except Exception as error:
 
@@ -249,6 +257,9 @@ class TranslationPipeline:
             )
 
             return translated_text
+
+        except asyncio.CancelledError:
+                    raise
 
         except Exception as error:
 
@@ -421,6 +432,21 @@ class TranslationPipeline:
             )
 
             return stream.response
+
+        except asyncio.CancelledError:
+
+                    await logger.log_runtime(
+                        "Translation brain stream cancelled."
+                    )
+
+                    try:
+
+                        await stream.finish()
+
+                    except Exception:
+                        pass
+
+                    raise
 
         except Exception as error:
 

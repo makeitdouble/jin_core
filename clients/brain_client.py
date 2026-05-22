@@ -1,5 +1,5 @@
 import config
-
+import asyncio
 from contracts.context_contract import (
     ContextContract,
 )
@@ -234,6 +234,9 @@ async def ask_brain_stream(
 
             return
 
+        except asyncio.CancelledError:
+            raise
+
         except Exception as error:
 
             formatted_error = (
@@ -273,6 +276,9 @@ async def ask_brain_stream(
         ):
 
             yield chunk
+
+    except asyncio.CancelledError:
+        raise
 
     except Exception as error:
 

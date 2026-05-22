@@ -1,3 +1,6 @@
+import asyncio
+
+
 def build_service_system_prompt():
 
     return (
@@ -42,16 +45,21 @@ async def ask_service_model_stream(
     max_tokens: int,
 ):
 
-    async for chunk in (
-        client.stream(
-            system_prompt=(
-                system_prompt
-                or build_service_system_prompt()
-            ),
-            user_prompt=user_prompt,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-    ):
+    try:
 
-        yield chunk
+        async for chunk in (
+            client.stream(
+                system_prompt=(
+                    system_prompt
+                    or build_service_system_prompt()
+                ),
+                user_prompt=user_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        ):
+
+            yield chunk
+
+    except asyncio.CancelledError:
+        raise
