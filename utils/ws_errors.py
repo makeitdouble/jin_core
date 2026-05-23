@@ -4,6 +4,9 @@ from utils.runtime_state_sync import (
     set_runtime_offline,
 )
 
+from emitter.runtime_emitter import (
+    RuntimeEmitter,
+)
 
 async def send_ws_error(
     websocket,
@@ -25,13 +28,15 @@ async def send_ws_error(
 
 
 async def handle_pipeline_error(
-    websocket,
-    logger,
+    context,
     *,
     runtime_id: str,
     public_message: str,
     exception: Exception,
 ):
+
+    websocket = context.websocket
+    logger = context.logger
 
     error_text = str(
         exception
@@ -52,19 +57,20 @@ async def handle_pipeline_error(
     )
 
     await set_runtime_offline(
-        websocket,
+        context,
         runtime_id=runtime_id,
         error=error_text,
     )
 
 
 async def handle_fatal_pipeline_error(
-    websocket,
-    logger,
+    context,
     *,
     pipeline_name: str,
     exception: Exception,
 ):
+    logger = context.logger
+    websocket = context.websocket
 
     formatted_traceback = (
         traceback.format_exc()

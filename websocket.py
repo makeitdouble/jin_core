@@ -10,7 +10,7 @@ from starlette.websockets import (
 import asyncio
 import json
 
-from logger import (
+from websocket_logger import (
     WebSocketLogger,
 )
 
@@ -26,6 +26,13 @@ from utils.ws_errors import (
     handle_websocket_error,
 )
 
+from context.runtime_context import (
+    RuntimeContext,
+)
+
+from emitter.runtime_emitter import (
+    RuntimeEmitter,
+)
 
 websocket_router = APIRouter()
 
@@ -35,14 +42,13 @@ websocket_router = APIRouter()
 # ---------------------------------------------------------
 
 async def initialize_connection(
-    websocket: WebSocket,
-    logger: WebSocketLogger,
+    context
 ):
 
-    await websocket.accept()
+    await context.websocket.accept()
 
     await send_telemetry(
-        websocket
+        context
     )
 
 
@@ -51,9 +57,10 @@ async def initialize_connection(
 # ---------------------------------------------------------
 
 async def receive_message(
-    websocket: WebSocket,
-    logger: WebSocketLogger,
+    context,
 ):
+    websocket = context.websocket
+    logger = context.logger
 
     raw_data = (
         await websocket.receive_text()
@@ -79,10 +86,11 @@ async def receive_message(
 # ---------------------------------------------------------
 
 async def process_message(
-    websocket: WebSocket,
-    logger: WebSocketLogger,
+    context,
     message_data: dict,
 ):
+    websocket = context.websocket
+    logger = context.logger
 
     try:
 
@@ -98,8 +106,7 @@ async def process_message(
         )
 
         await pipeline.run(
-            websocket=websocket,
-            logger=logger,
+            context=context,
             message_data=message_data,
         )
 
@@ -155,21 +162,28 @@ async def websocket_endpoint(
         websocket
     )
 
+    context = RuntimeContext(
+        websocket=websocket,
+        emitter=RuntimeEmitter(
+            websocket
+        ),
+        logger=logger,
+        clients=websocket.app.state.clients,
+    )
+
     current_task = None
 
     try:
 
         await initialize_connection(
-            websocket,
-            logger,
+            context
         )
 
         while True:
 
             message_data = (
                 await receive_message(
-                    websocket,
-                    logger,
+                    context,
                 )
             )
 
@@ -239,8 +253,7 @@ async def websocket_endpoint(
             current_task = (
                 asyncio.create_task(
                     process_message(
-                        websocket,
-                        logger,
+                        context,
                         message_data,
                     )
                 )

@@ -18,8 +18,7 @@ class RuntimeStream:
     def __init__(
         self,
         *,
-        websocket,
-        logger,
+        context,
         runtime_id: str,
         role: str,
         context_window: int,
@@ -27,8 +26,9 @@ class RuntimeStream:
         enable_validator: bool = True,
     ):
 
-        self.websocket = websocket
-        self.logger = logger
+        self.context = context
+        self.websocket = context.websocket
+        self.logger = context.logger
 
         self.runtime_id = runtime_id
         self.role = role
@@ -40,8 +40,8 @@ class RuntimeStream:
         self.log_method = log_method
 
         self.stream = StreamHandler(
-            websocket,
-            logger,
+            self.websocket,
+            self.logger,
             role=role,
             enable_validator=(
                 enable_validator
@@ -125,7 +125,7 @@ class RuntimeStream:
             )
 
             await refresh_runtime_state(
-                self.websocket,
+                self.context,
                 runtime_id=(
                     self.runtime_id
                 ),

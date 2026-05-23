@@ -23,10 +23,11 @@ class ServicePipeline:
 
     async def run(
         self,
-        websocket,
-        logger,
+        context,
         message_data,
     ):
+        websocket = context.websocket
+        logger = context.logger
 
         try:
 
@@ -50,7 +51,7 @@ class ServicePipeline:
             )
 
             service_client = (
-                websocket.app.state.clients[
+                context.clients[
                     "service"
                 ]
             )
@@ -144,7 +145,7 @@ class ServicePipeline:
                 await stream.finish()
 
                 await refresh_runtime_state(
-                    websocket,
+                    context,
                     runtime_id=(
                         config
                         .SERVICE_MODEL_UID
@@ -186,8 +187,7 @@ class ServicePipeline:
             except Exception as error:
 
                 await handle_pipeline_error(
-                    websocket,
-                    logger,
+                    context,
                     runtime_id=(
                         config
                         .SERVICE_MODEL_UID
@@ -219,8 +219,7 @@ class ServicePipeline:
         except Exception as error:
 
             await handle_fatal_pipeline_error(
-                websocket,
-                logger,
+                context,
                 pipeline_name=(
                     "service_pipeline"
                 ),

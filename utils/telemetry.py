@@ -1,13 +1,13 @@
-from memory.runtime_state import (
+from runtime.runtime_registry import (
     runtime_state,
 )
 
 
 async def send_telemetry(
-    websocket,
+        context,
 ):
 
-    await websocket.send_json({
+    await context.emitter.emit({
         "type": "telemetry",
 
         "runtime": (

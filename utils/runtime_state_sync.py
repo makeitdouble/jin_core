@@ -1,4 +1,4 @@
-from memory.runtime_state import (
+from runtime.runtime_registry import (
     runtime_state,
 )
 
@@ -8,7 +8,7 @@ from utils.telemetry import (
 
 
 async def refresh_runtime_state(
-    websocket,
+    context,
     *,
     runtime_id: str,
     used_tokens: int | None = None,
@@ -28,12 +28,12 @@ async def refresh_runtime_state(
     )
 
     await send_telemetry(
-        websocket
+        context
     )
 
 
 async def set_runtime_offline(
-    websocket,
+        context,
     *,
     runtime_id: str,
     error: str | None = None,
@@ -46,5 +46,5 @@ async def set_runtime_offline(
     )
 
     await send_telemetry(
-        websocket
+        context
     )

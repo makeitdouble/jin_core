@@ -1,5 +1,4 @@
-import config
-
+from settings.app_settings import settings
 
 def estimate_tokens(
     text: str,
@@ -18,12 +17,12 @@ def translation_token_limit(
 ) -> int:
 
     estimated_tokens = max(
-        config.TRANSLATION_MIN_TOKENS,
+        settings.TRANSLATION_MIN_TOKENS,
         estimate_tokens(text),
     )
 
     return min(
-        config.TRANSLATION_MAX_TOKENS,
+        settings.TRANSLATION_MAX_TOKENS,
         estimated_tokens,
     )
 

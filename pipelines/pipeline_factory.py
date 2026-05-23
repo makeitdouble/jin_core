@@ -1,5 +1,3 @@
-import config
-
 from pipelines.translation_pipeline import (
     TranslationPipeline,
 )

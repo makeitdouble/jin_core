@@ -44,10 +44,11 @@ class TranslationPipeline:
 
     async def run(
         self,
-        websocket,
-        logger,
+        context,
         message_data,
     ):
+        websocket = context.websocket
+        logger = context.logger
 
         try:
 
@@ -76,8 +77,7 @@ class TranslationPipeline:
 
             user_text_translated = (
                 await self.translate_input(
-                    websocket,
-                    logger,
+                    context,
                     user_text,
                 )
             )
@@ -91,8 +91,7 @@ class TranslationPipeline:
 
             brain_response = (
                 await self.ask_brain(
-                    websocket,
-                    logger,
+                    context,
                     user_text_translated,
                 )
             )
@@ -106,8 +105,7 @@ class TranslationPipeline:
 
             translated_response = (
                 await self.translate_response(
-                    websocket,
-                    logger,
+                    context,
                     brain_response,
                 )
             )
@@ -130,8 +128,7 @@ class TranslationPipeline:
         except Exception as error:
 
             await handle_fatal_pipeline_error(
-                websocket,
-                logger,
+                context,
                 pipeline_name=(
                     "translation_pipeline"
                 ),
@@ -144,8 +141,7 @@ class TranslationPipeline:
 
     async def translate_text(
         self,
-        websocket,
-        logger,
+        context,
         *,
         text: str,
         source_language: str,
@@ -154,8 +150,11 @@ class TranslationPipeline:
         cleanup_output: bool = False,
     ) -> str | None:
 
+        websocket = context.websocket
+        logger = context.logger
+
         translator_client = (
-            websocket.app.state.clients[
+            context.clients[
                 "translator"
             ]
         )
@@ -284,14 +283,15 @@ class TranslationPipeline:
 
     async def translate_input(
         self,
-        websocket,
-        logger,
+        context,
         user_text: str,
     ) -> str | None:
 
+        websocket = context.websocket
+        logger = context.logger
+
         return await self.translate_text(
-            websocket,
-            logger,
+            context,
             text=user_text,
             source_language=(
                 SOURCE_LANGUAGE
@@ -310,10 +310,12 @@ class TranslationPipeline:
 
     async def ask_brain(
         self,
-        websocket,
-        logger,
+        context,
         user_text_translated: str,
     ) -> str | None:
+
+        websocket = context.websocket
+        logger = context.logger
 
         await logger.log_runtime(
             "Send request to brain..."
@@ -324,7 +326,7 @@ class TranslationPipeline:
         )
 
         brain_client = (
-            websocket.app.state.clients[
+            context.clients[
                 "brain"
             ]
         )
@@ -401,7 +403,7 @@ class TranslationPipeline:
             await stream.finish()
 
             await refresh_runtime_state(
-                websocket,
+                context,
                 runtime_id=(
                     brain_runtime[
                         "runtime_id"
@@ -472,17 +474,18 @@ class TranslationPipeline:
 
     async def translate_response(
         self,
-        websocket,
-        logger,
+        context,
         brain_response: str,
     ) -> str | None:
 
         if not TRANSLATE_RESPONSE:
             return brain_response
 
+        websocket = context.websocket
+        logger = context.logger
+
         return await self.translate_text(
-            websocket,
-            logger,
+            context,
             text=brain_response,
             source_language=(
                 TARGET_LANGUAGE

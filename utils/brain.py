@@ -1,18 +1,17 @@
-import config
-
+from settings.app_settings import settings
 
 def get_brain_runtime_config():
 
-    if config.USE_SERVICE_AS_BRAIN:
+    if settings.USE_SERVICE_AS_BRAIN:
 
         return {
             "runtime_id": (
-                config
+                settings
                 .SERVICE_MODEL_UID
             ),
             "label": "service",
             "context_window": (
-                config.SERVICE_CONTEXT_WINDOW
+                settings.SERVICE_CONTEXT_WINDOW
             ),
             "log_method": (
                 "log_service_as_brain"
@@ -21,12 +20,12 @@ def get_brain_runtime_config():
 
     return {
         "runtime_id": (
-            config
+            settings
             .BRAIN_MODEL_UID
         ),
         "label": "brain",
         "context_window": (
-            config
+            settings
             .BRAIN_CONTEXT_WINDOW
         ),
         "log_method": (

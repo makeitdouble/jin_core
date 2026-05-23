@@ -3,7 +3,7 @@ import json
 
 import httpx
 
-import config
+from settings.app_settings import settings
 
 from utils.urls import (
     join_url,
@@ -93,7 +93,7 @@ class RuntimeClient:
         response = await self.client.post(
             join_url(
                 self.api_base,
-                config.CHAT_ENDPOINT,
+                settings.CHAT_ENDPOINT,
             ),
             json=payload,
             timeout=self.timeout,
@@ -132,7 +132,7 @@ class RuntimeClient:
                 "POST",
                 join_url(
                     self.api_base,
-                    config.CHAT_ENDPOINT,
+                    settings.CHAT_ENDPOINT,
                 ),
                 json=payload,
                 timeout=None,

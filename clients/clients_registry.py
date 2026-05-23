@@ -1,4 +1,4 @@
-import config
+from settings.app_settings import settings
 
 from clients.runtime_client import (
     RuntimeClient,
@@ -13,13 +13,13 @@ def build_clients(
 
         "translator": RuntimeClient(
             api_base=(
-                config.TRANSLATOR_API_BASE
+                settings.TRANSLATOR_API_BASE
             ),
             model_uid=(
-                config.TRANSLATOR_MODEL_UID
+                settings.TRANSLATOR_MODEL_UID
             ),
             timeout=(
-                config
+                settings
                 .TRANSLATOR_REQUEST_TIMEOUT
             ),
             client=http_client,
@@ -27,13 +27,13 @@ def build_clients(
 
         "service": RuntimeClient(
             api_base=(
-                config.SERVICE_API_BASE
+                settings.SERVICE_API_BASE
             ),
             model_uid=(
-                config.SERVICE_MODEL_UID
+                settings.SERVICE_MODEL_UID
             ),
             timeout=(
-                config
+                settings
                 .SERVICE_REQUEST_TIMEOUT
             ),
             client=http_client,
@@ -41,13 +41,13 @@ def build_clients(
 
         "brain": RuntimeClient(
             api_base=(
-                config.BRAIN_API_BASE
+                settings.BRAIN_API_BASE
             ),
             model_uid=(
-                config.BRAIN_MODEL_UID
+                settings.BRAIN_MODEL_UID
             ),
             timeout=(
-                config
+                settings
                 .BRAIN_REQUEST_TIMEOUT
             ),
             client=http_client,

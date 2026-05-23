@@ -1,5 +1,5 @@
 import asyncio
-import config
+from settings.app_settings import settings
 
 from clients.brain_client import (
     ask_brain_stream,
@@ -22,10 +22,11 @@ class BrainPipeline:
 
     async def run(
         self,
-        websocket,
-        logger,
+        context,
         message_data,
     ):
+        websocket = context.websocket
+        logger = context.logger
 
         try:
 
@@ -52,15 +53,10 @@ class BrainPipeline:
                 get_brain_runtime_config()
             )
 
-            brain_client = (
-                websocket.app.state.clients[
-                    "brain"
-                ]
-            )
+            brain_client = context.clients["brain"]
 
             runtime = RuntimeStream(
-                websocket=websocket,
-                logger=logger,
+                context=context,
                 runtime_id=(
                     brain_runtime[
                         "runtime_id"
@@ -68,7 +64,7 @@ class BrainPipeline:
                 ),
                 role=(
                     "service"
-                    if config.USE_SERVICE_AS_BRAIN
+                    if settings.USE_SERVICE_AS_BRAIN
                     else "brain"
                 ),
                 context_window=(
@@ -111,8 +107,7 @@ class BrainPipeline:
         except Exception as error:
 
             await handle_fatal_pipeline_error(
-                websocket,
-                logger,
+                context,
                 pipeline_name=(
                     "brain_pipeline"
                 ),

@@ -1,5 +1,4 @@
-import config
-
+from settings.app_settings import settings
 
 class RuntimeState:
 
@@ -9,23 +8,23 @@ class RuntimeState:
 
         runtimes = [
             (
-                config.SERVICE_MODEL_UID,
+                settings.SERVICE_MODEL_UID,
                 "service",
-                config.SERVICE_CONTEXT_WINDOW,
+                settings.SERVICE_CONTEXT_WINDOW,
             ),
             (
-                config.TRANSLATOR_MODEL_UID,
+                settings.TRANSLATOR_MODEL_UID,
                 "translator",
-                config.TRANSLATOR_CONTEXT_WINDOW,
+                settings.TRANSLATOR_CONTEXT_WINDOW,
             ),
         ]
 
-        if not config.USE_SERVICE_AS_BRAIN:
+        if not settings.USE_SERVICE_AS_BRAIN:
             runtimes.append(
                 (
-                    config.BRAIN_MODEL_UID,
+                    settings.BRAIN_MODEL_UID,
                     "brain",
-                    config.BRAIN_CONTEXT_WINDOW,
+                    settings.BRAIN_CONTEXT_WINDOW,
                 )
             )
 
@@ -99,6 +98,3 @@ class RuntimeState:
             for runtime_id, state
             in self.states.items()
         }
-
-
-runtime_state = RuntimeState()
