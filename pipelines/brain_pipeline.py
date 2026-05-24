@@ -1,4 +1,5 @@
 import asyncio
+
 from settings.app_settings import settings
 
 from clients.brain_client import (
@@ -21,23 +22,19 @@ from utils.ws_errors import (
 class BrainPipeline:
 
     async def run(
-        self,
-        context,
-        message_data,
+            self,
+            context,
+            user_input: str,
     ):
-        websocket = context.websocket
+
+        print("[BRAIN PIPELINE RUN]")
+        print(user_input)
+
         logger = context.logger
 
         try:
 
-            user_text = (
-                message_data.get(
-                    "text",
-                    "",
-                ).strip()
-            )
-
-            if not user_text:
+            if not user_input:
 
                 await logger.log_error(
                     "Received empty message."
@@ -53,7 +50,9 @@ class BrainPipeline:
                 get_brain_runtime_config()
             )
 
-            brain_client = context.clients["brain"]
+            brain_client = (
+                context.clients["brain"]
+            )
 
             runtime = RuntimeStream(
                 context=context,
@@ -81,11 +80,13 @@ class BrainPipeline:
                 enable_validator=True,
             )
 
+            generator = ask_brain_stream(
+                client=brain_client,
+                text=user_input,
+            )
+
             await runtime.run(
-                ask_brain_stream(
-                    client=brain_client,
-                    text=user_text,
-                )
+                generator
             )
 
             await logger.log_runtime(
@@ -104,7 +105,21 @@ class BrainPipeline:
 
             raise
 
+        # ---------------------------------------------------------
+        # FATAL ERROR
+        # ---------------------------------------------------------
+
         except Exception as error:
+
+            import traceback
+
+            tb = traceback.format_exc()
+
+            print(tb)
+
+            await logger.log_error(
+                tb
+            )
 
             await handle_fatal_pipeline_error(
                 context,

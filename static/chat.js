@@ -38,6 +38,13 @@ function getRoleConfig(role) {
         bgClass:
           "bg-emerald-950/70 border-emerald-700 shadow-[0_0_12px_rgba(16,185,129,0.08)]"
       };
+      
+    case "translator":
+      return {
+        avatar: "TR",
+        bgClass:
+            "bg-cyan-950/70 border-cyan-700 shadow-[0_0_12px_rgba(8,145,178,0.08)]"
+      };
 
     case "brain":
     default:

@@ -16,14 +16,14 @@ from utils.tokens import (
 class RuntimeStream:
 
     def __init__(
-        self,
-        *,
-        context,
-        runtime_id: str,
-        role: str,
-        context_window: int,
-        log_method,
-        enable_validator: bool = True,
+            self,
+            *,
+            context,
+            runtime_id: str,
+            role: str,
+            context_window: int,
+            log_method,
+            enable_validator: bool = True,
     ):
 
         self.context = context
@@ -53,13 +53,21 @@ class RuntimeStream:
     # ---------------------------------------------------------
 
     async def run(
-        self,
-        generator,
+            self,
+            generator,
     ):
 
         try:
 
             await self.stream.start()
+
+            await self.logger.log_runtime(
+                f"[STREAM START] role={self.role}"
+            )
+
+            await self.logger.log_runtime(
+                "[GENERATOR LOOP START]"
+            )
 
             async for chunk in generator:
 
@@ -72,7 +80,6 @@ class RuntimeStream:
                 # -------------------------------------------------
 
                 if chunk_type == "usage":
-
                     self.stream.update_usage(
                         chunk
                     )
@@ -84,7 +91,6 @@ class RuntimeStream:
                 # -------------------------------------------------
 
                 if chunk_type == "thinking":
-
                     await self.stream.send_thinking(
                         chunk.get(
                             "content",
@@ -110,7 +116,6 @@ class RuntimeStream:
                     )
 
                     if not is_valid:
-
                         await self.stream.finish()
 
                         return None
@@ -118,10 +123,10 @@ class RuntimeStream:
             await self.stream.finish()
 
             used_tokens = (
-                self.stream.total_tokens
-                or estimate_tokens(
-                    self.stream.response
-                )
+                    self.stream.total_tokens
+                    or estimate_tokens(
+                self.stream.response
+            )
             )
 
             await refresh_runtime_state(
@@ -170,6 +175,30 @@ class RuntimeStream:
             try:
 
                 await self.stream.finish()
+
+            except Exception:
+                pass
+
+            raise
+
+        except Exception as e:
+
+            import traceback
+
+            tb = traceback.format_exc()
+
+            await self.logger.log_error(
+                "[RUNTIME STREAM CRASH]\n"
+                f"{tb}"
+            )
+
+            try:
+
+                await self.websocket.send_json({
+                    "type": "message_error",
+                    "message_id": self.stream.message_id,
+                    "text": str(e),
+                })
 
             except Exception:
                 pass

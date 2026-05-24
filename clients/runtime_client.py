@@ -17,12 +17,12 @@ from utils.response_extractor import (
 class RuntimeClient:
 
     def __init__(
-        self,
-        *,
-        api_base: str,
-        model_uid: str,
-        timeout: float,
-        client: httpx.AsyncClient,
+            self,
+            *,
+            api_base: str,
+            model_uid: str,
+            timeout: float,
+            client: httpx.AsyncClient,
     ):
 
         self.api_base = api_base
@@ -35,13 +35,13 @@ class RuntimeClient:
     # ---------------------------------------------------------
 
     def build_payload(
-        self,
-        *,
-        system_prompt: str,
-        user_prompt: str,
-        temperature: float,
-        max_tokens: int,
-        stream: bool = False,
+            self,
+            *,
+            system_prompt: str,
+            user_prompt: str,
+            temperature: float,
+            max_tokens: int,
+            stream: bool = False,
     ):
 
         payload = {
@@ -74,12 +74,12 @@ class RuntimeClient:
     # ---------------------------------------------------------
 
     async def ask(
-        self,
-        *,
-        system_prompt: str,
-        user_prompt: str,
-        temperature: float,
-        max_tokens: int,
+            self,
+            *,
+            system_prompt: str,
+            user_prompt: str,
+            temperature: float,
+            max_tokens: int,
     ):
 
         payload = self.build_payload(
@@ -108,12 +108,12 @@ class RuntimeClient:
     # ---------------------------------------------------------
 
     async def stream(
-        self,
-        *,
-        system_prompt: str,
-        user_prompt: str,
-        temperature: float,
-        max_tokens: int,
+            self,
+            *,
+            system_prompt: str,
+            user_prompt: str,
+            temperature: float,
+            max_tokens: int,
     ):
 
         payload = self.build_payload(
@@ -129,18 +129,20 @@ class RuntimeClient:
         try:
 
             async with self.client.stream(
-                "POST",
-                join_url(
-                    self.api_base,
-                    settings.CHAT_ENDPOINT,
-                ),
-                json=payload,
-                timeout=None,
+                    "POST",
+                    join_url(
+                        self.api_base,
+                        settings.CHAT_ENDPOINT,
+                    ),
+                    json=payload,
+                    timeout=None,
             ) as response:
 
                 response.raise_for_status()
 
                 async for raw_line in response.aiter_lines():
+
+                    print("[RAW SSE]", raw_line)
 
                     if raw_line is None:
                         continue
@@ -151,15 +153,10 @@ class RuntimeClient:
                         continue
 
                     # -------------------------------------------------
-                    # ONLY SSE
+                    # SSE / NON-SSE SUPPORT
                     # -------------------------------------------------
 
-                    if not line.startswith(
-                        "data:"
-                    ):
-                        continue
-
-                    try:
+                    if line.startswith("data:"):
 
                         data = (
                             line.split(
@@ -169,11 +166,21 @@ class RuntimeClient:
                             .strip()
                         )
 
-                    except Exception:
-                        continue
+                    else:
+
+                        data = line.strip()
+
+                    # -------------------------------------------------
+                    # DONE
+                    # -------------------------------------------------
 
                     if data == "[DONE]":
+                        print("[STREAM DONE]")
                         break
+
+                    # -------------------------------------------------
+                    # JSON
+                    # -------------------------------------------------
 
                     try:
 
@@ -181,8 +188,32 @@ class RuntimeClient:
                             data
                         )
 
-                    except Exception:
+                    except Exception as e:
+
+                        print(
+                            "[JSON PARSE ERROR]",
+                            e,
+                        )
+
+                        print(
+                            "[BROKEN DATA]",
+                            data,
+                        )
+
                         continue
+
+                    # -------------------------------------------------
+                    # DEBUG
+                    # -------------------------------------------------
+
+                    print(
+                        "[PARSED CHUNK]",
+                        chunk,
+                    )
+
+                    # -------------------------------------------------
+                    # USAGE
+                    # -------------------------------------------------
 
                     usage = (
                         ResponseExtractor
@@ -192,7 +223,12 @@ class RuntimeClient:
                     )
 
                     if usage:
+
                         yield usage
+
+                    # -------------------------------------------------
+                    # THINKING
+                    # -------------------------------------------------
 
                     reasoning = (
                         ResponseExtractor
@@ -202,7 +238,12 @@ class RuntimeClient:
                     )
 
                     if reasoning:
+
                         yield reasoning
+
+                    # -------------------------------------------------
+                    # CONTENT
+                    # -------------------------------------------------
 
                     content = (
                         ResponseExtractor
@@ -212,13 +253,38 @@ class RuntimeClient:
                     )
 
                     if content:
+
                         yield content
+
+                    # -------------------------------------------------
+                    # FINISH REASON
+                    # -------------------------------------------------
+
+                    finish_reason = (
+                        ResponseExtractor
+                        .extract_finish_reason(
+                            chunk
+                        )
+                    )
+
+                    if finish_reason:
+
+                        print(
+                            "[FINISH REASON]",
+                            finish_reason,
+                        )
+
+                        break
 
         # ---------------------------------------------------------
         # TASK CANCELLED
         # ---------------------------------------------------------
 
         except asyncio.CancelledError:
+
+            print(
+                "[STREAM CANCELLED]"
+            )
 
             if response is not None:
 
@@ -228,5 +294,18 @@ class RuntimeClient:
 
                 except Exception:
                     pass
+
+            raise
+
+        # ---------------------------------------------------------
+        # FATAL ERROR
+        # ---------------------------------------------------------
+
+        except Exception as e:
+
+            print(
+                "[RUNTIME CLIENT ERROR]",
+                repr(e),
+            )
 
             raise

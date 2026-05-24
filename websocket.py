@@ -105,9 +105,21 @@ async def process_message(
             user_text
         )
 
+        await logger.log_system(
+            f"[WS] pipeline={pipeline.__class__.__name__}"
+        )
+
+        await logger.log_system(
+            "[WS] pipeline start"
+        )
+
         await pipeline.run(
             context=context,
-            message_data=message_data,
+            user_input=message_data["text"],
+        )
+
+        await logger.log_system(
+            "[WS] pipeline end"
         )
 
     except asyncio.CancelledError:
@@ -181,10 +193,18 @@ async def websocket_endpoint(
 
         while True:
 
+            await logger.log_system(
+                "[WS] waiting message"
+            )
+
             message_data = (
                 await receive_message(
                     context,
                 )
+            )
+
+            await logger.log_system(
+                f"[WS] received: {message_data}"
             )
 
             if not message_data:
