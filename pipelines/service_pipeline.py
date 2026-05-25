@@ -69,6 +69,7 @@ class ServicePipeline:
 
                 async for chunk in (
                     ask_service_model_stream(
+                        context=context,
                         client=service_client,
                         user_prompt=user_text,
                         system_prompt="",

@@ -1,15 +1,15 @@
 from settings.app_settings import settings
 
-from clients.runtime_client import (
+from runtime.runtime_client import (
     RuntimeClient,
 )
 
 
 def build_clients(
-    http_client,
+        http_client,
 ):
 
-    return {
+    clients = {
 
         "translator": RuntimeClient(
             api_base=(
@@ -38,8 +38,15 @@ def build_clients(
             ),
             client=http_client,
         ),
+    }
 
-        "brain": RuntimeClient(
+    # ---------------------------------------------------------
+    # DEDICATED BRAIN RUNTIME
+    # ---------------------------------------------------------
+
+    if not settings.USE_SERVICE_AS_BRAIN:
+
+        clients["brain"] = RuntimeClient(
             api_base=(
                 settings.BRAIN_API_BASE
             ),
@@ -51,5 +58,6 @@ def build_clients(
                 .BRAIN_REQUEST_TIMEOUT
             ),
             client=http_client,
-        ),
-    }
+        )
+
+    return clients

@@ -32,7 +32,9 @@ class BrainNode(BaseNode):
         )
 
         brain_client = (
-            context.clients["brain"]
+            context.clients[
+                brain_runtime["label"]
+            ]
         )
 
         runtime = RuntimeStream(
@@ -60,6 +62,7 @@ class BrainNode(BaseNode):
         generator = ask_brain_stream(
             client=brain_client,
             text=state.translated_input,
+            context=context
         )
 
         text = await runtime.run(

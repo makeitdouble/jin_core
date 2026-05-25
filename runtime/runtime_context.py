@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from websocket_logger import WebSocketLogger
 
@@ -17,3 +17,7 @@ class RuntimeContext:
     logger: WebSocketLogger
 
     clients: dict
+
+    active_streams: dict = field(
+        default_factory=dict
+    )

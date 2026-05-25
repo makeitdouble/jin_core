@@ -1,5 +1,7 @@
 import asyncio
 
+import httpx
+
 from utils.runtime_state_sync import (
     refresh_runtime_state,
 )
@@ -179,7 +181,30 @@ class RuntimeStream:
             except Exception:
                 pass
 
-            raise
+            return None
+
+        # ---------------------------------------------------------
+        # RUNTIME ERROR
+        # ---------------------------------------------------------
+        except (
+                asyncio.CancelledError,
+                GeneratorExit,
+                httpx.ReadError,
+                httpx.RemoteProtocolError,
+        ):
+
+            await self.logger.log_system(
+                "Generation aborted."
+            )
+
+            try:
+
+                await self.stream.finish()
+
+            except Exception:
+                pass
+
+            return None
 
         except Exception as e:
 
@@ -187,20 +212,66 @@ class RuntimeStream:
 
             tb = traceback.format_exc()
 
+            # -----------------------------------------------------
+            # HUMAN READABLE ERROR
+            # -----------------------------------------------------
+
+            public_error = (
+                "Runtime stream failed."
+            )
+
+            if isinstance(
+                    e,
+                    httpx.ConnectError,
+            ):
+
+                public_error = (
+                    "Model server offline "
+                    "or unreachable."
+                )
+
+            elif isinstance(
+                    e,
+                    httpx.ReadTimeout,
+            ):
+
+                public_error = (
+                    "Model request timeout."
+                )
+
+            elif isinstance(
+                    e,
+                    httpx.HTTPStatusError,
+            ):
+
+                public_error = (
+                    "Model server returned HTTP error."
+                )
+
+            # -----------------------------------------------------
+            # LOG FULL TRACEBACK
+            # -----------------------------------------------------
+
             await self.logger.log_error(
                 "[RUNTIME STREAM CRASH]\n"
-                f"{tb}"
+                f"{tb[:300]}"
             )
+
+            # -----------------------------------------------------
+            # SEND CLEAN ERROR TO UI
+            # -----------------------------------------------------
 
             try:
 
                 await self.websocket.send_json({
                     "type": "message_error",
-                    "message_id": self.stream.message_id,
-                    "text": str(e),
+                    "message_id": (
+                        self.stream.message_id
+                    ),
+                    "text": public_error,
                 })
 
             except Exception:
                 pass
 
-            raise
+            return None

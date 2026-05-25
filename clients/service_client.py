@@ -38,6 +38,7 @@ async def ask_service_model(
 
 async def ask_service_model_stream(
     *,
+    context,
     client,
     user_prompt: str,
     system_prompt: str = "",
@@ -49,6 +50,7 @@ async def ask_service_model_stream(
 
         async for chunk in (
             client.stream(
+                context=context,
                 system_prompt=(
                     system_prompt
                     or build_service_system_prompt()

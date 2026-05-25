@@ -26,7 +26,7 @@ from utils.ws_errors import (
     handle_websocket_error,
 )
 
-from context.runtime_context import (
+from runtime.runtime_context import (
     RuntimeContext,
 )
 
@@ -138,6 +138,7 @@ async def process_message(
 async def cancel_current_task(
     task: asyncio.Task | None,
     logger: WebSocketLogger,
+    context=None,
 ):
 
     if (
@@ -145,6 +146,37 @@ async def cancel_current_task(
         or task.done()
     ):
         return
+
+    # -----------------------------------
+    # FORCE CLOSE ACTIVE STREAMS
+    # -----------------------------------
+
+    if context:
+
+        active_streams = (
+            getattr(
+                context,
+                "active_streams",
+                {},
+            )
+        )
+
+        for stream_id, response in list(
+                active_streams.items()
+        ):
+
+            try:
+
+                await response.aclose()
+
+            except Exception:
+                pass
+
+        active_streams.clear()
+
+    # -----------------------------------
+    # CANCEL TASK
+    # -----------------------------------
 
     task.cancel()
 
@@ -226,6 +258,7 @@ async def websocket_endpoint(
                 await cancel_current_task(
                     current_task,
                     logger,
+                    context,
                 )
 
                 current_task = None
@@ -284,6 +317,7 @@ async def websocket_endpoint(
         await cancel_current_task(
             current_task,
             logger,
+            context,
         )
 
         return
@@ -293,6 +327,7 @@ async def websocket_endpoint(
         await cancel_current_task(
             current_task,
             logger,
+            context,
         )
 
         if (

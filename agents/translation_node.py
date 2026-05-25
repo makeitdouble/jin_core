@@ -35,6 +35,7 @@ TEXT:
         generator = (
             context.clients["service"]
             .stream(
+                context=context,
                 system_prompt=(
                     "Ты translation agent."
                 ),

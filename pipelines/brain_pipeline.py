@@ -51,7 +51,9 @@ class BrainPipeline:
             )
 
             brain_client = (
-                context.clients["brain"]
+                context.clients[
+                    brain_runtime["label"]
+                ]
             )
 
             runtime = RuntimeStream(
@@ -83,6 +85,7 @@ class BrainPipeline:
             generator = ask_brain_stream(
                 client=brain_client,
                 text=user_input,
+                context=context,
             )
 
             await runtime.run(

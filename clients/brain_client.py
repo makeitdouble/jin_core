@@ -194,6 +194,7 @@ async def ask_brain_stream(
     *,
     client,
     text: str,
+    context
 ):
 
     brain_payload = (
@@ -212,6 +213,7 @@ async def ask_brain_stream(
 
             async for chunk in (
                 ask_service_model_stream(
+                    context=context,
                     client=client,
                     user_prompt=(
                         brain_payload
@@ -260,6 +262,7 @@ async def ask_brain_stream(
 
         async for chunk in (
             client.stream(
+                context=context,
                 system_prompt=(
                     build_brain_system_prompt()
                 ),

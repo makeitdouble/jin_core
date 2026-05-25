@@ -110,6 +110,7 @@ class RuntimeClient:
     async def stream(
             self,
             *,
+            context,
             system_prompt: str,
             user_prompt: str,
             temperature: float,
@@ -124,7 +125,7 @@ class RuntimeClient:
             stream=True,
         )
 
-        response = None
+        stream_id = None
 
         try:
 
@@ -140,9 +141,13 @@ class RuntimeClient:
 
                 response.raise_for_status()
 
-                async for raw_line in response.aiter_lines():
+                stream_id = id(response)
 
-                    print("[RAW SSE]", raw_line)
+                context.active_streams[
+                    stream_id
+                ] = response
+
+                async for raw_line in response.aiter_lines():
 
                     if raw_line is None:
                         continue
@@ -175,7 +180,7 @@ class RuntimeClient:
                     # -------------------------------------------------
 
                     if data == "[DONE]":
-                        print("[STREAM DONE]")
+
                         break
 
                     # -------------------------------------------------
@@ -195,21 +200,7 @@ class RuntimeClient:
                             e,
                         )
 
-                        print(
-                            "[BROKEN DATA]",
-                            data,
-                        )
-
                         continue
-
-                    # -------------------------------------------------
-                    # DEBUG
-                    # -------------------------------------------------
-
-                    print(
-                        "[PARSED CHUNK]",
-                        chunk,
-                    )
 
                     # -------------------------------------------------
                     # USAGE
@@ -269,11 +260,6 @@ class RuntimeClient:
 
                     if finish_reason:
 
-                        print(
-                            "[FINISH REASON]",
-                            finish_reason,
-                        )
-
                         break
 
         # ---------------------------------------------------------
@@ -281,19 +267,6 @@ class RuntimeClient:
         # ---------------------------------------------------------
 
         except asyncio.CancelledError:
-
-            print(
-                "[STREAM CANCELLED]"
-            )
-
-            if response is not None:
-
-                try:
-
-                    await response.aclose()
-
-                except Exception:
-                    pass
 
             raise
 
@@ -309,3 +282,19 @@ class RuntimeClient:
             )
 
             raise
+
+        # ---------------------------------------------------------
+        # FINAL CLEANUP
+        # ---------------------------------------------------------
+
+        finally:
+
+            if (
+                    context
+                    and stream_id is not None
+            ):
+
+                context.active_streams.pop(
+                    stream_id,
+                    None,
+                )
