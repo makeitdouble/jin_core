@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 
 import httpx
 
@@ -12,6 +13,8 @@ from utils.urls import (
 from utils.response_extractor import (
     ResponseExtractor,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class RuntimeClient:
@@ -195,10 +198,21 @@ class RuntimeClient:
 
                     except Exception as e:
 
-                        print(
-                            "[JSON PARSE ERROR]",
-                            e,
+                        context_logger = getattr(
+                            context,
+                            "logger",
+                            None,
                         )
+
+                        if context_logger:
+                            await context_logger.log_error(
+                                f"[JSON PARSE ERROR] {e}"
+                            )
+                        else:
+                            logger.warning(
+                                "JSON parse error: %s",
+                                e,
+                            )
 
                         continue
 
@@ -276,9 +290,19 @@ class RuntimeClient:
 
         except Exception as e:
 
-            print(
-                "[RUNTIME CLIENT ERROR]",
-                repr(e),
+            context_logger = getattr(
+                context,
+                "logger",
+                None,
+            )
+
+            if context_logger:
+                await context_logger.log_error(
+                    f"[RUNTIME CLIENT ERROR] {repr(e)}"
+                )
+
+            logger.exception(
+                "Runtime client error"
             )
 
             raise

@@ -107,10 +107,8 @@ async def index(
 ):
 
     return templates.TemplateResponse(
+        request,
         "index.html",
-        {
-            "request": request,
-        },
     )
 
 

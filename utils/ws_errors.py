@@ -1,4 +1,5 @@
 import traceback
+import logging
 
 from utils.runtime_state_sync import (
     set_runtime_offline,
@@ -7,6 +8,8 @@ from utils.runtime_state_sync import (
 from emitter.runtime_emitter import (
     RuntimeEmitter,
 )
+
+module_logger = logging.getLogger(__name__)
 
 async def send_ws_error(
     websocket,
@@ -78,8 +81,8 @@ async def handle_fatal_pipeline_error(
 
     await logger.log_error(
         f"[{pipeline_name}] "
-        "Fatal pipeline error:\n"
-        f"{formatted_traceback}"
+        f"Fatal pipeline error: {exception}",
+        details=formatted_traceback,
     )
 
     await send_ws_error(
@@ -90,7 +93,11 @@ async def handle_fatal_pipeline_error(
         details=formatted_traceback,
     )
 
-    print(formatted_traceback)
+    module_logger.error(
+        "Fatal pipeline error in %s",
+        pipeline_name,
+        exc_info=True,
+    )
 
 
 async def handle_websocket_error(
@@ -105,15 +112,18 @@ async def handle_websocket_error(
     )
 
     await logger.log_error(
-        "WebSocket session error:\n"
-        f"{formatted_traceback}"
+        "WebSocket session error.",
+        details=formatted_traceback,
     )
 
     await send_ws_error(
         websocket,
         error_type="websocket_error",
         message="WebSocket session crashed.",
-        details=str(exception),
+        details=formatted_traceback,
     )
 
-    print(formatted_traceback)
+    module_logger.error(
+        "WebSocket session error",
+        exc_info=True,
+    )

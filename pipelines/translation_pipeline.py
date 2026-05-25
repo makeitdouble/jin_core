@@ -263,8 +263,7 @@ class TranslationPipeline:
         except Exception as error:
 
             await handle_pipeline_error(
-                websocket,
-                logger,
+                context,
                 runtime_id=(
                     config
                     .TRANSLATOR_MODEL_UID
@@ -453,8 +452,7 @@ class TranslationPipeline:
         except Exception as error:
 
             await handle_pipeline_error(
-                websocket,
-                logger,
+                context,
                 runtime_id=(
                     brain_runtime[
                         "runtime_id"

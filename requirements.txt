@@ -4,6 +4,7 @@ httpx==0.28.1
 Jinja2==3.1.6
 python-multipart==0.0.29
 uvicorn==0.48.0
+websockets==16.0
 
 # Transitive dependencies pinned for reproducible installs
 annotated-doc==0.0.4

@@ -27,9 +27,6 @@ class BrainPipeline:
             user_input: str,
     ):
 
-        print("[BRAIN PIPELINE RUN]")
-        print(user_input)
-
         logger = context.logger
 
         try:
@@ -113,16 +110,6 @@ class BrainPipeline:
         # ---------------------------------------------------------
 
         except Exception as error:
-
-            import traceback
-
-            tb = traceback.format_exc()
-
-            print(tb)
-
-            await logger.log_error(
-                tb
-            )
 
             await handle_fatal_pipeline_error(
                 context,

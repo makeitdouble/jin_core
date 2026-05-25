@@ -15,7 +15,9 @@ class AgentPipeline:
             user_input,
     ):
 
-        print("[AGENT PIPELINE RUN]")
+        await context.logger.log_runtime(
+            "Agent pipeline started."
+        )
 
         state = AgentState(
             user_input=user_input
@@ -32,5 +34,9 @@ class AgentPipeline:
             "type": "agent_final",
             "answer": result.final_answer,
         })
+
+        await context.logger.log_runtime(
+            "Agent pipeline complete."
+        )
 
         return result.final_answer

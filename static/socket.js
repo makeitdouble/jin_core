@@ -244,7 +244,8 @@ ws.onmessage = function (event) {
 
     appendLog(
       data.tag,
-      data.message
+      data.message,
+      data.details
     );
 
     return;
@@ -265,14 +266,10 @@ ws.onmessage = function (event) {
       false
     );
 
-    const details =
-      data.details
-        ? `\n${data.details}`
-        : "";
-
     appendLog(
       "[ERROR]",
-      `${data.message}${details}`
+      data.message,
+      data.details
     );
 
     return;

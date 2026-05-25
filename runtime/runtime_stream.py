@@ -253,8 +253,8 @@ class RuntimeStream:
             # -----------------------------------------------------
 
             await self.logger.log_error(
-                "[RUNTIME STREAM CRASH]\n"
-                f"{tb[:300]}"
+                f"[RUNTIME STREAM CRASH] {public_error}",
+                details=tb,
             )
 
             # -----------------------------------------------------
