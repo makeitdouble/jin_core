@@ -11,7 +11,7 @@ from utils.stream_handler import (
 )
 
 from utils.tokens import (
-    estimate_tokens,
+    estimate_stream_tokens,
 )
 
 
@@ -125,10 +125,9 @@ class RuntimeStream:
             await self.stream.finish()
 
             used_tokens = (
-                    self.stream.total_tokens
-                    or estimate_tokens(
-                self.stream.response
-            )
+                estimate_stream_tokens(
+                    self.stream
+                )
             )
 
             await refresh_runtime_state(

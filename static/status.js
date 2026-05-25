@@ -47,6 +47,9 @@ async function updateRuntime() {
         const response = await fetch("/api/status");
         const data = await response.json();
 
+        window.jinLatestStatus =
+            data;
+
         setRuntimeState(
           brainDot,
           brainLabel,
@@ -60,6 +63,21 @@ async function updateRuntime() {
           "SERVICE",
           data.service
         );
+
+        window.jinRuntimeConfig = {
+            useServiceAsBrain:
+                Boolean(
+                    data.use_service_as_brain
+                ),
+            runtimeConfig:
+                data.runtime_config || {}
+        };
+
+        if (window.updateRuntimePanelFromStatus) {
+            window.updateRuntimePanelFromStatus(
+                data
+            );
+        }
 
     } catch (err) {
 

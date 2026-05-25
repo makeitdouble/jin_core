@@ -60,11 +60,11 @@
         class="flex items-center gap-1.5 text-zinc-400">
 
         <span id="service-dot"
-            class="h-2 w-2 rounded-full bg-red-500 transition-all duration-300">
+            class="h-2 w-2 rounded-full bg-slate-500 transition-all duration-300">
         </span>
 
         <span id="service-label">
-            SERVICE: OFFLINE
+            SERVICE: CHECKING
         </span>
 
     </div>
@@ -124,18 +124,6 @@
                         SERVICE: UNKNOWN
 
                     </span>
-
-                </div>
-
-                <div class="text-xs text-zinc-300 text-right">
-
-                    <div id="brain-context">
-                        0 / 0 ctx
-                    </div>
-
-                    <div id="service-context">
-                        0 / 0 ctx
-                    </div>
 
                 </div>
 
@@ -256,7 +244,7 @@
         <!-- RIGHT SETTINGS -->
 
         <section
-            class="w-[260px] min-w-[260px] border-l border-slate-500 bg-slate-700 flex flex-col shrink-0">
+            class="w-[330px] min-w-[330px] border-l border-slate-500 bg-slate-700 flex flex-col shrink-0">
 
             <div
                 class="h-12 border-b border-slate-500 flex items-center px-4 bg-slate-700">
@@ -269,10 +257,106 @@
             </div>
 
             <div
-                class="flex-1 p-4 text-xs text-zinc-300 italic leading-relaxed">
+                class="flex-1 overflow-y-auto p-4 space-y-4 text-xs text-zinc-300 leading-relaxed">
 
-                // Блок конфигурации параметров весов,
-                переключателей хуков и порогов FFT будет здесь.
+                <div
+                    class="grid grid-cols-2 overflow-hidden rounded border border-slate-500/70 bg-slate-700">
+
+                    <button
+                        type="button"
+                        id="service-context-tab"
+                        data-context-tab="service"
+                        class="h-8 border-r border-slate-500/70 bg-slate-600/70 text-[11px] font-bold uppercase tracking-widest text-zinc-50 transition">
+                        Service
+                    </button>
+
+                    <button
+                        type="button"
+                        id="brain-context-tab"
+                        data-context-tab="brain"
+                        class="h-8 text-[11px] font-bold uppercase tracking-widest {% if use_service_as_brain %}text-slate-500 cursor-not-allowed{% else %}text-slate-300 transition hover:bg-slate-600/50 hover:text-zinc-50{% endif %}"
+                        {% if use_service_as_brain %}disabled aria-disabled="true"{% endif %}>
+                        Brain
+                    </button>
+
+                </div>
+
+                <div
+                    class="rounded border border-slate-500/70 bg-slate-700">
+
+                    <div
+                        class="border-b border-slate-500/70 px-3 py-2 flex items-center justify-between gap-3">
+
+                        <span
+                            id="context-panel-title"
+                            class="text-[10px] font-bold uppercase tracking-widest text-zinc-100">
+                            SERVICE CONTEXT
+                        </span>
+
+                        <span
+                            id="context-panel-mode"
+                            class="text-[10px] uppercase tracking-widest text-emerald-200">
+                            {% if use_service_as_brain %}AS BRAIN{% else %}ACTIVE{% endif %}
+                        </span>
+
+                    </div>
+
+                    <div class="p-3 space-y-3 font-mono">
+
+                        <div
+                            id="context-panel-model"
+                            class="truncate text-[11px] font-bold text-zinc-100">
+                            model: {{ runtime_config.service.model }}
+                        </div>
+
+                        <div id="context-accordion">
+
+                            <div
+                                class="flex items-center justify-between gap-2 border-y border-slate-500/70 py-2 text-[11px] uppercase tracking-widest text-slate-100">
+
+                                <span class="min-w-0 truncate">
+                                    [ context & memory ]
+                                </span>
+
+                                <span
+                                    id="context-summary-tokens"
+                                    class="shrink-0 text-zinc-100">
+                                    0 / {{ runtime_config.service.max_tokens }} ctx
+                                </span>
+
+                            </div>
+
+                            <div class="pt-3">
+
+                                <div
+                                    id="context-window-line"
+                                    class="flex w-full items-center gap-2 text-[11px] text-emerald-300">
+
+                                    <span
+                                        id="context-window-bar"
+                                        class="block min-w-0 flex-1 overflow-hidden whitespace-pre">
+                                        [................]
+                                    </span>
+
+                                    <span
+                                        id="context-window-percent"
+                                        class="shrink-0 text-right">
+                                        0%
+                                    </span>
+
+                                </div>
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+                <div class="text-xs text-zinc-300 italic leading-relaxed">
+
+                </div>
 
             </div>
 
@@ -294,12 +378,18 @@
         });
 
     </script>
-    <script src="/static/status.js"></script>
-    <script src="/static/telemetry.js"></script>
-    <script src="/static/dragdrop.js"></script>
-    <script src="/static/logger.js"></script>
-    <script src="/static/chat.js"></script>
-    <script src="/static/socket.js"></script>
+    <script>
+        window.jinRuntimeConfig = {
+            useServiceAsBrain: {{ use_service_as_brain | tojson }},
+            runtimeConfig: {{ runtime_config | tojson }},
+        };
+    </script>
+    <script src="/static/telemetry.js?v=context-panel-5"></script>
+    <script src="/static/status.js?v=context-panel-5"></script>
+    <script src="/static/dragdrop.js?v=context-panel-5"></script>
+    <script src="/static/logger.js?v=context-panel-5"></script>
+    <script src="/static/chat.js?v=context-panel-5"></script>
+    <script src="/static/socket.js?v=context-panel-5"></script>
 </body>
 
 </html>

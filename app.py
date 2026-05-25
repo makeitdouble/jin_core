@@ -98,6 +98,32 @@ app.include_router(
 # INDEX PAGE
 # ---------------------------------------------------------
 
+def build_runtime_config():
+
+    return {
+        "service": {
+            "label": "service",
+            "model": config.SERVICE_MODEL_UID,
+            "used_tokens": 0,
+            "max_tokens": config.SERVICE_CONTEXT_WINDOW,
+        },
+        "brain": {
+            "label": "brain",
+            "model": (
+                config.SERVICE_MODEL_UID
+                if config.USE_SERVICE_AS_BRAIN
+                else config.BRAIN_MODEL_UID
+            ),
+            "used_tokens": 0,
+            "max_tokens": (
+                config.SERVICE_CONTEXT_WINDOW
+                if config.USE_SERVICE_AS_BRAIN
+                else config.BRAIN_CONTEXT_WINDOW
+            ),
+        },
+    }
+
+
 @app.get(
     "/",
     response_class=HTMLResponse,
@@ -109,6 +135,12 @@ async def index(
     return templates.TemplateResponse(
         request,
         "index.html",
+        {
+            "use_service_as_brain": (
+                config.USE_SERVICE_AS_BRAIN
+            ),
+            "runtime_config": build_runtime_config(),
+        },
     )
 
 
@@ -168,6 +200,8 @@ async def api_status():
         "brain": brain_status,
         "service": service_status,
         "translator": translator_status,
+        "use_service_as_brain": config.USE_SERVICE_AS_BRAIN,
+        "runtime_config": build_runtime_config(),
     }
 
 

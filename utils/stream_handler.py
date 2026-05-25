@@ -26,6 +26,7 @@ class StreamHandler:
         )
 
         self.response = ""
+        self.reasoning = ""
 
         self.prompt_tokens = 0
         self.completion_tokens = 0
@@ -59,6 +60,8 @@ class StreamHandler:
         self,
         chunk: str,
     ):
+
+        self.reasoning += chunk
 
         await self.websocket.send_json({
             "type": "thinking_chunk",

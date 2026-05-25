@@ -18,6 +18,10 @@ from utils.stream_handler import (
     StreamHandler,
 )
 
+from utils.tokens import (
+    estimate_stream_tokens,
+)
+
 
 class ServicePipeline:
 
@@ -152,7 +156,10 @@ class ServicePipeline:
                         .SERVICE_MODEL_UID
                     ),
                     used_tokens=(
-                        stream.total_tokens
+                        estimate_stream_tokens(
+                            stream,
+                            prompt_text=user_text,
+                        )
                     ),
                     max_tokens=(
                         config

@@ -10,6 +10,7 @@ from clients.translation_client import (
 
 from utils.tokens import (
     estimate_tokens,
+    estimate_stream_tokens,
 )
 
 from utils.text_cleanup import (
@@ -409,9 +410,11 @@ class TranslationPipeline:
                     ]
                 ),
                 used_tokens=(
-                    estimate_tokens(
-                        user_text_translated
-                        + stream.response
+                    estimate_stream_tokens(
+                        stream,
+                        prompt_text=(
+                            user_text_translated
+                        ),
                     )
                 ),
                 max_tokens=(

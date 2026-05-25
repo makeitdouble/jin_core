@@ -12,6 +12,68 @@ def estimate_tokens(
     )
 
 
+def estimate_optional_tokens(
+    text: str,
+) -> int:
+
+    if not text:
+        return 0
+
+    return estimate_tokens(
+        text
+    )
+
+
+def estimate_stream_tokens(
+    stream,
+    *,
+    prompt_text: str = "",
+) -> int:
+
+    visible_tokens = (
+        estimate_optional_tokens(
+            getattr(
+                stream,
+                "response",
+                "",
+            )
+        )
+        + estimate_optional_tokens(
+            getattr(
+                stream,
+                "reasoning",
+                "",
+            )
+        )
+    )
+
+    prompt_tokens = (
+        getattr(
+            stream,
+            "prompt_tokens",
+            0,
+        )
+        or estimate_optional_tokens(
+            prompt_text
+        )
+    )
+
+    provider_total = (
+        getattr(
+            stream,
+            "total_tokens",
+            0,
+        )
+        or 0
+    )
+
+    return max(
+        provider_total,
+        prompt_tokens + visible_tokens,
+        visible_tokens,
+    )
+
+
 def translation_token_limit(
     text: str,
 ) -> int:

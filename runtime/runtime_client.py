@@ -274,7 +274,7 @@ class RuntimeClient:
 
                     if finish_reason:
 
-                        break
+                        continue
 
         # ---------------------------------------------------------
         # TASK CANCELLED
