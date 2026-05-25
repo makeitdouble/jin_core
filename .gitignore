@@ -15,3 +15,4 @@ config.py
 .aider*
 repomix-output.xml
 .codegraph/
+init.py
