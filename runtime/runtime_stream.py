@@ -26,6 +26,7 @@ class RuntimeStream:
             context_window: int,
             log_method,
             enable_validator: bool = True,
+            emit_to_chat: bool = True,
     ):
 
         self.context = context
@@ -40,6 +41,7 @@ class RuntimeStream:
         )
 
         self.log_method = log_method
+        self.emit_to_chat = emit_to_chat
 
         self.stream = StreamHandler(
             self.websocket,
@@ -61,7 +63,9 @@ class RuntimeStream:
 
         try:
 
-            await self.stream.start()
+            await self.stream.start(
+                emit=self.emit_to_chat
+            )
 
             await self.logger.log_runtime(
                 f"[STREAM START] role={self.role}"
@@ -97,7 +101,8 @@ class RuntimeStream:
                         chunk.get(
                             "content",
                             "",
-                        )
+                        ),
+                        emit=self.emit_to_chat,
                     )
 
                     continue
@@ -113,16 +118,21 @@ class RuntimeStream:
                             chunk.get(
                                 "content",
                                 "",
-                            )
+                            ),
+                            emit=self.emit_to_chat,
                         )
                     )
 
                     if not is_valid:
-                        await self.stream.finish()
+                        await self.stream.finish(
+                            emit=self.emit_to_chat
+                        )
 
                         return None
 
-            await self.stream.finish()
+            await self.stream.finish(
+                emit=self.emit_to_chat
+            )
 
             used_tokens = (
                 estimate_stream_tokens(
@@ -163,19 +173,23 @@ class RuntimeStream:
 
             try:
 
-                await self.websocket.send_json({
-                    "type": "message_end",
-                    "message_id": (
-                        self.stream.message_id
-                    ),
-                })
+                if self.emit_to_chat:
+
+                    await self.websocket.send_json({
+                        "type": "message_end",
+                        "message_id": (
+                            self.stream.message_id
+                        ),
+                    })
 
             except Exception:
                 pass
 
             try:
 
-                await self.stream.finish()
+                await self.stream.finish(
+                    emit=self.emit_to_chat
+                )
 
             except Exception:
                 pass
@@ -198,7 +212,9 @@ class RuntimeStream:
 
             try:
 
-                await self.stream.finish()
+                await self.stream.finish(
+                    emit=self.emit_to_chat
+                )
 
             except Exception:
                 pass
@@ -262,13 +278,15 @@ class RuntimeStream:
 
             try:
 
-                await self.websocket.send_json({
-                    "type": "message_error",
-                    "message_id": (
-                        self.stream.message_id
-                    ),
-                    "text": public_error,
-                })
+                if self.emit_to_chat:
+
+                    await self.websocket.send_json({
+                        "type": "message_error",
+                        "message_id": (
+                            self.stream.message_id
+                        ),
+                        "text": public_error,
+                    })
 
             except Exception:
                 pass

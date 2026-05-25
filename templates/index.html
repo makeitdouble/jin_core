@@ -232,11 +232,6 @@
                     class="max-w-4xl mx-auto mt-3 flex flex-wrap gap-2">
                 </div>
 
-                <div
-                    class="text-[10px] text-zinc-300 text-center mt-3 tracking-wide">
-                    Ctrl + Enter для отправки. Мониторинг токенов активен.
-                </div>
-
             </div>
 
         </section>
@@ -251,7 +246,7 @@
 
                 <h2
                     class="text-xs font-bold uppercase tracking-widest text-zinc-100">
-                    НАСТРОЙКИ
+                    SETTINGS
                 </h2>
 
             </div>
@@ -284,29 +279,12 @@
                 <div
                     class="rounded border border-slate-500/70 bg-slate-700">
 
-                    <div
-                        class="border-b border-slate-500/70 px-3 py-2 flex items-center justify-between gap-3">
-
-                        <span
-                            id="context-panel-title"
-                            class="text-[10px] font-bold uppercase tracking-widest text-zinc-100">
-                            SERVICE CONTEXT
-                        </span>
-
-                        <span
-                            id="context-panel-mode"
-                            class="text-[10px] uppercase tracking-widest text-emerald-200">
-                            {% if use_service_as_brain %}AS BRAIN{% else %}ACTIVE{% endif %}
-                        </span>
-
-                    </div>
-
                     <div class="p-3 space-y-3 font-mono">
 
                         <div
                             id="context-panel-model"
                             class="truncate text-[11px] font-bold text-zinc-100">
-                            model: {{ runtime_config.service.model }}
+                            {{ runtime_config.service.model }}
                         </div>
 
                         <div id="context-accordion">

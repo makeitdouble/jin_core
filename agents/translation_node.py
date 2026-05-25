@@ -51,7 +51,7 @@ TEXT:
                 settings
                 .SERVICE_MODEL_UID
             ),
-            role="service",
+            role="translator",
             context_window=(
                 settings
                 .TRANSLATOR_CONTEXT_WINDOW
@@ -60,6 +60,7 @@ TEXT:
                 context.logger
                 .log_translation
             ),
+            emit_to_chat=False,
         )
 
         text = await stream.run(

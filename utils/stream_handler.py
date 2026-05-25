@@ -42,7 +42,14 @@ class StreamHandler:
     # START STREAM
     # ---------------------------------------------------------
 
-    async def start(self):
+    async def start(
+        self,
+        *,
+        emit: bool = True,
+    ):
+
+        if not emit:
+            return
 
         await self.websocket.send_json({
             "type": "message_start",
@@ -59,9 +66,14 @@ class StreamHandler:
     async def send_thinking(
         self,
         chunk: str,
+        *,
+        emit: bool = True,
     ):
 
         self.reasoning += chunk
+
+        if not emit:
+            return
 
         await self.websocket.send_json({
             "type": "thinking_chunk",
@@ -78,6 +90,8 @@ class StreamHandler:
     async def send_content(
         self,
         chunk: str,
+        *,
+        emit: bool = True,
     ) -> bool:
 
         safe_chunk = chunk
@@ -119,13 +133,15 @@ class StreamHandler:
                     or "Generation stopped."
                 )
 
-                await self.websocket.send_json({
-                    "type": "message_error",
-                    "message_id": (
-                        self.message_id
-                    ),
-                    "text": reason,
-                })
+                if emit:
+
+                    await self.websocket.send_json({
+                        "type": "message_error",
+                        "message_id": (
+                            self.message_id
+                        ),
+                        "text": reason,
+                    })
 
                 return False
             # ---------------------------------------------------------
@@ -136,6 +152,9 @@ class StreamHandler:
 
                 return True
         self.response += safe_chunk
+
+        if not emit:
+            return True
 
         await self.websocket.send_json({
             "type": "message_chunk",
@@ -181,7 +200,14 @@ class StreamHandler:
     # FINISH
     # ---------------------------------------------------------
 
-    async def finish(self):
+    async def finish(
+        self,
+        *,
+        emit: bool = True,
+    ):
+
+        if not emit:
+            return
 
         await self.websocket.send_json({
             "type": "message_end",

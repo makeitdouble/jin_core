@@ -438,6 +438,10 @@ chatForm.addEventListener(
       text
     );
 
+    setGenerationState(
+      true
+    );
+
     ws.send(JSON.stringify({
       text: text
     }));

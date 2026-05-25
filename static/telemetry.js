@@ -231,11 +231,6 @@ function setContextPanelRuntime(runtime) {
       "context-panel-title"
     );
 
-  const modeElement =
-    document.getElementById(
-      "context-panel-mode"
-    );
-
   const modelElement =
     document.getElementById(
       "context-panel-model"
@@ -280,20 +275,12 @@ function setContextPanelRuntime(runtime) {
 
   if (titleElement) {
     titleElement.textContent =
-      `${label} CONTEXT`;
-  }
-
-  if (modeElement) {
-    modeElement.textContent =
-      runtimePanelState.useServiceAsBrain
-      && role === "service"
-        ? "AS BRAIN"
-        : "ACTIVE";
+      `STATUS`;
   }
 
   if (modelElement) {
     modelElement.textContent =
-      `model: ${runtime ? runtime.model : "unknown"}`;
+      `${runtime ? runtime.model : "unknown"}`;
   }
 
   if (summaryElement) {
