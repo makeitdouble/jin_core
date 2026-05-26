@@ -239,7 +239,7 @@ Abort active generation:
 
 Streaming events:
 
-```json
+```jsonl
 { "type": "message_start", "message_id": "...", "role": "brain" }
 { "type": "thinking_chunk", "message_id": "...", "chunk": "..." }
 { "type": "message_chunk", "message_id": "...", "chunk": "..." }
