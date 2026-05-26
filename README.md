@@ -4,6 +4,7 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-runtime-009688.svg)
 ![WebSocket](https://img.shields.io/badge/WebSocket-streaming-orange.svg)
 ![OpenAI Compatible](https://img.shields.io/badge/API-OpenAI--compatible-111827.svg)
+![Tests](https://github.com/makeitdouble/jin_core/actions/workflows/tests.yml/badge.svg)
 
 JIN Core Engine is a local AI orchestration runtime for OpenAI-compatible model servers. It combines a FastAPI backend, a streaming WebSocket chat interface, runtime telemetry, model-role routing, stream validation, and a compact browser UI with no frontend build step.
 
