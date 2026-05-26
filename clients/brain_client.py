@@ -3,7 +3,7 @@ import asyncio
 from datetime import datetime
 from contracts.context_contract import (
     ContextContract,
-    DEEP_THOUGHT_CALL,
+    DEEP_THOUGHT_ACTION,
 )
 
 from utils.errors import (
@@ -19,6 +19,11 @@ from utils.response_extractor import (
     ResponseExtractor,
 )
 
+from utils.runtime_actions import (
+    RuntimeActionStreamFilter,
+    extract_runtime_actions,
+)
+
 
 # ---------------------------------------------------------
 # SYSTEM PROMPT
@@ -28,12 +33,50 @@ def count_deep_thought_calls(
     text: str,
 ) -> int:
 
-    if not text:
+    return (
+        extract_runtime_actions(
+            text
+        )
+        .deep_thought_count
+    )
+
+
+async def apply_deep_thought_calls(
+    context,
+    call_count: int,
+) -> int:
+
+    if (
+        context is None
+        or not call_count
+    ):
         return 0
 
-    return text.count(
-        DEEP_THOUGHT_CALL
+    current_count = getattr(
+        context,
+        "deep_thought_count",
+        0,
     )
+
+    context.deep_thought_count = (
+        current_count
+        + call_count
+    )
+
+    logger = getattr(
+        context,
+        "logger",
+        None,
+    )
+
+    if logger is not None:
+        await logger.log_runtime(
+            "[RUNTIME ACTION] "
+            f"deep_thought x{call_count}; "
+            f"counter={context.deep_thought_count}"
+        )
+
+    return call_count
 
 
 def record_deep_thought_calls(
@@ -47,6 +90,11 @@ def record_deep_thought_calls(
 
     if not call_count:
         return 0
+
+    call_count = min(
+        call_count,
+        1,
+    )
 
     current_count = getattr(
         context,
@@ -106,11 +154,18 @@ def build_brain_system_prompt(
         "Reply with ONLY the final answer.\n"
         "Keep responses natural and conversational.\n"
         "Use the trusted runtime XML as interface data, not as chat content.\n"
-        "If private reasoning genuinely needs a deep reflection marker, "
-        f"write exactly {DEEP_THOUGHT_CALL} once in private reasoning. "
-        "It takes no arguments for now.\n"
+        "Runtime action markers are allowed control events, not chat text. "
+        "The runtime hides them from the user before rendering.\n"
+        "Before answering, emit exactly "
+        f"{DEEP_THOUGHT_ACTION} once when the current request asks you to "
+        "think carefully/deeply, compare designs, make a multi-step judgment, "
+        "debug architecture, reflect on your own state, or handle high uncertainty. "
+        "Do not emit it for simple greetings, direct factual answers, or casual small talk. "
+        "The marker takes no arguments for now. Do not explain it.\n"
         "Do not invent, reset, or update internal counters yourself; "
-        "only trust the values provided in trusted runtime XML.\n"
+        "only trust the values provided in trusted runtime XML. "
+        "DEEP_THOUGHT_COUNTER is telemetry from earlier runtime actions; "
+        "it must not by itself trigger or forbid a new runtime action.\n"
         "Never mention Initial state, timestamps, internal function names, "
         "or counters in the chat unless the user explicitly asks about them.\n"
         "\n"
@@ -172,21 +227,43 @@ async def ask_brain(
                 ),
             )
 
-            if context is not None:
-
-                record_deep_thought_calls(
-                    context,
-                    ResponseExtractor.extract_reasoning_text(
-                        result
-                    ),
+            reasoning = (
+                ResponseExtractor.extract_reasoning_text(
+                    result
                 )
+            )
 
-            return (
+            content = (
                 ResponseExtractor
                 .extract_content_text(
                     result
                 )
             )
+
+            reasoning_actions = (
+                extract_runtime_actions(
+                    reasoning
+                )
+            )
+
+            content_actions = (
+                extract_runtime_actions(
+                    content
+                )
+            )
+
+            await apply_deep_thought_calls(
+                context,
+                min(
+                    (
+                        reasoning_actions.deep_thought_count
+                        + content_actions.deep_thought_count
+                    ),
+                    1,
+                ),
+            )
+
+            return content_actions.text
 
         except Exception as error:
 
@@ -246,6 +323,13 @@ async def ask_brain(
                 f"'{returned_model}'"
             )
 
+        reasoning = (
+            ResponseExtractor
+            .extract_reasoning_text(
+                result
+            )
+        )
+
         content = (
             ResponseExtractor
             .extract_content_text(
@@ -253,24 +337,29 @@ async def ask_brain(
             )
         )
 
-        if context is not None:
-
-            record_deep_thought_calls(
-                context,
-                ResponseExtractor.extract_reasoning_text(
-                    result
-                ),
-            )
-
-        if content:
-            return content
-
-        return (
-            ResponseExtractor
-            .extract_reasoning_text(
-                result
-            )
+        reasoning_actions = extract_runtime_actions(
+            reasoning
         )
+
+        content_actions = extract_runtime_actions(
+            content
+        )
+
+        await apply_deep_thought_calls(
+            context,
+            min(
+                (
+                    reasoning_actions.deep_thought_count
+                    + content_actions.deep_thought_count
+                ),
+                1,
+            ),
+        )
+
+        if content_actions.text:
+            return content_actions.text
+
+        return reasoning_actions.text
 
     except Exception as error:
 
@@ -316,6 +405,59 @@ async def ask_brain_stream(
         )
     )
 
+    thinking_filter = RuntimeActionStreamFilter()
+    content_filter = RuntimeActionStreamFilter()
+    deep_thought_action_executed = False
+
+    async def filter_runtime_action_chunk(
+        chunk,
+    ):
+
+        nonlocal deep_thought_action_executed
+
+        chunk_type = chunk.get(
+            "type"
+        )
+
+        if chunk_type not in (
+            "thinking",
+            "content",
+        ):
+            return chunk
+
+        stream_filter = (
+            thinking_filter
+            if chunk_type == "thinking"
+            else content_filter
+        )
+
+        result = stream_filter.filter(
+            chunk.get(
+                "content",
+                "",
+            )
+        )
+
+        if (
+            result.deep_thought_count
+            and not deep_thought_action_executed
+        ):
+
+            deep_thought_action_executed = True
+
+            await apply_deep_thought_calls(
+                context,
+                1,
+            )
+
+        if not result.text:
+            return None
+
+        return {
+            **chunk,
+            "content": result.text,
+        }
+
     # -----------------------------------------------------
     # SERVICE AS BRAIN
     # -----------------------------------------------------
@@ -345,7 +487,28 @@ async def ask_brain_stream(
                 )
             ):
 
-                yield chunk
+                filtered_chunk = (
+                    await filter_runtime_action_chunk(
+                        chunk
+                    )
+                )
+
+                if filtered_chunk:
+                    yield filtered_chunk
+
+            thinking_tail = thinking_filter.flush()
+            if thinking_tail:
+                yield {
+                    "type": "thinking",
+                    "content": thinking_tail,
+                }
+
+            content_tail = content_filter.flush()
+            if content_tail:
+                yield {
+                    "type": "content",
+                    "content": content_tail,
+                }
 
             return
 
@@ -391,7 +554,28 @@ async def ask_brain_stream(
             )
         ):
 
-            yield chunk
+            filtered_chunk = (
+                await filter_runtime_action_chunk(
+                    chunk
+                )
+            )
+
+            if filtered_chunk:
+                yield filtered_chunk
+
+        thinking_tail = thinking_filter.flush()
+        if thinking_tail:
+            yield {
+                "type": "thinking",
+                "content": thinking_tail,
+            }
+
+        content_tail = content_filter.flush()
+        if content_tail:
+            yield {
+                "type": "content",
+                "content": content_tail,
+            }
 
     except asyncio.CancelledError:
         raise

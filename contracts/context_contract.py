@@ -2,7 +2,7 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from xml.sax.saxutils import escape
 
-DEEP_THOUGHT_CALL = "deep_thought()"
+DEEP_THOUGHT_ACTION = "<RUNTIME_ACTION:DEEP_THOUGHT/>"
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,7 @@ class ContextContract:
             "WEEKDAY": self.weekday,
             "YEAR": self.year,
             "DEEP_THOUGHT_COUNTER": self.deep_thought_count,
-            "DEEP_THOUGHT_CALL_EXAMPLE": DEEP_THOUGHT_CALL,
+            "DEEP_THOUGHT_ACTION": DEEP_THOUGHT_ACTION,
         }
 
         state_fields = [
