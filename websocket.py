@@ -139,7 +139,7 @@ async def process_message(
 async def cancel_current_task(
     task: asyncio.Task | None,
     logger: WebSocketLogger,
-    context=None,
+    context: RuntimeContext | None = None,
 ):
 
     if (
