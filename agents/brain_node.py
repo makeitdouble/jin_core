@@ -10,6 +10,7 @@ from settings.app_settings import (
 
 from clients.brain_client import (
     ask_brain_stream,
+    record_deep_thought_calls,
 )
 
 from utils.brain import (
@@ -67,6 +68,11 @@ class BrainNode(BaseNode):
 
         text = await runtime.run(
             generator
+        )
+
+        record_deep_thought_calls(
+            context,
+            runtime.stream.reasoning,
         )
 
         state.brain_response = text or ""

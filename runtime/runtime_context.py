@@ -21,3 +21,5 @@ class RuntimeContext:
     active_streams: dict = field(
         default_factory=dict
     )
+
+    deep_thought_count: int = 0

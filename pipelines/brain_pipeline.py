@@ -4,6 +4,7 @@ from settings.app_settings import settings
 
 from clients.brain_client import (
     ask_brain_stream,
+    record_deep_thought_calls,
 )
 
 from runtime.runtime_stream import (
@@ -87,6 +88,11 @@ class BrainPipeline:
 
             await runtime.run(
                 generator
+            )
+
+            record_deep_thought_calls(
+                context,
+                runtime.stream.reasoning,
             )
 
             await logger.log_runtime(

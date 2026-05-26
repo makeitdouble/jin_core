@@ -1,7 +1,9 @@
 import config
 import asyncio
+from datetime import datetime
 from contracts.context_contract import (
     ContextContract,
+    DEEP_THOUGHT_CALL,
 )
 
 from utils.errors import (
@@ -22,6 +24,44 @@ from utils.response_extractor import (
 # SYSTEM PROMPT
 # ---------------------------------------------------------
 
+def count_deep_thought_calls(
+    text: str,
+) -> int:
+
+    if not text:
+        return 0
+
+    return text.count(
+        DEEP_THOUGHT_CALL
+    )
+
+
+def record_deep_thought_calls(
+    context,
+    reasoning: str,
+) -> int:
+
+    call_count = count_deep_thought_calls(
+        reasoning
+    )
+
+    if not call_count:
+        return 0
+
+    current_count = getattr(
+        context,
+        "deep_thought_count",
+        0,
+    )
+
+    context.deep_thought_count = (
+        current_count
+        + call_count
+    )
+
+    return call_count
+
+
 def build_brain_system_prompt():
 
     return (
@@ -32,6 +72,14 @@ def build_brain_system_prompt():
         "NEVER output chain-of-thought.\n"
         "Reply with ONLY the final answer.\n"
         "Keep responses natural and conversational.\n"
+        "Use the XML context as interface data, not as chat content.\n"
+        "If private reasoning genuinely needs a deep reflection marker, "
+        f"write exactly {DEEP_THOUGHT_CALL} once in private reasoning. "
+        "It takes no arguments for now.\n"
+        "Do not invent, reset, or update internal counters yourself; "
+        "only trust the values provided in XML.\n"
+        "Never mention Initial state, timestamps, internal function names, "
+        "or counters in the chat unless the user explicitly asks about them.\n"
     )
 
 
@@ -41,12 +89,31 @@ def build_brain_system_prompt():
 
 def build_brain_payload(
     text: str,
+    context=None,
 ) -> str:
+
+    deep_thought_count = 0
+
+    if context is not None:
+
+        deep_thought_count = getattr(
+            context,
+            "deep_thought_count",
+            0,
+        )
+
+    now = datetime.now()
 
     context_contract = ContextContract(
         user_input=text,
         compressed_history="",
         system_state="ACTIVE",
+        deep_thought_count=deep_thought_count,
+        timestamp=now.isoformat(),
+        current_date=now.date().isoformat(),
+        current_time=now.strftime("%H:%M:%S"),
+        weekday=now.strftime("%A"),
+        year=now.year,
     )
 
     return context_contract.to_xml()
@@ -60,11 +127,13 @@ async def ask_brain(
     *,
     client,
     text: str,
+    context=None,
 ) -> str:
 
     brain_payload = (
         build_brain_payload(
-            text
+            text,
+            context=context,
         )
     )
 
@@ -89,6 +158,15 @@ async def ask_brain(
                     config.BRAIN_MAX_TOKENS
                 ),
             )
+
+            if context is not None:
+
+                record_deep_thought_calls(
+                    context,
+                    ResponseExtractor.extract_reasoning_text(
+                        result
+                    ),
+                )
 
             return (
                 ResponseExtractor
@@ -160,6 +238,15 @@ async def ask_brain(
             )
         )
 
+        if context is not None:
+
+            record_deep_thought_calls(
+                context,
+                ResponseExtractor.extract_reasoning_text(
+                    result
+                ),
+            )
+
         if content:
             return content
 
@@ -199,7 +286,8 @@ async def ask_brain_stream(
 
     brain_payload = (
         build_brain_payload(
-            text
+            text,
+            context=context,
         )
     )
 
