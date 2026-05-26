@@ -286,12 +286,6 @@ function setContextPanelRuntime(runtime) {
       "context-window-percent"
     );
 
-  const role =
-    runtimePanelState.activeTab;
-
-  const label =
-    role.toUpperCase();
-
   const tokenText =
     formatContextTokens(runtime);
 
