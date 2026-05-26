@@ -6,6 +6,8 @@ from runtime.runtime_stream import (
 
 from clients.brain_client import (
     ask_brain_stream,
+    build_brain_payload,
+    build_brain_system_prompt,
     record_deep_thought_calls,
 )
 
@@ -34,6 +36,17 @@ class BrainNode(BaseNode):
             ]
         )
 
+        system_prompt = (
+            build_brain_system_prompt()
+        )
+
+        brain_payload = (
+            build_brain_payload(
+                state.translated_input,
+                context=context,
+            )
+        )
+
         runtime = RuntimeStream(
             context=context,
             runtime_id=(
@@ -54,12 +67,19 @@ class BrainNode(BaseNode):
                 ],
             ),
             enable_validator=True,
+            context_snapshot={
+                "context_role": "brain",
+                "system_prompt": system_prompt,
+                "user_prompt": brain_payload,
+            },
         )
 
         generator = ask_brain_stream(
             client=brain_client,
             text=state.translated_input,
-            context=context
+            context=context,
+            system_prompt=system_prompt,
+            brain_payload=brain_payload,
         )
 
         text = await runtime.run(

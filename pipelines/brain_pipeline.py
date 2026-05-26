@@ -4,6 +4,8 @@ from settings.app_settings import settings
 
 from clients.brain_client import (
     ask_brain_stream,
+    build_brain_payload,
+    build_brain_system_prompt,
     record_deep_thought_calls,
 )
 
@@ -54,6 +56,23 @@ class BrainPipeline:
                 ]
             )
 
+            system_prompt = (
+                build_brain_system_prompt()
+            )
+
+            brain_payload = (
+                build_brain_payload(
+                    user_input,
+                    context=context,
+                )
+            )
+
+            stream_role = (
+                "service"
+                if settings.USE_SERVICE_AS_BRAIN
+                else "brain"
+            )
+
             runtime = RuntimeStream(
                 context=context,
                 runtime_id=(
@@ -61,11 +80,7 @@ class BrainPipeline:
                         "runtime_id"
                     ]
                 ),
-                role=(
-                    "service"
-                    if settings.USE_SERVICE_AS_BRAIN
-                    else "brain"
-                ),
+                role=stream_role,
                 context_window=(
                     brain_runtime[
                         "context_window"
@@ -78,12 +93,19 @@ class BrainPipeline:
                     ],
                 ),
                 enable_validator=True,
+                context_snapshot={
+                    "context_role": "brain",
+                    "system_prompt": system_prompt,
+                    "user_prompt": brain_payload,
+                },
             )
 
             generator = ask_brain_stream(
                 client=brain_client,
                 text=user_input,
                 context=context,
+                system_prompt=system_prompt,
+                brain_payload=brain_payload,
             )
 
             await runtime.run(

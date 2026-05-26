@@ -29,6 +29,7 @@ class RuntimeStream:
             log_method,
             enable_validator: bool = True,
             emit_to_chat: bool = True,
+            context_snapshot: dict | None = None,
     ):
 
         self.context = context
@@ -51,6 +52,9 @@ class RuntimeStream:
             role=role,
             enable_validator=(
                 enable_validator
+            ),
+            context_snapshot=(
+                context_snapshot
             ),
         )
 

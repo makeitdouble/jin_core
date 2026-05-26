@@ -281,14 +281,22 @@ async def ask_brain_stream(
     *,
     client,
     text: str,
-    context
+    context,
+    system_prompt: str | None = None,
+    brain_payload: str | None = None,
 ):
 
     brain_payload = (
-        build_brain_payload(
+        brain_payload
+        or build_brain_payload(
             text,
             context=context,
         )
+    )
+
+    system_prompt = (
+        system_prompt
+        or build_brain_system_prompt()
     )
 
     # -----------------------------------------------------
@@ -307,7 +315,7 @@ async def ask_brain_stream(
                         brain_payload
                     ),
                     system_prompt=(
-                        build_brain_system_prompt()
+                        system_prompt
                     ),
                     temperature=(
                         config
@@ -352,7 +360,7 @@ async def ask_brain_stream(
             client.stream(
                 context=context,
                 system_prompt=(
-                    build_brain_system_prompt()
+                    system_prompt
                 ),
                 user_prompt=brain_payload,
                 temperature=(

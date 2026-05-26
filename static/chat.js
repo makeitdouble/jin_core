@@ -58,10 +58,137 @@ function getRoleConfig(role) {
 
 }
 
+function formatContextSnapshot(
+  role,
+  contextSnapshot
+) {
+
+  if (!contextSnapshot) {
+    return "";
+  }
+
+  const contextRole =
+    contextSnapshot.context_role
+    || role
+    || "unknown";
+
+  const systemPrompt =
+    contextSnapshot.system_prompt
+    || "";
+
+  const userPrompt =
+    contextSnapshot.user_prompt
+    || "";
+
+  return [
+    "SYSTEM PROMPT",
+    "-------------",
+    systemPrompt || "(empty)",
+    "",
+    "USER PROMPT / CONTEXT PAYLOAD",
+    "-----------------------------",
+    userPrompt || "(empty)",
+  ].join("\n");
+
+}
+
+
+function formatContextTitle(
+  role,
+  contextSnapshot
+) {
+
+  const messageRole =
+    String(
+      role || "unknown"
+    ).toUpperCase();
+
+  const contextRole =
+    String(
+      (
+        contextSnapshot
+        && contextSnapshot.context_role
+      )
+      || role
+      || "unknown"
+    ).toUpperCase();
+
+  return (
+    `MESSAGE: ${messageRole} `
+    + `| CONTEXT: ${contextRole}`
+  );
+
+}
+
+
+function createAvatarElement(
+  role,
+  contextSnapshot = null
+) {
+
+  const config =
+    getRoleConfig(role);
+
+  const avatar =
+    document.createElement(
+      contextSnapshot
+        ? "button"
+        : "div"
+    );
+
+  if (contextSnapshot) {
+    avatar.type =
+      "button";
+
+    avatar.title =
+      "show current context";
+  }
+
+  avatar.className =
+    "h-6 w-6 rounded bg-zinc-800 border border-zinc-700 flex items-center justify-center text-[10px] text-zinc-400 shrink-0";
+
+  if (contextSnapshot) {
+    avatar.className +=
+      " cursor-help transition hover:border-emerald-500 hover:text-zinc-100 hover:bg-zinc-700";
+  }
+
+  avatar.textContent =
+    config.avatar;
+
+  if (contextSnapshot) {
+    avatar.addEventListener(
+      "click",
+      function () {
+        const details =
+          formatContextSnapshot(
+            role,
+            contextSnapshot
+          );
+
+        if (window.showTrace) {
+          window.showTrace(
+            details,
+            formatContextTitle(
+              role,
+              contextSnapshot
+            )
+          );
+        }
+      }
+    );
+  }
+
+  return avatar;
+
+}
+
 
 // CREATE NORMAL MESSAGE
 
-function createMessageElement(role) {
+function createMessageElement(
+  role,
+  contextSnapshot = null
+) {
 
   const config =
     getRoleConfig(role);
@@ -86,11 +213,12 @@ function createMessageElement(role) {
 
   bubble.appendChild(pre);
 
-  msgDiv.innerHTML = `
-    <div class="h-6 w-6 rounded bg-zinc-800 border border-zinc-700 flex items-center justify-center text-[10px] text-zinc-400 shrink-0">
-      ${config.avatar}
-    </div>
-  `;
+  msgDiv.appendChild(
+    createAvatarElement(
+      role,
+      contextSnapshot
+    )
+  );
 
   msgDiv.appendChild(
     bubble
@@ -112,11 +240,15 @@ function createMessageElement(role) {
 
 function appendChatMessage(
   role,
-  text
+  text,
+  contextSnapshot = null
 ) {
 
   const pre =
-    createMessageElement(role);
+    createMessageElement(
+      role,
+      contextSnapshot
+    );
 
   pre.innerHTML =
     escapeHtml(text);
@@ -127,7 +259,8 @@ function appendChatMessage(
 // CREATE STREAM GROUP
 
 function createStreamGroup(
-  role
+  role,
+  contextSnapshot = null
 ) {
 
   const config =
@@ -211,11 +344,12 @@ function createStreamGroup(
 
   bubble.appendChild(pre);
 
-  messageRow.innerHTML = `
-    <div class="h-6 w-6 rounded bg-zinc-800 border border-zinc-700 flex items-center justify-center text-[10px] text-zinc-400 shrink-0">
-      ${config.avatar}
-    </div>
-  `;
+  messageRow.appendChild(
+    createAvatarElement(
+      role,
+      contextSnapshot
+    )
+  );
 
   messageRow.appendChild(
     bubble
@@ -259,7 +393,8 @@ function ensureStreamGroup(
 
   const realGroup =
     createStreamGroup(
-      stream.role
+      stream.role,
+      stream.context
     );
 
   stream.group.wrapper =
@@ -290,7 +425,8 @@ function ensureStreamGroup(
 
 function startStreamMessage(
   messageId,
-  role
+  role,
+  contextSnapshot = null
 ) {
 
   const group = {
@@ -307,6 +443,7 @@ function startStreamMessage(
     messageId,
     {
       role,
+      context: contextSnapshot,
       group,
       thinking: "",
       answer: "",

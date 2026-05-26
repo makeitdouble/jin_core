@@ -10,7 +10,6 @@ const brainLabel = document.querySelector("#brain-label");
 const serviceDot = document.querySelector("#service-dot");
 const serviceLabel = document.querySelector("#service-label");
 
-const STATUS_POLL_INTERVAL_MS = 5000;
 const STATUS_REFRESH_COOLDOWN_MS = 1000;
 
 let runtimeStatusRequestInFlight = false;
@@ -197,13 +196,6 @@ updateRuntime({
         && window.jinRuntimeConfig.runtimeStatus
     ),
 });
-
-// LOOP
-
-setInterval(
-    updateRuntime,
-    STATUS_POLL_INTERVAL_MS
-);
 
 window.addEventListener(
     "focus",

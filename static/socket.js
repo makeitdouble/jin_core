@@ -287,7 +287,8 @@ ws.onmessage = function (event) {
 
     appendChatMessage(
       role,
-      data.text
+      data.text,
+      data.context || null
     );
 
     return;
@@ -327,7 +328,8 @@ ws.onmessage = function (event) {
 
     startStreamMessage(
       data.message_id,
-      resolveMessageRole(data)
+      resolveMessageRole(data),
+      data.context || null
     );
 
     return;

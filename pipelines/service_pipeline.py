@@ -3,6 +3,7 @@ import config
 
 from clients.service_client import (
     ask_service_model_stream,
+    build_service_system_prompt,
 )
 
 from utils.runtime_state_sync import (
@@ -65,6 +66,13 @@ class ServicePipeline:
                 logger,
                 role="service",
                 enable_validator=True,
+                context_snapshot={
+                    "context_role": "service",
+                    "system_prompt": (
+                        build_service_system_prompt()
+                    ),
+                    "user_prompt": user_text,
+                },
             )
 
             try:

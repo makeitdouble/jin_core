@@ -3,6 +3,7 @@ const consoleStream =
 
 let traceModal;
 let traceModalContent;
+let traceModalTitle;
 
 function ensureTraceModal() {
   if (traceModal) {
@@ -27,13 +28,13 @@ function ensureTraceModal() {
   header.className =
     "h-11 shrink-0 border-b border-zinc-800 px-4 flex items-center justify-between";
 
-  const title =
+  traceModalTitle =
     document.createElement("div");
 
-  title.className =
+  traceModalTitle.className =
     "text-xs uppercase tracking-widest text-zinc-300";
 
-  title.textContent =
+  traceModalTitle.textContent =
     "Trace";
 
   const closeButton =
@@ -58,7 +59,7 @@ function ensureTraceModal() {
     "anywhere";
 
   header.appendChild(
-    title
+    traceModalTitle
   );
 
   header.appendChild(
@@ -115,8 +116,14 @@ function ensureTraceModal() {
   );
 }
 
-function showTrace(details) {
+function showTrace(
+  details,
+  title = "Trace",
+) {
   ensureTraceModal();
+
+  traceModalTitle.textContent =
+    title;
 
   traceModalContent.textContent =
     String(details);
@@ -300,3 +307,6 @@ function appendLog(
 
 window.appendLog =
   appendLog;
+
+window.showTrace =
+  showTrace;

@@ -172,7 +172,7 @@ function getContextBarCells(barElement) {
 
   return Math.max(
     12,
-    Math.floor(width / 7) - 2
+    Math.floor(width / 7) + 3
   );
 
 }

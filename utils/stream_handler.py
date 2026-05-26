@@ -14,12 +14,14 @@ class StreamHandler:
         *,
         role: str,
         enable_validator: bool = False,
+        context_snapshot: dict | None = None,
     ):
 
         self.websocket = websocket
         self.logger = logger
 
         self.role = role
+        self.context_snapshot = context_snapshot
 
         self.message_id = str(
             uuid.uuid4()
@@ -51,13 +53,22 @@ class StreamHandler:
         if not emit:
             return
 
-        await self.websocket.send_json({
+        payload = {
             "type": "message_start",
             "message_id": (
                 self.message_id
             ),
             "role": self.role,
-        })
+        }
+
+        if self.context_snapshot:
+            payload["context"] = (
+                self.context_snapshot
+            )
+
+        await self.websocket.send_json(
+            payload
+        )
 
     # ---------------------------------------------------------
     # THINKING
