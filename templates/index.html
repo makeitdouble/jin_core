@@ -37,34 +37,36 @@
 
         <div>[PROJECT: JIN CORE ENGINE]</div>
 
-        <div class="flex items-center gap-5">
-
-    <!-- BRAIN -->
-
-    <div id="brain-status"
-        class="flex items-center gap-1.5 text-zinc-400">
-
-        <span id="brain-dot"
-            class="h-2 w-2 rounded-full bg-slate-500 animate-pulse transition-all duration-300">
-        </span>
-
-        <span id="brain-label">
-            BRAIN: CHECKING
-        </span>
-
-    </div>
+        <div class="grid w-72 grid-cols-2 items-center">
 
     <!-- SERVICE -->
 
     <div id="service-status"
-        class="flex items-center gap-1.5 text-zinc-400">
+        class="flex items-center justify-center gap-1.5 text-zinc-400">
 
         <span id="service-dot"
-            class="h-2 w-2 rounded-full bg-slate-500 animate-pulse transition-all duration-300">
+            class="h-2 w-2 rounded-full {{ 'bg-emerald-400 animate-pulse' if runtime_status.service else 'bg-red-500' }} transition-all duration-300">
         </span>
 
-        <span id="service-label">
-            SERVICE: CHECKING
+        <span id="service-label"
+            class="inline-block min-w-14">
+            SERVICE
+        </span>
+
+    </div>
+
+    <!-- BRAIN -->
+
+    <div id="brain-status"
+        class="flex items-center justify-center gap-1.5 text-zinc-400">
+
+        <span id="brain-dot"
+            class="h-2 w-2 rounded-full {{ 'bg-emerald-400 animate-pulse' if runtime_status.brain else 'bg-red-500' }} transition-all duration-300">
+        </span>
+
+        <span id="brain-label"
+            class="inline-block min-w-14">
+            BRAIN
         </span>
 
     </div>
@@ -101,33 +103,6 @@
 
         <section id="chat-drop-zone"
             class="flex-1 flex flex-col bg-slate-700 border-r border-slate-500">
-
-            <!-- CHAT HEADER -->
-
-            <div
-                class="h-12 border-b border-slate-500 flex items-center justify-between px-6 shrink-0 bg-slate-700">
-
-                <div class="flex flex-col min-w-0">
-
-                    <span
-                      id="brain-model"
-                      class="text-xs font-bold tracking-wider text-zinc-100 truncate max-w-[520px]">
-
-                        BRAIN: UNKNOWN
-
-                    </span>
-
-                    <span
-                      id="service-model"
-                      class="text-[10px] tracking-wider text-zinc-400 mt-1 truncate max-w-[520px]">
-
-                        SERVICE: UNKNOWN
-
-                    </span>
-
-                </div>
-
-            </div>
 
             <!-- CHAT HISTORY -->
 
@@ -261,7 +236,10 @@
                         type="button"
                         id="service-context-tab"
                         data-context-tab="service"
-                        class="h-8 border-r border-slate-500/70 bg-slate-600/70 text-[11px] font-bold uppercase tracking-widest text-zinc-50 transition">
+                        disabled
+                        aria-disabled="true"
+                        aria-selected="false"
+                        class="h-8 border-r border-slate-500/70 text-[11px] font-bold uppercase tracking-widest text-slate-500 cursor-not-allowed">
                         Service
                     </button>
 
@@ -269,14 +247,18 @@
                         type="button"
                         id="brain-context-tab"
                         data-context-tab="brain"
-                        class="h-8 text-[11px] font-bold uppercase tracking-widest text-slate-300 transition hover:bg-slate-600/50 hover:text-zinc-50">
+                        disabled
+                        aria-disabled="true"
+                        aria-selected="false"
+                        class="h-8 text-[11px] font-bold uppercase tracking-widest text-slate-500 cursor-not-allowed">
                         Brain
                     </button>
 
                 </div>
 
                 <div
-                    class="rounded border border-slate-500/70 bg-slate-700">
+                    id="context-runtime-panel"
+                    class="hidden rounded border border-slate-500/70 bg-slate-700">
 
                     <div class="p-3 space-y-3 font-mono">
 
@@ -358,11 +340,12 @@
     <template id="jin-runtime-config">
         {{ {
             "useServiceAsBrain": use_service_as_brain,
+            "runtimeStatus": runtime_status,
             "runtimeConfig": runtime_config,
         } | tojson }}
     </template>
-    <script src="/static/telemetry.js?v=context-panel-5"></script>
-    <script src="/static/status.js?v=status-check-1"></script>
+    <script src="/static/telemetry.js?v=context-panel-8"></script>
+    <script src="/static/status.js?v=status-check-4"></script>
     <script src="/static/dragdrop.js?v=context-panel-5"></script>
     <script src="/static/logger.js?v=context-panel-5"></script>
     <script src="/static/chat.js?v=context-panel-5"></script>

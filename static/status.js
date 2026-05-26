@@ -10,6 +10,12 @@ const brainLabel = document.querySelector("#brain-label");
 const serviceDot = document.querySelector("#service-dot");
 const serviceLabel = document.querySelector("#service-label");
 
+const STATUS_POLL_INTERVAL_MS = 5000;
+const STATUS_REFRESH_COOLDOWN_MS = 1000;
+
+let runtimeStatusRequestInFlight = false;
+let lastRuntimeStatusStartedAt = 0;
+
 // -----------------------------------
 // UPDATE UI
 // -----------------------------------
@@ -20,7 +26,7 @@ function setRuntimeChecking(dot, label, name) {
         "h-2 w-2 rounded-full bg-slate-500 animate-pulse transition-all duration-300";
 
     label.textContent =
-        `${name}: CHECKING`;
+        name;
 
 }
 
@@ -33,7 +39,7 @@ function setRuntimeState(dot, label, name, online) {
             "h-2 w-2 rounded-full bg-emerald-400 animate-pulse transition-all duration-300";
 
         label.textContent =
-            `${name}: ONLINE`;
+            name;
 
     } else {
 
@@ -41,7 +47,7 @@ function setRuntimeState(dot, label, name, online) {
             "h-2 w-2 rounded-full bg-red-500 transition-all duration-300";
 
         label.textContent =
-            `${name}: OFFLINE`;
+            name;
 
     }
 
@@ -51,19 +57,33 @@ function setRuntimeState(dot, label, name, online) {
 // MAIN LOOP
 // -----------------------------------
 
-async function updateRuntime() {
+async function updateRuntime(options = {}) {
 
-    setRuntimeChecking(
-      brainDot,
-      brainLabel,
-      "BRAIN"
-    );
+    if (runtimeStatusRequestInFlight) {
+        return;
+    }
 
-    setRuntimeChecking(
-      serviceDot,
-      serviceLabel,
-      "SERVICE"
-    );
+    runtimeStatusRequestInFlight = true;
+    lastRuntimeStatusStartedAt = Date.now();
+
+    const showChecking =
+        Boolean(options.showChecking);
+
+    if (showChecking) {
+
+        setRuntimeChecking(
+          brainDot,
+          brainLabel,
+          "BRAIN"
+        );
+
+        setRuntimeChecking(
+          serviceDot,
+          serviceLabel,
+          "SERVICE"
+        );
+
+    }
 
     try {
 
@@ -98,6 +118,10 @@ async function updateRuntime() {
                 Boolean(
                     data.use_service_as_brain
                 ),
+            runtimeStatus: {
+                brain: Boolean(data.brain),
+                service: Boolean(data.service),
+            },
             runtimeConfig:
                 data.runtime_config || {}
         };
@@ -109,6 +133,20 @@ async function updateRuntime() {
         }
 
     } catch (err) {
+
+        const offlineStatus = {
+            brain: false,
+            service: false,
+            translator: false,
+            use_service_as_brain: false,
+            runtime_config: (
+                window.jinRuntimeConfig
+                && window.jinRuntimeConfig.runtimeConfig
+            ) || {},
+        };
+
+        window.jinLatestStatus =
+            offlineStatus;
 
         setRuntimeState(
           brainDot,
@@ -124,13 +162,61 @@ async function updateRuntime() {
           false
         );
 
+        if (window.updateRuntimePanelFromStatus) {
+            window.updateRuntimePanelFromStatus(
+                offlineStatus
+            );
+        }
+
+    } finally {
+
+        runtimeStatusRequestInFlight = false;
+
     }
+}
+
+
+function refreshRuntimeStatus() {
+
+    if (
+        Date.now() - lastRuntimeStatusStartedAt
+        < STATUS_REFRESH_COOLDOWN_MS
+    ) {
+        return;
+    }
+
+    updateRuntime();
+
 }
 
 // FIRST RUN
 
-updateRuntime();
+updateRuntime({
+    showChecking: !(
+        window.jinRuntimeConfig
+        && window.jinRuntimeConfig.runtimeStatus
+    ),
+});
 
 // LOOP
 
-setInterval(updateRuntime, 240000);
+setInterval(
+    updateRuntime,
+    STATUS_POLL_INTERVAL_MS
+);
+
+window.addEventListener(
+    "focus",
+    refreshRuntimeStatus
+);
+
+document.addEventListener(
+    "visibilitychange",
+    function () {
+
+        if (!document.hidden) {
+            refreshRuntimeStatus();
+        }
+
+    }
+);

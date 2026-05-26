@@ -35,6 +35,9 @@ const runtimePanelState = {
   useServiceAsBrain: Boolean(
     initialRuntimeConfig.useServiceAsBrain
   ),
+  runtimeStatus: (
+    initialRuntimeConfig.runtimeStatus
+  ) || {},
   fallbackRuntimes: (
     initialRuntimeConfig.runtimeConfig
   ) || {},
@@ -49,6 +52,11 @@ const contextTabButtons = {
     "brain-context-tab"
   ),
 };
+
+const contextRuntimePanel =
+  document.getElementById(
+    "context-runtime-panel"
+  );
 
 
 function findRuntimeByLabel(
@@ -106,6 +114,35 @@ function getSelectedRuntime() {
   }
 
   return getRuntimeByLabel("service");
+
+}
+
+
+function hasRuntimeStatus(role) {
+
+  return typeof (
+    runtimePanelState.runtimeStatus[role]
+  ) === "boolean";
+
+}
+
+
+function isRuntimeOnline(role) {
+
+  if (!hasRuntimeStatus(role)) {
+    return false;
+  }
+
+  return Boolean(
+    runtimePanelState.runtimeStatus[role]
+  );
+
+}
+
+
+function isContextTabDisabled(role) {
+
+  return !isRuntimeOnline(role);
 
 }
 
@@ -204,8 +241,7 @@ function setTabClasses(role) {
     runtimePanelState.activeTab === role;
 
   const isDisabled =
-    role === "brain"
-    && runtimePanelState.useServiceAsBrain;
+    isContextTabDisabled(role);
 
   button.disabled =
     isDisabled;
@@ -221,8 +257,15 @@ function setTabClasses(role) {
   );
 
   if (isDisabled) {
+    const borderClass =
+      role === "service"
+        ? "border-r border-slate-500/70 "
+        : "";
+
     button.className =
-      "h-8 text-[11px] font-bold uppercase tracking-widest text-slate-500 cursor-not-allowed";
+      "h-8 "
+      + borderClass
+      + "text-[11px] font-bold uppercase tracking-widest text-slate-500 cursor-not-allowed";
 
     return;
   }
@@ -255,6 +298,13 @@ function setTabClasses(role) {
 
 
 function setContextPanelRuntime(runtime) {
+
+  if (contextRuntimePanel) {
+    contextRuntimePanel.classList.toggle(
+      "hidden",
+      !runtime
+    );
+  }
 
   const titleElement =
     document.getElementById(
@@ -370,30 +420,39 @@ function updateChatHeader(
 
 function renderContextPanel() {
 
-  if (
-    runtimePanelState.useServiceAsBrain
-    && runtimePanelState.activeTab === "brain"
-  ) {
-    runtimePanelState.activeTab =
-      "service";
+  if (isContextTabDisabled(
+    runtimePanelState.activeTab
+  )) {
+
+    const fallbackTab =
+      ["brain", "service"].find(
+        role => !isContextTabDisabled(role)
+      );
+
+    if (fallbackTab) {
+      runtimePanelState.activeTab =
+        fallbackTab;
+    }
   }
 
   setTabClasses("service");
   setTabClasses("brain");
 
-  setContextPanelRuntime(
-    getSelectedRuntime()
-  );
+  const selectedRuntime =
+    isContextTabDisabled(
+      runtimePanelState.activeTab
+    )
+      ? null
+      : getSelectedRuntime();
+
+  setContextPanelRuntime(selectedRuntime);
 
 }
 
 
 function selectContextTab(role) {
 
-  if (
-    role === "brain"
-    && runtimePanelState.useServiceAsBrain
-  ) {
+  if (isContextTabDisabled(role)) {
     return;
   }
 
@@ -445,6 +504,16 @@ window.setUseServiceAsBrain = function (enabled) {
 };
 
 
+window.setRuntimeStatusSnapshot = function (runtimeStatus) {
+
+  runtimePanelState.runtimeStatus =
+    runtimeStatus || {};
+
+  renderContextPanel();
+
+};
+
+
 window.setRuntimeConfigSnapshot = function (runtimeConfig) {
 
   runtimePanelState.fallbackRuntimes =
@@ -479,9 +548,19 @@ window.updateRuntimePanelFromStatus = function (data) {
       Boolean(
         data.use_service_as_brain
       ),
+    runtimeStatus: {
+      brain: Boolean(data.brain),
+      service: Boolean(data.service),
+    },
     runtimeConfig:
       data.runtime_config || {},
   };
+
+  window.setRuntimeStatusSnapshot(
+    window
+      .jinRuntimeConfig
+      .runtimeStatus
+  );
 
   window.setUseServiceAsBrain(
     window
@@ -534,6 +613,10 @@ if (window.jinLatestStatus) {
   );
 
 } else if (window.jinRuntimeConfig) {
+
+  window.setRuntimeStatusSnapshot(
+    window.jinRuntimeConfig.runtimeStatus || {}
+  );
 
   window.setUseServiceAsBrain(
     window.jinRuntimeConfig.useServiceAsBrain

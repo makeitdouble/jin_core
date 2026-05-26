@@ -37,7 +37,7 @@ from clients.clients_registry import (
 STATUS_CHECK_TIMEOUT = getattr(
     config,
     "STATUS_CHECK_TIMEOUT",
-    1.5,
+    0.5,
 )
 
 
@@ -104,7 +104,15 @@ app.include_router(
 # INDEX PAGE
 # ---------------------------------------------------------
 
-def build_runtime_config():
+def build_runtime_config(
+    use_service_as_brain=None,
+):
+
+    effective_use_service_as_brain = (
+        config.USE_SERVICE_AS_BRAIN
+        if use_service_as_brain is None
+        else use_service_as_brain
+    )
 
     return {
         "service": {
@@ -117,13 +125,13 @@ def build_runtime_config():
             "label": "brain",
             "model": (
                 config.SERVICE_MODEL_UID
-                if config.USE_SERVICE_AS_BRAIN
+                if effective_use_service_as_brain
                 else config.BRAIN_MODEL_UID
             ),
             "used_tokens": 0,
             "max_tokens": (
                 config.SERVICE_CONTEXT_WINDOW
-                if config.USE_SERVICE_AS_BRAIN
+                if effective_use_service_as_brain
                 else config.BRAIN_CONTEXT_WINDOW
             ),
         },
@@ -138,14 +146,28 @@ async def index(
     request: Request,
 ):
 
+    status_snapshot = await build_status_snapshot(
+        request.app.state.http_client
+    )
+
     return templates.TemplateResponse(
         request,
         "index.html",
         {
             "use_service_as_brain": (
-                config.USE_SERVICE_AS_BRAIN
+                status_snapshot[
+                    "use_service_as_brain"
+                ]
             ),
-            "runtime_config": build_runtime_config(),
+            "runtime_config": (
+                status_snapshot[
+                    "runtime_config"
+                ]
+            ),
+            "runtime_status": {
+                "brain": status_snapshot["brain"],
+                "service": status_snapshot["service"],
+            },
         },
     )
 
@@ -179,15 +201,13 @@ async def check_api_status(
         return False
 
 
-@app.get("/api/status")
-async def api_status():
-
-    client = app.state.http_client
+async def build_status_snapshot(
+    client: httpx.AsyncClient,
+):
 
     (
         brain_status,
         service_status,
-        translator_status,
     ) = await asyncio.gather(
         check_api_status(
             client,
@@ -197,19 +217,34 @@ async def api_status():
             client,
             config.SERVICE_API_BASE,
         ),
-        check_api_status(
-            client,
-            config.TRANSLATOR_API_BASE,
-        ),
+    )
+
+    effective_use_service_as_brain = (
+        config.USE_SERVICE_AS_BRAIN
+        and service_status
     )
 
     return {
         "brain": brain_status,
         "service": service_status,
-        "translator": translator_status,
-        "use_service_as_brain": config.USE_SERVICE_AS_BRAIN,
-        "runtime_config": build_runtime_config(),
+        "translator": None,
+        "use_service_as_brain": (
+            effective_use_service_as_brain
+        ),
+        "runtime_config": build_runtime_config(
+            use_service_as_brain=(
+                effective_use_service_as_brain
+            ),
+        ),
     }
+
+
+@app.get("/api/status")
+async def api_status():
+
+    return await build_status_snapshot(
+        app.state.http_client
+    )
 
 
 # ---------------------------------------------------------
