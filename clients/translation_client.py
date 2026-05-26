@@ -1,5 +1,8 @@
-import config
 import asyncio
+
+from settings.config_loader import (
+    config,
+)
 from utils.errors import (
     format_client_error,
 )

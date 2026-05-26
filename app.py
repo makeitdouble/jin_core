@@ -20,7 +20,9 @@ from fastapi.templating import (
 import asyncio
 import httpx
 
-import config
+from settings.config_loader import (
+    config,
+)
 
 from utils.urls import (
     join_url,

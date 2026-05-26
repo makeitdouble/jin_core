@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 
-import config
+from settings.config_loader import (
+    config,
+)
 
 
 @dataclass(frozen=True)

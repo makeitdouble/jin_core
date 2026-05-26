@@ -1,5 +1,8 @@
-import config
 import asyncio
+
+from settings.config_loader import (
+    config,
+)
 from clients.brain_client import (
     ask_brain_stream,
 )

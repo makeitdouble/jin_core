@@ -13,7 +13,6 @@ sys.path.insert(
     str(ROOT),
 )
 
-import config
 from clients.brain_client import (
     build_brain_system_prompt,
 )
@@ -21,6 +20,9 @@ from contracts.context_contract import (
     DEEP_THOUGHT_ACTION,
 )
 from settings.app_settings import settings
+from settings.config_loader import (
+    config,
+)
 from utils.response_extractor import (
     ResponseExtractor,
 )

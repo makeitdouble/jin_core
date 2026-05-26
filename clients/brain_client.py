@@ -1,6 +1,9 @@
-import config
 import asyncio
 from datetime import datetime
+
+from settings.config_loader import (
+    config,
+)
 from contracts.context_contract import (
     ContextContract,
     DEEP_THOUGHT_ACTION,

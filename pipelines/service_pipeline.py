@@ -1,5 +1,8 @@
 import asyncio
-import config
+
+from settings.config_loader import (
+    config,
+)
 
 from clients.service_client import (
     ask_service_model_stream,
