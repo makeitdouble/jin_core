@@ -1,12 +1,42 @@
+function readInitialRuntimeConfig() {
+
+  if (window.jinRuntimeConfig) {
+    return window.jinRuntimeConfig;
+  }
+
+  const configTemplate =
+    document.getElementById(
+      "jin-runtime-config"
+    );
+
+  if (!configTemplate) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(
+      configTemplate.textContent || "{}"
+    );
+  } catch (error) {
+    return {};
+  }
+
+}
+
+
+const initialRuntimeConfig =
+  readInitialRuntimeConfig();
+
+window.jinRuntimeConfig =
+  initialRuntimeConfig;
+
 const runtimePanelState = {
   activeTab: "service",
   useServiceAsBrain: Boolean(
-    window.jinRuntimeConfig
-    && window.jinRuntimeConfig.useServiceAsBrain
+    initialRuntimeConfig.useServiceAsBrain
   ),
   fallbackRuntimes: (
-    window.jinRuntimeConfig
-    && window.jinRuntimeConfig.runtimeConfig
+    initialRuntimeConfig.runtimeConfig
   ) || {},
   liveRuntimes: [],
 };

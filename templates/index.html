@@ -269,8 +269,7 @@
                         type="button"
                         id="brain-context-tab"
                         data-context-tab="brain"
-                        class="h-8 text-[11px] font-bold uppercase tracking-widest {% if use_service_as_brain %}text-slate-500 cursor-not-allowed{% else %}text-slate-300 transition hover:bg-slate-600/50 hover:text-zinc-50{% endif %}"
-                        {% if use_service_as_brain %}disabled aria-disabled="true"{% endif %}>
+                        class="h-8 text-[11px] font-bold uppercase tracking-widest text-slate-300 transition hover:bg-slate-600/50 hover:text-zinc-50">
                         Brain
                     </button>
 
@@ -356,12 +355,12 @@
         });
 
     </script>
-    <script>
-        window.jinRuntimeConfig = {
-            useServiceAsBrain: {{ use_service_as_brain | tojson }},
-            runtimeConfig: {{ runtime_config | tojson }},
-        };
-    </script>
+    <template id="jin-runtime-config">
+        {{ {
+            "useServiceAsBrain": use_service_as_brain,
+            "runtimeConfig": runtime_config,
+        } | tojson }}
+    </template>
     <script src="/static/telemetry.js?v=context-panel-5"></script>
     <script src="/static/status.js?v=status-check-1"></script>
     <script src="/static/dragdrop.js?v=context-panel-5"></script>
