@@ -1,0 +1,9 @@
+{
+  "name": "jin-core",
+  "private": true,
+  "scripts": {
+    "test": ".\\.venv\\Scripts\\python.exe -m unittest discover -s tests",
+    "tests": "npm test",
+    "translation_tests": "set JIN_RUN_TRANSLATION_MODEL_TESTS=1&& .\\.venv\\Scripts\\python.exe -m unittest tests.test_translation_pipeline"
+  }
+}
