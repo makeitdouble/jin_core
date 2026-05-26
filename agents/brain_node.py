@@ -37,7 +37,9 @@ class BrainNode(BaseNode):
         )
 
         system_prompt = (
-            build_brain_system_prompt()
+            build_brain_system_prompt(
+                context
+            )
         )
 
         brain_payload = (
@@ -47,6 +49,10 @@ class BrainNode(BaseNode):
             )
         )
 
+        stream_role = (
+            brain_runtime["label"]
+        )
+
         runtime = RuntimeStream(
             context=context,
             runtime_id=(
@@ -54,7 +60,7 @@ class BrainNode(BaseNode):
                     "runtime_id"
                 ]
             ),
-            role="brain",
+            role=stream_role,
             context_window=(
                 brain_runtime[
                     "context_window"

@@ -57,7 +57,9 @@ class BrainPipeline:
             )
 
             system_prompt = (
-                build_brain_system_prompt()
+                build_brain_system_prompt(
+                    context
+                )
             )
 
             brain_payload = (

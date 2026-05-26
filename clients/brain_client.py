@@ -62,33 +62,7 @@ def record_deep_thought_calls(
     return call_count
 
 
-def build_brain_system_prompt():
-
-    return (
-        "You are JIN, a human-like assistant.\n"
-        "NEVER explain your reasoning.\n"
-        "NEVER analyze the request.\n"
-        "NEVER describe your plan.\n"
-        "NEVER output chain-of-thought.\n"
-        "Reply with ONLY the final answer.\n"
-        "Keep responses natural and conversational.\n"
-        "Use the XML context as interface data, not as chat content.\n"
-        "If private reasoning genuinely needs a deep reflection marker, "
-        f"write exactly {DEEP_THOUGHT_CALL} once in private reasoning. "
-        "It takes no arguments for now.\n"
-        "Do not invent, reset, or update internal counters yourself; "
-        "only trust the values provided in XML.\n"
-        "Never mention Initial state, timestamps, internal function names, "
-        "or counters in the chat unless the user explicitly asks about them.\n"
-    )
-
-
-# ---------------------------------------------------------
-# PAYLOAD
-# ---------------------------------------------------------
-
-def build_brain_payload(
-    text: str,
+def build_brain_runtime_context(
     context=None,
 ) -> str:
 
@@ -105,7 +79,7 @@ def build_brain_payload(
     now = datetime.now()
 
     context_contract = ContextContract(
-        user_input=text,
+        user_input="",
         compressed_history="",
         system_state="ACTIVE",
         deep_thought_count=deep_thought_count,
@@ -116,7 +90,44 @@ def build_brain_payload(
         year=now.year,
     )
 
-    return context_contract.to_xml()
+    return context_contract.to_runtime_xml()
+
+
+def build_brain_system_prompt(
+    context=None,
+):
+
+    return (
+        "You are JIN, a human-like assistant.\n"
+        "NEVER explain your reasoning.\n"
+        "NEVER analyze the request.\n"
+        "NEVER describe your plan.\n"
+        "NEVER output chain-of-thought.\n"
+        "Reply with ONLY the final answer.\n"
+        "Keep responses natural and conversational.\n"
+        "Use the trusted runtime XML as interface data, not as chat content.\n"
+        "If private reasoning genuinely needs a deep reflection marker, "
+        f"write exactly {DEEP_THOUGHT_CALL} once in private reasoning. "
+        "It takes no arguments for now.\n"
+        "Do not invent, reset, or update internal counters yourself; "
+        "only trust the values provided in trusted runtime XML.\n"
+        "Never mention Initial state, timestamps, internal function names, "
+        "or counters in the chat unless the user explicitly asks about them.\n"
+        "\n"
+        f"{build_brain_runtime_context(context)}"
+    )
+
+
+# ---------------------------------------------------------
+# PAYLOAD
+# ---------------------------------------------------------
+
+def build_brain_payload(
+    text: str,
+    context=None,
+) -> str:
+
+    return text
 
 
 # ---------------------------------------------------------
@@ -149,7 +160,9 @@ async def ask_brain(
                 client=client,
                 user_prompt=brain_payload,
                 system_prompt=(
-                    build_brain_system_prompt()
+                    build_brain_system_prompt(
+                        context
+                    )
                 ),
                 temperature=(
                     config.BRAIN_TEMPERATURE
@@ -198,7 +211,9 @@ async def ask_brain(
 
         result = await client.ask(
             system_prompt=(
-                build_brain_system_prompt()
+                build_brain_system_prompt(
+                    context
+                )
             ),
             user_prompt=brain_payload,
             temperature=(
@@ -296,7 +311,9 @@ async def ask_brain_stream(
 
     system_prompt = (
         system_prompt
-        or build_brain_system_prompt()
+        or build_brain_system_prompt(
+            context
+        )
     )
 
     # -----------------------------------------------------

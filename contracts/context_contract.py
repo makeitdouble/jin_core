@@ -98,3 +98,50 @@ class ContextContract:
             f"    {fields_xml}\n"
             "</CONTEXT_INTERFACE>"
         )
+
+    def to_runtime_xml(self) -> str:
+
+        raw_data = asdict(
+            self
+        )
+
+        data = {
+            key: escape(str(value))
+            for key, value
+            in raw_data.items()
+            if value not in (
+                "",
+                None,
+            )
+        }
+
+        fields = [
+            self.build_initial_state()
+        ]
+
+        field_mapping = {
+            "system_state": "RUNTIME_STATE",
+            "timestamp": "TIMESTAMP",
+            "compressed_history": "COMPRESSED_HISTORY",
+        }
+
+        for key, xml_tag in field_mapping.items():
+
+            value = data.get(key)
+
+            if not value:
+                continue
+
+            fields.append(
+                f"<{xml_tag}>{value}</{xml_tag}>"
+            )
+
+        fields_xml = "\n    ".join(
+            fields
+        )
+
+        return (
+            "<TRUSTED_RUNTIME_CONTEXT>\n"
+            f"    {fields_xml}\n"
+            "</TRUSTED_RUNTIME_CONTEXT>"
+        )
