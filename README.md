@@ -75,7 +75,9 @@ The WebSocket layer creates a `RuntimeContext` per connection. Each user message
 |-- websocket.py            # WebSocket runtime loop and cancellation
 |-- websocket_logger.py     # JSON logs for the UI console
 |-- config.example.py       # Runtime configuration template
+|-- package.json            # Local command shortcuts
 |-- requirements.txt        # Pinned Python dependencies
+|-- .github/workflows/      # GitHub Actions CI
 |-- agents/                 # Agent runtime nodes
 |-- clients/                # Runtime client builders and provider helpers
 |-- contracts/              # Runtime context contracts
@@ -83,9 +85,10 @@ The WebSocket layer creates a `RuntimeContext` per connection. Each user message
 |-- memory/                 # Memory and runtime state abstractions
 |-- pipelines/              # Pipeline selection and flows
 |-- runtime/                # Runtime client, context, stream, registry
-|-- settings/               # Typed settings wrapper over config.py
+|-- settings/               # Config loader and typed settings wrapper
 |-- static/                 # Browser JavaScript
 |-- templates/              # HTML UI
+|-- tests/                  # Unit and optional model integration tests
 `-- utils/                  # Stream, telemetry, language, token, error helpers
 ```
 
@@ -150,6 +153,7 @@ http://127.0.0.1:8000
 ## Configuration
 
 `config.py` defines model providers, model IDs, request limits, context windows, and generation parameters.
+It is intentionally ignored by Git because it contains local runtime addresses. When `config.py` is absent, the app falls back to `config.example.py`, which keeps CI and basic tests runnable without private local settings.
 
 ```python
 USE_SERVICE_AS_BRAIN = False
@@ -198,6 +202,22 @@ TRANSLATION_MAX_TOKENS = 2048
 | `TRANSLATION_TEMPERATURE` | Sampling temperature for translation calls. |
 | `TRANSLATION_MIN_TOKENS` | Minimum token budget for translation. |
 | `TRANSLATION_MAX_TOKENS` | Maximum token budget for translation. |
+
+## Tests
+
+Fast local tests run through npm:
+
+```bash
+npm test
+```
+
+The translation model smoke test is intentionally separate because it calls the configured local translator runtime:
+
+```bash
+npm run translation_tests
+```
+
+GitHub Actions runs only the fast test suite. Model-dependent tests should stay local unless the workflow is given access to a real compatible runtime.
 
 ## WebSocket Protocol
 
