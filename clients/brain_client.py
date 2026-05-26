@@ -146,7 +146,7 @@ def build_brain_runtime_context(
 
 def build_brain_system_prompt(
     context=None,
-):
+) -> str:
 
     return (
         "You are JIN, a human-like assistant.\n"
@@ -396,7 +396,7 @@ async def ask_brain_stream(
     brain_payload: str | None = None,
 ):
 
-    brain_payload = (
+    resolved_brain_payload: str = (
         brain_payload
         or build_brain_payload(
             text,
@@ -404,7 +404,7 @@ async def ask_brain_stream(
         )
     )
 
-    system_prompt = (
+    resolved_system_prompt: str = (
         system_prompt
         or build_brain_system_prompt(
             context
@@ -477,10 +477,10 @@ async def ask_brain_stream(
                     context=context,
                     client=client,
                     user_prompt=(
-                        brain_payload
+                        resolved_brain_payload
                     ),
                     system_prompt=(
-                        system_prompt
+                        resolved_system_prompt
                     ),
                     temperature=(
                         config
@@ -546,9 +546,9 @@ async def ask_brain_stream(
             client.stream(
                 context=context,
                 system_prompt=(
-                    system_prompt
+                    resolved_system_prompt
                 ),
-                user_prompt=brain_payload,
+                user_prompt=resolved_brain_payload,
                 temperature=(
                     config
                     .BRAIN_TEMPERATURE

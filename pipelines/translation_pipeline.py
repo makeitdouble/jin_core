@@ -12,7 +12,6 @@ from clients.translation_client import (
 )
 
 from utils.tokens import (
-    estimate_tokens,
     estimate_stream_tokens,
 )
 
@@ -351,6 +350,7 @@ class TranslationPipeline:
 
             async for chunk in (
                 ask_brain_stream(
+                    context=context,
                     client=brain_client,
                     text=user_text_translated,
                 )
