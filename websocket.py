@@ -59,7 +59,7 @@ async def initialize_connection(
 
 async def receive_message(
     context,
-):
+) -> dict | None:
     websocket = context.websocket
     logger = context.logger
 
@@ -69,9 +69,21 @@ async def receive_message(
 
     try:
 
-        return json.loads(
+        message_data = json.loads(
             raw_data
         )
+
+        if isinstance(
+            message_data,
+            dict,
+        ):
+            return message_data
+
+        await logger.log_error(
+            "Invalid JSON payload: expected object."
+        )
+
+        return None
 
     except json.JSONDecodeError as error:
 
@@ -237,7 +249,7 @@ async def websocket_endpoint(
                 f"[WS] received: {message_data}"
             )
 
-            if not message_data:
+            if message_data is None:
                 continue
 
             message_type = (
