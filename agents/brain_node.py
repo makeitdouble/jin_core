@@ -4,10 +4,6 @@ from runtime.runtime_stream import (
     RuntimeStream,
 )
 
-from settings.app_settings import (
-    settings,
-)
-
 from clients.brain_client import (
     ask_brain_stream,
     record_deep_thought_calls,
