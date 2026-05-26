@@ -14,6 +14,17 @@ const serviceLabel = document.querySelector("#service-label");
 // UPDATE UI
 // -----------------------------------
 
+function setRuntimeChecking(dot, label, name) {
+
+    dot.className =
+        "h-2 w-2 rounded-full bg-slate-500 animate-pulse transition-all duration-300";
+
+    label.textContent =
+        `${name}: CHECKING`;
+
+}
+
+
 function setRuntimeState(dot, label, name, online) {
 
     if (online) {
@@ -42,9 +53,27 @@ function setRuntimeState(dot, label, name, online) {
 
 async function updateRuntime() {
 
+    setRuntimeChecking(
+      brainDot,
+      brainLabel,
+      "BRAIN"
+    );
+
+    setRuntimeChecking(
+      serviceDot,
+      serviceLabel,
+      "SERVICE"
+    );
+
     try {
 
-        const response = await fetch("/api/status");
+        const response = await fetch(
+            "/api/status",
+            {
+                cache: "no-store",
+            }
+        );
+
         const data = await response.json();
 
         window.jinLatestStatus =

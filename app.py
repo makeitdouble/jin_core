@@ -34,6 +34,12 @@ from clients.clients_registry import (
     build_clients,
 )
 
+STATUS_CHECK_TIMEOUT = getattr(
+    config,
+    "STATUS_CHECK_TIMEOUT",
+    1.5,
+)
+
 
 # ---------------------------------------------------------
 # APP LIFESPAN
@@ -159,7 +165,8 @@ async def check_api_status(
             join_url(
                 base_url,
                 config.MODELS_ENDPOINT,
-            )
+            ),
+            timeout=STATUS_CHECK_TIMEOUT,
         )
 
         return response.status_code == 200
