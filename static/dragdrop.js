@@ -6,6 +6,15 @@ const attachedFiles = document.querySelector("#attached-files");
 
 let droppedFiles = [];
 
+function escapeHtml(text) {
+
+    return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+
+}
+
 // -------------------------
 // BLOCK GLOBAL DROP
 // -------------------------
@@ -66,12 +75,13 @@ function renderFiles() {
 
         item.innerHTML = `
             <span class="truncate max-w-[220px]">
-                ${file.name}
+                ${escapeHtml(file.name)}
             </span>
 
             <button
                 class="text-zinc-200 hover:text-red-300 transition"
                 data-index="${index}"
+                type="button"
             >
                 ✕
             </button>
@@ -123,12 +133,6 @@ function addFiles(fileList) {
     for (const file of fileList) {
 
         droppedFiles.push(file);
-
-        console.log("[FILE]", {
-            name: file.name,
-            type: file.type,
-            size: file.size
-        });
 
     }
 

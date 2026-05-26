@@ -1,4 +1,6 @@
 import asyncio
+import contextlib
+import traceback
 
 import httpx
 
@@ -171,7 +173,7 @@ class RuntimeStream:
                 f"{self.runtime_id} stream cancelled."
             )
 
-            try:
+            with contextlib.suppress(Exception):
 
                 if self.emit_to_chat:
 
@@ -182,17 +184,11 @@ class RuntimeStream:
                         ),
                     })
 
-            except Exception:
-                pass
-
-            try:
+            with contextlib.suppress(Exception):
 
                 await self.stream.finish(
                     emit=self.emit_to_chat
                 )
-
-            except Exception:
-                pass
 
             return None
 
@@ -200,7 +196,6 @@ class RuntimeStream:
         # RUNTIME ERROR
         # ---------------------------------------------------------
         except (
-                asyncio.CancelledError,
                 GeneratorExit,
                 httpx.ReadError,
                 httpx.RemoteProtocolError,
@@ -210,20 +205,15 @@ class RuntimeStream:
                 "Generation aborted."
             )
 
-            try:
+            with contextlib.suppress(Exception):
 
                 await self.stream.finish(
                     emit=self.emit_to_chat
                 )
 
-            except Exception:
-                pass
-
             return None
 
         except Exception as e:
-
-            import traceback
 
             tb = traceback.format_exc()
 
@@ -276,7 +266,7 @@ class RuntimeStream:
             # SEND CLEAN ERROR TO UI
             # -----------------------------------------------------
 
-            try:
+            with contextlib.suppress(Exception):
 
                 if self.emit_to_chat:
 
@@ -287,8 +277,5 @@ class RuntimeStream:
                         ),
                         "text": public_error,
                     })
-
-            except Exception:
-                pass
 
             return None

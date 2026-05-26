@@ -8,6 +8,7 @@ from starlette.websockets import (
 )
 
 import asyncio
+import contextlib
 import json
 
 from websocket_logger import (
@@ -165,12 +166,9 @@ async def cancel_current_task(
                 active_streams.items()
         ):
 
-            try:
+            with contextlib.suppress(Exception):
 
                 await response.aclose()
-
-            except Exception:
-                pass
 
         active_streams.clear()
 

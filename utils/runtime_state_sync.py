@@ -1,3 +1,7 @@
+from memory.runtime_state import (
+    UNCHANGED,
+)
+
 from runtime.runtime_registry import (
     runtime_state,
 )
@@ -14,7 +18,7 @@ async def refresh_runtime_state(
     used_tokens: int | None = None,
     max_tokens: int | None = None,
     add_tokens: int | None = None,
-    last_error: str | None = None,
+    last_error: str | None | object = UNCHANGED,
     status: str | None = None,
 ):
 

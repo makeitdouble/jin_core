@@ -1,8 +1,10 @@
-from agents.base_node import BaseNode
-
 import asyncio
-import tempfile
+import contextlib
 import os
+import sys
+import tempfile
+
+from agents.base_node import BaseNode
 
 
 class ExecutorNode(BaseNode):
@@ -36,7 +38,7 @@ class ExecutorNode(BaseNode):
 
             process = (
                 await asyncio.create_subprocess_exec(
-                    "python",
+                    sys.executable,
                     temp_path,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
@@ -64,7 +66,5 @@ class ExecutorNode(BaseNode):
 
         finally:
 
-            try:
+            with contextlib.suppress(OSError):
                 os.remove(temp_path)
-            except Exception:
-                pass
