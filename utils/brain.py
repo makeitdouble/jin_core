@@ -1,5 +1,17 @@
 from settings.app_settings import settings
 
+
+SERVICE_AS_BRAIN_RUNTIME_ACTIONS = {
+    "CAN_DEEP_THOUGHT": False,
+    "CAN_SEARCH": True,
+}
+
+BRAIN_RUNTIME_ACTIONS = {
+    "CAN_DEEP_THOUGHT": False,
+    "CAN_SEARCH": True,
+}
+
+
 def get_brain_runtime_config():
 
     if settings.USE_SERVICE_AS_BRAIN:
@@ -16,6 +28,9 @@ def get_brain_runtime_config():
             "log_method": (
                 "log_service_as_brain"
             ),
+            "runtime_actions": (
+                SERVICE_AS_BRAIN_RUNTIME_ACTIONS
+            ),
         }
 
     return {
@@ -30,5 +45,8 @@ def get_brain_runtime_config():
         ),
         "log_method": (
             "log_brain"
+        ),
+        "runtime_actions": (
+            BRAIN_RUNTIME_ACTIONS
         ),
     }

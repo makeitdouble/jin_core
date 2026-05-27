@@ -2,6 +2,8 @@ import unittest
 
 from contracts.context_contract import (
     DEEP_THOUGHT_ACTION,
+    SEARCH_ACTION_CLOSE,
+    SEARCH_ACTION_OPEN,
 )
 from utils.runtime_actions import (
     RuntimeActionStreamFilter,
@@ -100,6 +102,101 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             result.deep_thought_count,
             2,
+        )
+
+    def test_extracts_enabled_search_action(self):
+
+        result = extract_runtime_actions(
+            (
+                "before "
+                f'{SEARCH_ACTION_OPEN}{{"query":"python news"}}'
+                f"{SEARCH_ACTION_CLOSE} after"
+            ),
+            enabled_actions=[
+                "CAN_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "before  after",
+        )
+
+        self.assertEqual(
+            result.count("SEARCH"),
+            1,
+        )
+
+        self.assertEqual(
+            result.search_queries,
+            (
+                "python news",
+            ),
+        )
+
+    def test_ignores_disabled_search_action(self):
+
+        text = (
+            f'{SEARCH_ACTION_OPEN}{{"query":"python news"}}'
+            f"{SEARCH_ACTION_CLOSE}"
+        )
+
+        result = extract_runtime_actions(
+            text,
+            enabled_actions=[],
+        )
+
+        self.assertEqual(
+            result.text,
+            text,
+        )
+
+        self.assertEqual(
+            result.count("SEARCH"),
+            0,
+        )
+
+    def test_stream_filter_handles_split_search_action(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_SEARCH",
+            ],
+        )
+
+        first = stream_filter.filter(
+            f'before {SEARCH_ACTION_OPEN}{{"query":"py'
+        )
+
+        second = stream_filter.filter(
+            f'thon"}}{SEARCH_ACTION_CLOSE} after'
+        )
+
+        self.assertEqual(
+            first.text,
+            "before ",
+        )
+
+        self.assertEqual(
+            first.count("SEARCH"),
+            0,
+        )
+
+        self.assertEqual(
+            second.text,
+            " after",
+        )
+
+        self.assertEqual(
+            second.search_queries,
+            (
+                "python",
+            ),
+        )
+
+        self.assertEqual(
+            stream_filter.flush(),
+            "",
         )
 
 

@@ -2,7 +2,75 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from xml.sax.saxutils import escape
 
+RUNTIME_ACTION_DEEP_THOUGHT = "DEEP_THOUGHT"
+RUNTIME_ACTION_SEARCH = "SEARCH"
+
 DEEP_THOUGHT_ACTION = "<RUNTIME_ACTION:DEEP_THOUGHT/>"
+SEARCH_ACTION_OPEN = "<RUNTIME_ACTION:SEARCH>"
+SEARCH_ACTION_CLOSE = "</RUNTIME_ACTION:SEARCH>"
+SEARCH_ACTION_TEMPLATE = (
+    f'{SEARCH_ACTION_OPEN}{{"query":"..."}}{SEARCH_ACTION_CLOSE}'
+)
+
+
+def cdata(
+    value: str,
+) -> str:
+
+    return (
+        "<![CDATA["
+        f"{str(value).replace(']]>', ']]]]><![CDATA[>')}"
+        "]]>"
+    )
+
+
+def format_xml_field(
+    tag: str,
+    value,
+) -> str:
+
+    if tag.endswith(
+        "_ACTION"
+    ):
+        rendered_value = cdata(
+            str(value)
+        )
+
+    else:
+        rendered_value = escape(
+            str(value)
+        )
+
+    return f"<{tag}>{rendered_value}</{tag}>"
+
+
+def format_available_actions(
+    actions: list[tuple[str, str]],
+) -> str:
+
+    if not actions:
+        return ""
+
+    action_fields = [
+        (
+            "        "
+            f"<ACTION name=\"{escape(name)}\">"
+            f"{cdata(template)}"
+            "</ACTION>"
+        )
+        for name, template
+        in actions
+    ]
+
+    actions_xml = "\n".join(
+        action_fields
+    )
+
+    return (
+        "<AVAILABLE_ACTIONS>\n"
+        f"{actions_xml}\n"
+        "    </AVAILABLE_ACTIONS>"
+    )
 
 
 @dataclass(frozen=True)
@@ -12,6 +80,8 @@ class ContextContract:
     compressed_history: str = ""
     system_state: str = "ACTIVE"
     deep_thought_count: int = 0
+    can_deep_thought: bool = False
+    can_search: bool = True
 
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
     current_date: str = field(default_factory=lambda: datetime.now().date().isoformat())
@@ -21,32 +91,56 @@ class ContextContract:
     weekday: str = field(default_factory=lambda: datetime.now().strftime("%A"))
     year: int = field(default_factory=lambda: datetime.now().year)
 
-    def build_initial_state(self) -> str:
+    def build_runtime_fields(self) -> str:
 
         fields = {
-            "CURRENT_DATE": self.current_date,
-            "CURRENT_TIME": self.current_time,
+            "TIMESTAMP": self.timestamp,
             "WEEKDAY": self.weekday,
             "YEAR": self.year,
-            "DEEP_THOUGHT_COUNTER": self.deep_thought_count,
-            "DEEP_THOUGHT_ACTION": DEEP_THOUGHT_ACTION,
         }
 
+        available_actions = []
+
+        if self.can_deep_thought:
+            fields["DEEP_THOUGHT_COUNTER"] = self.deep_thought_count
+            available_actions.append(
+                (
+                    RUNTIME_ACTION_DEEP_THOUGHT,
+                    DEEP_THOUGHT_ACTION,
+                )
+            )
+
+        if self.can_search:
+            available_actions.append(
+                (
+                    RUNTIME_ACTION_SEARCH,
+                    SEARCH_ACTION_TEMPLATE,
+                )
+            )
+
         state_fields = [
-            f"<{tag}>{escape(str(value))}</{tag}>"
+            format_xml_field(
+                tag,
+                value,
+            )
             for tag, value
             in fields.items()
         ]
 
-        fields_xml = "\n        ".join(
+        available_actions_xml = format_available_actions(
+            available_actions
+        )
+
+        if available_actions_xml:
+            state_fields.append(
+                available_actions_xml
+            )
+
+        fields_xml = "\n    ".join(
             state_fields
         )
 
-        return (
-            "<INITIAL_STATE>\n"
-            f"        {fields_xml}\n"
-            "    </INITIAL_STATE>"
-        )
+        return fields_xml
 
     def to_xml(self) -> str:
 
@@ -67,15 +161,13 @@ class ContextContract:
         fields = []
 
         field_mapping = {
-            "system_state": "RUNTIME_STATE",
-            "timestamp": "TIMESTAMP",
             "compressed_history": "COMPRESSED_HISTORY",
             "user_input": "ACTIVE_USER_INPUT",
             "original_user_input": "ORIGINAL_USER_INPUT",
         }
 
         fields.append(
-            self.build_initial_state()
+            self.build_runtime_fields()
         )
 
         for key, xml_tag in field_mapping.items():
@@ -116,12 +208,10 @@ class ContextContract:
         }
 
         fields = [
-            self.build_initial_state()
+            self.build_runtime_fields()
         ]
 
         field_mapping = {
-            "system_state": "RUNTIME_STATE",
-            "timestamp": "TIMESTAMP",
             "compressed_history": "COMPRESSED_HISTORY",
         }
 

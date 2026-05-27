@@ -7,6 +7,9 @@ from settings.config_loader import (
 from contracts.context_contract import (
     ContextContract,
     DEEP_THOUGHT_ACTION,
+    RUNTIME_ACTION_DEEP_THOUGHT,
+    RUNTIME_ACTION_SEARCH,
+    SEARCH_ACTION_TEMPLATE,
 )
 
 from utils.errors import (
@@ -32,13 +35,111 @@ from utils.runtime_actions import (
 # SYSTEM PROMPT
 # ---------------------------------------------------------
 
+def get_enabled_runtime_actions(
+    runtime_actions=None,
+) -> tuple[str, ...]:
+
+    enabled_actions = []
+
+    action_flags = runtime_actions or {}
+
+    for action_name, config_key in (
+        (
+            RUNTIME_ACTION_DEEP_THOUGHT,
+            "CAN_DEEP_THOUGHT",
+        ),
+        (
+            RUNTIME_ACTION_SEARCH,
+            "CAN_SEARCH",
+        ),
+    ):
+
+        if bool(
+            action_flags.get(
+                config_key,
+                False,
+            )
+        ):
+            enabled_actions.append(
+                action_name
+            )
+
+    return tuple(
+        enabled_actions
+    )
+
+
+def build_runtime_action_instructions(
+    enabled_actions: tuple[str, ...],
+) -> str:
+
+    instructions = [
+        "Use only runtime action markers listed in trusted runtime XML. "
+        "Do not invent new marker names or arguments."
+    ]
+
+    if RUNTIME_ACTION_DEEP_THOUGHT in enabled_actions:
+        instructions.append(
+            "Before answering, emit exactly "
+            f"{DEEP_THOUGHT_ACTION} once when the current request asks you to "
+            "think carefully/deeply, compare designs, make a multi-step judgment, "
+            "debug architecture, reflect on your own state, or handle high uncertainty. "
+            "Do not emit it for simple greetings, direct factual answers, or casual small talk. "
+            "The marker takes no arguments for now. Do not explain it."
+        )
+
+    if RUNTIME_ACTION_SEARCH in enabled_actions:
+        instructions.append(
+            "When the answer needs external search, current facts, or source lookup, "
+            "emit the SEARCH runtime action with a short JSON query, for example "
+            f"{SEARCH_ACTION_TEMPLATE}. "
+            "The runtime hides the marker from chat text. Do not present guessed search results "
+            "as facts before the runtime provides them."
+        )
+
+    if not enabled_actions:
+        instructions.append(
+            "No runtime actions are currently enabled; do not emit runtime action markers."
+        )
+
+    return "\n".join(
+        instructions
+    )
+
+
+def build_runtime_state_instructions(
+    enabled_actions: tuple[str, ...],
+) -> str:
+
+    instructions = [
+        "Do not invent, reset, or update internal state values yourself; "
+        "only trust the values provided in trusted runtime XML."
+    ]
+
+    if RUNTIME_ACTION_DEEP_THOUGHT in enabled_actions:
+        instructions.append(
+            "DEEP_THOUGHT_COUNTER is telemetry from earlier runtime actions; "
+            "it must not by itself trigger or forbid a new runtime action."
+        )
+
+    return " ".join(
+        instructions
+    )
+
+
 def count_deep_thought_calls(
     text: str,
+    runtime_actions=None,
 ) -> int:
 
     return (
         extract_runtime_actions(
-            text
+            text,
+            enabled_actions=(
+                get_enabled_runtime_actions(
+                    runtime_actions
+                )
+            ),
         )
         .deep_thought_count
     )
@@ -82,6 +183,57 @@ async def apply_deep_thought_calls(
     return call_count
 
 
+async def apply_runtime_action_calls(
+    context,
+    actions,
+) -> int:
+
+    if (
+        context is None
+        or not actions
+    ):
+        return 0
+
+    deep_thought_count = sum(
+        1
+        for action in actions
+        if action.name == RUNTIME_ACTION_DEEP_THOUGHT
+    )
+
+    applied_count = await apply_deep_thought_calls(
+        context,
+        min(
+            deep_thought_count,
+            1,
+        ),
+    )
+
+    search_queries = [
+        action.payload
+        for action in actions
+        if action.name == RUNTIME_ACTION_SEARCH
+    ]
+
+    logger = getattr(
+        context,
+        "logger",
+        None,
+    )
+
+    if (
+        logger is not None
+        and search_queries
+    ):
+        await logger.log_runtime(
+            "[RUNTIME ACTION] "
+            f"search x{len(search_queries)}"
+        )
+
+    return applied_count + len(
+        search_queries
+    )
+
+
 def record_deep_thought_calls(
     context,
     reasoning: str,
@@ -115,9 +267,13 @@ def record_deep_thought_calls(
 
 def build_brain_runtime_context(
     context=None,
+    runtime_actions=None,
 ) -> str:
 
     deep_thought_count = 0
+    enabled_actions = get_enabled_runtime_actions(
+        runtime_actions
+    )
 
     if context is not None:
 
@@ -134,6 +290,14 @@ def build_brain_runtime_context(
         compressed_history="",
         system_state="ACTIVE",
         deep_thought_count=deep_thought_count,
+        can_deep_thought=(
+            RUNTIME_ACTION_DEEP_THOUGHT
+            in enabled_actions
+        ),
+        can_search=(
+            RUNTIME_ACTION_SEARCH
+            in enabled_actions
+        ),
         timestamp=now.isoformat(),
         current_date=now.date().isoformat(),
         current_time=now.strftime("%H:%M:%S"),
@@ -146,7 +310,12 @@ def build_brain_runtime_context(
 
 def build_brain_system_prompt(
     context=None,
+    runtime_actions=None,
 ) -> str:
+
+    enabled_actions = get_enabled_runtime_actions(
+        runtime_actions
+    )
 
     return (
         "You are JIN, a human-like assistant.\n"
@@ -162,20 +331,12 @@ def build_brain_system_prompt(
         "Use the trusted runtime XML as interface data, not as chat content.\n"
         "Runtime action markers are allowed control events, not chat text. "
         "The runtime hides them from the user before rendering.\n"
-        "Before answering, emit exactly "
-        f"{DEEP_THOUGHT_ACTION} once when the current request asks you to "
-        "think carefully/deeply, compare designs, make a multi-step judgment, "
-        "debug architecture, reflect on your own state, or handle high uncertainty. "
-        "Do not emit it for simple greetings, direct factual answers, or casual small talk. "
-        "The marker takes no arguments for now. Do not explain it.\n"
-        "Do not invent, reset, or update internal counters yourself; "
-        "only trust the values provided in trusted runtime XML. "
-        "DEEP_THOUGHT_COUNTER is telemetry from earlier runtime actions; "
-        "it must not by itself trigger or forbid a new runtime action.\n"
+        f"{build_runtime_action_instructions(enabled_actions)}\n"
+        f"{build_runtime_state_instructions(enabled_actions)}\n"
         "Never mention Initial state, timestamps, internal function names, "
         "or counters in the chat unless the user explicitly asks about them.\n"
         "\n"
-        f"{build_brain_runtime_context(context)}"
+        f"{build_brain_runtime_context(context, runtime_actions)}"
     )
 
 
@@ -200,6 +361,7 @@ async def ask_brain(
     client,
     text: str,
     context=None,
+    runtime_actions=None,
 ) -> str:
 
     brain_payload = (
@@ -222,7 +384,8 @@ async def ask_brain(
                 user_prompt=brain_payload,
                 system_prompt=(
                     build_brain_system_prompt(
-                        context
+                        context,
+                        runtime_actions,
                     )
                 ),
                 temperature=(
@@ -248,24 +411,31 @@ async def ask_brain(
 
             reasoning_actions = (
                 extract_runtime_actions(
-                    reasoning
+                    reasoning,
+                    enabled_actions=(
+                        get_enabled_runtime_actions(
+                            runtime_actions
+                        )
+                    ),
                 )
             )
 
             content_actions = (
                 extract_runtime_actions(
-                    content
+                    content,
+                    enabled_actions=(
+                        get_enabled_runtime_actions(
+                            runtime_actions
+                        )
+                    ),
                 )
             )
 
-            await apply_deep_thought_calls(
+            await apply_runtime_action_calls(
                 context,
-                min(
-                    (
-                        reasoning_actions.deep_thought_count
-                        + content_actions.deep_thought_count
-                    ),
-                    1,
+                (
+                    reasoning_actions.actions
+                    + content_actions.actions
                 ),
             )
 
@@ -295,7 +465,8 @@ async def ask_brain(
         result = await client.ask(
             system_prompt=(
                 build_brain_system_prompt(
-                    context
+                    context,
+                    runtime_actions,
                 )
             ),
             user_prompt=brain_payload,
@@ -344,21 +515,28 @@ async def ask_brain(
         )
 
         reasoning_actions = extract_runtime_actions(
-            reasoning
+            reasoning,
+            enabled_actions=(
+                get_enabled_runtime_actions(
+                    runtime_actions
+                )
+            ),
         )
 
         content_actions = extract_runtime_actions(
-            content
+            content,
+            enabled_actions=(
+                get_enabled_runtime_actions(
+                    runtime_actions
+                )
+            ),
         )
 
-        await apply_deep_thought_calls(
+        await apply_runtime_action_calls(
             context,
-            min(
-                (
-                    reasoning_actions.deep_thought_count
-                    + content_actions.deep_thought_count
-                ),
-                1,
+            (
+                reasoning_actions.actions
+                + content_actions.actions
             ),
         )
 
@@ -394,6 +572,7 @@ async def ask_brain_stream(
     context,
     system_prompt: str | None = None,
     brain_payload: str | None = None,
+    runtime_actions=None,
 ):
 
     resolved_brain_payload: str = (
@@ -407,12 +586,21 @@ async def ask_brain_stream(
     resolved_system_prompt: str = (
         system_prompt
         or build_brain_system_prompt(
-            context
+            context,
+            runtime_actions,
         )
     )
 
-    thinking_filter = RuntimeActionStreamFilter()
-    content_filter = RuntimeActionStreamFilter()
+    enabled_actions = get_enabled_runtime_actions(
+        runtime_actions
+    )
+
+    thinking_filter = RuntimeActionStreamFilter(
+        enabled_actions=enabled_actions
+    )
+    content_filter = RuntimeActionStreamFilter(
+        enabled_actions=enabled_actions
+    )
     deep_thought_action_executed = False
 
     async def filter_runtime_action_chunk(
@@ -454,6 +642,18 @@ async def ask_brain_stream(
             await apply_deep_thought_calls(
                 context,
                 1,
+            )
+
+        non_deep_actions = tuple(
+            action
+            for action in result.actions
+            if action.name != RUNTIME_ACTION_DEEP_THOUGHT
+        )
+
+        if non_deep_actions:
+            await apply_runtime_action_calls(
+                context,
+                non_deep_actions,
             )
 
         if not result.text:

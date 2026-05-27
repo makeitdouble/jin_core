@@ -38,7 +38,13 @@ class BrainNode(BaseNode):
 
         system_prompt = (
             build_brain_system_prompt(
-                context
+                context,
+                runtime_actions=(
+                    brain_runtime.get(
+                        "runtime_actions",
+                        {},
+                    )
+                ),
             )
         )
 
@@ -86,6 +92,12 @@ class BrainNode(BaseNode):
             context=context,
             system_prompt=system_prompt,
             brain_payload=brain_payload,
+            runtime_actions=(
+                brain_runtime.get(
+                    "runtime_actions",
+                    {},
+                )
+            ),
         )
 
         text = await runtime.run(

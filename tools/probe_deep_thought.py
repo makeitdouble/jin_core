@@ -26,6 +26,9 @@ from settings.config_loader import (
 from utils.response_extractor import (
     ResponseExtractor,
 )
+from utils.brain import (
+    get_brain_runtime_config,
+)
 from utils.runtime_actions import (
     extract_runtime_actions,
 )
@@ -86,6 +89,7 @@ async def run_case(
 ) -> dict:
 
     api_base, model, temperature, max_tokens = runtime_target()
+    brain_runtime = get_brain_runtime_config()
 
     context = ProbeContext(
         deep_thought_count=counter
@@ -97,7 +101,13 @@ async def run_case(
             {
                 "role": "system",
                 "content": build_brain_system_prompt(
-                    context
+                    context,
+                    runtime_actions=(
+                        brain_runtime.get(
+                            "runtime_actions",
+                            {},
+                        )
+                    ),
                 ),
             },
             {
@@ -137,11 +147,23 @@ async def run_case(
     )
 
     reasoning_actions = extract_runtime_actions(
-        reasoning
+        reasoning,
+        enabled_actions=(
+            brain_runtime.get(
+                "runtime_actions",
+                {},
+            )
+        ),
     )
 
     content_actions = extract_runtime_actions(
-        content
+        content,
+        enabled_actions=(
+            brain_runtime.get(
+                "runtime_actions",
+                {},
+            )
+        ),
     )
 
     action_count = (
