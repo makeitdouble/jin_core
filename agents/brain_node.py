@@ -22,8 +22,8 @@ from utils.brain import (
 
 class BrainNode(BaseNode):
 
+    @staticmethod
     async def run_search_action(
-            self,
             *,
             context,
             query: str,
@@ -36,8 +36,8 @@ class BrainNode(BaseNode):
 
         return result.strip()
 
+    @staticmethod
     async def run_brain_stream(
-            self,
             *,
             state,
             context,

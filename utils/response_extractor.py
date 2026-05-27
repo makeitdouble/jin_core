@@ -128,7 +128,10 @@ class ResponseExtractor:
             "usage"
         )
 
-        if not usage:
+        if not isinstance(
+            usage,
+            dict,
+        ):
             return None
 
         return {

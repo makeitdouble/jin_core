@@ -178,9 +178,14 @@ async def apply_deep_thought_calls(
         "logger",
         None,
     )
+    log_runtime = getattr(
+        logger,
+        "log_runtime",
+        None,
+    )
 
-    if logger is not None:
-        await logger.log_runtime(
+    if log_runtime is not None:
+        await log_runtime(
             "[RUNTIME ACTION] "
             f"deep_thought x{call_count}; "
             f"counter={context.deep_thought_count}"
@@ -273,12 +278,17 @@ async def apply_runtime_action_calls(
         "logger",
         None,
     )
+    log_runtime = getattr(
+        logger,
+        "log_runtime",
+        None,
+    )
 
     if (
-        logger is not None
+        log_runtime is not None
         and search_queries
     ):
-        await logger.log_runtime(
+        await log_runtime(
             "[RUNTIME ACTION] "
             f"search x{len(search_queries)}"
         )
@@ -687,12 +697,12 @@ async def ask_brain_stream(
     deep_thought_action_executed = False
 
     async def filter_runtime_action_chunk(
-        chunk,
+        action_chunk,
     ):
 
         nonlocal deep_thought_action_executed
 
-        chunk_type = chunk.get(
+        chunk_type = action_chunk.get(
             "type"
         )
 
@@ -700,7 +710,7 @@ async def ask_brain_stream(
             "thinking",
             "content",
         ):
-            return chunk
+            return action_chunk
 
         stream_filter = (
             thinking_filter
@@ -709,7 +719,7 @@ async def ask_brain_stream(
         )
 
         result = stream_filter.filter(
-            chunk.get(
+            action_chunk.get(
                 "content",
                 "",
             )
@@ -743,7 +753,7 @@ async def ask_brain_stream(
             return None
 
         return {
-            **chunk,
+            **action_chunk,
             "content": result.text,
         }
 
@@ -755,7 +765,7 @@ async def ask_brain_stream(
 
         try:
 
-            async for chunk in (
+            async for model_chunk in (
                 ask_service_model_stream(
                     context=context,
                     client=client,
@@ -778,7 +788,7 @@ async def ask_brain_stream(
 
                 filtered_chunk = (
                     await filter_runtime_action_chunk(
-                        chunk
+                        model_chunk
                     )
                 )
 
@@ -825,7 +835,7 @@ async def ask_brain_stream(
 
     try:
 
-        async for chunk in (
+        async for model_chunk in (
             client.stream(
                 context=context,
                 system_prompt=(
@@ -845,7 +855,7 @@ async def ask_brain_stream(
 
             filtered_chunk = (
                 await filter_runtime_action_chunk(
-                    chunk
+                    model_chunk
                 )
             )
 

@@ -46,7 +46,7 @@ class StreamValidator:
 
         self.recent_words = []
 
-        self.last_failure_reason = None
+        self.last_failure_reason: str | None = None
         self.last_failure_preview = ""
 
         self.stream_started = False
@@ -208,7 +208,7 @@ class StreamValidator:
 
             if candidate == "":
 
-                # "<Привет"
+                # Broken non-ASCII text after "<".
                 if len(stripped) > tag_offset:
 
                     self.leading_cleanup_done = True
@@ -264,7 +264,7 @@ class StreamValidator:
 
             if not is_full_tag:
 
-                # "<teПривет"
+                # Broken non-ASCII text after a partial tag name.
                 if next_char:
 
                     remove_len = (
@@ -290,7 +290,7 @@ class StreamValidator:
             # BROKEN FULL TAG
             # -------------------------------------------------
 
-            # "<textareaПривет"
+            # Broken non-ASCII text after a full tag name.
             if (
                 next_char
                 and next_char not in [
@@ -498,17 +498,19 @@ class StreamValidator:
         # SANITIZE
         # -------------------------------------------------
 
-        chunk = self.sanitize_artifacts(chunk)
+        clean_chunk = self.sanitize_artifacts(chunk)
 
         # -------------------------------------------------
         # WAIT STREAM
         # -------------------------------------------------
 
-        if chunk is None:
+        if clean_chunk is None:
             return (
                 "",
                 True,
             )
+
+        chunk = clean_chunk
 
         # -------------------------------------------------
         # WORD LOOPS

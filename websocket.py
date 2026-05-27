@@ -322,7 +322,7 @@ async def websocket_endpoint(
             # -------------------------------------------------
 
             if (
-                current_task
+                current_task is not None
                 and not current_task.done()
             ):
 

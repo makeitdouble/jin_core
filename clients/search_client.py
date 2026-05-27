@@ -138,9 +138,14 @@ async def run_search_service(
         "logger",
         None,
     )
+    log_service = getattr(
+        logger,
+        "log_service",
+        None,
+    )
 
-    if logger is not None:
-        await logger.log_service(
+    if log_service is not None:
+        await log_service(
             "[SEARCH] request "
             f"query={query!r}"
         )
@@ -176,8 +181,8 @@ async def run_search_service(
         query,
     )
 
-    if logger is not None:
-        await logger.log_service(
+    if log_service is not None:
+        await log_service(
             "[SEARCH] result ready"
         )
 

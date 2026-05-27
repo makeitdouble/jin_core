@@ -1,6 +1,8 @@
 import unittest
 from typing import cast
 
+from fastapi import WebSocket
+
 from agents.agent_state import (
     AgentState,
 )
@@ -42,9 +44,45 @@ class FakeWebSocket:
         )
 
 
+async def fake_receive():
+    return {
+        "type": "websocket.disconnect",
+    }
+
+
+async def fake_send(_message):
+    return None
+
+
+def make_logger_websocket() -> WebSocket:
+    return WebSocket(
+        {
+            "type": "websocket",
+            "path": "/",
+            "headers": [],
+            "query_string": b"",
+            "scheme": "ws",
+            "server": (
+                "test",
+                80,
+            ),
+            "client": (
+                "test",
+                123,
+            ),
+            "root_path": "",
+        },
+        fake_receive,
+        fake_send,
+    )
+
+
 class FakeEmitter(RuntimeEmitter):
 
     def __init__(self):
+        super().__init__(
+            FakeWebSocket()
+        )
         self.payloads = []
 
     async def emit(
@@ -59,6 +97,9 @@ class FakeEmitter(RuntimeEmitter):
 class FakeLogger(WebSocketLogger):
 
     def __init__(self):
+        super().__init__(
+            make_logger_websocket()
+        )
         self.messages = []
 
     async def log(

@@ -53,7 +53,7 @@ class StreamHandler:
         if not emit:
             return
 
-        payload = {
+        payload: dict[str, object] = {
             "type": "message_start",
             "message_id": (
                 self.message_id

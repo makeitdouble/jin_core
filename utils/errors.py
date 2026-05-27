@@ -3,7 +3,7 @@ import httpx
 
 def format_client_error(stage: str, url: str, model: str, error: Exception) -> str:
     """
-    Форматирует HTTP и системные ошибки в читаемый многострочный блок.
+    Format HTTP and system errors as a readable multiline block.
     """
     lines = [
         f"stage   : {stage}",
@@ -17,8 +17,22 @@ def format_client_error(stage: str, url: str, model: str, error: Exception) -> s
         lines.append(f"status  : {response.status_code}")
 
         try:
-            error_data = response.json().get("error", {})
+            response_data = response.json()
+        except ValueError:
+            response_data = None
 
+        error_data = {}
+
+        if isinstance(response_data, dict):
+            raw_error_data = response_data.get(
+                "error",
+                {},
+            )
+
+            if isinstance(raw_error_data, dict):
+                error_data = raw_error_data
+
+        if error_data:
             if message := error_data.get("message"):
                 lines.append(f"message : {message}")
 
@@ -28,7 +42,7 @@ def format_client_error(stage: str, url: str, model: str, error: Exception) -> s
             if code := error_data.get("code"):
                 lines.append(f"code    : {code}")
 
-        except Exception:
+        else:
             body = response.text.strip()
             body_text = f"{body[:300]}..." if len(body) > 300 else body
             lines.append(f"body    : {body_text}")

@@ -174,25 +174,23 @@ TRANSLATION_MAX_TOKENS = 2048
 
 ### Key Options
 
-| Option | Description |
-|---|---|
-| `USE_SERVICE_AS_BRAIN` | Uses the service runtime for brain responses when enabled. |
-| `BRAIN_API_BASE` | Base URL for the brain provider. |
-| `BRAIN_MODEL_UID` | Model ID for the brain provider. |
-| `BRAIN_CONTEXT_WINDOW` | Context capacity displayed in telemetry. |
-| `BRAIN_TEMPERATURE` | Sampling temperature for brain responses. |
-| `BRAIN_MAX_TOKENS` | Maximum generated tokens for brain responses. |
-| `SERVICE_API_BASE` | Base URL for the service provider. |
-| `SERVICE_MODEL_UID` | Model ID for the service provider. |
-| `SERVICE_CONTEXT_WINDOW` | Context capacity displayed in telemetry. |
-| `SERVICE_TEMPERATURE` | Sampling temperature for service calls. |
-| `SERVICE_MAX_TOKENS` | Maximum generated tokens for service calls. |
-| `TRANSLATOR_API_BASE` | Base URL for the translator provider. |
-| `TRANSLATOR_MODEL_UID` | Model ID for the translator provider. |
-| `TRANSLATOR_CONTEXT_WINDOW` | Context capacity displayed in telemetry. |
-| `TRANSLATION_TEMPERATURE` | Sampling temperature for translation calls. |
-| `TRANSLATION_MIN_TOKENS` | Minimum token budget for translation. |
-| `TRANSLATION_MAX_TOKENS` | Maximum token budget for translation. |
+- `USE_SERVICE_AS_BRAIN`: Uses the service runtime for brain responses when enabled.
+- `BRAIN_API_BASE`: Base URL for the brain provider.
+- `BRAIN_MODEL_UID`: Model ID for the brain provider.
+- `BRAIN_CONTEXT_WINDOW`: Context capacity displayed in telemetry.
+- `BRAIN_TEMPERATURE`: Sampling temperature for brain responses.
+- `BRAIN_MAX_TOKENS`: Maximum generated tokens for brain responses.
+- `SERVICE_API_BASE`: Base URL for the service provider.
+- `SERVICE_MODEL_UID`: Model ID for the service provider.
+- `SERVICE_CONTEXT_WINDOW`: Context capacity displayed in telemetry.
+- `SERVICE_TEMPERATURE`: Sampling temperature for service calls.
+- `SERVICE_MAX_TOKENS`: Maximum generated tokens for service calls.
+- `TRANSLATOR_API_BASE`: Base URL for the translator provider.
+- `TRANSLATOR_MODEL_UID`: Model ID for the translator provider.
+- `TRANSLATOR_CONTEXT_WINDOW`: Context capacity displayed in telemetry.
+- `TRANSLATION_TEMPERATURE`: Sampling temperature for translation calls.
+- `TRANSLATION_MIN_TOKENS`: Minimum token budget for translation.
+- `TRANSLATION_MAX_TOKENS`: Maximum token budget for translation.
 
 ## Tests
 

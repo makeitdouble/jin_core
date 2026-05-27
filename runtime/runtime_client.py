@@ -45,9 +45,9 @@ class RuntimeClient:
             temperature: float,
             max_tokens: int,
             stream: bool = False,
-    ):
+    ) -> dict[str, object]:
 
-        payload = {
+        payload: dict[str, object] = {
             "model": self.model_uid,
             "messages": [
                 {
@@ -203,9 +203,14 @@ class RuntimeClient:
                             "logger",
                             None,
                         )
+                        log_error = getattr(
+                            context_logger,
+                            "log_error",
+                            None,
+                        )
 
-                        if context_logger:
-                            await context_logger.log_error(
+                        if log_error is not None:
+                            await log_error(
                                 f"[JSON PARSE ERROR] {e}"
                             )
                         else:
@@ -295,9 +300,14 @@ class RuntimeClient:
                 "logger",
                 None,
             )
+            log_error = getattr(
+                context_logger,
+                "log_error",
+                None,
+            )
 
-            if context_logger:
-                await context_logger.log_error(
+            if log_error is not None:
+                await log_error(
                     f"[RUNTIME CLIENT ERROR] {repr(e)}"
                 )
 

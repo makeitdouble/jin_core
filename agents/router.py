@@ -1,7 +1,7 @@
 class Router:
 
+    @staticmethod
     def next(
-            self,
             state,
             current,
     ):

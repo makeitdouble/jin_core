@@ -48,13 +48,13 @@ STATUS_CHECK_TIMEOUT = getattr(
 # ---------------------------------------------------------
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(application: FastAPI):
 
     # -----------------------------------------------------
     # SHARED HTTP CLIENT
     # -----------------------------------------------------
 
-    app.state.http_client = httpx.AsyncClient(
+    application.state.http_client = httpx.AsyncClient(
 
         timeout=None,
 
@@ -70,8 +70,8 @@ async def lifespan(app: FastAPI):
     # RUNTIME CLIENTS
     # -----------------------------------------------------
 
-    app.state.clients = build_clients(
-        app.state.http_client
+    application.state.clients = build_clients(
+        application.state.http_client
     )
 
     yield
@@ -80,7 +80,7 @@ async def lifespan(app: FastAPI):
     # SHUTDOWN
     # -----------------------------------------------------
 
-    await app.state.http_client.aclose()
+    await application.state.http_client.aclose()
 
 
 app = FastAPI(
