@@ -67,11 +67,6 @@ function formatContextSnapshot(
     return "";
   }
 
-  const contextRole =
-    contextSnapshot.context_role
-    || role
-    || "unknown";
-
   const systemPrompt =
     contextSnapshot.system_prompt
     || "";

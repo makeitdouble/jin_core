@@ -229,7 +229,10 @@ class RuntimeActionTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            context.runtime_search_queries,
+            getattr(
+                context,
+                "runtime_search_queries",
+            ),
             [
                 "test",
             ],
