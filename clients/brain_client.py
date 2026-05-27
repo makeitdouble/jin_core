@@ -1,5 +1,7 @@
 import asyncio
 from datetime import datetime
+from xml.etree import ElementTree
+from xml.sax.saxutils import escape
 
 from settings.config_loader import (
     config,
@@ -10,7 +12,6 @@ from contracts.context_contract import (
     RUNTIME_ACTION_DEEP_THOUGHT,
     RUNTIME_ACTION_SEARCH,
     SEARCH_ACTION_TEMPLATE,
-    cdata,
 )
 
 from utils.errors import (
@@ -28,6 +29,7 @@ from utils.response_extractor import (
 
 from utils.runtime_actions import (
     RuntimeActionStreamFilter,
+    build_runtime_action_id,
     extract_search_query,
     extract_runtime_actions,
 )
@@ -211,6 +213,20 @@ async def apply_runtime_action_calls(
     ):
         context.runtime_action_events = []
 
+    if not hasattr(
+        context,
+        "runtime_search_calls",
+    ):
+        context.runtime_search_calls = []
+
+    search_action_count = sum(
+        1
+        for event in context.runtime_action_events
+        if event.get("name") == "search"
+    )
+
+    search_calls = []
+
     for action in actions:
 
         action_event = {
@@ -225,7 +241,17 @@ async def apply_runtime_action_calls(
             )
 
         if query:
+            search_action_count += 1
+            tool_call_id = build_runtime_action_id(
+                action.name,
+                search_action_count,
+            )
+            action_event["id"] = tool_call_id
             action_event["query"] = query
+            search_calls.append({
+                "id": tool_call_id,
+                "query": query,
+            })
 
         elif action.payload:
             action_event["payload"] = (
@@ -271,6 +297,10 @@ async def apply_runtime_action_calls(
 
         context.runtime_search_queries.extend(
             search_queries
+        )
+
+        context.runtime_search_calls.extend(
+            search_calls
         )
 
     logger = getattr(
@@ -329,6 +359,84 @@ def record_deep_thought_calls(
     return call_count
 
 
+def indent_xml(
+    value: str,
+    *,
+    spaces: int = 8,
+) -> str:
+
+    prefix = " " * spaces
+    lines = (
+        value
+        or ""
+    ).strip().splitlines()
+
+    return "\n".join(
+        f"{prefix}{line}"
+        for line in lines
+    )
+
+
+def strip_empty_results_xml(
+    value: str,
+) -> str:
+
+    source = (
+        value
+        or ""
+    ).strip()
+
+    if not source:
+        return ""
+
+    try:
+        root = ElementTree.fromstring(
+            source
+        )
+
+    except ElementTree.ParseError:
+        return source
+
+    def prune_empty_results(
+        element,
+    ) -> None:
+
+        for child in list(
+            element
+        ):
+            prune_empty_results(
+                child
+            )
+
+            if child.tag != "RESULTS":
+                continue
+
+            if list(
+                child
+            ):
+                continue
+
+            if (
+                child.text
+                and child.text.strip()
+            ):
+                continue
+
+            element.remove(
+                child
+            )
+
+    prune_empty_results(
+        root
+    )
+
+    return ElementTree.tostring(
+        root,
+        encoding="unicode",
+        short_empty_elements=False,
+    )
+
+
 def build_brain_runtime_context(
     context=None,
     runtime_actions=None,
@@ -375,6 +483,7 @@ def build_brain_runtime_context(
     )
 
     search_result = ""
+    search_result_id = ""
 
     if context is not None:
         search_result = getattr(
@@ -382,14 +491,33 @@ def build_brain_runtime_context(
             "runtime_search_result",
             "",
         )
+        search_result_id = getattr(
+            context,
+            "runtime_search_result_id",
+            "",
+        )
 
     if not search_result:
         return runtime_xml
 
+    search_result = strip_empty_results_xml(
+        search_result
+    )
+
+    tool_result_attrs = (
+        'name="SEARCH"'
+    )
+
+    if search_result_id:
+        tool_result_attrs = (
+            f'{tool_result_attrs} '
+            f'id="{escape(search_result_id)}"'
+        )
+
     tool_results_xml = (
         "<TOOL_RESULTS>\n"
-        "    <TOOL_RESULT name=\"SEARCH\">\n"
-        f"        {cdata(search_result)}\n"
+        f"    <TOOL_RESULT {tool_result_attrs}>\n"
+        f"{indent_xml(search_result)}\n"
         "    </TOOL_RESULT>\n"
         "</TOOL_RESULTS>"
     )
@@ -695,12 +823,14 @@ async def ask_brain_stream(
         enabled_actions=enabled_actions
     )
     deep_thought_action_executed = False
+    stop_for_runtime_action = False
 
     async def filter_runtime_action_chunk(
         action_chunk,
     ):
 
         nonlocal deep_thought_action_executed
+        nonlocal stop_for_runtime_action
 
         chunk_type = action_chunk.get(
             "type"
@@ -749,6 +879,9 @@ async def ask_brain_stream(
                 non_deep_actions,
             )
 
+            stop_for_runtime_action = True
+            return None
+
         if not result.text:
             return None
 
@@ -795,15 +928,24 @@ async def ask_brain_stream(
                 if filtered_chunk:
                     yield filtered_chunk
 
+                if stop_for_runtime_action:
+                    break
+
             thinking_tail = thinking_filter.flush()
-            if thinking_tail:
+            if (
+                thinking_tail
+                and not stop_for_runtime_action
+            ):
                 yield {
                     "type": "thinking",
                     "content": thinking_tail,
                 }
 
             content_tail = content_filter.flush()
-            if content_tail:
+            if (
+                content_tail
+                and not stop_for_runtime_action
+            ):
                 yield {
                     "type": "content",
                     "content": content_tail,
@@ -862,15 +1004,24 @@ async def ask_brain_stream(
             if filtered_chunk:
                 yield filtered_chunk
 
+            if stop_for_runtime_action:
+                break
+
         thinking_tail = thinking_filter.flush()
-        if thinking_tail:
+        if (
+            thinking_tail
+            and not stop_for_runtime_action
+        ):
             yield {
                 "type": "thinking",
                 "content": thinking_tail,
             }
 
         content_tail = content_filter.flush()
-        if content_tail:
+        if (
+            content_tail
+            and not stop_for_runtime_action
+        ):
             yield {
                 "type": "content",
                 "content": content_tail,

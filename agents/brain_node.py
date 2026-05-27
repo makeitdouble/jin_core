@@ -123,7 +123,9 @@ class BrainNode(BaseNode):
         )
 
         context.runtime_search_queries.clear()
+        context.runtime_search_calls.clear()
         context.runtime_search_result = ""
+        context.runtime_search_result_id = ""
 
         system_prompt = (
             build_brain_system_prompt(
@@ -156,17 +158,32 @@ class BrainNode(BaseNode):
 
         if context.runtime_search_queries:
 
-            query = context.runtime_search_queries.pop(0)
+            search_call = (
+                context.runtime_search_calls.pop(0)
+                if context.runtime_search_calls
+                else {}
+            )
+            query = (
+                search_call.get("query")
+                or context.runtime_search_queries.pop(0)
+            )
+            tool_call_id = search_call.get(
+                "id",
+                "",
+            )
             context.runtime_search_queries.clear()
+            context.runtime_search_calls.clear()
 
             await logger.log_runtime(
                 "[RUNTIME ACTION] "
-                f"executing search query={query!r}"
+                f"executing search id={tool_call_id!r} "
+                f"query={query!r}"
             )
 
             await context.websocket.send_json({
                 "type": "runtime_action",
                 "action": "search",
+                "id": tool_call_id,
                 "text": (
                     f'Searching for "{query}"'
                 ),
@@ -179,6 +196,7 @@ class BrainNode(BaseNode):
             )
 
             context.runtime_search_result = search_result
+            context.runtime_search_result_id = tool_call_id
 
             followup_runtime_actions = {
                 **runtime_actions,

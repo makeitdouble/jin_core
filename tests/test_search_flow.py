@@ -322,6 +322,10 @@ class SearchFlowTests(
             "<RESULTS></RESULTS>",
             result,
         )
+        self.assertNotIn(
+            "<![CDATA[",
+            result,
+        )
 
     def test_not_ready_search_result_strips_conflicting_price(self):
 
@@ -424,6 +428,10 @@ class SearchFlowTests(
             runtime_events[0]["query"],
             "tesla car price",
         )
+        self.assertEqual(
+            runtime_events[0]["id"],
+            "search_001",
+        )
         self.assertIn(
             "<SEARCH_RESULT>",
             context.runtime_search_result,
@@ -455,6 +463,15 @@ class SearchFlowTests(
             ),
         )
         self.assertIn(
+            "id: search_001",
+            "\n".join(
+                message
+                for _, message, _ in get_fake_logger(
+                    context
+                ).messages
+            ),
+        )
+        self.assertIn(
             "SEARCH tool result",
             brain_client.prompts[1]["user_prompt"],
         )
@@ -475,7 +492,23 @@ class SearchFlowTests(
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertIn(
+            '<TOOL_RESULT name="SEARCH" id="search_001">',
+            brain_client.prompts[1]["system_prompt"],
+        )
+        self.assertIn(
+            "<TRUSTED_RUNTIME_CONTEXT>",
+            brain_client.prompts[1]["system_prompt"],
+        )
+        self.assertIn(
             "<SEARCH_RESULT>",
+            brain_client.prompts[1]["system_prompt"],
+        )
+        self.assertNotIn(
+            "<![CDATA[<SEARCH_RESULT>",
+            brain_client.prompts[1]["system_prompt"],
+        )
+        self.assertNotIn(
+            "<RESULTS></RESULTS>",
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertNotIn(
@@ -556,6 +589,133 @@ class SearchFlowTests(
         self.assertEqual(
             len(brain_client.prompts),
             2,
+        )
+
+    async def test_search_action_stops_initial_brain_stream(self):
+
+        brain_client = FakeBrainClient(
+            streams=[
+                [
+                    {
+                        "type": "thinking",
+                        "content": (
+                            "Needs current pricing. "
+                            f'{SEARCH_ACTION_OPEN}{{"query":"apple price"}}'
+                            f"{SEARCH_ACTION_CLOSE}"
+                        ),
+                    },
+                    {
+                        "type": "content",
+                        "content": "Guessed apple price before search.",
+                    },
+                ],
+                [
+                    {
+                        "type": "content",
+                        "content": "Apple price from search result.",
+                    },
+                ],
+            ],
+            ask_responses=[
+                (
+                    "<SEARCH_RESULT>\n"
+                    "  <STATUS>FOUND</STATUS>\n"
+                    "  <QUERY>apple price</QUERY>\n"
+                    "  <SUMMARY>Apple price result.</SUMMARY>\n"
+                    "</SEARCH_RESULT>"
+                ),
+            ],
+        )
+        context = make_context(
+            brain_client
+        )
+        state = AgentState(
+            user_input="How much are apples?",
+            translated_input="How much are apples?",
+        )
+
+        await BrainNode().run(
+            state,
+            context,
+        )
+
+        message_chunks = [
+            message.get(
+                "chunk",
+                "",
+            )
+            for message in get_fake_websocket(
+                context
+            ).messages
+            if message.get("type") == "message_chunk"
+        ]
+
+        self.assertNotIn(
+            "Guessed apple price before search.",
+            "".join(
+                message_chunks
+            ),
+        )
+        self.assertEqual(
+            state.brain_response,
+            "Apple price from search result.",
+        )
+        self.assertEqual(
+            len(brain_client.prompts),
+            2,
+        )
+
+    async def test_empty_search_results_are_removed_from_brain_context(self):
+
+        brain_client = FakeBrainClient(
+            streams=[
+                [
+                    {
+                        "type": "thinking",
+                        "content": (
+                            f'{SEARCH_ACTION_OPEN}{{"query":"jupiter cost"}}'
+                            f"{SEARCH_ACTION_CLOSE}"
+                        ),
+                    },
+                ],
+                [
+                    {
+                        "type": "content",
+                        "content": "No usable search result was available.",
+                    },
+                ],
+            ],
+            ask_responses=[
+                (
+                    "<SEARCH_RESULT>\n"
+                    "  <STATUS>NOT_READY</STATUS>\n"
+                    "  <QUERY>jupiter cost</QUERY>\n"
+                    "  <SUMMARY>Search is not ready for this query yet.</SUMMARY>\n"
+                    "  <RESULTS></RESULTS>\n"
+                    "</SEARCH_RESULT>"
+                ),
+            ],
+        )
+        context = make_context(
+            brain_client
+        )
+        state = AgentState(
+            user_input="How much does Jupiter cost?",
+            translated_input="How much does Jupiter cost?",
+        )
+
+        await BrainNode().run(
+            state,
+            context,
+        )
+
+        self.assertIn(
+            "<SEARCH_RESULT>",
+            brain_client.prompts[1]["system_prompt"],
+        )
+        self.assertNotIn(
+            "<RESULTS",
+            brain_client.prompts[1]["system_prompt"],
         )
 
 

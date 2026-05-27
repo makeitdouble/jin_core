@@ -32,6 +32,17 @@ KNOWN_RUNTIME_ACTIONS = tuple(
 )
 
 
+def build_runtime_action_id(
+    action_name: str,
+    index: int,
+) -> str:
+
+    return (
+        f"{normalize_runtime_action_name(action_name).lower()}_"
+        f"{index:03d}"
+    )
+
+
 @dataclass(frozen=True)
 class RuntimeActionCall:
     name: str

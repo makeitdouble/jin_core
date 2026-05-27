@@ -1,3 +1,5 @@
+from xml.sax.saxutils import escape
+
 from clients.service_client import (
     ask_service_model,
 )
@@ -9,18 +11,6 @@ from settings.config_loader import (
 from utils.response_extractor import (
     ResponseExtractor,
 )
-
-
-def cdata(
-    value: str,
-) -> str:
-
-    return (
-        "<![CDATA["
-        f"{str(value).replace(']]>', ']]]]><![CDATA[>')}"
-        "]]>"
-    )
-
 
 def build_search_system_prompt() -> str:
 
@@ -90,9 +80,9 @@ def build_unavailable_search_result(
     return (
         "<SEARCH_RESULT>\n"
         "  <STATUS>NOT_READY</STATUS>\n"
-        f"  <QUERY>{cdata(safe_query)}</QUERY>\n"
+        f"  <QUERY>{escape(safe_query)}</QUERY>\n"
         "  <SUMMARY>"
-        f"{cdata('Search is not ready for this query yet.')}"
+        "Search is not ready for this query yet."
         "</SUMMARY>\n"
         "  <RESULTS></RESULTS>\n"
         "</SEARCH_RESULT>"

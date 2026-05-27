@@ -28,7 +28,13 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_search_calls: list[dict] = field(
+        default_factory=list
+    )
+
     runtime_search_result: str = ""
+
+    runtime_search_result_id: str = ""
 
     runtime_action_events: list[dict] = field(
         default_factory=list

@@ -238,6 +238,25 @@ class RuntimeActionTests(unittest.TestCase):
                 "test",
             ],
         )
+        self.assertEqual(
+            getattr(
+                context,
+                "runtime_search_calls",
+            ),
+            [
+                {
+                    "id": "search_001",
+                    "query": "test",
+                },
+            ],
+        )
+        self.assertEqual(
+            getattr(
+                context,
+                "runtime_action_events",
+            )[0]["id"],
+            "search_001",
+        )
 
     def test_extract_search_query_unnests_json_string(self):
 

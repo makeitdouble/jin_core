@@ -86,6 +86,16 @@ class RuntimeStream:
                 f"action: {name}"
             )
 
+            action_id = event.get(
+                "id",
+                "",
+            )
+
+            if action_id:
+                lines.append(
+                    f"id: {action_id}"
+                )
+
             query = event.get(
                 "query",
                 "",
