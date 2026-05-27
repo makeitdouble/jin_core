@@ -6,6 +6,13 @@ const chatHistory =
 const streamMessages =
   new Map();
 
+/**
+ * @typedef {Object} ContextSnapshot
+ * @property {string=} system_prompt
+ * @property {string=} user_prompt
+ * @property {string=} context_role
+ */
+
 
 // ESCAPE HTML
 
@@ -63,16 +70,20 @@ function formatContextSnapshot(
   contextSnapshot
 ) {
 
-  if (!contextSnapshot) {
+  /** @type {ContextSnapshot|null} */
+  const snapshot =
+    contextSnapshot;
+
+  if (!snapshot) {
     return "";
   }
 
   const systemPrompt =
-    contextSnapshot.system_prompt
+    snapshot.system_prompt
     || "";
 
   const userPrompt =
-    contextSnapshot.user_prompt
+    snapshot.user_prompt
     || "";
 
   return [
@@ -93,6 +104,10 @@ function formatContextTitle(
   contextSnapshot
 ) {
 
+  /** @type {ContextSnapshot|null} */
+  const snapshot =
+    contextSnapshot;
+
   const messageRole =
     String(
       role || "unknown"
@@ -101,8 +116,8 @@ function formatContextTitle(
   const contextRole =
     String(
       (
-        contextSnapshot
-        && contextSnapshot.context_role
+        snapshot
+        && snapshot.context_role
       )
       || role
       || "unknown"

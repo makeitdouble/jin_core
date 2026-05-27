@@ -184,13 +184,13 @@ function refreshRuntimeStatus() {
         return;
     }
 
-    updateRuntime();
+    void updateRuntime();
 
 }
 
 // FIRST RUN
 
-updateRuntime({
+void updateRuntime({
     showChecking: !(
         window.jinRuntimeConfig
         && window.jinRuntimeConfig.runtimeStatus

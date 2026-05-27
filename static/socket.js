@@ -20,6 +20,20 @@ const sendButton =
 
 let generationRunning = false;
 
+/**
+ * @typedef {Object} SocketMessage
+ * @property {string} type
+ * @property {string=} role
+ * @property {string=} text
+ * @property {string=} message_id
+ * @property {string=} chunk
+ * @property {Object=} context
+ * @property {string=} action
+ * @property {string=} tag
+ * @property {string=} message
+ * @property {string=} details
+ */
+
 
 // --------------------------------------------------
 // BUTTON UI
@@ -228,6 +242,7 @@ function resolveMessageRole(data) {
 
 ws.onmessage = function (event) {
 
+  /** @type {SocketMessage} */
   const data = JSON.parse(
     event.data
   );

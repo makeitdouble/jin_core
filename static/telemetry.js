@@ -23,6 +23,24 @@ function readInitialRuntimeConfig() {
 
 }
 
+/**
+ * @typedef {Object} RuntimeInfo
+ * @property {string=} label
+ * @property {string=} model
+ * @property {number=} used_tokens
+ * @property {number=} max_tokens
+ */
+
+/**
+ * @typedef {Object} RuntimeStatusPayload
+ * @property {string} type
+ * @property {Object<string, RuntimeInfo>=} runtime
+ * @property {boolean=} brain
+ * @property {boolean=} service
+ * @property {boolean=} use_service_as_brain
+ * @property {Object<string, RuntimeInfo>=} runtime_config
+ */
+
 
 const initialRuntimeConfig =
   readInitialRuntimeConfig();
@@ -149,12 +167,16 @@ function isContextTabDisabled(role) {
 
 function formatContextTokens(runtime) {
 
-  if (!runtime) {
+  /** @type {RuntimeInfo|null} */
+  const runtimeInfo =
+    runtime;
+
+  if (!runtimeInfo) {
     return "0 / 0";
   }
 
-  return `${runtime.used_tokens || 0} / `
-    + `${runtime.max_tokens || 0}`;
+  return `${runtimeInfo.used_tokens || 0} / `
+    + `${runtimeInfo.max_tokens || 0}`;
 
 }
 
@@ -183,14 +205,18 @@ function buildContextLine(
   cells
 ) {
 
+  /** @type {RuntimeInfo|null} */
+  const runtimeInfo =
+    runtime;
+
   const used =
-    runtime
-      ? Number(runtime.used_tokens || 0)
+    runtimeInfo
+      ? Number(runtimeInfo.used_tokens || 0)
       : 0;
 
   const max =
-    runtime
-      ? Number(runtime.max_tokens || 0)
+    runtimeInfo
+      ? Number(runtimeInfo.max_tokens || 0)
       : 0;
 
   const rawPercent =
