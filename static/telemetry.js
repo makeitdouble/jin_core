@@ -150,11 +150,11 @@ function isContextTabDisabled(role) {
 function formatContextTokens(runtime) {
 
   if (!runtime) {
-    return "0 / 0 ctx";
+    return "0 / 0";
   }
 
   return `${runtime.used_tokens || 0} / `
-    + `${runtime.max_tokens || 0} ctx`;
+    + `${runtime.max_tokens || 0}`;
 
 }
 

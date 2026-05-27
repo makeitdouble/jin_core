@@ -18,7 +18,7 @@ suite = unittest.defaultTestLoader.discover(
     start_dir=str(
         ROOT / "tests"
     ),
-    pattern="test_translation_pipeline.py",
+    pattern="test_translation_node.py",
 )
 
 result = unittest.TextTestRunner(

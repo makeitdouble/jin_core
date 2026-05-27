@@ -5,44 +5,48 @@ from types import SimpleNamespace
 
 import httpx
 
-from clients.clients_registry import (
-    build_clients,
+from agents.agent_state import (
+    AgentState,
 )
 
-from pipelines.translation_pipeline import (
-    TranslationPipeline,
+from agents.translation_node import (
+    TranslationNode,
+)
+
+from clients.clients_registry import (
+    build_clients,
 )
 
 
 TRANSLATION_CASES = [
     (
-        "привет",
+        "\u043f\u0440\u0438\u0432\u0435\u0442",
         {
             "hi",
             "hello",
         },
     ),
     (
-        "кто ты",
+        "\u043a\u0442\u043e \u0442\u044b",
         {
             "who are you",
         },
     ),
     (
-        "спасибо",
+        "\u0441\u043f\u0430\u0441\u0438\u0431\u043e",
         {
             "thank you",
             "thanks",
         },
     ),
     (
-        "доброе утро",
+        "\u0434\u043e\u0431\u0440\u043e\u0435 \u0443\u0442\u0440\u043e",
         {
             "good morning",
         },
     ),
     (
-        "до свидания",
+        "\u0434\u043e \u0441\u0432\u0438\u0434\u0430\u043d\u0438\u044f",
         {
             "goodbye",
         },
@@ -67,6 +71,15 @@ def normalize_translation(
     )
 
     return text
+
+
+class SilentEmitter:
+
+    async def emit(
+        self,
+        payload: dict,
+    ):
+        pass
 
 
 class SilentLogger:
@@ -106,7 +119,7 @@ class SilentWebSocket:
     ) == "1",
     "Set JIN_RUN_TRANSLATION_MODEL_TESTS=1 to run translator model tests.",
 )
-class TranslationPipelineModelTests(
+class TranslationNodeModelTests(
     unittest.IsolatedAsyncioTestCase
 ):
 
@@ -116,13 +129,14 @@ class TranslationPipelineModelTests(
 
         self.context = SimpleNamespace(
             websocket=SilentWebSocket(),
+            emitter=SilentEmitter(),
             logger=SilentLogger(),
             clients=build_clients(
                 self.http_client
             ),
         )
 
-        self.pipeline = TranslationPipeline()
+        self.node = TranslationNode()
 
     async def asyncTearDown(self):
 
@@ -138,13 +152,17 @@ class TranslationPipelineModelTests(
                 source_text=source_text
             ):
 
-                translated = await self.pipeline.translate_input(
+                state = AgentState(
+                    user_input=source_text
+                )
+
+                await self.node.run(
+                    state,
                     self.context,
-                    source_text,
                 )
 
                 normalized = normalize_translation(
-                    translated or ""
+                    state.translated_input
                 )
 
                 if normalized not in expected_outputs:
@@ -154,7 +172,7 @@ class TranslationPipelineModelTests(
                             sorted(
                                 expected_outputs
                             ),
-                            translated,
+                            state.translated_input,
                         )
                     )
 

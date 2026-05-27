@@ -38,19 +38,13 @@ FastAPI app.py
   +-- WS  /ws/chat     -> streaming chat transport
                               |
                               v
-                    pipelines/pipeline_factory.py
+                         AgentRuntime
                               |
-                 +------------+------------+
-                 |                         |
-                 v                         v
-           AgentPipeline              BrainPipeline
-        Cyrillic input path        direct brain path
-                 |                         |
-                 v                         v
-        planner -> translator       RuntimeStream
-              -> brain                   |
-              -> validator               v
-                                  RuntimeClient.stream()
+                              v
+        planner -> optional translator -> brain -> validator
+                              |
+                              v
+                      RuntimeClient.stream()
                                           |
                                           v
                               OpenAI-compatible provider
@@ -58,14 +52,12 @@ FastAPI app.py
 
 ## Runtime Flow
 
-The WebSocket layer creates a `RuntimeContext` per connection. Each user message is routed by `pipelines/pipeline_factory.py`:
+The WebSocket layer creates a `RuntimeContext` per connection. Each user message is handled by `AgentRuntime`:
 
-- Cyrillic input uses `AgentPipeline`.
-- Other input uses `BrainPipeline`.
+- Cyrillic input routes through `planner -> translator -> brain -> validator`.
+- Other input routes through `planner -> brain -> validator`.
 
-`AgentPipeline` translates the user input internally, sends the translated prompt to the brain runtime, validates the brain response, and streams only the final brain response to the chat UI. Translator output is logged for observability but is not rendered as a chat message.
-
-`BrainPipeline` streams directly from the configured brain runtime.
+The translator node logs translator output for observability but does not render it as a chat message. The brain node streams the visible assistant response from the configured brain runtime.
 
 ## Project Layout
 
@@ -78,12 +70,11 @@ The WebSocket layer creates a `RuntimeContext` per connection. Each user message
 |-- package.json            # Local command shortcuts
 |-- requirements.txt        # Pinned Python dependencies
 |-- .github/workflows/      # GitHub Actions CI
-|-- agents/                 # Agent runtime nodes
+|-- agents/                 # Agent runtime and nodes
 |-- clients/                # Runtime client builders and provider helpers
 |-- contracts/              # Runtime context contracts
 |-- emitter/                # WebSocket JSON emitter
 |-- memory/                 # Memory and runtime state abstractions
-|-- pipelines/              # Pipeline selection and flows
 |-- runtime/                # Runtime client, context, stream, registry
 |-- settings/               # Config loader and typed settings wrapper
 |-- static/                 # Browser JavaScript

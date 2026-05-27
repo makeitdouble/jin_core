@@ -11,6 +11,8 @@ class AgentState:
 
     current_plan: list[str] = field(default_factory=list)
 
+    translate_input: bool = False
+
     translated_input: str = ""
 
     brain_response: str = ""

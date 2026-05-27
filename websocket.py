@@ -15,8 +15,12 @@ from websocket_logger import (
     WebSocketLogger,
 )
 
-from pipelines.pipeline_factory import (
-    get_pipeline,
+from agents.agent_runtime import (
+    AgentRuntime,
+)
+
+from agents.agent_state import (
+    AgentState,
 )
 
 from utils.telemetry import (
@@ -24,6 +28,7 @@ from utils.telemetry import (
 )
 
 from utils.ws_errors import (
+    handle_fatal_pipeline_error,
     handle_websocket_error,
 )
 
@@ -114,25 +119,27 @@ async def process_message(
             )
         )
 
-        pipeline = get_pipeline(
-            user_text
+        state = AgentState(
+            user_input=user_text
+        )
+
+        runtime = AgentRuntime()
+
+        await logger.log_system(
+            "[WS] runtime=AgentRuntime"
         )
 
         await logger.log_system(
-            f"[WS] pipeline={pipeline.__class__.__name__}"
+            "[WS] agent runtime start"
+        )
+
+        await runtime.run(
+            state,
+            context,
         )
 
         await logger.log_system(
-            "[WS] pipeline start"
-        )
-
-        await pipeline.run(
-            context=context,
-            user_input=message_data["text"],
-        )
-
-        await logger.log_system(
-            "[WS] pipeline end"
+            "[WS] agent runtime end"
         )
 
     except asyncio.CancelledError:
@@ -142,6 +149,14 @@ async def process_message(
         )
 
         raise
+
+    except Exception as error:
+
+        await handle_fatal_pipeline_error(
+            context,
+            pipeline_name="agent_runtime",
+            exception=error,
+        )
 
 
 # ---------------------------------------------------------

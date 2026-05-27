@@ -1,11 +1,15 @@
 from agents.base_node import BaseNode
 
-from runtime.runtime_stream import (
-    RuntimeStream,
+from clients.translation_client import (
+    translate,
 )
 
 from settings.app_settings import (
     settings,
+)
+
+from utils.runtime_state_sync import (
+    refresh_runtime_state,
 )
 
 
@@ -19,52 +23,42 @@ class TranslationNode(BaseNode):
 
         state.iteration += 1
 
-        prompt = f"""
-Переведи текст на английский.
-Верни ТОЛЬКО итоговый перевод.
-Без объяснений.
-Без reasoning.
-Без markdown.
-TEXT:
-{state.user_input}
-
-
-"""
-#VALIDATION ERROR:
-#{state.validation_error}
-        generator = (
-            context.clients["service"]
-            .stream(
-                context=context,
-                system_prompt=(
-                    "Ты translation agent."
-                ),
-                user_prompt=prompt,
-                temperature=0.2,
-                max_tokens=800,
-            )
+        translated = await translate(
+            client=context.clients[
+                "translator"
+            ],
+            text=state.user_input,
+            source_language="Russian",
+            target_language="English",
         )
 
-        stream = RuntimeStream(
-            context=context,
+        translated_text = translated[
+            "content"
+        ]
+
+        usage = translated.get(
+            "usage",
+            {},
+        )
+
+        await context.logger.log_translation(
+            translated_text
+        )
+
+        await refresh_runtime_state(
+            context,
             runtime_id=(
-                settings
-                .SERVICE_MODEL_UID
+                settings.TRANSLATOR_MODEL_UID
             ),
-            role="translator",
-            context_window=(
-                settings
-                .TRANSLATOR_CONTEXT_WINDOW
+            add_tokens=usage.get(
+                "total_tokens",
+                0,
             ),
-            log_method=(
-                context.logger
-                .log_translation
+            max_tokens=(
+                settings.TRANSLATOR_CONTEXT_WINDOW
             ),
-            emit_to_chat=False,
+            last_error=None,
+            status="online",
         )
 
-        text = await stream.run(
-            generator
-        )
-
-        state.translated_input = text
+        state.translated_input = translated_text
