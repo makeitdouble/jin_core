@@ -27,3 +27,9 @@ class RuntimeContext:
     runtime_search_queries: list[str] = field(
         default_factory=list
     )
+
+    runtime_search_result: str = ""
+
+    runtime_action_events: list[dict] = field(
+        default_factory=list
+    )

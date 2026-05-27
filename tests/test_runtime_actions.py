@@ -12,6 +12,7 @@ from contracts.context_contract import (
 from utils.runtime_actions import (
     RuntimeActionCall,
     RuntimeActionStreamFilter,
+    extract_search_query,
     extract_runtime_actions,
 )
 
@@ -236,6 +237,24 @@ class RuntimeActionTests(unittest.TestCase):
             [
                 "test",
             ],
+        )
+
+    def test_extract_search_query_unnests_json_string(self):
+
+        self.assertEqual(
+            extract_search_query(
+                '"{\\"query\\":\\"apples price 2026\\"}"'
+            ),
+            "apples price 2026",
+        )
+
+    def test_extract_search_query_unnests_query_json_string(self):
+
+        self.assertEqual(
+            extract_search_query(
+                '{"query":"{\\"query\\":\\"apples price 2026\\"}"}'
+            ),
+            "apples price 2026",
         )
 
 

@@ -58,6 +58,48 @@ class RuntimeStream:
             ),
         )
 
+    def build_action_log(
+        self,
+        action_event_offset: int,
+    ) -> str:
+
+        action_events = getattr(
+            self.context,
+            "runtime_action_events",
+            [],
+        )
+
+        new_events = action_events[
+            action_event_offset:
+        ]
+
+        lines = []
+
+        for event in new_events:
+
+            name = event.get(
+                "name",
+                "unknown",
+            )
+
+            lines.append(
+                f"action: {name}"
+            )
+
+            query = event.get(
+                "query",
+                "",
+            )
+
+            if query:
+                lines.append(
+                    f"query: {query}"
+                )
+
+        return "\n".join(
+            lines
+        )
+
     # ---------------------------------------------------------
     # EXECUTE STREAM
     # ---------------------------------------------------------
@@ -68,6 +110,14 @@ class RuntimeStream:
     ):
 
         try:
+
+            action_event_offset = len(
+                getattr(
+                    self.context,
+                    "runtime_action_events",
+                    [],
+                )
+            )
 
             await self.stream.start(
                 emit=self.emit_to_chat
@@ -161,8 +211,15 @@ class RuntimeStream:
                 status="online",
             )
 
+            log_response = self.stream.response
+
+            if not log_response.strip():
+                log_response = self.build_action_log(
+                    action_event_offset
+                )
+
             await self.log_method(
-                self.stream.response
+                log_response
             )
 
             return self.stream.response

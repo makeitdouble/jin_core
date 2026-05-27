@@ -17,6 +17,10 @@ from clients.clients_registry import (
     build_clients,
 )
 
+from clients.translation_client import (
+    build_translation_system_prompt,
+)
+
 
 TRANSLATION_CASES = [
     (
@@ -49,6 +53,18 @@ TRANSLATION_CASES = [
         "\u0434\u043e \u0441\u0432\u0438\u0434\u0430\u043d\u0438\u044f",
         {
             "goodbye",
+        },
+    ),
+    (
+        "\u0430\u043f\u0435\u043b\u044c\u0441\u0438\u043d",
+        {
+            "orange",
+        },
+    ),
+    (
+        "\u044f\u0431\u043b\u043e\u043a\u043e",
+        {
+            "apple",
         },
     ),
 ]
@@ -111,6 +127,25 @@ class SilentWebSocket:
         payload: dict,
     ):
         pass
+
+
+class TranslationPromptTests(unittest.TestCase):
+
+    def test_translation_prompt_forbids_noun_substitution(self):
+
+        prompt = build_translation_system_prompt(
+            "Russian",
+            "English",
+        )
+
+        self.assertIn(
+            "Literal translation",
+            prompt,
+        )
+        self.assertIn(
+            "Preserve the exact object",
+            prompt,
+        )
 
 
 @unittest.skipUnless(

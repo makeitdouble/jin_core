@@ -11,16 +11,8 @@ from clients.brain_client import (
     record_deep_thought_calls,
 )
 
-from clients.service_client import (
-    ask_service_model,
-)
-
-from settings.config_loader import (
-    config,
-)
-
-from utils.response_extractor import (
-    ResponseExtractor,
+from clients.search_client import (
+    run_search_service,
 )
 
 from utils.brain import (
@@ -37,40 +29,12 @@ class BrainNode(BaseNode):
             query: str,
     ) -> str:
 
-        result = await ask_service_model(
-            client=context.clients["service"],
-            system_prompt=(
-                "You are a runtime search agent.\n"
-                "Use the query as a search task and return a concise structured result.\n"
-                "Do not include chain-of-thought, plans, or markdown.\n"
-                "Return only a useful answer for the main assistant to consume."
-            ),
-            user_prompt=(
-                "SEARCH QUERY:\n"
-                f"{query}\n\n"
-                "Return:\n"
-                "<SEARCH_RESULT>\n"
-                f"  <QUERY>{query}</QUERY>\n"
-                "  <SUMMARY>...</SUMMARY>\n"
-                "  <FINDINGS>...</FINDINGS>\n"
-                "</SEARCH_RESULT>"
-            ),
-            temperature=(
-                config.SERVICE_TEMPERATURE
-            ),
-            max_tokens=(
-                config.SERVICE_MAX_TOKENS
-            ),
+        result = await run_search_service(
+            context=context,
+            query=query,
         )
 
-        content = (
-            ResponseExtractor
-            .extract_content_text(
-                result
-            )
-        )
-
-        return content.strip()
+        return result.strip()
 
     async def run_brain_stream(
             self,
@@ -159,6 +123,7 @@ class BrainNode(BaseNode):
         )
 
         context.runtime_search_queries.clear()
+        context.runtime_search_result = ""
 
         system_prompt = (
             build_brain_system_prompt(
@@ -189,12 +154,10 @@ class BrainNode(BaseNode):
             reasoning,
         )
 
-        if (
-            not text.strip()
-            and context.runtime_search_queries
-        ):
+        if context.runtime_search_queries:
 
             query = context.runtime_search_queries.pop(0)
+            context.runtime_search_queries.clear()
 
             await logger.log_runtime(
                 "[RUNTIME ACTION] "
@@ -215,6 +178,8 @@ class BrainNode(BaseNode):
                 query=query,
             )
 
+            context.runtime_search_result = search_result
+
             followup_runtime_actions = {
                 **runtime_actions,
                 "CAN_SEARCH": False,
@@ -228,11 +193,11 @@ class BrainNode(BaseNode):
             )
 
             followup_payload = (
-                "Original user request:\n"
+                "User request:\n"
                 f"{state.translated_input}\n\n"
-                "Runtime search result:\n"
-                f"{search_result}\n\n"
-                "Answer the original user request using the runtime search result. "
+                "Answer the user request using the SEARCH tool result "
+                "from trusted runtime context. "
+                "Mention the quoted source data when it helps. "
                 "Do not emit another SEARCH runtime action."
             )
 

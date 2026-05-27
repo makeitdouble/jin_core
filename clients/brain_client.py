@@ -10,6 +10,7 @@ from contracts.context_contract import (
     RUNTIME_ACTION_DEEP_THOUGHT,
     RUNTIME_ACTION_SEARCH,
     SEARCH_ACTION_TEMPLATE,
+    cdata,
 )
 
 from utils.errors import (
@@ -94,6 +95,10 @@ def build_runtime_action_instructions(
             "When the answer needs external search, current facts, or source lookup, "
             "emit the SEARCH runtime action with a short JSON query, for example "
             f"{SEARCH_ACTION_TEMPLATE}. "
+            "The SEARCH query must preserve the exact subject, item, product, place, "
+            "or entity from the user request. Do not replace it with a related item. "
+            "Emit exactly one JSON object with one field: {\"query\":\"plain search query\"}. "
+            "The query value must be plain text, not another JSON object or JSON string. "
             "The runtime hides the marker from chat text. Do not present guessed search results "
             "as facts before the runtime provides them."
         )
@@ -194,6 +199,37 @@ async def apply_runtime_action_calls(
         or not actions
     ):
         return 0
+
+    if not hasattr(
+        context,
+        "runtime_action_events",
+    ):
+        context.runtime_action_events = []
+
+    for action in actions:
+
+        action_event = {
+            "name": action.name.lower(),
+        }
+
+        query = ""
+
+        if action.name == RUNTIME_ACTION_SEARCH:
+            query = extract_search_query(
+                action.payload
+            )
+
+        if query:
+            action_event["query"] = query
+
+        elif action.payload:
+            action_event["payload"] = (
+                action.payload
+            )
+
+        context.runtime_action_events.append(
+            action_event
+        )
 
     deep_thought_count = sum(
         1
@@ -323,7 +359,36 @@ def build_brain_runtime_context(
         year=now.year,
     )
 
-    return context_contract.to_runtime_xml()
+    runtime_xml = (
+        context_contract
+        .to_runtime_xml()
+    )
+
+    search_result = ""
+
+    if context is not None:
+        search_result = getattr(
+            context,
+            "runtime_search_result",
+            "",
+        )
+
+    if not search_result:
+        return runtime_xml
+
+    tool_results_xml = (
+        "<TOOL_RESULTS>\n"
+        "    <TOOL_RESULT name=\"SEARCH\">\n"
+        f"        {cdata(search_result)}\n"
+        "    </TOOL_RESULT>\n"
+        "</TOOL_RESULTS>"
+    )
+
+    return (
+        runtime_xml
+        + "\n"
+        + tool_results_xml
+    )
 
 
 def build_brain_system_prompt(

@@ -26,14 +26,10 @@ def build_translation_system_prompt(
 ) -> str:
 
     return (
-        f"Strict translator "
-        f"from {source_language} "
-        f"to {target_language}. "
-        f"Preserve {target_language} "
-        "tokens exactly. "
-        "Preserve original punctuation, "
-        "casing, spacing, slang, typos. "
-        "Output only translation."
+        f"Translate {source_language} to {target_language}. "
+        f"Output only {target_language}. "
+        "Literal translation. "
+        "Preserve the exact object being named."
     )
 
 
@@ -65,7 +61,7 @@ async def translate(
                 )
             ),
             user_prompt=(
-                f"<input>{text}</input>"
+                text
             ),
             temperature=(
                 config

@@ -161,13 +161,34 @@ def extract_search_query(
     if not payload:
         return ""
 
-    try:
-        data = json.loads(
-            payload
-        )
+    data = payload
 
-    except json.JSONDecodeError:
-        return payload
+    for _ in range(2):
+
+        if not isinstance(
+            data,
+            str,
+        ):
+            break
+
+        stripped_data = data.strip()
+
+        if not stripped_data:
+            return ""
+
+        try:
+            data = json.loads(
+                stripped_data
+            )
+
+        except json.JSONDecodeError:
+            return stripped_data
+
+    if isinstance(
+        data,
+        str,
+    ):
+        return data.strip()
 
     if not isinstance(
         data,
@@ -186,7 +207,9 @@ def extract_search_query(
     ):
         return ""
 
-    return query.strip()
+    return extract_search_query(
+        query
+    )
 
 
 def extract_runtime_actions(

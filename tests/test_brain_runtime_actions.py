@@ -147,6 +147,30 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
 
+    def test_search_prompt_requires_plain_query_and_exact_subject(self):
+
+        prompt = build_brain_system_prompt(
+            runtime_actions={
+                "CAN_DEEP_THOUGHT": False,
+                "CAN_SEARCH": True,
+            }
+        )
+
+        self.assertIn(
+            "preserve the exact subject",
+            prompt,
+        )
+
+        self.assertIn(
+            "plain text",
+            prompt,
+        )
+
+        self.assertIn(
+            "not another JSON object",
+            prompt,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
