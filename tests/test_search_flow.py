@@ -1,4 +1,5 @@
 import unittest
+from typing import cast
 
 from agents.agent_state import (
     AgentState,
@@ -16,8 +17,14 @@ from contracts.context_contract import (
     SEARCH_ACTION_OPEN,
     SEARCH_ACTION_TEMPLATE,
 )
+from emitter.runtime_emitter import (
+    RuntimeEmitter,
+)
 from runtime.runtime_context import (
     RuntimeContext,
+)
+from websocket_logger import (
+    WebSocketLogger,
 )
 
 
@@ -35,16 +42,21 @@ class FakeWebSocket:
         )
 
 
-class FakeEmitter:
+class FakeEmitter(RuntimeEmitter):
+
+    def __init__(self):
+        self.payloads = []
 
     async def emit(
         self,
         payload: dict,
     ):
-        pass
+        self.payloads.append(
+            payload
+        )
 
 
-class FakeLogger:
+class FakeLogger(WebSocketLogger):
 
     def __init__(self):
         self.messages = []
@@ -206,6 +218,26 @@ def make_context(
     )
 
 
+def get_fake_websocket(
+    context: RuntimeContext,
+) -> FakeWebSocket:
+
+    return cast(
+        FakeWebSocket,
+        context.websocket,
+    )
+
+
+def get_fake_logger(
+    context: RuntimeContext,
+) -> FakeLogger:
+
+    return cast(
+        FakeLogger,
+        context.logger,
+    )
+
+
 class SearchFlowTests(
     unittest.IsolatedAsyncioTestCase
 ):
@@ -337,7 +369,9 @@ class SearchFlowTests(
 
         runtime_events = [
             message
-            for message in context.websocket.messages
+            for message in get_fake_websocket(
+                context
+            ).messages
             if message.get("type") == "runtime_action"
         ]
 
@@ -365,14 +399,18 @@ class SearchFlowTests(
             "action: search",
             "\n".join(
                 message
-                for _, message, _ in context.logger.messages
+                for _, message, _ in get_fake_logger(
+                    context
+                ).messages
             ),
         )
         self.assertIn(
             "query: tesla car price",
             "\n".join(
                 message
-                for _, message, _ in context.logger.messages
+                for _, message, _ in get_fake_logger(
+                    context
+                ).messages
             ),
         )
         self.assertIn(
@@ -460,7 +498,9 @@ class SearchFlowTests(
 
         runtime_events = [
             message
-            for message in context.websocket.messages
+            for message in get_fake_websocket(
+                context
+            ).messages
             if message.get("type") == "runtime_action"
         ]
 
