@@ -350,7 +350,7 @@ def _unclosed_paired_action_start(
         enabled_actions
     )
 
-    latest_start = None
+    latest_start: int = -1
 
     for action_name, markers in PAIRED_ACTION_MARKERS.items():
 
@@ -374,11 +374,11 @@ def _unclosed_paired_action_start(
         if close >= 0:
             continue
 
-        if (
-            latest_start is None
-            or start > latest_start
-        ):
+        if start > latest_start:
             latest_start = start
+
+    if latest_start < 0:
+        return None
 
     return latest_start
 
