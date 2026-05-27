@@ -22,8 +22,8 @@ The engine is designed for multi-runtime local AI setups where the main reasonin
 - Runtime telemetry for model IDs, context windows, token usage, provider status, and runtime errors.
 - Stream validation for repeated word loops, repeated sentences, repeated paragraphs, and leading HTML artifacts.
 - Abort support that cancels the active task and closes active provider streams.
-- Agent pipeline for Cyrillic input: planner, internal translator, brain, validator.
-- Direct brain pipeline for non-Cyrillic input.
+- Agent runtime path for Cyrillic input: planner, internal translator, brain, validator.
+- Direct brain route for non-Cyrillic input.
 
 ## Architecture
 

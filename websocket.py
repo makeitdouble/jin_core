@@ -28,7 +28,7 @@ from utils.telemetry import (
 )
 
 from utils.ws_errors import (
-    handle_fatal_pipeline_error,
+    handle_fatal_runtime_error,
     handle_websocket_error,
 )
 
@@ -145,16 +145,16 @@ async def process_message(
     except asyncio.CancelledError:
 
         await logger.log_runtime(
-            "Pipeline task cancelled."
+            "Agent runtime task cancelled."
         )
 
         raise
 
     except Exception as error:
 
-        await handle_fatal_pipeline_error(
+        await handle_fatal_runtime_error(
             context,
-            pipeline_name="agent_runtime",
+            component="agent_runtime",
             exception=error,
         )
 
