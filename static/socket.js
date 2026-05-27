@@ -332,6 +332,40 @@ ws.onmessage = function (event) {
   }
 
   // -----------------------------
+  // AGENT RUNTIME START
+  // -----------------------------
+
+  if (
+    data.type
+    === "agent_runtime_start"
+  ) {
+
+    setGenerationState(
+      true
+    );
+
+    return;
+
+  }
+
+  // -----------------------------
+  // AGENT RUNTIME END
+  // -----------------------------
+
+  if (
+    data.type
+    === "agent_runtime_end"
+  ) {
+
+    setGenerationState(
+      false
+    );
+
+    return;
+
+  }
+
+  // -----------------------------
   // STREAM START
   // -----------------------------
 
@@ -380,10 +414,6 @@ ws.onmessage = function (event) {
     data.type
     === "message_end"
   ) {
-
-    setGenerationState(
-      false
-    );
 
     finishStreamMessage(
       data.message_id

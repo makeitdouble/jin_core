@@ -133,6 +133,10 @@ async def process_message(
             "[WS] agent runtime start"
         )
 
+        await websocket.send_json({
+            "type": "agent_runtime_start",
+        })
+
         await runtime.run(
             state,
             context,
@@ -141,6 +145,10 @@ async def process_message(
         await logger.log_system(
             "[WS] agent runtime end"
         )
+
+        await websocket.send_json({
+            "type": "agent_runtime_end",
+        })
 
     except asyncio.CancelledError:
 
