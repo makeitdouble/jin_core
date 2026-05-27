@@ -60,7 +60,7 @@ class RuntimeActionResult:
             if action.name != RUNTIME_ACTION_SEARCH:
                 continue
 
-            query = _extract_search_query(
+            query = extract_search_query(
                 action.payload
             )
 
@@ -149,7 +149,7 @@ def normalize_runtime_action_names(
     )
 
 
-def _extract_search_query(
+def extract_search_query(
     payload: str,
 ) -> str:
 

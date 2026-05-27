@@ -256,6 +256,57 @@ function appendChatMessage(
 }
 
 
+// RUNTIME ACTION
+
+function appendRuntimeAction(
+  action,
+  text
+) {
+
+  const row =
+    document.createElement("div");
+
+  row.className =
+    "flex items-center gap-3 max-w-3xl text-xs text-cyan-100";
+
+  const icon =
+    document.createElement("div");
+
+  icon.className =
+    "h-6 w-6 rounded bg-cyan-950/70 border border-cyan-700 flex items-center justify-center text-[12px] shrink-0";
+
+  icon.textContent =
+    action === "search"
+      ? "🔍"
+      : "●";
+
+  const label =
+    document.createElement("div");
+
+  label.className =
+    "px-3 py-2 rounded-lg border border-cyan-700/70 bg-cyan-950/40 font-mono";
+
+  label.textContent =
+    text;
+
+  row.appendChild(
+    icon
+  );
+
+  row.appendChild(
+    label
+  );
+
+  chatHistory.appendChild(
+    row
+  );
+
+  chatHistory.scrollTop =
+    chatHistory.scrollHeight;
+
+}
+
+
 // CREATE STREAM GROUP
 
 function createStreamGroup(
@@ -556,6 +607,9 @@ function finishStreamMessage(
 
 window.appendChatMessage =
   appendChatMessage;
+
+window.appendRuntimeAction =
+  appendRuntimeAction;
 
 window.startStreamMessage =
   startStreamMessage;

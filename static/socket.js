@@ -296,6 +296,24 @@ ws.onmessage = function (event) {
   }
 
   // -----------------------------
+  // RUNTIME ACTION
+  // -----------------------------
+
+  if (
+    data.type
+    === "runtime_action"
+  ) {
+
+    appendRuntimeAction(
+      data.action,
+      data.text
+    );
+
+    return;
+
+  }
+
+  // -----------------------------
   // THINKING STREAM
   // -----------------------------
 

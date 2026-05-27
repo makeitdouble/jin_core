@@ -1,11 +1,16 @@
+import asyncio
 import unittest
 
+from clients.brain_client import (
+    apply_runtime_action_calls,
+)
 from contracts.context_contract import (
     DEEP_THOUGHT_ACTION,
     SEARCH_ACTION_CLOSE,
     SEARCH_ACTION_OPEN,
 )
 from utils.runtime_actions import (
+    RuntimeActionCall,
     RuntimeActionStreamFilter,
     extract_runtime_actions,
 )
@@ -197,6 +202,37 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             stream_filter.flush(),
             "",
+        )
+
+    def test_apply_runtime_action_calls_stores_search_queries(self):
+
+        class Context:
+            pass
+
+        context = Context()
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SEARCH",
+                        payload='{"query":"test"}',
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+
+        self.assertEqual(
+            context.runtime_search_queries,
+            [
+                "test",
+            ],
         )
 
 

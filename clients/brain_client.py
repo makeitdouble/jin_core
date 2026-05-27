@@ -27,6 +27,7 @@ from utils.response_extractor import (
 
 from utils.runtime_actions import (
     RuntimeActionStreamFilter,
+    extract_search_query,
     extract_runtime_actions,
 )
 
@@ -209,10 +210,27 @@ async def apply_runtime_action_calls(
     )
 
     search_queries = [
-        action.payload
-        for action in actions
-        if action.name == RUNTIME_ACTION_SEARCH
+        query
+        for query in (
+            extract_search_query(
+                action.payload
+            )
+            for action in actions
+            if action.name == RUNTIME_ACTION_SEARCH
+        )
+        if query
     ]
+
+    if search_queries:
+        if not hasattr(
+            context,
+            "runtime_search_queries",
+        ):
+            context.runtime_search_queries = []
+
+        context.runtime_search_queries.extend(
+            search_queries
+        )
 
     logger = getattr(
         context,

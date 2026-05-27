@@ -23,3 +23,7 @@ class RuntimeContext:
     )
 
     deep_thought_count: int = 0
+
+    runtime_search_queries: list[str] = field(
+        default_factory=list
+    )
