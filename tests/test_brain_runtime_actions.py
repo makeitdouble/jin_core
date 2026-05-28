@@ -72,10 +72,15 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         self.assertIn(
             (
-                '<ACTION name="SEARCH"><![CDATA['
+                '<ACTION name="SEARCH">'
                 f"{SEARCH_ACTION_TEMPLATE}"
-                "]]></ACTION>"
+                "</ACTION>"
             ),
+            prompt,
+        )
+
+        self.assertNotIn(
+            "<![CDATA[",
             prompt,
         )
 
@@ -96,6 +101,11 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         self.assertNotIn(
             "CURRENT_TIME",
+            prompt,
+        )
+
+        self.assertNotIn(
+            "<YEAR>",
             prompt,
         )
 
@@ -135,10 +145,15 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         self.assertIn(
             (
-                '<ACTION name="DEEP_THOUGHT"><![CDATA['
+                '<ACTION name="DEEP_THOUGHT">'
                 f"{DEEP_THOUGHT_ACTION}"
-                "]]></ACTION>"
+                "</ACTION>"
             ),
+            prompt,
+        )
+
+        self.assertNotIn(
+            "<![CDATA[",
             prompt,
         )
 

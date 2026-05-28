@@ -1,5 +1,6 @@
 from settings.app_settings import settings
 
+
 def estimate_tokens(
     text: str,
 ) -> int:
@@ -24,53 +25,35 @@ def estimate_optional_tokens(
     )
 
 
-def estimate_stream_tokens(
+def estimate_stream_input_tokens(
     stream,
     *,
     prompt_text: str = "",
 ) -> int:
 
-    visible_tokens = (
-        estimate_optional_tokens(
+    return estimate_optional_tokens(
+        prompt_text
+    )
+
+
+def estimate_stream_live_tokens(
+    stream,
+    *,
+    prompt_text: str = "",
+) -> int:
+
+    return (
+        estimate_stream_input_tokens(
+            stream,
+            prompt_text=prompt_text,
+        )
+        + estimate_optional_tokens(
             getattr(
                 stream,
                 "response",
                 "",
             )
         )
-        + estimate_optional_tokens(
-            getattr(
-                stream,
-                "reasoning",
-                "",
-            )
-        )
-    )
-
-    prompt_tokens = (
-        getattr(
-            stream,
-            "prompt_tokens",
-            0,
-        )
-        or estimate_optional_tokens(
-            prompt_text
-        )
-    )
-
-    provider_total = (
-        getattr(
-            stream,
-            "total_tokens",
-            0,
-        )
-        or 0
-    )
-
-    return max(
-        provider_total,
-        prompt_tokens + visible_tokens,
-        visible_tokens,
     )
 
 
@@ -98,12 +81,16 @@ def estimate_runtime_tokens(
     reasoning: str = "",
 ) -> int:
 
-    total_text = (
-        user_input
-        + system_prompt
-        + context_payload
-        + response
-        + reasoning
+    total_text = "\n".join(
+        value
+        for value in (
+            user_input,
+            system_prompt,
+            context_payload,
+            response,
+            reasoning,
+        )
+        if value
     )
 
     return estimate_tokens(

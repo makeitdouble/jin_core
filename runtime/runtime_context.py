@@ -39,3 +39,7 @@ class RuntimeContext:
     runtime_action_events: list[dict] = field(
         default_factory=list
     )
+
+    runtime_usage_events: list[dict] = field(
+        default_factory=list
+    )

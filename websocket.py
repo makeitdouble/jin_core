@@ -19,12 +19,37 @@ from agents.agent_runtime import (
     AgentRuntime,
 )
 
+from clients.brain_client import (
+    build_brain_payload,
+    build_brain_system_prompt,
+)
+
 from agents.agent_state import (
     AgentState,
 )
 
+from utils.brain import (
+    get_brain_runtime_config,
+)
+
+from utils.language import (
+    contains_cyrillic,
+)
+
+from utils.runtime_state_sync import (
+    refresh_runtime_state,
+)
+
+from utils.token_usage import (
+    format_token_usage_summary,
+)
+
 from utils.telemetry import (
     send_telemetry,
+)
+
+from utils.tokens import (
+    estimate_runtime_tokens,
 )
 
 from utils.ws_errors import (
@@ -103,6 +128,60 @@ async def receive_message(
 # PROCESS MESSAGE
 # ---------------------------------------------------------
 
+async def refresh_pending_brain_usage(
+    context,
+    user_text: str,
+):
+
+    if contains_cyrillic(
+        user_text
+    ):
+        return
+
+    brain_runtime = (
+        get_brain_runtime_config()
+    )
+
+    runtime_actions = (
+        brain_runtime.get(
+            "runtime_actions",
+            {},
+        )
+    )
+
+    system_prompt = (
+        build_brain_system_prompt(
+            context,
+            runtime_actions=runtime_actions,
+        )
+    )
+
+    brain_payload = (
+        build_brain_payload(
+            user_text,
+            context=context,
+        )
+    )
+
+    await refresh_runtime_state(
+        context,
+        runtime_id=(
+            brain_runtime["runtime_id"]
+        ),
+        used_tokens=(
+            estimate_runtime_tokens(
+                system_prompt=system_prompt,
+                user_input=brain_payload,
+            )
+        ),
+        max_tokens=(
+            brain_runtime["context_window"]
+        ),
+        last_error=None,
+        status="online",
+    )
+
+
 async def process_message(
     context,
     message_data: dict,
@@ -123,6 +202,15 @@ async def process_message(
             user_input=user_text
         )
 
+        if hasattr(
+            context,
+            "runtime_usage_events",
+        ):
+            context.runtime_usage_events.clear()
+
+        else:
+            context.runtime_usage_events = []
+
         runtime = AgentRuntime()
 
         await logger.log_system(
@@ -140,6 +228,13 @@ async def process_message(
         await runtime.run(
             state,
             context,
+        )
+
+        await logger.log(
+            "[FLOW TELEMETRY]",
+            format_token_usage_summary(
+                context
+            ),
         )
 
         await logger.log_system(
@@ -335,6 +430,11 @@ async def websocket_endpoint(
             # -------------------------------------------------
             # START BACKGROUND TASK
             # -------------------------------------------------
+
+            await refresh_pending_brain_usage(
+                context,
+                user_text,
+            )
 
             current_task = (
                 asyncio.create_task(
