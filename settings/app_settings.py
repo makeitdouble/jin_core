@@ -30,6 +30,11 @@ class AppSettings:
     TRANSLATION_MIN_TOKENS: int
     TRANSLATION_MAX_TOKENS: int
 
+    SEARCH_PROVIDER: str
+    SEARCH_SERPER_API_KEY: str
+    SEARCH_MAX_RESULTS: int
+    SEARCH_TIMEOUT: float
+
 
 settings = AppSettings(
 
@@ -54,4 +59,25 @@ settings = AppSettings(
 
     TRANSLATION_MIN_TOKENS=config.TRANSLATION_MIN_TOKENS,
     TRANSLATION_MAX_TOKENS=config.TRANSLATION_MAX_TOKENS,
+
+    SEARCH_PROVIDER=getattr(
+        config,
+        "SEARCH_PROVIDER",
+        "serper",
+    ),
+    SEARCH_SERPER_API_KEY=getattr(
+        config,
+        "SEARCH_SERPER_API_KEY",
+        "",
+    ),
+    SEARCH_MAX_RESULTS=getattr(
+        config,
+        "SEARCH_MAX_RESULTS",
+        5,
+    ),
+    SEARCH_TIMEOUT=getattr(
+        config,
+        "SEARCH_TIMEOUT",
+        20.0,
+    ),
 )

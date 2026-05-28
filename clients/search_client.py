@@ -1,74 +1,56 @@
+from xml.etree import ElementTree
 from xml.sax.saxutils import escape
 
-from clients.service_client import (
-    ask_service_model,
+import httpx
+
+from settings.app_settings import (
+    settings,
 )
 
-from settings.config_loader import (
-    config,
+from utils.search import (
+    serper_search,
 )
 
-from utils.response_extractor import (
-    ResponseExtractor,
-)
 
-def build_search_system_prompt() -> str:
+def format_search_provider_error(
+    error: Exception,
+) -> str:
+
+    if isinstance(
+        error,
+        httpx.HTTPStatusError,
+    ):
+        return (
+            "HTTP "
+            f"{error.response.status_code} "
+            "from search provider"
+        )
+
+    return repr(
+        error
+    )
+
+
+def build_empty_search_result(
+    query: str,
+) -> str:
+
+    safe_query = (
+        query
+        or ""
+    ).strip()
 
     return (
-        "You are a runtime search service.\n"
-        "You do not answer the user directly.\n"
-        "You return only structured XML for the main assistant to consume.\n"
-        "Do not include markdown, analysis, plans, or chain-of-thought.\n"
-        "Search behavior:\n"
-        "- For Tesla vehicle price queries, return FOUND with price 35000 USD.\n"
-        "- For any other query, return NOT_READY and no results.\n"
-        "For FOUND, use this exact shape:\n"
         "<SEARCH_RESULT>\n"
-        "  <STATUS>FOUND</STATUS>\n"
-        "  <QUERY>...</QUERY>\n"
-        "  <SUMMARY>...</SUMMARY>\n"
-        "  <RESULTS>\n"
-        "    <RESULT>\n"
-        "      <TITLE>...</TITLE>\n"
-        "      <SOURCE>...</SOURCE>\n"
-        "      <URL>...</URL>\n"
-        "      <PRICE currency=\"USD\">35000</PRICE>\n"
-        "      <QUOTE>...</QUOTE>\n"
-        "      <EXCERPT>...</EXCERPT>\n"
-        "    </RESULT>\n"
-        "  </RESULTS>\n"
-        "</SEARCH_RESULT>\n"
-        "For NOT_READY, use this exact shape and do not include RESULT, PRICE, "
-        "QUOTE, SOURCE, URL, or EXCERPT:\n"
-        "<SEARCH_RESULT>\n"
-        "  <STATUS>NOT_READY</STATUS>\n"
-        "  <QUERY>...</QUERY>\n"
-        "  <SUMMARY>Search is not ready for this query yet.</SUMMARY>\n"
+        "  <STATUS>NOT_FOUND</STATUS>\n"
+        f"  <QUERY>{escape(safe_query)}</QUERY>\n"
+        "  <SUMMARY>No search results found.</SUMMARY>\n"
         "  <RESULTS></RESULTS>\n"
         "</SEARCH_RESULT>"
     )
 
 
-def build_search_payload(
-    query: str,
-) -> str:
-
-    safe_query = (
-        query
-        or ""
-    ).strip()
-
-    return (
-        "SEARCH QUERY:\n"
-        f"{safe_query}\n\n"
-        "Rules:\n"
-        "- Tesla vehicle price query: return STATUS FOUND with price 35000 USD.\n"
-        "- Any other query: return STATUS NOT_READY and no results.\n"
-        "- Return XML only."
-    )
-
-
-def build_unavailable_search_result(
+def build_failed_search_result(
     query: str,
 ) -> str:
 
@@ -79,42 +61,285 @@ def build_unavailable_search_result(
 
     return (
         "<SEARCH_RESULT>\n"
-        "  <STATUS>NOT_READY</STATUS>\n"
+        "  <STATUS>FAILED</STATUS>\n"
         f"  <QUERY>{escape(safe_query)}</QUERY>\n"
         "  <SUMMARY>"
-        "Search is not ready for this query yet."
+        "Search failed: provider error."
         "</SUMMARY>\n"
         "  <RESULTS></RESULTS>\n"
         "</SEARCH_RESULT>"
     )
 
 
-def normalize_search_result(
-    content: str,
+def build_found_search_result(
+    *,
     query: str,
+    results: list[dict],
 ) -> str:
 
-    result = (
-        content
+    safe_query = (
+        query
         or ""
     ).strip()
 
-    if not result:
-        return build_unavailable_search_result(
+    result_xml = []
+
+    for item in results:
+        title = escape(
+            str(
+                item.get(
+                    "title",
+                    "",
+                )
+                or ""
+            )
+        )
+        source = escape(
+            str(
+                item.get(
+                    "source",
+                    "",
+                )
+                or ""
+            )
+        )
+        url = escape(
+            str(
+                item.get(
+                    "url",
+                    "",
+                )
+                or ""
+            )
+        )
+        quote = escape(
+            str(
+                item.get(
+                    "quote",
+                    "",
+                )
+                or ""
+            )
+        )
+        excerpt = escape(
+            str(
+                item.get(
+                    "excerpt",
+                    "",
+                )
+                or ""
+            )
+        )
+
+        result_xml.append(
+            "    <RESULT>\n"
+            f"      <TITLE>{title}</TITLE>\n"
+            f"      <SOURCE>{source}</SOURCE>\n"
+            f"      <URL>{url}</URL>\n"
+            f"      <QUOTE>{quote}</QUOTE>\n"
+            f"      <EXCERPT>{excerpt}</EXCERPT>\n"
+            "    </RESULT>"
+        )
+
+    summary = (
+        f"Found {len(results)} search result"
+        f"{'' if len(results) == 1 else 's'}."
+    )
+
+    return (
+        "<SEARCH_RESULT>\n"
+        "  <STATUS>FOUND</STATUS>\n"
+        f"  <QUERY>{escape(safe_query)}</QUERY>\n"
+        f"  <SUMMARY>{escape(summary)}</SUMMARY>\n"
+        "  <RESULTS>\n"
+        f"{chr(10).join(result_xml)}\n"
+        "  </RESULTS>\n"
+        "</SEARCH_RESULT>"
+    )
+
+
+def normalize_search_results(
+    results: list[dict],
+    query: str,
+) -> str:
+
+    if not results:
+        return build_empty_search_result(
             query
         )
 
-    normalized = result.upper()
+    return build_found_search_result(
+        query=query,
+        results=results,
+    )
 
-    if (
-        "<STATUS>NOT_READY</STATUS>"
-        in normalized
-    ):
-        return build_unavailable_search_result(
+
+def get_xml_text(
+    element,
+    tag: str,
+) -> str:
+
+    child = element.find(
+        tag
+    )
+
+    if child is None:
+        return ""
+
+    return (
+        child.text
+        or ""
+    ).strip()
+
+
+def build_search_result_fallback_answer(
+    search_result: str,
+) -> str:
+
+    source = (
+        search_result
+        or ""
+    ).strip()
+
+    if not source:
+        return ""
+
+    try:
+        root = ElementTree.fromstring(
+            source
+        )
+
+    except ElementTree.ParseError:
+        return ""
+
+    status = get_xml_text(
+        root,
+        "STATUS",
+    )
+    summary = get_xml_text(
+        root,
+        "SUMMARY",
+    )
+
+    if status != "FOUND":
+        return summary
+
+    lines = [
+        summary
+        or "Search results found.",
+    ]
+
+    result_items = root.findall(
+        "./RESULTS/RESULT"
+    )
+
+    for item in result_items[:3]:
+        title = get_xml_text(
+            item,
+            "TITLE",
+        )
+        source_name = get_xml_text(
+            item,
+            "SOURCE",
+        )
+        url = get_xml_text(
+            item,
+            "URL",
+        )
+        quote = get_xml_text(
+            item,
+            "QUOTE",
+        )
+
+        heading = title
+
+        if source_name:
+            heading = (
+                f"{heading} ({source_name})"
+                if heading
+                else source_name
+            )
+
+        if heading:
+            lines.append(
+                f"- {heading}"
+            )
+
+        if quote:
+            lines.append(
+                f"  {quote}"
+            )
+
+        if url:
+            lines.append(
+                f"  {url}"
+            )
+
+    return "\n".join(
+        lines
+    )
+
+
+async def run_search_provider(
+    *,
+    query: str,
+    context=None,
+) -> list[dict]:
+
+    injected_provider = getattr(
+        context,
+        "search_provider",
+        None,
+    )
+
+    if injected_provider is not None:
+        return await injected_provider(
             query
         )
 
-    return result
+    provider = (
+        settings.SEARCH_PROVIDER
+        or ""
+    ).lower()
+
+    if provider != "serper":
+        raise RuntimeError(
+            f"Unsupported search provider: {settings.SEARCH_PROVIDER}"
+        )
+
+    if not settings.SEARCH_SERPER_API_KEY:
+        raise RuntimeError(
+            "Serper search is not configured"
+        )
+
+    http_client = None
+    service_client = (
+        getattr(
+            context,
+            "clients",
+            {},
+        )
+        .get(
+            "service"
+        )
+        if context is not None
+        else None
+    )
+
+    if service_client is not None:
+        http_client = getattr(
+            service_client,
+            "client",
+            None,
+        )
+
+    return await serper_search(
+        query=query,
+        api_key=settings.SEARCH_SERPER_API_KEY,
+        num_results=settings.SEARCH_MAX_RESULTS,
+        timeout=settings.SEARCH_TIMEOUT,
+        http_client=http_client,
+    )
 
 
 async def run_search_service(
@@ -140,36 +365,35 @@ async def run_search_service(
             f"query={query!r}"
         )
 
-    client = context.clients[
-        "service"
-    ]
-
-    result = await ask_service_model(
-        client=client,
-        system_prompt=build_search_system_prompt(),
-        user_prompt=build_search_payload(
-            query
-        ),
-        temperature=(
-            config.SERVICE_TEMPERATURE
-        ),
-        max_tokens=(
-            config.SERVICE_MAX_TOKENS
-        ),
-    )
-
-    content = (
-        ResponseExtractor
-        .extract_content_text(
-            result
+    try:
+        results = await run_search_provider(
+            context=context,
+            query=query,
         )
-        .strip()
-    )
 
-    content = normalize_search_result(
-        content,
-        query,
-    )
+        content = normalize_search_results(
+            results,
+            query,
+        )
+
+    except Exception as error:
+        log_error = getattr(
+            logger,
+            "log_error",
+            None,
+        )
+
+        if log_error is not None:
+            await log_error(
+                "[SEARCH] provider error",
+                details=format_search_provider_error(
+                    error
+                ),
+            )
+
+        content = build_failed_search_result(
+            query
+        )
 
     if log_service is not None:
         await log_service(

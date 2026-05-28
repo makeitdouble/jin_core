@@ -12,6 +12,7 @@ from clients.brain_client import (
 )
 
 from clients.search_client import (
+    build_search_result_fallback_answer,
     run_search_service,
 )
 
@@ -235,6 +236,8 @@ class BrainNode(BaseNode):
             )
 
             if not text.strip():
-                text = search_result
+                text = build_search_result_fallback_answer(
+                    search_result
+                )
 
         state.brain_response = text or ""

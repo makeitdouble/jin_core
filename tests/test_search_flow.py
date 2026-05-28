@@ -1,6 +1,8 @@
 import unittest
 from typing import cast
 
+import httpx
+
 from fastapi import WebSocket
 
 from agents.agent_state import (
@@ -10,9 +12,11 @@ from agents.brain_node import (
     BrainNode,
 )
 from clients.search_client import (
-    build_search_system_prompt,
-    build_unavailable_search_result,
-    normalize_search_result,
+    build_empty_search_result,
+    build_failed_search_result,
+    build_search_result_fallback_answer,
+    format_search_provider_error,
+    normalize_search_results,
 )
 from contracts.context_contract import (
     SEARCH_ACTION_CLOSE,
@@ -24,6 +28,9 @@ from emitter.runtime_emitter import (
 )
 from runtime.runtime_context import (
     RuntimeContext,
+)
+from utils.search import (
+    normalize_serper_item,
 )
 from websocket_logger import (
     WebSocketLogger,
@@ -208,7 +215,7 @@ class FakeBrainClient:
         if self.ask_responses:
             content = self.ask_responses.pop(0)
         else:
-            content = build_unavailable_search_result(
+            content = build_empty_search_result(
                 "unknown"
             )
 
@@ -244,11 +251,60 @@ class FakeBrainClient:
             yield chunk
 
 
+class FakeSearchProvider:
+
+    def __init__(
+        self,
+        results=None,
+        error: Exception | None = None,
+    ):
+        self.results = list(
+            results
+            or []
+        )
+        self.error = error
+        self.queries = []
+
+    async def __call__(
+        self,
+        query: str,
+    ):
+        self.queries.append(
+            query
+        )
+
+        if self.error is not None:
+            raise self.error
+
+        return list(
+            self.results
+        )
+
+
+def make_result(
+    *,
+    title: str = "Tesla vehicle price",
+    source: str = "tesla.com",
+    url: str = "https://www.tesla.com/",
+    quote: str = "Tesla vehicle price result.",
+    excerpt: str = "Current Tesla vehicle price result.",
+) -> dict:
+
+    return {
+        "title": title,
+        "source": source,
+        "url": url,
+        "quote": quote,
+        "excerpt": excerpt,
+    }
+
+
 def make_context(
     brain_client,
+    search_provider=None,
 ) -> RuntimeContext:
 
-    return RuntimeContext(
+    context = RuntimeContext(
         websocket=FakeWebSocket(),
         emitter=FakeEmitter(),
         logger=FakeLogger(),
@@ -257,6 +313,11 @@ def make_context(
             "service": brain_client,
         },
     )
+
+    if search_provider is not None:
+        context.search_provider = search_provider
+
+    return context
 
 
 def get_fake_websocket(
@@ -283,26 +344,35 @@ class SearchFlowTests(
     unittest.IsolatedAsyncioTestCase
 ):
 
-    def test_search_system_prompt_defines_tesla_mock_contract(self):
+    def test_found_search_result_contains_results(self):
 
-        prompt = build_search_system_prompt()
-
-        self.assertIn(
-            "35000 USD",
-            prompt,
-        )
-        self.assertIn(
-            "Tesla",
-            prompt,
-        )
-        self.assertIn(
-            "NOT_READY",
-            prompt,
+        result = normalize_search_results(
+            [
+                make_result(
+                    title="Python & docs",
+                    quote="A < B & C",
+                    excerpt="Use > carefully",
+                ),
+            ],
+            "latest Python version",
         )
 
-    def test_unavailable_search_result_contains_empty_results(self):
+        self.assertIn(
+            "<STATUS>FOUND</STATUS>",
+            result,
+        )
+        self.assertIn(
+            "<TITLE>Python &amp; docs</TITLE>",
+            result,
+        )
+        self.assertIn(
+            "<QUOTE>A &lt; B &amp; C</QUOTE>",
+            result,
+        )
 
-        result = build_unavailable_search_result(
+    def test_empty_search_result_contains_empty_results(self):
+
+        result = build_empty_search_result(
             "weather in Kyiv"
         )
 
@@ -311,11 +381,11 @@ class SearchFlowTests(
             result,
         )
         self.assertIn(
-            "<STATUS>NOT_READY</STATUS>",
+            "<STATUS>NOT_FOUND</STATUS>",
             result,
         )
         self.assertIn(
-            "Search is not ready for this query yet",
+            "No search results found.",
             result,
         )
         self.assertIn(
@@ -327,34 +397,119 @@ class SearchFlowTests(
             result,
         )
 
-    def test_not_ready_search_result_strips_conflicting_price(self):
+    def test_failed_search_result_does_not_leak_provider_details(self):
 
-        result = normalize_search_result(
-            (
-                "<SEARCH_RESULT>\n"
-                "  <STATUS>NOT_READY</STATUS>\n"
-                "  <QUERY>current price of apples</QUERY>\n"
-                "  <RESULTS>\n"
-                "    <RESULT>\n"
-                "      <PRICE currency=\"USD\">35000</PRICE>\n"
-                "    </RESULT>\n"
-                "  </RESULTS>\n"
-                "</SEARCH_RESULT>"
-            ),
+        result = build_failed_search_result(
             "current price of apples",
         )
 
         self.assertIn(
-            "<STATUS>NOT_READY</STATUS>",
+            "<STATUS>FAILED</STATUS>",
             result,
         )
         self.assertNotIn(
-            "<PRICE",
+            "Traceback",
+            result,
+        )
+
+    def test_provider_error_log_redacts_request_url(self):
+
+        request = httpx.Request(
+            "POST",
+            (
+                "https://google.serper.dev/search"
+            ),
+            headers={
+                "X-API-KEY": "secret-api-key",
+            },
+        )
+        response = httpx.Response(
+            403,
+            request=request,
+        )
+        error = httpx.HTTPStatusError(
+            "forbidden",
+            request=request,
+            response=response,
+        )
+
+        result = format_search_provider_error(
+            error
+        )
+
+        self.assertEqual(
+            result,
+            "HTTP 403 from search provider",
+        )
+        self.assertNotIn(
+            "secret-api-key",
+            result,
+        )
+
+    def test_serper_item_normalizes_organic_result(self):
+
+        result = normalize_serper_item({
+            "title": "Python 3.15.0 docs",
+            "link": "https://www.python.org/downloads/",
+            "snippet": "Latest Python release information.",
+        })
+
+        self.assertEqual(
+            result,
+            {
+                "title": "Python 3.15.0 docs",
+                "source": "python.org",
+                "url": "https://www.python.org/downloads/",
+                "quote": "Latest Python release information.",
+                "excerpt": "Latest Python release information.",
+            },
+        )
+
+    def test_search_result_fallback_answer_hides_xml(self):
+
+        search_result = normalize_search_results(
+            [
+                make_result(
+                    title="Python releases",
+                    source="python.org",
+                    url="https://www.python.org/downloads/",
+                    quote="Python 3.14.5 May 10, 2026.",
+                ),
+            ],
+            "latest Python version",
+        )
+
+        result = build_search_result_fallback_answer(
+            search_result
+        )
+
+        self.assertIn(
+            "Found 1 search result.",
+            result,
+        )
+        self.assertIn(
+            "Python releases (python.org)",
+            result,
+        )
+        self.assertIn(
+            "Python 3.14.5",
+            result,
+        )
+        self.assertNotIn(
+            "<SEARCH_RESULT>",
             result,
         )
 
     async def test_search_is_model_driven_for_explicit_user_request(self):
 
+        search_provider = FakeSearchProvider(
+            results=[
+                make_result(
+                    quote="Tesla vehicle price is 35000 USD.",
+                    excerpt="Current Tesla vehicle price result.",
+                ),
+            ],
+        )
         brain_client = FakeBrainClient(
             streams=[
                 [
@@ -374,28 +529,10 @@ class SearchFlowTests(
                     },
                 ],
             ],
-            ask_responses=[
-                (
-                    "<SEARCH_RESULT>\n"
-                    "  <STATUS>FOUND</STATUS>\n"
-                    "  <QUERY>tesla car price</QUERY>\n"
-                    "  <SUMMARY>Tesla vehicle price is 35000 USD.</SUMMARY>\n"
-                    "  <RESULTS>\n"
-                    "    <RESULT>\n"
-                    "      <TITLE>Tesla vehicle price</TITLE>\n"
-                    "      <SOURCE>AutoSearch</SOURCE>\n"
-                    "      <URL>https://www.tesla.com/</URL>\n"
-                    "      <PRICE currency=\"USD\">35000</PRICE>\n"
-                    "      <QUOTE>Tesla vehicle price is 35000 USD.</QUOTE>\n"
-                    "      <EXCERPT>Current Tesla vehicle price result.</EXCERPT>\n"
-                    "    </RESULT>\n"
-                    "  </RESULTS>\n"
-                    "</SEARCH_RESULT>"
-                ),
-            ],
         )
         context = make_context(
-            brain_client
+            brain_client,
+            search_provider=search_provider,
         )
         state = AgentState(
             user_input=(
@@ -440,9 +577,11 @@ class SearchFlowTests(
             "35000",
             context.runtime_search_result,
         )
-        self.assertIn(
-            "runtime search service",
-            brain_client.ask_prompts[0]["system_prompt"],
+        self.assertEqual(
+            search_provider.queries,
+            [
+                "tesla car price",
+            ],
         )
         self.assertIn(
             "action: search",
@@ -522,6 +661,13 @@ class SearchFlowTests(
 
     async def test_brain_emitted_search_runs_even_with_text(self):
 
+        search_provider = FakeSearchProvider(
+            results=[
+                make_result(
+                    quote="Tesla vehicle price is 35000 USD.",
+                ),
+            ],
+        )
         brain_client = FakeBrainClient(
             streams=[
                 [
@@ -541,24 +687,10 @@ class SearchFlowTests(
                     },
                 ],
             ],
-            ask_responses=[
-                (
-                    "<SEARCH_RESULT>\n"
-                    "  <STATUS>FOUND</STATUS>\n"
-                    "  <QUERY>tesla car price</QUERY>\n"
-                    "  <SUMMARY>Tesla vehicle price is 35000 USD.</SUMMARY>\n"
-                    "  <RESULTS>\n"
-                    "    <RESULT>\n"
-                    "      <PRICE currency=\"USD\">35000</PRICE>\n"
-                    "      <QUOTE>Tesla vehicle price is 35000 USD.</QUOTE>\n"
-                    "    </RESULT>\n"
-                    "  </RESULTS>\n"
-                    "</SEARCH_RESULT>"
-                ),
-            ],
         )
         context = make_context(
-            brain_client
+            brain_client,
+            search_provider=search_provider,
         )
         state = AgentState(
             user_input="Tell me about Tesla.",
@@ -593,6 +725,15 @@ class SearchFlowTests(
 
     async def test_search_action_stops_initial_brain_stream(self):
 
+        search_provider = FakeSearchProvider(
+            results=[
+                make_result(
+                    title="Apple price",
+                    quote="Apple price result.",
+                    excerpt="Apple price result.",
+                ),
+            ],
+        )
         brain_client = FakeBrainClient(
             streams=[
                 [
@@ -616,18 +757,10 @@ class SearchFlowTests(
                     },
                 ],
             ],
-            ask_responses=[
-                (
-                    "<SEARCH_RESULT>\n"
-                    "  <STATUS>FOUND</STATUS>\n"
-                    "  <QUERY>apple price</QUERY>\n"
-                    "  <SUMMARY>Apple price result.</SUMMARY>\n"
-                    "</SEARCH_RESULT>"
-                ),
-            ],
         )
         context = make_context(
-            brain_client
+            brain_client,
+            search_provider=search_provider,
         )
         state = AgentState(
             user_input="How much are apples?",
@@ -667,6 +800,7 @@ class SearchFlowTests(
 
     async def test_empty_search_results_are_removed_from_brain_context(self):
 
+        search_provider = FakeSearchProvider()
         brain_client = FakeBrainClient(
             streams=[
                 [
@@ -685,19 +819,10 @@ class SearchFlowTests(
                     },
                 ],
             ],
-            ask_responses=[
-                (
-                    "<SEARCH_RESULT>\n"
-                    "  <STATUS>NOT_READY</STATUS>\n"
-                    "  <QUERY>jupiter cost</QUERY>\n"
-                    "  <SUMMARY>Search is not ready for this query yet.</SUMMARY>\n"
-                    "  <RESULTS></RESULTS>\n"
-                    "</SEARCH_RESULT>"
-                ),
-            ],
         )
         context = make_context(
-            brain_client
+            brain_client,
+            search_provider=search_provider,
         )
         state = AgentState(
             user_input="How much does Jupiter cost?",
@@ -716,6 +841,54 @@ class SearchFlowTests(
         self.assertNotIn(
             "<RESULTS",
             brain_client.prompts[1]["system_prompt"],
+        )
+
+    async def test_empty_followup_does_not_return_raw_search_xml(self):
+
+        search_provider = FakeSearchProvider(
+            results=[
+                make_result(
+                    title="Python releases",
+                    source="python.org",
+                    quote="Python 3.14.5 May 10, 2026.",
+                ),
+            ],
+        )
+        brain_client = FakeBrainClient(
+            streams=[
+                [
+                    {
+                        "type": "thinking",
+                        "content": (
+                            f'{SEARCH_ACTION_OPEN}{{"query":"latest Python version"}}'
+                            f"{SEARCH_ACTION_CLOSE}"
+                        ),
+                    },
+                ],
+                [],
+            ],
+        )
+        context = make_context(
+            brain_client,
+            search_provider=search_provider,
+        )
+        state = AgentState(
+            user_input="Latest Python?",
+            translated_input="Latest Python?",
+        )
+
+        await BrainNode().run(
+            state,
+            context,
+        )
+
+        self.assertIn(
+            "Python releases",
+            state.brain_response,
+        )
+        self.assertNotIn(
+            "<SEARCH_RESULT>",
+            state.brain_response,
         )
 
 

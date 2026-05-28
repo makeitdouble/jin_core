@@ -38,6 +38,19 @@ SERVICE_TEMPERATURE = 0.15
 SERVICE_MAX_TOKENS = 1024
 
 # ---------------------------------------------------------
+# SEARCH
+# ---------------------------------------------------------
+
+SEARCH_PROVIDER = "serper"
+
+SEARCH_SERPER_API_KEY = "mock-serper-api-key"
+
+SEARCH_MAX_RESULTS = 5
+
+SEARCH_TIMEOUT = 20.0
+
+
+# ---------------------------------------------------------
 # TRANSLATOR MODEL
 # ---------------------------------------------------------
 
