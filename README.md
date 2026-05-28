@@ -6,9 +6,12 @@
 ![OpenAI Compatible](https://img.shields.io/badge/API-OpenAI--compatible-111827.svg)
 ![Tests](https://github.com/makeitdouble/jin_core/actions/workflows/tests.yml/badge.svg)
 
-JIN Core Engine is a local AI orchestration runtime for OpenAI-compatible model servers. It combines a FastAPI backend, a streaming WebSocket chat interface, runtime telemetry, model-role routing, stream validation, and a compact browser UI with no frontend build step.
 
-The engine is designed for multi-runtime local AI setups where the main reasoning model, service model, and translation model can run as separate providers while sharing one coherent chat surface.
+JIN Core Engine is a local AI orchestration runtime for OpenAI-compatible model servers. It combines a FastAPI backend, a streaming WebSocket chat interface, model-role routing, runtime actions, live in-memory context, stream validation, and a compact browser UI with no frontend build step.
+
+The engine is designed for multi-runtime local AI setups where the main reasoning model, service model, and translation model can run as separate providers while sharing one coherent room-like chat surface.
+
+![JIN Core Engine runtime UI](static/jin-core-runtime-memory.png)
 
 ## Capabilities
 
@@ -17,13 +20,19 @@ The engine is designed for multi-runtime local AI setups where the main reasonin
 - OpenAI-compatible runtime clients for `/v1/chat/completions` and `/v1/models`.
 - Separate runtime roles: `brain`, `service`, and `translator`.
 - Optional `USE_SERVICE_AS_BRAIN` mode for running without a dedicated brain provider.
+- Model-driven runtime actions, currently including web search requests emitted by the brain and executed by the runtime.
+- Search result injection through trusted runtime context instead of raw chat history.
 - Streaming lifecycle events for message start, thinking chunks, content chunks, completion, and errors.
 - Reasoning/thinking chunks rendered separately from final assistant content.
 - Runtime telemetry for model IDs, context windows, token usage, provider status, and runtime errors.
+- Live runtime memory: a compact in-RAM state updated by the service model after each completed turn.
+- Runtime memory panel in the right sidebar, showing the current memory state without XML tags.
+- Interrupted turn memory handling: aborted or incomplete responses are marked as unresolved state.
 - Stream validation for repeated word loops, repeated sentences, repeated paragraphs, and leading HTML artifacts.
-- Abort support that cancels the active task and closes active provider streams.
+- Abort support that cancels the active task, closes active provider streams, and records interrupted memory.
 - Agent runtime path for Cyrillic input: planner, internal translator, brain, validator.
 - Direct brain route for non-Cyrillic input.
+- Keyboard-first input: Enter sends, Ctrl/Shift+Enter inserts a newline, and the input field becomes the stop control during generation.
 
 ## Architecture
 
@@ -43,11 +52,19 @@ FastAPI app.py
                               v
         planner -> optional translator -> brain -> validator
                               |
+                              +-- runtime actions -> search service
+                              |
                               v
                       RuntimeClient.stream()
                                           |
                                           v
                               OpenAI-compatible provider
+                              |
+                              v
+                    background service summarizer
+                              |
+                              v
+                       live RuntimeContext memory
 ```
 
 ## Runtime Flow
@@ -58,6 +75,25 @@ The WebSocket layer creates a `RuntimeContext` per connection. Each user message
 - Other input routes through `planner -> brain -> validator`.
 
 The translator node logs translator output for observability but does not render it as a chat message. The brain node streams the visible assistant response from the configured brain runtime.
+
+The brain can emit runtime action markers. The runtime consumes those markers as control events, executes the requested action, injects the trusted result into the next brain prompt, and prevents raw control syntax from being rendered as chat text.
+
+After the visible response ends, the service runtime updates `context.runtime_memory` in the background. This request does not block the user-facing answer. The next brain prompt receives the current memory as trusted runtime context, and the right sidebar shows the same memory as plain text.
+
+If generation is aborted, the runtime captures the partial answer and schedules an interrupted memory update. The memory summarizer is instructed to mark the turn as incomplete and not treat it as resolved.
+
+## Runtime Memory
+
+Runtime memory is intentionally lightweight in the current MVP:
+
+- It lives in the active `RuntimeContext`, not in a database.
+- It is updated by a separate service-model request after a turn finishes.
+- It is written as compact, actionable bullet-like state rather than full transcript history.
+- It is injected into the brain prompt inside `<RUNTIME_MEMORY>`.
+- It is mirrored in the right sidebar through `runtime_memory_update` WebSocket events.
+- Truncated or obviously incomplete summarizer output is rejected so it does not overwrite the previous memory.
+
+This gives JIN short-term continuity without introducing persistence, vector storage, or retrieval infrastructure yet.
 
 ## Project Layout
 
@@ -77,7 +113,7 @@ The translator node logs translator output for observability but does not render
 |-- memory/                 # Memory and runtime state abstractions
 |-- runtime/                # Runtime client, context, stream, registry
 |-- settings/               # Config loader and typed settings wrapper
-|-- static/                 # Browser JavaScript
+|-- static/                 # Browser JavaScript and README assets
 |-- templates/              # HTML UI
 |-- tests/                  # Unit and optional model integration tests
 `-- utils/                  # Stream, telemetry, language, token, error helpers
@@ -164,6 +200,11 @@ SERVICE_CONTEXT_WINDOW = 8192
 SERVICE_TEMPERATURE = 0.15
 SERVICE_MAX_TOKENS = 1024
 
+SEARCH_PROVIDER = "serper"
+SEARCH_SERPER_API_KEY = "mock-serper-api-key"
+SEARCH_MAX_RESULTS = 5
+SEARCH_TIMEOUT = 20.0
+
 TRANSLATOR_API_BASE = "http://translator-host:1234"
 TRANSLATOR_MODEL_UID = "translator-model"
 TRANSLATOR_CONTEXT_WINDOW = 4096
@@ -185,6 +226,10 @@ TRANSLATION_MAX_TOKENS = 2048
 - `SERVICE_CONTEXT_WINDOW`: Context capacity displayed in telemetry.
 - `SERVICE_TEMPERATURE`: Sampling temperature for service calls.
 - `SERVICE_MAX_TOKENS`: Maximum generated tokens for service calls.
+- `SEARCH_PROVIDER`: Search backend used by runtime search actions.
+- `SEARCH_SERPER_API_KEY`: API key for the Serper search provider.
+- `SEARCH_MAX_RESULTS`: Maximum search results returned to the runtime.
+- `SEARCH_TIMEOUT`: Search provider timeout in seconds.
 - `TRANSLATOR_API_BASE`: Base URL for the translator provider.
 - `TRANSLATOR_MODEL_UID`: Model ID for the translator provider.
 - `TRANSLATOR_CONTEXT_WINDOW`: Context capacity displayed in telemetry.
@@ -242,6 +287,28 @@ Runtime log event:
 { "type": "log", "tag": "[RUNTIME]", "message": "..." }
 ```
 
+Runtime action event:
+
+```json
+{
+  "type": "runtime_action",
+  "action": "search",
+  "id": "search_001",
+  "text": "Searching for \"cost of tesla car\"",
+  "query": "cost of tesla car"
+}
+```
+
+Runtime memory update:
+
+```json
+{
+  "type": "runtime_memory_update",
+  "memory": "- active topic: feature testing\n- user intent: testing runtime behavior",
+  "updates": 6
+}
+```
+
 ## Frontend
 
 The UI is served directly by FastAPI:
@@ -250,8 +317,8 @@ The UI is served directly by FastAPI:
 - `static/socket.js` handles WebSocket connection, send, abort, and stream events.
 - `static/chat.js` renders normal and streaming messages.
 - `static/status.js` updates provider online/offline indicators.
-- `static/telemetry.js` updates runtime status and context usage.
+- `static/telemetry.js` updates runtime status, context usage, and live runtime memory.
 - `static/logger.js` renders the runtime console.
 - `static/dragdrop.js` handles attachment UI state.
 
-The frontend uses vanilla JavaScript and Tailwind from CDN.
+The frontend uses vanilla JavaScript and Tailwind from CDN. The current input behavior is keyboard-first: Enter sends, Ctrl/Shift+Enter inserts a newline, and the whole input field becomes a red stop control while a generation is active.
