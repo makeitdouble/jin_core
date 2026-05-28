@@ -43,3 +43,13 @@ class RuntimeContext:
     runtime_usage_events: list[dict] = field(
         default_factory=list
     )
+
+    runtime_memory: str = (
+        "User and JIN just started interacting."
+    )
+
+    runtime_memory_updates: int = 0
+
+    background_tasks: set = field(
+        default_factory=set
+    )

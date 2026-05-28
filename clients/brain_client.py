@@ -482,10 +482,16 @@ def build_brain_runtime_context(
         .to_runtime_xml()
     )
 
+    runtime_memory = ""
     search_result = ""
     search_result_id = ""
 
     if context is not None:
+        runtime_memory = getattr(
+            context,
+            "runtime_memory",
+            "",
+        )
         search_result = getattr(
             context,
             "runtime_search_result",
@@ -497,8 +503,21 @@ def build_brain_runtime_context(
             "",
         )
 
+    runtime_context_parts = [
+        runtime_xml
+    ]
+
+    if runtime_memory.strip():
+        runtime_context_parts.append(
+            "<RUNTIME_MEMORY>\n"
+            f"{indent_xml(escape(runtime_memory))}\n"
+            "</RUNTIME_MEMORY>"
+        )
+
     if not search_result:
-        return runtime_xml
+        return "\n".join(
+            runtime_context_parts
+        )
 
     search_result = strip_empty_results_xml(
         search_result
@@ -523,9 +542,12 @@ def build_brain_runtime_context(
     )
 
     return (
-        runtime_xml
-        + "\n"
-        + tool_results_xml
+        "\n".join(
+            runtime_context_parts
+            + [
+                tool_results_xml
+            ]
+        )
     )
 
 

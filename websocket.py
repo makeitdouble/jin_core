@@ -28,6 +28,10 @@ from agents.agent_state import (
     AgentState,
 )
 
+from memory.message_memory import (
+    schedule_runtime_memory_update,
+)
+
 from utils.brain import (
     get_brain_runtime_config,
 )
@@ -244,6 +248,12 @@ async def process_message(
         await websocket.send_json({
             "type": "agent_runtime_end",
         })
+
+        schedule_runtime_memory_update(
+            context=context,
+            user_message=user_text,
+            assistant_message=state.brain_response,
+        )
 
     except asyncio.CancelledError:
 
