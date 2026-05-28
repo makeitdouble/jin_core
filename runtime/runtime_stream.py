@@ -12,8 +12,12 @@ from utils.stream_handler import (
     StreamHandler,
 )
 
+from utils.token_usage import (
+    record_stream_token_usage,
+)
+
 from utils.tokens import (
-    estimate_stream_tokens,
+    estimate_stream_live_tokens,
 )
 
 
@@ -45,6 +49,7 @@ class RuntimeStream:
 
         self.log_method = log_method
         self.emit_to_chat = emit_to_chat
+        self.context_snapshot = context_snapshot or {}
 
         self.stream = StreamHandler(
             self.websocket,
@@ -55,6 +60,113 @@ class RuntimeStream:
             ),
             context_snapshot=(
                 context_snapshot
+            ),
+        )
+
+    def build_input_prompt_text(self) -> str:
+
+        if not isinstance(
+            self.context_snapshot,
+            dict,
+        ):
+            return ""
+
+        parts = []
+
+        for key in (
+            "system_prompt",
+            "user_prompt",
+            "context_payload",
+        ):
+
+            value = self.context_snapshot.get(
+                key,
+                "",
+            )
+
+            if value:
+                parts.append(
+                    str(value)
+                )
+
+        return "\n".join(
+            parts
+        )
+
+    def is_brain_context(self) -> bool:
+
+        if not isinstance(
+            self.context_snapshot,
+            dict,
+        ):
+            return False
+
+        return (
+            self.context_snapshot.get(
+                "context_role"
+            )
+            == "brain"
+        )
+
+    def estimate_live_tokens(self) -> int:
+
+        return estimate_stream_live_tokens(
+            self.stream,
+            prompt_text=(
+                self.build_input_prompt_text()
+            ),
+        )
+
+    async def refresh_token_usage(self):
+
+        if not self.is_brain_context():
+            return
+
+        used_tokens = (
+            self.estimate_live_tokens()
+        )
+
+        if not used_tokens:
+            return
+
+        await refresh_runtime_state(
+            self.context,
+            runtime_id=(
+                self.runtime_id
+            ),
+            used_tokens=(
+                used_tokens
+            ),
+            max_tokens=(
+                self.context_window
+            ),
+            last_error=None,
+            status="online",
+        )
+
+    def record_token_usage(self):
+        is_brain_context = self.is_brain_context()
+
+        record_stream_token_usage(
+            self.context,
+            runtime_id=(
+                self.runtime_id
+            ),
+            role=(
+                "brain"
+                if is_brain_context
+                else self.role
+            ),
+            kind=(
+                "brain"
+                if is_brain_context
+                else "service"
+            ),
+            stream=(
+                self.stream
+            ),
+            prompt_text=(
+                self.build_input_prompt_text()
             ),
         )
 
@@ -133,6 +245,8 @@ class RuntimeStream:
                 emit=self.emit_to_chat
             )
 
+            await self.refresh_token_usage()
+
             await self.logger.log_runtime(
                 f"[STREAM START] role={self.role}"
             )
@@ -171,6 +285,8 @@ class RuntimeStream:
                         emit=self.emit_to_chat,
                     )
 
+                    await self.refresh_token_usage()
+
                     continue
 
                 # -------------------------------------------------
@@ -196,30 +312,14 @@ class RuntimeStream:
 
                         return None
 
+                    await self.refresh_token_usage()
+
             await self.stream.finish(
                 emit=self.emit_to_chat
             )
 
-            used_tokens = (
-                estimate_stream_tokens(
-                    self.stream
-                )
-            )
-
-            await refresh_runtime_state(
-                self.context,
-                runtime_id=(
-                    self.runtime_id
-                ),
-                used_tokens=(
-                    used_tokens
-                ),
-                max_tokens=(
-                    self.context_window
-                ),
-                last_error=None,
-                status="online",
-            )
+            await self.refresh_token_usage()
+            self.record_token_usage()
 
             log_response = self.stream.response
 

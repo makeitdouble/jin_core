@@ -8,8 +8,8 @@ from settings.app_settings import (
     settings,
 )
 
-from utils.runtime_state_sync import (
-    refresh_runtime_state,
+from utils.token_usage import (
+    record_token_usage,
 )
 
 
@@ -45,20 +45,32 @@ class TranslationNode(BaseNode):
             translated_text
         )
 
-        await refresh_runtime_state(
-            context,
-            runtime_id=(
-                settings.TRANSLATOR_MODEL_UID
-            ),
-            add_tokens=usage.get(
-                "total_tokens",
-                0,
-            ),
-            max_tokens=(
-                settings.TRANSLATOR_CONTEXT_WINDOW
-            ),
-            last_error=None,
-            status="online",
-        )
+        if usage:
+            record_token_usage(
+                context,
+                runtime_id=(
+                    settings.TRANSLATOR_MODEL_UID
+                ),
+                role="translator",
+                kind="service",
+                prompt_tokens=(
+                    usage.get(
+                        "prompt_tokens",
+                        0,
+                    )
+                ),
+                completion_tokens=(
+                    usage.get(
+                        "completion_tokens",
+                        0,
+                    )
+                ),
+                total_tokens=(
+                    usage.get(
+                        "total_tokens",
+                        0,
+                    )
+                ),
+            )
 
         state.translated_input = translated_text

@@ -226,6 +226,11 @@ function appendLog(
       "text-emerald-500";
   }
 
+  if (tag.includes("FLOW TELEMETRY")) {
+    tagClass =
+      "text-purple-400";
+  }
+
   if (tag.includes("ERROR")) {
     tagClass =
       "text-red-500 font-bold";

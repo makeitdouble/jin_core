@@ -13,33 +13,14 @@ SEARCH_ACTION_TEMPLATE = (
 )
 
 
-def cdata(
-    value: str,
-) -> str:
-
-    return (
-        "<![CDATA["
-        f"{str(value).replace(']]>', ']]]]><![CDATA[>')}"
-        "]]>"
-    )
-
-
 def format_xml_field(
     tag: str,
     value,
 ) -> str:
 
-    if tag.endswith(
-        "_ACTION"
-    ):
-        rendered_value = cdata(
-            str(value)
-        )
-
-    else:
-        rendered_value = escape(
-            str(value)
-        )
+    rendered_value = escape(
+        str(value)
+    )
 
     return f"<{tag}>{rendered_value}</{tag}>"
 
@@ -55,7 +36,7 @@ def format_available_actions(
         (
             "        "
             f"<ACTION name=\"{escape(name)}\">"
-            f"{cdata(template)}"
+            f"{template}"
             "</ACTION>"
         )
         for name, template
@@ -96,13 +77,12 @@ class ContextContract:
         fields = {
             "TIMESTAMP": self.timestamp,
             "WEEKDAY": self.weekday,
-            "YEAR": self.year,
         }
 
         available_actions = []
 
         if self.can_deep_thought:
-            fields["DEEP_THOUGHT_COUNTER"] = self.deep_thought_count
+            fields["DEEP_THOUGHT_COUNTER"] = str(self.deep_thought_count)
             available_actions.append(
                 (
                     RUNTIME_ACTION_DEEP_THOUGHT,
