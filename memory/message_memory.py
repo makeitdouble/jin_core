@@ -11,7 +11,6 @@ from utils.response_extractor import (
     ResponseExtractor,
 )
 
-
 async def safe_call(
     call,
     *args,
@@ -28,6 +27,39 @@ async def safe_call(
         )
 
 
+async def emit_runtime_memory_update(
+    context,
+) -> None:
+
+    emitter = getattr(
+        context,
+        "emitter",
+        None,
+    )
+    emit = getattr(
+        emitter,
+        "emit",
+        None,
+    )
+
+    await safe_call(
+        emit,
+        {
+            "type": "runtime_memory_update",
+            "memory": getattr(
+                context,
+                "runtime_memory",
+                "",
+            ),
+            "updates": getattr(
+                context,
+                "runtime_memory_updates",
+                0,
+            ),
+        },
+    )
+
+
 def build_runtime_memory_system_prompt() -> str:
 
     return (
@@ -36,19 +68,33 @@ def build_runtime_memory_system_prompt() -> str:
         "Do not output JSON.\n"
         "Do not use Markdown headings.\n"
         "Do not explain your reasoning or the summarization process.\n"
+        "Write memory as atomic bullet lines, one semantic entity per line.\n"
+        "Each line should start with a compact semantic label such as topic, "
+        "user intent, active topic, open reference, pending choice, offered options, "
+        "preference, decision, pattern, or interrupted response.\n"
+        "Avoid writing about JIN's role unless the role itself changed or matters. "
+        "Describe assistant actions neutrally instead.\n"
+        "Keep memory actionable: write what helps the next answer, not a recap of "
+        "what happened.\n"
+        "Do not merge unrelated facts into one sentence. Prefer separate lines "
+        "over broad phrasing like 'Topic established: X, specifically Y'.\n"
+        "Finish every bullet line completely. Never leave a line mid-phrase.\n"
         "Preserve still-relevant existing memory. Update it instead of replacing it blindly.\n"
         "Drop old details only when they are clearly obsolete, duplicated, or no longer useful.\n"
         "Decide the summary depth from the signal in the latest turn.\n"
         "Use shallow summarization for simple factual, isolated, or low-signal turns: "
-        "keep only the dry fact, topic, or unresolved reference that could help "
-        "the next answer.\n"
+        "keep one or two bullet lines with only the dry fact, topic, or unresolved "
+        "reference that could help the next answer.\n"
         "Use deep summarization for turns that reveal user intent, project direction, "
         "preferences, recurring patterns, decisions, emotional tone, or a meaningful "
-        "shift in the conversation trajectory.\n"
+        "shift in the conversation trajectory; use three to six bullet lines when "
+        "the turn carries that much signal.\n"
         "If the user asks a follow-up that depends on prior context, preserve the "
         "referent clearly enough for the next brain prompt to resolve it.\n"
         "If the user switches topic, keep the new topic without forcing it into the "
         "previous one; only note a pattern if the sequence itself is meaningful.\n"
+        "If the assistant response was aborted or incomplete, mark it as incomplete "
+        "and do not treat it as resolved.\n"
         "Do not infer stable user traits from a single turn.\n"
         "Do not over-interpret jokes, tests, or casual topic changes.\n"
         "Prefer compact continuity over transcript-like detail.\n"
@@ -73,7 +119,30 @@ def build_runtime_memory_user_prompt(
         f"{user_message.strip()}\n\n"
         "Latest JIN answer:\n"
         f"{assistant_message.strip()}\n\n"
-        "Rewrite the runtime memory now."
+        "Rewrite the runtime memory now as atomic bullet lines."
+    )
+
+
+def build_interrupted_assistant_message(
+    *,
+    user_message: str,
+    assistant_message: str,
+) -> str:
+
+    partial_text = assistant_message.strip()
+
+    if not partial_text:
+        partial_text = (
+            "No complete assistant answer was delivered."
+        )
+
+    return (
+        "Assistant response was interrupted by the user and is incomplete. "
+        "Do not treat this turn as resolved.\n\n"
+        "Interrupted user topic/request:\n"
+        f"{user_message.strip()}\n\n"
+        "Partial assistant text before interruption:\n"
+        f"{partial_text}"
     )
 
 
@@ -91,6 +160,97 @@ def extract_runtime_memory_text(
     )
 
     return text.strip()
+
+
+def is_runtime_memory_response_truncated(
+    response: dict,
+) -> bool:
+
+    finish_reason = (
+        ResponseExtractor
+        .extract_finish_reason(
+            response
+        )
+        .lower()
+    )
+
+    return finish_reason in (
+        "length",
+        "max_tokens",
+    )
+
+
+def looks_like_incomplete_runtime_memory(
+    text: str,
+) -> bool:
+
+    stripped = (
+        text
+        or ""
+    ).strip()
+
+    if not stripped:
+        return True
+
+    if stripped[-1] in (
+        ",",
+        ":",
+        "(",
+        "[",
+        "{",
+    ):
+        return True
+
+    pairs = (
+        (
+            "(",
+            ")",
+        ),
+        (
+            "[",
+            "]",
+        ),
+        (
+            "{",
+            "}",
+        ),
+    )
+
+    return any(
+        stripped.count(open_char)
+        > stripped.count(close_char)
+        for open_char, close_char
+        in pairs
+    )
+
+
+async def ask_runtime_memory_model(
+    *,
+    service_client,
+    current_memory: str,
+    user_message: str,
+    assistant_message: str,
+) -> dict:
+
+    return await ask_service_model(
+        client=service_client,
+        system_prompt=(
+            build_runtime_memory_system_prompt()
+        ),
+        user_prompt=(
+            build_runtime_memory_user_prompt(
+                current_memory=current_memory,
+                user_message=user_message,
+                assistant_message=assistant_message,
+            )
+        ),
+        temperature=(
+            config.SERVICE_TEMPERATURE
+        ),
+        max_tokens=(
+            config.SERVICE_MAX_TOKENS
+        ),
+    )
 
 
 async def summarize_runtime_memory(
@@ -132,32 +292,42 @@ async def summarize_runtime_memory(
     )
 
     try:
-        response = await ask_service_model(
-            client=service_client,
-            system_prompt=(
-                build_runtime_memory_system_prompt()
-            ),
-            user_prompt=(
-                build_runtime_memory_user_prompt(
-                    current_memory=current_memory,
-                    user_message=user_message,
-                    assistant_message=assistant_message,
-                )
-            ),
-            temperature=(
-                config.SERVICE_TEMPERATURE
-            ),
-            max_tokens=(
-                min(
-                    config.SERVICE_MAX_TOKENS,
-                    512,
-                )
-            ),
+        response = await ask_runtime_memory_model(
+            service_client=service_client,
+            current_memory=current_memory,
+            user_message=user_message,
+            assistant_message=assistant_message,
         )
 
         updated_memory = extract_runtime_memory_text(
             response
         )
+
+        if (
+            is_runtime_memory_response_truncated(
+                response
+            )
+            or looks_like_incomplete_runtime_memory(
+                updated_memory
+            )
+        ):
+            await safe_call(
+                getattr(
+                    getattr(
+                        context,
+                        "logger",
+                        None,
+                    ),
+                    "log_error",
+                    None,
+                ),
+                "[MEMORY] runtime memory update skipped",
+                details=(
+                    "Summarizer returned an incomplete memory update."
+                ),
+            )
+
+            return current_memory
 
         if updated_memory:
             context.runtime_memory = updated_memory
@@ -184,6 +354,10 @@ async def summarize_runtime_memory(
             await safe_call(
                 log_service,
                 "[MEMORY] runtime memory updated",
+            )
+
+            await emit_runtime_memory_update(
+                context
             )
 
         return getattr(
@@ -258,3 +432,35 @@ def schedule_runtime_memory_update(
     )
 
     return task
+
+
+def schedule_interrupted_runtime_memory_update(
+    *,
+    context,
+) -> asyncio.Task | None:
+
+    user_message = getattr(
+        context,
+        "runtime_turn_user_message",
+        "",
+    )
+
+    assistant_message = (
+        build_interrupted_assistant_message(
+            user_message=user_message,
+            assistant_message=getattr(
+                context,
+                "runtime_turn_assistant_response",
+                "",
+            ),
+        )
+    )
+
+    if not user_message.strip():
+        return None
+
+    return schedule_runtime_memory_update(
+        context=context,
+        user_message=user_message,
+        assistant_message=assistant_message,
+    )

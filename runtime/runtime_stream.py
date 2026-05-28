@@ -170,6 +170,15 @@ class RuntimeStream:
             ),
         )
 
+    def capture_runtime_turn_response(self):
+
+        if not self.is_brain_context():
+            return
+
+        self.context.runtime_turn_assistant_response = (
+            self.stream.response
+        )
+
     def build_action_log(
         self,
         action_event_offset: int,
@@ -306,6 +315,8 @@ class RuntimeStream:
                     )
 
                     if not is_valid:
+                        self.capture_runtime_turn_response()
+
                         await self.stream.finish(
                             emit=self.emit_to_chat
                         )
@@ -313,6 +324,7 @@ class RuntimeStream:
                         return None
 
                     await self.refresh_token_usage()
+                    self.capture_runtime_turn_response()
 
             await self.stream.finish(
                 emit=self.emit_to_chat
@@ -320,6 +332,7 @@ class RuntimeStream:
 
             await self.refresh_token_usage()
             self.record_token_usage()
+            self.capture_runtime_turn_response()
 
             log_response = self.stream.response
 
@@ -339,6 +352,9 @@ class RuntimeStream:
         # ---------------------------------------------------------
 
         except asyncio.CancelledError:
+
+            self.context.runtime_turn_interrupted = True
+            self.capture_runtime_turn_response()
 
             await self.logger.log_runtime(
                 f"{self.runtime_id} stream cancelled."
@@ -371,6 +387,9 @@ class RuntimeStream:
                 httpx.ReadError,
                 httpx.RemoteProtocolError,
         ):
+
+            self.context.runtime_turn_interrupted = True
+            self.capture_runtime_turn_response()
 
             await self.logger.log_system(
                 "Generation aborted."

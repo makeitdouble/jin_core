@@ -1,4 +1,5 @@
 import unittest
+import asyncio
 from types import SimpleNamespace
 
 from runtime.runtime_registry import (
@@ -100,6 +101,16 @@ async def fake_generator():
     }
 
 
+async def fake_cancelled_generator():
+
+    yield {
+        "type": "content",
+        "content": "partial answer",
+    }
+
+    raise asyncio.CancelledError()
+
+
 class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_runtime_context_counter_grows_during_stream(self):
@@ -191,6 +202,51 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                 last_error=original_state["last_error"],
                 status=original_state["status"],
             )
+
+    async def test_cancelled_brain_stream_captures_partial_response(self):
+
+        runtime_id = settings.SERVICE_MODEL_UID
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_turn_assistant_response="",
+            runtime_turn_interrupted=False,
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=runtime_id,
+            role="service",
+            context_window=(
+                settings.SERVICE_CONTEXT_WINDOW
+            ),
+            log_method=(
+                context.logger.log_service
+            ),
+            context_snapshot={
+                "context_role": "brain",
+                "system_prompt": "system prompt",
+                "user_prompt": "user payload",
+            },
+        )
+
+        result = await stream.run(
+            fake_cancelled_generator()
+        )
+
+        self.assertIsNone(
+            result
+        )
+        self.assertTrue(
+            context.runtime_turn_interrupted
+        )
+        self.assertEqual(
+            context.runtime_turn_assistant_response,
+            "partial answer",
+        )
 
     async def test_non_brain_stream_does_not_update_context_counter(self):
 

@@ -8,6 +8,9 @@ const chatForm =
 const userInput =
   document.getElementById("user-input");
 
+const stopIndicator =
+  document.getElementById("stop-indicator");
+
 const sendButton =
   chatForm.querySelector(
     'button[type="submit"]'
@@ -45,6 +48,68 @@ function setGenerationState(
 
   generationRunning =
     active;
+
+  userInput.readOnly =
+    active;
+
+  chatForm.setAttribute(
+    "aria-busy",
+    active
+      ? "true"
+      : "false"
+  );
+
+  chatForm.classList.toggle(
+    "cursor-pointer",
+    active
+  );
+
+  chatForm.classList.toggle(
+    "border-red-400/80",
+    active
+  );
+
+  chatForm.classList.toggle(
+    "bg-red-950/35",
+    active
+  );
+
+  chatForm.classList.toggle(
+    "shadow-[0_0_0_1px_rgba(248,113,113,0.25)]",
+    active
+  );
+
+  userInput.classList.toggle(
+    "placeholder-red-200/70",
+    active
+  );
+
+  userInput.classList.toggle(
+    "text-red-100",
+    active
+  );
+
+  userInput.classList.toggle(
+    "cursor-pointer",
+    active
+  );
+
+  userInput.classList.toggle(
+    "caret-transparent",
+    active
+  );
+
+  if (stopIndicator) {
+    stopIndicator.classList.toggle(
+      "hidden",
+      !active
+    );
+
+    stopIndicator.classList.toggle(
+      "flex",
+      active
+    );
+  }
 
   if (!sendButton) {
     return;
@@ -200,7 +265,26 @@ userInput.addEventListener(
 );
 
 // --------------------------------------------------
-// BUTTON CLICK
+// STOP AREA CLICK
+// --------------------------------------------------
+
+chatForm.addEventListener(
+  "click",
+  function (e) {
+
+    if (!generationRunning) {
+      return;
+    }
+
+    e.preventDefault();
+
+    abortGeneration();
+
+  }
+);
+
+
+// HIDDEN BUTTON CLICK
 // --------------------------------------------------
 
 if (sendButton) {
@@ -247,9 +331,17 @@ ws.onmessage = function (event) {
     event.data
   );
 
-  handleTelemetryMessage(
-    data
-  );
+  if (window.handleTelemetryMessage) {
+    window.handleTelemetryMessage(
+      data
+    );
+  }
+
+  if (window.handleRuntimeMemoryMessage) {
+    window.handleRuntimeMemoryMessage(
+      data
+    );
+  }
 
   // -----------------------------
   // LOGS
