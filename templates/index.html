@@ -141,15 +141,15 @@
             <!-- INPUT -->
 
             <div
-                class="border-t border-slate-500 bg-slate-700 p-5 shrink-0">
+                class="border-t border-slate-500 bg-slate-700 px-5 py-4 shrink-0">
 
                 <form id="chat-form"
-                    class="max-w-4xl mx-auto flex items-end gap-2 bg-slate-600 border border-slate-500 rounded-xl p-3">
+                    class="relative max-w-4xl mx-auto flex items-center bg-slate-600 border border-slate-500 rounded-lg px-4 py-2 transition">
 
                     <!-- ATTACH -->
 
                     <label for="file-input"
-                        class="p-2 rounded-lg cursor-pointer text-zinc-200 hover:bg-slate-500 transition shrink-0">
+                        class="hidden p-2 rounded-lg cursor-pointer text-zinc-200 hover:bg-slate-500 transition shrink-0">
 
                         <svg xmlns="http://www.w3.org/2000/svg"
                             fill="none"
@@ -177,12 +177,21 @@
                     <textarea id="user-input"
                         rows="1"
                         placeholder="Запрос в Jin Core Engine..."
-                        class="w-full bg-transparent resize-none border-0 outline-none text-sm text-zinc-100 placeholder-zinc-300 max-h-32 py-2"></textarea>
+                        class="w-full bg-transparent resize-none border-0 outline-none text-sm leading-5 text-zinc-100 placeholder-zinc-300 max-h-28 py-1"></textarea>
+
+                    <div id="stop-indicator"
+                        class="pointer-events-none absolute inset-0 hidden items-center justify-center text-red-100">
+
+                        <span
+                            class="h-3 w-3 rounded-[2px] bg-red-200 shadow-[0_0_14px_rgba(248,113,113,0.75)]">
+                        </span>
+
+                    </div>
 
                     <!-- SEND -->
 
                     <button type="submit"
-                        class="p-2 rounded-lg bg-slate-500 hover:bg-slate-400 transition text-zinc-100 shrink-0">
+                        class="hidden p-2 rounded-lg bg-slate-500 hover:bg-slate-400 transition text-zinc-100 shrink-0">
 
                         <svg xmlns="http://www.w3.org/2000/svg"
                             fill="none"
@@ -313,6 +322,35 @@
 
                 </div>
 
+                <div
+                    id="runtime-memory-panel"
+                    class="rounded border border-slate-500/70 bg-slate-700">
+
+                    <div class="p-3 space-y-3 font-mono">
+
+                        <div
+                            class="flex items-center justify-between gap-2 border-b border-slate-500/70 pb-2 text-[11px] uppercase tracking-widest text-slate-100">
+
+                            <span class="min-w-0 truncate">
+                                [ runtime memory ]
+                            </span>
+
+                            <span
+                                id="runtime-memory-count"
+                                class="shrink-0 text-emerald-300">
+                                0
+                            </span>
+
+                        </div>
+
+                        <pre
+                            id="runtime-memory-text"
+                            class="min-h-28 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-zinc-100">User and JIN just started interacting.</pre>
+
+                    </div>
+
+                </div>
+
                 <div class="text-xs text-zinc-300 italic leading-relaxed">
 
                 </div>
@@ -344,12 +382,12 @@
             "runtimeConfig": runtime_config,
         } | tojson }}
     </template>
-    <script src="/static/telemetry.js?v=context-panel-8"></script>
+    <script src="/static/telemetry.js?v=runtime-memory-1"></script>
     <script src="/static/status.js?v=status-check-4"></script>
     <script src="/static/dragdrop.js?v=context-panel-5"></script>
     <script src="/static/logger.js?v=context-popup-1"></script>
     <script src="/static/chat.js?v=context-popup-1"></script>
-    <script src="/static/socket.js?v=context-popup-1"></script>
+    <script src="/static/socket.js?v=runtime-memory-1"></script>
 </body>
 
 </html>

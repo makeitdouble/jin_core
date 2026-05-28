@@ -29,6 +29,7 @@ from agents.agent_state import (
 )
 
 from memory.message_memory import (
+    schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
 )
 
@@ -202,6 +203,10 @@ async def process_message(
             )
         )
 
+        context.runtime_turn_user_message = user_text
+        context.runtime_turn_assistant_response = ""
+        context.runtime_turn_interrupted = False
+
         state = AgentState(
             user_input=user_text
         )
@@ -294,6 +299,8 @@ async def cancel_current_task(
 
     if context:
 
+        context.runtime_turn_interrupted = True
+
         active_streams = (
             getattr(
                 context,
@@ -326,6 +333,11 @@ async def cancel_current_task(
 
         await logger.log_runtime(
             "Generation cancelled."
+        )
+
+    if context:
+        schedule_interrupted_runtime_memory_update(
+            context=context,
         )
 
 

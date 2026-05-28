@@ -76,6 +76,16 @@ const contextRuntimePanel =
     "context-runtime-panel"
   );
 
+const runtimeMemoryText =
+  document.getElementById(
+    "runtime-memory-text"
+  );
+
+const runtimeMemoryCount =
+  document.getElementById(
+    "runtime-memory-count"
+  );
+
 
 function findRuntimeByLabel(
   runtimes,
@@ -444,6 +454,31 @@ function updateChatHeader(
 }
 
 
+function renderRuntimeMemory(
+  memory,
+  updates
+) {
+
+  if (runtimeMemoryText) {
+    runtimeMemoryText.textContent =
+      (
+        memory
+        && memory.trim()
+      )
+        ? memory.trim()
+        : "No runtime memory yet.";
+  }
+
+  if (runtimeMemoryCount) {
+    runtimeMemoryCount.textContent =
+      String(
+        updates || 0
+      );
+  }
+
+}
+
+
 function renderContextPanel() {
 
   if (isContextTabDisabled(
@@ -628,6 +663,23 @@ window.handleTelemetryMessage = function (data) {
   );
 
   renderContextPanel();
+
+};
+
+
+window.handleRuntimeMemoryMessage = function (data) {
+
+  if (
+    !data
+    || data.type !== "runtime_memory_update"
+  ) {
+    return;
+  }
+
+  renderRuntimeMemory(
+    data.memory || "",
+    data.updates || 0
+  );
 
 };
 

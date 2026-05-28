@@ -53,3 +53,9 @@ class RuntimeContext:
     background_tasks: set = field(
         default_factory=set
     )
+
+    runtime_turn_user_message: str = ""
+
+    runtime_turn_assistant_response: str = ""
+
+    runtime_turn_interrupted: bool = False
