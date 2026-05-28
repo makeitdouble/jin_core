@@ -77,17 +77,7 @@ async def serper_search(
         "Content-Type": "application/json",
     }
 
-    if http_client is not None:
-        response = await http_client.post(
-            SERPER_SEARCH_URL,
-            json=payload,
-            headers=headers,
-            timeout=timeout,
-        )
-        response.raise_for_status()
-        data = response.json()
-
-    else:
+    if http_client is None:
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 SERPER_SEARCH_URL,
@@ -95,8 +85,17 @@ async def serper_search(
                 headers=headers,
                 timeout=timeout,
             )
-            response.raise_for_status()
-            data = response.json()
+
+    else:
+        response = await http_client.post(
+            SERPER_SEARCH_URL,
+            json=payload,
+            headers=headers,
+            timeout=timeout,
+        )
+
+    response.raise_for_status()
+    data = response.json()
 
     return [
         normalize_serper_item(
