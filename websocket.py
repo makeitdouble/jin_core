@@ -255,10 +255,16 @@ async def process_message(
             "type": "agent_runtime_end",
         })
 
+        assistant_message = (
+                state.final_answer
+                or state.brain_response
+                or context.runtime_turn_assistant_response
+        )
+
         schedule_runtime_memory_update(
             context=context,
             user_message=user_text,
-            assistant_message=state.brain_response,
+            assistant_message=assistant_message,
         )
 
     except asyncio.CancelledError:

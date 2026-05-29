@@ -82,7 +82,12 @@ def build_runtime_memory_system_prompt() -> str:
         "Avoid writing about JIN's role unless the role itself changed or matters. "
         "Describe assistant actions neutrally instead.\n"
         "Keep memory actionable: write what helps the next answer, not a recap of "
-        "what happened.\n"
+        "what happened. \n"
+        "If there are unresolved pending choices or open references "
+        "that remain relevant to the current conversation, "
+        "you may naturally remind the user about them.\n"
+        "Do not interrupt a clearly established new topic. "
+        "Use reminders sparingly and only when they add value.\n"
         "Do not merge unrelated facts into one sentence. Prefer separate lines "
         "over broad phrasing like 'Topic established: X, specifically Y'.\n"
         "Finish every bullet line completely. Never leave a line mid-phrase.\n"
@@ -406,8 +411,10 @@ async def summarize_runtime_memory(
                     None,
                 ),
                 "[MEMORY] runtime memory update skipped",
-                details=(
-                    "Summarizer returned an incomplete memory update."
+                details=build_memory_update_skip_details(
+                    reason="Summarizer returned an incomplete memory update.",
+                    previous_memory=current_memory,
+                    candidate_memory=updated_memory,
                 ),
             )
 
@@ -533,14 +540,15 @@ async def summarize_runtime_memory_pending_turns(
             response
         )
 
-        if (
-                is_runtime_memory_response_truncated(
-                    response
-                )
-                or looks_like_incomplete_runtime_memory(
-            updated_memory
-        )
-        ):
+        skip_reason = None
+
+        if is_runtime_memory_response_truncated(response):
+            skip_reason = "Summarizer response was truncated by max_tokens."
+
+        elif looks_like_incomplete_runtime_memory(updated_memory):
+            skip_reason = "Summarizer returned text that looks structurally incomplete."
+
+        if skip_reason:
             await safe_call(
                 getattr(
                     getattr(
@@ -552,8 +560,10 @@ async def summarize_runtime_memory_pending_turns(
                     None,
                 ),
                 "[MEMORY] runtime memory update skipped",
-                details=(
-                    "Summarizer returned an incomplete memory update."
+                details=build_memory_update_skip_details(
+                    reason="Summarizer returned an incomplete memory update.",
+                    previous_memory=initial_memory,
+                    candidate_memory=updated_memory,
                 ),
             )
 
@@ -757,3 +767,20 @@ async def cancel_runtime_memory_update(
         await task
 
     context.runtime_memory_update_task = None
+
+def build_memory_update_skip_details(
+        *,
+        reason: str,
+        previous_memory: str,
+        candidate_memory: str,
+) -> str:
+
+    return (
+        f"{reason}\n\n"
+        "Previous memory:\n"
+        "----------------\n"
+        f"{previous_memory.strip() or DEFAULT_RUNTIME_MEMORY}\n\n"
+        "Candidate memory:\n"
+        "-----------------\n"
+        f"{candidate_memory.strip() or '<empty>'}"
+    )

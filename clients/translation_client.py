@@ -39,12 +39,14 @@ def build_translation_system_prompt(
 
 async def translate(
     *,
-    client,
+    context,
     text: str,
     source_language: str,
     target_language: str,
 ):
-
+    client=context.clients[
+        "translator"
+    ]
     stage = (
         f"{source_language}"
         f"_to_"
@@ -82,23 +84,15 @@ async def translate(
         )
 
         if content:
-
             return {
                 "content": content,
-                "usage": (
-                    result.get(
-                        "usage",
-                        {},
-                    )
-                ),
+                "usage": result.get("usage", {}),
             }
 
-        return (
-            ResponseExtractor
-            .extract_reasoning_text(
-                result
-            )
-        )
+        return {
+            "content": text,
+            "usage": result.get("usage", {}),
+        }
 
     except asyncio.CancelledError:
         raise

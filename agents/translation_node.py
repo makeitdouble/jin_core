@@ -24,22 +24,18 @@ class TranslationNode(BaseNode):
         state.iteration += 1
 
         translated = await translate(
-            client=context.clients[
-                "translator"
-            ],
+            context=context,
             text=state.user_input,
             source_language="Russian",
             target_language="English",
         )
 
-        translated_text = translated[
-            "content"
-        ]
-
-        usage = translated.get(
-            "usage",
-            {},
-        )
+        if isinstance(translated, str):
+            translated_text = translated
+            usage = {}
+        else:
+            translated_text = translated["content"]
+            usage = translated.get("usage", {})
 
         await context.logger.log_translation(
             translated_text
