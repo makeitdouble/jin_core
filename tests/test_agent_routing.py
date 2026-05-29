@@ -16,11 +16,10 @@ from agents.router import (
 class AgentRoutingTests(
     unittest.IsolatedAsyncioTestCase
 ):
-
-    async def test_cyrillic_input_routes_through_translation(self):
+    async def test_cyrillic_input_routes_directly_to_brain(self):
 
         state = AgentState(
-            user_input="\u043f\u0440\u0438\u0432\u0435\u0442"
+            user_input="привет"
         )
 
         await PlannerNode().run(
@@ -28,14 +27,18 @@ class AgentRoutingTests(
             context=None,
         )
 
-        self.assertTrue(
+        self.assertFalse(
             state.translate_input
+        )
+
+        self.assertEqual(
+            state.translated_input,
+            "привет",
         )
 
         self.assertEqual(
             state.current_plan,
             [
-                "translator",
                 "brain",
                 "validator",
             ],
