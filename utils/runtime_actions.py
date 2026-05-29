@@ -298,7 +298,7 @@ def extract_runtime_actions(
                 _paired_action_open_pattern(
                     action_name
                 )
-                + r"(\s*\{.*?\})\s*"
+                + r"(\s*\{.*?})\s*"
                 + re.escape(
                     close_marker
                 )

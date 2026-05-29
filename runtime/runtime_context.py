@@ -50,7 +50,15 @@ class RuntimeContext:
 
     runtime_memory: str = DEFAULT_RUNTIME_MEMORY
 
+    runtime_memory_stable: str = DEFAULT_RUNTIME_MEMORY
+
     runtime_memory_updates: int = 0
+
+    runtime_memory_pending_turns: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_memory_update_task: object | None = None
 
     background_tasks: set = field(
         default_factory=set

@@ -31,6 +31,7 @@ from agents.agent_state import (
 from memory.message_memory import (
     schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
+    cancel_runtime_memory_update,
 )
 
 from utils.brain import (
@@ -452,6 +453,10 @@ async def websocket_endpoint(
             # -------------------------------------------------
             # START BACKGROUND TASK
             # -------------------------------------------------
+
+            await cancel_runtime_memory_update(
+                context
+            )
 
             await refresh_pending_brain_usage(
                 context,

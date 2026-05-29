@@ -18,39 +18,10 @@ DEFAULT_RUNTIME_MEMORY = (
     "You have no history with the user yet."
 )
 
-
-DEFAULT_MEMORY_REQUEST_TIMEOUT = 120.0
-
-
-def get_memory_request_timeout() -> float:
-
-    configured_timeout = getattr(
-        config,
-        "RUNTIME_MEMORY_REQUEST_TIMEOUT",
-        None,
-    )
-
-    if configured_timeout is None:
-        configured_timeout = max(
-            float(
-                getattr(
-                    config,
-                    "SERVICE_REQUEST_TIMEOUT",
-                    0.0,
-                )
-            ),
-            DEFAULT_MEMORY_REQUEST_TIMEOUT,
-        )
-
-    return float(
-        configured_timeout
-    )
-
-
 async def safe_call(
-    call,
-    *args,
-    **kwargs,
+        call,
+        *args,
+        **kwargs,
 ):
 
     if call is None:
@@ -64,7 +35,7 @@ async def safe_call(
 
 
 async def emit_runtime_memory_update(
-    context,
+        context,
 ) -> None:
 
     emitter = getattr(
@@ -158,10 +129,61 @@ def build_runtime_memory_user_prompt(
     )
 
 
+def build_runtime_memory_batch_user_prompt(
+        *,
+        current_memory: str,
+        turns: list[dict],
+) -> str:
+
+    lines = [
+        "Current runtime memory:",
+        current_memory.strip() or DEFAULT_RUNTIME_MEMORY,
+        "",
+        "New completed turns since that memory snapshot:",
+        ]
+
+    for index, turn in enumerate(
+            turns,
+            start=1,
+    ):
+        lines.extend([
+            "",
+            f"Turn {index}",
+            "Latest user message:",
+            (
+                turn.get(
+                    "user_message",
+                    "",
+                )
+                .strip()
+            ),
+            "",
+            "Latest JIN answer:",
+            (
+                turn.get(
+                    "assistant_message",
+                    "",
+                )
+                .strip()
+            ),
+        ])
+
+    lines.extend([
+        "",
+        "Rewrite the runtime memory now as atomic bullet lines.",
+        "Use the current memory as the last stable snapshot.",
+        "Integrate all new completed turns in order.",
+    ])
+
+    return "\n".join(
+        lines
+    )
+
+
 def build_interrupted_assistant_message(
-    *,
-    user_message: str,
-    assistant_message: str,
+        *,
+        user_message: str,
+        assistant_message: str,
 ) -> str:
 
     partial_text = assistant_message.strip()
@@ -182,23 +204,23 @@ def build_interrupted_assistant_message(
 
 
 def extract_runtime_memory_text(
-    response: dict,
+        response: dict,
 ) -> str:
 
     text = (
-        ResponseExtractor.extract_content_text(
-            response
-        )
-        or ResponseExtractor.extract_reasoning_text(
-            response
-        )
+            ResponseExtractor.extract_content_text(
+                response
+            )
+            or ResponseExtractor.extract_reasoning_text(
+        response
+    )
     )
 
     return text.strip()
 
 
 def is_runtime_memory_response_truncated(
-    response: dict,
+        response: dict,
 ) -> bool:
 
     finish_reason = (
@@ -216,23 +238,23 @@ def is_runtime_memory_response_truncated(
 
 
 def looks_like_incomplete_runtime_memory(
-    text: str,
+        text: str,
 ) -> bool:
 
     stripped = (
-        text
-        or ""
+            text
+            or ""
     ).strip()
 
     if not stripped:
         return True
 
     if stripped[-1] in (
-        ",",
-        ":",
-        "(",
-        "[",
-        "{",
+            ",",
+            ":",
+            "(",
+            "[",
+            "{",
     ):
         return True
 
@@ -260,11 +282,11 @@ def looks_like_incomplete_runtime_memory(
 
 
 async def ask_runtime_memory_model(
-    *,
-    service_client,
-    current_memory: str,
-    user_message: str,
-    assistant_message: str,
+        *,
+        service_client,
+        current_memory: str,
+        user_message: str,
+        assistant_message: str,
 ) -> dict:
 
     return await ask_service_model(
@@ -285,15 +307,41 @@ async def ask_runtime_memory_model(
         max_tokens=(
             config.SERVICE_MAX_TOKENS
         ),
-        timeout=get_memory_request_timeout(),
+    )
+
+
+async def ask_runtime_memory_batch_model(
+        *,
+        service_client,
+        current_memory: str,
+        turns: list[dict],
+) -> dict:
+
+    return await ask_service_model(
+        client=service_client,
+        system_prompt=(
+            build_runtime_memory_system_prompt()
+        ),
+        user_prompt=(
+            build_runtime_memory_batch_user_prompt(
+                current_memory=current_memory,
+                turns=turns,
+            )
+        ),
+        temperature=(
+            config.SERVICE_TEMPERATURE
+        ),
+        max_tokens=(
+            config.SERVICE_MAX_TOKENS
+        ),
     )
 
 
 async def summarize_runtime_memory(
-    *,
-    context,
-    user_message: str,
-    assistant_message: str,
+        *,
+        context,
+        user_message: str,
+        assistant_message: str,
 ) -> str:
 
     if not assistant_message.strip():
@@ -340,12 +388,12 @@ async def summarize_runtime_memory(
         )
 
         if (
-            is_runtime_memory_response_truncated(
-                response
-            )
-            or looks_like_incomplete_runtime_memory(
-                updated_memory
-            )
+                is_runtime_memory_response_truncated(
+                    response
+                )
+                or looks_like_incomplete_runtime_memory(
+            updated_memory
+        )
         ):
             await safe_call(
                 getattr(
@@ -364,6 +412,7 @@ async def summarize_runtime_memory(
             )
 
             return current_memory
+
         updates_counter = getattr(
             context,
             "runtime_memory_updates",
@@ -372,6 +421,7 @@ async def summarize_runtime_memory(
 
         if updated_memory or updates_counter == 0:
             context.runtime_memory = updated_memory
+            context.runtime_memory_stable = updated_memory
             context.runtime_memory_updates = updates_counter + 1
 
             logger = getattr(
@@ -432,23 +482,203 @@ async def summarize_runtime_memory(
         )
 
 
+async def summarize_runtime_memory_pending_turns(
+        *,
+        context,
+) -> str:
+
+    turns = list(
+        context.runtime_memory_pending_turns
+    )
+
+    if not turns:
+        return getattr(
+            context,
+            "runtime_memory",
+            "",
+        )
+
+    service_client = (
+        getattr(
+            context,
+            "clients",
+            {},
+        )
+        .get(
+            "service"
+        )
+    )
+
+    if service_client is None:
+        return getattr(
+            context,
+            "runtime_memory",
+            "",
+        )
+
+    initial_memory = getattr(
+        context,
+        "runtime_memory_stable",
+        "",
+    )
+
+    try:
+        response = await ask_runtime_memory_batch_model(
+            service_client=service_client,
+            current_memory=initial_memory,
+            turns=turns,
+        )
+
+        updated_memory = extract_runtime_memory_text(
+            response
+        )
+
+        if (
+                is_runtime_memory_response_truncated(
+                    response
+                )
+                or looks_like_incomplete_runtime_memory(
+            updated_memory
+        )
+        ):
+            await safe_call(
+                getattr(
+                    getattr(
+                        context,
+                        "logger",
+                        None,
+                    ),
+                    "log_error",
+                    None,
+                ),
+                "[MEMORY] runtime memory update skipped",
+                details=(
+                    "Summarizer returned an incomplete memory update."
+                ),
+            )
+
+            return initial_memory
+
+        updates_counter = getattr(
+            context,
+            "runtime_memory_updates",
+            0,
+        )
+
+        if updated_memory or updates_counter == 0:
+            context.runtime_memory = updated_memory
+            context.runtime_memory_stable = updated_memory
+            context.runtime_memory_updates = updates_counter + 1
+
+            context.runtime_memory_pending_turns = [
+                turn
+                for turn in context.runtime_memory_pending_turns
+                if turn not in turns
+            ]
+
+            logger = getattr(
+                context,
+                "logger",
+                None,
+            )
+            log_service = getattr(
+                logger,
+                "log_service",
+                None,
+            )
+
+            await safe_call(
+                log_service,
+                "[MEMORY] runtime memory updated",
+            )
+
+            await emit_runtime_memory_update(
+                context
+            )
+
+        return getattr(
+            context,
+            "runtime_memory",
+            "",
+        )
+
+    except asyncio.CancelledError:
+        raise
+
+    except Exception:
+        formatted_traceback = (
+            traceback.format_exc()
+        )
+
+        logger = getattr(
+            context,
+            "logger",
+            None,
+        )
+        log_error = getattr(
+            logger,
+            "log_error",
+            None,
+        )
+
+        await safe_call(
+            log_error,
+            "[MEMORY] runtime memory update failed",
+            details=formatted_traceback,
+        )
+
+        return getattr(
+            context,
+            "runtime_memory",
+            "",
+        )
+
+    finally:
+        if (
+                getattr(
+                    context,
+                    "runtime_memory_update_task",
+                    None,
+                )
+                is asyncio.current_task()
+        ):
+            context.runtime_memory_update_task = None
+
+
 def schedule_runtime_memory_update(
-    *,
-    context,
-    user_message: str,
-    assistant_message: str,
+        *,
+        context,
+        user_message: str,
+        assistant_message: str,
 ) -> asyncio.Task | None:
 
     if not assistant_message.strip():
         return None
 
+    context.runtime_memory_pending_turns.append({
+        "user_message": user_message,
+        "assistant_message": assistant_message,
+    })
+
+    previous_task = getattr(
+        context,
+        "runtime_memory_update_task",
+        None,
+    )
+
+    if (
+            previous_task is not None
+            and not previous_task.done()
+    ):
+        previous_task.cancel()
+
     task = asyncio.create_task(
-        summarize_runtime_memory(
+        summarize_runtime_memory_pending_turns(
             context=context,
-            user_message=user_message,
-            assistant_message=assistant_message,
         )
     )
+
+    context.runtime_memory_update_task = task
 
     background_tasks = getattr(
         context,
@@ -471,8 +701,8 @@ def schedule_runtime_memory_update(
 
 
 def schedule_interrupted_runtime_memory_update(
-    *,
-    context,
+        *,
+        context,
 ) -> asyncio.Task | None:
 
     user_message = getattr(
@@ -500,3 +730,30 @@ def schedule_interrupted_runtime_memory_update(
         user_message=user_message,
         assistant_message=assistant_message,
     )
+
+
+async def cancel_runtime_memory_update(
+        context,
+) -> None:
+
+    task = getattr(
+        context,
+        "runtime_memory_update_task",
+        None,
+    )
+
+    if (
+            task is None
+            or task.done()
+    ):
+        return
+
+    task.cancel()
+
+    with contextlib.suppress(
+            asyncio.CancelledError,
+            Exception,
+    ):
+        await task
+
+    context.runtime_memory_update_task = None
