@@ -839,7 +839,8 @@ async def ask_brain_stream(
     )
 
     thinking_filter = RuntimeActionStreamFilter(
-        enabled_actions=enabled_actions
+        enabled_actions=enabled_actions,
+        preserve_action_text=True,
     )
     content_filter = RuntimeActionStreamFilter(
         enabled_actions=enabled_actions
@@ -902,6 +903,16 @@ async def ask_brain_stream(
             )
 
             stop_for_runtime_action = True
+
+            if (
+                chunk_type == "thinking"
+                and result.text
+            ):
+                return {
+                    **action_chunk,
+                    "content": result.text,
+                }
+
             return None
 
         if not result.text:

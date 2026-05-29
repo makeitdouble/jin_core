@@ -6,6 +6,10 @@ from emitter.runtime_emitter import (
     RuntimeEmitter,
 )
 
+from memory.message_memory import (
+    DEFAULT_RUNTIME_MEMORY,
+)
+
 
 @dataclass
 class RuntimeContext:
@@ -44,9 +48,7 @@ class RuntimeContext:
         default_factory=list
     )
 
-    runtime_memory: str = (
-        "User and JIN just started interacting."
-    )
+    runtime_memory: str = DEFAULT_RUNTIME_MEMORY
 
     runtime_memory_updates: int = 0
 

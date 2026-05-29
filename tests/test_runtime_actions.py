@@ -140,6 +140,68 @@ class RuntimeActionTests(unittest.TestCase):
             ),
         )
 
+    def test_extracts_tool_call_prefixed_search_action(self):
+
+        result = extract_runtime_actions(
+            (
+                "before "
+                '<|tool_call>call:RUNTIME_ACTION:SEARCH>'
+                '{"query":"marijuana"}'
+                f"{SEARCH_ACTION_CLOSE} after"
+            ),
+            enabled_actions=[
+                "CAN_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "before  after",
+        )
+
+        self.assertEqual(
+            result.count("SEARCH"),
+            1,
+        )
+
+        self.assertEqual(
+            result.search_queries,
+            (
+                "marijuana",
+            ),
+        )
+
+    def test_preserves_canonical_search_action_text_when_requested(self):
+
+        result = extract_runtime_actions(
+            (
+                "before "
+                '<|tool_call>call:RUNTIME_ACTION:SEARCH>'
+                '{"query":"marijuana"}'
+                f"{SEARCH_ACTION_CLOSE} after"
+            ),
+            enabled_actions=[
+                "CAN_SEARCH",
+            ],
+            preserve_action_text=True,
+        )
+
+        self.assertEqual(
+            result.text,
+            (
+                "before "
+                f'{SEARCH_ACTION_OPEN}{{"query":"marijuana"}}'
+                f"{SEARCH_ACTION_CLOSE} after"
+            ),
+        )
+
+        self.assertEqual(
+            result.search_queries,
+            (
+                "marijuana",
+            ),
+        )
+
     def test_ignores_disabled_search_action(self):
 
         text = (
@@ -198,6 +260,213 @@ class RuntimeActionTests(unittest.TestCase):
             (
                 "python",
             ),
+        )
+
+        self.assertEqual(
+            stream_filter.flush(),
+            "",
+        )
+
+    def test_stream_filter_handles_split_tool_call_prefixed_search_action(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_SEARCH",
+            ],
+        )
+
+        first = stream_filter.filter(
+            (
+                "before "
+                '<|tool_call>call:RUNTIME_ACTION:SEARCH>'
+                '{"query":"mari'
+            )
+        )
+
+        second = stream_filter.filter(
+            f'juana"}}{SEARCH_ACTION_CLOSE} after'
+        )
+
+        self.assertEqual(
+            first.text,
+            "before ",
+        )
+
+        self.assertEqual(
+            first.count("SEARCH"),
+            0,
+        )
+
+        self.assertEqual(
+            second.text,
+            " after",
+        )
+
+        self.assertEqual(
+            second.search_queries,
+            (
+                "marijuana",
+            ),
+        )
+
+        self.assertEqual(
+            stream_filter.flush(),
+            "",
+        )
+
+    def test_stream_filter_preserves_complete_search_action_when_requested(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_SEARCH",
+            ],
+            preserve_action_text=True,
+        )
+
+        first = stream_filter.filter(
+            (
+                "before "
+                '<|tool_call>call:RUNTIME_ACTION:SEARCH>'
+                '{"query":"mari'
+            )
+        )
+
+        second = stream_filter.filter(
+            f'juana"}}{SEARCH_ACTION_CLOSE} after'
+        )
+
+        self.assertEqual(
+            first.text,
+            "before ",
+        )
+
+        self.assertEqual(
+            second.text,
+            (
+                f'{SEARCH_ACTION_OPEN}{{"query":"marijuana"}}'
+                f"{SEARCH_ACTION_CLOSE} after"
+            ),
+        )
+
+        self.assertEqual(
+            second.search_queries,
+            (
+                "marijuana",
+            ),
+        )
+
+    def test_stream_filter_preserves_mentioned_search_tag_without_stalling(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_SEARCH",
+            ],
+            preserve_action_text=True,
+        )
+
+        first = stream_filter.filter(
+            "like `<RUNTIME_ACTION:SEARCH>"
+        )
+
+        second = stream_filter.filter(
+            "`) is just a tag name"
+        )
+
+        self.assertEqual(
+            first.text,
+            "like `<RUNTIME_ACTION:SEARCH>",
+        )
+
+        self.assertEqual(
+            first.actions,
+            (),
+        )
+
+        self.assertEqual(
+            second.text,
+            "`) is just a tag name",
+        )
+
+        self.assertEqual(
+            second.actions,
+            (),
+        )
+
+    def test_stream_filter_parses_search_when_payload_follows_preserved_open_tag(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_SEARCH",
+            ],
+            preserve_action_text=True,
+        )
+
+        first = stream_filter.filter(
+            f"before {SEARCH_ACTION_OPEN}"
+        )
+
+        second = stream_filter.filter(
+            f'{{"query":"marijuana"}}{SEARCH_ACTION_CLOSE} after'
+        )
+
+        self.assertEqual(
+            first.text,
+            f"before {SEARCH_ACTION_OPEN}",
+        )
+
+        self.assertEqual(
+            first.actions,
+            (),
+        )
+
+        self.assertEqual(
+            second.text,
+            f'{{"query":"marijuana"}}{SEARCH_ACTION_CLOSE} after',
+        )
+
+        self.assertEqual(
+            second.search_queries,
+            (
+                "marijuana",
+            ),
+        )
+
+    def test_removes_stray_tool_call_marker(self):
+
+        result = extract_runtime_actions(
+            "before <|tool_call> after"
+        )
+
+        self.assertEqual(
+            result.text,
+            "before  after",
+        )
+
+        self.assertEqual(
+            result.actions,
+            (),
+        )
+
+    def test_stream_filter_removes_split_tool_call_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter()
+
+        first = stream_filter.filter(
+            "before <|tool"
+        )
+
+        second = stream_filter.filter(
+            "_call> after"
+        )
+
+        self.assertEqual(
+            first.text,
+            "before ",
+        )
+
+        self.assertEqual(
+            second.text,
+            " after",
         )
 
         self.assertEqual(

@@ -556,6 +556,16 @@ class SearchFlowTests(
             ).messages
             if message.get("type") == "runtime_action"
         ]
+        thinking_chunks = [
+            message.get(
+                "chunk",
+                "",
+            )
+            for message in get_fake_websocket(
+                context
+            ).messages
+            if message.get("type") == "thinking_chunk"
+        ]
 
         self.assertEqual(
             len(runtime_events),
@@ -582,6 +592,15 @@ class SearchFlowTests(
             [
                 "tesla car price",
             ],
+        )
+        self.assertIn(
+            (
+                f'{SEARCH_ACTION_OPEN}{{"query":"tesla car price"}}'
+                f"{SEARCH_ACTION_CLOSE}"
+            ),
+            "".join(
+                thinking_chunks
+            ),
         )
         self.assertIn(
             "action: search",
