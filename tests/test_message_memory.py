@@ -1,6 +1,5 @@
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
 
 from clients.brain_client import (
     build_brain_system_prompt,
@@ -10,7 +9,6 @@ from memory.message_memory import (
     build_interrupted_assistant_message,
     build_runtime_memory_system_prompt,
     build_runtime_memory_user_prompt,
-    get_memory_request_timeout,
     schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
     summarize_runtime_memory,
@@ -138,23 +136,6 @@ class MessageMemoryTests(
             DEFAULT_RUNTIME_MEMORY,
             prompt,
         )
-
-    def test_memory_request_timeout_has_background_default(self):
-
-        with patch(
-            "memory.message_memory.config.SERVICE_REQUEST_TIMEOUT",
-            30.0,
-            create=True,
-        ), patch(
-            "memory.message_memory.config.RUNTIME_MEMORY_REQUEST_TIMEOUT",
-            None,
-            create=True,
-        ):
-
-            self.assertEqual(
-                get_memory_request_timeout(),
-                120.0,
-            )
 
     def test_first_brain_prompt_includes_default_runtime_memory(self):
 
@@ -362,7 +343,7 @@ class MessageMemoryTests(
             ],
         )
 
-    async def test_summarizer_uses_service_max_tokens_and_memory_timeout(self):
+    async def test_summarizer_uses_service_max_tokens(self):
 
         service_client = FakeServiceClient(
             "- Active topic: available functions\n"
@@ -399,10 +380,6 @@ class MessageMemoryTests(
         self.assertEqual(
             service_client.calls[0]["max_tokens"],
             config.SERVICE_MAX_TOKENS,
-        )
-        self.assertEqual(
-            service_client.calls[0]["timeout"],
-            get_memory_request_timeout(),
         )
 
     async def test_summarizer_skips_incomplete_memory(self):
@@ -503,7 +480,10 @@ class MessageMemoryTests(
             },
             logger=FakeLogger(),
             runtime_memory="Initial memory.",
+            runtime_memory_stable="Initial memory.",
             runtime_memory_updates=0,
+            runtime_memory_pending_turns=[],
+            runtime_memory_update_task=None,
         )
 
         task = schedule_runtime_memory_update(
@@ -547,7 +527,10 @@ class MessageMemoryTests(
             },
             logger=FakeLogger(),
             runtime_memory="Initial memory.",
+            runtime_memory_stable="Initial memory.",
             runtime_memory_updates=0,
+            runtime_memory_pending_turns=[],
+            runtime_memory_update_task=None,
             runtime_turn_user_message="Tell me a story.",
             runtime_turn_assistant_response="Once upon a",
         )
