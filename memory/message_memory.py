@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import traceback
 
 from clients.service_client import (
     ask_service_model,
@@ -10,6 +11,41 @@ from settings.config_loader import (
 from utils.response_extractor import (
     ResponseExtractor,
 )
+
+
+DEFAULT_RUNTIME_MEMORY = (
+    "This session has just begun. "
+    "You have no history with the user yet."
+)
+
+
+DEFAULT_MEMORY_REQUEST_TIMEOUT = 120.0
+
+
+def get_memory_request_timeout() -> float:
+
+    configured_timeout = getattr(
+        config,
+        "RUNTIME_MEMORY_REQUEST_TIMEOUT",
+        None,
+    )
+
+    if configured_timeout is None:
+        configured_timeout = max(
+            float(
+                getattr(
+                    config,
+                    "SERVICE_REQUEST_TIMEOUT",
+                    0.0,
+                )
+            ),
+            DEFAULT_MEMORY_REQUEST_TIMEOUT,
+        )
+
+    return float(
+        configured_timeout
+    )
+
 
 async def safe_call(
     call,
@@ -70,8 +106,8 @@ def build_runtime_memory_system_prompt() -> str:
         "Do not explain your reasoning or the summarization process.\n"
         "Write memory as atomic bullet lines, one semantic entity per line.\n"
         "Each line should start with a compact semantic label such as topic, "
-        "user intent, active topic, open reference, pending choice, offered options, "
-        "preference, decision, pattern, or interrupted response.\n"
+        "user intents, potential motifs, focus, priority, active topics, open references, pending choices, "
+        "offered options, preferences, expectations, current concern, decisions, patterns, failures or interruptions.\n"
         "Avoid writing about JIN's role unless the role itself changed or matters. "
         "Describe assistant actions neutrally instead.\n"
         "Keep memory actionable: write what helps the next answer, not a recap of "
@@ -100,21 +136,20 @@ def build_runtime_memory_system_prompt() -> str:
         "Prefer compact continuity over transcript-like detail.\n"
         "Remove noise, implementation chatter, and one-off details unless they change "
         "what JIN should understand next.\n"
-        "Keep the memory under 1200 characters unless the latest turn is highly important.\n"
-        "The final memory should feel like live state, not chat history.\n"
+        "The final memory snapshot should feel like current live trusted state.\n"
     )
 
 
 def build_runtime_memory_user_prompt(
-    *,
-    current_memory: str,
-    user_message: str,
-    assistant_message: str,
+        *,
+        current_memory: str,
+        user_message: str,
+        assistant_message: str,
 ) -> str:
 
     return (
         "Current runtime memory:\n"
-        f"{current_memory.strip() or 'User and JIN just started interacting.'}\n\n"
+        f"{current_memory.strip() or DEFAULT_RUNTIME_MEMORY}\n\n"
         "Latest user message:\n"
         f"{user_message.strip()}\n\n"
         "Latest JIN answer:\n"
@@ -250,6 +285,7 @@ async def ask_runtime_memory_model(
         max_tokens=(
             config.SERVICE_MAX_TOKENS
         ),
+        timeout=get_memory_request_timeout(),
     )
 
 
@@ -328,17 +364,15 @@ async def summarize_runtime_memory(
             )
 
             return current_memory
+        updates_counter = getattr(
+            context,
+            "runtime_memory_updates",
+            0,
+        )
 
-        if updated_memory:
+        if updated_memory or updates_counter == 0:
             context.runtime_memory = updated_memory
-            context.runtime_memory_updates = (
-                getattr(
-                    context,
-                    "runtime_memory_updates",
-                    0,
-                )
-                + 1
-            )
+            context.runtime_memory_updates = updates_counter + 1
 
             logger = getattr(
                 context,
@@ -369,7 +403,11 @@ async def summarize_runtime_memory(
     except asyncio.CancelledError:
         raise
 
-    except Exception as error:
+    except Exception:
+        formatted_traceback = (
+            traceback.format_exc()
+        )
+
         logger = getattr(
             context,
             "logger",
@@ -384,9 +422,7 @@ async def summarize_runtime_memory(
         await safe_call(
             log_error,
             "[MEMORY] runtime memory update failed",
-            details=str(
-                error
-            ),
+            details=formatted_traceback,
         )
 
         return getattr(

@@ -1,15 +1,22 @@
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from clients.brain_client import (
     build_brain_system_prompt,
 )
 from memory.message_memory import (
+    DEFAULT_RUNTIME_MEMORY,
     build_interrupted_assistant_message,
     build_runtime_memory_system_prompt,
+    build_runtime_memory_user_prompt,
+    get_memory_request_timeout,
     schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
     summarize_runtime_memory,
+)
+from runtime.runtime_context import (
+    RuntimeContext,
 )
 from settings.config_loader import (
     config,
@@ -38,6 +45,7 @@ class FakeServiceClient:
         user_prompt: str,
         temperature: float,
         max_tokens: int,
+        timeout: float | None = None,
     ):
 
         self.calls.append({
@@ -45,7 +53,14 @@ class FakeServiceClient:
             "user_prompt": user_prompt,
             "temperature": temperature,
             "max_tokens": max_tokens,
+            "timeout": timeout,
         })
+
+        if isinstance(
+            self.response_text,
+            Exception,
+        ):
+            raise self.response_text
 
         if isinstance(
             self.response_text,
@@ -111,6 +126,62 @@ class MessageMemoryTests(
     unittest.IsolatedAsyncioTestCase
 ):
 
+    def test_runtime_memory_user_prompt_uses_session_fallback(self):
+
+        prompt = build_runtime_memory_user_prompt(
+            current_memory="",
+            user_message="hello",
+            assistant_message="hi",
+        )
+
+        self.assertIn(
+            DEFAULT_RUNTIME_MEMORY,
+            prompt,
+        )
+
+    def test_memory_request_timeout_has_background_default(self):
+
+        with patch(
+            "memory.message_memory.config.SERVICE_REQUEST_TIMEOUT",
+            30.0,
+            create=True,
+        ), patch(
+            "memory.message_memory.config.RUNTIME_MEMORY_REQUEST_TIMEOUT",
+            None,
+            create=True,
+        ):
+
+            self.assertEqual(
+                get_memory_request_timeout(),
+                120.0,
+            )
+
+    def test_first_brain_prompt_includes_default_runtime_memory(self):
+
+        context = RuntimeContext(
+            websocket=object(),
+            emitter=object(),
+            logger=object(),
+            clients={},
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_SEARCH": False,
+                "CAN_DEEP_THOUGHT": False,
+            },
+        )
+
+        self.assertIn(
+            "<RUNTIME_MEMORY>",
+            prompt,
+        )
+        self.assertIn(
+            DEFAULT_RUNTIME_MEMORY,
+            prompt,
+        )
+
     def test_runtime_memory_prompt_focuses_on_summary_depth(self):
 
         prompt = build_runtime_memory_system_prompt()
@@ -144,7 +215,7 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertIn(
-            "interrupted response",
+            "failures or interruptions",
             prompt,
         )
         self.assertIn(
@@ -235,7 +306,7 @@ class MessageMemoryTests(
                 emit=None,
             ),
             logger=logger,
-            runtime_memory="User and JIN just started interacting.",
+            runtime_memory="",
             runtime_memory_updates=0,
         )
 
@@ -291,7 +362,7 @@ class MessageMemoryTests(
             ],
         )
 
-    async def test_summarizer_uses_service_max_tokens(self):
+    async def test_summarizer_uses_service_max_tokens_and_memory_timeout(self):
 
         service_client = FakeServiceClient(
             "- Active topic: available functions\n"
@@ -328,6 +399,10 @@ class MessageMemoryTests(
         self.assertEqual(
             service_client.calls[0]["max_tokens"],
             config.SERVICE_MAX_TOKENS,
+        )
+        self.assertEqual(
+            service_client.calls[0]["timeout"],
+            get_memory_request_timeout(),
         )
 
     async def test_summarizer_skips_incomplete_memory(self):
@@ -366,6 +441,55 @@ class MessageMemoryTests(
         )
         self.assertTrue(
             logger.errors
+        )
+
+    async def test_summarizer_failure_logs_traceback_details(self):
+
+        class SilentError(Exception):
+            def __str__(self):
+                return ""
+
+        logger = FakeLogger()
+        service_client = FakeServiceClient(
+            SilentError()
+        )
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            logger=logger,
+            runtime_memory="Initial memory.",
+            runtime_memory_updates=0,
+        )
+
+        updated_memory = await summarize_runtime_memory(
+            context=context,
+            user_message="Remember this.",
+            assistant_message="I will remember it.",
+        )
+
+        self.assertEqual(
+            updated_memory,
+            "Initial memory.",
+        )
+        self.assertEqual(
+            len(logger.errors),
+            1,
+        )
+
+        message, details = logger.errors[0]
+
+        self.assertEqual(
+            message,
+            "[MEMORY] runtime memory update failed",
+        )
+        self.assertIn(
+            "Traceback (most recent call last):",
+            details,
+        )
+        self.assertIn(
+            "SilentError",
+            details,
         )
 
     async def test_scheduled_update_is_background_task(self):

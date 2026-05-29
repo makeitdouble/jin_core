@@ -23,16 +23,24 @@ async def ask_service_model(
     system_prompt: str = "",
     temperature: float,
     max_tokens: int,
+    timeout: float | None = None,
 ):
 
-    return await client.ask(
-        system_prompt=(
+    request = {
+        "system_prompt": (
             system_prompt
             or build_service_system_prompt()
         ),
-        user_prompt=user_prompt,
-        temperature=temperature,
-        max_tokens=max_tokens,
+        "user_prompt": user_prompt,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+
+    if timeout is not None:
+        request["timeout"] = timeout
+
+    return await client.ask(
+        **request
     )
 
 

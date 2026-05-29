@@ -83,6 +83,7 @@ class RuntimeClient:
             user_prompt: str,
             temperature: float,
             max_tokens: int,
+            timeout: float | None = None,
     ):
 
         payload = self.build_payload(
@@ -99,7 +100,11 @@ class RuntimeClient:
                 settings.CHAT_ENDPOINT,
             ),
             json=payload,
-            timeout=self.timeout,
+            timeout=(
+                self.timeout
+                if timeout is None
+                else timeout
+            ),
         )
 
         response.raise_for_status()
