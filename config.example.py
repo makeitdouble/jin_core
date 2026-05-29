@@ -1,6 +1,7 @@
 # Copy this file to config.py and adjust values for your local nodes.
 
 USE_SERVICE_AS_BRAIN = False
+TRANSLATION_ENABLED = False
 
 CHAT_ENDPOINT = "/v1/chat/completions"
 MODELS_ENDPOINT = "/v1/models"
@@ -21,7 +22,7 @@ NIGHT_BRAIN_CONTEXT_WINDOW = 16384
 
 BRAIN_TEMPERATURE = 0.7
 
-BRAIN_MAX_TOKENS = 2048
+BRAIN_MAX_TOKENS = 8192
 
 # ---------------------------------------------------------
 # SERVICE MODEL
@@ -37,7 +38,7 @@ SERVICE_CONTEXT_WINDOW = 4096
 
 SERVICE_TEMPERATURE = 0.1
 
-SERVICE_MAX_TOKENS = 1024
+SERVICE_MAX_TOKENS = 4096
 
 # ---------------------------------------------------------
 # SEARCH
