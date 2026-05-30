@@ -11,7 +11,7 @@ JIN Core Engine is a local AI orchestration runtime for OpenAI-compatible model 
 
 The engine is designed for multi-runtime local AI setups where the main reasoning model, service model, and translation model can run as separate providers while sharing one coherent room-like chat surface.
 
-![JIN Core Engine runtime UI](static/jin-core-runtime-memory.png)
+![JIN Core Engine runtime UI](static/images/jin-core-runtime-memory.png)
 
 ## Capabilities
 

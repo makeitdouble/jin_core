@@ -16,6 +16,29 @@ const sendButton =
     'button[type="submit"]'
   );
 
+function startMemoryGlow() {
+  const panel = document.getElementById("settings-panel");
+  if (!panel) return;
+
+  panel.classList.add("memory-updating");
+
+  setTimeout(() => {
+    panel.classList.add("memory-pulse");
+  }, 2000);
+}
+
+function stopMemoryGlow() {
+  const panel = document.getElementById("settings-panel");
+  if (!panel) return;
+
+  panel.classList.remove("memory-pulse");
+  panel.classList.add("memory-fading");
+
+  setTimeout(() => {
+    panel.classList.remove("memory-updating");
+    panel.classList.remove("memory-fading");
+  }, 2000);
+}
 
 // --------------------------------------------------
 // STATE
@@ -354,6 +377,25 @@ ws.onmessage = function (event) {
       data.message,
       data.details
     );
+
+    if (
+        data.tag === "[SYSTEM]" &&
+        data.message === "[WS] agent runtime end"
+    ) {
+      startMemoryGlow();
+    }
+
+    if (
+        data.message
+        && data.message.includes("[MEMORY]")
+        && (
+            data.message.includes("updated")
+            || data.message.includes("skipped")
+            || data.message.includes("failed")
+        )
+    ) {
+      stopMemoryGlow();
+    }
 
     return;
 

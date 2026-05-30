@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JIN Core Engine — Control Panel</title>
+    <title>JIN Core Engine</title>
 
     <script src="https://cdn.tailwindcss.com"></script>
 
@@ -26,222 +26,357 @@
         ::-webkit-scrollbar-thumb:hover {
             background: #52525b;
         }
+
+        :root {
+            --panel-gap: 24px;
+            --panel-width: 330px;
+
+            --safe-left: 380px;
+            --safe-right: 380px;
+
+            --chat-max-width: 820px;
+        }
+
+        body {
+            min-width: 900px;
+        }
+
+        #scene-bg {
+            background-size: cover;
+            background-position: center;
+        }
+
+        #console-panel,
+        #settings-panel {
+            width: var(--panel-width);
+            max-height: calc(100% - (var(--panel-gap) * 2));
+        }
+
+        #console-panel {
+            left: var(--panel-gap);
+            top: var(--panel-gap);
+            height: calc(100% - (var(--panel-gap) * 2));
+        }
+
+        #settings-panel {
+            right: var(--panel-gap);
+            top: var(--panel-gap);
+        }
+
+        #chat-drop-zone {
+            min-width: 0;
+            border-right: 0;
+        }
+
+        #chat-history {
+            padding-left: var(--safe-left);
+            padding-right: var(--safe-right);
+        }
+
+        #chat-input-shell {
+            padding-left: var(--safe-left);
+            padding-right: var(--safe-right);
+        }
+
+        #chat-form {
+            width: min(100%, var(--chat-max-width));
+            min-width: 520px;
+
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        #user-input {
+            width: 100%;
+        }
+
+        @keyframes memoryGlowPulse {
+            0%, 100% {
+                box-shadow:
+                        0 0 0 1px rgba(255, 190, 100, 0.35),
+                        0 0 24px rgba(255, 170, 70, 0.32),
+                        0 0 70px rgba(255, 140, 40, 0.20),
+                        inset 0 0 22px rgba(255, 170, 70, 0.08);
+            }
+
+            50% {
+                box-shadow:
+                        0 0 0 1px rgba(255, 205, 120, 0.65),
+                        0 0 38px rgba(255, 180, 80, 0.58),
+                        0 0 110px rgba(255, 145, 45, 0.36),
+                        inset 0 0 30px rgba(255, 185, 90, 0.14);
+            }
+        }
+
+        #settings-panel {
+            transition:
+                    border-color 2s ease,
+                    box-shadow 2s ease;
+        }
+
+        #settings-panel.memory-updating {
+            border-color: rgba(255,190,95,.65);
+
+            box-shadow:
+                    0 0 0 1px rgba(255,190,100,.35),
+                    0 0 24px rgba(255,170,70,.32),
+                    0 0 70px rgba(255,140,40,.20),
+                    inset 0 0 22px rgba(255,170,70,.08);
+        }
+
+        #settings-panel.memory-updating.memory-pulse {
+            animation: memoryGlowPulse 5s ease-in-out infinite;
+        }
+
+        #settings-panel.memory-fading {
+            border-color: rgba(255, 190, 95, 0.25);
+
+            box-shadow:
+                    0 0 0 1px rgba(255, 190, 100, 0.12),
+                    0 0 16px rgba(255, 170, 70, 0.16),
+                    0 0 44px rgba(255, 140, 40, 0.10),
+                    inset 0 0 14px rgba(255, 170, 70, 0.04);
+        }
+
     </style>
 </head>
 <body class="h-screen overflow-hidden flex flex-col font-mono antialiased bg-zinc-950 text-zinc-100">
 
-    <!-- TOP BAR -->
+<!-- TOP BAR -->
 
-    <header
+<header
         class="h-10 border-b border-zinc-800 bg-zinc-900 flex items-center justify-between px-4 text-xs tracking-wider text-zinc-400 shrink-0">
 
-        <div>[PROJECT: JIN CORE ENGINE]</div>
+    <div>[JIN CORE ENGINE]</div>
 
-        <div class="grid w-72 grid-cols-2 items-center">
+    <div class="grid w-72 grid-cols-2 items-center">
 
-    <!-- SERVICE -->
+        <!-- SERVICE -->
 
-    <div id="service-status"
-        class="flex items-center justify-center gap-1.5 text-zinc-400">
+        <div id="service-status"
+             class="flex items-center justify-center gap-1.5 text-zinc-400">
 
         <span id="service-dot"
-            class="h-2 w-2 rounded-full {{ 'bg-emerald-400 animate-pulse' if runtime_status.service else 'bg-red-500' }} transition-all duration-300">
+              class="h-2 w-2 rounded-full {{ 'bg-emerald-400 animate-pulse' if runtime_status.service else 'bg-red-500' }} transition-all duration-300">
         </span>
 
-        <span id="service-label"
-            class="inline-block min-w-14">
+            <span id="service-label"
+                  class="inline-block min-w-14">
             SERVICE
         </span>
 
-    </div>
+        </div>
 
-    <!-- BRAIN -->
+        <!-- BRAIN -->
 
-    <div id="brain-status"
-        class="flex items-center justify-center gap-1.5 text-zinc-400">
+        <div id="brain-status"
+             class="flex items-center justify-center gap-1.5 text-zinc-400">
 
         <span id="brain-dot"
-            class="h-2 w-2 rounded-full {{ 'bg-emerald-400 animate-pulse' if runtime_status.brain else 'bg-red-500' }} transition-all duration-300">
+              class="h-2 w-2 rounded-full {{ 'bg-emerald-400 animate-pulse' if runtime_status.brain else 'bg-red-500' }} transition-all duration-300">
         </span>
 
-        <span id="brain-label"
-            class="inline-block min-w-14">
+            <span id="brain-label"
+                  class="inline-block min-w-14">
             BRAIN
         </span>
 
+        </div>
+
     </div>
 
-</div>
+</header>
 
-    </header>
+<!-- MAIN -->
 
-    <!-- MAIN -->
+<main class="flex flex-1 overflow-hidden relative">
+    <div id="scene-bg"
+         class="absolute inset-0 bg-cover bg-center opacity-100 pointer-events-none"
+         style="background-image:url('static/images/states/default.png')">
+    </div>
 
-    <main class="flex flex-1 overflow-hidden">
+    <!-- LEFT CONSOLE -->
 
-        <!-- LEFT CONSOLE -->
+    <section id="console-panel"
+             class="absolute z-30
+                        rounded-xl border border-zinc-700/70
+                        bg-zinc-950/80 backdrop-blur-md
+                        shadow-[0_18px_60px_rgba(0,0,0,0.55)]
+                        flex flex-col overflow-hidden">
 
-        <section
-            class="w-[330px] min-w-[330px] border-r border-zinc-800 bg-zinc-950 flex flex-col shrink-0">
+        <div id="console-drag-handle"
+             class="h-10 border-b border-zinc-800/80 flex items-center justify-between px-4
+           bg-zinc-900/50 cursor-grab active:cursor-grabbing select-none">
 
-            <div
-                class="h-12 border-b border-zinc-800 flex items-center justify-between px-4 bg-zinc-900/40">
+            <h3 class="text-xs font-bold uppercase tracking-widest text-zinc-300">
+                DATA STREAM CONSOLE
+            </h3>
 
-                <h2 class="text-xs font-bold uppercase tracking-widest text-zinc-300">
-                    DATA STREAM CONSOLE
-                </h2>
+        </div>
 
+        <div id="console-stream"
+             class="flex-1 overflow-y-auto p-4 space-y-4 text-[11px] leading-relaxed text-zinc-400">
+        </div>
+
+    </section>
+
+    <!-- CENTER CHAT -->
+
+    <section id="chat-drop-zone"
+             class="flex-1 flex flex-col
+                        bg-transparent
+                        border-r border-zinc-800 relative z-10">
+
+        <!-- CHAT HISTORY -->
+
+        <div id="chat-history"
+             class="flex-1 overflow-y-auto
+                        pt-6 pb-6
+                        space-y-6 text-sm
+                        bg-transparent">
+            <!--
+                            <div class="space-y-2">
+
+                                <div class="text-xs text-zinc-300">
+                                    &lt;think&gt;
+                                </div>
+
+                                <div
+                                    class="border-l border-slate-500 pl-4 text-xs text-zinc-300 italic leading-relaxed">
+                                    User requested a layout. Enforcing zero-fluff principle. Testing token budget logic...
+                                </div>
+
+                            </div>
+            -->
+            <!-- MESSAGE -->
+
+            <div class="flex items-start gap-3 max-w-3xl">
+                <!--
+                                    <div
+                                        class="h-6 w-6 rounded bg-slate-600 border border-slate-500 flex items-center justify-center text-[10px] text-zinc-200 shrink-0">
+                                        JN
+                                    </div>
+
+                                    <div
+                                        class="bg-slate-600 border border-slate-500 rounded-xl px-4 py-3 text-sm text-zinc-100 shadow-sm whitespace-pre-wrap break-words"></div>
+                -->
             </div>
 
-            <div id="console-stream"
-                class="flex-1 overflow-y-auto p-4 space-y-4 text-[11px] leading-relaxed text-zinc-400">
-            </div>
+        </div>
 
-        </section>
+        <!-- INPUT -->
 
-        <!-- CENTER CHAT -->
+        <div id="chat-input-shell" class="bg-transparent py-4 shrink-0">
 
-        <section id="chat-drop-zone"
-            class="flex-1 flex flex-col bg-slate-700 border-r border-slate-500">
+            <form id="chat-form"
+                  class="relative w-full max-w-none flex items-center bg-black/30
+                               border border-zinc-800
+                               backdrop-blur-sm rounded-lg px-4 py-2 transition">
 
-            <!-- CHAT HISTORY -->
+                <!-- ATTACH -->
 
-            <div id="chat-history"
-                class="flex-1 overflow-y-auto p-6 space-y-6 text-sm bg-slate-700">
-<!--
-                <div class="space-y-2">
+                <label for="file-input"
+                       class="hidden p-2 rounded-lg cursor-pointer text-zinc-200 hover:bg-slate-500 transition shrink-0">
 
-                    <div class="text-xs text-zinc-300">
-                        &lt;think&gt;
-                    </div>
+                    <svg xmlns="http://www.w3.org/2000/svg"
+                         fill="none"
+                         viewBox="0 0 24 24"
+                         stroke-width="1.5"
+                         stroke="currentColor"
+                         class="w-5 h-5">
 
-                    <div
-                        class="border-l border-slate-500 pl-4 text-xs text-zinc-300 italic leading-relaxed">
-                        User requested a layout. Enforcing zero-fluff principle. Testing token budget logic...
-                    </div>
+                        <path stroke-linecap="round"
+                              stroke-linejoin="round"
+                              d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94a3 3 0 114.243 4.243L8.63 15.347a1.5 1.5 0 11-2.122-2.122l8-8"></path>
 
-                </div>
--->
-                <!-- MESSAGE -->
+                    </svg>
 
-                <div class="flex items-start gap-3 max-w-3xl">
-<!--
-                    <div
-                        class="h-6 w-6 rounded bg-slate-600 border border-slate-500 flex items-center justify-center text-[10px] text-zinc-200 shrink-0">
-                        JN
-                    </div>
+                    <input type="file"
+                           id="file-input"
+                           class="hidden"
+                           multiple
+                           accept="image/*,application/json,text/*">
 
-                    <div
-                        class="bg-slate-600 border border-slate-500 rounded-xl px-4 py-3 text-sm text-zinc-100 shadow-sm whitespace-pre-wrap break-words"></div>
--->
-                </div>
+                </label>
 
-            </div>
+                <!-- TEXTAREA -->
 
-            <!-- INPUT -->
+                <textarea id="user-input"
+                          rows="1"
+                          placeholder="Запрос в Jin Core Engine..."
+                          class="w-full bg-transparent resize-none border-0 outline-none text-sm leading-5 text-zinc-100 placeholder-zinc-300 max-h-28 py-1"></textarea>
 
-            <div
-                class="border-t border-slate-500 bg-slate-700 px-5 py-4 shrink-0">
-
-                <form id="chat-form"
-                    class="relative max-w-4xl mx-auto flex items-center bg-slate-600 border border-slate-500 rounded-lg px-4 py-2 transition">
-
-                    <!-- ATTACH -->
-
-                    <label for="file-input"
-                        class="hidden p-2 rounded-lg cursor-pointer text-zinc-200 hover:bg-slate-500 transition shrink-0">
-
-                        <svg xmlns="http://www.w3.org/2000/svg"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke-width="1.5"
-                            stroke="currentColor"
-                            class="w-5 h-5">
-
-                            <path stroke-linecap="round"
-                                stroke-linejoin="round"
-                                  d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94a3 3 0 114.243 4.243L8.63 15.347a1.5 1.5 0 11-2.122-2.122l8-8"></path>
-
-                        </svg>
-
-                        <input type="file"
-                            id="file-input"
-                            class="hidden"
-                            multiple
-                            accept="image/*,application/json,text/*">
-
-                    </label>
-
-                    <!-- TEXTAREA -->
-
-                    <textarea id="user-input"
-                        rows="1"
-                        placeholder="Запрос в Jin Core Engine..."
-                        class="w-full bg-transparent resize-none border-0 outline-none text-sm leading-5 text-zinc-100 placeholder-zinc-300 max-h-28 py-1"></textarea>
-
-                    <div id="stop-indicator"
-                        class="pointer-events-none absolute inset-0 hidden items-center justify-center text-red-100">
+                <div id="stop-indicator"
+                     class="pointer-events-none absolute inset-0 hidden items-center justify-center text-red-100">
 
                         <span
-                            class="h-3 w-3 rounded-[2px] bg-red-200 shadow-[0_0_14px_rgba(248,113,113,0.75)]">
+                                class="h-3 w-3 rounded-[2px] bg-red-200 shadow-[0_0_14px_rgba(248,113,113,0.75)]">
                         </span>
 
-                    </div>
-
-                    <!-- SEND -->
-
-                    <button type="submit"
-                        class="hidden p-2 rounded-lg bg-slate-500 hover:bg-slate-400 transition text-zinc-100 shrink-0">
-
-                        <svg xmlns="http://www.w3.org/2000/svg"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke-width="1.5"
-                            stroke="currentColor"
-                            class="w-5 h-5">
-
-                            <path stroke-linecap="round"
-                                stroke-linejoin="round"
-                                  d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"></path>
-
-                        </svg>
-
-                    </button>
-
-                </form>
-
-                <!-- ATTACHED FILES -->
-
-                <div id="attached-files"
-                    class="max-w-4xl mx-auto mt-3 flex flex-wrap gap-2">
                 </div>
 
+                <!-- SEND -->
+
+                <button type="submit"
+                        class="hidden p-2 rounded-lg bg-slate-500 hover:bg-slate-400 transition text-zinc-100 shrink-0">
+
+                    <svg xmlns="http://www.w3.org/2000/svg"
+                         fill="none"
+                         viewBox="0 0 24 24"
+                         stroke-width="1.5"
+                         stroke="currentColor"
+                         class="w-5 h-5">
+
+                        <path stroke-linecap="round"
+                              stroke-linejoin="round"
+                              d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"></path>
+
+                    </svg>
+
+                </button>
+
+            </form>
+
+            <!-- ATTACHED FILES -->
+
+            <div id="attached-files"
+                 class="max-w-4xl mx-auto mt-3 flex flex-wrap gap-2">
             </div>
 
-        </section>
+        </div>
 
-        <!-- RIGHT SETTINGS -->
+    </section>
 
-        <section
-            class="w-[330px] min-w-[330px] border-l border-slate-500 bg-slate-700 flex flex-col shrink-0">
+    <!-- RIGHT SETTINGS -->
 
-            <div
-                class="h-12 border-b border-slate-500 flex items-center px-4 bg-slate-700">
+    <section id="settings-panel"
+             class="absolute z-30
+                        rounded-xl border border-zinc-700/70
+                        bg-zinc-950/80 backdrop-blur-md
+                        shadow-[0_18px_60px_rgba(0,0,0,0.55)]
+                        flex flex-col overflow-hidden">
 
-                <h2
+        <div id="memory-drag-handle"
+             class="h-10 border-b border-zinc-800/80
+                           flex items-center px-4
+                           bg-zinc-900/50
+                           cursor-grab active:cursor-grabbing
+                           select-none">
+
+            <h3
                     class="text-xs font-bold uppercase tracking-widest text-zinc-100">
-                    SETTINGS
-                </h2>
+                SETTINGS
+            </h3>
 
-            </div>
+        </div>
 
-            <div
+        <div
                 class="flex-1 overflow-y-auto p-4 space-y-4 text-xs text-zinc-300 leading-relaxed">
 
-                <div
-                    class="grid grid-cols-2 overflow-hidden rounded border border-slate-500/70 bg-slate-700">
+            <div
+                    class="grid grid-cols-2 overflow-hidden rounded border bg-zinc-900 border-zinc-800">
 
-                    <button
+                <button
                         type="button"
                         id="service-context-tab"
                         data-context-tab="service"
@@ -249,10 +384,10 @@
                         aria-disabled="true"
                         aria-selected="false"
                         class="h-8 border-r border-slate-500/70 text-[11px] font-bold uppercase tracking-widest text-slate-500 cursor-not-allowed">
-                        Service
-                    </button>
+                    Service
+                </button>
 
-                    <button
+                <button
                         type="button"
                         id="brain-context-tab"
                         data-context-tab="brain"
@@ -260,59 +395,57 @@
                         aria-disabled="true"
                         aria-selected="false"
                         class="h-8 text-[11px] font-bold uppercase tracking-widest text-slate-500 cursor-not-allowed">
-                        Brain
-                    </button>
+                    Brain
+                </button>
 
-                </div>
+            </div>
 
-                <div
+            <div
                     id="context-runtime-panel"
-                    class="hidden rounded border border-slate-500/70 bg-slate-700">
+                    class="hidden rounded border bg-zinc-900 border-zinc-800">
 
-                    <div class="p-3 space-y-3 font-mono">
+                <div class="p-3 space-y-3 font-mono">
 
-                        <div
+                    <div
                             id="context-panel-model"
                             class="truncate text-[11px] font-bold text-zinc-100">
-                            {{ runtime_config.service.model }}
-                        </div>
+                        {{ runtime_config.service.model }}
+                    </div>
 
-                        <div id="context-accordion">
+                    <div id="context-accordion">
 
-                            <div
+                        <div
                                 class="flex items-center justify-between gap-2 border-y border-slate-500/70 py-2 text-[11px] uppercase tracking-widest text-slate-100">
 
                                 <span class="min-w-0 truncate">
                                     [ context ]
                                 </span>
 
-                                <span
+                            <span
                                     id="context-summary-tokens"
                                     class="shrink-0 text-zinc-100">
                                     0 / {{ runtime_config.service.max_tokens }}
                                 </span>
 
-                            </div>
+                        </div>
 
-                            <div class="pt-3">
+                        <div class="pt-3">
 
-                                <div
+                            <div
                                     id="context-window-line"
                                     class="flex w-full items-center gap-2 text-[11px] text-emerald-300">
 
                                     <span
-                                        id="context-window-bar"
-                                        class="block min-w-0 flex-1 overflow-hidden whitespace-pre">
+                                            id="context-window-bar"
+                                            class="block min-w-0 flex-1 overflow-hidden whitespace-pre">
                                         [................]
                                     </span>
 
-                                    <span
+                                <span
                                         id="context-window-percent"
                                         class="shrink-0 text-right">
                                         0%
                                     </span>
-
-                                </div>
 
                             </div>
 
@@ -322,72 +455,70 @@
 
                 </div>
 
-                <div
+            </div>
+
+            <div
                     id="runtime-memory-panel"
-                    class="rounded border border-slate-500/70 bg-slate-700">
+                    class="rounded border bg-zinc-900 border-zinc-800">
 
-                    <div class="p-3 space-y-3 font-mono">
+                <div class="p-3 space-y-3 font-mono">
 
-                        <div
+                    <div
                             class="flex items-center justify-between gap-2 border-b border-slate-500/70 pb-2 text-[11px] uppercase tracking-widest text-slate-100">
 
                             <span class="min-w-0 truncate">
                                 [ runtime memory ]
                             </span>
 
-                            <span
+                        <span
                                 id="runtime-memory-count"
                                 class="shrink-0 text-emerald-300">
                                 0
                             </span>
 
-                        </div>
-
-                        <pre
-                            id="runtime-memory-text"
-                            class="min-h-28 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-zinc-100">This session has just begun. You have no history with the user yet.</pre>
-
                     </div>
 
-                </div>
-
-                <div class="text-xs text-zinc-300 italic leading-relaxed">
+                    <pre
+                            id="runtime-memory-text"
+                            class="min-h-28 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-zinc-100">This session has just begun. You have no history with the user yet.</pre>
 
                 </div>
 
             </div>
 
-        </section>
+        </div>
 
-    </main>
+    </section>
 
-    <!-- AUTO HEIGHT -->
+</main>
 
-    <script>
+<!-- AUTO HEIGHT -->
 
-        const textarea = document.getElementById("user-input");
+<script>
 
-        textarea.addEventListener("input", function () {
+    const textarea = document.getElementById("user-input");
 
-            this.style.height = "auto";
-            this.style.height = this.scrollHeight + "px";
+    textarea.addEventListener("input", function () {
 
-        });
+        this.style.height = "auto";
+        this.style.height = this.scrollHeight + "px";
 
-    </script>
-    <template id="jin-runtime-config">
-        {{ {
-            "useServiceAsBrain": use_service_as_brain,
-            "runtimeStatus": runtime_status,
-            "runtimeConfig": runtime_config,
-        } | tojson }}
-    </template>
-    <script src="/static/telemetry.js?v=runtime-memory-1"></script>
-    <script src="/static/status.js?v=status-check-4"></script>
-    <script src="/static/dragdrop.js?v=context-panel-5"></script>
-    <script src="/static/logger.js?v=context-popup-1"></script>
-    <script src="/static/chat.js?v=context-popup-1"></script>
-    <script src="/static/socket.js?v=runtime-memory-1"></script>
+    });
+
+</script>
+<template id="jin-runtime-config">
+    {{ {
+    "useServiceAsBrain": use_service_as_brain,
+    "runtimeStatus": runtime_status,
+    "runtimeConfig": runtime_config,
+    } | tojson }}
+</template>
+<script src="/static/telemetry.js?v=runtime-memory-1"></script>
+<script src="/static/status.js?v=status-check-4"></script>
+<script src="/static/dragdrop.js?v=context-panel-5"></script>
+<script src="/static/logger.js?v=context-popup-1"></script>
+<script src="/static/chat.js?v=context-popup-1"></script>
+<script src="/static/socket.js?v=runtime-memory-1"></script>
 </body>
 
 </html>

@@ -81,6 +81,9 @@ const runtimeMemoryText =
     "runtime-memory-text"
   );
 
+const runtimeMemoryPanel =
+    document.getElementById("settings-panel");
+
 const runtimeMemoryCount =
   document.getElementById(
     "runtime-memory-count"
@@ -490,6 +493,10 @@ function renderRuntimeMemory(
   updates
 ) {
 
+  if (runtimeMemoryPanel) {
+    runtimeMemoryPanel.classList.remove("memory-updating");
+  }
+
   if (runtimeMemoryText) {
     runtimeMemoryText.textContent =
       (
@@ -711,6 +718,10 @@ window.handleRuntimeMemoryMessage = function (data) {
     data.memory || "",
     data.updates || 0
   );
+
+  if (runtimeMemoryPanel) {
+    runtimeMemoryPanel.classList.remove("memory-updating");
+  }
 
 };
 
