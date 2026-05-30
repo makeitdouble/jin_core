@@ -54,6 +54,12 @@ class RuntimeContext:
 
     runtime_memory_updates: int = 0
 
+    turn_number: int = 0
+
+    user_message_count: int = 0
+
+    assistant_message_count: int = 0
+
     runtime_memory_pending_turns: list[dict] = field(
         default_factory=list
     )

@@ -207,6 +207,7 @@ async def process_message(
         context.runtime_turn_user_message = user_text
         context.runtime_turn_assistant_response = ""
         context.runtime_turn_interrupted = False
+        context.user_message_count += 1
 
         state = AgentState(
             user_input=user_text
@@ -266,6 +267,9 @@ async def process_message(
             user_message=user_text,
             assistant_message=assistant_message,
         )
+
+        context.assistant_message_count += 1
+        context.turn_number += 1
 
     except asyncio.CancelledError:
 
