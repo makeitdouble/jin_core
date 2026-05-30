@@ -32,8 +32,17 @@ HTML_TAGS = [
 
 WORD_WINDOW_SIZE = 30
 MAX_REPEAT_WORDS = 8
-TRUNCATE = 10
+TRUNCATE = 160
 
+def build_preview(
+        text: str,
+) -> str:
+
+    return (
+        text
+        .replace("\n", "\\n")
+        .strip()
+    )[:TRUNCATE]
 
 class StreamValidator:
 
@@ -402,9 +411,7 @@ class StreamValidator:
                         "Repeated word loop detected."
                     )
 
-                    self.last_failure_preview = (
-                        preview[:TRUNCATE]
-                    )
+                    self.last_failure_preview = build_preview(preview)
 
                     return False
 
@@ -420,6 +427,8 @@ class StreamValidator:
     ):
         self.current_sentence += chunk
 
+        raw_sentence = self.current_sentence.strip()
+
         if not any(
             char in chunk
             for char in [".", "!", "?", "\n"]
@@ -427,11 +436,20 @@ class StreamValidator:
             return True
 
         sentence = (
-            self.current_sentence
-            .strip()
+            raw_sentence
             .lower()
             .rstrip(".!? \n")
         )
+
+        sentence = (
+            raw_sentence
+            .lower()
+            .rstrip(".!? \n")
+        )
+
+        if not sentence:
+            self.current_sentence = ""
+            return True
 
         if sentence in self.history_sentences:
 
@@ -439,9 +457,7 @@ class StreamValidator:
                 "Repeated sentence detected."
             )
 
-            self.last_failure_preview = (
-                sentence[:TRUNCATE]
-            )
+            self.last_failure_preview = build_preview(raw_sentence)
 
             return False
 
@@ -476,9 +492,7 @@ class StreamValidator:
                     "Repeated paragraph detected."
                 )
 
-                self.last_failure_preview = (
-                    paragraph[:TRUNCATE]
-                )
+                self.last_failure_preview = build_preview(paragraph)
 
                 return False
 

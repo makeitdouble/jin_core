@@ -209,6 +209,28 @@ function getContextBarCells(barElement) {
 
 }
 
+function getContextPressureColor(percent) {
+
+  const clamped =
+      Math.max(
+          0,
+          Math.min(
+              100,
+              Number(percent || 0)
+          )
+      );
+
+  const hue =
+      150 - (
+          clamped * 1.35
+      );
+
+  const saturation = 68;
+  const lightness = 64;
+
+  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+
+}
 
 function buildContextLine(
   runtime,
@@ -383,6 +405,11 @@ function setContextPanelRuntime(runtime) {
       )
     );
 
+  const pressureColor =
+      getContextPressureColor(
+          contextLine.percent
+      );
+
   if (titleElement) {
     titleElement.textContent =
       `STATUS`;
@@ -406,11 +433,15 @@ function setContextPanelRuntime(runtime) {
   if (barElement) {
     barElement.textContent =
       contextLine.bar;
+    barElement.style.color =
+        pressureColor;
   }
 
   if (percentElement) {
     percentElement.textContent =
       contextLine.percentLabel;
+    percentElement.style.color =
+        pressureColor;
   }
 
 }

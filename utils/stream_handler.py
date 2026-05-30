@@ -134,9 +134,21 @@ class StreamHandler:
 
             if not is_valid:
 
+                raw_chunk_preview = (
+                    chunk
+                    .replace("\n", "\\n")
+                )[:160]
+
+                safe_chunk_preview = (
+                    safe_chunk
+                    .replace("\n", "\\n")
+                )[:160]
+
                 await self.logger.log_validator(
                     f"{self.validator.last_failure_reason}\n"
-                    f'Preview: "{self.validator.last_failure_preview}"'
+                    f'Preview: "{self.validator.last_failure_preview}"\n'
+                    f'Raw chunk: "{raw_chunk_preview}"\n'
+                    f'Safe chunk: "{safe_chunk_preview}"'
                 )
 
                 reason = (
