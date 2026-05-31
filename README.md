@@ -11,7 +11,7 @@ JIN Core Engine is a local AI orchestration runtime for OpenAI-compatible model 
 
 The engine is designed for multi-runtime local AI setups where the main reasoning model, service model, and translation model can run as separate providers while sharing one coherent room-like chat surface.
 
-![JIN Core Engine runtime UI](static/images/jin-core-runtime-memory.png)
+![JIN Core Engine runtime UI](static/images/jin-core-history-highlight.png)
 
 ## Capabilities
 
@@ -27,6 +27,9 @@ The engine is designed for multi-runtime local AI setups where the main reasonin
 - Runtime telemetry for model IDs, context windows, token usage, provider status, and runtime errors.
 - Live runtime memory: a compact in-RAM state updated by the service model after each completed turn.
 - Runtime memory panel in the right sidebar, showing the current memory state without XML tags.
+- Runtime memory snapshots with arrow navigation for reviewing how the session state evolved.
+- Runtime memory diff highlighting for new keys, changed keys, new values, and changed values.
+- Memory update animation: the settings panel glows during summarization and changed memory lines briefly flash before settling back into a unified state.
 - Interrupted turn memory handling: aborted or incomplete responses are marked as unresolved state.
 - Stream validation for repeated word loops, repeated sentences, repeated paragraphs, and leading HTML artifacts.
 - Abort support that cancels the active task, closes active provider streams, and records interrupted memory.
@@ -80,6 +83,8 @@ The brain can emit runtime action markers. The runtime consumes those markers as
 
 After the visible response ends, the service runtime updates `context.runtime_memory` in the background. This request does not block the user-facing answer. The next brain prompt receives the current memory as trusted runtime context, and the right sidebar shows the same memory as plain text.
 
+Each memory update is also stored as a per-session snapshot. The UI can step backward and forward through those snapshots, replaying lightweight diff highlights so the user can see which memory keys or values were added or changed during the conversation.
+
 If generation is aborted, the runtime captures the partial answer and schedules an interrupted memory update. The memory summarizer is instructed to mark the turn as incomplete and not treat it as resolved.
 
 ## Runtime Memory
@@ -91,6 +96,8 @@ Runtime memory is intentionally lightweight in the current MVP:
 - It is written as compact, actionable bullet-like state rather than full transcript history.
 - It is injected into the brain prompt inside `<RUNTIME_MEMORY>`.
 - It is mirrored in the right sidebar through `runtime_memory_update` WebSocket events.
+- Each update is captured as a session snapshot with an index, raw memory text, parsed key/value lines, and diff metadata.
+- The UI can navigate previous snapshots and replay visual highlights for new or changed memory fields.
 - Truncated or obviously incomplete summarizer output is rejected so it does not overwrite the previous memory.
 
 This gives JIN short-term continuity without introducing persistence, vector storage, or retrieval infrastructure yet.
@@ -305,7 +312,24 @@ Runtime memory update:
 {
   "type": "runtime_memory_update",
   "memory": "- active topic: feature testing\n- user intent: testing runtime behavior",
-  "updates": 6
+  "updates": 6,
+  "snapshot_index": 2,
+  "snapshots_count": 3,
+  "snapshot": {
+    "session_id": "...",
+    "index": 2,
+    "raw_memory": "active topic: feature testing\nuser intent: testing runtime behavior",
+    "lines": [
+      {
+        "key": "active topic",
+        "value": "feature testing",
+        "key_status": "same",
+        "value_status": "changed",
+        "key_change_ratio": 0.0,
+        "value_change_ratio": 0.42
+      }
+    ]
+  }
 }
 ```
 
@@ -317,7 +341,7 @@ The UI is served directly by FastAPI:
 - `static/socket.js` handles WebSocket connection, send, abort, and stream events.
 - `static/chat.js` renders normal and streaming messages.
 - `static/status.js` updates provider online/offline indicators.
-- `static/telemetry.js` updates runtime status, context usage, and live runtime memory.
+- `static/telemetry.js` updates runtime status, context usage, runtime memory snapshots, and memory diff highlighting.
 - `static/logger.js` renders the runtime console.
 - `static/dragdrop.js` handles attachment UI state.
 
