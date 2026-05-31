@@ -108,6 +108,29 @@ class RuntimeStream:
             == "brain"
         )
 
+    async def refresh_provider_token_usage(self):
+
+        if not self.is_brain_context():
+            return
+
+        total_tokens = getattr(
+            self.stream,
+            "total_tokens",
+            0,
+        )
+
+        if not total_tokens:
+            return
+
+        await refresh_runtime_state(
+            self.context,
+            runtime_id=self.runtime_id,
+            used_tokens=total_tokens,
+            max_tokens=self.context_window,
+            last_error=None,
+            status="online",
+        )
+
     def estimate_live_tokens(self) -> int:
 
         return estimate_stream_live_tokens(
@@ -260,11 +283,11 @@ class RuntimeStream:
                 f"[STREAM START] role={self.role}"
             )
 
-            await self.logger.log_runtime(
-                "[GENERATOR LOOP START]"
-            )
+            action_seen = False
 
             async for chunk in generator:
+                if len(getattr(self.context, "runtime_action_events", [])) > action_event_offset:
+                    action_seen = True
 
                 chunk_type = chunk.get(
                     "type"
@@ -314,7 +337,10 @@ class RuntimeStream:
                         )
                     )
 
-                    if not is_valid:
+                    if (
+                            not is_valid
+                            and not action_seen
+                    ):
                         self.capture_runtime_turn_response()
 
                         await self.stream.finish(
@@ -332,6 +358,7 @@ class RuntimeStream:
 
             await self.refresh_token_usage()
             self.record_token_usage()
+            await self.refresh_provider_token_usage()
             self.capture_runtime_turn_response()
 
             log_response = self.stream.response

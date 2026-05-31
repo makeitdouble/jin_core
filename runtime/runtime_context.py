@@ -54,11 +54,25 @@ class RuntimeContext:
 
     runtime_memory_updates: int = 0
 
+    turn_number: int = 0
+
+    user_message_count: int = 0
+
+    assistant_message_count: int = 0
+
     runtime_memory_pending_turns: list[dict] = field(
         default_factory=list
     )
 
     runtime_memory_update_task: object | None = None
+
+    runtime_memory_snapshots: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_memory_snapshot_index: int = 0
+
+    session_id: str = ""
 
     background_tasks: set = field(
         default_factory=set

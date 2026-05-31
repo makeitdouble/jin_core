@@ -71,6 +71,11 @@ from emitter.runtime_emitter import (
     RuntimeEmitter,
 )
 
+from memory.message_memory import (
+    build_runtime_memory_snapshot,
+)
+
+
 websocket_router = APIRouter()
 
 
@@ -87,6 +92,21 @@ async def initialize_connection(
     await send_telemetry(
         context
     )
+
+    await context.emitter.emit({
+        "type": "runtime_memory_update",
+        "memory": context.runtime_memory,
+        "updates": getattr(
+            context,
+            "runtime_memory_updates",
+            0,
+        ),
+        "snapshot": context.runtime_memory_snapshots[0],
+        "snapshots_count": len(
+            context.runtime_memory_snapshots
+        ),
+        "snapshot_index": 0,
+    })
 
 
 # ---------------------------------------------------------
@@ -207,6 +227,7 @@ async def process_message(
         context.runtime_turn_user_message = user_text
         context.runtime_turn_assistant_response = ""
         context.runtime_turn_interrupted = False
+        context.user_message_count += 1
 
         state = AgentState(
             user_input=user_text
@@ -266,6 +287,9 @@ async def process_message(
             user_message=user_text,
             assistant_message=assistant_message,
         )
+
+        context.assistant_message_count += 1
+        context.turn_number += 1
 
     except asyncio.CancelledError:
 
@@ -371,6 +395,17 @@ async def websocket_endpoint(
         logger=logger,
         clients=websocket.app.state.clients,
     )
+
+    initial_snapshot = build_runtime_memory_snapshot(
+        context,
+        context.runtime_memory,
+    )
+
+    context.runtime_memory_snapshots.append(
+        initial_snapshot
+    )
+
+    context.runtime_memory_snapshot_index = 0
 
     current_task = None
 

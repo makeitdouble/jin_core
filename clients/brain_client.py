@@ -482,6 +482,17 @@ def build_brain_runtime_context(
         .to_runtime_xml()
     )
 
+    session_state_xml = ""
+
+    if context is not None:
+        session_state_xml = (
+            "<SESSION_STATE>\n"
+            f"    <TURN_NUMBER>{getattr(context, 'turn_number', 0)}</TURN_NUMBER>\n"
+            f"    <USER_MESSAGE_COUNT>{getattr(context, 'user_message_count', 0)}</USER_MESSAGE_COUNT>\n"
+            f"    <ASSISTANT_MESSAGE_COUNT>{getattr(context, 'assistant_message_count', 0)}</ASSISTANT_MESSAGE_COUNT>\n"
+            "</SESSION_STATE>"
+        )
+
     runtime_memory = ""
     search_result = ""
     search_result_id = ""
@@ -506,6 +517,11 @@ def build_brain_runtime_context(
     runtime_context_parts = [
         runtime_xml
     ]
+
+    if session_state_xml:
+        runtime_context_parts.append(
+            session_state_xml
+        )
 
     if runtime_memory.strip():
         runtime_context_parts.append(
@@ -562,10 +578,18 @@ def build_brain_system_prompt(
 
     return (
         "You are JIN, a human-like assistant.\n"
+        "ALWAYS act original even in basic messages.\n"
         "NEVER explain your reasoning.\n"
         "NEVER analyze the request.\n"
         "NEVER describe your plan.\n"
         "NEVER output chain-of-thought.\n"
+        "Always react DIFFERENTLY to repetitive actions that already occurred and established, "
+        "create and initiate new topic or acknowledge the pattern itself as a topic.\n"
+        "Treat repeated interactions as BAD and immediately change your response strategy from default behaviour.\n"
+        "If runtime memory indicates an interaction completed - ALWAYS switch your response strategy.\n"
+        "If the user repeats an interaction that has already been acknowledged, ALWAYS change your response strategy.\n"
+        "Do not process the same interaction twice, ALWAYS change your response strategy.\n"
+        "Avoid repeating yourself the same conversational response. Prioritize conversational progress over repeating established exchanges.\n"
         "Reply with ONLY the final answer.\n"
         "Keep responses natural and conversational.\n"
         "When asked what, who, or where you are, answer as JIN in the current conversation. "

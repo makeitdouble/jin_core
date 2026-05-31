@@ -289,6 +289,9 @@ class MessageMemoryTests(
             logger=logger,
             runtime_memory="",
             runtime_memory_updates=0,
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
+            session_id="test-session",
         )
 
         async def emit(event):
@@ -333,14 +336,40 @@ class MessageMemoryTests(
             logger.service_logs,
         )
         self.assertEqual(
-            context.emitter.events,
-            [
-                {
-                    "type": "runtime_memory_update",
-                    "memory": "The user is testing live runtime memory.",
-                    "updates": 1,
-                },
-            ],
+            len(context.emitter.events),
+            1,
+        )
+
+        event = context.emitter.events[0]
+
+        self.assertEqual(
+            event["type"],
+            "runtime_memory_update",
+        )
+
+        self.assertEqual(
+            event["memory"],
+            "The user is testing live runtime memory.",
+        )
+
+        self.assertEqual(
+            event["updates"],
+            1,
+        )
+
+        self.assertIn(
+            "snapshot",
+            event,
+        )
+
+        self.assertEqual(
+            event["snapshot"]["index"],
+            0,
+        )
+
+        self.assertEqual(
+            event["snapshot"]["raw_memory"],
+            "The user is testing live runtime memory.",
         )
 
     async def test_summarizer_uses_service_max_tokens(self):
@@ -353,9 +382,16 @@ class MessageMemoryTests(
             clients={
                 "service": service_client,
             },
+            emitter=SimpleNamespace(
+                events=[],
+                emit=None,
+            ),
             logger=FakeLogger(),
-            runtime_memory="Initial memory.",
+            runtime_memory="",
             runtime_memory_updates=0,
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
+            session_id="test-session",
         )
 
         updated_memory = await summarize_runtime_memory(

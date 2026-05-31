@@ -315,3 +315,110 @@ window.appendLog =
 
 window.showTrace =
   showTrace;
+
+
+const consolePanel = document.getElementById("console-panel");
+    const consoleDragHandle = document.getElementById("console-drag-handle");
+
+    let isConsoleDragging = false;
+    let consoleOffsetX = 0;
+    let consoleOffsetY = 0;
+
+    consoleDragHandle.addEventListener("mousedown", (event) => {
+        isConsoleDragging = true;
+
+        const rect = consolePanel.getBoundingClientRect();
+
+        consoleOffsetX = event.clientX - rect.left;
+        consoleOffsetY = event.clientY - rect.top;
+
+        consolePanel.style.right = "auto";
+        consolePanel.style.bottom = "auto";
+        consolePanel.style.position = "absolute";
+
+        document.body.style.userSelect = "none";
+    });
+
+    window.addEventListener("mousemove", (event) => {
+        if (!isConsoleDragging) return;
+
+        const parentRect = consolePanel.parentElement.getBoundingClientRect();
+        const panelRect = consolePanel.getBoundingClientRect();
+
+        let nextLeft = event.clientX - parentRect.left - consoleOffsetX;
+        let nextTop = event.clientY - parentRect.top - consoleOffsetY;
+
+        nextLeft = Math.max(8, Math.min(nextLeft, parentRect.width - panelRect.width - 8));
+        nextTop = Math.max(8, Math.min(nextTop, parentRect.height - panelRect.height - 8));
+
+        consolePanel.style.left = `${nextLeft}px`;
+        consolePanel.style.top = `${nextTop}px`;
+    });
+
+    window.addEventListener("mouseup", () => {
+        if (!isConsoleDragging) return;
+
+        isConsoleDragging = false;
+        document.body.style.userSelect = "";
+    });
+
+
+
+
+
+
+const memoryPanel = document.getElementById("settings-panel");
+const memoryDragHandle = document.getElementById("memory-drag-handle");
+
+let isMemoryDragging = false;
+let memoryOffsetX = 0;
+let memoryOffsetY = 0;
+
+memoryDragHandle.addEventListener("mousedown", (event) => {
+    isMemoryDragging = true;
+
+    const rect = memoryPanel.getBoundingClientRect();
+
+    memoryOffsetX = event.clientX - rect.left;
+    memoryOffsetY = event.clientY - rect.top;
+
+    document.body.style.userSelect = "none";
+});
+
+window.addEventListener("mousemove", (event) => {
+    if (!isMemoryDragging) return;
+
+    const parentRect = memoryPanel.parentElement.getBoundingClientRect();
+    const panelRect = memoryPanel.getBoundingClientRect();
+
+    let nextLeft =
+        event.clientX - parentRect.left - memoryOffsetX;
+
+    let nextTop =
+        event.clientY - parentRect.top - memoryOffsetY;
+
+    nextLeft = Math.max(
+        8,
+        Math.min(
+            nextLeft,
+            parentRect.width - panelRect.width - 8
+        )
+    );
+
+    nextTop = Math.max(
+        8,
+        Math.min(
+            nextTop,
+            parentRect.height - panelRect.height - 8
+        )
+    );
+
+    memoryPanel.style.left = `${nextLeft}px`;
+    memoryPanel.style.top = `${nextTop}px`;
+    memoryPanel.style.right = "auto";
+});
+
+window.addEventListener("mouseup", () => {
+    isMemoryDragging = false;
+    document.body.style.userSelect = "";
+});
