@@ -13,7 +13,7 @@ The engine is designed for multi-runtime local AI setups where the main reasonin
 
 ![JIN Core Engine runtime UI](static/images/jin-core-history-highlight.png)
 
-![highlight1](static/images/highlight1.png) ![highlight2](static/images/highlight2.png) ![highlight3](static/images/highlight3.png)
+![highlight](static/images/highlight.png)
 
 ## Capabilities
 
