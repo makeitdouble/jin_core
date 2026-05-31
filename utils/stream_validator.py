@@ -425,6 +425,8 @@ class StreamValidator:
         self,
         chunk: str,
     ):
+
+        return True
         self.current_sentence += chunk
 
         raw_sentence = self.current_sentence.strip()
@@ -475,6 +477,7 @@ class StreamValidator:
         self,
         chunk: str,
     ):
+        return True
         if "\n" not in chunk:
             return True
 
