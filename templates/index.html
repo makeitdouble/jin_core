@@ -137,7 +137,76 @@
                     0 0 44px rgba(255, 140, 40, 0.10),
                     inset 0 0 14px rgba(255, 170, 70, 0.04);
         }
+        #user-input::placeholder {
+            color: rgba(255,255,255,0.35);
+        }
 
+        #user-input {
+            width: 100%;
+            border: none;
+            outline: none;
+            box-shadow: none;
+            transition:
+                    border-color 0.5s ease,
+                    box-shadow 0.5s ease;
+        }
+
+        #user-input:focus {
+            border: none;
+            outline: none;
+            box-shadow: none;
+        }
+
+
+        #chat-form:focus-within {
+            border-color: rgba(255,255,255,0.15);
+            box-shadow:
+                    0 0 0 1px rgba(255,255,255,0.1),
+                    0 0 12px rgba(255,255,255,0.2);
+        }
+
+        .runtime-memory-line {
+            margin: 0 0 10px 0;
+            line-height: 1.5;
+        }
+
+        .runtime-memory-key,
+        .runtime-memory-value {
+            color: rgba(244,244,245,0.62);
+            transition:
+                    color 1.3s ease,
+                    text-shadow 1.3s ease;
+        }
+
+        .runtime-memory-key.flash-new,
+        .runtime-memory-value.flash-new {
+            color: rgba(134,239,172,0.96);
+            text-shadow:
+                    0 0 10px rgba(34,197,94,0.35);
+        }
+
+        .runtime-memory-key.flash-changed {
+            color: rgba(216,180,254,0.96);
+            text-shadow:
+                    0 0 10px rgba(168,85,247,0.35);
+        }
+
+        .runtime-memory-value.flash-changed {
+            color: rgba(
+                    134,
+                    239,
+                    172,
+                    var(--memory-change-alpha, 0.80)
+            );
+
+            text-shadow:
+                    0 0 10px rgba(
+                            34,
+                            197,
+                            94,
+                            var(--memory-change-glow, 0.22)
+                    );
+        }
     </style>
 </head>
 <body class="h-screen overflow-hidden flex flex-col font-mono antialiased bg-zinc-950 text-zinc-100">
@@ -191,8 +260,12 @@
 
 <main class="flex flex-1 overflow-hidden relative">
     <div id="scene-bg"
-         class="absolute inset-0 bg-cover bg-center opacity-100 pointer-events-none"
+         class="absolute inset-0 bg-cover bg-center opacity-80 pointer-events-none"
          style="background-image:url('static/images/states/default.png')">
+    </div>
+
+    <div
+            class="absolute inset-0 bg-black/25 pointer-events-none">
     </div>
 
     <!-- LEFT CONSOLE -->
@@ -303,8 +376,8 @@
 
                 <textarea id="user-input"
                           rows="1"
-                          placeholder="Запрос в Jin Core Engine..."
-                          class="w-full bg-transparent resize-none border-0 outline-none text-sm leading-5 text-zinc-100 placeholder-zinc-300 max-h-28 py-1"></textarea>
+                          placeholder="Enter your message.."
+                          class="w-full bg-transparent resize-none border-none outline-none focus:outline-none focus:ring-0 text-sm leading-5 text-zinc-100 placeholder-zinc-300 max-h-28 py-1"></textarea>
 
                 <div id="stop-indicator"
                      class="pointer-events-none absolute inset-0 hidden items-center justify-center text-red-100">
@@ -470,11 +543,11 @@
                                 [ runtime memory ]
                             </span>
 
-                        <span
-                                id="runtime-memory-count"
-                                class="shrink-0 text-emerald-300">
-                                0
-                            </span>
+                        <span class="shrink-0 flex items-center gap-2 text-emerald-300">
+                            <button id="runtime-memory-prev" type="button">&lt;</button>
+                            <span id="runtime-memory-position">0</span>
+                            <button id="runtime-memory-next" type="button">&gt;</button>
+                        </span>
 
                     </div>
 

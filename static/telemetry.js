@@ -89,6 +89,10 @@ const runtimeMemoryCount =
     "runtime-memory-count"
   );
 
+const runtimeMemoryHistory = {
+  snapshots: [],
+  index: -1,
+};
 
 function findRuntimeByLabel(
   runtimes,
@@ -504,7 +508,7 @@ function renderRuntimeMemory(
         && memory.trim()
       )
         ? memory.trim()
-        : "No runtime memory yet.";
+        : "";
   }
 
   if (runtimeMemoryCount) {
@@ -708,20 +712,28 @@ window.handleTelemetryMessage = function (data) {
 window.handleRuntimeMemoryMessage = function (data) {
 
   if (
-    !data
-    || data.type !== "runtime_memory_update"
+      !data
+      || data.type !== "runtime_memory_update"
   ) {
     return;
   }
 
-  renderRuntimeMemory(
-    data.memory || "",
-    data.updates || 0
-  );
-
   if (runtimeMemoryPanel) {
     runtimeMemoryPanel.classList.remove("memory-updating");
   }
+
+  if (runtimeMemoryCount) {
+    runtimeMemoryCount.textContent =
+        String(data.updates || 0);
+  }
+
+  if (data.snapshot) {
+    runtimeMemoryHistory.snapshots.push(data.snapshot);
+    runtimeMemoryHistory.index =
+        runtimeMemoryHistory.snapshots.length - 1;
+  }
+
+  renderRuntimeMemorySnapshot();
 
 };
 
@@ -751,3 +763,222 @@ if (window.jinLatestStatus) {
   renderContextPanel();
 
 }
+
+const runtimeMemoryPosition =
+    document.getElementById("runtime-memory-position");
+
+const runtimeMemoryPrev =
+    document.getElementById("runtime-memory-prev");
+
+const runtimeMemoryNext =
+    document.getElementById("runtime-memory-next");
+
+
+function renderRuntimeMemorySnapshot() {
+  const snapshot =
+      runtimeMemoryHistory.snapshots[
+          runtimeMemoryHistory.index
+          ];
+
+  if (!snapshot) {
+    runtimeMemoryText.textContent = "";
+    updateRuntimeMemoryArrows();
+    return;
+  }
+
+  renderRuntimeMemoryLines(
+      snapshot
+  );
+
+  runtimeMemoryPosition.textContent =
+      String(snapshot.index);
+
+  updateRuntimeMemoryArrows();
+}
+
+function clampMemoryRatio(value) {
+  const number =
+      Number(value || 0);
+
+  return Math.max(
+      0,
+      Math.min(1, number)
+  );
+}
+
+function applyRuntimeMemoryFlash(
+    element,
+    status,
+    kind,
+    ratio
+) {
+  if (!element) {
+    return;
+  }
+
+  if (status === "new") {
+    element.classList.add("flash-new");
+  }
+
+  if (status === "changed") {
+    element.classList.add("flash-changed");
+
+    if (kind === "value") {
+      const normalized =
+          clampMemoryRatio(ratio);
+
+      element.style.setProperty(
+          "--memory-change-alpha",
+          String(
+              0.55 + normalized * 0.41
+          )
+      );
+
+      element.style.setProperty(
+          "--memory-change-glow",
+          String(
+              0.10 + normalized * 0.28
+          )
+      );
+    }
+  }
+
+  if (
+      status !== "new"
+      && status !== "changed"
+  ) {
+    return;
+  }
+
+  setTimeout(() => {
+    element.classList.remove(
+        "flash-new",
+        "flash-changed"
+    );
+
+    element.style.removeProperty(
+        "--memory-change-alpha"
+    );
+
+    element.style.removeProperty(
+        "--memory-change-glow"
+    );
+  }, 1500);
+}
+
+function renderRuntimeMemoryLines(snapshot) {
+  if (!runtimeMemoryText) {
+    return;
+  }
+
+  runtimeMemoryText.innerHTML = "";
+
+  const lines =
+      snapshot.lines || [];
+
+  if (!lines.length) {
+    runtimeMemoryText.textContent =
+        (snapshot.raw_memory || "").trim();
+
+    return;
+  }
+
+  lines.forEach((line) => {
+    const row =
+        document.createElement("div");
+
+    row.className =
+        "runtime-memory-line";
+
+    const key =
+        line.key || "note";
+
+    const value =
+        line.value || "";
+
+    const keyStatus =
+        line.key_status || line.status || "same";
+
+    const valueStatus =
+        line.value_status || line.status || "same";
+
+    const keySpan =
+        document.createElement("span");
+
+    keySpan.className =
+        "runtime-memory-key";
+
+    keySpan.textContent =
+        `${key}:`;
+
+    const valueSpan =
+        document.createElement("span");
+
+    valueSpan.className =
+        "runtime-memory-value";
+
+    valueSpan.textContent =
+        ` ${value}`;
+
+    row.appendChild(keySpan);
+    row.appendChild(valueSpan);
+
+    runtimeMemoryText.appendChild(row);
+
+    applyRuntimeMemoryFlash(
+        keySpan,
+        keyStatus,
+        "key",
+        line.key_change_ratio
+    );
+
+    applyRuntimeMemoryFlash(
+        valueSpan,
+        valueStatus,
+        "value",
+        line.value_change_ratio
+    );
+  });
+}
+
+function updateRuntimeMemoryArrows() {
+  const canGoPrev =
+      runtimeMemoryHistory.index > 0;
+
+  const canGoNext =
+      runtimeMemoryHistory.index <
+      runtimeMemoryHistory.snapshots.length - 1;
+
+  runtimeMemoryPrev.disabled = !canGoPrev;
+  runtimeMemoryNext.disabled = !canGoNext;
+
+  runtimeMemoryPrev.classList.toggle("opacity-30", !canGoPrev);
+  runtimeMemoryNext.classList.toggle("opacity-30", !canGoNext);
+
+  runtimeMemoryPrev.classList.toggle("cursor-default", !canGoPrev);
+  runtimeMemoryNext.classList.toggle("cursor-default", !canGoNext);
+  runtimeMemoryPrev.classList.toggle("text-emerald-300", canGoPrev);
+  runtimeMemoryNext.classList.toggle("text-emerald-300", canGoNext);
+
+  runtimeMemoryPrev.classList.toggle("text-slate-600", !canGoPrev);
+  runtimeMemoryNext.classList.toggle("text-slate-600", !canGoNext);
+}
+
+runtimeMemoryPrev?.addEventListener("click", () => {
+  if (runtimeMemoryHistory.index <= 0) return;
+
+  runtimeMemoryHistory.index -= 1;
+  renderRuntimeMemorySnapshot();
+});
+
+runtimeMemoryNext?.addEventListener("click", () => {
+  if (
+      runtimeMemoryHistory.index >=
+      runtimeMemoryHistory.snapshots.length - 1
+  ) return;
+
+  runtimeMemoryHistory.index += 1;
+  renderRuntimeMemorySnapshot();
+});
+
+renderRuntimeMemorySnapshot();

@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import traceback
+from difflib import SequenceMatcher
 
 from clients.service_client import (
     ask_service_model,
@@ -17,6 +18,38 @@ DEFAULT_RUNTIME_MEMORY = (
     "This session has just begun. "
     "You have no history with the user yet."
 )
+
+def change_ratio(
+        previous: str,
+        current: str,
+) -> float:
+
+    previous = (
+            previous
+            or ""
+    ).strip()
+
+    current = (
+            current
+            or ""
+    ).strip()
+
+    if not previous and not current:
+        return 0.0
+
+    if not previous or not current:
+        return 1.0
+
+    similarity = SequenceMatcher(
+        None,
+        previous.lower(),
+        current.lower(),
+    ).ratio()
+
+    return round(
+        1.0 - similarity,
+        3,
+        )
 
 async def safe_call(
         call,
@@ -43,6 +76,13 @@ async def emit_runtime_memory_update(
         "emitter",
         None,
     )
+
+    memory = getattr(context, "runtime_memory", "")
+    snapshot = build_runtime_memory_snapshot(context, memory)
+
+    context.runtime_memory_snapshots.append(snapshot)
+    context.runtime_memory_snapshot_index = snapshot["index"]
+
     emit = getattr(
         emitter,
         "emit",
@@ -53,16 +93,11 @@ async def emit_runtime_memory_update(
         emit,
         {
             "type": "runtime_memory_update",
-            "memory": getattr(
-                context,
-                "runtime_memory",
-                "",
-            ),
-            "updates": getattr(
-                context,
-                "runtime_memory_updates",
-                0,
-            ),
+            "memory": memory,
+            "updates": getattr(context, "runtime_memory_updates", 0),
+            "snapshot": snapshot,
+            "snapshots_count": len(context.runtime_memory_snapshots),
+            "snapshot_index": context.runtime_memory_snapshot_index,
         },
     )
 
@@ -800,3 +835,240 @@ def build_memory_update_skip_details(
         "-----------------\n"
         f"{candidate_memory.strip() or '<empty>'}"
     )
+
+def parse_runtime_memory_lines(memory: str) -> list[dict]:
+    lines = []
+
+    for raw_line in (memory or "").splitlines():
+        line = raw_line.strip().lstrip("-").strip()
+
+        if not line:
+            continue
+
+        if ":" in line:
+            key, value = line.split(":", 1)
+        else:
+            key, value = "note", line
+
+        lines.append({
+            "key": key.strip(),
+            "value": value.strip(),
+            "status": "same",
+        })
+
+    return lines
+
+def normalize_memory_key(
+        key: str,
+) -> str:
+
+    return (
+        key
+        .strip()
+        .lower()
+    )
+
+def find_best_previous_line(
+        key: str,
+        previous_lines: list[dict],
+) -> dict | None:
+
+    normalized_key = normalize_memory_key(
+        key
+    )
+
+    best_line = None
+    best_score = 0.0
+
+    for previous_line in previous_lines:
+
+        previous_key = normalize_memory_key(
+            previous_line.get(
+                "key",
+                ""
+            )
+        )
+
+        if not previous_key:
+            continue
+
+        score = SequenceMatcher(
+            None,
+            previous_key,
+            normalized_key,
+        ).ratio()
+
+        if score > best_score:
+            best_score = score
+            best_line = previous_line
+
+    if best_score >= 0.58:
+        return best_line
+
+    return None
+
+def apply_runtime_memory_diff(
+        current_lines: list[dict],
+        previous_snapshot: dict | None,
+) -> list[dict]:
+
+    if not previous_snapshot:
+        for line in current_lines:
+            line["key_status"] = "new"
+            line["value_status"] = "new"
+            line["key_change_ratio"] = 1.0
+            line["value_change_ratio"] = 1.0
+            line["status"] = "new"
+
+        return current_lines
+
+    previous_lines = (
+            previous_snapshot.get(
+                "lines",
+                []
+            )
+            or []
+    )
+
+    previous_by_normalized_key = {}
+
+    for previous_line in previous_lines:
+        normalized_key = normalize_memory_key(
+            previous_line.get(
+                "key",
+                ""
+            )
+        )
+
+        if normalized_key:
+            previous_by_normalized_key[normalized_key] = previous_line
+
+    for line in current_lines:
+
+        key = (
+                line.get(
+                    "key",
+                    ""
+                )
+                or ""
+        ).strip()
+
+        value = (
+                line.get(
+                    "value",
+                    ""
+                )
+                or ""
+        ).strip()
+
+        normalized_key = normalize_memory_key(
+            key
+        )
+
+        previous_line = (
+                previous_by_normalized_key.get(
+                    normalized_key
+                )
+                or find_best_previous_line(
+            key,
+            previous_lines,
+        )
+        )
+
+        # -----------------------------------------
+        # EXACT KEY NOT FOUND
+        # -----------------------------------------
+
+        if previous_line is None:
+            line["key_status"] = "new"
+            line["value_status"] = "new"
+            line["key_change_ratio"] = 1.0
+            line["value_change_ratio"] = 1.0
+            line["status"] = "new"
+
+            continue
+
+        previous_key = (
+                previous_line.get(
+                    "key",
+                    ""
+                )
+                or ""
+        ).strip()
+
+        previous_value = (
+                previous_line.get(
+                    "value",
+                    ""
+                )
+                or ""
+        ).strip()
+
+        key_delta = change_ratio(
+            previous_key,
+            key,
+        )
+
+        value_delta = change_ratio(
+            previous_value,
+            value,
+        )
+
+        line["key_change_ratio"] = key_delta
+        line["value_change_ratio"] = value_delta
+
+        line["key_status"] = (
+            "changed"
+            if key_delta > 0
+            else "same"
+        )
+
+        line["value_status"] = (
+            "changed"
+            if value_delta > 0
+            else "same"
+        )
+
+        if (
+                line["key_status"] == "changed"
+                or line["value_status"] == "changed"
+        ):
+            line["status"] = "changed"
+
+        else:
+            line["status"] = "same"
+
+    return current_lines
+
+def build_runtime_memory_snapshot(
+        context,
+        memory: str,
+) -> dict:
+
+    snapshots = getattr(
+        context,
+        "runtime_memory_snapshots",
+        [],
+    )
+
+    previous_snapshot = (
+        snapshots[-1]
+        if snapshots
+        else None
+    )
+
+    lines = parse_runtime_memory_lines(
+        memory
+    )
+
+    lines = apply_runtime_memory_diff(
+        lines,
+        previous_snapshot,
+    )
+
+    return {
+        "session_id": getattr(context, "session_id", ""),
+        "index": len(snapshots),
+        "raw_memory": memory,
+        "lines": lines,
+    }
