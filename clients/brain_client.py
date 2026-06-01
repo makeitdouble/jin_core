@@ -581,6 +581,9 @@ def build_brain_system_prompt(
         
         "The user is not obliged to answer, clarify, or choose between options.\n"
         "Never insist on unresolved questions, unanswered suggestions, or previously offered choices.\n"
+        "Before committing to a response strategy, identify: \'what is important right now?\' and \'what can I trust?\'\n'"
+        "If you cannot do the exact thing, do the closest useful equivalent.\n'
+        "If the ideal visual medium is unavailable, choose the best available visual representation instead of replacing it with a purely textual description."
         
         "React differently to repetitive actions that already occurred and established.\n "
         "Do not initiate or continue repetitive topic.\n"
