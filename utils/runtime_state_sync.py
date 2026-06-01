@@ -16,6 +16,8 @@ async def refresh_runtime_state(
     *,
     runtime_id: str,
     used_tokens: int | None = None,
+    context_tokens: int | None = None,
+    total_tokens: int | None = None,
     max_tokens: int | None = None,
     add_tokens: int | None = None,
     last_error: str | None | object = UNCHANGED,
@@ -25,6 +27,8 @@ async def refresh_runtime_state(
     runtime_state.update_runtime_state(
         runtime_id=runtime_id,
         used_tokens=used_tokens,
+        context_tokens=context_tokens,
+        total_tokens=total_tokens,
         max_tokens=max_tokens,
         add_tokens=add_tokens,
         last_error=last_error,

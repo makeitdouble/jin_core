@@ -16,6 +16,9 @@ from memory.message_memory import (
 from runtime.runtime_context import (
     RuntimeContext,
 )
+from memory.runtime_state import (
+    RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID,
+)
 from settings.config_loader import (
     config,
 )
@@ -27,6 +30,7 @@ class FakeServiceClient:
         self,
         response_text,
         finish_reasons=None,
+        usage=None,
     ):
 
         self.response_text = response_text
@@ -34,6 +38,7 @@ class FakeServiceClient:
             finish_reasons
             or []
         )
+        self.usage = usage
         self.calls = []
 
     async def ask(
@@ -84,11 +89,16 @@ class FakeServiceClient:
                 self.finish_reasons.pop(0)
             )
 
-        return {
+        response = {
             "choices": [
                 choice,
             ],
         }
+
+        if self.usage is not None:
+            response["usage"] = self.usage
+
+        return response
 
 
 class FakeLogger:
@@ -337,10 +347,23 @@ class MessageMemoryTests(
         )
         self.assertEqual(
             len(context.emitter.events),
-            1,
+            2,
         )
 
-        event = context.emitter.events[0]
+        telemetry_event = context.emitter.events[0]
+
+        self.assertEqual(
+            telemetry_event["type"],
+            "telemetry",
+        )
+        self.assertGreater(
+            telemetry_event["runtime"][
+                RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID
+            ]["used_tokens"],
+            0,
+        )
+
+        event = context.emitter.events[1]
 
         self.assertEqual(
             event["type"],
@@ -370,6 +393,68 @@ class MessageMemoryTests(
         self.assertEqual(
             event["snapshot"]["raw_memory"],
             "The user is testing live runtime memory.",
+        )
+
+    async def test_summarizer_usage_corrects_estimate_with_prompt_usage(self):
+
+        service_client = FakeServiceClient(
+            "Exact memory.",
+            usage={
+                "prompt_tokens": 90,
+                "completion_tokens": 33,
+                "total_tokens": 123,
+            },
+        )
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            emitter=SimpleNamespace(
+                events=[],
+                emit=None,
+            ),
+            logger=FakeLogger(),
+            runtime_memory="Initial memory.",
+            runtime_memory_updates=0,
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
+            session_id="test-session",
+        )
+
+        async def emit(event):
+            context.emitter.events.append(
+                event
+            )
+
+        context.emitter.emit = emit
+
+        await summarize_runtime_memory(
+            context=context,
+            user_message="Remember this exactly.",
+            assistant_message="I will update memory.",
+        )
+
+        telemetry_events = [
+            event
+            for event in context.emitter.events
+            if event["type"] == "telemetry"
+        ]
+
+        self.assertEqual(
+            len(telemetry_events),
+            2,
+        )
+        self.assertEqual(
+            telemetry_events[-1]["runtime"][
+                RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID
+            ]["used_tokens"],
+            90,
+        )
+        self.assertEqual(
+            telemetry_events[-1]["runtime"][
+                RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID
+            ]["total_tokens"],
+            123,
         )
 
     async def test_summarizer_uses_service_max_tokens(self):

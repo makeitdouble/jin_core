@@ -157,6 +157,14 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                 service_state["used_tokens"],
                 42,
             )
+            self.assertEqual(
+                service_state["context_tokens"],
+                12,
+            )
+            self.assertEqual(
+                service_state["total_tokens"],
+                42,
+            )
 
             telemetry_counts = [
                 event["runtime"][runtime_id]["used_tokens"]

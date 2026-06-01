@@ -14,7 +14,7 @@ BRAIN_API_BASE = "http://brain-host:1234"
 
 BRAIN_MODEL_UID = "brain-model"
 
-BRAIN_REQUEST_TIMEOUT = 200.0
+BRAIN_REQUEST_TIMEOUT = 1000.0
 
 BRAIN_CONTEXT_WINDOW = 8192
 
@@ -32,7 +32,7 @@ SERVICE_API_BASE = "http://service-host:1234"
 
 SERVICE_MODEL_UID = "service-model"
 
-SERVICE_REQUEST_TIMEOUT = 200.0
+SERVICE_REQUEST_TIMEOUT = 1000.0
 
 SERVICE_CONTEXT_WINDOW = 4096
 
@@ -50,7 +50,7 @@ SEARCH_SERPER_API_KEY = "mock-serper-api-key"
 
 SEARCH_MAX_RESULTS = 5
 
-SEARCH_TIMEOUT = 20.0
+SEARCH_TIMEOUT = 100.0
 
 
 # ---------------------------------------------------------

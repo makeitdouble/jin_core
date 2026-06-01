@@ -28,6 +28,8 @@ function readInitialRuntimeConfig() {
  * @property {string=} label
  * @property {string=} model
  * @property {number=} used_tokens
+ * @property {number=} context_tokens
+ * @property {number=} total_tokens
  * @property {number=} max_tokens
  */
 
@@ -137,6 +139,15 @@ function getBrainRuntime() {
         ? getRuntimeByLabel("service")
         : null
     )
+  );
+
+}
+
+
+function getSummarizerRuntime() {
+
+  return getRuntimeByLabel(
+    "summarizer"
   );
 
 }
@@ -253,6 +264,27 @@ function buildContextLine(
       ? Number(runtimeInfo.used_tokens || 0)
       : 0;
 
+  const contextUsed =
+    runtimeInfo
+      ? Number(
+          runtimeInfo.context_tokens
+          || runtimeInfo.used_tokens
+          || 0
+        )
+      : 0;
+
+  const totalUsed =
+    runtimeInfo
+      ? Math.max(
+          contextUsed,
+          Number(
+            runtimeInfo.total_tokens
+            || runtimeInfo.used_tokens
+            || 0
+          )
+        )
+      : 0;
+
   const max =
     runtimeInfo
       ? Number(runtimeInfo.max_tokens || 0)
@@ -280,6 +312,44 @@ function buildContextLine(
       (rawPercent / 100) * cells
     );
 
+  const contextPercent =
+    max > 0
+      ? Math.min(
+          100,
+          (contextUsed / max) * 100
+        )
+      : 0;
+
+  const totalPercent =
+    max > 0
+      ? Math.min(
+          100,
+          (totalUsed / max) * 100
+        )
+      : 0;
+
+  const contextFilled =
+    Math.min(
+      cells,
+      Math.round(
+        (contextPercent / 100) * cells
+      )
+    );
+
+  const totalFilled =
+    Math.min(
+      cells,
+      Math.round(
+        (totalPercent / 100) * cells
+      )
+    );
+
+  const secondaryFilled =
+    Math.max(
+      0,
+      totalFilled - contextFilled
+    );
+
   const bar =
     "|".repeat(filled)
     + ".".repeat(cells - filled);
@@ -287,8 +357,57 @@ function buildContextLine(
   return {
     percent,
     bar: `[${bar}]`,
+    contextFilled,
+    secondaryFilled,
+    emptyFilled:
+      Math.max(
+        0,
+        cells - totalFilled
+      ),
+    contextPercent:
+      Math.round(contextPercent),
+    totalPercent:
+      Math.round(totalPercent),
+    contextUsed,
+    totalUsed,
+    max,
     percentLabel,
   };
+
+}
+
+
+function renderContextBar(
+  barElement,
+  contextLine,
+  pressureColor
+) {
+
+  if (!barElement) {
+    return;
+  }
+
+  const solid =
+    "|".repeat(
+      contextLine.contextFilled
+    );
+
+  const secondary =
+    "|".repeat(
+      contextLine.secondaryFilled
+    );
+
+  const empty =
+    ".".repeat(
+      contextLine.emptyFilled
+    );
+
+  barElement.innerHTML =
+    "["
+    + `<span style="color: ${pressureColor}; opacity: 1">${solid}</span>`
+    + `<span style="color: ${pressureColor}; opacity: 0.55">${secondary}</span>`
+    + `<span style="color: ${pressureColor}; opacity: 0.28">${empty}</span>`
+    + "]";
 
 }
 
@@ -401,6 +520,21 @@ function setContextPanelRuntime(runtime) {
       "context-window-percent"
     );
 
+  const summarizerLineElement =
+    document.getElementById(
+      "summarizer-window-line"
+    );
+
+  const summarizerBarElement =
+    document.getElementById(
+      "summarizer-window-bar"
+    );
+
+  const summarizerPercentElement =
+    document.getElementById(
+      "summarizer-window-percent"
+    );
+
   const tokenText =
     formatContextTokens(runtime);
 
@@ -414,7 +548,34 @@ function setContextPanelRuntime(runtime) {
 
   const pressureColor =
       getContextPressureColor(
-          contextLine.percent
+          Math.max(
+            contextLine.percent,
+            contextLine.totalPercent
+          )
+      );
+
+  const summarizerRuntime =
+    getSummarizerRuntime();
+
+  const summarizerTokenText =
+    formatContextTokens(
+      summarizerRuntime
+    );
+
+  const summarizerLine =
+    buildContextLine(
+      summarizerRuntime,
+      getContextBarCells(
+        summarizerBarElement
+      )
+    );
+
+  const summarizerPressureColor =
+      getContextPressureColor(
+          Math.max(
+            summarizerLine.percent,
+            summarizerLine.totalPercent
+          )
       );
 
   if (titleElement) {
@@ -434,21 +595,44 @@ function setContextPanelRuntime(runtime) {
 
   if (lineElement) {
     lineElement.title =
-      `${tokenText} (${contextLine.percent}%)`;
+      `context: ${contextLine.contextUsed} / ${contextLine.max} `
+      + `(${contextLine.contextPercent}%), total: `
+      + `${contextLine.totalUsed} / ${contextLine.max} `
+      + `(${contextLine.totalPercent}%)`;
   }
 
-  if (barElement) {
-    barElement.textContent =
-      contextLine.bar;
-    barElement.style.color =
-        pressureColor;
-  }
+  renderContextBar(
+    barElement,
+    contextLine,
+    pressureColor
+  );
 
   if (percentElement) {
     percentElement.textContent =
       contextLine.percentLabel;
     percentElement.style.color =
         pressureColor;
+  }
+
+  if (summarizerLineElement) {
+    summarizerLineElement.title =
+      `context: ${summarizerLine.contextUsed} / ${summarizerLine.max} `
+      + `(${summarizerLine.contextPercent}%), total: `
+      + `${summarizerLine.totalUsed} / ${summarizerLine.max} `
+      + `(${summarizerLine.totalPercent}%)`;
+  }
+
+  renderContextBar(
+    summarizerBarElement,
+    summarizerLine,
+    summarizerPressureColor
+  );
+
+  if (summarizerPercentElement) {
+    summarizerPercentElement.textContent =
+      summarizerLine.percentLabel;
+    summarizerPercentElement.style.color =
+        summarizerPressureColor;
   }
 
 }

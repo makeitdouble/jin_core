@@ -6,11 +6,20 @@ from difflib import SequenceMatcher
 from clients.service_client import (
     ask_service_model,
 )
+from memory.runtime_state import (
+    RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID,
+)
 from settings.config_loader import (
     config,
 )
 from utils.response_extractor import (
     ResponseExtractor,
+)
+from utils.runtime_state_sync import (
+    refresh_runtime_state,
+)
+from utils.tokens import (
+    estimate_runtime_tokens,
 )
 
 
@@ -122,12 +131,12 @@ def build_runtime_memory_system_prompt() -> str:
         "user intents, potential motifs, focus, priority, active topics, open references, pending choices, "
         "offered options, preferences, expectations, current concern, decisions, patterns, failures or interruptions.\n"
         "Avoid writing about JIN's role unless the role itself changed or matters. "
-        "Describe assistant actions neutrally instead.\n"
+        "Describe JIN actions neutrally instead.\n"
         "Keep memory actionable: write what helps the next answer, not a recap of "
         "what happened. \n"
         "Always count repeated occurrences of the same user behavior pattern.\n"
         "When a repeated pattern is detected, track: pattern type, occurrence count, "
-        "last repeated input, whether the assistant already reacted to this pattern\n"
+        "last repeated input, whether the JIN already reacted to this pattern\n"
         "Once an interaction pattern is established, move the conversation forward instead of repeating it.\n"
         "Prefer capturing recurring behavior and always treat repetition as a signal.\n"
         "Prefer behavioral observations over repeating previously handled interactions.\n"
@@ -156,7 +165,7 @@ def build_runtime_memory_system_prompt() -> str:
         "referent clearly enough for the next brain prompt to resolve it.\n"
         "If the user switches topic, keep the new topic without forcing it into the "
         "previous one; only note a pattern if the sequence itself is meaningful.\n"
-        "If the assistant response was aborted or incomplete, mark it as incomplete "
+        "If JIN response was aborted or incomplete, mark it as incomplete "
         "and do not treat it as resolved.\n"
         "Do not infer stable user traits from a single turn.\n"
         "Do not over-interpret jokes, tests, or casual topic changes.\n"
@@ -250,11 +259,11 @@ def build_interrupted_assistant_message(
         )
 
     return (
-        "Assistant response was interrupted by the user and is incomplete. "
+        "JIN response was interrupted by the user and is incomplete. "
         "Do not treat this turn as resolved.\n\n"
         "Interrupted user topic/request:\n"
         f"{user_message.strip()}\n\n"
-        "Partial assistant text before interruption:\n"
+        "Partial JIN text before interruption:\n"
         f"{partial_text}"
     )
 
@@ -337,26 +346,118 @@ def looks_like_incomplete_runtime_memory(
     )
 
 
+async def refresh_runtime_memory_summarizer_usage(
+        context,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        response: dict | None = None,
+) -> None:
+
+    if context is None:
+        return
+
+    emitter = getattr(
+        context,
+        "emitter",
+        None,
+    )
+
+    if getattr(
+        emitter,
+        "emit",
+        None,
+    ) is None:
+        return
+
+    usage = (
+        ResponseExtractor.extract_usage(
+            response
+        )
+        if isinstance(
+            response,
+            dict,
+        )
+        else None
+    )
+
+    if (
+            response is not None
+            and not usage
+    ):
+        return
+
+    context_tokens = (
+        usage.get(
+            "prompt_tokens",
+            0,
+        )
+        if usage
+        else estimate_runtime_tokens(
+            system_prompt=system_prompt,
+            user_input=user_prompt,
+        )
+    )
+
+    total_tokens = (
+        usage.get(
+            "total_tokens",
+            0,
+        )
+        if usage
+        else context_tokens
+    )
+
+    if not context_tokens:
+        return
+
+    await refresh_runtime_state(
+        context,
+        runtime_id=(
+            RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID
+        ),
+        used_tokens=context_tokens,
+        context_tokens=context_tokens,
+        total_tokens=(
+            total_tokens
+            or context_tokens
+        ),
+        max_tokens=config.SERVICE_CONTEXT_WINDOW,
+        last_error=None,
+        status="online",
+    )
+
+
 async def ask_runtime_memory_model(
         *,
+        context=None,
         service_client,
         current_memory: str,
         user_message: str,
         assistant_message: str,
 ) -> dict:
 
-    return await ask_service_model(
+    system_prompt = (
+        build_runtime_memory_system_prompt()
+    )
+    user_prompt = (
+        build_runtime_memory_user_prompt(
+            current_memory=current_memory,
+            user_message=user_message,
+            assistant_message=assistant_message,
+        )
+    )
+
+    await refresh_runtime_memory_summarizer_usage(
+        context,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+    )
+
+    response = await ask_service_model(
         client=service_client,
-        system_prompt=(
-            build_runtime_memory_system_prompt()
-        ),
-        user_prompt=(
-            build_runtime_memory_user_prompt(
-                current_memory=current_memory,
-                user_message=user_message,
-                assistant_message=assistant_message,
-            )
-        ),
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
         temperature=(
             config.SERVICE_TEMPERATURE
         ),
@@ -365,25 +466,44 @@ async def ask_runtime_memory_model(
         ),
     )
 
+    await refresh_runtime_memory_summarizer_usage(
+        context,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        response=response,
+    )
+
+    return response
+
 
 async def ask_runtime_memory_batch_model(
         *,
+        context=None,
         service_client,
         current_memory: str,
         turns: list[dict],
 ) -> dict:
 
-    return await ask_service_model(
+    system_prompt = (
+        build_runtime_memory_system_prompt()
+    )
+    user_prompt = (
+        build_runtime_memory_batch_user_prompt(
+            current_memory=current_memory,
+            turns=turns,
+        )
+    )
+
+    await refresh_runtime_memory_summarizer_usage(
+        context,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+    )
+
+    response = await ask_service_model(
         client=service_client,
-        system_prompt=(
-            build_runtime_memory_system_prompt()
-        ),
-        user_prompt=(
-            build_runtime_memory_batch_user_prompt(
-                current_memory=current_memory,
-                turns=turns,
-            )
-        ),
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
         temperature=(
             config.SERVICE_TEMPERATURE
         ),
@@ -391,6 +511,15 @@ async def ask_runtime_memory_batch_model(
             config.SERVICE_MAX_TOKENS
         ),
     )
+
+    await refresh_runtime_memory_summarizer_usage(
+        context,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        response=response,
+    )
+
+    return response
 
 
 async def summarize_runtime_memory(
@@ -433,6 +562,7 @@ async def summarize_runtime_memory(
 
     try:
         response = await ask_runtime_memory_model(
+            context=context,
             service_client=service_client,
             current_memory=current_memory,
             user_message=user_message,
@@ -582,6 +712,7 @@ async def summarize_runtime_memory_pending_turns(
 
     try:
         response = await ask_runtime_memory_batch_model(
+            context=context,
             service_client=service_client,
             current_memory=initial_memory,
             turns=turns,

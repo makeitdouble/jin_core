@@ -496,7 +496,7 @@
 
                             <span
                                     id="context-summary-tokens"
-                                    class="shrink-0 text-zinc-100">
+                                    class="w-[13ch] shrink-0 text-right tabular-nums text-zinc-100">
                                     0 / {{ runtime_config.service.max_tokens }}
                                 </span>
 
@@ -516,7 +516,25 @@
 
                                 <span
                                         id="context-window-percent"
-                                        class="shrink-0 text-right">
+                                        class="w-[4ch] shrink-0 text-right tabular-nums">
+                                        0%
+                                    </span>
+
+                            </div>
+
+                            <div
+                                    id="summarizer-window-line"
+                                    class="mt-2 flex w-full items-center gap-2 text-[11px] text-emerald-300">
+
+                                    <span
+                                            id="summarizer-window-bar"
+                                            class="block min-w-0 flex-1 overflow-hidden whitespace-pre">
+                                        [................]
+                                    </span>
+
+                                <span
+                                        id="summarizer-window-percent"
+                                        class="w-[4ch] shrink-0 text-right tabular-nums">
                                         0%
                                     </span>
 
