@@ -216,6 +216,21 @@ function appendLog(
       "text-blue-500";
   }
 
+  if (tag.includes("SUMMARIZER")) {
+    tagClass =
+      "text-blue-400 font-bold";
+
+    logDiv.classList.add(
+      "font-mono",
+      "text-[12px]",
+      "bg-blue-500/5",
+      "p-2",
+      "rounded",
+      "border",
+      "border-blue-500/10",
+    );
+  }
+
   if (tag.includes("AFTER")) {
     tagClass =
       "text-purple-500";
@@ -282,17 +297,27 @@ function appendLog(
     traceButton.type =
       "button";
 
+    const isSummarizer =
+      tag.includes("SUMMARIZER");
+
     traceButton.className =
-      "mt-2 inline-flex items-center rounded border border-red-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-red-300 hover:bg-red-500/10 transition";
+      isSummarizer
+        ? "mt-2 inline-flex items-center rounded border border-blue-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-blue-300 hover:bg-blue-500/10 transition"
+        : "mt-2 inline-flex items-center rounded border border-red-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-red-300 hover:bg-red-500/10 transition";
 
     traceButton.textContent =
-      "show trace";
+      isSummarizer
+        ? "show payload"
+        : "show trace";
 
     traceButton.addEventListener(
       "click",
       function () {
         showTrace(
-          normalized.details
+          normalized.details,
+          isSummarizer
+            ? "Summarizer payload"
+            : "Trace"
         );
       }
     );

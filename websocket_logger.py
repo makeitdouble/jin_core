@@ -44,6 +44,17 @@ class WebSocketLogger:
     async def log_service(self, message: str):
         await self.log("[SERVICE]", message)
 
+    async def log_summarizer(
+            self,
+            message: str,
+            details: str | None = None,
+    ):
+        await self.log(
+            "[SUMMARIZER]",
+            message,
+            details=details,
+        )
+
     async def log_service_as_brain(self, message: str):
         await self.log("[SERVICE as BRAIN]", message)
 

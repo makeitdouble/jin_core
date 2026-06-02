@@ -108,6 +108,24 @@
             }
         }
 
+        @keyframes memoryL2GlowPulse {
+            0%, 100% {
+                box-shadow:
+                        0 0 0 1px rgba(255, 255, 255, 0.35),
+                        0 0 24px rgba(255, 255, 255, 0.32),
+                        0 0 70px rgba(255, 255, 255, 0.20),
+                        inset 0 0 22px rgba(255, 255, 255, 0.08);
+            }
+
+            50% {
+                box-shadow:
+                        0 0 0 1px rgba(255, 255, 255, 0.65),
+                        0 0 38px rgba(255, 255, 255, 0.58),
+                        0 0 110px rgba(255, 255, 255, 0.36),
+                        inset 0 0 30px rgba(255, 255, 255, 0.14);
+            }
+        }
+
         #settings-panel {
             transition:
                     border-color 2s ease,
@@ -124,8 +142,22 @@
                     inset 0 0 22px rgba(255,170,70,.08);
         }
 
+        #settings-panel.memory-l2-updating {
+            border-color: rgba(255, 255, 255, 0.65);
+
+            box-shadow:
+                    0 0 0 1px rgba(255, 255, 255, 0.35),
+                    0 0 24px rgba(255, 255, 255, 0.32),
+                    0 0 70px rgba(255, 255, 255, 0.20),
+                    inset 0 0 22px rgba(255, 255, 255, 0.08);
+        }
+
         #settings-panel.memory-updating.memory-pulse {
             animation: memoryGlowPulse 5s ease-in-out infinite;
+        }
+
+        #settings-panel.memory-l2-updating.memory-l2-pulse {
+            animation: memoryL2GlowPulse 5s ease-in-out infinite;
         }
 
         #settings-panel.memory-fading {
@@ -136,6 +168,16 @@
                     0 0 16px rgba(255, 170, 70, 0.16),
                     0 0 44px rgba(255, 140, 40, 0.10),
                     inset 0 0 14px rgba(255, 170, 70, 0.04);
+        }
+
+        #settings-panel.memory-l2-fading {
+            border-color: rgba(255, 255, 255, 0.25);
+
+            box-shadow:
+                    0 0 0 1px rgba(255, 255, 255, 0.12),
+                    0 0 16px rgba(255, 255, 255, 0.16),
+                    0 0 44px rgba(255, 255, 255, 0.10),
+                    inset 0 0 14px rgba(255, 255, 255, 0.04);
         }
         #user-input::placeholder {
             color: rgba(255,255,255,0.35);
@@ -496,8 +538,9 @@
 
                             <span
                                     id="context-summary-tokens"
-                                    class="w-[13ch] shrink-0 text-right tabular-nums text-zinc-100">
-                                    0 / {{ runtime_config.service.max_tokens }}
+                                    class="flex w-[8ch] shrink-0 flex-col items-end text-right leading-tight tabular-nums text-zinc-100">
+                                    <span id="context-summary-used" class="whitespace-nowrap">0&nbsp;/</span>
+                                    <span id="context-summary-max" class="whitespace-nowrap">{{ runtime_config.service.max_tokens }}</span>
                                 </span>
 
                         </div>

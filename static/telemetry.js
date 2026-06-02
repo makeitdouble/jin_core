@@ -200,11 +200,16 @@ function formatContextTokens(runtime) {
     runtime;
 
   if (!runtimeInfo) {
-    return "0 / 0";
+    return {
+      used: 0,
+      max: 0,
+    };
   }
 
-  return `${runtimeInfo.used_tokens || 0} / `
-    + `${runtimeInfo.max_tokens || 0}`;
+  return {
+    used: runtimeInfo.used_tokens || 0,
+    max: runtimeInfo.max_tokens || 0,
+  };
 
 }
 
@@ -505,6 +510,16 @@ function setContextPanelRuntime(runtime) {
       "context-summary-tokens"
     );
 
+  const summaryUsedElement =
+    document.getElementById(
+      "context-summary-used"
+    );
+
+  const summaryMaxElement =
+    document.getElementById(
+      "context-summary-max"
+    );
+
   const lineElement =
     document.getElementById(
       "context-window-line"
@@ -589,8 +604,20 @@ function setContextPanelRuntime(runtime) {
   }
 
   if (summaryElement) {
-    summaryElement.textContent =
-      tokenText;
+    summaryElement.setAttribute(
+      "aria-label",
+      `${tokenText.used} / ${tokenText.max}`
+    );
+  }
+
+  if (summaryUsedElement) {
+    summaryUsedElement.textContent =
+      `${tokenText.used}\u00a0/`;
+  }
+
+  if (summaryMaxElement) {
+    summaryMaxElement.textContent =
+      `${tokenText.max}`;
   }
 
   if (lineElement) {
