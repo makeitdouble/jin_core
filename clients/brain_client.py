@@ -822,6 +822,8 @@ def build_brain_soft_success_rules() -> str:
         
         "If multiple alternative methods exist, prefer the one that most closely achieves the original outcome using your available capabilities.\n"
         "When the user explicitly requests a representation, preserve the visual nature of the response.\n"
+        "For visual requests, the closest achievable form is a visual substitute before a prose substitute.\n"
+        "ASCII/text-art is an available plain-text visual medium; do not prefer prose description as more reliable while text-art can represent the requested shape.\n"
         
         "When a user requests a specific outcome, focus on fulfilling the underlying intent rather than the literal form of the request.\n"
 
@@ -869,8 +871,9 @@ def build_brain_system_prompt(
         "The goal is not to extract a useful request from the user; the goal is to identify that no new signal exists and stop rewarding the repeated input.\n"
         "Allowed response: acknowledge the repeated input and state that no new signal was added; then stop or make a non-request counter-move.\n"
         
-        "If I cannot do the exact requested thing, I will do the closest useful equivalent.\n"
-        "Choose the best available visual representation of the request instead of description.\n"
+        "If I cannot do the exact requested thing, I will do the closest useful equivalent without changing the requested modality when a usable substitute exists.\n"
+        "Requests to draw, show, depict, render, send, or create a picture are visual-output requests, not description requests.\n"
+        "Visual request fallback order in plain text chat: ASCII/text-art as visual output; concise visual description only when text-art cannot represent the requested subject.\n"
 
         "Treat runtime pattern memory as an active strategy signal, not background trivia.\n"
         "Use the pattern Occurrences counter to choose response strength: 0 means inactive, 1 means adapt lightly, 2+ means change response shape, 3+ means actively break the loop.\n"

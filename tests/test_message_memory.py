@@ -12,6 +12,7 @@ from memory.message_memory import (
     build_runtime_memory_system_prompt,
     build_runtime_memory_user_prompt,
     maybe_summarize_runtime_l2_memory,
+    record_runtime_l1_diff,
     schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
     summarize_runtime_memory,
@@ -462,6 +463,42 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertIn(
+            "visual substitute before a prose substitute",
+            prompt,
+        )
+        self.assertIn(
+            "ASCII/text-art is an available plain-text visual medium",
+            prompt,
+        )
+        self.assertIn(
+            "do not prefer prose description as more reliable",
+            prompt,
+        )
+        self.assertIn(
+            "without changing the requested modality",
+            prompt,
+        )
+        self.assertIn(
+            "Requests to draw, show, depict, render, send, or create a picture are visual-output requests, not description requests",
+            prompt,
+        )
+        self.assertIn(
+            "Visual request fallback order in plain text chat: ASCII/text-art as visual output",
+            prompt,
+        )
+        self.assertIn(
+            "concise visual description only when text-art cannot represent the requested subject",
+            prompt,
+        )
+        self.assertNotIn(
+            "image/action tool",
+            prompt,
+        )
+        self.assertNotIn(
+            "Choose the best available visual representation of the request instead of description",
+            prompt,
+        )
+        self.assertIn(
             "soft dialog closure",
             prompt,
         )
@@ -785,6 +822,48 @@ class MessageMemoryTests(
         self.assertNotIn(
             "<PERCENT>0</PERCENT>",
             prompt,
+        )
+
+    async def test_runtime_l1_diff_log_formats_float_noise(self):
+
+        logger = FakeLogger()
+        context = SimpleNamespace(
+            logger=logger,
+            runtime_l2_pending_patches=[
+                {
+                    "total_diff": 4.65,
+                },
+                {
+                    "total_diff": 296.85,
+                },
+            ],
+            runtime_l2_last_turn=2,
+            user_message_count=5,
+        )
+
+        await record_runtime_l1_diff(
+            context=context,
+            snapshot={
+                "index": 3,
+                "total_diff": 167.29999999999998,
+                "patch": {},
+            },
+            turns=[],
+        )
+
+        self.assertEqual(
+            len(logger.service_logs),
+            1,
+        )
+        self.assertIn(
+            "[MEMORY] L1 diff +167.3; "
+            "recent diffs [4.65, 296.85, 167.3]; "
+            "avg 156.27; range 292.2;",
+            logger.service_logs[0],
+        )
+        self.assertNotIn(
+            "167.29999999999998",
+            logger.service_logs[0],
         )
 
     async def test_summarizer_updates_runtime_memory(self):

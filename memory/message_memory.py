@@ -1000,8 +1000,10 @@ async def record_runtime_l1_diff(
         ),
         (
             "[MEMORY] L1 diff "
-            f"+{total_diff}; recent diffs {recent_diffs}; "
-            f"avg {diff_average}; range {diff_range}; "
+            f"+{format_diff_value(total_diff)}; "
+            f"recent diffs {format_diff_values(recent_diffs)}; "
+            f"avg {format_diff_value(diff_average)}; "
+            f"range {format_diff_value(diff_range)}; "
             f"patch window {len(recent_diffs)}/{L2_PATCH_WINDOW}; "
             f"repeated keys {repeated_keys}; "
             f"{l2_turn_label}"
@@ -1048,6 +1050,37 @@ def average_diff(
     return round(
         sum(diffs) / len(diffs),
         2,
+    )
+
+
+def format_diff_value(
+        value: float,
+) -> str:
+
+    return (
+        f"{value:.2f}"
+        .rstrip(
+            "0"
+        )
+        .rstrip(
+            "."
+        )
+    )
+
+
+def format_diff_values(
+        values: list[float],
+) -> str:
+
+    return (
+        "["
+        + ", ".join(
+            format_diff_value(
+                value
+            )
+            for value in values
+        )
+        + "]"
     )
 
 
