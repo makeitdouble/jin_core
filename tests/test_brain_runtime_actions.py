@@ -177,6 +177,16 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
+            "only available source of fresh external data",
+            prompt,
+        )
+
+        self.assertIn(
+            "do not rely on memory or guesses",
+            prompt,
+        )
+
+        self.assertIn(
             "plain text",
             prompt,
         )
