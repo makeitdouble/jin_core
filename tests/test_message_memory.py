@@ -283,11 +283,47 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertIn(
+            "last_seen_snapshot",
+            prompt,
+        )
+        self.assertIn(
+            "evidence summary",
+            prompt,
+        )
+        self.assertIn(
+            "confidence",
+            prompt,
+        )
+        self.assertIn(
+            "brand-new pattern",
+            prompt,
+        )
+        self.assertIn(
             "same-intent behavior repeated before L2 named it",
             prompt,
         )
         self.assertIn(
             "Never write Occurrences: 1",
+            prompt,
+        )
+        self.assertIn(
+            "do not recompute Occurrences from the supplied patch window alone",
+            prompt,
+        )
+        self.assertIn(
+            "new_occurrences = old_occurrences + count(new matching L1 evidence after last_seen_snapshot)",
+            prompt,
+        )
+        self.assertIn(
+            "patch snapshot > last_seen_snapshot",
+            prompt,
+        )
+        self.assertIn(
+            "initialize it as a baseline without incrementing Occurrences for old visible evidence",
+            prompt,
+        )
+        self.assertIn(
+            "Never reduce an existing Occurrences count",
             prompt,
         )
         self.assertIn(
@@ -320,6 +356,14 @@ class MessageMemoryTests(
         )
         self.assertIn(
             "return the current L2 memory unchanged",
+            prompt,
+        )
+        self.assertIn(
+            "Pattern memory should not learn from itself",
+            prompt,
+        )
+        self.assertIn(
+            "Occurrences must be derived only from actual conversation evidence",
             prompt,
         )
 
@@ -937,11 +981,19 @@ class MessageMemoryTests(
             "possible pattern: user revisits the same implementation tradeoff",
         )
         logger = FakeLogger()
+        emitter = SimpleNamespace(
+            events=[],
+            emit=None,
+        )
         context = SimpleNamespace(
             clients={
                 "service": service_client,
             },
+            emitter=emitter,
             logger=logger,
+            runtime_memory="",
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
             runtime_l2_memory="",
             runtime_l2_pending_patches=[
                 {
@@ -1050,7 +1102,15 @@ class MessageMemoryTests(
             ],
             runtime_l2_last_turn=0,
             user_message_count=7,
+            session_id="test-session",
         )
+
+        async def emit(event):
+            context.emitter.events.append(
+                event
+            )
+
+        context.emitter.emit = emit
 
         updated_memory = await maybe_summarize_runtime_l2_memory(
             context=context,
@@ -1108,6 +1168,36 @@ class MessageMemoryTests(
             "total_diff: 199.05",
             logger.summarizer_logs[0][1],
         )
+        self.assertEqual(
+            logger.summarizer_logs[1][0],
+            "[MEMORY] L2 pattern memory summarizer result",
+        )
+        self.assertEqual(
+            logger.summarizer_logs[1][1],
+            "possible pattern: user revisits the same implementation tradeoff",
+        )
+        memory_events = [
+            event
+            for event in context.emitter.events
+            if event["type"] == "runtime_memory_update"
+        ]
+
+        self.assertEqual(
+            len(memory_events),
+            1,
+        )
+        self.assertEqual(
+            memory_events[0]["type"],
+            "runtime_memory_update",
+        )
+        self.assertNotIn(
+            "possible pattern: user revisits the same implementation tradeoff",
+            memory_events[0]["snapshot"]["raw_memory"],
+        )
+        self.assertEqual(
+            memory_events[0]["snapshot"]["raw_memory"],
+            "",
+        )
 
     async def test_summarizer_usage_corrects_estimate_with_prompt_usage(self):
 
@@ -1162,6 +1252,12 @@ class MessageMemoryTests(
             telemetry_events[-1]["runtime"][
                 RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID
             ]["used_tokens"],
+            123,
+        )
+        self.assertEqual(
+            telemetry_events[-1]["runtime"][
+                RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID
+            ]["context_tokens"],
             90,
         )
         self.assertEqual(

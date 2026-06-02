@@ -207,7 +207,7 @@ function createMessageElement(
     document.createElement("div");
 
   msgDiv.className =
-    "flex items-start gap-3 max-w-3xl";
+    "mx-auto flex w-full max-w-4xl items-start gap-3";
 
   const pre =
     document.createElement("pre");
@@ -277,7 +277,7 @@ function appendRuntimeAction(
     document.createElement("div");
 
   row.className =
-    "flex items-center gap-3 max-w-3xl text-xs text-cyan-100";
+    "mx-auto flex w-full max-w-4xl items-center gap-3 text-xs text-cyan-100";
 
   const icon =
     document.createElement("div");
@@ -331,7 +331,7 @@ function createStreamGroup(
     document.createElement("div");
 
   wrapper.className =
-    "space-y-3 max-w-4xl";
+    "mx-auto w-full max-w-4xl space-y-3";
 
   // THINKING
 

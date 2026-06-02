@@ -120,14 +120,31 @@ class RuntimeStream:
             0,
         )
 
-        total_tokens = getattr(
+        provider_total_tokens = getattr(
             self.stream,
             "total_tokens",
             0,
         )
 
-        if not (
+        estimated_context_tokens = (
+            self.estimate_input_tokens()
+        )
+        estimated_total_tokens = (
+            self.estimate_live_tokens()
+        )
+
+        context_tokens = (
             prompt_tokens
+            or estimated_context_tokens
+        )
+        total_tokens = max(
+            provider_total_tokens,
+            estimated_total_tokens,
+            context_tokens,
+        )
+
+        if not (
+            context_tokens
             or total_tokens
         ):
             return
@@ -136,7 +153,7 @@ class RuntimeStream:
             self.context,
             runtime_id=self.runtime_id,
             used_tokens=total_tokens,
-            context_tokens=prompt_tokens,
+            context_tokens=context_tokens,
             total_tokens=total_tokens,
             max_tokens=self.context_window,
             last_error=None,

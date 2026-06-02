@@ -300,13 +300,23 @@ function appendLog(
     const isSummarizer =
       tag.includes("SUMMARIZER");
 
+    const isPatternResult =
+      isSummarizer
+      && String(
+        normalized.message
+      ).includes(
+        "L2 pattern memory"
+      );
+
     traceButton.className =
       isSummarizer
         ? "mt-2 inline-flex items-center rounded border border-blue-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-blue-300 hover:bg-blue-500/10 transition"
         : "mt-2 inline-flex items-center rounded border border-red-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-red-300 hover:bg-red-500/10 transition";
 
     traceButton.textContent =
-      isSummarizer
+      isPatternResult
+        ? "show patterns"
+        : isSummarizer
         ? "show payload"
         : "show trace";
 
@@ -315,7 +325,9 @@ function appendLog(
       function () {
         showTrace(
           normalized.details,
-          isSummarizer
+          isPatternResult
+            ? "L2 pattern memory"
+            : isSummarizer
             ? "Summarizer payload"
             : "Trace"
         );

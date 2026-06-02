@@ -111,6 +111,21 @@ async def fake_cancelled_generator():
     raise asyncio.CancelledError()
 
 
+async def fake_prompt_only_usage_generator():
+
+    yield {
+        "type": "usage",
+        "prompt_tokens": 1,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+    }
+
+    yield {
+        "type": "content",
+        "content": "final answer",
+    }
+
+
 class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_runtime_context_counter_grows_during_stream(self):
@@ -190,6 +205,68 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             runtime_state.update_runtime_state(
                 runtime_id=runtime_id,
                 used_tokens=original_state["used_tokens"],
+                context_tokens=original_state["context_tokens"],
+                total_tokens=original_state["total_tokens"],
+                max_tokens=original_state["max_tokens"],
+                last_error=original_state["last_error"],
+                status=original_state["status"],
+            )
+
+    async def test_runtime_counter_keeps_estimated_total_when_provider_usage_has_no_total(self):
+
+        runtime_id = settings.SERVICE_MODEL_UID
+        original_state = runtime_state.get_runtime_state(
+            runtime_id
+        )
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            runtime_action_events=[],
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=runtime_id,
+            role="service",
+            context_window=(
+                settings.SERVICE_CONTEXT_WINDOW
+            ),
+            log_method=(
+                context.logger.log_service
+            ),
+            context_snapshot={
+                "context_role": "brain",
+                "system_prompt": "system prompt",
+                "user_prompt": "user payload",
+            },
+        )
+
+        try:
+            await stream.run(
+                fake_prompt_only_usage_generator()
+            )
+
+            service_state = runtime_state.get_runtime_state(
+                runtime_id
+            )
+
+            self.assertGreater(
+                service_state["used_tokens"],
+                service_state["context_tokens"],
+            )
+            self.assertEqual(
+                service_state["total_tokens"],
+                service_state["used_tokens"],
+            )
+
+        finally:
+            runtime_state.update_runtime_state(
+                runtime_id=runtime_id,
+                used_tokens=original_state["used_tokens"],
+                context_tokens=original_state["context_tokens"],
+                total_tokens=original_state["total_tokens"],
                 max_tokens=original_state["max_tokens"],
                 last_error=original_state["last_error"],
                 status=original_state["status"],

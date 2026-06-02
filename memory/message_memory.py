@@ -140,15 +140,25 @@ def build_runtime_l2_memory_system_prompt() -> str:
         "L2 works above L1 factual runtime memory.\n"
         "Use only the recent L1 patch window supplied by the runtime.\n"
         "This window is selected because normalized L1 keys or topics repeated across patches.\n"
+        "Pattern memory should not learn from itself.\n"
+        "Do not treat existing possible pattern, observed tendency, emerging signal, or other pattern-memory entries as evidence.\n"
+        "Pattern entries may be displayed as context, but they must never contribute to occurrence counts or create new pattern entries.\n"
+        "Occurrences must be derived only from actual conversation evidence in the supplied L1 patches, not from previously generated pattern summaries.\n"
         "L2 is a hypothesis generator, not a source of settled memory.\n"
         "Allowed outputs: possible pattern, emerging signal, observed tendency, may indicate, contradiction, corrected assumption.\n"
         "Prefer 'possible pattern' over 'pattern'.\n"
         "Every possible pattern, emerging signal, or observed tendency MUST include an occurrence counter in the value: Occurrences: N.\n"
-        "When creating a new pattern, set Occurrences to the number of visible manifestations in the supplied L1 patch window, not to 1 by default.\n"
-        "If the same-intent behavior repeated before L2 named it, count those earlier turns immediately when creating the counter.\n"
-        "Count all matching L1 patch changes and occurrence evidence lines in the supplied window that manifest the same pattern.\n"
-        "Never write Occurrences: 1 when the supplied window shows two or more manifestations of that same pattern.\n"
-        "When the same pattern appears again in the recent L1 patch window, increment its Occurrences counter.\n"
+        "Every possible pattern, emerging signal, or observed tendency SHOULD include accounting metadata in the value: "
+        "Occurrences: N; last_seen_snapshot: S; evidence summary: <short evidence>; confidence: low|medium|high.\n"
+        "For a brand-new pattern with no prior L2 entry, set Occurrences to the number of matching evidence lines in the supplied L1 patch window, not to 1 by default.\n"
+        "For a brand-new pattern, if the same-intent behavior repeated before L2 named it, count those earlier L1 evidence lines immediately when creating the counter.\n"
+        "For an existing pattern, preserve its old Occurrences count; do not recompute Occurrences from the supplied patch window alone.\n"
+        "For an existing pattern, new_occurrences = old_occurrences + count(new matching L1 evidence after last_seen_snapshot).\n"
+        "Only increment Occurrences when patch snapshot > last_seen_snapshot and the L1 evidence actually matches this pattern.\n"
+        "If last_seen_snapshot is missing for an existing pattern, initialize it as a baseline without incrementing Occurrences for old visible evidence.\n"
+        "Use the newest matching patch snapshot as the updated last_seen_snapshot after counting new evidence.\n"
+        "Never reduce an existing Occurrences count just because the current patch window contains fewer matching examples.\n"
+        "Never write Occurrences: 1 for a brand-new pattern when the supplied window shows two or more manifestations of that same pattern.\n"
         "When the user explicitly cancels the pattern, stops doing it, or clearly changes topic, reset that pattern to Occurrences: 0.\n"
         "Do not keep Occurrences: 0 entries unless they are still useful as immediate context; obsolete zero-count entries may be dropped.\n"
         "Do not repeat factual L1 memory unless it is needed to explain an L2 signal.\n"
@@ -554,7 +564,10 @@ async def refresh_runtime_memory_summarizer_usage(
         runtime_id=(
             RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID
         ),
-        used_tokens=context_tokens,
+        used_tokens=(
+            total_tokens
+            or context_tokens
+        ),
         context_tokens=context_tokens,
         total_tokens=(
             total_tokens
@@ -619,6 +632,31 @@ async def log_runtime_summarizer_payload(
             payload,
             ensure_ascii=False,
             indent=2,
+        ),
+    )
+
+
+async def log_runtime_summarizer_result(
+        context,
+        *,
+        label: str,
+        result: str,
+) -> None:
+
+    await safe_call(
+        getattr(
+            getattr(
+                context,
+                "logger",
+                None,
+            ),
+            "log_summarizer",
+            None,
+        ),
+        f"[MEMORY] {label} summarizer result",
+        details=(
+            result.strip()
+            or "<empty>"
         ),
     )
 
@@ -1290,6 +1328,16 @@ async def maybe_summarize_runtime_l2_memory(
                 None,
             ),
             "[MEMORY] L2 memory updated",
+        )
+
+        await log_runtime_summarizer_result(
+            context,
+            label="L2 pattern memory",
+            result=updated_l2_memory,
+        )
+
+        await emit_runtime_memory_update(
+            context
         )
 
         return getattr(
