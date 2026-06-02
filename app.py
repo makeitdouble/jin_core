@@ -36,6 +36,10 @@ from clients.clients_registry import (
     build_clients,
 )
 
+from memory.runtime_state import (
+    RUNTIME_MEMORY_SUMMARIZER_LABEL,
+)
+
 STATUS_CHECK_TIMEOUT = getattr(
     config,
     "STATUS_CHECK_TIMEOUT",
@@ -121,6 +125,8 @@ def build_runtime_config(
             "label": "service",
             "model": config.SERVICE_MODEL_UID,
             "used_tokens": 0,
+            "context_tokens": 0,
+            "total_tokens": 0,
             "max_tokens": config.SERVICE_CONTEXT_WINDOW,
         },
         "brain": {
@@ -131,11 +137,21 @@ def build_runtime_config(
                 else config.BRAIN_MODEL_UID
             ),
             "used_tokens": 0,
+            "context_tokens": 0,
+            "total_tokens": 0,
             "max_tokens": (
                 config.SERVICE_CONTEXT_WINDOW
                 if effective_use_service_as_brain
                 else config.BRAIN_CONTEXT_WINDOW
             ),
+        },
+        RUNTIME_MEMORY_SUMMARIZER_LABEL: {
+            "label": RUNTIME_MEMORY_SUMMARIZER_LABEL,
+            "model": config.SERVICE_MODEL_UID,
+            "used_tokens": 0,
+            "context_tokens": 0,
+            "total_tokens": 0,
+            "max_tokens": config.SERVICE_CONTEXT_WINDOW,
         },
     }
 

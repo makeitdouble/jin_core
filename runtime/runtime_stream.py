@@ -17,6 +17,7 @@ from utils.token_usage import (
 )
 
 from utils.tokens import (
+    estimate_stream_input_tokens,
     estimate_stream_live_tokens,
 )
 
@@ -113,22 +114,42 @@ class RuntimeStream:
         if not self.is_brain_context():
             return
 
+        prompt_tokens = getattr(
+            self.stream,
+            "prompt_tokens",
+            0,
+        )
+
         total_tokens = getattr(
             self.stream,
             "total_tokens",
             0,
         )
 
-        if not total_tokens:
+        if not (
+            prompt_tokens
+            or total_tokens
+        ):
             return
 
         await refresh_runtime_state(
             self.context,
             runtime_id=self.runtime_id,
             used_tokens=total_tokens,
+            context_tokens=prompt_tokens,
+            total_tokens=total_tokens,
             max_tokens=self.context_window,
             last_error=None,
             status="online",
+        )
+
+    def estimate_input_tokens(self) -> int:
+
+        return estimate_stream_input_tokens(
+            self.stream,
+            prompt_text=(
+                self.build_input_prompt_text()
+            ),
         )
 
     def estimate_live_tokens(self) -> int:
@@ -145,11 +166,15 @@ class RuntimeStream:
         if not self.is_brain_context():
             return
 
-        used_tokens = (
+        context_tokens = (
+            self.estimate_input_tokens()
+        )
+
+        total_tokens = (
             self.estimate_live_tokens()
         )
 
-        if not used_tokens:
+        if not total_tokens:
             return
 
         await refresh_runtime_state(
@@ -158,8 +183,10 @@ class RuntimeStream:
                 self.runtime_id
             ),
             used_tokens=(
-                used_tokens
+                total_tokens
             ),
+            context_tokens=context_tokens,
+            total_tokens=total_tokens,
             max_tokens=(
                 self.context_window
             ),

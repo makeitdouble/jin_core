@@ -6,15 +6,21 @@ from clients.brain_client import (
 )
 from memory.message_memory import (
     DEFAULT_RUNTIME_MEMORY,
+    L2_PATCH_WINDOW,
     build_interrupted_assistant_message,
+    build_runtime_l2_memory_system_prompt,
     build_runtime_memory_system_prompt,
     build_runtime_memory_user_prompt,
+    maybe_summarize_runtime_l2_memory,
     schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
     summarize_runtime_memory,
 )
 from runtime.runtime_context import (
     RuntimeContext,
+)
+from memory.runtime_state import (
+    RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID,
 )
 from settings.config_loader import (
     config,
@@ -27,6 +33,7 @@ class FakeServiceClient:
         self,
         response_text,
         finish_reasons=None,
+        usage=None,
     ):
 
         self.response_text = response_text
@@ -34,6 +41,7 @@ class FakeServiceClient:
             finish_reasons
             or []
         )
+        self.usage = usage
         self.calls = []
 
     async def ask(
@@ -84,17 +92,23 @@ class FakeServiceClient:
                 self.finish_reasons.pop(0)
             )
 
-        return {
+        response = {
             "choices": [
                 choice,
             ],
         }
+
+        if self.usage is not None:
+            response["usage"] = self.usage
+
+        return response
 
 
 class FakeLogger:
 
     def __init__(self):
         self.service_logs = []
+        self.summarizer_logs = []
         self.errors = []
 
     async def log_service(
@@ -104,6 +118,19 @@ class FakeLogger:
 
         self.service_logs.append(
             message
+        )
+
+    async def log_summarizer(
+        self,
+        message: str,
+        details: str | None = None,
+    ):
+
+        self.summarizer_logs.append(
+            (
+                message,
+                details,
+            )
         )
 
     async def log_error(
@@ -130,10 +157,21 @@ class MessageMemoryTests(
             current_memory="",
             user_message="hello",
             assistant_message="hi",
+            current_l2_memory=(
+                "possible pattern: repeated greeting loop; Occurrences: 2"
+            ),
         )
 
         self.assertIn(
             DEFAULT_RUNTIME_MEMORY,
+            prompt,
+        )
+        self.assertIn(
+            "Current L2 pattern memory for occurrence tracking only",
+            prompt,
+        )
+        self.assertIn(
+            "Occurrences: 2",
             prompt,
         )
 
@@ -200,6 +238,14 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertIn(
+            "merely paraphrased, reordered, or reworded",
+            prompt,
+        )
+        self.assertIn(
+            "Treat semantic rephrasing as no-op memory",
+            prompt,
+        )
+        self.assertIn(
             "do not treat it as resolved",
             prompt,
         )
@@ -213,6 +259,67 @@ class MessageMemoryTests(
         )
         self.assertNotIn(
             "after one completed user/JIN turn",
+            prompt,
+        )
+
+    def test_runtime_l2_memory_prompt_defines_pattern_layer(self):
+
+        prompt = build_runtime_l2_memory_system_prompt()
+
+        self.assertIn(
+            "L2 pattern memory summarizer",
+            prompt,
+        )
+        self.assertIn(
+            "possible pattern",
+            prompt,
+        )
+        self.assertIn(
+            "Prefer 'possible pattern' over 'pattern'",
+            prompt,
+        )
+        self.assertIn(
+            "Occurrences: N",
+            prompt,
+        )
+        self.assertIn(
+            "same-intent behavior repeated before L2 named it",
+            prompt,
+        )
+        self.assertIn(
+            "Never write Occurrences: 1",
+            prompt,
+        )
+        self.assertIn(
+            "reset that pattern to Occurrences: 0",
+            prompt,
+        )
+        self.assertIn(
+            "emerging signal",
+            prompt,
+        )
+        self.assertIn(
+            "may indicate",
+            prompt,
+        )
+        self.assertIn(
+            "hypothesis generator",
+            prompt,
+        )
+        self.assertIn(
+            "contradiction",
+            prompt,
+        )
+        self.assertIn(
+            "corrected assumption",
+            prompt,
+        )
+        self.assertIn(
+            "strong signal",
+            prompt,
+        )
+        self.assertIn(
+            "return the current L2 memory unchanged",
             prompt,
         )
 
@@ -269,6 +376,333 @@ class MessageMemoryTests(
         )
         self.assertIn(
             "Lamborghini pricing",
+            prompt,
+        )
+
+    def test_brain_prompt_includes_l2_memory_separately(self):
+
+        context = SimpleNamespace(
+            runtime_memory="topic: current factual work",
+            runtime_l2_memory="possible pattern: user compares implementation paths before coding",
+            deep_thought_count=0,
+            runtime_search_result="",
+            runtime_search_result_id="",
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_SEARCH": False,
+                "CAN_DEEP_THOUGHT": False,
+            },
+        )
+
+        self.assertIn(
+            "<RUNTIME_MEMORY>",
+            prompt,
+        )
+        self.assertIn(
+            "<RUNTIME_PATTERN_MEMORY>",
+            prompt,
+        )
+        self.assertIn(
+            "current factual work",
+            prompt,
+        )
+        self.assertIn(
+            "compares implementation paths",
+            prompt,
+        )
+        self.assertIn(
+            "Keep responses natural, conversational",
+            prompt,
+        )
+        self.assertIn(
+            "soft dialog closure",
+            prompt,
+        )
+        self.assertIn(
+            "No new signal, no new strategy",
+            prompt,
+        )
+        self.assertIn(
+            "do not ask for a topic, preference, choice, task, or next step",
+            prompt,
+        )
+        self.assertIn(
+            "Allowed response: acknowledge the repeated input",
+            prompt,
+        )
+        self.assertIn(
+            "not to extract a useful request from the user",
+            prompt,
+        )
+
+    def test_brain_prompt_includes_conditional_zero_diff_alert(self):
+
+        context = SimpleNamespace(
+            runtime_memory="topic: active loop diagnostics",
+            runtime_l2_memory="",
+            runtime_zero_diff_alert={
+                "turn_number": 8,
+                "user_message": "привет",
+                "assistant_message": "Привет! Чем займемся?",
+            },
+            deep_thought_count=0,
+            runtime_search_result="",
+            runtime_search_result_id="",
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_SEARCH": False,
+                "CAN_DEEP_THOUGHT": False,
+            },
+        )
+
+        self.assertIn(
+            "<ZERO_DIFF_STALL_ALERT>",
+            prompt,
+        )
+        self.assertIn(
+            "Do not alarm from this fact alone",
+            prompt,
+        )
+        self.assertIn(
+            "soft success rules are intentionally not rendered",
+            prompt,
+        )
+        self.assertIn(
+            "No new signal, no new strategy",
+            prompt,
+        )
+        self.assertIn(
+            "do not ask for a topic, preference, choice, task, or next step",
+            prompt,
+        )
+        self.assertNotIn(
+            "Keep responses natural, conversational",
+            prompt,
+        )
+        self.assertNotIn(
+            "soft dialog closure",
+            prompt,
+        )
+        self.assertNotIn(
+            "closest achievable form",
+            prompt,
+        )
+        self.assertIn(
+            "bad rules for this turn",
+            prompt,
+        )
+        self.assertIn(
+            "Disable the usual greeting, reassurance, helpful menu",
+            prompt,
+        )
+        self.assertIn(
+            "Do not try to break the loop by forcing the user",
+            prompt,
+        )
+        self.assertIn(
+            "topic, task, purpose, choice, or next step",
+            prompt,
+        )
+        self.assertIn(
+            "Do not answer a repeated zero-diff trigger with extra warmth",
+            prompt,
+        )
+        self.assertIn(
+            "larger menu of choices",
+            prompt,
+        )
+        self.assertIn(
+            "short, pointed, off-angle move",
+            prompt,
+        )
+        self.assertIn(
+            "rewrite it as a no-request observation or counter-move",
+            prompt,
+        )
+        self.assertIn(
+            "same local interaction",
+            prompt,
+        )
+        self.assertIn(
+            "привет",
+            prompt,
+        )
+
+    def test_brain_prompt_includes_conversation_activity(self):
+
+        context = SimpleNamespace(
+            runtime_memory="topic: active loop diagnostics",
+            runtime_l2_memory=(
+                "possible pattern: repeated greeting loop; Occurrences: 3"
+            ),
+            runtime_l2_pending_patches=[
+                {
+                    "total_diff": 29.85,
+                },
+            ],
+            runtime_zero_diff_alert=None,
+            deep_thought_count=0,
+            runtime_search_result="",
+            runtime_search_result_id="",
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_SEARCH": False,
+                "CAN_DEEP_THOUGHT": False,
+            },
+        )
+
+        self.assertIn(
+            "<CONVERSATION_ACTIVITY>",
+            prompt,
+        )
+        self.assertIn(
+            "<PERCENT>30</PERCENT>",
+            prompt,
+        )
+        self.assertNotIn(
+            "SOURCE_L1_DIFF",
+            prompt,
+        )
+        self.assertIn(
+            "LOW activity. The conversation is fading",
+            prompt,
+        )
+        self.assertIn(
+            "acting against the expected pattern",
+            prompt,
+        )
+
+    def test_brain_prompt_marks_critical_conversation_activity(self):
+
+        context = SimpleNamespace(
+            runtime_memory="topic: active loop diagnostics",
+            runtime_l2_memory=(
+                "possible pattern: repeated greeting loop; Occurrences: 4"
+            ),
+            runtime_l2_pending_patches=[
+                {
+                    "total_diff": 9.85,
+                },
+            ],
+            runtime_zero_diff_alert=None,
+            deep_thought_count=0,
+            runtime_search_result="",
+            runtime_search_result_id="",
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_SEARCH": False,
+                "CAN_DEEP_THOUGHT": False,
+            },
+        )
+
+        self.assertIn(
+            "<PERCENT>10</PERCENT>",
+            prompt,
+        )
+        self.assertIn(
+            "CRITICAL activity collapse",
+            prompt,
+        )
+        self.assertIn(
+            "current local response rules have failed",
+            prompt,
+        )
+        self.assertIn(
+            "resist the repetitive behavior",
+            prompt,
+        )
+        self.assertIn(
+            "Use a counter-reaction",
+            prompt,
+        )
+        self.assertIn(
+            "Do not force progress or extract a useful request",
+            prompt,
+        )
+        self.assertIn(
+            "Refuse the repeated frame",
+            prompt,
+        )
+        self.assertIn(
+            "does not ask for a topic, task, purpose, choice, or next step",
+            prompt,
+        )
+
+    def test_brain_prompt_marks_activity_below_twenty_as_critical(self):
+
+        context = SimpleNamespace(
+            runtime_memory="topic: active loop diagnostics",
+            runtime_l2_memory="",
+            runtime_l2_pending_patches=[
+                {
+                    "total_diff": 19,
+                },
+            ],
+            runtime_zero_diff_alert=None,
+            deep_thought_count=0,
+            runtime_search_result="",
+            runtime_search_result_id="",
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_SEARCH": False,
+                "CAN_DEEP_THOUGHT": False,
+            },
+        )
+
+        self.assertIn(
+            "<PERCENT>19</PERCENT>",
+            prompt,
+        )
+        self.assertIn(
+            "CRITICAL activity collapse",
+            prompt,
+        )
+
+    def test_brain_prompt_caps_conversation_activity_at_full(self):
+
+        context = SimpleNamespace(
+            runtime_memory="topic: active exchange",
+            runtime_l2_memory="",
+            runtime_l2_pending_patches=[
+                {
+                    "total_diff": 142,
+                },
+            ],
+            runtime_zero_diff_alert=None,
+            deep_thought_count=0,
+            runtime_search_result="",
+            runtime_search_result_id="",
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_SEARCH": False,
+                "CAN_DEEP_THOUGHT": False,
+            },
+        )
+
+        self.assertIn(
+            "<PERCENT>100</PERCENT>",
+            prompt,
+        )
+        self.assertNotIn(
+            "SOURCE_L1_DIFF",
             prompt,
         )
 
@@ -336,11 +770,36 @@ class MessageMemoryTests(
             logger.service_logs,
         )
         self.assertEqual(
+            logger.summarizer_logs[0][0],
+            "[MEMORY] L1 summarizer request",
+        )
+        self.assertIn(
+            '"messages"',
+            logger.summarizer_logs[0][1],
+        )
+        self.assertIn(
+            "Do you remember this?",
+            logger.summarizer_logs[0][1],
+        )
+        self.assertEqual(
             len(context.emitter.events),
-            1,
+            2,
         )
 
-        event = context.emitter.events[0]
+        telemetry_event = context.emitter.events[0]
+
+        self.assertEqual(
+            telemetry_event["type"],
+            "telemetry",
+        )
+        self.assertGreater(
+            telemetry_event["runtime"][
+                RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID
+            ]["used_tokens"],
+            0,
+        )
+
+        event = context.emitter.events[1]
 
         self.assertEqual(
             event["type"],
@@ -370,6 +829,346 @@ class MessageMemoryTests(
         self.assertEqual(
             event["snapshot"]["raw_memory"],
             "The user is testing live runtime memory.",
+        )
+
+    async def test_l2_memory_waits_for_repeated_patch_keys(self):
+
+        service_client = FakeServiceClient(
+            "possible pattern: should not run"
+        )
+        logger = FakeLogger()
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            logger=logger,
+            runtime_l2_memory="",
+            runtime_l2_pending_patches=[
+                {
+                    "turn_number": 1,
+                    "snapshot_index": 1,
+                    "total_diff": 110,
+                    "changes": {
+                        "added": [
+                            {
+                                "key": "topic",
+                                "value": "one",
+                            },
+                        ],
+                    },
+                },
+                {
+                    "turn_number": 2,
+                    "snapshot_index": 2,
+                    "total_diff": 254,
+                    "changes": {
+                        "added": [
+                            {
+                                "key": "intent",
+                                "value": "two",
+                            },
+                        ],
+                    },
+                },
+                {
+                    "turn_number": 3,
+                    "snapshot_index": 3,
+                    "total_diff": 80,
+                    "changes": {
+                        "added": [
+                            {
+                                "key": "choice",
+                                "value": "three",
+                            },
+                        ],
+                    },
+                },
+                {
+                    "turn_number": 4,
+                    "snapshot_index": 4,
+                    "total_diff": 140,
+                    "changes": {
+                        "added": [
+                            {
+                                "key": "status",
+                                "value": "four",
+                            },
+                        ],
+                    },
+                },
+                {
+                    "turn_number": 5,
+                    "snapshot_index": 5,
+                    "total_diff": 90,
+                    "changes": {
+                        "added": [
+                            {
+                                "key": "reference",
+                                "value": "five",
+                            },
+                        ],
+                    },
+                },
+            ],
+            runtime_l2_last_turn=0,
+            user_message_count=L2_PATCH_WINDOW,
+        )
+
+        updated_memory = await maybe_summarize_runtime_l2_memory(
+            context=context,
+        )
+
+        self.assertEqual(
+            updated_memory,
+            "",
+        )
+        self.assertEqual(
+            len(service_client.calls),
+            0,
+        )
+        self.assertEqual(
+            context.runtime_l2_memory,
+            "",
+        )
+
+    async def test_l2_memory_runs_after_repeated_patch_keys_even_with_noisy_diff(self):
+
+        service_client = FakeServiceClient(
+            "possible pattern: user revisits the same implementation tradeoff",
+        )
+        logger = FakeLogger()
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            logger=logger,
+            runtime_l2_memory="",
+            runtime_l2_pending_patches=[
+                {
+                    "turn_number": 1,
+                    "snapshot_index": 1,
+                    "total_diff": 110,
+                    "changes": {
+                        "added": [
+                            {
+                                "key": "topic",
+                                "value": "early broad update",
+                            },
+                        ],
+                    },
+                },
+                {
+                    "turn_number": 2,
+                    "snapshot_index": 2,
+                    "total_diff": 254,
+                    "changes": {
+                        "changed": [
+                            {
+                                "previous_key": "topic",
+                                "previous_value": "early broad update",
+                                "current_key": "topic",
+                                "current_value": "large rewrite",
+                            },
+                        ],
+                    },
+                },
+                {
+                    "turn_number": 3,
+                    "snapshot_index": 3,
+                    "total_diff": 199.05,
+                    "changes": {
+                        "changed": [
+                            {
+                                "previous_key": "topic",
+                                "previous_value": "large rewrite",
+                                "current_key": "topic",
+                                "current_value": "memory mechanics",
+                            },
+                        ],
+                    },
+                },
+                {
+                    "turn_number": 4,
+                    "snapshot_index": 4,
+                    "total_diff": 151,
+                    "changes": {
+                        "changed": [
+                            {
+                                "previous_key": "topic",
+                                "previous_value": "memory mechanics",
+                                "current_key": "topic",
+                                "current_value": "pattern trigger",
+                            },
+                        ],
+                    },
+                },
+                {
+                    "turn_number": 5,
+                    "snapshot_index": 5,
+                    "total_diff": 144.9,
+                    "changes": {
+                        "changed": [
+                            {
+                                "previous_key": "topic",
+                                "previous_value": "pattern trigger",
+                                "current_key": "topic",
+                                "current_value": "L2 window",
+                            },
+                        ],
+                    },
+                },
+                {
+                    "turn_number": 6,
+                    "snapshot_index": 6,
+                    "total_diff": 77.6,
+                    "changes": {
+                        "changed": [
+                            {
+                                "previous_key": "intent",
+                                "previous_value": "inspect diff",
+                                "current_key": "intent",
+                                "current_value": "adjust trigger",
+                            },
+                        ],
+                    },
+                },
+                {
+                    "turn_number": 7,
+                    "snapshot_index": 7,
+                    "total_diff": 104.69,
+                    "changes": {
+                        "changed": [
+                            {
+                                "previous_key": "topic",
+                                "previous_value": "L2 window",
+                                "current_key": "topic",
+                                "current_value": "repeated keys",
+                            },
+                        ],
+                    },
+                },
+            ],
+            runtime_l2_last_turn=0,
+            user_message_count=7,
+        )
+
+        updated_memory = await maybe_summarize_runtime_l2_memory(
+            context=context,
+        )
+
+        self.assertEqual(
+            updated_memory,
+            "possible pattern: user revisits the same implementation tradeoff",
+        )
+        self.assertEqual(
+            len(service_client.calls),
+            1,
+        )
+        self.assertEqual(
+            context.runtime_l2_memory,
+            "possible pattern: user revisits the same implementation tradeoff",
+        )
+        self.assertEqual(
+            context.runtime_l2_last_turn,
+            7,
+        )
+        self.assertEqual(
+            context.runtime_l2_pending_patches,
+            [],
+        )
+        self.assertIn(
+            "Recent L1 patches",
+            service_client.calls[0]["user_prompt"],
+        )
+        self.assertIn(
+            "total_diff: 199.05",
+            service_client.calls[0]["user_prompt"],
+        )
+        self.assertNotIn(
+            "total_diff: 110",
+            service_client.calls[0]["user_prompt"],
+        )
+        self.assertNotIn(
+            "total_diff: 254",
+            service_client.calls[0]["user_prompt"],
+        )
+        self.assertIn(
+            "[MEMORY] L2 memory updated",
+            logger.service_logs,
+        )
+        self.assertEqual(
+            logger.summarizer_logs[0][0],
+            "[MEMORY] L2 summarizer request",
+        )
+        self.assertIn(
+            '"messages"',
+            logger.summarizer_logs[0][1],
+        )
+        self.assertIn(
+            "total_diff: 199.05",
+            logger.summarizer_logs[0][1],
+        )
+
+    async def test_summarizer_usage_corrects_estimate_with_prompt_usage(self):
+
+        service_client = FakeServiceClient(
+            "Exact memory.",
+            usage={
+                "prompt_tokens": 90,
+                "completion_tokens": 33,
+                "total_tokens": 123,
+            },
+        )
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            emitter=SimpleNamespace(
+                events=[],
+                emit=None,
+            ),
+            logger=FakeLogger(),
+            runtime_memory="Initial memory.",
+            runtime_memory_updates=0,
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
+            session_id="test-session",
+        )
+
+        async def emit(event):
+            context.emitter.events.append(
+                event
+            )
+
+        context.emitter.emit = emit
+
+        await summarize_runtime_memory(
+            context=context,
+            user_message="Remember this exactly.",
+            assistant_message="I will update memory.",
+        )
+
+        telemetry_events = [
+            event
+            for event in context.emitter.events
+            if event["type"] == "telemetry"
+        ]
+
+        self.assertEqual(
+            len(telemetry_events),
+            2,
+        )
+        self.assertEqual(
+            telemetry_events[-1]["runtime"][
+                RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID
+            ]["used_tokens"],
+            90,
+        )
+        self.assertEqual(
+            telemetry_events[-1]["runtime"][
+                RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID
+            ]["total_tokens"],
+            123,
         )
 
     async def test_summarizer_uses_service_max_tokens(self):

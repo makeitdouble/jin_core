@@ -54,6 +54,16 @@ class RuntimeContext:
 
     runtime_memory_updates: int = 0
 
+    runtime_l2_memory: str = ""
+
+    runtime_l2_pending_patches: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_l2_last_turn: int = 0
+
+    runtime_zero_diff_alert: dict | None = None
+
     turn_number: int = 0
 
     user_message_count: int = 0

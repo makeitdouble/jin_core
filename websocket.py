@@ -189,17 +189,21 @@ async def refresh_pending_brain_usage(
         )
     )
 
+    used_tokens = (
+        estimate_runtime_tokens(
+            system_prompt=system_prompt,
+            user_input=brain_payload,
+        )
+    )
+
     await refresh_runtime_state(
         context,
         runtime_id=(
             brain_runtime["runtime_id"]
         ),
-        used_tokens=(
-            estimate_runtime_tokens(
-                system_prompt=system_prompt,
-                user_input=brain_payload,
-            )
-        ),
+        used_tokens=used_tokens,
+        context_tokens=used_tokens,
+        total_tokens=used_tokens,
         max_tokens=(
             brain_runtime["context_window"]
         ),

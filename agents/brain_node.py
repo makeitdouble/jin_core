@@ -135,6 +135,8 @@ class BrainNode(BaseNode):
             )
         )
 
+        context.runtime_zero_diff_alert = None
+
         brain_payload = (
             build_brain_payload(
                 state.translated_input,

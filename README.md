@@ -11,7 +11,9 @@ JIN Core Engine is a local AI orchestration runtime for OpenAI-compatible model 
 
 The engine is designed for multi-runtime local AI setups where the main reasoning model, service model, and translation model can run as separate providers while sharing one coherent room-like chat surface.
 
-![JIN Core Engine runtime UI](static/images/jin-core-history-highlight.png)
+Runtime memory can now influence conversation strategy, not just store facts. JIN tracks interaction patterns during a session and can adjust replies when the conversation starts looping instead of blindly restarting the same exchange.
+
+![JIN Core Engine runtime UI](static/images/jin-core-split-history.png)
 
 ![highlight](static/images/highlight.png)
 
@@ -31,7 +33,12 @@ The engine is designed for multi-runtime local AI setups where the main reasonin
 - Runtime memory panel in the right sidebar, showing the current memory state without XML tags.
 - Runtime memory snapshots with arrow navigation for reviewing how the session state evolved.
 - Runtime memory diff highlighting for new keys, changed keys, new values, and changed values.
+- Runtime pattern memory that detects repeated interaction shapes and feeds behavior signals back into the brain prompt.
+- Conversation activity signaling that helps JIN notice when an exchange is cooling down or stuck.
+- No-signal and zero-diff handling so repeated empty turns can change response strategy instead of producing another generic prompt.
+- Summarizer request logging with inspectable payloads for debugging what memory models received.
 - Memory update animation: the settings panel glows during summarization and changed memory lines briefly flash before settling back into a unified state.
+- Separate L1 and L2 memory update indicators for factual memory and pattern memory activity.
 - Interrupted turn memory handling: aborted or incomplete responses are marked as unresolved state.
 - Stream validation for repeated word loops, repeated sentences, repeated paragraphs, and leading HTML artifacts.
 - Abort support that cancels the active task, closes active provider streams, and records interrupted memory.
@@ -66,10 +73,13 @@ FastAPI app.py
                               OpenAI-compatible provider
                               |
                               v
-                    background service summarizer
+                    background service summarizers
                               |
                               v
-                       live RuntimeContext memory
+                 L1 factual memory -> L2 pattern memory
+                              |
+                              v
+                    trusted brain prompt context
 ```
 
 ## Runtime Flow
@@ -85,24 +95,29 @@ The brain can emit runtime action markers. The runtime consumes those markers as
 
 After the visible response ends, the service runtime updates `context.runtime_memory` in the background. This request does not block the user-facing answer. The next brain prompt receives the current memory as trusted runtime context, and the right sidebar shows the same memory as plain text.
 
+The memory layer can also surface compact pattern signals. When the session starts repeating the same kind of interaction, JIN can receive strategy hints such as low-signal repetition or stalled context and respond differently instead of treating each message as a fresh start.
+
 Each memory update is also stored as a per-session snapshot. The UI can step backward and forward through those snapshots, replaying lightweight diff highlights so the user can see which memory keys or values were added or changed during the conversation.
 
 If generation is aborted, the runtime captures the partial answer and schedules an interrupted memory update. The memory summarizer is instructed to mark the turn as incomplete and not treat it as resolved.
 
 ## Runtime Memory
 
-Runtime memory is intentionally lightweight in the current MVP:
+Runtime memory is intentionally lightweight, but it is no longer passive storage only. It gives JIN short-term continuity and can now influence conversational behavior when repeated patterns appear.
 
 - It lives in the active `RuntimeContext`, not in a database.
-- It is updated by a separate service-model request after a turn finishes.
-- It is written as compact, actionable bullet-like state rather than full transcript history.
-- It is injected into the brain prompt inside `<RUNTIME_MEMORY>`.
+- It is updated by separate service-model requests after a turn finishes.
+- It is split into factual L1 memory and higher-level L2 pattern memory.
+- L1 is written as compact, actionable bullet-like state rather than full transcript history.
+- L2 tracks possible repeated interaction patterns and occurrence signals during the active session.
+- Memory is injected into the brain prompt as trusted runtime context.
 - It is mirrored in the right sidebar through `runtime_memory_update` WebSocket events.
 - Each update is captured as a session snapshot with an index, raw memory text, parsed key/value lines, and diff metadata.
 - The UI can navigate previous snapshots and replay visual highlights for new or changed memory fields.
+- Conversation activity and no-signal alerts can suppress overly soft default behavior when the exchange is clearly stuck.
 - Truncated or obviously incomplete summarizer output is rejected so it does not overwrite the previous memory.
 
-This gives JIN short-term continuity without introducing persistence, vector storage, or retrieval infrastructure yet.
+This gives JIN observable short-term memory and behavior adaptation without introducing persistence, vector storage, or retrieval infrastructure yet.
 
 ## Project Layout
 

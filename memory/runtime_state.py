@@ -2,6 +2,11 @@ from settings.app_settings import settings
 
 UNCHANGED = object()
 
+RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID = (
+    f"{settings.SERVICE_MODEL_UID}:runtime-memory"
+)
+RUNTIME_MEMORY_SUMMARIZER_LABEL = "summarizer"
+
 
 class RuntimeState:
 
@@ -19,6 +24,11 @@ class RuntimeState:
                 settings.TRANSLATOR_MODEL_UID,
                 "translator",
                 settings.TRANSLATOR_CONTEXT_WINDOW,
+            ),
+            (
+                RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID,
+                RUNTIME_MEMORY_SUMMARIZER_LABEL,
+                settings.SERVICE_CONTEXT_WINDOW,
             ),
         ]
 
@@ -41,6 +51,8 @@ class RuntimeState:
                 "label": label,
                 "model": runtime_id,
                 "used_tokens": 0,
+                "context_tokens": 0,
+                "total_tokens": 0,
                 "max_tokens": max_tokens,
                 "status": "online",
                 "last_error": None,
@@ -50,6 +62,8 @@ class RuntimeState:
         self,
         runtime_id: str,
         used_tokens: int | None = None,
+        context_tokens: int | None = None,
+        total_tokens: int | None = None,
         max_tokens: int | None = None,
         add_tokens: int | None = None,
         last_error: str | None | object = UNCHANGED,
@@ -60,6 +74,16 @@ class RuntimeState:
 
         if used_tokens is not None:
             runtime_state["used_tokens"] = used_tokens
+            if context_tokens is None:
+                runtime_state["context_tokens"] = used_tokens
+            if total_tokens is None:
+                runtime_state["total_tokens"] = used_tokens
+
+        if context_tokens is not None:
+            runtime_state["context_tokens"] = context_tokens
+
+        if total_tokens is not None:
+            runtime_state["total_tokens"] = total_tokens
 
         if max_tokens is not None:
             runtime_state["max_tokens"] = max_tokens

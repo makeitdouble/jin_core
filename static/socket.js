@@ -40,6 +40,30 @@ function stopMemoryGlow() {
   }, 2000);
 }
 
+function startL2MemoryGlow() {
+  const panel = document.getElementById("settings-panel");
+  if (!panel) return;
+
+  panel.classList.add("memory-l2-updating");
+
+  setTimeout(() => {
+    panel.classList.add("memory-l2-pulse");
+  }, 2000);
+}
+
+function stopL2MemoryGlow() {
+  const panel = document.getElementById("settings-panel");
+  if (!panel) return;
+
+  panel.classList.remove("memory-l2-pulse");
+  panel.classList.add("memory-l2-fading");
+
+  setTimeout(() => {
+    panel.classList.remove("memory-l2-updating");
+    panel.classList.remove("memory-l2-fading");
+  }, 2000);
+}
+
 // --------------------------------------------------
 // STATE
 // --------------------------------------------------
@@ -386,8 +410,17 @@ ws.onmessage = function (event) {
     }
 
     if (
+        data.tag === "[SUMMARIZER]" &&
+        data.message
+        && data.message.includes("[MEMORY] L2 summarizer request")
+    ) {
+      startL2MemoryGlow();
+    }
+
+    if (
         data.message
         && data.message.includes("[MEMORY]")
+        && !data.message.includes("[MEMORY] L2 memory")
         && (
             data.message.includes("updated")
             || data.message.includes("skipped")
@@ -395,6 +428,18 @@ ws.onmessage = function (event) {
         )
     ) {
       stopMemoryGlow();
+    }
+
+    if (
+        data.message
+        && data.message.includes("[MEMORY] L2 memory")
+        && (
+            data.message.includes("updated")
+            || data.message.includes("skipped")
+            || data.message.includes("failed")
+        )
+    ) {
+      stopL2MemoryGlow();
     }
 
     return;
