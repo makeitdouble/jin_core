@@ -911,6 +911,8 @@ async def record_runtime_l1_diff(
         "total_diff",
         0,
     )
+    context.runtime_conversation_activity_diff = total_diff
+
     observed_turns = list(
         turns
         or []

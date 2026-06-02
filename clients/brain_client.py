@@ -447,6 +447,23 @@ def get_conversation_activity_diff(
     if context is None:
         return None
 
+    recorded_diff = getattr(
+        context,
+        "runtime_conversation_activity_diff",
+        None,
+    )
+
+    if recorded_diff is not None:
+        try:
+            return float(
+                recorded_diff
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            pass
+
     patch_sources = (
         getattr(
             context,

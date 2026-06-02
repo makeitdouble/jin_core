@@ -750,6 +750,43 @@ class MessageMemoryTests(
             prompt,
         )
 
+    def test_brain_prompt_uses_recorded_activity_after_l2_clears_pending(self):
+
+        context = SimpleNamespace(
+            runtime_memory="topic: active exchange",
+            runtime_l2_memory=(
+                "possible pattern: user revisits memory mechanics"
+            ),
+            runtime_l2_pending_patches=[],
+            runtime_memory_snapshots=[
+                {
+                    "total_diff": 0,
+                },
+            ],
+            runtime_conversation_activity_diff=150.55,
+            runtime_zero_diff_alert=None,
+            deep_thought_count=0,
+            runtime_search_result="",
+            runtime_search_result_id="",
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_SEARCH": False,
+                "CAN_DEEP_THOUGHT": False,
+            },
+        )
+
+        self.assertIn(
+            "<PERCENT>100</PERCENT>",
+            prompt,
+        )
+        self.assertNotIn(
+            "<PERCENT>0</PERCENT>",
+            prompt,
+        )
+
     async def test_summarizer_updates_runtime_memory(self):
 
         service_client = FakeServiceClient(

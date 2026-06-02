@@ -64,6 +64,8 @@ class RuntimeContext:
 
     runtime_zero_diff_alert: dict | None = None
 
+    runtime_conversation_activity_diff: float | None = None
+
     turn_number: int = 0
 
     user_message_count: int = 0
