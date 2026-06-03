@@ -13,6 +13,8 @@ from runtime.context_contract import (
 )
 
 from clients.brain_rules import (
+    MEMORY_RECALL_RULES,
+    RETROSPECTIVE_CLAIM_RULES,
     LOOP_RULES,
     ZERO_DIFF_STALL_ACTIVE_RULE,
     build_brain_runtime_interface_rules,
@@ -729,7 +731,8 @@ def build_brain_system_prompt(
         f"{build_identity_context(context)}"
 
         f"{soft_rules}"
-
+        f"{RETROSPECTIVE_CLAIM_RULES}"
+        f"{MEMORY_RECALL_RULES}"
         f"{LOOP_RULES}"
 
         f"{build_brain_runtime_interface_rules(enabled_actions)}"

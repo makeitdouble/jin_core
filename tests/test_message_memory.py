@@ -231,6 +231,22 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertIn(
+            "Always keep a separate last_jin_response field",
+            prompt,
+        )
+        self.assertIn(
+            "concise gist of JIN's latest completed answer, offer, or question",
+            prompt,
+        )
+        self.assertIn(
+            "resolve the user's next short or elliptical reply",
+            prompt,
+        )
+        self.assertIn(
+            "Never omit this field from the memory snapshot",
+            prompt,
+        )
+        self.assertIn(
             "failures or interruptions",
             prompt,
         )
@@ -240,6 +256,30 @@ class MessageMemoryTests(
         )
         self.assertIn(
             "Treat semantic rephrasing as no-op memory",
+            prompt,
+        )
+        self.assertIn(
+            "Give important facts their own semantic keys",
+            prompt,
+        )
+        self.assertIn(
+            "key detail, explicit fact, user_fact, jin_fact, decision, constraint, or requirement",
+            prompt,
+        )
+        self.assertIn(
+            "Do not bury strong facts inside active topic, active task, current request",
+            prompt,
+        )
+        self.assertIn(
+            "store it with a retrieval-friendly key such as key detail or memory token",
+            prompt,
+        )
+        self.assertIn(
+            "include the user's label/synonym in the value",
+            prompt,
+        )
+        self.assertIn(
+            "a topic/task change alone is not enough",
             prompt,
         )
         self.assertIn(

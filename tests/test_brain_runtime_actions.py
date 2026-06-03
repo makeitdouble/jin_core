@@ -196,6 +196,35 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
 
+    def test_prompt_handles_vague_memory_recall_before_topic_redirect(self):
+
+        prompt = build_brain_system_prompt(
+            runtime_actions={
+                "CAN_DEEP_THOUGHT": False,
+                "CAN_WEB_SEARCH": False,
+            }
+        )
+
+        self.assertIn(
+            "For memory recall questions, scan strong memory fields before denying recall",
+            prompt,
+        )
+
+        self.assertIn(
+            "remembered word, code word, important detail, or saved item",
+            prompt,
+        )
+
+        self.assertIn(
+            "match by meaning against key detail, known fact, explicit fact",
+            prompt,
+        )
+
+        self.assertIn(
+            "temporarily overrides active topic/task continuation",
+            prompt,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
