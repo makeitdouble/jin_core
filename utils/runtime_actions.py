@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from runtime.context_contract import (
     DEEP_THOUGHT_ACTION,
     RUNTIME_ACTION_DEEP_THOUGHT,
-    RUNTIME_ACTION_SEARCH,
-    SEARCH_ACTION_CLOSE,
-    SEARCH_ACTION_OPEN,
+    RUNTIME_ACTION_WEB_SEARCH,
+    WEB_SEARCH_ACTION_CLOSE,
+    WEB_SEARCH_ACTION_OPEN,
 )
 
 
@@ -16,9 +16,9 @@ SELF_CLOSING_ACTION_MARKERS = {
 }
 
 PAIRED_ACTION_MARKERS = {
-    RUNTIME_ACTION_SEARCH: (
-        SEARCH_ACTION_OPEN,
-        SEARCH_ACTION_CLOSE,
+    RUNTIME_ACTION_WEB_SEARCH: (
+        WEB_SEARCH_ACTION_OPEN,
+        WEB_SEARCH_ACTION_CLOSE,
     ),
 }
 
@@ -70,7 +70,7 @@ class RuntimeActionResult:
 
         for action in self.actions:
 
-            if action.name != RUNTIME_ACTION_SEARCH:
+            if action.name != RUNTIME_ACTION_WEB_SEARCH:
                 continue
 
             query = extract_search_query(

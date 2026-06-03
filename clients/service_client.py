@@ -1,19 +1,8 @@
 import asyncio
 
-
-def build_service_system_prompt():
-
-    return (
-        "You are a backend service model.\n"
-        "Your task is to produce clean final outputs.\n"
-        "Do not explain reasoning.\n"
-        "Do not describe intentions.\n"
-        "Do not output analysis.\n"
-        "Do not output plans.\n"
-        "Do not output chain-of-thought.\n"
-        "Respond only with the final result.\n"
-        "Keep responses concise and direct.\n"
-    )
+from clients.service_rules import (
+    build_service_system_prompt,
+)
 
 
 async def ask_service_model(

@@ -185,7 +185,7 @@ class BrainNode(BaseNode):
 
             await context.websocket.send_json({
                 "type": "runtime_action",
-                "action": "search",
+                "action": "web_search",
                 "id": tool_call_id,
                 "text": (
                     f'Searching for "{query}"'
@@ -203,7 +203,7 @@ class BrainNode(BaseNode):
 
             followup_runtime_actions = {
                 **runtime_actions,
-                "CAN_SEARCH": False,
+                "CAN_WEB_SEARCH": False,
             }
 
             followup_system_prompt = (
@@ -216,10 +216,10 @@ class BrainNode(BaseNode):
             followup_payload = (
                 "User request:\n"
                 f"{state.translated_input}\n\n"
-                "Answer the user request using the SEARCH tool result "
+                "Answer the user request using the WEB_SEARCH tool result "
                 "from trusted runtime context. "
                 "Mention the quoted source data when it helps. "
-                "Do not emit another SEARCH runtime action."
+                "Do not emit another WEB_SEARCH runtime action."
             )
 
             text, reasoning = await self.run_brain_stream(

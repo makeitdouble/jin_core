@@ -99,6 +99,8 @@ class RuntimeContext:
 
     runtime_memory_snapshot_index: int = 0
 
+    identity_details: str = ""
+
     session_id: str = ""
 
     background_tasks: set = field(

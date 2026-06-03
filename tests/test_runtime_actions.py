@@ -6,8 +6,8 @@ from clients import (
 )
 from runtime import (
     DEEP_THOUGHT_ACTION,
-    SEARCH_ACTION_CLOSE,
-    SEARCH_ACTION_OPEN,
+    WEB_SEARCH_ACTION_CLOSE,
+    WEB_SEARCH_ACTION_OPEN,
 )
 from utils.runtime_actions import (
     RuntimeActionCall,
@@ -115,11 +115,11 @@ class RuntimeActionTests(unittest.TestCase):
         result = extract_runtime_actions(
             (
                 "before "
-                f'{SEARCH_ACTION_OPEN}{{"query":"python news"}}'
-                f"{SEARCH_ACTION_CLOSE} after"
+                f'{WEB_SEARCH_ACTION_OPEN}{{"query":"python news"}}'
+                f"{WEB_SEARCH_ACTION_CLOSE} after"
             ),
             enabled_actions=[
-                "CAN_SEARCH",
+                "CAN_WEB_SEARCH",
             ],
         )
 
@@ -129,7 +129,7 @@ class RuntimeActionTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            result.count("SEARCH"),
+            result.count("WEB_SEARCH"),
             1,
         )
 
@@ -145,12 +145,12 @@ class RuntimeActionTests(unittest.TestCase):
         result = extract_runtime_actions(
             (
                 "before "
-                '<|tool_call>call:RUNTIME_ACTION:SEARCH>'
+                '<|tool_call>call:RUNTIME_ACTION:WEB_SEARCH>'
                 '{"query":"marijuana"}'
-                f"{SEARCH_ACTION_CLOSE} after"
+                f"{WEB_SEARCH_ACTION_CLOSE} after"
             ),
             enabled_actions=[
-                "CAN_SEARCH",
+                "CAN_WEB_SEARCH",
             ],
         )
 
@@ -160,7 +160,7 @@ class RuntimeActionTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            result.count("SEARCH"),
+            result.count("WEB_SEARCH"),
             1,
         )
 
@@ -176,12 +176,12 @@ class RuntimeActionTests(unittest.TestCase):
         result = extract_runtime_actions(
             (
                 "before "
-                '<|tool_call>call:RUNTIME_ACTION:SEARCH>'
+                '<|tool_call>call:RUNTIME_ACTION:WEB_SEARCH>'
                 '{"query":"marijuana"}'
-                f"{SEARCH_ACTION_CLOSE} after"
+                f"{WEB_SEARCH_ACTION_CLOSE} after"
             ),
             enabled_actions=[
-                "CAN_SEARCH",
+                "CAN_WEB_SEARCH",
             ],
             preserve_action_text=True,
         )
@@ -190,8 +190,8 @@ class RuntimeActionTests(unittest.TestCase):
             result.text,
             (
                 "before "
-                f'{SEARCH_ACTION_OPEN}{{"query":"marijuana"}}'
-                f"{SEARCH_ACTION_CLOSE} after"
+                f'{WEB_SEARCH_ACTION_OPEN}{{"query":"marijuana"}}'
+                f"{WEB_SEARCH_ACTION_CLOSE} after"
             ),
         )
 
@@ -205,8 +205,8 @@ class RuntimeActionTests(unittest.TestCase):
     def test_ignores_disabled_search_action(self):
 
         text = (
-            f'{SEARCH_ACTION_OPEN}{{"query":"python news"}}'
-            f"{SEARCH_ACTION_CLOSE}"
+            f'{WEB_SEARCH_ACTION_OPEN}{{"query":"python news"}}'
+            f"{WEB_SEARCH_ACTION_CLOSE}"
         )
 
         result = extract_runtime_actions(
@@ -220,7 +220,7 @@ class RuntimeActionTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            result.count("SEARCH"),
+            result.count("WEB_SEARCH"),
             0,
         )
 
@@ -228,16 +228,16 @@ class RuntimeActionTests(unittest.TestCase):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=[
-                "CAN_SEARCH",
+                "CAN_WEB_SEARCH",
             ],
         )
 
         first = stream_filter.filter(
-            f'before {SEARCH_ACTION_OPEN}{{"query":"py'
+            f'before {WEB_SEARCH_ACTION_OPEN}{{"query":"py'
         )
 
         second = stream_filter.filter(
-            f'thon"}}{SEARCH_ACTION_CLOSE} after'
+            f'thon"}}{WEB_SEARCH_ACTION_CLOSE} after'
         )
 
         self.assertEqual(
@@ -246,7 +246,7 @@ class RuntimeActionTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            first.count("SEARCH"),
+            first.count("WEB_SEARCH"),
             0,
         )
 
@@ -271,20 +271,20 @@ class RuntimeActionTests(unittest.TestCase):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=[
-                "CAN_SEARCH",
+                "CAN_WEB_SEARCH",
             ],
         )
 
         first = stream_filter.filter(
             (
                 "before "
-                '<|tool_call>call:RUNTIME_ACTION:SEARCH>'
+                '<|tool_call>call:RUNTIME_ACTION:WEB_SEARCH>'
                 '{"query":"mari'
             )
         )
 
         second = stream_filter.filter(
-            f'juana"}}{SEARCH_ACTION_CLOSE} after'
+            f'juana"}}{WEB_SEARCH_ACTION_CLOSE} after'
         )
 
         self.assertEqual(
@@ -293,7 +293,7 @@ class RuntimeActionTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            first.count("SEARCH"),
+            first.count("WEB_SEARCH"),
             0,
         )
 
@@ -318,7 +318,7 @@ class RuntimeActionTests(unittest.TestCase):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=[
-                "CAN_SEARCH",
+                "CAN_WEB_SEARCH",
             ],
             preserve_action_text=True,
         )
@@ -326,13 +326,13 @@ class RuntimeActionTests(unittest.TestCase):
         first = stream_filter.filter(
             (
                 "before "
-                '<|tool_call>call:RUNTIME_ACTION:SEARCH>'
+                '<|tool_call>call:RUNTIME_ACTION:WEB_SEARCH>'
                 '{"query":"mari'
             )
         )
 
         second = stream_filter.filter(
-            f'juana"}}{SEARCH_ACTION_CLOSE} after'
+            f'juana"}}{WEB_SEARCH_ACTION_CLOSE} after'
         )
 
         self.assertEqual(
@@ -343,8 +343,8 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             second.text,
             (
-                f'{SEARCH_ACTION_OPEN}{{"query":"marijuana"}}'
-                f"{SEARCH_ACTION_CLOSE} after"
+                f'{WEB_SEARCH_ACTION_OPEN}{{"query":"marijuana"}}'
+                f"{WEB_SEARCH_ACTION_CLOSE} after"
             ),
         )
 
@@ -359,13 +359,13 @@ class RuntimeActionTests(unittest.TestCase):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=[
-                "CAN_SEARCH",
+                "CAN_WEB_SEARCH",
             ],
             preserve_action_text=True,
         )
 
         first = stream_filter.filter(
-            "like `<RUNTIME_ACTION:SEARCH>"
+            "like `<RUNTIME_ACTION:WEB_SEARCH>"
         )
 
         second = stream_filter.filter(
@@ -374,7 +374,7 @@ class RuntimeActionTests(unittest.TestCase):
 
         self.assertEqual(
             first.text,
-            "like `<RUNTIME_ACTION:SEARCH>",
+            "like `<RUNTIME_ACTION:WEB_SEARCH>",
         )
 
         self.assertEqual(
@@ -396,22 +396,22 @@ class RuntimeActionTests(unittest.TestCase):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=[
-                "CAN_SEARCH",
+                "CAN_WEB_SEARCH",
             ],
             preserve_action_text=True,
         )
 
         first = stream_filter.filter(
-            f"before {SEARCH_ACTION_OPEN}"
+            f"before {WEB_SEARCH_ACTION_OPEN}"
         )
 
         second = stream_filter.filter(
-            f'{{"query":"marijuana"}}{SEARCH_ACTION_CLOSE} after'
+            f'{{"query":"marijuana"}}{WEB_SEARCH_ACTION_CLOSE} after'
         )
 
         self.assertEqual(
             first.text,
-            f"before {SEARCH_ACTION_OPEN}",
+            f"before {WEB_SEARCH_ACTION_OPEN}",
         )
 
         self.assertEqual(
@@ -421,7 +421,7 @@ class RuntimeActionTests(unittest.TestCase):
 
         self.assertEqual(
             second.text,
-            f'{{"query":"marijuana"}}{SEARCH_ACTION_CLOSE} after',
+            f'{{"query":"marijuana"}}{WEB_SEARCH_ACTION_CLOSE} after',
         )
 
         self.assertEqual(
@@ -486,7 +486,7 @@ class RuntimeActionTests(unittest.TestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="SEARCH",
+                        name="WEB_SEARCH",
                         payload='{"query":"test"}',
                     ),
                 ),
@@ -514,7 +514,7 @@ class RuntimeActionTests(unittest.TestCase):
             ),
             [
                 {
-                    "id": "search_001",
+                    "id": "web_search_001",
                     "query": "test",
                 },
             ],
@@ -524,7 +524,7 @@ class RuntimeActionTests(unittest.TestCase):
                 context,
                 "runtime_action_events",
             )[0]["id"],
-            "search_001",
+            "web_search_001",
         )
 
     def test_extract_search_query_unnests_json_string(self):

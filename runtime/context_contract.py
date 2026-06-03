@@ -3,13 +3,13 @@ from datetime import datetime
 from xml.sax.saxutils import escape
 
 RUNTIME_ACTION_DEEP_THOUGHT = "DEEP_THOUGHT"
-RUNTIME_ACTION_SEARCH = "SEARCH"
+RUNTIME_ACTION_WEB_SEARCH = "WEB_SEARCH"
 
 DEEP_THOUGHT_ACTION = "<RUNTIME_ACTION:DEEP_THOUGHT/>"
-SEARCH_ACTION_OPEN = "<RUNTIME_ACTION:SEARCH>"
-SEARCH_ACTION_CLOSE = "</RUNTIME_ACTION:SEARCH>"
-SEARCH_ACTION_TEMPLATE = (
-    f'{SEARCH_ACTION_OPEN}{{"query":"..."}}{SEARCH_ACTION_CLOSE}'
+WEB_SEARCH_ACTION_OPEN = "<RUNTIME_ACTION:WEB_SEARCH>"
+WEB_SEARCH_ACTION_CLOSE = "</RUNTIME_ACTION:WEB_SEARCH>"
+WEB_SEARCH_ACTION_TEMPLATE = (
+    f'{WEB_SEARCH_ACTION_OPEN}{{"query":"..."}}{WEB_SEARCH_ACTION_CLOSE}'
 )
 
 
@@ -62,7 +62,7 @@ class ContextContract:
     system_state: str = "ACTIVE"
     deep_thought_count: int = 0
     can_deep_thought: bool = False
-    can_search: bool = True
+    can_web_search: bool = True
 
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
     current_date: str = field(default_factory=lambda: datetime.now().date().isoformat())
@@ -90,11 +90,11 @@ class ContextContract:
                 )
             )
 
-        if self.can_search:
+        if self.can_web_search:
             available_actions.append(
                 (
-                    RUNTIME_ACTION_SEARCH,
-                    SEARCH_ACTION_TEMPLATE,
+                    RUNTIME_ACTION_WEB_SEARCH,
+                    WEB_SEARCH_ACTION_TEMPLATE,
                 )
             )
 

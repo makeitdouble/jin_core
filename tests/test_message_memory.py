@@ -184,7 +184,7 @@ class MessageMemoryTests(
         prompt = build_brain_system_prompt(
             context=context,
             runtime_actions={
-                "CAN_SEARCH": False,
+                "CAN_WEB_SEARCH": False,
                 "CAN_DEEP_THOUGHT": False,
             },
         )
@@ -406,7 +406,7 @@ class MessageMemoryTests(
         prompt = build_brain_system_prompt(
             context=context,
             runtime_actions={
-                "CAN_SEARCH": False,
+                "CAN_WEB_SEARCH": False,
                 "CAN_DEEP_THOUGHT": False,
             },
         )
@@ -433,7 +433,7 @@ class MessageMemoryTests(
         prompt = build_brain_system_prompt(
             context=context,
             runtime_actions={
-                "CAN_SEARCH": False,
+                "CAN_WEB_SEARCH": False,
                 "CAN_DEEP_THOUGHT": False,
             },
         )
@@ -533,7 +533,7 @@ class MessageMemoryTests(
         prompt = build_brain_system_prompt(
             context=context,
             runtime_actions={
-                "CAN_SEARCH": False,
+                "CAN_WEB_SEARCH": False,
                 "CAN_DEEP_THOUGHT": False,
             },
         )
@@ -632,7 +632,7 @@ class MessageMemoryTests(
         prompt = build_brain_system_prompt(
             context=context,
             runtime_actions={
-                "CAN_SEARCH": False,
+                "CAN_WEB_SEARCH": False,
                 "CAN_DEEP_THOUGHT": False,
             },
         )
@@ -679,7 +679,7 @@ class MessageMemoryTests(
         prompt = build_brain_system_prompt(
             context=context,
             runtime_actions={
-                "CAN_SEARCH": False,
+                "CAN_WEB_SEARCH": False,
                 "CAN_DEEP_THOUGHT": False,
             },
         )
@@ -736,7 +736,7 @@ class MessageMemoryTests(
         prompt = build_brain_system_prompt(
             context=context,
             runtime_actions={
-                "CAN_SEARCH": False,
+                "CAN_WEB_SEARCH": False,
                 "CAN_DEEP_THOUGHT": False,
             },
         )
@@ -769,7 +769,7 @@ class MessageMemoryTests(
         prompt = build_brain_system_prompt(
             context=context,
             runtime_actions={
-                "CAN_SEARCH": False,
+                "CAN_WEB_SEARCH": False,
                 "CAN_DEEP_THOUGHT": False,
             },
         )
@@ -806,7 +806,7 @@ class MessageMemoryTests(
         prompt = build_brain_system_prompt(
             context=context,
             runtime_actions={
-                "CAN_SEARCH": False,
+                "CAN_WEB_SEARCH": False,
                 "CAN_DEEP_THOUGHT": False,
             },
         )

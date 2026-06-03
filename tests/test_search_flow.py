@@ -22,9 +22,9 @@ from clients import (
 from runtime import (
     RuntimeContext,
     RuntimeEmitter,
-    SEARCH_ACTION_CLOSE,
-    SEARCH_ACTION_OPEN,
-    SEARCH_ACTION_TEMPLATE,
+    WEB_SEARCH_ACTION_CLOSE,
+    WEB_SEARCH_ACTION_OPEN,
+    WEB_SEARCH_ACTION_TEMPLATE,
 )
 from websocket_logger import (
     WebSocketLogger,
@@ -511,8 +511,8 @@ class SearchFlowTests(
                         "type": "thinking",
                         "content": (
                             "Needs current pricing. "
-                            f'{SEARCH_ACTION_OPEN}{{"query":"tesla car price"}}'
-                            f"{SEARCH_ACTION_CLOSE}"
+                            f'{WEB_SEARCH_ACTION_OPEN}{{"query":"tesla car price"}}'
+                            f"{WEB_SEARCH_ACTION_CLOSE}"
                         ),
                     },
                 ],
@@ -571,7 +571,7 @@ class SearchFlowTests(
         )
         self.assertEqual(
             runtime_events[0]["id"],
-            "search_001",
+            "web_search_001",
         )
         self.assertIn(
             "<SEARCH_RESULT>",
@@ -589,15 +589,15 @@ class SearchFlowTests(
         )
         self.assertIn(
             (
-                f'{SEARCH_ACTION_OPEN}{{"query":"tesla car price"}}'
-                f"{SEARCH_ACTION_CLOSE}"
+                f'{WEB_SEARCH_ACTION_OPEN}{{"query":"tesla car price"}}'
+                f"{WEB_SEARCH_ACTION_CLOSE}"
             ),
             "".join(
                 thinking_chunks
             ),
         )
         self.assertIn(
-            "action: search",
+            "action: web_search",
             "\n".join(
                 message
                 for _, message, _ in get_fake_logger(
@@ -615,7 +615,7 @@ class SearchFlowTests(
             ),
         )
         self.assertIn(
-            "id: search_001",
+            "id: web_search_001",
             "\n".join(
                 message
                 for _, message, _ in get_fake_logger(
@@ -624,7 +624,7 @@ class SearchFlowTests(
             ),
         )
         self.assertIn(
-            "SEARCH tool result",
+            "WEB_SEARCH tool result",
             brain_client.prompts[1]["user_prompt"],
         )
         self.assertIn(
@@ -644,7 +644,7 @@ class SearchFlowTests(
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertIn(
-            '<TOOL_RESULT name="SEARCH" id="search_001">',
+            '<TOOL_RESULT name="WEB_SEARCH" id="web_search_001">',
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertIn(
@@ -664,7 +664,7 @@ class SearchFlowTests(
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertNotIn(
-            SEARCH_ACTION_TEMPLATE,
+            WEB_SEARCH_ACTION_TEMPLATE,
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertEqual(
@@ -688,8 +688,8 @@ class SearchFlowTests(
                         "type": "content",
                         "content": (
                             "I will check. "
-                            f'{SEARCH_ACTION_OPEN}{{"query":"tesla car price"}}'
-                            f"{SEARCH_ACTION_CLOSE}"
+                            f'{WEB_SEARCH_ACTION_OPEN}{{"query":"tesla car price"}}'
+                            f"{WEB_SEARCH_ACTION_CLOSE}"
                         ),
                     },
                 ],
@@ -754,8 +754,8 @@ class SearchFlowTests(
                         "type": "thinking",
                         "content": (
                             "Needs current pricing. "
-                            f'{SEARCH_ACTION_OPEN}{{"query":"apple price"}}'
-                            f"{SEARCH_ACTION_CLOSE}"
+                            f'{WEB_SEARCH_ACTION_OPEN}{{"query":"apple price"}}'
+                            f"{WEB_SEARCH_ACTION_CLOSE}"
                         ),
                     },
                     {
@@ -820,8 +820,8 @@ class SearchFlowTests(
                     {
                         "type": "thinking",
                         "content": (
-                            f'{SEARCH_ACTION_OPEN}{{"query":"jupiter cost"}}'
-                            f"{SEARCH_ACTION_CLOSE}"
+                            f'{WEB_SEARCH_ACTION_OPEN}{{"query":"jupiter cost"}}'
+                            f"{WEB_SEARCH_ACTION_CLOSE}"
                         ),
                     },
                 ],
@@ -873,8 +873,8 @@ class SearchFlowTests(
                     {
                         "type": "thinking",
                         "content": (
-                            f'{SEARCH_ACTION_OPEN}{{"query":"latest Python version"}}'
-                            f"{SEARCH_ACTION_CLOSE}"
+                            f'{WEB_SEARCH_ACTION_OPEN}{{"query":"latest Python version"}}'
+                            f"{WEB_SEARCH_ACTION_CLOSE}"
                         ),
                     },
                 ],

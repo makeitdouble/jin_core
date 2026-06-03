@@ -1,9 +1,9 @@
 from .context import RuntimeContext, RuntimeEmitter
 from .context_contract import (
     DEEP_THOUGHT_ACTION,
-    SEARCH_ACTION_CLOSE,
-    SEARCH_ACTION_OPEN,
-    SEARCH_ACTION_TEMPLATE,
+    WEB_SEARCH_ACTION_CLOSE,
+    WEB_SEARCH_ACTION_OPEN,
+    WEB_SEARCH_ACTION_TEMPLATE,
 )
 from .memory import (
     DEFAULT_RUNTIME_MEMORY,
@@ -40,9 +40,9 @@ __all__ = [
     "RuntimeEmitter",
     "RuntimeState",
     "RuntimeStream",
-    "SEARCH_ACTION_CLOSE",
-    "SEARCH_ACTION_OPEN",
-    "SEARCH_ACTION_TEMPLATE",
+    "WEB_SEARCH_ACTION_CLOSE",
+    "WEB_SEARCH_ACTION_OPEN",
+    "WEB_SEARCH_ACTION_TEMPLATE",
     "build_interrupted_assistant_message",
     "build_runtime_l2_memory_system_prompt",
     "build_runtime_memory_snapshot",

@@ -361,7 +361,7 @@ async def run_search_service(
 
     if log_service is not None:
         await log_service(
-            "[SEARCH] request "
+            "[WEB_SEARCH] request "
             f"query={query!r}"
         )
 
@@ -385,7 +385,7 @@ async def run_search_service(
 
         if log_error is not None:
             await log_error(
-                "[SEARCH] provider error",
+                "[WEB_SEARCH] provider error",
                 details=format_search_provider_error(
                     error
                 ),
@@ -397,7 +397,7 @@ async def run_search_service(
 
     if log_service is not None:
         await log_service(
-            "[SEARCH] result ready"
+            "[WEB_SEARCH] result ready"
         )
 
     return content

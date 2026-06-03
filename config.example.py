@@ -41,7 +41,7 @@ SERVICE_TEMPERATURE = 0.1
 SERVICE_MAX_TOKENS = 4096
 
 # ---------------------------------------------------------
-# SEARCH
+# WEB_SEARCH
 # ---------------------------------------------------------
 
 SEARCH_PROVIDER = "serper"

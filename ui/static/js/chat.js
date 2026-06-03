@@ -286,7 +286,7 @@ function appendRuntimeAction(
     "h-6 w-6 rounded bg-cyan-950/70 border border-cyan-700 flex items-center justify-center text-[12px] shrink-0";
 
   icon.textContent =
-    action === "search"
+    action === "web_search"
       ? "🔍"
       : "●";
 

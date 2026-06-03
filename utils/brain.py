@@ -3,12 +3,12 @@ from app_settings import settings
 
 SERVICE_AS_BRAIN_RUNTIME_ACTIONS = {
     "CAN_DEEP_THOUGHT": False,
-    "CAN_SEARCH": True,
+    "CAN_WEB_SEARCH": True,
 }
 
 BRAIN_RUNTIME_ACTIONS = {
     "CAN_DEEP_THOUGHT": False,
-    "CAN_SEARCH": True,
+    "CAN_WEB_SEARCH": True,
 }
 
 

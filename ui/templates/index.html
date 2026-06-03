@@ -63,6 +63,36 @@
             top: var(--panel-gap);
         }
 
+        #memory-drag-handle {
+            flex: 0 0 40px;
+            height: 40px;
+            min-height: 40px;
+        }
+
+        #memory-drag-handle h3 {
+            font-size: 12px;
+            line-height: 1;
+        }
+
+        .settings-scroll {
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+
+        .settings-scroll::-webkit-scrollbar {
+            width: 0;
+            height: 0;
+            display: none;
+        }
+
+        .runtime-memory-header {
+            flex: 0 0 32px;
+            height: 32px;
+            min-height: 32px;
+            font-size: 11px;
+            line-height: 1;
+        }
+
         #chat-drop-zone {
             min-width: 0;
             border-right: 0;
@@ -480,13 +510,13 @@
 
             <h3
                     class="text-xs font-bold uppercase tracking-widest text-zinc-100">
-                SETTINGS
+                JIN
             </h3>
 
         </div>
 
         <div
-                class="flex-1 overflow-y-auto p-4 space-y-4 text-xs text-zinc-300 leading-relaxed">
+                class="settings-scroll flex-1 overflow-y-auto p-4 space-y-4 text-xs text-zinc-300 leading-relaxed">
 
             <div
                     class="grid grid-cols-2 overflow-hidden rounded border bg-zinc-900 border-zinc-800">
@@ -598,7 +628,7 @@
                 <div class="p-3 space-y-3 font-mono">
 
                     <div
-                            class="flex items-center justify-between gap-2 border-b border-slate-500/70 pb-2 text-[11px] uppercase tracking-widest text-slate-100">
+                            class="runtime-memory-header flex items-center justify-between gap-2 border-b border-slate-500/70 text-[11px] uppercase tracking-widest text-slate-100">
 
                             <span class="min-w-0 truncate">
                                 [ runtime memory ]

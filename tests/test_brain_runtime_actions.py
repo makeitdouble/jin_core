@@ -6,7 +6,7 @@ from clients import (
 )
 from runtime import (
     DEEP_THOUGHT_ACTION,
-    SEARCH_ACTION_TEMPLATE,
+    WEB_SEARCH_ACTION_TEMPLATE,
 )
 from utils.brain import (
     BRAIN_RUNTIME_ACTIONS,
@@ -23,7 +23,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 SERVICE_AS_BRAIN_RUNTIME_ACTIONS
             ),
             (
-                "SEARCH",
+                "WEB_SEARCH",
             ),
         )
 
@@ -32,7 +32,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 BRAIN_RUNTIME_ACTIONS
             ),
             (
-                "SEARCH",
+                "WEB_SEARCH",
             ),
         )
 
@@ -41,12 +41,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
         prompt = build_brain_system_prompt(
             runtime_actions={
                 "CAN_DEEP_THOUGHT": False,
-                "CAN_SEARCH": True,
+                "CAN_WEB_SEARCH": True,
             }
         )
 
         self.assertNotIn(
-            "CAN_SEARCH",
+            "CAN_WEB_SEARCH",
             prompt,
         )
 
@@ -66,14 +66,14 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
-            SEARCH_ACTION_TEMPLATE,
+            WEB_SEARCH_ACTION_TEMPLATE,
             prompt,
         )
 
         self.assertIn(
             (
-                '<ACTION name="SEARCH">'
-                f"{SEARCH_ACTION_TEMPLATE}"
+                '<ACTION name="WEB_SEARCH">'
+                f"{WEB_SEARCH_ACTION_TEMPLATE}"
                 "</ACTION>"
             ),
             prompt,
@@ -85,7 +85,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertNotIn(
-            "&lt;RUNTIME_ACTION:SEARCH&gt;",
+            "&lt;RUNTIME_ACTION:WEB_SEARCH&gt;",
             prompt,
         )
 
@@ -124,7 +124,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         prompt = build_brain_system_prompt(
             runtime_actions={
                 "CAN_DEEP_THOUGHT": True,
-                "CAN_SEARCH": False,
+                "CAN_WEB_SEARCH": False,
             }
         )
 
@@ -134,7 +134,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertNotIn(
-            "CAN_SEARCH",
+            "CAN_WEB_SEARCH",
             prompt,
         )
 
@@ -158,7 +158,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertNotIn(
-            SEARCH_ACTION_TEMPLATE,
+            WEB_SEARCH_ACTION_TEMPLATE,
             prompt,
         )
 
@@ -167,7 +167,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         prompt = build_brain_system_prompt(
             runtime_actions={
                 "CAN_DEEP_THOUGHT": False,
-                "CAN_SEARCH": True,
+                "CAN_WEB_SEARCH": True,
             }
         )
 

@@ -308,8 +308,8 @@ Runtime action event:
 ```json
 {
   "type": "runtime_action",
-  "action": "search",
-  "id": "search_001",
+  "action": "web_search",
+  "id": "web_search_001",
   "text": "Searching for \"cost of tesla car\"",
   "query": "cost of tesla car"
 }
