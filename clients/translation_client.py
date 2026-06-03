@@ -1,9 +1,9 @@
 import asyncio
 
-from settings.config_loader import (
+from config_loader import (
     config,
 )
-from utils.errors import (
+from clients.errors import (
     format_client_error,
 )
 
@@ -11,7 +11,7 @@ from utils.tokens import (
     translation_token_limit,
 )
 
-from utils.response_extractor import (
+from clients.response_extractor import (
     ResponseExtractor,
 )
 

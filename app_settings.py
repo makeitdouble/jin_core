@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from settings.config_loader import (
+from config_loader import (
     config,
 )
 

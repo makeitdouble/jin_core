@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from clients.brain_client import (
     build_brain_system_prompt,
 )
-from memory.message_memory import (
+from runtime.memory import (
     DEFAULT_RUNTIME_MEMORY,
     L2_PATCH_WINDOW,
     build_interrupted_assistant_message,
@@ -17,13 +17,13 @@ from memory.message_memory import (
     schedule_runtime_memory_update,
     summarize_runtime_memory,
 )
-from runtime.runtime_context import (
+from runtime.context import (
     RuntimeContext,
 )
-from memory.runtime_state import (
+from runtime.state import (
     RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID,
 )
-from settings.config_loader import (
+from config_loader import (
     config,
 )
 

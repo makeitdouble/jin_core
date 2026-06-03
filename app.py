@@ -20,7 +20,7 @@ from fastapi.templating import (
 import asyncio
 import httpx
 
-from settings.config_loader import (
+from config_loader import (
     config,
 )
 
@@ -32,11 +32,11 @@ from websocket import (
     websocket_router,
 )
 
-from clients.clients_registry import (
+from clients.registry import (
     build_clients,
 )
 
-from memory.runtime_state import (
+from runtime.state import (
     RUNTIME_MEMORY_SUMMARIZER_LABEL,
 )
 
@@ -92,12 +92,12 @@ app = FastAPI(
 )
 
 templates = Jinja2Templates(
-    directory="templates",
+    directory="ui/templates",
 )
 
 app.mount(
     "/static",
-    StaticFiles(directory="static"),
+    StaticFiles(directory="ui/static"),
     name="static",
 )
 

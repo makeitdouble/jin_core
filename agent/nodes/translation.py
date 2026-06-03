@@ -1,10 +1,10 @@
-from agents.base_node import BaseNode
+from agent.nodes.base import BaseNode
 
 from clients.translation_client import (
     translate,
 )
 
-from settings.app_settings import (
+from app_settings import (
     settings,
 )
 

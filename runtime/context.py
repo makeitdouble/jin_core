@@ -2,13 +2,28 @@ from dataclasses import dataclass, field
 
 from websocket_logger import WebSocketLogger
 
-from emitter.runtime_emitter import (
-    RuntimeEmitter,
-)
-
-from memory.message_memory import (
+from runtime.memory import (
     DEFAULT_RUNTIME_MEMORY,
 )
+
+
+class RuntimeEmitter:
+
+    def __init__(
+            self,
+            websocket,
+    ):
+
+        self.websocket = websocket
+
+    async def emit(
+            self,
+            payload: dict,
+    ):
+
+        await self.websocket.send_json(
+            payload
+        )
 
 
 @dataclass

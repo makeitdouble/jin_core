@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
-from runtime.runtime_registry import (
+from runtime.registry import (
     runtime_state,
 )
 from utils.brain import (

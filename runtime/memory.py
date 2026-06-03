@@ -7,16 +7,16 @@ from difflib import SequenceMatcher
 from clients.service_client import (
     ask_service_model,
 )
-from memory.runtime_state import (
+from runtime.state import (
     RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID,
 )
-from settings.config_loader import (
+from config_loader import (
     config,
 )
-from utils.response_extractor import (
+from clients.response_extractor import (
     ResponseExtractor,
 )
-from utils.runtime_state_sync import (
+from runtime.state_sync import (
     refresh_runtime_state,
 )
 from utils.tokens import (

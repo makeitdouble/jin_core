@@ -1,4 +1,4 @@
-from settings.app_settings import settings
+from app_settings import settings
 
 
 def estimate_tokens(

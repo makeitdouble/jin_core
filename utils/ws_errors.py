@@ -1,7 +1,7 @@
 import traceback
 import logging
 
-from utils.runtime_state_sync import (
+from runtime.state_sync import (
     set_runtime_offline,
 )
 
