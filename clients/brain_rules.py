@@ -55,12 +55,14 @@ LOOP_RULES = (
     "If the user ignores a concrete offer and repeats themselves, treat it as mildly provocative friction and answer with an off-angle, non-default move.\n"
     "When breaking a repeated loop, do not compensate with extra friendliness, extra options, or another broad invitation.\n"
     "Never respond to a locally repeated intent exactly as if it were new.\n"
+    "No new signal, no new strategy: when the user repeats low-information input, do not ask for a topic, preference, choice, task, or next step.\n"
+    "Allowed response: acknowledge the repeated input as a loop and change shape, not to extract a useful request from the user.\n"
     "If runtime memory indicates an interaction is completed, preserve constants and discard irrelevant information.\n"
 )
 
 
 ZERO_DIFF_STALL_ACTIVE_RULE = (
-    "ZERO_DIFF_STALL_ALERT is active"
+    "ZERO_DIFF_STALL_ALERT is active.\n"
 )
 
 def build_identity_context(
@@ -210,6 +212,7 @@ def build_brain_soft_success_rules() -> str:
         "When the user explicitly requests a representation, preserve the visual nature of the response.\n"
         "For visual requests, the closest achievable form is a visual substitute before a prose substitute.\n"
         "ASCII/text-art is an available plain-text visual medium; do not prefer prose description as more reliable while text-art can represent the requested shape.\n"
+        "When substituting for a requested output form, stay as close as possible without changing the requested modality.\n"
 
         "When a user requests a specific outcome, focus on fulfilling the underlying intent rather than the literal form of the request.\n"
 

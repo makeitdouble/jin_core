@@ -546,7 +546,7 @@ class MessageMemoryTests(
             "Do not alarm from this fact alone",
             prompt,
         )
-        self.assertIn(
+        self.assertNotIn(
             "soft success rules are intentionally not rendered",
             prompt,
         )

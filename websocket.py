@@ -50,7 +50,6 @@ from runtime import (
     RuntimeContext,
     RuntimeEmitter,
     build_runtime_memory_snapshot,
-    cancel_runtime_memory_update,
     refresh_runtime_state,
     schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
@@ -192,6 +191,87 @@ async def refresh_pending_brain_usage(
         last_error=None,
         status="online",
     )
+
+
+async def wait_for_runtime_memory_update(
+    context,
+):
+
+    while True:
+
+        task = getattr(
+            context,
+            "runtime_memory_update_task",
+            None,
+        )
+
+        if task is None:
+            return
+
+        if task.done():
+            try:
+                await task
+
+            except asyncio.CancelledError:
+                if task.cancelled():
+                    await context.logger.log_runtime(
+                        "[MEMORY] pending memory update cancelled"
+                    )
+                else:
+                    raise
+
+            except Exception as error:
+                await context.logger.log_error(
+                    "[MEMORY] pending memory update failed",
+                    details=str(error),
+                )
+
+            finally:
+                if (
+                    getattr(
+                        context,
+                        "runtime_memory_update_task",
+                        None,
+                    )
+                    is task
+                ):
+                    context.runtime_memory_update_task = None
+
+            continue
+
+        await context.logger.log_runtime(
+            "[WS] waiting pending memory update"
+        )
+
+        try:
+            await asyncio.shield(
+                task
+            )
+
+        except asyncio.CancelledError:
+            if task.cancelled():
+                await context.logger.log_runtime(
+                    "[MEMORY] pending memory update cancelled"
+                )
+            else:
+                raise
+
+        except Exception as error:
+            await context.logger.log_error(
+                "[MEMORY] pending memory update failed",
+                details=str(error),
+            )
+
+        finally:
+            if (
+                getattr(
+                    context,
+                    "runtime_memory_update_task",
+                    None,
+                )
+                is task
+            ):
+                context.runtime_memory_update_task = None
 
 
 async def process_message(
@@ -394,6 +474,62 @@ async def websocket_endpoint(
     context.runtime_memory_snapshot_index = 0
 
     current_task = None
+    pending_requests = asyncio.Queue()
+
+    async def process_pending_requests():
+        nonlocal current_task
+
+        while True:
+
+            message_data = await pending_requests.get()
+
+            try:
+
+                user_text = (
+                    message_data.get(
+                        "text",
+                        "",
+                    ).strip()
+                )
+
+                await wait_for_runtime_memory_update(
+                    context
+                )
+
+                await refresh_pending_brain_usage(
+                    context,
+                    user_text,
+                )
+
+                active_task = asyncio.create_task(
+                    process_message(
+                        context,
+                        message_data,
+                    )
+                )
+                current_task = active_task
+
+                try:
+                    await active_task
+
+                except asyncio.CancelledError:
+                    if active_task.cancelled():
+                        await logger.log_runtime(
+                            "[WS] queued request interrupted"
+                        )
+                    else:
+                        raise
+
+                finally:
+                    if current_task is active_task:
+                        current_task = None
+
+            finally:
+                pending_requests.task_done()
+
+    pending_processor = asyncio.create_task(
+        process_pending_requests()
+    )
 
     try:
 
@@ -463,7 +599,7 @@ async def websocket_endpoint(
                 continue
 
             # -------------------------------------------------
-            # PREVENT PARALLEL GENERATION
+            # QUEUE MESSAGE
             # -------------------------------------------------
 
             if (
@@ -472,31 +608,28 @@ async def websocket_endpoint(
             ):
 
                 await logger.log_runtime(
-                    "Generation already running."
+                    "[WS] queued message while generation is running"
                 )
 
-                continue
-
-            # -------------------------------------------------
-            # START BACKGROUND TASK
-            # -------------------------------------------------
-
-            await cancel_runtime_memory_update(
-                context
-            )
-
-            await refresh_pending_brain_usage(
-                context,
-                user_text,
-            )
-
-            current_task = (
-                asyncio.create_task(
-                    process_message(
-                        context,
-                        message_data,
-                    )
+            elif (
+                getattr(
+                    context,
+                    "runtime_memory_update_task",
+                    None,
                 )
+                is not None
+            ):
+
+                await logger.log_runtime(
+                    "[WS] queued message while memory update is running"
+                )
+
+            await pending_requests.put(
+                message_data
+            )
+
+            await logger.log_runtime(
+                f"[WS] pending requests: {pending_requests.qsize()}"
             )
 
     except WebSocketDisconnect:
@@ -528,3 +661,12 @@ async def websocket_endpoint(
             logger,
             exception=error,
         )
+
+    finally:
+        pending_processor.cancel()
+
+        with contextlib.suppress(
+            asyncio.CancelledError,
+            Exception,
+        ):
+            await pending_processor

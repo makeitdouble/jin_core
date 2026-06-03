@@ -1,4 +1,5 @@
 import unittest
+import asyncio
 from types import SimpleNamespace
 
 from runtime import (
@@ -9,6 +10,7 @@ from utils.brain import (
 )
 from websocket import (
     refresh_pending_brain_usage,
+    wait_for_runtime_memory_update,
 )
 
 
@@ -25,6 +27,36 @@ class FakeEmitter:
 
         self.events.append(
             event
+        )
+
+
+class FakeLogger:
+
+    def __init__(self):
+
+        self.runtime_logs = []
+        self.errors = []
+
+    async def log_runtime(
+        self,
+        message: str,
+    ):
+
+        self.runtime_logs.append(
+            message
+        )
+
+    async def log_error(
+        self,
+        message: str,
+        details: str | None = None,
+    ):
+
+        self.errors.append(
+            (
+                message,
+                details,
+            )
         )
 
 
@@ -120,6 +152,72 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
                 last_error=original_state["last_error"],
                 status=original_state["status"],
             )
+
+    async def test_wait_for_runtime_memory_update_blocks_until_done(self):
+
+        async def update_memory():
+            await asyncio.sleep(0.01)
+            context.memory_updated = True
+
+        context = SimpleNamespace(
+            logger=FakeLogger(),
+            runtime_memory_update_task=None,
+            memory_updated=False,
+        )
+        task = asyncio.create_task(
+            update_memory()
+        )
+        context.runtime_memory_update_task = task
+
+        await wait_for_runtime_memory_update(
+            context
+        )
+
+        self.assertTrue(
+            context.memory_updated
+        )
+        self.assertIsNone(
+            context.runtime_memory_update_task
+        )
+        self.assertEqual(
+            context.logger.runtime_logs,
+            [
+                "[WS] waiting pending memory update",
+            ],
+        )
+
+    async def test_wait_for_runtime_memory_update_swallows_update_failure(self):
+
+        async def fail_memory_update():
+            raise RuntimeError(
+                "context exceeded"
+            )
+
+        context = SimpleNamespace(
+            logger=FakeLogger(),
+            runtime_memory_update_task=None,
+        )
+        task = asyncio.create_task(
+            fail_memory_update()
+        )
+        context.runtime_memory_update_task = task
+
+        await wait_for_runtime_memory_update(
+            context
+        )
+
+        self.assertIsNone(
+            context.runtime_memory_update_task
+        )
+        self.assertEqual(
+            context.logger.errors,
+            [
+                (
+                    "[MEMORY] pending memory update failed",
+                    "context exceeded",
+                ),
+            ],
+        )
 
 
 if __name__ == "__main__":
