@@ -2,11 +2,9 @@ import unittest
 import asyncio
 from types import SimpleNamespace
 
-from runtime.registry import (
-    runtime_state,
-)
-from runtime.stream import (
+from runtime import (
     RuntimeStream,
+    runtime_state,
 )
 from app_settings import (
     settings,

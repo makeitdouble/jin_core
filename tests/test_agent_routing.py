@@ -1,15 +1,12 @@
 import unittest
 
-from agent.state import (
+from agent import (
     AgentState,
-)
-
-from agent.nodes.planner import (
-    PlannerNode,
-)
-
-from agent.router import (
     Router,
+)
+
+from agent.nodes import (
+    PlannerNode,
 )
 
 

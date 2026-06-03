@@ -5,32 +5,26 @@ import httpx
 
 from fastapi import WebSocket
 
-from agent.state import (
+from agent import (
     AgentState,
 )
-from agent.nodes.brain import (
+from agent.nodes import (
     BrainNode,
 )
-from clients.search_client import (
+from clients import (
     build_empty_search_result,
     build_failed_search_result,
     build_search_result_fallback_answer,
     format_search_provider_error,
     normalize_search_results,
+    normalize_serper_item,
 )
-from runtime.context_contract import (
+from runtime import (
+    RuntimeContext,
+    RuntimeEmitter,
     SEARCH_ACTION_CLOSE,
     SEARCH_ACTION_OPEN,
     SEARCH_ACTION_TEMPLATE,
-)
-from runtime.context import (
-    RuntimeEmitter,
-)
-from runtime.context import (
-    RuntimeContext,
-)
-from clients.search_provider import (
-    normalize_serper_item,
 )
 from websocket_logger import (
     WebSocketLogger,

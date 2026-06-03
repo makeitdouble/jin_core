@@ -1,12 +1,14 @@
 import unittest
 from types import SimpleNamespace
 
-from clients.brain_client import (
+from clients import (
     build_brain_system_prompt,
 )
-from runtime.memory import (
+from runtime import (
     DEFAULT_RUNTIME_MEMORY,
     L2_PATCH_WINDOW,
+    RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID,
+    RuntimeContext,
     build_interrupted_assistant_message,
     build_runtime_l2_memory_system_prompt,
     build_runtime_memory_system_prompt,
@@ -16,12 +18,6 @@ from runtime.memory import (
     schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
     summarize_runtime_memory,
-)
-from runtime.context import (
-    RuntimeContext,
-)
-from runtime.state import (
-    RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID,
 )
 from config_loader import (
     config,

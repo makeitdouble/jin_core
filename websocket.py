@@ -15,23 +15,14 @@ from websocket_logger import (
     WebSocketLogger,
 )
 
-from agent.runtime import (
+from agent import (
     AgentRuntime,
-)
-
-from clients.brain_client import (
-    build_brain_payload,
-    build_brain_system_prompt,
-)
-
-from agent.state import (
     AgentState,
 )
 
-from runtime.memory import (
-    schedule_interrupted_runtime_memory_update,
-    schedule_runtime_memory_update,
-    cancel_runtime_memory_update,
+from clients import (
+    build_brain_payload,
+    build_brain_system_prompt,
 )
 
 from utils.brain import (
@@ -42,16 +33,8 @@ from utils.language import (
     contains_cyrillic,
 )
 
-from runtime.state_sync import (
-    refresh_runtime_state,
-)
-
 from utils.token_usage import (
     format_token_usage_summary,
-)
-
-from runtime.telemetry import (
-    send_telemetry,
 )
 
 from utils.tokens import (
@@ -63,13 +46,15 @@ from utils.ws_errors import (
     handle_websocket_error,
 )
 
-from runtime.context import (
+from runtime import (
     RuntimeContext,
     RuntimeEmitter,
-)
-
-from runtime.memory import (
     build_runtime_memory_snapshot,
+    cancel_runtime_memory_update,
+    refresh_runtime_state,
+    schedule_interrupted_runtime_memory_update,
+    schedule_runtime_memory_update,
+    send_telemetry,
 )
 
 

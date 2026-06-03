@@ -32,11 +32,11 @@ from websocket import (
     websocket_router,
 )
 
-from clients.registry import (
+from clients import (
     build_clients,
 )
 
-from runtime.state import (
+from runtime import (
     RUNTIME_MEMORY_SUMMARIZER_LABEL,
 )
 

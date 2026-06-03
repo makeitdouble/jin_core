@@ -1,10 +1,10 @@
 import asyncio
 import unittest
 
-from clients.brain_client import (
+from clients import (
     apply_runtime_action_calls,
 )
-from runtime.context_contract import (
+from runtime import (
     DEEP_THOUGHT_ACTION,
     SEARCH_ACTION_CLOSE,
     SEARCH_ACTION_OPEN,

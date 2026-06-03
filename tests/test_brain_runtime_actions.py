@@ -1,10 +1,10 @@
 import unittest
 
-from clients.brain_client import (
+from clients import (
     build_brain_system_prompt,
     get_enabled_runtime_actions,
 )
-from runtime.context_contract import (
+from runtime import (
     DEEP_THOUGHT_ACTION,
     SEARCH_ACTION_TEMPLATE,
 )
