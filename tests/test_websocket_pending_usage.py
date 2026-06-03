@@ -9,6 +9,7 @@ from utils.brain import (
     get_brain_runtime_config,
 )
 from websocket import (
+    apply_session_bootstrap,
     refresh_pending_brain_usage,
     wait_for_runtime_memory_update,
 )
@@ -61,6 +62,77 @@ class FakeLogger:
 
 
 class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
+
+    async def test_session_bootstrap_restores_browser_memory(self):
+
+        context = SimpleNamespace(
+            runtime_memory="session status: New session",
+            runtime_memory_stable="session status: New session",
+            runtime_memory_updates=0,
+            runtime_memory_snapshots=[
+                {
+                    "index": 0,
+                    "raw_memory": "session status: New session",
+                },
+            ],
+            runtime_memory_snapshot_index=0,
+            session_memory="",
+            session_memory_source="",
+            runtime_l3_session_memory="",
+            runtime_session_memory_updates=0,
+        )
+
+        restored = apply_session_bootstrap(
+            context,
+            {
+                "type": "session_bootstrap",
+                "session_memory": "decision: Resume memory work",
+                "session_memory_source": "browser_localStorage",
+                "session_memory_updates": 2,
+                "runtime_memory": "topic: restored runtime state",
+                "runtime_memory_updates": 7,
+            },
+        )
+
+        self.assertTrue(
+            restored
+        )
+        self.assertEqual(
+            context.session_memory,
+            "decision: Resume memory work",
+        )
+        self.assertEqual(
+            context.runtime_l3_session_memory,
+            "decision: Resume memory work",
+        )
+        self.assertEqual(
+            context.runtime_session_memory_updates,
+            2,
+        )
+        self.assertEqual(
+            context.session_memory_source,
+            "browser_localStorage",
+        )
+        self.assertEqual(
+            context.runtime_memory,
+            "topic: restored runtime state",
+        )
+        self.assertEqual(
+            context.runtime_memory_stable,
+            "topic: restored runtime state",
+        )
+        self.assertEqual(
+            context.runtime_memory_updates,
+            7,
+        )
+        self.assertEqual(
+            len(context.runtime_memory_snapshots),
+            1,
+        )
+        self.assertEqual(
+            context.runtime_memory_snapshots[0]["raw_memory"],
+            "topic: restored runtime state",
+        )
 
     async def test_pending_brain_usage_emits_before_stream_start(self):
 

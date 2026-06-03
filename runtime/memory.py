@@ -30,6 +30,7 @@ DEFAULT_RUNTIME_MEMORY = (
 )
 
 DEFAULT_RUNTIME_L2_MEMORY = ""
+DEFAULT_RUNTIME_L3_SESSION_MEMORY = ""
 MIN_L2_TURNS = 3
 L2_PATCH_WINDOW = 5
 L2_REPEATED_KEY_THRESHOLD = 3
@@ -124,6 +125,109 @@ async def emit_runtime_memory_update(
     )
 
     return snapshot
+
+
+def build_runtime_l1_diff_stats(
+        diff_history: list[dict],
+) -> dict:
+
+    values = [
+        item.get(
+            "total_diff",
+            0,
+        )
+        for item in diff_history
+    ]
+
+    return {
+        "count": len(values),
+        "average": average_diff(values),
+        "range": diff_value_range(values),
+        "min": min(values) if values else 0,
+        "max": max(values) if values else 0,
+    }
+
+
+async def emit_runtime_l1_diff_update(
+        context,
+) -> None:
+
+    emitter = getattr(
+        context,
+        "emitter",
+        None,
+    )
+
+    emit = getattr(
+        emitter,
+        "emit",
+        None,
+    )
+
+    history = list(
+        getattr(
+            context,
+            "runtime_l1_diff_history",
+            [],
+        )
+        or []
+    )
+
+    await safe_call(
+        emit,
+        {
+            "type": "runtime_l1_diff_update",
+            "diffs": history,
+            "stats": build_runtime_l1_diff_stats(
+                history
+            ),
+        },
+    )
+
+
+async def emit_runtime_session_memory_update(
+        context,
+) -> None:
+
+    emitter = getattr(
+        context,
+        "emitter",
+        None,
+    )
+
+    emit = getattr(
+        emitter,
+        "emit",
+        None,
+    )
+
+    memory = getattr(
+        context,
+        "runtime_l3_session_memory",
+        "",
+    ) or getattr(
+        context,
+        "session_memory",
+        "",
+    )
+
+    await safe_call(
+        emit,
+        {
+            "type": "runtime_session_memory_update",
+            "memory": memory,
+            "updates": getattr(
+                context,
+                "runtime_session_memory_updates",
+                0,
+            ),
+            "source": getattr(
+                context,
+                "session_memory_source",
+                "",
+            ),
+        },
+    )
 
 
 def build_runtime_l2_memory_system_prompt() -> str:
@@ -241,6 +345,73 @@ def build_runtime_l2_memory_user_prompt(
     return "\n".join(
         lines
     )
+
+
+def build_runtime_session_memory_system_prompt() -> str:
+
+    return (
+        "You are JIN's L3 session memory summarizer.\n"
+        "This is the layer above L1 runtime memory and L2 pattern memory.\n"
+        "Return only the new compressed L3 session snapshot as plain text.\n"
+        "Do not output JSON.\n"
+        "Do not use Markdown headings.\n"
+        "Do not explain your reasoning or the summarization process.\n"
+        "Write memory as atomic lines using the format:\n"
+        "<key>: <value>\n"
+        "Summarize the whole session from all L1 runtime memory snapshots, "
+        "not only the latest snapshot.\n"
+        "Preserve what should survive a browser reload or a new tab: active project direction, "
+        "explicit decisions, durable facts, unresolved tasks, constraints, and next step.\n"
+        "Use the diff history to identify which topics or constraints actually changed during the session.\n"
+        "Do not copy every L1 line. Compress repeated or superseded states.\n"
+        "Do not infer durable user personality traits, relationship claims, or preferences from weak signal.\n"
+        "Keep user-requested memory tokens and explicit facts in their own retrieval-friendly lines.\n"
+        "Drop transient last_jin_response details unless they contain an unresolved question or next step.\n"
+        "The final L3 snapshot should feel like a session handoff note for fluent continuation."
+    )
+
+
+def build_runtime_session_memory_user_prompt(
+        *,
+        current_session_memory: str,
+        runtime_memory_snapshots: list[dict],
+        diff_history: list[dict],
+        runtime_l2_memory: str = "",
+) -> str:
+
+    snapshot_blocks = []
+
+    for snapshot in runtime_memory_snapshots:
+        snapshot_blocks.append(
+            "\n".join([
+                f"snapshot: {snapshot.get('index', 0)}",
+                f"total_diff: {snapshot.get('total_diff', 0)}",
+                "memory:",
+                (
+                    snapshot.get(
+                        "raw_memory",
+                        "",
+                    ).strip()
+                    or "<empty>"
+                ),
+            ])
+        )
+
+    return "\n\n".join([
+        "Current L3 session memory:",
+        current_session_memory.strip() or "<empty>",
+        "Current L2 pattern memory for context only:",
+        runtime_l2_memory.strip() or "<empty>",
+        "Complete L1 runtime memory snapshot history:",
+        "\n\n---\n\n".join(snapshot_blocks) or "<empty>",
+        "Complete L1 diff history:",
+        json.dumps(
+            diff_history,
+            ensure_ascii=False,
+            indent=2,
+        ),
+        "Rewrite the L3 session memory now.",
+    ])
 
 
 def build_runtime_memory_system_prompt() -> str:
@@ -866,6 +1037,74 @@ async def ask_runtime_l2_memory_model(
     return response
 
 
+async def ask_runtime_session_memory_model(
+        *,
+        context=None,
+        service_client,
+        current_session_memory: str,
+        runtime_memory_snapshots: list[dict],
+        diff_history: list[dict],
+) -> dict:
+
+    system_prompt = (
+        build_runtime_session_memory_system_prompt()
+    )
+    user_prompt = (
+        build_runtime_session_memory_user_prompt(
+            current_session_memory=current_session_memory,
+            runtime_memory_snapshots=runtime_memory_snapshots,
+            diff_history=diff_history,
+            runtime_l2_memory=getattr(
+                context,
+                "runtime_l2_memory",
+                "",
+            ),
+        )
+    )
+
+    await refresh_runtime_memory_summarizer_usage(
+        context,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+    )
+
+    temperature = (
+        config.SERVICE_TEMPERATURE
+    )
+    max_tokens = (
+        config.SERVICE_MAX_TOKENS
+    )
+
+    await log_runtime_summarizer_payload(
+        context,
+        label="L3 session",
+        payload=build_runtime_summarizer_payload(
+            service_client=service_client,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        ),
+    )
+
+    response = await ask_service_model(
+        client=service_client,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+
+    await refresh_runtime_memory_summarizer_usage(
+        context,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        response=response,
+    )
+
+    return response
+
+
 def get_runtime_l2_user_turn_count(
         context,
 ) -> int:
@@ -932,7 +1171,7 @@ async def record_runtime_l1_diff(
         context
     )
 
-    context.runtime_l2_pending_patches.append({
+    diff_entry = {
         "turn_number": user_turn_count,
         "snapshot_index": snapshot.get(
             "index",
@@ -943,7 +1182,26 @@ async def record_runtime_l1_diff(
             "patch",
             {},
         ),
-    })
+    }
+
+    context.runtime_l2_pending_patches.append(
+        diff_entry
+    )
+
+    if not hasattr(
+        context,
+        "runtime_l1_diff_history",
+    ):
+        context.runtime_l1_diff_history = []
+
+    context.runtime_l1_diff_history.append(
+        {
+            **diff_entry,
+            "history_index": len(
+                context.runtime_l1_diff_history
+            ),
+        }
+    )
 
     turns_since_l2 = (
         user_turn_count
@@ -1018,6 +1276,10 @@ async def record_runtime_l1_diff(
             f"repeated keys {repeated_keys}; "
             f"{l2_turn_label}"
         ),
+    )
+
+    await emit_runtime_l1_diff_update(
+        context
     )
 
 
@@ -1416,6 +1678,188 @@ async def maybe_summarize_runtime_l2_memory(
         return current_l2_memory
 
 
+async def maybe_summarize_runtime_session_memory(
+        *,
+        context,
+) -> str:
+
+    if not getattr(
+        context,
+        "runtime_remember_session_requested",
+        False,
+    ):
+        return getattr(
+            context,
+            "runtime_l3_session_memory",
+            DEFAULT_RUNTIME_L3_SESSION_MEMORY,
+        )
+
+    service_client = (
+        getattr(
+            context,
+            "clients",
+            {},
+        )
+        .get(
+            "service"
+        )
+    )
+
+    if service_client is None:
+        return getattr(
+            context,
+            "runtime_l3_session_memory",
+            DEFAULT_RUNTIME_L3_SESSION_MEMORY,
+        )
+
+    snapshots = list(
+        getattr(
+            context,
+            "runtime_memory_snapshots",
+            [],
+        )
+        or []
+    )
+
+    if not snapshots:
+        return getattr(
+            context,
+            "runtime_l3_session_memory",
+            DEFAULT_RUNTIME_L3_SESSION_MEMORY,
+        )
+
+    current_session_memory = getattr(
+        context,
+        "runtime_l3_session_memory",
+        "",
+    ) or getattr(
+        context,
+        "session_memory",
+        "",
+    )
+
+    try:
+        response = await ask_runtime_session_memory_model(
+            context=context,
+            service_client=service_client,
+            current_session_memory=current_session_memory,
+            runtime_memory_snapshots=snapshots,
+            diff_history=list(
+                getattr(
+                    context,
+                    "runtime_l1_diff_history",
+                    [],
+                )
+                or []
+            ),
+        )
+
+        updated_session_memory = extract_runtime_memory_text(
+            response
+        )
+
+        skip_reason = None
+
+        if is_runtime_memory_response_truncated(response):
+            skip_reason = "L3 session summarizer response was truncated by max_tokens."
+
+        elif (
+                updated_session_memory.strip()
+                and looks_like_incomplete_runtime_memory(
+            updated_session_memory
+        )
+        ):
+            skip_reason = "L3 session summarizer returned text that looks structurally incomplete."
+
+        if skip_reason:
+            await safe_call(
+                getattr(
+                    getattr(
+                        context,
+                        "logger",
+                        None,
+                    ),
+                    "log_error",
+                    None,
+                ),
+                "[MEMORY] L3 session memory update skipped",
+                details=build_memory_update_skip_details(
+                    reason=skip_reason,
+                    previous_memory=current_session_memory,
+                    candidate_memory=updated_session_memory,
+                ),
+            )
+
+            return current_session_memory
+
+        if updated_session_memory.strip():
+            context.runtime_l3_session_memory = updated_session_memory
+            context.session_memory = updated_session_memory
+            context.session_memory_source = "L3"
+            context.runtime_session_memory_updates = (
+                getattr(
+                    context,
+                    "runtime_session_memory_updates",
+                    0,
+                )
+                + 1
+            )
+            context.runtime_remember_session_requested = False
+
+            await safe_call(
+                getattr(
+                    getattr(
+                        context,
+                        "logger",
+                        None,
+                    ),
+                    "log_service",
+                    None,
+                ),
+                "[MEMORY] L3 session memory updated",
+            )
+
+            await log_runtime_summarizer_result(
+                context,
+                label="L3 session memory",
+                result=updated_session_memory,
+            )
+
+            await emit_runtime_session_memory_update(
+                context
+            )
+
+        return getattr(
+            context,
+            "runtime_l3_session_memory",
+            DEFAULT_RUNTIME_L3_SESSION_MEMORY,
+        )
+
+    except asyncio.CancelledError:
+        raise
+
+    except Exception:
+        formatted_traceback = (
+            traceback.format_exc()
+        )
+
+        await safe_call(
+            getattr(
+                getattr(
+                    context,
+                    "logger",
+                    None,
+                ),
+                "log_error",
+                None,
+            ),
+            "[MEMORY] L3 session memory update failed",
+            details=formatted_traceback,
+        )
+
+        return current_session_memory
+
+
 async def summarize_runtime_memory(
         *,
         context,
@@ -1537,6 +1981,9 @@ async def summarize_runtime_memory(
                 ],
             )
             await maybe_summarize_runtime_l2_memory(
+                context=context,
+            )
+            await maybe_summarize_runtime_session_memory(
                 context=context,
             )
 
@@ -1702,6 +2149,9 @@ async def summarize_runtime_memory_pending_turns(
                 turns=turns,
             )
             await maybe_summarize_runtime_l2_memory(
+                context=context,
+            )
+            await maybe_summarize_runtime_session_memory(
                 context=context,
             )
 

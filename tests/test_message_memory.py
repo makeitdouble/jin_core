@@ -13,7 +13,9 @@ from runtime import (
     build_runtime_l2_memory_system_prompt,
     build_runtime_memory_system_prompt,
     build_runtime_memory_user_prompt,
+    build_runtime_session_memory_user_prompt,
     maybe_summarize_runtime_l2_memory,
+    maybe_summarize_runtime_session_memory,
     record_runtime_l1_diff,
     schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
@@ -458,6 +460,45 @@ class MessageMemoryTests(
         self.assertIn(
             "Lamborghini pricing",
             prompt,
+        )
+
+    def test_brain_prompt_places_session_memory_above_runtime_memory(self):
+
+        context = SimpleNamespace(
+            session_memory=(
+                "decision: Continue the memory architecture work."
+            ),
+            runtime_memory=(
+                "topic: live runtime state"
+            ),
+            deep_thought_count=0,
+            runtime_search_result="",
+            runtime_search_result_id="",
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_WEB_SEARCH": False,
+                "CAN_DEEP_THOUGHT": False,
+            },
+        )
+
+        self.assertIn(
+            "<SESSION_MEMORY priority=\"higher_than_runtime_memory\">",
+            prompt,
+        )
+        self.assertIn(
+            "Continue the memory architecture work",
+            prompt,
+        )
+        self.assertLess(
+            prompt.index(
+                "<SESSION_MEMORY"
+            ),
+            prompt.index(
+                "<RUNTIME_MEMORY>"
+            ),
         )
 
     def test_brain_prompt_includes_l2_memory_separately(self):
@@ -979,7 +1020,7 @@ class MessageMemoryTests(
         )
         self.assertEqual(
             len(context.emitter.events),
-            2,
+            3,
         )
 
         telemetry_event = context.emitter.events[0]
@@ -1000,6 +1041,13 @@ class MessageMemoryTests(
         self.assertEqual(
             event["type"],
             "runtime_memory_update",
+        )
+
+        diff_event = context.emitter.events[2]
+
+        self.assertEqual(
+            diff_event["type"],
+            "runtime_l1_diff_update",
         )
 
         self.assertEqual(
@@ -1252,6 +1300,16 @@ class MessageMemoryTests(
                     },
                 },
             ],
+            runtime_l1_diff_history=[
+                {
+                    "snapshot_index": 1,
+                    "total_diff": 110,
+                },
+                {
+                    "snapshot_index": 7,
+                    "total_diff": 104.69,
+                },
+            ],
             runtime_l2_last_turn=0,
             user_message_count=7,
             session_id="test-session",
@@ -1287,6 +1345,10 @@ class MessageMemoryTests(
         self.assertEqual(
             context.runtime_l2_pending_patches,
             [],
+        )
+        self.assertEqual(
+            len(context.runtime_l1_diff_history),
+            2,
         )
         self.assertIn(
             "Recent L1 patches",
@@ -1349,6 +1411,128 @@ class MessageMemoryTests(
         self.assertEqual(
             memory_events[0]["snapshot"]["raw_memory"],
             "",
+        )
+
+    def test_l3_session_memory_prompt_uses_all_runtime_snapshots(self):
+
+        prompt = build_runtime_session_memory_user_prompt(
+            current_session_memory="decision: old handoff",
+            runtime_memory_snapshots=[
+                {
+                    "index": 0,
+                    "raw_memory": "topic: first topic",
+                    "total_diff": 30,
+                },
+                {
+                    "index": 1,
+                    "raw_memory": "decision: final direction",
+                    "total_diff": 80,
+                },
+            ],
+            diff_history=[
+                {
+                    "snapshot_index": 1,
+                    "total_diff": 80,
+                },
+            ],
+        )
+
+        self.assertIn(
+            "Complete L1 runtime memory snapshot history",
+            prompt,
+        )
+        self.assertIn(
+            "topic: first topic",
+            prompt,
+        )
+        self.assertIn(
+            "decision: final direction",
+            prompt,
+        )
+        self.assertIn(
+            '"total_diff": 80',
+            prompt,
+        )
+
+    async def test_l3_session_memory_updates_from_snapshot_history(self):
+
+        service_client = FakeServiceClient(
+            "decision: Continue session memory implementation\n"
+            "next step: Verify browser persistence"
+        )
+        logger = FakeLogger()
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            emitter=SimpleNamespace(
+                events=[],
+                emit=None,
+            ),
+            logger=logger,
+            runtime_remember_session_requested=True,
+            runtime_l3_session_memory="",
+            session_memory="",
+            session_memory_source="",
+            runtime_session_memory_updates=0,
+            runtime_l2_memory="",
+            runtime_l1_diff_history=[
+                {
+                    "snapshot_index": 1,
+                    "total_diff": 80,
+                },
+            ],
+            runtime_memory_snapshots=[
+                {
+                    "index": 0,
+                    "raw_memory": "topic: first topic",
+                    "total_diff": 30,
+                },
+                {
+                    "index": 1,
+                    "raw_memory": "decision: final direction",
+                    "total_diff": 80,
+                },
+            ],
+        )
+
+        async def emit(event):
+            context.emitter.events.append(
+                event
+            )
+
+        context.emitter.emit = emit
+
+        updated_memory = await maybe_summarize_runtime_session_memory(
+            context=context,
+        )
+
+        self.assertIn(
+            "Continue session memory implementation",
+            updated_memory,
+        )
+        self.assertEqual(
+            context.runtime_session_memory_updates,
+            1,
+        )
+        self.assertFalse(
+            context.runtime_remember_session_requested,
+        )
+        self.assertEqual(
+            context.session_memory_source,
+            "L3",
+        )
+        self.assertIn(
+            "topic: first topic",
+            service_client.calls[0]["user_prompt"],
+        )
+        self.assertIn(
+            "decision: final direction",
+            service_client.calls[0]["user_prompt"],
+        )
+        self.assertEqual(
+            context.emitter.events[-1]["type"],
+            "runtime_session_memory_update",
         )
 
     async def test_summarizer_usage_corrects_estimate_with_prompt_usage(self):

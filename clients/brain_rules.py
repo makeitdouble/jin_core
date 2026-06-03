@@ -1,6 +1,8 @@
 from runtime.context_contract import (
     DEEP_THOUGHT_ACTION,
+    REMEMBER_SESSION_ACTION,
     RUNTIME_ACTION_DEEP_THOUGHT,
+    RUNTIME_ACTION_REMEMBER_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
     WEB_SEARCH_ACTION_TEMPLATE,
 )
@@ -137,6 +139,18 @@ def build_runtime_action_instructions(
             "The query value must be plain text, not another JSON object or JSON string. "
             "The runtime hides the marker from chat text. Do not present guessed search results "
             "as facts before the runtime provides them."
+        )
+
+    if RUNTIME_ACTION_REMEMBER_SESSION in enabled_actions:
+        instructions.append(
+            "When the user explicitly ends, closes, pauses, or wraps up the dialogue, "
+            "or directly asks you to remember/save/summarize this session for next time, "
+            f"emit {REMEMBER_SESSION_ACTION} once. "
+            "Examples include: 'закончим', 'на сегодня всё', 'сохрани сессию', "
+            "'запомни где остановились', 'подведи итог и закрой'. "
+            "Do not emit it for ordinary topic changes, brief silence, casual thanks, "
+            "or while active implementation work is still clearly continuing. "
+            "The runtime hides the marker from chat text; answer naturally after emitting it."
         )
 
     if not enabled_actions:

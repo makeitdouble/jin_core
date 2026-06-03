@@ -6,6 +6,7 @@ from clients import (
 )
 from runtime import (
     DEEP_THOUGHT_ACTION,
+    REMEMBER_SESSION_ACTION,
     WEB_SEARCH_ACTION_CLOSE,
     WEB_SEARCH_ACTION_OPEN,
 )
@@ -32,6 +33,24 @@ class RuntimeActionTests(unittest.TestCase):
 
         self.assertEqual(
             result.deep_thought_count,
+            1,
+        )
+
+    def test_extracts_and_applies_remember_session_marker(self):
+
+        result = extract_runtime_actions(
+            f"before {REMEMBER_SESSION_ACTION} after",
+            enabled_actions=[
+                "CAN_REMEMBER_SESSION",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "before  after",
+        )
+        self.assertEqual(
+            result.count("REMEMBER_SESSION"),
             1,
         )
 
@@ -525,6 +544,50 @@ class RuntimeActionTests(unittest.TestCase):
                 "runtime_action_events",
             )[0]["id"],
             "web_search_001",
+        )
+
+    def test_apply_runtime_action_calls_requests_session_memory(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="REMEMBER_SESSION",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertTrue(
+            context.runtime_remember_session_requested,
+        )
+        self.assertEqual(
+            context.emitter.events,
+            [
+                {
+                    "type": "runtime_action",
+                    "action": "remember_session",
+                    "text": "Remembering this session",
+                },
+            ],
         )
 
     def test_extract_search_query_unnests_json_string(self):

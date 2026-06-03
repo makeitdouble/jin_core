@@ -91,9 +91,221 @@ const runtimeMemoryCount =
     "runtime-memory-count"
   );
 
+const sessionMemoryStorageKey =
+  "jin.sessionMemory.v1";
+
+const runtimeMemoryStorageKey =
+  "jin.runtimeMemory.latest.v1";
+
 const runtimeMemoryHistory = {
   snapshots: [],
   index: -1,
+};
+
+const runtimeDiffHistory = {
+  diffs: [],
+  stats: {},
+  expanded: false,
+};
+
+function readBrowserMemory(
+  key
+) {
+
+  try {
+    return JSON.parse(
+      window.localStorage.getItem(
+        key
+      ) || "null"
+    );
+  } catch (error) {
+    return null;
+  }
+
+}
+
+
+function writeBrowserMemory(
+  key,
+  value
+) {
+
+  try {
+    window.localStorage.setItem(
+      key,
+      JSON.stringify(value)
+    );
+  } catch (error) {
+    // Browser memory is helpful, not required for chat.
+  }
+
+}
+
+
+function persistRuntimeMemorySnapshot(
+  data
+) {
+
+  if (
+      !data
+      || !data.snapshot
+  ) {
+    return;
+  }
+
+  if (Number(data.updates || 0) <= 0) {
+    return;
+  }
+
+  const runtimeMemory =
+    (
+      data.snapshot.raw_memory
+      || data.memory
+      || ""
+    ).trim();
+
+  if (!runtimeMemory) {
+    return;
+  }
+
+  const savedAt =
+    new Date().toISOString();
+
+  writeBrowserMemory(
+    runtimeMemoryStorageKey,
+    {
+      version: 1,
+      saved_at: savedAt,
+      runtime_memory: runtimeMemory,
+      runtime_memory_updates: data.updates || 0,
+      runtime_snapshot: data.snapshot,
+    }
+  );
+
+}
+
+
+function persistSessionMemory(
+  data
+) {
+
+  const sessionMemory =
+    (
+      data
+      && data.memory
+      || ""
+    ).trim();
+
+  if (!sessionMemory) {
+    return;
+  }
+
+  const runtimeMemory =
+    readBrowserMemory(
+      runtimeMemoryStorageKey
+    );
+
+  const savedAt =
+    new Date().toISOString();
+
+  writeBrowserMemory(
+    sessionMemoryStorageKey,
+    {
+      version: 1,
+      saved_at: savedAt,
+      session_memory: sessionMemory,
+      session_memory_updates:
+        data.updates || 0,
+      runtime_memory:
+        (
+          runtimeMemory
+          && runtimeMemory.runtime_memory
+        ) || "",
+      runtime_memory_updates:
+        (
+          runtimeMemory
+          && runtimeMemory.runtime_memory_updates
+        ) || 0,
+      runtime_snapshot:
+        (
+          runtimeMemory
+          && runtimeMemory.runtime_snapshot
+        ) || null,
+    }
+  );
+
+}
+
+
+window.getPersistedSessionBootstrap = function () {
+
+  const sessionMemory =
+    readBrowserMemory(
+      sessionMemoryStorageKey
+    );
+
+  const runtimeMemory =
+    readBrowserMemory(
+      runtimeMemoryStorageKey
+    );
+
+  const sessionText =
+    (
+      sessionMemory
+      && sessionMemory.session_memory
+    ) || "";
+
+  const runtimeText =
+    (
+      runtimeMemory
+      && runtimeMemory.runtime_memory
+    )
+    || (
+      sessionMemory
+      && sessionMemory.runtime_memory
+    )
+    || "";
+
+  if (
+      !sessionText
+      && !runtimeText
+  ) {
+    return null;
+  }
+
+  return {
+    type: "session_bootstrap",
+    session_memory: sessionText,
+    session_memory_source: "browser_localStorage",
+    session_memory_updates:
+      (
+        sessionMemory
+        && sessionMemory.session_memory_updates
+      )
+      || 0,
+    runtime_memory: runtimeText,
+    runtime_memory_updates:
+      (
+        runtimeMemory
+        && runtimeMemory.runtime_memory_updates
+      )
+      || (
+        sessionMemory
+        && sessionMemory.runtime_memory_updates
+      )
+      || 0,
+    runtime_snapshot:
+      (
+        runtimeMemory
+        && runtimeMemory.runtime_snapshot
+      )
+      || (
+        sessionMemory
+        && sessionMemory.runtime_snapshot
+      )
+      || null,
+  };
+
 };
 
 function findRuntimeByLabel(
@@ -922,10 +1134,47 @@ window.handleTelemetryMessage = function (data) {
 
 window.handleRuntimeMemoryMessage = function (data) {
 
-  if (
-      !data
-      || data.type !== "runtime_memory_update"
-  ) {
+  if (!data) {
+    return;
+  }
+
+  if (data.type === "runtime_l1_diff_update") {
+    runtimeDiffHistory.diffs =
+        data.diffs || [];
+
+    runtimeDiffHistory.stats =
+        data.stats || {};
+
+    renderRuntimeDiffs();
+
+    return;
+  }
+
+  if (data.type === "runtime_session_memory_update") {
+    persistSessionMemory(
+      data
+    );
+
+    if (runtimeMemoryPanel) {
+      runtimeMemoryPanel.classList.remove(
+        "memory-l3-updating",
+        "memory-l3-pulse"
+      );
+      runtimeMemoryPanel.classList.add(
+        "memory-l3-fading"
+      );
+
+      setTimeout(() => {
+        runtimeMemoryPanel.classList.remove(
+          "memory-l3-fading"
+        );
+      }, 2000);
+    }
+
+    return;
+  }
+
+  if (data.type !== "runtime_memory_update") {
     return;
   }
 
@@ -943,6 +1192,10 @@ window.handleRuntimeMemoryMessage = function (data) {
     runtimeMemoryHistory.index =
         runtimeMemoryHistory.snapshots.length - 1;
   }
+
+  persistRuntimeMemorySnapshot(
+    data
+  );
 
   renderRuntimeMemorySnapshot();
 
@@ -983,6 +1236,87 @@ const runtimeMemoryPrev =
 
 const runtimeMemoryNext =
     document.getElementById("runtime-memory-next");
+
+const runtimeDiffToggle =
+    document.getElementById("runtime-diff-toggle");
+
+const runtimeDiffText =
+    document.getElementById("runtime-diff-text");
+
+const runtimeDiffCount =
+    document.getElementById("runtime-diff-count");
+
+const runtimeDiffAverage =
+    document.getElementById("runtime-diff-average");
+
+const runtimeDiffRange =
+    document.getElementById("runtime-diff-range");
+
+const runtimeDiffMax =
+    document.getElementById("runtime-diff-max");
+
+
+function formatRuntimeDiffNumber(value) {
+  const number =
+      Number(value || 0);
+
+  return String(
+      Number.isInteger(number)
+        ? number
+        : Number(number.toFixed(2))
+  );
+}
+
+
+function renderRuntimeDiffs() {
+  const stats =
+      runtimeDiffHistory.stats || {};
+
+  if (runtimeDiffCount) {
+    runtimeDiffCount.textContent =
+        formatRuntimeDiffNumber(stats.count);
+  }
+
+  if (runtimeDiffAverage) {
+    runtimeDiffAverage.textContent =
+        formatRuntimeDiffNumber(stats.average);
+  }
+
+  if (runtimeDiffRange) {
+    runtimeDiffRange.textContent =
+        formatRuntimeDiffNumber(stats.range);
+  }
+
+  if (runtimeDiffMax) {
+    runtimeDiffMax.textContent =
+        formatRuntimeDiffNumber(stats.max);
+  }
+
+  if (runtimeDiffToggle) {
+    runtimeDiffToggle.textContent =
+        runtimeDiffHistory.expanded
+          ? "hide diffs"
+          : "show diffs";
+  }
+
+  if (!runtimeDiffText) {
+    return;
+  }
+
+  runtimeDiffText.classList.toggle(
+      "hidden",
+      !runtimeDiffHistory.expanded
+  );
+
+  runtimeDiffText.textContent =
+      runtimeDiffHistory.diffs.length
+        ? JSON.stringify(
+            runtimeDiffHistory.diffs,
+            null,
+            2
+          )
+        : "[]";
+}
 
 
 function renderRuntimeMemorySnapshot() {
@@ -1192,4 +1526,12 @@ runtimeMemoryNext?.addEventListener("click", () => {
   renderRuntimeMemorySnapshot();
 });
 
+runtimeDiffToggle?.addEventListener("click", () => {
+  runtimeDiffHistory.expanded =
+      !runtimeDiffHistory.expanded;
+
+  renderRuntimeDiffs();
+});
+
 renderRuntimeMemorySnapshot();
+renderRuntimeDiffs();

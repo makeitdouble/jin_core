@@ -9,6 +9,7 @@ from config_loader import (
 from runtime.context_contract import (
     ContextContract,
     RUNTIME_ACTION_DEEP_THOUGHT,
+    RUNTIME_ACTION_REMEMBER_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
 )
 
@@ -65,6 +66,10 @@ def get_enabled_runtime_actions(
         (
             RUNTIME_ACTION_WEB_SEARCH,
             "CAN_WEB_SEARCH",
+        ),
+        (
+            RUNTIME_ACTION_REMEMBER_SESSION,
+            "CAN_REMEMBER_SESSION",
         ),
     ):
 
@@ -216,6 +221,12 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_DEEP_THOUGHT
     )
 
+    remember_session_count = sum(
+        1
+        for action in actions
+        if action.name == RUNTIME_ACTION_REMEMBER_SESSION
+    )
+
     applied_count = await apply_deep_thought_calls(
         context,
         min(
@@ -271,8 +282,37 @@ async def apply_runtime_action_calls(
             f"search x{len(search_queries)}"
         )
 
+    if remember_session_count:
+        context.runtime_remember_session_requested = True
+
+        if log_runtime is not None:
+            await log_runtime(
+                "[RUNTIME ACTION] remember_session requested"
+            )
+
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is not None:
+            await emit({
+                "type": "runtime_action",
+                "action": "remember_session",
+                "text": "Remembering this session",
+            })
+
     return applied_count + len(
         search_queries
+    ) + min(
+        remember_session_count,
+        1,
     )
 
 
@@ -503,6 +543,10 @@ def build_brain_runtime_context(
             RUNTIME_ACTION_WEB_SEARCH
             in enabled_actions
         ),
+        can_remember_session=(
+            RUNTIME_ACTION_REMEMBER_SESSION
+            in enabled_actions
+        ),
         timestamp=now.isoformat(),
         current_date=now.date().isoformat(),
         current_time=now.strftime("%H:%M:%S"),
@@ -527,6 +571,7 @@ def build_brain_runtime_context(
         )
 
     runtime_memory = ""
+    session_memory = ""
     runtime_l2_memory = ""
     zero_diff_alert = None
     conversation_activity_diff = get_conversation_activity_diff(
@@ -539,6 +584,15 @@ def build_brain_runtime_context(
         runtime_memory = getattr(
             context,
             "runtime_memory",
+            "",
+        )
+        session_memory = getattr(
+            context,
+            "runtime_l3_session_memory",
+            "",
+        ) or getattr(
+            context,
+            "session_memory",
             "",
         )
         runtime_l2_memory = getattr(
@@ -569,6 +623,13 @@ def build_brain_runtime_context(
     if session_state_xml:
         runtime_context_parts.append(
             session_state_xml
+        )
+
+    if session_memory.strip():
+        runtime_context_parts.append(
+            "<SESSION_MEMORY priority=\"higher_than_runtime_memory\">\n"
+            f"{indent_xml(escape(session_memory))}\n"
+            "</SESSION_MEMORY>"
         )
 
     if runtime_memory.strip():
@@ -1060,7 +1121,19 @@ async def ask_brain_stream(
                 non_deep_actions,
             )
 
-            stop_for_runtime_action = True
+            stop_for_runtime_action = any(
+                action.name == RUNTIME_ACTION_WEB_SEARCH
+                for action in non_deep_actions
+            )
+
+            if not stop_for_runtime_action:
+                if not result.text:
+                    return None
+
+                return {
+                    **action_chunk,
+                    "content": result.text,
+                }
 
             if (
                 chunk_type == "thinking"

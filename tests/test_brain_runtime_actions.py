@@ -6,6 +6,7 @@ from clients import (
 )
 from runtime import (
     DEEP_THOUGHT_ACTION,
+    REMEMBER_SESSION_ACTION,
     WEB_SEARCH_ACTION_TEMPLATE,
 )
 from utils.brain import (
@@ -16,7 +17,7 @@ from utils.brain import (
 
 class BrainRuntimeActionTests(unittest.TestCase):
 
-    def test_agent_runtime_action_flags_enable_search_only(self):
+    def test_agent_runtime_action_flags_enable_search_and_remember_session(self):
 
         self.assertEqual(
             get_enabled_runtime_actions(
@@ -24,6 +25,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ),
             (
                 "WEB_SEARCH",
+                "REMEMBER_SESSION",
             ),
         )
 
@@ -33,6 +35,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ),
             (
                 "WEB_SEARCH",
+                "REMEMBER_SESSION",
             ),
         )
 
@@ -193,6 +196,29 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         self.assertIn(
             "not another JSON object",
+            prompt,
+        )
+
+    def test_prompt_includes_remember_session_only_when_enabled(self):
+
+        prompt = build_brain_system_prompt(
+            runtime_actions={
+                "CAN_DEEP_THOUGHT": False,
+                "CAN_WEB_SEARCH": False,
+                "CAN_REMEMBER_SESSION": True,
+            }
+        )
+
+        self.assertIn(
+            REMEMBER_SESSION_ACTION,
+            prompt,
+        )
+        self.assertIn(
+            "explicitly ends",
+            prompt,
+        )
+        self.assertIn(
+            '<ACTION name="REMEMBER_SESSION">',
             prompt,
         )
 

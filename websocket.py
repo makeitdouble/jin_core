@@ -50,6 +50,8 @@ from runtime import (
     RuntimeContext,
     RuntimeEmitter,
     build_runtime_memory_snapshot,
+    emit_runtime_l1_diff_update,
+    emit_runtime_session_memory_update,
     refresh_runtime_state,
     schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
@@ -58,6 +60,189 @@ from runtime import (
 
 
 websocket_router = APIRouter()
+
+MAX_BOOTSTRAP_MEMORY_CHARS = 12000
+
+
+def clean_bootstrap_memory(
+    value,
+    *,
+    limit: int = MAX_BOOTSTRAP_MEMORY_CHARS,
+) -> str:
+
+    if not isinstance(
+        value,
+        str,
+    ):
+        return ""
+
+    cleaned = value.replace(
+        "\x00",
+        "",
+    ).strip()
+
+    if len(cleaned) <= limit:
+        return cleaned
+
+    return cleaned[-limit:].strip()
+
+
+async def emit_current_runtime_memory(
+    context,
+):
+
+    snapshots = getattr(
+        context,
+        "runtime_memory_snapshots",
+        [],
+    )
+
+    if snapshots:
+        snapshot_index = max(
+            0,
+            min(
+                getattr(
+                    context,
+                    "runtime_memory_snapshot_index",
+                    0,
+                ),
+                len(snapshots) - 1,
+            ),
+        )
+        snapshot = snapshots[snapshot_index]
+    else:
+        snapshot = build_runtime_memory_snapshot(
+            context,
+            context.runtime_memory,
+        )
+
+    await context.emitter.emit({
+        "type": "runtime_memory_update",
+        "memory": context.runtime_memory,
+        "updates": getattr(
+            context,
+            "runtime_memory_updates",
+            0,
+        ),
+        "snapshot": snapshot,
+        "snapshots_count": len(
+            snapshots
+        ) or 1,
+        "snapshot_index": snapshot.get(
+            "index",
+            0,
+        ),
+    })
+
+
+def apply_session_bootstrap(
+    context,
+    message_data: dict,
+) -> bool:
+
+    session_memory = clean_bootstrap_memory(
+        message_data.get(
+            "session_memory",
+            "",
+        )
+    )
+
+    runtime_memory = clean_bootstrap_memory(
+        message_data.get(
+            "runtime_memory",
+            "",
+        )
+    )
+
+    runtime_snapshot = message_data.get(
+        "runtime_snapshot",
+        {},
+    )
+
+    if (
+        not runtime_memory
+        and isinstance(
+            runtime_snapshot,
+            dict,
+        )
+    ):
+        runtime_memory = clean_bootstrap_memory(
+            runtime_snapshot.get(
+                "raw_memory",
+                "",
+            )
+        )
+
+    if session_memory:
+        context.session_memory = session_memory
+        context.runtime_l3_session_memory = session_memory
+        try:
+            context.runtime_session_memory_updates = max(
+                int(
+                    message_data.get(
+                        "session_memory_updates",
+                        0,
+                    ) or 0
+                ),
+                getattr(
+                    context,
+                    "runtime_session_memory_updates",
+                    0,
+                ),
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            pass
+        context.session_memory_source = clean_bootstrap_memory(
+            message_data.get(
+                "session_memory_source",
+                "browser",
+            ),
+            limit=80,
+        ) or "browser"
+
+    if runtime_memory:
+        context.runtime_memory = runtime_memory
+        context.runtime_memory_stable = runtime_memory
+
+        try:
+            context.runtime_memory_updates = max(
+                int(
+                    message_data.get(
+                        "runtime_memory_updates",
+                        0,
+                    ) or 0
+                ),
+                getattr(
+                    context,
+                    "runtime_memory_updates",
+                    0,
+                ),
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            pass
+
+        context.runtime_memory_snapshots = []
+
+        restored_snapshot = build_runtime_memory_snapshot(
+            context,
+            context.runtime_memory,
+        )
+
+        context.runtime_memory_snapshots.append(
+            restored_snapshot
+        )
+        context.runtime_memory_snapshot_index = 0
+
+    return bool(
+        session_memory
+        or runtime_memory
+    )
 
 
 # ---------------------------------------------------------
@@ -74,20 +259,17 @@ async def initialize_connection(
         context
     )
 
-    await context.emitter.emit({
-        "type": "runtime_memory_update",
-        "memory": context.runtime_memory,
-        "updates": getattr(
-            context,
-            "runtime_memory_updates",
-            0,
-        ),
-        "snapshot": context.runtime_memory_snapshots[0],
-        "snapshots_count": len(
-            context.runtime_memory_snapshots
-        ),
-        "snapshot_index": 0,
-    })
+    await emit_current_runtime_memory(
+        context
+    )
+
+    await emit_runtime_l1_diff_update(
+        context
+    )
+
+    await emit_runtime_session_memory_update(
+        context
+    )
 
 
 # ---------------------------------------------------------
@@ -562,6 +744,36 @@ async def websocket_endpoint(
                     "message",
                 )
             )
+
+            # -------------------------------------------------
+            # RESTORE BROWSER SESSION MEMORY
+            # -------------------------------------------------
+
+            if message_type == "session_bootstrap":
+
+                restored = apply_session_bootstrap(
+                    context,
+                    message_data,
+                )
+
+                if restored:
+                    await logger.log_system(
+                        "[WS] browser session memory restored"
+                    )
+
+                    await emit_current_runtime_memory(
+                        context
+                    )
+
+                    await emit_runtime_l1_diff_update(
+                        context
+                    )
+
+                    await emit_runtime_session_memory_update(
+                        context
+                    )
+
+                continue
 
             # -------------------------------------------------
             # ABORT GENERATION

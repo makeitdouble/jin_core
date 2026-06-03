@@ -71,6 +71,22 @@ class RuntimeContext:
 
     runtime_l2_memory: str = ""
 
+    session_memory: str = ""
+
+    session_memory_source: str = ""
+
+    runtime_l3_session_memory: str = ""
+
+    runtime_session_memory_updates: int = 0
+
+    runtime_session_memory_update_task: object | None = None
+
+    runtime_remember_session_requested: bool = False
+
+    runtime_l1_diff_history: list[dict] = field(
+        default_factory=list
+    )
+
     runtime_l2_pending_patches: list[dict] = field(
         default_factory=list
     )

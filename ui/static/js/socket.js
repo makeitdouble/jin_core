@@ -64,6 +64,30 @@ function stopL2MemoryGlow() {
   }, 2000);
 }
 
+function startL3MemoryGlow() {
+  const panel = document.getElementById("settings-panel");
+  if (!panel) return;
+
+  panel.classList.add("memory-l3-updating");
+
+  setTimeout(() => {
+    panel.classList.add("memory-l3-pulse");
+  }, 2000);
+}
+
+function stopL3MemoryGlow() {
+  const panel = document.getElementById("settings-panel");
+  if (!panel) return;
+
+  panel.classList.remove("memory-l3-pulse");
+  panel.classList.add("memory-l3-fading");
+
+  setTimeout(() => {
+    panel.classList.remove("memory-l3-updating");
+    panel.classList.remove("memory-l3-fading");
+  }, 2000);
+}
+
 // --------------------------------------------------
 // STATE
 // --------------------------------------------------
@@ -418,6 +442,14 @@ ws.onmessage = function (event) {
     }
 
     if (
+        data.tag === "[SUMMARIZER]" &&
+        data.message
+        && data.message.includes("[MEMORY] L3 session summarizer request")
+    ) {
+      startL3MemoryGlow();
+    }
+
+    if (
         data.message
         && data.message.includes("[MEMORY]")
         && !data.message.includes("[MEMORY] L2 memory")
@@ -440,6 +472,18 @@ ws.onmessage = function (event) {
         )
     ) {
       stopL2MemoryGlow();
+    }
+
+    if (
+        data.message
+        && data.message.includes("[MEMORY] L3 session memory")
+        && (
+            data.message.includes("updated")
+            || data.message.includes("skipped")
+            || data.message.includes("failed")
+        )
+    ) {
+      stopL3MemoryGlow();
     }
 
     return;
@@ -497,6 +541,10 @@ ws.onmessage = function (event) {
     data.type
     === "runtime_action"
   ) {
+
+    if (data.action === "remember_session") {
+      startL3MemoryGlow();
+    }
 
     appendRuntimeAction(
       data.action,
@@ -703,11 +751,36 @@ chatForm.addEventListener(
 // CONNECTION STATUS
 // --------------------------------------------------
 
-ws.onopen = () =>
+ws.onopen = () => {
+
   appendLog(
     "[SYSTEM]",
     "WebSocket connected."
   );
+
+  if (!window.getPersistedSessionBootstrap) {
+    return;
+  }
+
+  const bootstrap =
+    window.getPersistedSessionBootstrap();
+
+  if (!bootstrap) {
+    return;
+  }
+
+  ws.send(
+    JSON.stringify(
+      bootstrap
+    )
+  );
+
+  appendLog(
+    "[SYSTEM]",
+    "Browser session memory sent."
+  );
+
+};
 
 ws.onclose = () => {
 
