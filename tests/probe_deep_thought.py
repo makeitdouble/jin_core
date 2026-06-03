@@ -16,14 +16,14 @@ sys.path.insert(
 from clients.brain_client import (
     build_brain_system_prompt,
 )
-from contracts.context_contract import (
+from runtime.context_contract import (
     DEEP_THOUGHT_ACTION,
 )
-from settings.app_settings import settings
-from settings.config_loader import (
+from app_settings import settings
+from config_loader import (
     config,
 )
-from utils.response_extractor import (
+from clients.response_extractor import (
     ResponseExtractor,
 )
 from utils.brain import (

@@ -4,7 +4,7 @@ import traceback
 
 import httpx
 
-from utils.runtime_state_sync import (
+from runtime.state_sync import (
     refresh_runtime_state,
 )
 

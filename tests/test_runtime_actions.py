@@ -4,7 +4,7 @@ import unittest
 from clients.brain_client import (
     apply_runtime_action_calls,
 )
-from contracts.context_contract import (
+from runtime.context_contract import (
     DEEP_THOUGHT_ACTION,
     SEARCH_ACTION_CLOSE,
     SEARCH_ACTION_OPEN,

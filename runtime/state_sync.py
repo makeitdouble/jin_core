@@ -1,12 +1,12 @@
-from memory.runtime_state import (
+from runtime.state import (
     UNCHANGED,
 )
 
-from runtime.runtime_registry import (
+from runtime.registry import (
     runtime_state,
 )
 
-from utils.telemetry import (
+from runtime.telemetry import (
     send_telemetry,
 )
 

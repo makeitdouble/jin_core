@@ -4,13 +4,13 @@ import logging
 
 import httpx
 
-from settings.app_settings import settings
+from app_settings import settings
 
 from utils.urls import (
     join_url,
 )
 
-from utils.response_extractor import (
+from clients.response_extractor import (
     ResponseExtractor,
 )
 

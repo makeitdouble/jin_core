@@ -13,38 +13,22 @@ The engine is designed for multi-runtime local AI setups where the main reasonin
 
 Runtime memory can now influence conversation strategy, not just store facts. JIN tracks interaction patterns during a session and can adjust replies when the conversation starts looping instead of blindly restarting the same exchange.
 
-![JIN Core Engine runtime UI](static/images/jin-core-split-history.png)
+![JIN Core Engine runtime UI](ui/static/images/jin-core-split-history.png)
 
-![highlight](static/images/highlight.png)
+![highlight](ui/static/images/highlight.png)
 
 ## Capabilities
 
-- FastAPI application with HTML UI at `/` and provider status at `/api/status`.
-- WebSocket chat endpoint at `/ws/chat` with streaming output, logs, telemetry, and cancellation.
-- OpenAI-compatible runtime clients for `/v1/chat/completions` and `/v1/models`.
-- Separate runtime roles: `brain`, `service`, and `translator`.
-- Optional `USE_SERVICE_AS_BRAIN` mode for running without a dedicated brain provider.
-- Model-driven runtime actions, currently including web search requests emitted by the brain and executed by the runtime.
-- Search result injection through trusted runtime context instead of raw chat history.
-- Streaming lifecycle events for message start, thinking chunks, content chunks, completion, and errors.
-- Reasoning/thinking chunks rendered separately from final assistant content.
-- Runtime telemetry for model IDs, context windows, token usage, provider status, and runtime errors.
-- Live runtime memory: a compact in-RAM state updated by the service model after each completed turn.
-- Runtime memory panel in the right sidebar, showing the current memory state without XML tags.
-- Runtime memory snapshots with arrow navigation for reviewing how the session state evolved.
-- Runtime memory diff highlighting for new keys, changed keys, new values, and changed values.
-- Runtime pattern memory that detects repeated interaction shapes and feeds behavior signals back into the brain prompt.
-- Conversation activity signaling that helps JIN notice when an exchange is cooling down or stuck.
-- No-signal and zero-diff handling so repeated empty turns can change response strategy instead of producing another generic prompt.
-- Summarizer request logging with inspectable payloads for debugging what memory models received.
-- Memory update animation: the settings panel glows during summarization and changed memory lines briefly flash before settling back into a unified state.
-- Separate L1 and L2 memory update indicators for factual memory and pattern memory activity.
-- Interrupted turn memory handling: aborted or incomplete responses are marked as unresolved state.
-- Stream validation for repeated word loops, repeated sentences, repeated paragraphs, and leading HTML artifacts.
-- Abort support that cancels the active task, closes active provider streams, and records interrupted memory.
-- Agent runtime path for Cyrillic input: planner, internal translator, brain, validator.
-- Direct brain route for non-Cyrillic input.
-- Keyboard-first input: Enter sends, Ctrl/Shift+Enter inserts a newline, and the input field becomes the stop control during generation.
+- A chat room that feels alive: answers stream in as they are written, thinking stays visually separate from the final reply, and you can stop a generation the moment it drifts.
+- A visible short-term memory: JIN keeps a compact sense of what this session is about, what changed, and what still feels unresolved.
+- A memory timeline you can inspect: step through snapshots and see which facts or patterns were added instead of guessing what the assistant remembered.
+- A calmer loop breaker: when the conversation starts repeating itself, JIN can notice the pattern and change strategy instead of giving the same polite answer again.
+- A built-in search move: the model can ask the runtime to search, then answer from trusted results without dumping raw tool syntax into the chat.
+- A multilingual path that stays out of your way: Cyrillic input can be translated internally while the visible conversation remains natural.
+- A right sidebar that shows what is happening under the hood: model status, context pressure, token usage, runtime memory, and live logs are there when you want them.
+- A keyboard-first writing flow: Enter sends, Ctrl/Shift+Enter adds a newline, and the input box turns into the stop control while JIN is working.
+- A local-first setup for people who run their own models: use separate brain, service, and translator runtimes, or collapse to one service model when you want a simpler setup.
+- A deploy-friendly configuration story: use a local `config.py` while experimenting, then switch to environment variables when you are ready to run it somewhere more serious.
 
 ## Architecture
 
@@ -54,7 +38,7 @@ Browser UI
   v
 FastAPI app.py
   |
-  +-- GET /            -> templates/index.html
+  +-- GET /            -> ui/templates/index.html
   +-- GET /api/status  -> provider availability and runtime metadata
   +-- WS  /ws/chat     -> streaming chat transport
                               |
@@ -127,18 +111,15 @@ This gives JIN observable short-term memory and behavior adaptation without intr
 |-- websocket.py            # WebSocket runtime loop and cancellation
 |-- websocket_logger.py     # JSON logs for the UI console
 |-- config.example.py       # Runtime configuration template
+|-- config_loader.py        # Local config module loader
+|-- app_settings.py         # Typed settings wrapper
 |-- package.json            # Local command shortcuts
 |-- requirements.txt        # Pinned Python dependencies
 |-- .github/workflows/      # GitHub Actions CI
-|-- agents/                 # Agent runtime and nodes
+|-- agent/                  # Agent runtime, state, router, and nodes
 |-- clients/                # Runtime client builders and provider helpers
-|-- contracts/              # Runtime context contracts
-|-- emitter/                # WebSocket JSON emitter
-|-- memory/                 # Memory and runtime state abstractions
-|-- runtime/                # Runtime client, context, stream, registry
-|-- settings/               # Config loader and typed settings wrapper
-|-- static/                 # Browser JavaScript and README assets
-|-- templates/              # HTML UI
+|-- runtime/                # Runtime client, context, contracts, memory, stream, registry
+|-- ui/                     # HTML templates, browser JavaScript, and README assets
 |-- tests/                  # Unit and optional model integration tests
 `-- utils/                  # Stream, telemetry, language, token, error helpers
 ```
@@ -205,6 +186,17 @@ http://127.0.0.1:8000
 
 `config.py` defines model providers, model IDs, request limits, context windows, and generation parameters.
 It is intentionally ignored by Git because it contains local runtime addresses. When `config.py` is absent, the app falls back to `config.example.py`, which keeps CI and basic tests runnable without private local settings.
+
+For deployment, every uppercase option can also be provided through environment variables. Environment values override `config.py` and `config.example.py`. Both plain names and `JIN_`-prefixed names are supported:
+
+```bash
+BRAIN_API_BASE=http://brain-host:1234
+JIN_SERVICE_MODEL_UID=service-model
+USE_SERVICE_AS_BRAIN=true
+SEARCH_TIMEOUT=20.0
+```
+
+Plain names take priority over prefixed names when both are set. Boolean env values accept `1`, `true`, `yes`, `on`, `0`, `false`, `no`, and `off`.
 
 ```python
 USE_SERVICE_AS_BRAIN = False
@@ -354,12 +346,12 @@ Runtime memory update:
 
 The UI is served directly by FastAPI:
 
-- `templates/index.html` renders the shell.
-- `static/socket.js` handles WebSocket connection, send, abort, and stream events.
-- `static/chat.js` renders normal and streaming messages.
-- `static/status.js` updates provider online/offline indicators.
-- `static/telemetry.js` updates runtime status, context usage, runtime memory snapshots, and memory diff highlighting.
-- `static/logger.js` renders the runtime console.
-- `static/dragdrop.js` handles attachment UI state.
+- `ui/templates/index.html` renders the shell.
+- `ui/static/js/socket.js` handles WebSocket connection, send, abort, and stream events.
+- `ui/static/js/chat.js` renders normal and streaming messages.
+- `ui/static/js/status.js` updates provider online/offline indicators.
+- `ui/static/js/telemetry.js` updates runtime status, context usage, runtime memory snapshots, and memory diff highlighting.
+- `ui/static/js/logger.js` renders the runtime console.
+- `ui/static/js/dragdrop.js` handles attachment UI state.
 
 The frontend uses vanilla JavaScript and Tailwind from CDN. The current input behavior is keyboard-first: Enter sends, Ctrl/Shift+Enter inserts a newline, and the whole input field becomes a red stop control while a generation is active.

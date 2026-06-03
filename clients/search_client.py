@@ -3,11 +3,11 @@ from xml.sax.saxutils import escape
 
 import httpx
 
-from settings.app_settings import (
+from app_settings import (
     settings,
 )
 
-from utils.search import (
+from clients.search_provider import (
     serper_search,
 )
 

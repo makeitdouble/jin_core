@@ -5,15 +5,15 @@ from types import SimpleNamespace
 
 import httpx
 
-from agents.agent_state import (
+from agent.state import (
     AgentState,
 )
 
-from agents.translation_node import (
+from agent.nodes.translation import (
     TranslationNode,
 )
 
-from clients.clients_registry import (
+from clients.registry import (
     build_clients,
 )
 

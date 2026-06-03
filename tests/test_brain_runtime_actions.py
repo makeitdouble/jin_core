@@ -4,7 +4,7 @@ from clients.brain_client import (
     build_brain_system_prompt,
     get_enabled_runtime_actions,
 )
-from contracts.context_contract import (
+from runtime.context_contract import (
     DEEP_THOUGHT_ACTION,
     SEARCH_ACTION_TEMPLATE,
 )

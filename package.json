@@ -4,6 +4,6 @@
   "scripts": {
     "test": "python -m unittest discover -s tests",
     "tests": "npm test",
-    "translation_tests": "python tools/run_translation_tests.py"
+    "translation_tests": "python tests/run_translation_tests.py"
   }
 }

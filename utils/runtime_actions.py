@@ -2,7 +2,7 @@ import json
 import re
 from dataclasses import dataclass
 
-from contracts.context_contract import (
+from runtime.context_contract import (
     DEEP_THOUGHT_ACTION,
     RUNTIME_ACTION_DEEP_THOUGHT,
     RUNTIME_ACTION_SEARCH,

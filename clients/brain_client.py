@@ -3,10 +3,10 @@ from datetime import datetime
 from xml.etree import ElementTree
 from xml.sax.saxutils import escape
 
-from settings.config_loader import (
+from config_loader import (
     config,
 )
-from contracts.context_contract import (
+from runtime.context_contract import (
     ContextContract,
     DEEP_THOUGHT_ACTION,
     RUNTIME_ACTION_DEEP_THOUGHT,
@@ -14,7 +14,7 @@ from contracts.context_contract import (
     SEARCH_ACTION_TEMPLATE,
 )
 
-from utils.errors import (
+from clients.errors import (
     format_client_error,
 )
 
@@ -23,7 +23,7 @@ from clients.service_client import (
     ask_service_model_stream,
 )
 
-from utils.response_extractor import (
+from clients.response_extractor import (
     ResponseExtractor,
 )
 

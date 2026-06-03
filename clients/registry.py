@@ -1,6 +1,6 @@
-from settings.app_settings import settings
+from app_settings import settings
 
-from runtime.runtime_client import (
+from runtime.client import (
     RuntimeClient,
 )
 

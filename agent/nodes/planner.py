@@ -1,9 +1,9 @@
-from agents.base_node import BaseNode
+from agent.nodes.base import BaseNode
 
 from utils.language import (
     contains_cyrillic,
 )
-from settings.config_loader import (
+from config_loader import (
     config,
 )
 

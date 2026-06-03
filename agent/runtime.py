@@ -1,20 +1,20 @@
-from agents.planner_node import (
+from agent.nodes.planner import (
     PlannerNode,
 )
 
-from agents.translation_node import (
+from agent.nodes.translation import (
     TranslationNode,
 )
 
-from agents.validation_node import (
+from agent.nodes.validation import (
     ValidationNode,
 )
 
-from agents.router import (
+from agent.router import (
     Router,
 )
 
-from agents.brain_node import (
+from agent.nodes.brain import (
     BrainNode,
 )
 

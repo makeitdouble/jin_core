@@ -1,4 +1,4 @@
-from runtime.runtime_registry import (
+from runtime.registry import (
     runtime_state,
 )
 
