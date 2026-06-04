@@ -108,6 +108,10 @@ const runtimeDiffHistory = {
   expanded: false,
 };
 
+window.jinWebSocketConnected = false;
+
+let persistedSessionBootstrapCleared = false;
+
 function readBrowserMemory(
   key
 ) {
@@ -202,8 +206,15 @@ function persistSessionMemory(
       || ""
     ).trim();
 
+  const eventSnapshots =
+    Array.isArray(data.event_snapshots)
+      ? data.event_snapshots
+      : [];
+
   if (!sessionMemory) {
-    return;
+    if (!eventSnapshots.length) {
+      return;
+    }
   }
 
   const runtimeMemory =
@@ -214,6 +225,8 @@ function persistSessionMemory(
   const savedAt =
     new Date().toISOString();
 
+  persistedSessionBootstrapCleared = false;
+
   writeBrowserMemory(
     sessionMemoryStorageKey,
     {
@@ -221,6 +234,7 @@ function persistSessionMemory(
       explicit_save: true,
       saved_at: savedAt,
       session_memory: sessionMemory,
+      session_event_snapshots: eventSnapshots,
       session_memory_updates:
         data.updates || 0,
       runtime_memory:
@@ -244,6 +258,155 @@ function persistSessionMemory(
 }
 
 
+function buildLatestRuntimeMemoryRecord() {
+
+  const storedRuntimeMemory =
+    readBrowserMemory(
+      runtimeMemoryStorageKey
+    );
+
+  if (
+      storedRuntimeMemory
+      && storedRuntimeMemory.runtime_memory
+  ) {
+    return storedRuntimeMemory;
+  }
+
+  const latestSnapshot =
+    runtimeMemoryHistory.snapshots[
+      runtimeMemoryHistory.snapshots.length - 1
+    ];
+
+  if (
+      !latestSnapshot
+      || !latestSnapshot.raw_memory
+  ) {
+    return null;
+  }
+
+  const runtimeMemory =
+    (
+      latestSnapshot.raw_memory
+      || ""
+    ).trim();
+
+  if (!runtimeMemory) {
+    return null;
+  }
+
+  return {
+    version: 1,
+    saved_at: new Date().toISOString(),
+    runtime_memory: runtimeMemory,
+    runtime_memory_updates: latestSnapshot.index || 0,
+    runtime_snapshot: latestSnapshot,
+  };
+
+}
+
+
+function hasTabCloseSessionBootstrap() {
+
+  if (window.jinWebSocketConnected === false) {
+    return false;
+  }
+
+  if (persistedSessionBootstrapCleared) {
+    return false;
+  }
+
+  const chatHistory =
+    document.getElementById(
+      "chat-history"
+    );
+
+  if (
+      !chatHistory
+      || chatHistory.children.length === 0
+  ) {
+    return false;
+  }
+
+  const runtimeMemory =
+    buildLatestRuntimeMemoryRecord();
+
+  const sessionMemory =
+    readBrowserMemory(
+      sessionMemoryStorageKey
+    );
+
+  const sessionText =
+    (
+      sessionMemory
+      && sessionMemory.session_memory
+    )
+    || "";
+
+  const eventSnapshots =
+    (
+      sessionMemory
+      && Array.isArray(
+        sessionMemory.session_event_snapshots
+      )
+      && sessionMemory.session_event_snapshots
+    )
+    || [];
+
+  const runtimeText =
+    (
+      runtimeMemory
+      && runtimeMemory.runtime_memory
+    )
+    || (
+      sessionMemory
+      && sessionMemory.runtime_memory
+    )
+    || "";
+
+  if (
+      !sessionText
+      && !eventSnapshots.length
+      && !runtimeText
+  ) {
+    return false;
+  }
+
+  if (
+      !sessionMemory
+      || sessionMemory.explicit_save !== true
+  ) {
+    return true;
+  }
+
+  if (
+      runtimeText
+      && runtimeText !== (
+        sessionMemory.runtime_memory
+        || ""
+      )
+  ) {
+    return true;
+  }
+
+  return false;
+
+}
+
+
+function handleTabCloseSessionBootstrap(event) {
+
+  if (!hasTabCloseSessionBootstrap()) {
+    return undefined;
+  }
+
+  event.preventDefault();
+  event.returnValue = "Are you sure?";
+
+  return "Are you sure?";
+
+}
+
+
 window.getPersistedSessionBootstrap = function () {
 
   const sessionMemory =
@@ -255,6 +418,13 @@ window.getPersistedSessionBootstrap = function () {
     readBrowserMemory(
       runtimeMemoryStorageKey
     );
+
+  if (
+      !sessionMemory
+      || sessionMemory.explicit_save !== true
+  ) {
+    return null;
+  }
 
   const sessionText =
     (
@@ -275,8 +445,20 @@ window.getPersistedSessionBootstrap = function () {
     )
     || "";
 
+  const eventSnapshots =
+    (
+      sessionMemory
+      && Array.isArray(
+        sessionMemory.session_event_snapshots
+      )
+      && sessionMemory.session_event_snapshots
+    )
+    || [];
+
   if (
       !sessionText
+      && !eventSnapshots.length
+      && !runtimeText
   ) {
     return null;
   }
@@ -291,6 +473,7 @@ window.getPersistedSessionBootstrap = function () {
         && sessionMemory.session_memory_updates
       )
       || 0,
+    session_event_snapshots: eventSnapshots,
     runtime_memory: runtimeText,
     runtime_memory_updates:
       (
@@ -319,6 +502,8 @@ window.getPersistedSessionBootstrap = function () {
 
 window.clearPersistedSessionBootstrap = function () {
 
+  persistedSessionBootstrapCleared = true;
+
   try {
     window.localStorage.removeItem(
       sessionMemoryStorageKey
@@ -331,6 +516,19 @@ window.clearPersistedSessionBootstrap = function () {
   }
 
 };
+
+
+window.markSessionBootstrapActive = function () {
+
+  persistedSessionBootstrapCleared = false;
+
+};
+
+
+window.addEventListener(
+  "beforeunload",
+  handleTabCloseSessionBootstrap
+);
 
 function findRuntimeByLabel(
   runtimes,
@@ -944,8 +1142,8 @@ function renderRuntimeMemory(
   updates
 ) {
 
-  if (runtimeMemoryPanel) {
-    runtimeMemoryPanel.classList.remove("memory-updating");
+  if (window.stopMemoryGlow) {
+    window.stopMemoryGlow();
   }
 
   if (runtimeMemoryText) {
@@ -1179,20 +1377,17 @@ window.handleRuntimeMemoryMessage = function (data) {
       data
     );
 
-    if (runtimeMemoryPanel) {
-      runtimeMemoryPanel.classList.remove(
-        "memory-l3-updating",
-        "memory-l3-pulse"
+    if (
+        data.persist === true
+        && window.fadeRuntimeAction
+    ) {
+      window.fadeRuntimeAction(
+        "remember_session"
       );
-      runtimeMemoryPanel.classList.add(
-        "memory-l3-fading"
-      );
+    }
 
-      setTimeout(() => {
-        runtimeMemoryPanel.classList.remove(
-          "memory-l3-fading"
-        );
-      }, 2000);
+    if (window.stopL3MemoryGlow) {
+      window.stopL3MemoryGlow();
     }
 
     return;
@@ -1202,8 +1397,8 @@ window.handleRuntimeMemoryMessage = function (data) {
     return;
   }
 
-  if (runtimeMemoryPanel) {
-    runtimeMemoryPanel.classList.remove("memory-updating");
+  if (window.stopMemoryGlow) {
+    window.stopMemoryGlow();
   }
 
   if (runtimeMemoryCount) {

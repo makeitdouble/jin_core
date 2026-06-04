@@ -9,6 +9,7 @@ from config_loader import (
 class AppSettings:
 
     CHAT_ENDPOINT: str
+    MODELS_ENDPOINT: str
 
     USE_SERVICE_AS_BRAIN: bool
 
@@ -39,6 +40,7 @@ class AppSettings:
 settings = AppSettings(
 
     CHAT_ENDPOINT=config.CHAT_ENDPOINT,
+    MODELS_ENDPOINT=config.MODELS_ENDPOINT,
 
     USE_SERVICE_AS_BRAIN=config.USE_SERVICE_AS_BRAIN,
 

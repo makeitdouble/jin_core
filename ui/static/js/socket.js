@@ -16,77 +16,162 @@ const sendButton =
     'button[type="submit"]'
   );
 
+const MEMORY_GLOW_CLASSES = [
+  "memory-updating",
+  "memory-pulse",
+  "memory-fading",
+  "memory-l2-updating",
+  "memory-l2-pulse",
+  "memory-l2-fading",
+  "memory-l3-updating",
+  "memory-l3-pulse",
+  "memory-l3-fading",
+];
+
+const MEMORY_GLOW_STAGES = {
+  l1: {
+    active: "memory-updating",
+    pulse: "memory-pulse",
+    fading: "memory-fading",
+  },
+  l2: {
+    active: "memory-l2-updating",
+    pulse: "memory-l2-pulse",
+    fading: "memory-l2-fading",
+  },
+  l3: {
+    active: "memory-l3-updating",
+    pulse: "memory-l3-pulse",
+    fading: "memory-l3-fading",
+  },
+};
+
+let activeMemoryGlowStage = "";
+let memoryGlowPulseTimer = null;
+let memoryGlowFadeTimer = null;
+
+function getMemoryPanel() {
+  return document.getElementById("settings-panel");
+}
+
+function clearMemoryGlowTimers() {
+  if (memoryGlowPulseTimer) {
+    clearTimeout(memoryGlowPulseTimer);
+    memoryGlowPulseTimer = null;
+  }
+
+  if (memoryGlowFadeTimer) {
+    clearTimeout(memoryGlowFadeTimer);
+    memoryGlowFadeTimer = null;
+  }
+}
+
+function clearMemoryGlowClasses(panel) {
+  panel.classList.remove(
+    ...MEMORY_GLOW_CLASSES
+  );
+}
+
+function setMemoryGlowStage(stage) {
+  const panel = getMemoryPanel();
+  const config = MEMORY_GLOW_STAGES[stage];
+
+  if (
+    !panel
+    || !config
+  ) {
+    return;
+  }
+
+  clearMemoryGlowTimers();
+  clearMemoryGlowClasses(panel);
+
+  activeMemoryGlowStage = stage;
+
+  panel.classList.add(
+    config.active
+  );
+
+  memoryGlowPulseTimer = setTimeout(() => {
+    if (
+      activeMemoryGlowStage !== stage
+      || !panel.classList.contains(config.active)
+    ) {
+      return;
+    }
+
+    panel.classList.add(
+      config.pulse
+    );
+  }, 2200);
+}
+
+function stopMemoryGlowStage(stage) {
+  const panel = getMemoryPanel();
+  const config = MEMORY_GLOW_STAGES[stage];
+
+  if (
+    !panel
+    || !config
+    || activeMemoryGlowStage !== stage
+  ) {
+    return;
+  }
+
+  clearMemoryGlowTimers();
+
+  activeMemoryGlowStage = "";
+
+  panel.classList.remove(
+    config.pulse
+  );
+
+  panel.classList.add(
+    config.fading
+  );
+
+  memoryGlowFadeTimer = setTimeout(() => {
+    if (activeMemoryGlowStage) {
+      return;
+    }
+
+    panel.classList.remove(
+      config.active,
+      config.fading
+    );
+  }, 1800);
+}
+
 function startMemoryGlow() {
-  const panel = document.getElementById("settings-panel");
-  if (!panel) return;
-
-  panel.classList.add("memory-updating");
-
-  setTimeout(() => {
-    panel.classList.add("memory-pulse");
-  }, 2000);
+  setMemoryGlowStage("l1");
 }
 
 function stopMemoryGlow() {
-  const panel = document.getElementById("settings-panel");
-  if (!panel) return;
-
-  panel.classList.remove("memory-pulse");
-  panel.classList.add("memory-fading");
-
-  setTimeout(() => {
-    panel.classList.remove("memory-updating");
-    panel.classList.remove("memory-fading");
-  }, 2000);
+  stopMemoryGlowStage("l1");
 }
 
 function startL2MemoryGlow() {
-  const panel = document.getElementById("settings-panel");
-  if (!panel) return;
-
-  panel.classList.add("memory-l2-updating");
-
-  setTimeout(() => {
-    panel.classList.add("memory-l2-pulse");
-  }, 2000);
+  setMemoryGlowStage("l2");
 }
 
 function stopL2MemoryGlow() {
-  const panel = document.getElementById("settings-panel");
-  if (!panel) return;
-
-  panel.classList.remove("memory-l2-pulse");
-  panel.classList.add("memory-l2-fading");
-
-  setTimeout(() => {
-    panel.classList.remove("memory-l2-updating");
-    panel.classList.remove("memory-l2-fading");
-  }, 2000);
+  stopMemoryGlowStage("l2");
 }
 
 function startL3MemoryGlow() {
-  const panel = document.getElementById("settings-panel");
-  if (!panel) return;
-
-  panel.classList.add("memory-l3-updating");
-
-  setTimeout(() => {
-    panel.classList.add("memory-l3-pulse");
-  }, 2000);
+  setMemoryGlowStage("l3");
 }
 
 function stopL3MemoryGlow() {
-  const panel = document.getElementById("settings-panel");
-  if (!panel) return;
-
-  panel.classList.remove("memory-l3-pulse");
-  panel.classList.add("memory-l3-fading");
-
-  setTimeout(() => {
-    panel.classList.remove("memory-l3-updating");
-    panel.classList.remove("memory-l3-fading");
-  }, 2000);
+  stopMemoryGlowStage("l3");
 }
+
+window.startMemoryGlow = startMemoryGlow;
+window.stopMemoryGlow = stopMemoryGlow;
+window.startL2MemoryGlow = startL2MemoryGlow;
+window.stopL2MemoryGlow = stopL2MemoryGlow;
+window.startL3MemoryGlow = startL3MemoryGlow;
+window.stopL3MemoryGlow = stopL3MemoryGlow;
 
 // --------------------------------------------------
 // STATE
@@ -542,13 +627,42 @@ ws.onmessage = function (event) {
     === "runtime_action"
   ) {
 
-    if (data.action === "remember_session") {
-      startL3MemoryGlow();
+    const action =
+      String(
+        data.action || ""
+      ).toLowerCase();
+
+    const status =
+      String(
+        data.status || ""
+      ).toLowerCase();
+
+    const text =
+      String(
+        data.text || ""
+      );
+
+    if (
+      status === "completed"
+      || status === "complete"
+      || status === "done"
+    ) {
+      if (window.fadeRuntimeAction) {
+        window.fadeRuntimeAction(
+          action
+        );
+      }
+
+      return;
+    }
+
+    if (!text.trim()) {
+      return;
     }
 
     appendRuntimeAction(
-      data.action,
-      data.text
+      action,
+      text
     );
 
     return;
@@ -761,6 +875,10 @@ chatForm.addEventListener(
       text
     );
 
+    if (window.markSessionBootstrapActive) {
+      window.markSessionBootstrapActive();
+    }
+
     setGenerationState(
       true
     );
@@ -783,6 +901,8 @@ chatForm.addEventListener(
 // --------------------------------------------------
 
 ws.onopen = () => {
+
+  window.jinWebSocketConnected = true;
 
   appendLog(
     "[SYSTEM]",
@@ -814,6 +934,8 @@ ws.onopen = () => {
 };
 
 ws.onclose = () => {
+
+  window.jinWebSocketConnected = false;
 
   setGenerationState(
     false

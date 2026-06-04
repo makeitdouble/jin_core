@@ -1,6 +1,7 @@
 from .context import RuntimeContext, RuntimeEmitter
 from .context_contract import (
     DEEP_THOUGHT_ACTION,
+    REMEMBER_EVENT_ACTION,
     REMEMBER_SESSION_ACTION,
     WEB_SEARCH_ACTION_CLOSE,
     WEB_SEARCH_ACTION_OPEN,
@@ -38,6 +39,7 @@ from .telemetry import send_telemetry
 
 __all__ = [
     "DEEP_THOUGHT_ACTION",
+    "REMEMBER_EVENT_ACTION",
     "DEFAULT_RUNTIME_MEMORY",
     "L2_PATCH_WINDOW",
     "REMEMBER_SESSION_ACTION",

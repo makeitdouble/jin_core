@@ -230,6 +230,7 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             session_memory_source="",
             runtime_l3_session_memory="",
             runtime_session_memory_updates=0,
+            runtime_session_event_snapshots=[],
         )
 
         restored = apply_session_bootstrap(
@@ -239,6 +240,12 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
                 "session_memory": "decision: Resume memory work",
                 "session_memory_source": "browser_localStorage",
                 "session_memory_updates": 2,
+                "session_event_snapshots": [
+                    {
+                        "memory_type": "session_event_snapshot",
+                        "memory": "decision: Resume memory work",
+                    }
+                ],
                 "runtime_memory": "topic: restored runtime state",
                 "runtime_memory_updates": 7,
             },
@@ -262,6 +269,15 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             context.session_memory_source,
             "browser_localStorage",
+        )
+        self.assertEqual(
+            context.runtime_session_event_snapshots,
+            [
+                {
+                    "memory_type": "session_event_snapshot",
+                    "memory": "decision: Resume memory work",
+                }
+            ],
         )
         self.assertEqual(
             context.runtime_memory,
@@ -296,6 +312,7 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             session_memory_source="",
             runtime_l3_session_memory="",
             runtime_session_memory_updates=0,
+            runtime_session_event_snapshots=[],
         )
 
         restored = apply_session_bootstrap(
@@ -331,6 +348,12 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             session_memory="",
             session_memory_source="browser_localStorage",
             runtime_session_memory_updates=1,
+            runtime_session_event_snapshots=[
+                {
+                    "memory_type": "session_event_snapshot",
+                    "memory": "topic: restored but not saved",
+                }
+            ],
         )
 
         await emit_runtime_session_memory_update(
@@ -343,6 +366,10 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(
             context.emitter.events[-1]["persist"],
+        )
+        self.assertEqual(
+            context.emitter.events[-1]["event_snapshots"],
+            context.runtime_session_event_snapshots,
         )
 
     async def test_pending_brain_usage_emits_before_stream_start(self):

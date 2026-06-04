@@ -22,6 +22,9 @@ def build_clients(
                 settings
                 .TRANSLATOR_REQUEST_TIMEOUT
             ),
+            configured_context_window=(
+                settings.TRANSLATOR_CONTEXT_WINDOW
+            ),
             client=http_client,
         ),
 
@@ -35,6 +38,9 @@ def build_clients(
             timeout=(
                 settings
                 .SERVICE_REQUEST_TIMEOUT
+            ),
+            configured_context_window=(
+                settings.SERVICE_CONTEXT_WINDOW
             ),
             client=http_client,
         ),
@@ -56,6 +62,9 @@ def build_clients(
             timeout=(
                 settings
                 .BRAIN_REQUEST_TIMEOUT
+            ),
+            configured_context_window=(
+                settings.BRAIN_CONTEXT_WINDOW
             ),
             client=http_client,
         )

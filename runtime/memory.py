@@ -4,6 +4,9 @@ import json
 import traceback
 from difflib import SequenceMatcher
 
+from clients.errors import (
+    format_client_error,
+)
 from clients.service_client import (
     ask_service_model,
 )
@@ -32,6 +35,7 @@ from runtime.memory_rules import (
     build_runtime_memory_user_prompt,
     build_runtime_session_memory_system_prompt,
     build_runtime_session_memory_user_prompt,
+    canonicalize_runtime_memory_entry,
 )
 
 
@@ -40,6 +44,134 @@ DEFAULT_RUNTIME_L3_SESSION_MEMORY = ""
 MIN_L2_TURNS = 3
 L2_PATCH_WINDOW = 5
 L2_REPEATED_KEY_THRESHOLD = 3
+DURABLE_MEMORY_KEY_TOKENS = (
+    "fact",
+    "identity",
+    "profile",
+    "preference",
+    "stored",
+)
+DURABLE_MEMORY_NEGATION_MARKERS = (
+    "not",
+    "not fact",
+    "not true",
+    "false",
+    "obsolete",
+    "removed",
+    "cancelled",
+    "canceled",
+    "superseded",
+    "no longer",
+    "invalid",
+)
+
+
+def infer_memory_failure_reason(
+        error: Exception,
+) -> str:
+
+    response = getattr(
+        error,
+        "response",
+        None,
+    )
+    status_code = getattr(
+        response,
+        "status_code",
+        None,
+    )
+    response_text = (
+        getattr(
+            response,
+            "text",
+            "",
+        )
+        or ""
+    ).strip()
+
+    searchable_text = (
+        f"{error}\n{response_text}"
+    ).lower()
+
+    token_markers = (
+        "token",
+        "context length",
+        "context window",
+        "maximum context",
+        "max_tokens",
+        "too many tokens",
+        "prompt is too long",
+    )
+
+    if any(
+        marker in searchable_text
+        for marker in token_markers
+    ):
+        return (
+            "Token/context limit exceeded or max_tokens is too large "
+            "for the remaining context."
+        )
+
+    if status_code == 400:
+        if response_text:
+            return (
+                "Provider rejected the memory summarizer request "
+                "(400 Bad Request); see provider message below."
+            )
+
+        return (
+            "Provider rejected the memory summarizer request "
+            "(400 Bad Request) without an error body; exact cause is unknown. "
+            "Common causes are token/context limit mismatch or an invalid payload."
+        )
+
+    if status_code:
+        return (
+            "Provider rejected the memory summarizer request "
+            f"with HTTP {status_code}."
+        )
+
+    error_text = str(
+        error
+    ).strip()
+
+    if error_text:
+        return error_text
+
+    return (
+        "Memory summarizer failed before returning a result."
+    )
+
+
+def build_memory_failure_details(
+        *,
+        stage: str,
+        error: Exception,
+        traceback_text: str,
+) -> str:
+
+    request = getattr(
+        error,
+        "request",
+        None,
+    )
+    request_url = str(
+        getattr(
+            request,
+            "url",
+            "",
+        )
+        or config.SERVICE_API_BASE
+    )
+
+    return (
+        "Likely reason: "
+        f"{infer_memory_failure_reason(error)}"
+        "\n\nClient error details:\n"
+        f"{format_client_error(stage, request_url, config.SERVICE_MODEL_UID, error)}"
+        "\n\nTraceback:\n"
+        f"{traceback_text}"
+    )
 
 def change_ratio(
         previous: str,
@@ -218,12 +350,21 @@ async def emit_runtime_session_memory_update(
         "session_memory",
         "",
     )
+    event_snapshots = list(
+        getattr(
+            context,
+            "runtime_session_event_snapshots",
+            [],
+        )
+        or []
+    )
 
     await safe_call(
         emit,
         {
             "type": "runtime_session_memory_update",
             "memory": memory,
+            "event_snapshots": event_snapshots,
             "updates": getattr(
                 context,
                 "runtime_session_memory_updates",
@@ -235,6 +376,34 @@ async def emit_runtime_session_memory_update(
                 "",
             ),
             "persist": persist_browser,
+        },
+    )
+
+
+async def emit_runtime_action_completed(
+        context,
+        *,
+        action: str,
+) -> None:
+
+    emitter = getattr(
+        context,
+        "emitter",
+        None,
+    )
+
+    emit = getattr(
+        emitter,
+        "emit",
+        None,
+    )
+
+    await safe_call(
+        emit,
+        {
+            "type": "runtime_action",
+            "action": action,
+            "status": "completed",
         },
     )
 
@@ -323,6 +492,7 @@ async def refresh_runtime_memory_summarizer_usage(
         system_prompt: str,
         user_prompt: str,
         response: dict | None = None,
+        context_window: int | None = None,
 ) -> None:
 
     if context is None:
@@ -396,7 +566,10 @@ async def refresh_runtime_memory_summarizer_usage(
             total_tokens
             or context_tokens
         ),
-        max_tokens=config.SERVICE_CONTEXT_WINDOW,
+        max_tokens=(
+            context_window
+            or config.SERVICE_CONTEXT_WINDOW
+        ),
         last_error=None,
         status="online",
     )
@@ -431,6 +604,36 @@ def build_runtime_summarizer_payload(
         "max_tokens": max_tokens,
         "stream": False,
     }
+
+
+def build_l3_session_memory_max_tokens(
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        context_window: int | None = None,
+) -> int:
+
+    prompt_tokens = estimate_runtime_tokens(
+        system_prompt=system_prompt,
+        user_input=user_prompt,
+    )
+    effective_context_window = (
+        context_window
+        or config.SERVICE_CONTEXT_WINDOW
+    )
+    response_budget = (
+        effective_context_window
+        - prompt_tokens
+        - 128
+    )
+
+    return max(
+        128,
+        min(
+            config.SERVICE_MAX_TOKENS,
+            response_budget,
+        ),
+    )
 
 
 async def log_runtime_summarizer_payload(
@@ -709,20 +912,41 @@ async def ask_runtime_session_memory_model(
                 "runtime_l2_memory",
                 "",
             ),
+            session_event_snapshots=list(
+                getattr(
+                    context,
+                    "runtime_session_event_snapshots",
+                    [],
+                )
+                or []
+            ),
         )
     )
+
+    resolve_request_context_window = getattr(
+        service_client,
+        "resolve_request_context_window",
+        None,
+    )
+    detected_context_window = None
+
+    if resolve_request_context_window is not None:
+        detected_context_window = await resolve_request_context_window()
 
     await refresh_runtime_memory_summarizer_usage(
         context,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
+        context_window=detected_context_window,
     )
 
     temperature = (
         config.SERVICE_TEMPERATURE
     )
-    max_tokens = (
-        config.SERVICE_MAX_TOKENS
+    max_tokens = build_l3_session_memory_max_tokens(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        context_window=detected_context_window,
     )
 
     await log_runtime_summarizer_payload(
@@ -751,6 +975,7 @@ async def ask_runtime_session_memory_model(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         response=response,
+        context_window=detected_context_window,
     )
 
     return response
@@ -1307,7 +1532,7 @@ async def maybe_summarize_runtime_l2_memory(
     except asyncio.CancelledError:
         raise
 
-    except Exception:
+    except Exception as error:
         formatted_traceback = (
             traceback.format_exc()
         )
@@ -1323,7 +1548,11 @@ async def maybe_summarize_runtime_l2_memory(
                 None,
             ),
             "[MEMORY] L2 memory update failed",
-            details=formatted_traceback,
+            details=build_memory_failure_details(
+                stage="L2 memory summarizer",
+                error=error,
+                traceback_text=formatted_traceback,
+            ),
         )
 
         return current_l2_memory
@@ -1357,6 +1586,11 @@ async def maybe_summarize_runtime_session_memory(
     )
 
     if service_client is None:
+        await emit_runtime_action_completed(
+            context,
+            action="remember_session",
+        )
+
         return getattr(
             context,
             "runtime_l3_session_memory",
@@ -1373,6 +1607,11 @@ async def maybe_summarize_runtime_session_memory(
     )
 
     if not snapshots:
+        await emit_runtime_action_completed(
+            context,
+            action="remember_session",
+        )
+
         return getattr(
             context,
             "runtime_l3_session_memory",
@@ -1441,6 +1680,11 @@ async def maybe_summarize_runtime_session_memory(
                 ),
             )
 
+            await emit_runtime_action_completed(
+                context,
+                action="remember_session",
+            )
+
             return current_session_memory
 
         if updated_session_memory.strip():
@@ -1481,6 +1725,11 @@ async def maybe_summarize_runtime_session_memory(
                 persist_browser=True,
             )
 
+        await emit_runtime_action_completed(
+            context,
+            action="remember_session",
+        )
+
         return getattr(
             context,
             "runtime_l3_session_memory",
@@ -1490,7 +1739,7 @@ async def maybe_summarize_runtime_session_memory(
     except asyncio.CancelledError:
         raise
 
-    except Exception:
+    except Exception as error:
         formatted_traceback = (
             traceback.format_exc()
         )
@@ -1506,7 +1755,16 @@ async def maybe_summarize_runtime_session_memory(
                 None,
             ),
             "[MEMORY] L3 session memory update failed",
-            details=formatted_traceback,
+            details=build_memory_failure_details(
+                stage="L3 session memory summarizer",
+                error=error,
+                traceback_text=formatted_traceback,
+            ),
+        )
+
+        await emit_runtime_action_completed(
+            context,
+            action="remember_session",
         )
 
         return current_session_memory
@@ -1591,6 +1849,11 @@ async def summarize_runtime_memory(
 
             return current_memory
 
+        updated_memory = merge_durable_memory_facts(
+            current_memory,
+            updated_memory,
+        )
+
         updates_counter = getattr(
             context,
             "runtime_memory_updates",
@@ -1648,7 +1911,7 @@ async def summarize_runtime_memory(
     except asyncio.CancelledError:
         raise
 
-    except Exception:
+    except Exception as error:
         formatted_traceback = (
             traceback.format_exc()
         )
@@ -1667,7 +1930,11 @@ async def summarize_runtime_memory(
         await safe_call(
             log_error,
             "[MEMORY] runtime memory update failed",
-            details=formatted_traceback,
+            details=build_memory_failure_details(
+                stage="L1 runtime memory summarizer",
+                error=error,
+                traceback_text=formatted_traceback,
+            ),
         )
 
         return getattr(
@@ -1758,6 +2025,11 @@ async def summarize_runtime_memory_pending_turns(
 
             return initial_memory
 
+        updated_memory = merge_durable_memory_facts(
+            initial_memory,
+            updated_memory,
+        )
+
         updates_counter = getattr(
             context,
             "runtime_memory_updates",
@@ -1816,7 +2088,7 @@ async def summarize_runtime_memory_pending_turns(
     except asyncio.CancelledError:
         raise
 
-    except Exception:
+    except Exception as error:
         formatted_traceback = (
             traceback.format_exc()
         )
@@ -1835,7 +2107,11 @@ async def summarize_runtime_memory_pending_turns(
         await safe_call(
             log_error,
             "[MEMORY] runtime memory update failed",
-            details=formatted_traceback,
+            details=build_memory_failure_details(
+                stage="L1 pending runtime memory summarizer",
+                error=error,
+                traceback_text=formatted_traceback,
+            ),
         )
 
         return getattr(
@@ -2000,9 +2276,14 @@ def parse_runtime_memory_lines(memory: str) -> list[dict]:
         else:
             key, value = "note", line
 
+        key, value = canonicalize_runtime_memory_entry(
+            key,
+            value,
+        )
+
         lines.append({
-            "key": key.strip(),
-            "value": value.strip(),
+            "key": key,
+            "value": value,
             "status": "same",
         })
 
@@ -2017,6 +2298,276 @@ def normalize_memory_key(
         .strip()
         .lower()
     )
+
+
+def is_durable_memory_key(
+        key: str,
+) -> bool:
+
+    normalized_key = normalize_memory_key(
+        key
+    )
+
+    return any(
+        token in normalized_key
+        for token in DURABLE_MEMORY_KEY_TOKENS
+    )
+
+
+def has_durable_fact_negation(
+        value: str,
+) -> bool:
+
+    normalized_value = (
+        value
+        or ""
+    ).strip().lower()
+
+    return any(
+        marker in normalized_value
+        for marker in DURABLE_MEMORY_NEGATION_MARKERS
+    )
+
+
+def durable_memory_line_text(
+        line: dict,
+) -> str:
+
+    key = (
+        line.get(
+            "key",
+            "",
+        )
+        or ""
+    ).strip()
+
+    value = (
+        line.get(
+            "value",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if not key:
+        return value
+
+    return f"{key}: {value}"
+
+
+def split_memory_value_parts(
+        value: str,
+) -> list[str]:
+
+    return [
+        part.strip()
+        for part in (
+            value
+            or ""
+        ).split(",")
+        if part.strip()
+    ]
+
+
+def collapse_duplicate_runtime_memory_keys(
+        memory: str,
+) -> str:
+
+    output_entries = []
+    grouped_by_key = {}
+    duplicate_found = False
+
+    for raw_line in (
+        memory
+        or ""
+    ).splitlines():
+
+        stripped_line = raw_line.strip()
+
+        if not stripped_line:
+            output_entries.append(
+                raw_line
+            )
+            continue
+
+        line = stripped_line.lstrip("-").strip()
+
+        if ":" not in line:
+            output_entries.append(
+                raw_line
+            )
+            continue
+
+        key, value = line.split(
+            ":",
+            1,
+        )
+
+        key, value = canonicalize_runtime_memory_entry(
+            key,
+            value,
+        )
+
+        normalized_key = normalize_memory_key(
+            key
+        )
+
+        if (
+            not normalized_key
+            or not is_durable_memory_key(
+                key
+            )
+        ):
+            output_entries.append(
+                raw_line
+            )
+            continue
+
+        existing = grouped_by_key.get(
+            normalized_key
+        )
+
+        if existing is None:
+            existing = {
+                "key": key,
+                "values": [],
+                "seen_values": set(),
+            }
+            grouped_by_key[normalized_key] = existing
+            output_entries.append(
+                existing
+            )
+        else:
+            duplicate_found = True
+
+        for part in split_memory_value_parts(
+            value
+        ):
+            normalized_value = part.casefold()
+
+            if normalized_value in existing["seen_values"]:
+                continue
+
+            existing["seen_values"].add(
+                normalized_value
+            )
+            existing["values"].append(
+                part
+            )
+
+    if not duplicate_found:
+        return memory
+
+    return "\n".join(
+        (
+            (
+                f'{entry["key"]}: {", ".join(entry["values"])}'
+                if entry["key"]
+                else ", ".join(entry["values"])
+            )
+            if isinstance(
+                entry,
+                dict,
+            )
+            else entry
+        )
+        for entry in output_entries
+    )
+
+
+def merge_durable_memory_facts(
+        previous_memory: str,
+        candidate_memory: str,
+) -> str:
+
+    previous_lines = parse_runtime_memory_lines(
+        previous_memory
+    )
+    candidate_lines = parse_runtime_memory_lines(
+        candidate_memory
+    )
+
+    candidate_by_key = {
+        normalize_memory_key(
+            line.get(
+                "key",
+                "",
+            )
+        ): line
+        for line in candidate_lines
+    }
+
+    preserved_lines = []
+
+    for previous_line in previous_lines:
+
+        previous_key = (
+            previous_line.get(
+                "key",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if not is_durable_memory_key(
+            previous_key
+        ):
+            continue
+
+        normalized_key = normalize_memory_key(
+            previous_key
+        )
+
+        candidate_line = candidate_by_key.get(
+            normalized_key
+        )
+
+        if candidate_line is not None:
+            candidate_value = candidate_line.get(
+                "value",
+                "",
+            )
+
+            if has_durable_fact_negation(
+                candidate_value
+            ):
+                continue
+
+            continue
+
+        preserved_lines.append(
+            durable_memory_line_text(
+                previous_line
+            )
+        )
+
+    if not preserved_lines:
+        return collapse_duplicate_runtime_memory_keys(
+            candidate_memory
+        )
+
+    candidate_text = (
+        candidate_memory
+        or ""
+    ).strip()
+
+    if not candidate_text:
+        return collapse_duplicate_runtime_memory_keys(
+            "\n".join(
+                preserved_lines
+            )
+        )
+
+    return collapse_duplicate_runtime_memory_keys(
+        (
+            candidate_text
+            + "\n"
+            + "\n".join(
+                preserved_lines
+            )
+        )
+    )
+
 
 def find_best_previous_line(
         key: str,

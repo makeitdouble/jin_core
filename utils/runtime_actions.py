@@ -4,18 +4,22 @@ from dataclasses import dataclass
 
 from runtime.context_contract import (
     DEEP_THOUGHT_ACTION,
+    REMEMBER_EVENT_ACTION,
     REMEMBER_SESSION_ACTION,
     RUNTIME_ACTION_DEEP_THOUGHT,
+    RUNTIME_ACTION_REMEMBER_EVENT,
     RUNTIME_ACTION_REMEMBER_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
     WEB_SEARCH_ACTION_CLOSE,
     WEB_SEARCH_ACTION_OPEN,
+    WEB_SEARCH_ACTION_TEMPLATE,
 )
 
 
 SELF_CLOSING_ACTION_MARKERS = {
     RUNTIME_ACTION_DEEP_THOUGHT: DEEP_THOUGHT_ACTION,
     RUNTIME_ACTION_REMEMBER_SESSION: REMEMBER_SESSION_ACTION,
+    RUNTIME_ACTION_REMEMBER_EVENT: REMEMBER_EVENT_ACTION,
 }
 
 PAIRED_ACTION_MARKERS = {
@@ -24,6 +28,103 @@ PAIRED_ACTION_MARKERS = {
         WEB_SEARCH_ACTION_CLOSE,
     ),
 }
+
+NEGATED_ACTION_REFERENCE_PATTERNS = (
+    re.compile(
+        (
+            r"(?:should\s+not|shouldn't|do\s+not|don't|dont|"
+            r"must\s+not|cannot|can't|avoid)\s+"
+            r"(?:emit|use|using|call|invoke|trigger|write|output)"
+            r"[^.!?\n]{0,80}$"
+        ),
+        re.IGNORECASE,
+    ),
+    re.compile(
+        (
+            r"\bnot\s+"
+            r"(?:emit|use|call|invoke|trigger|write|output)"
+            r"[^.!?\n]{0,80}$"
+        ),
+        re.IGNORECASE,
+    ),
+    re.compile(
+        (
+            r"(?:не\s+(?:должн\w*|надо|нужно|следует|стоит|буду|будем)"
+            r"[^.!?\n]{0,50}"
+            r"(?:использ\w*|вызыв\w*|эмит\w*|писа\w*|вывод\w*)|"
+            r"не\s+(?:использ\w*|вызыв\w*|эмит\w*|писа\w*|вывод\w*))"
+            r"[^.!?\n]{0,80}$"
+        ),
+        re.IGNORECASE,
+    ),
+)
+
+PROTECTED_RUNTIME_ACTION_INSTRUCTION_LINES = (
+    (
+        "Before answering, emit exactly "
+        f"{DEEP_THOUGHT_ACTION} once when the current request asks you to "
+        "think carefully/deeply, compare designs, make a multi-step judgment, "
+        "debug architecture, reflect on your own state, or handle high uncertainty. "
+        "Do not emit it for simple greetings, direct factual answers, or casual small talk. "
+        "The marker takes no arguments for now. Do not explain it."
+    ),
+    (
+        "When the answer needs external search, current facts, or source lookup, "
+        "emit the WEB_SEARCH runtime action with a short JSON query, for example "
+        f"{WEB_SEARCH_ACTION_TEMPLATE}. "
+        "WEB_SEARCH is the only available source of fresh external data; when freshness, recency, "
+        "current availability, latest releases, prices, news, or up-to-date facts matter, "
+        "do not rely on memory or guesses before using WEB_SEARCH. "
+        "The WEB_SEARCH query must preserve the exact subject, item, product, place, "
+        "or entity from the user request. Do not replace it with a related item. "
+        "Emit exactly one JSON object with one field: {\"query\":\"plain search query\"}. "
+        "The query value must be plain text, not another JSON object or JSON string. "
+        "The runtime hides the marker from chat text. Do not present guessed search results "
+        "as facts before the runtime provides them."
+    ),
+    (
+        "When the user explicitly ends, closes, pauses, or wraps up the dialogue, "
+        "or directly asks you to remember/save/summarize this session for next time, "
+        f"emit {REMEMBER_SESSION_ACTION} once. "
+        "Examples include: 'Р·Р°РєРѕРЅС‡РёРј', 'РЅР° СЃРµРіРѕРґРЅСЏ РІСЃС‘', 'СЃРѕС…СЂР°РЅРё СЃРµСЃСЃРёСЋ', "
+        "'Р·Р°РїРѕРјРЅРё РіРґРµ РѕСЃС‚Р°РЅРѕРІРёР»РёСЃСЊ', 'РїРѕРґРІРµРґРё РёС‚РѕРі Рё Р·Р°РєСЂРѕР№'. "
+        "Do not emit it for ordinary topic changes, brief silence, casual thanks, "
+        "or while active implementation work is still clearly continuing. "
+        "The runtime hides the marker from chat text; answer naturally after emitting it."
+    ),
+    (
+        "When the user explicitly ends, closes, pauses, or wraps up the dialogue, "
+        "or directly asks you to remember/save/summarize this session for next time, "
+        f"emit {REMEMBER_SESSION_ACTION} once. "
+        "Examples include: 'закончим', 'на сегодня всё', 'сохрани сессию', "
+        "'запомни где остановились', 'подведи итог и закрой'. "
+        "Do not emit it for ordinary topic changes, brief silence, casual thanks, "
+        "or while active implementation work is still clearly continuing. "
+        "The runtime hides the marker from chat text; answer naturally after emitting it."
+    ),
+    (
+        "When the user explicitly ends, closes, pauses, or wraps up the dialogue, "
+        "or directly asks you to remember/save/summarize this session for next time, "
+        f"emit `{REMEMBER_SESSION_ACTION}` once. "
+        "Examples include: 'закончим', 'на сегодня всё', 'сохрани сессию', "
+        "'запомни где остановились', 'подведи итог и закрой'."
+    ),
+    (
+        "When the user explicitly marks the current moment/event as worth saving, "
+        f"emit {REMEMBER_EVENT_ACTION} once to save a session event snapshot. "
+        "User trigger phrases include natural requests like 'С…РѕС‡Сѓ СЌС‚Рѕ Р·Р°РїРѕРјРЅРёС‚СЊ', "
+        "'Р·Р°РїРѕРјРЅРё СЌС‚Рѕ', 'СЃРѕС…СЂР°РЅРё СЌС‚Рѕ', 'СЌС‚Рѕ РЅР°РґРѕ СЃРѕС…СЂР°РЅРёС‚СЊ', "
+        "or emotional markers like 'С‚С‹ С€РёРєР°СЂРЅРѕ РїРѕС€СѓС‚РёР», С…РѕС‡Сѓ СЌС‚Рѕ Р·Р°РїРѕРјРЅРёС‚СЊ'. "
+        "JIN may also emit this action on its own only for rare high-signal events: "
+        "a major project decision, a strong insight, a memorable positive/negative/mixed emotional moment, "
+        "or a correction that changes the understanding of JIN, the user, or the system. "
+        "Do not emit it for ordinary progress updates, routine implementation steps, casual thanks, "
+        "minor jokes without a save request, or low-signal chat. "
+        "When possible, emit REMEMBER_EVENT after the answer text for the event is complete so the snapshot captures the event, not only the intention to save it. "
+        "The runtime saves the snapshot array; do not ask the user to fill a form. "
+        "The runtime hides the marker from chat text; answer naturally after emitting it."
+    ),
+)
 
 KNOWN_RUNTIME_ACTIONS = tuple(
     sorted(
@@ -192,6 +293,11 @@ def extract_search_query(
         if not stripped_data:
             return ""
 
+        if _is_ellipsis_placeholder(
+            stripped_data
+        ):
+            return ""
+
         try:
             data = json.loads(
                 stripped_data
@@ -204,7 +310,14 @@ def extract_search_query(
         data,
         str,
     ):
-        return data.strip()
+        stripped_data = data.strip()
+
+        if _is_ellipsis_placeholder(
+            stripped_data
+        ):
+            return ""
+
+        return stripped_data
 
     if not isinstance(
         data,
@@ -225,6 +338,286 @@ def extract_search_query(
 
     return extract_search_query(
         query
+    )
+
+
+def _is_negated_action_reference(
+    text: str,
+    marker_start: int,
+) -> bool:
+
+    prefix = text[
+        max(
+            0,
+            marker_start - 140,
+        ):marker_start
+    ]
+
+    return any(
+        pattern.search(
+            prefix
+        )
+        for pattern in NEGATED_ACTION_REFERENCE_PATTERNS
+    )
+
+
+def _is_ellipsis_placeholder(
+    value: str,
+) -> bool:
+
+    token = (
+        value
+        or ""
+    ).strip()
+
+    token = token.strip(
+        "`'\""
+    ).strip()
+
+    if (
+        token.startswith("{")
+        and token.endswith("}")
+    ):
+        token = token[
+            1:-1
+        ].strip()
+
+    token = token.strip(
+        "`'\""
+    ).strip()
+
+    return bool(
+        token
+        and re.fullmatch(
+            r"(?:\.{3,}|…)+",
+            token,
+        )
+    )
+
+
+def _is_placeholder_search_payload(
+    payload: str,
+) -> bool:
+
+    if _is_ellipsis_placeholder(
+        payload
+    ):
+        return True
+
+    query = extract_search_query(
+        payload
+    )
+
+    if not query:
+        return True
+
+    return _is_ellipsis_placeholder(
+        query
+    )
+
+
+def _action_match_removal_span(
+    text: str,
+    start: int,
+    end: int,
+) -> tuple[int, int]:
+
+    line_start = text.rfind(
+        "\n",
+        0,
+        start,
+    ) + 1
+
+    next_newline = text.find(
+        "\n",
+        end,
+    )
+
+    line_end = (
+        len(text)
+        if next_newline < 0
+        else next_newline
+    )
+
+    prefix = text[
+        line_start:start
+    ]
+    suffix = text[
+        end:line_end
+    ]
+
+    if (
+        prefix.strip()
+        or suffix.strip()
+    ):
+        return (
+            start,
+            end,
+        )
+
+    if next_newline >= 0:
+        span_end = next_newline + 1
+
+        while span_end < len(text):
+            next_line_end = text.find(
+                "\n",
+                span_end,
+            )
+
+            candidate_end = (
+                len(text)
+                if next_line_end < 0
+                else next_line_end
+            )
+
+            if text[
+                span_end:candidate_end
+            ].strip():
+                break
+
+            span_end = (
+                len(text)
+                if next_line_end < 0
+                else next_line_end + 1
+            )
+
+        return (
+            line_start,
+            span_end,
+        )
+
+    if line_start > 0:
+        return (
+            line_start - 1,
+            end,
+        )
+
+    return (
+        line_start,
+        line_end,
+    )
+
+
+def _line_containing_position(
+    text: str,
+    position: int,
+) -> str:
+
+    line_start = text.rfind(
+        "\n",
+        0,
+        position,
+    ) + 1
+
+    next_newline = text.find(
+        "\n",
+        position,
+    )
+
+    line_end = (
+        len(text)
+        if next_newline < 0
+        else next_newline
+    )
+
+    return text[
+        line_start:line_end
+    ]
+
+
+def _normalize_instruction_line(
+    line: str,
+) -> str:
+
+    return re.sub(
+        r"\s+",
+        " ",
+        (
+            line
+            or ""
+        ).strip(),
+    )
+
+
+PROTECTED_RUNTIME_ACTION_INSTRUCTION_LINE_SET = frozenset(
+    _normalize_instruction_line(
+        line
+    )
+    for line in PROTECTED_RUNTIME_ACTION_INSTRUCTION_LINES
+)
+
+
+def _is_protected_instruction_line(
+    text: str,
+    position: int,
+) -> bool:
+
+    line = _line_containing_position(
+        text,
+        position,
+    )
+
+    normalized_line = _normalize_instruction_line(
+        line
+    )
+
+    return normalized_line in PROTECTED_RUNTIME_ACTION_INSTRUCTION_LINE_SET
+
+
+def _replace_runtime_action_matches(
+    text: str,
+    pattern,
+    replace_action,
+) -> str:
+
+    parts = []
+    cursor = 0
+
+    for match in pattern.finditer(
+        text
+    ):
+
+        replacement = replace_action(
+            match
+        )
+
+        start = match.start()
+        end = match.end()
+
+        if replacement == "":
+            start, end = _action_match_removal_span(
+                text,
+                start,
+                end,
+            )
+
+        start = max(
+            start,
+            cursor,
+        )
+
+        if end < cursor:
+            continue
+
+        parts.append(
+            text[
+                cursor:start
+            ]
+        )
+        parts.append(
+            replacement
+        )
+
+        cursor = end
+
+    parts.append(
+        text[
+            cursor:
+        ]
+    )
+
+    return "".join(
+        parts
     )
 
 
@@ -258,35 +651,40 @@ def extract_runtime_actions(
             re.DOTALL,
         )
 
-        matches = tuple(
-            pattern.finditer(
-                clean_text
+        def replace_action(match):
+
+            if (
+                _is_protected_instruction_line(
+                    clean_text,
+                    match.start(),
+                )
+                or _is_negated_action_reference(
+                    clean_text,
+                    match.start(),
+                )
+            ):
+                return (
+                    match.group(0)
+                    if preserve_action_text
+                    else ""
+                )
+
+            actions.append(
+                RuntimeActionCall(
+                    name=action_name,
+                )
             )
-        )
 
-        call_count = len(
-            matches
-        )
-
-        if not call_count:
-            continue
-
-        clean_text = pattern.sub(
-            (
+            return (
                 marker
                 if preserve_action_text
                 else ""
-            ),
-            clean_text,
-        )
+            )
 
-        actions.extend(
-            RuntimeActionCall(
-                name=action_name,
-            )
-            for _ in range(
-                call_count
-            )
+        clean_text = _replace_runtime_action_matches(
+            clean_text,
+            pattern,
+            replace_action,
         )
 
     for action_name, markers in PAIRED_ACTION_MARKERS.items():
@@ -316,6 +714,31 @@ def extract_runtime_actions(
                 .strip()
             )
 
+            if (
+                _is_protected_instruction_line(
+                    clean_text,
+                    match.start(),
+                )
+                or (
+                    action_name == RUNTIME_ACTION_WEB_SEARCH
+                    and _is_placeholder_search_payload(
+                        payload
+                    )
+                )
+                or _is_negated_action_reference(
+                    clean_text,
+                    match.start(),
+                )
+            ):
+                if preserve_action_text:
+                    return (
+                        open_marker
+                        + payload
+                        + close_marker
+                    )
+
+                return ""
+
             actions.append(
                 RuntimeActionCall(
                     name=action_name,
@@ -332,9 +755,10 @@ def extract_runtime_actions(
 
             return ""
 
-        clean_text = pattern.sub(
-            replace_action,
+        clean_text = _replace_runtime_action_matches(
             clean_text,
+            pattern,
+            replace_action,
         )
 
     clean_text = _strip_tool_call_markers(
@@ -741,6 +1165,18 @@ class RuntimeActionStreamFilter:
                 ],
                 enabled_actions=self.enabled_actions,
                 preserve_action_text=self.preserve_action_text,
+            )
+
+        complete_result = extract_runtime_actions(
+            combined,
+            enabled_actions=self.enabled_actions,
+            preserve_action_text=self.preserve_action_text,
+        )
+
+        if complete_result.actions:
+            return self._finalize_result(
+                complete_result,
+                chunk,
             )
 
         hold_length = (

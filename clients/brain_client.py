@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import datetime
 from xml.etree import ElementTree
 from xml.sax.saxutils import escape
@@ -9,8 +10,13 @@ from config_loader import (
 from runtime.context_contract import (
     ContextContract,
     RUNTIME_ACTION_DEEP_THOUGHT,
+    RUNTIME_ACTION_REMEMBER_EVENT,
     RUNTIME_ACTION_REMEMBER_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
+)
+from runtime.memory_rules import (
+    build_runtime_session_event_snapshot,
+    canonicalize_runtime_memory_text,
 )
 
 from clients.brain_rules import (
@@ -71,6 +77,10 @@ def get_enabled_runtime_actions(
             RUNTIME_ACTION_REMEMBER_SESSION,
             "CAN_REMEMBER_SESSION",
         ),
+        (
+            RUNTIME_ACTION_REMEMBER_EVENT,
+            "CAN_REMEMBER_EVENT",
+        ),
     ):
 
         if bool(
@@ -92,12 +102,8 @@ def get_enabled_thinking_runtime_actions(
     runtime_actions=None,
 ) -> tuple[str, ...]:
 
-    return tuple(
-        action_name
-        for action_name in get_enabled_runtime_actions(
-            runtime_actions
-        )
-        if action_name != RUNTIME_ACTION_REMEMBER_SESSION
+    return get_enabled_runtime_actions(
+        runtime_actions
     )
 
 
@@ -192,8 +198,76 @@ async def apply_runtime_action_calls(
     )
 
     search_calls = []
+    filtered_actions = []
+    search_query_seen = False
+    remember_session_seen = bool(
+        getattr(
+            context,
+            "runtime_remember_session_requested",
+            False,
+        )
+    )
+    remember_event_seen = False
+    deep_thought_seen = False
 
     for action in actions:
+
+        if action.name == RUNTIME_ACTION_DEEP_THOUGHT:
+            if deep_thought_seen:
+                continue
+
+            deep_thought_seen = True
+            filtered_actions.append(
+                action
+            )
+            continue
+
+        if action.name == RUNTIME_ACTION_REMEMBER_SESSION:
+            if remember_session_seen:
+                continue
+
+            remember_session_seen = True
+            filtered_actions.append(
+                action
+            )
+            continue
+
+        if action.name == RUNTIME_ACTION_REMEMBER_EVENT:
+            if remember_event_seen:
+                continue
+
+            remember_event_seen = True
+            filtered_actions.append(
+                action
+            )
+            continue
+
+        if action.name == RUNTIME_ACTION_WEB_SEARCH:
+            query = extract_search_query(
+                action.payload
+            )
+
+            if (
+                not query
+                or search_query_seen
+                or getattr(
+                    context,
+                    "runtime_search_queries",
+                    [],
+                )
+            ):
+                continue
+
+            search_query_seen = True
+
+        filtered_actions.append(
+            action
+        )
+
+    if not filtered_actions:
+        return 0
+
+    for action in filtered_actions:
 
         action_event = {
             "name": action.name.lower(),
@@ -230,14 +304,20 @@ async def apply_runtime_action_calls(
 
     deep_thought_count = sum(
         1
-        for action in actions
+        for action in filtered_actions
         if action.name == RUNTIME_ACTION_DEEP_THOUGHT
     )
 
     remember_session_count = sum(
         1
-        for action in actions
+        for action in filtered_actions
         if action.name == RUNTIME_ACTION_REMEMBER_SESSION
+    )
+
+    remember_event_count = sum(
+        1
+        for action in filtered_actions
+        if action.name == RUNTIME_ACTION_REMEMBER_EVENT
     )
 
     applied_count = await apply_deep_thought_calls(
@@ -254,7 +334,7 @@ async def apply_runtime_action_calls(
             extract_search_query(
                 action.payload
             )
-            for action in actions
+            for action in filtered_actions
             if action.name == RUNTIME_ACTION_WEB_SEARCH
         )
         if query
@@ -321,10 +401,80 @@ async def apply_runtime_action_calls(
                 "text": "Remembering this session",
             })
 
+    if remember_event_count:
+        if not hasattr(
+            context,
+            "runtime_session_event_snapshots",
+        ):
+            context.runtime_session_event_snapshots = []
+
+        context.runtime_session_event_snapshots.append(
+            build_runtime_session_event_snapshot(
+                context,
+                source="runtime_action",
+            )
+        )
+
+        if log_runtime is not None:
+            await log_runtime(
+                "[RUNTIME ACTION] remember_event saved"
+            )
+
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is not None:
+            session_memory = (
+                getattr(
+                    context,
+                    "runtime_l3_session_memory",
+                    "",
+                )
+                or getattr(
+                    context,
+                    "session_memory",
+                    "",
+                )
+            )
+            await emit({
+                "type": "runtime_action",
+                "action": "remember_event",
+                "text": "Remembering this event",
+            })
+            await emit({
+                "type": "runtime_session_memory_update",
+                "memory": session_memory,
+                "event_snapshots": list(
+                    context.runtime_session_event_snapshots
+                ),
+                "updates": getattr(
+                    context,
+                    "runtime_session_memory_updates",
+                    0,
+                ),
+                "source": getattr(
+                    context,
+                    "session_memory_source",
+                    "",
+                ),
+                "persist": True,
+            })
+
     return applied_count + len(
         search_queries
     ) + min(
         remember_session_count,
+        1,
+    ) + min(
+        remember_event_count,
         1,
     )
 
@@ -560,6 +710,10 @@ def build_brain_runtime_context(
             RUNTIME_ACTION_REMEMBER_SESSION
             in enabled_actions
         ),
+        can_remember_event=(
+            RUNTIME_ACTION_REMEMBER_EVENT
+            in enabled_actions
+        ),
         timestamp=now.isoformat(),
         current_date=now.date().isoformat(),
         current_time=now.strftime("%H:%M:%S"),
@@ -585,6 +739,7 @@ def build_brain_runtime_context(
 
     runtime_memory = ""
     session_memory = ""
+    session_event_snapshots = []
     runtime_l2_memory = ""
     zero_diff_alert = None
     conversation_activity_diff = get_conversation_activity_diff(
@@ -607,6 +762,14 @@ def build_brain_runtime_context(
             context,
             "session_memory",
             "",
+        )
+        session_event_snapshots = list(
+            getattr(
+                context,
+                "runtime_session_event_snapshots",
+                [],
+            )
+            or []
         )
         runtime_l2_memory = getattr(
             context,
@@ -645,10 +808,16 @@ def build_brain_runtime_context(
             "</SESSION_MEMORY>"
         )
 
+    runtime_context_parts.append(
+        "<SESSION_EVENT_SNAPSHOTS priority=\"session_context\">\n"
+        f"{indent_xml(escape(json.dumps(session_event_snapshots, ensure_ascii=False, indent=2)))}\n"
+        "</SESSION_EVENT_SNAPSHOTS>"
+    )
+
     if runtime_memory.strip():
         runtime_context_parts.append(
             "<RUNTIME_MEMORY>\n"
-            f"{indent_xml(escape(runtime_memory))}\n"
+            f"{indent_xml(escape(canonicalize_runtime_memory_text(runtime_memory)))}\n"
             "</RUNTIME_MEMORY>"
         )
 

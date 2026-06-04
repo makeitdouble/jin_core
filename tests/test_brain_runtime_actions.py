@@ -14,6 +14,7 @@ from config_loader import (
 )
 from runtime import (
     DEEP_THOUGHT_ACTION,
+    REMEMBER_EVENT_ACTION,
     REMEMBER_SESSION_ACTION,
     WEB_SEARCH_ACTION_TEMPLATE,
 )
@@ -77,15 +78,71 @@ class BrainRuntimeActionTests(unittest.TestCase):
             )
         )
 
-    def test_stream_ignores_remember_session_marker_in_thinking(self):
+    def test_non_stream_applies_remember_session_marker_in_reasoning(self):
+
+        class FakeBrainClient:
+            async def ask(self, **_kwargs):
+                return {
+                    "model": config.BRAIN_MODEL_UID,
+                    "choices": [
+                        {
+                            "message": {
+                                "reasoning": (
+                                    "The user asked to save. "
+                                    f"{REMEMBER_SESSION_ACTION}"
+                                ),
+                                "content": "ok",
+                            },
+                        },
+                    ],
+                }
+
+        class Context:
+            pass
+
+        context = Context()
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            answer = asyncio.run(
+                ask_brain(
+                    client=FakeBrainClient(),
+                    text="сохрани сессию",
+                    context=context,
+                    runtime_actions={
+                        "CAN_DEEP_THOUGHT": True,
+                        "CAN_REMEMBER_SESSION": True,
+                    },
+                )
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        self.assertEqual(
+            answer,
+            "ok",
+        )
+        self.assertTrue(
+            context.runtime_remember_session_requested,
+        )
+
+    def test_stream_applies_remember_session_marker_in_thinking_once(self):
 
         class FakeBrainClient:
             async def stream(self, **_kwargs):
                 yield {
                     "type": "thinking",
                     "content": (
-                        "I should not emit "
-                        f"{REMEMBER_SESSION_ACTION} now."
+                        "The user asked to save. "
+                        f"{REMEMBER_SESSION_ACTION}"
+                    ),
+                }
+                yield {
+                    "type": "thinking",
+                    "content": (
+                        "Again "
+                        f"{REMEMBER_SESSION_ACTION}"
                     ),
                 }
                 yield {
@@ -134,11 +191,31 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 "content": "ok",
             },
         )
-        self.assertFalse(
-            hasattr(
-                context,
-                "runtime_remember_session_requested",
-            )
+        self.assertTrue(
+            context.runtime_remember_session_requested,
+        )
+        self.assertEqual(
+            [
+                chunk
+                for chunk in chunks
+                if chunk["type"] == "thinking"
+            ],
+            [
+                {
+                    "type": "thinking",
+                    "content": (
+                        "The user asked to save. "
+                        f"{REMEMBER_SESSION_ACTION}"
+                    ),
+                },
+                {
+                    "type": "thinking",
+                    "content": (
+                        "Again "
+                        f"{REMEMBER_SESSION_ACTION}"
+                    ),
+                },
+            ],
         )
 
     def test_agent_runtime_action_flags_enable_search_and_remember_session(self):
@@ -150,6 +227,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             (
                 "WEB_SEARCH",
                 "REMEMBER_SESSION",
+                "REMEMBER_EVENT",
             ),
         )
 
@@ -160,6 +238,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             (
                 "WEB_SEARCH",
                 "REMEMBER_SESSION",
+                "REMEMBER_EVENT",
             ),
         )
 
@@ -330,6 +409,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 "CAN_DEEP_THOUGHT": False,
                 "CAN_WEB_SEARCH": False,
                 "CAN_REMEMBER_SESSION": True,
+                "CAN_REMEMBER_EVENT": True,
             }
         )
 
@@ -343,6 +423,30 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertIn(
             '<ACTION name="REMEMBER_SESSION">',
+            prompt,
+        )
+        self.assertIn(
+            REMEMBER_EVENT_ACTION,
+            prompt,
+        )
+        self.assertIn(
+            '<ACTION name="REMEMBER_EVENT">',
+            prompt,
+        )
+        self.assertIn(
+            "хочу это запомнить",
+            prompt,
+        )
+        self.assertIn(
+            "rare high-signal events",
+            prompt,
+        )
+        self.assertIn(
+            "after the answer text for the event is complete",
+            prompt,
+        )
+        self.assertIn(
+            "do not ask the user to fill a form",
             prompt,
         )
 
@@ -366,7 +470,17 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "match by meaning against key detail, known fact, explicit fact",
+            "match by meaning against stored_memory entries with explicit purpose",
+            prompt,
+        )
+
+        self.assertIn(
+            "purpose: future recall test",
+            prompt,
+        )
+
+        self.assertIn(
+            "strongest recall candidate",
             prompt,
         )
 

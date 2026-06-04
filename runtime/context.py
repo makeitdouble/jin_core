@@ -81,6 +81,10 @@ class RuntimeContext:
 
     runtime_session_memory_update_task: object | None = None
 
+    runtime_session_event_snapshots: list[dict] = field(
+        default_factory=list
+    )
+
     runtime_remember_session_requested: bool = False
 
     runtime_l1_diff_history: list[dict] = field(

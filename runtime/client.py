@@ -9,6 +9,9 @@ from app_settings import settings
 from utils.urls import (
     join_url,
 )
+from utils.tokens import (
+    estimate_runtime_tokens,
+)
 
 from clients.response_extractor import (
     ResponseExtractor,
@@ -25,13 +28,243 @@ class RuntimeClient:
             api_base: str,
             model_uid: str,
             timeout: float,
+            configured_context_window: int | None = None,
             client: httpx.AsyncClient,
     ):
 
         self.api_base = api_base
         self.model_uid = model_uid
         self.timeout = timeout
+        self.configured_context_window = configured_context_window
         self.client = client
+        self.detected_context_window = None
+        self.context_window_detection_attempted = False
+
+    # ---------------------------------------------------------
+    # CONTEXT WINDOW DETECTION
+    # ---------------------------------------------------------
+
+    @staticmethod
+    def extract_context_window_from_model(
+            model,
+    ) -> int | None:
+
+        if not isinstance(
+            model,
+            dict,
+        ):
+            return None
+
+        context_keys = {
+            "context_length",
+            "context_window",
+            "max_context_length",
+            "max_context_window",
+            "n_ctx",
+            "num_ctx",
+            "ctx_size",
+            "context_size",
+            "max_position_embeddings",
+        }
+
+        stack = [
+            model
+        ]
+
+        while stack:
+            current = stack.pop()
+
+            if isinstance(
+                current,
+                dict,
+            ):
+                for key, value in current.items():
+                    normalized_key = str(
+                        key
+                    ).lower()
+
+                    if normalized_key in context_keys:
+                        try:
+                            context_window = int(
+                                value
+                            )
+                        except (
+                            TypeError,
+                            ValueError,
+                        ):
+                            context_window = 0
+
+                        if context_window > 0:
+                            return context_window
+
+                    if isinstance(
+                        value,
+                        (
+                            dict,
+                            list,
+                        ),
+                    ):
+                        stack.append(
+                            value
+                        )
+
+            elif isinstance(
+                current,
+                list,
+            ):
+                stack.extend(
+                    item
+                    for item in current
+                    if isinstance(
+                        item,
+                        (
+                            dict,
+                            list,
+                        ),
+                    )
+                )
+
+        return None
+
+    @staticmethod
+    def extract_model_list(
+            payload,
+    ) -> list[dict]:
+
+        if isinstance(
+            payload,
+            dict,
+        ):
+            models = payload.get(
+                "data",
+                payload.get(
+                    "models",
+                    [],
+                ),
+            )
+        else:
+            models = payload
+
+        if not isinstance(
+            models,
+            list,
+        ):
+            return []
+
+        return [
+            model
+            for model in models
+            if isinstance(
+                model,
+                dict,
+            )
+        ]
+
+    def select_model_metadata(
+            self,
+            models: list[dict],
+    ) -> dict | None:
+
+        for model in models:
+            model_id = (
+                model.get(
+                    "id"
+                )
+                or model.get(
+                    "model"
+                )
+                or model.get(
+                    "name"
+                )
+            )
+
+            if model_id == self.model_uid:
+                return model
+
+        return None
+
+    async def detect_context_window(self) -> int | None:
+
+        if self.context_window_detection_attempted:
+            return self.detected_context_window
+
+        self.context_window_detection_attempted = True
+
+        try:
+            response = await self.client.get(
+                join_url(
+                    self.api_base,
+                    settings.MODELS_ENDPOINT,
+                ),
+                timeout=min(
+                    self.timeout,
+                    5.0,
+                ),
+            )
+            response.raise_for_status()
+
+            models = self.extract_model_list(
+                response.json()
+            )
+            model = self.select_model_metadata(
+                models
+            )
+
+            if model is None:
+                return None
+
+            self.detected_context_window = (
+                self.extract_context_window_from_model(
+                    model
+                )
+            )
+
+        except Exception:
+            self.detected_context_window = None
+
+        return self.detected_context_window
+
+    async def resolve_request_context_window(self) -> int | None:
+
+        detected_context_window = await self.detect_context_window()
+
+        return (
+            detected_context_window
+            or self.configured_context_window
+        )
+
+    async def resolve_safe_max_tokens(
+            self,
+            *,
+            system_prompt: str,
+            user_prompt: str,
+            requested_max_tokens: int,
+    ) -> int:
+
+        request_context_window = (
+            await self.resolve_request_context_window()
+        )
+
+        if not request_context_window:
+            return requested_max_tokens
+
+        prompt_tokens = estimate_runtime_tokens(
+            system_prompt=system_prompt,
+            user_input=user_prompt,
+        )
+        response_budget = (
+            request_context_window
+            - prompt_tokens
+            - 128
+        )
+
+        return max(
+            1,
+            min(
+                requested_max_tokens,
+                response_budget,
+            ),
+        )
 
     # ---------------------------------------------------------
     # PAYLOAD
@@ -72,6 +305,30 @@ class RuntimeClient:
 
         return payload
 
+    async def build_safe_payload(
+            self,
+            *,
+            system_prompt: str,
+            user_prompt: str,
+            temperature: float,
+            max_tokens: int,
+            stream: bool = False,
+    ) -> dict[str, object]:
+
+        safe_max_tokens = await self.resolve_safe_max_tokens(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            requested_max_tokens=max_tokens,
+        )
+
+        return self.build_payload(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=temperature,
+            max_tokens=safe_max_tokens,
+            stream=stream,
+        )
+
     # ---------------------------------------------------------
     # NORMAL REQUEST
     # ---------------------------------------------------------
@@ -86,7 +343,7 @@ class RuntimeClient:
             timeout: float | None = None,
     ):
 
-        payload = self.build_payload(
+        payload = await self.build_safe_payload(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=temperature,
@@ -125,7 +382,7 @@ class RuntimeClient:
             max_tokens: int,
     ):
 
-        payload = self.build_payload(
+        payload = await self.build_safe_payload(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=temperature,

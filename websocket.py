@@ -273,6 +273,26 @@ def apply_session_bootstrap(
         "runtime_snapshot",
         {},
     )
+    session_event_snapshots = message_data.get(
+        "session_event_snapshots",
+        message_data.get(
+            "runtime_session_event_snapshots",
+            [],
+        ),
+    )
+
+    if isinstance(
+        session_event_snapshots,
+        list,
+    ):
+        context.runtime_session_event_snapshots = [
+            snapshot
+            for snapshot in session_event_snapshots
+            if isinstance(
+                snapshot,
+                dict,
+            )
+        ]
 
     if (
         not runtime_memory
@@ -383,6 +403,11 @@ def apply_session_bootstrap(
     return bool(
         session_memory
         or runtime_memory
+        or getattr(
+            context,
+            "runtime_session_event_snapshots",
+            [],
+        )
     )
 
 

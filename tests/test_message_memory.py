@@ -1,6 +1,8 @@
 import unittest
 from types import SimpleNamespace
 
+import httpx
+
 from clients import (
     build_brain_system_prompt,
 )
@@ -13,6 +15,7 @@ from runtime import (
     build_runtime_l2_memory_system_prompt,
     build_runtime_memory_system_prompt,
     build_runtime_memory_user_prompt,
+    build_runtime_session_memory_system_prompt,
     build_runtime_session_memory_user_prompt,
     maybe_summarize_runtime_l2_memory,
     maybe_summarize_runtime_session_memory,
@@ -22,6 +25,9 @@ from runtime import (
     summarize_runtime_memory,
 )
 from runtime.memory import (
+    build_l3_session_memory_max_tokens,
+    collapse_duplicate_runtime_memory_keys,
+    parse_runtime_memory_lines,
     summarize_runtime_memory_pending_turns,
 )
 from config_loader import (
@@ -272,19 +278,63 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertIn(
+            "For new durable facts about JIN, prefer the key jin_fact",
+            prompt,
+        )
+        self.assertIn(
+            "For new durable facts about the user, prefer the key user_fact",
+            prompt,
+        )
+        self.assertIn(
+            "Treat any existing line about JIN's identity, nature, origin, role, capabilities, memory, or self-description as a durable JIN fact",
+            prompt,
+        )
+        self.assertIn(
+            "even when its key is not exactly jin_fact",
+            prompt,
+        )
+        self.assertIn(
+            "Treat any existing line about the user's name, identity, role, preference, location, age, or other personal detail as a durable user fact",
+            prompt,
+        )
+        self.assertIn(
+            "keep its key permanently across L1 snapshots",
+            prompt,
+        )
+        self.assertIn(
+            "only the value may change",
+            prompt,
+        )
+        self.assertIn(
+            "explicitly corrects, cancels, or supersedes that fact",
+            prompt,
+        )
+        self.assertIn(
             "Do not bury strong facts inside active topic, active task, current request",
             prompt,
         )
         self.assertIn(
-            "store it with a retrieval-friendly key such as key detail or memory token",
+            "store the value with a self-describing purpose",
             prompt,
         )
         self.assertIn(
-            "include the user's label/synonym in the value",
+            "stored_memory: <value> (purpose: future recall test)",
+            prompt,
+        )
+        self.assertIn(
+            "Do not store bare ambiguous values like memory token: <value>",
+            prompt,
+        )
+        self.assertIn(
+            "include the user's label/synonym",
             prompt,
         )
         self.assertIn(
             "a topic/task change alone is not enough",
+            prompt,
+        )
+        self.assertIn(
+            "Topic/task changes, shallow summarization, memory pressure, or a new current request are never enough to remove or rename durable JIN/user fact keys",
             prompt,
         )
         self.assertIn(
@@ -302,6 +352,44 @@ class MessageMemoryTests(
         self.assertNotIn(
             "after one completed user/JIN turn",
             prompt,
+        )
+
+    def test_runtime_memory_parser_canonicalizes_legacy_memory_token(self):
+
+        lines = parse_runtime_memory_lines(
+            "memory token: \u0445\u0430\u0431\u0440"
+        )
+
+        self.assertEqual(
+            [
+                {
+                    "key": "stored_memory",
+                    "value": "\u0445\u0430\u0431\u0440 (purpose: future recall test)",
+                    "status": "same",
+                }
+            ],
+            lines,
+        )
+
+    def test_runtime_memory_collapses_only_durable_duplicate_keys(self):
+
+        memory = collapse_duplicate_runtime_memory_keys(
+            (
+                "user_fact: Name is Sergey\n"
+                "current_concern: choose news focus\n"
+                "user_fact: Lives in Kyiv\n"
+                "current_concern: continue Q&A format"
+            )
+        )
+
+        self.assertIn(
+            "user_fact: Name is Sergey, Lives in Kyiv",
+            memory,
+        )
+        self.assertIn(
+            "current_concern: choose news focus\n"
+            "current_concern: continue Q&A format",
+            memory,
         )
 
     def test_runtime_l2_memory_prompt_defines_pattern_layer(self):
@@ -465,6 +553,50 @@ class MessageMemoryTests(
             prompt,
         )
 
+    def test_brain_prompt_canonicalizes_legacy_memory_token_with_future_recall_purpose(self):
+
+        context = SimpleNamespace(
+            runtime_memory="memory token: \u0445\u0430\u0431\u0440",
+            deep_thought_count=0,
+            runtime_search_result="",
+            runtime_search_result_id="",
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_WEB_SEARCH": False,
+                "CAN_DEEP_THOUGHT": False,
+            },
+        )
+
+        user_prompt = (
+            "\u044f \u043f\u0440\u043e\u0441\u0438\u043b "
+            "\u0437\u0430\u043f\u043e\u043c\u043d\u0438\u0442\u044c "
+            "\u0441\u043b\u043e\u0432\u043e, \u043a\u0430\u043a\u043e\u0435?"
+        )
+        final_prompt = "\n".join([
+            prompt,
+            user_prompt,
+        ])
+
+        self.assertIn(
+            "stored_memory: \u0445\u0430\u0431\u0440 (purpose: future recall test)",
+            final_prompt,
+        )
+        self.assertIn(
+            "purpose: future recall test",
+            final_prompt,
+        )
+        self.assertIn(
+            user_prompt,
+            final_prompt,
+        )
+        self.assertNotIn(
+            "memory token: \u0445\u0430\u0431\u0440",
+            final_prompt,
+        )
+
     def test_brain_prompt_places_session_memory_above_runtime_memory(self):
 
         context = SimpleNamespace(
@@ -502,6 +634,43 @@ class MessageMemoryTests(
             prompt.index(
                 "<RUNTIME_MEMORY>"
             ),
+        )
+
+    def test_brain_prompt_always_includes_session_event_snapshots_array(self):
+
+        context = SimpleNamespace(
+            session_memory="decision: Continue session snapshots",
+            runtime_session_event_snapshots=[
+                {
+                    "memory_type": "session_event_snapshot",
+                    "memory": "decision: Use session snapshots array",
+                }
+            ],
+            runtime_memory="topic: live runtime state",
+            deep_thought_count=0,
+            runtime_search_result="",
+            runtime_search_result_id="",
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_WEB_SEARCH": False,
+                "CAN_DEEP_THOUGHT": False,
+            },
+        )
+
+        self.assertIn(
+            "<SESSION_EVENT_SNAPSHOTS priority=\"session_context\">",
+            prompt,
+        )
+        self.assertIn(
+            "session_event_snapshot",
+            prompt,
+        )
+        self.assertIn(
+            "Use session snapshots array",
+            prompt,
         )
 
     def test_brain_prompt_includes_l2_memory_separately(self):
@@ -1078,6 +1247,110 @@ class MessageMemoryTests(
             "The user is testing live runtime memory.",
         )
 
+    async def test_summarizer_preserves_durable_fact_keys(self):
+
+        service_client = FakeServiceClient(
+            (
+                "session_status: Active, discussing a new topic\n"
+                "last_jin_response: Asked a follow-up question."
+            )
+        )
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            emitter=SimpleNamespace(
+                events=[],
+                emit=None,
+            ),
+            logger=FakeLogger(),
+            runtime_memory=(
+                "user_fact: Name is Sergey; lives in Kyiv\n"
+                "jin_facts: JIN can keep runtime memory\n"
+                "active topic: Ukraine news"
+            ),
+            runtime_memory_updates=1,
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
+            session_id="test-session",
+        )
+
+        async def emit(event):
+            context.emitter.events.append(
+                event
+            )
+
+        context.emitter.emit = emit
+
+        updated_memory = await summarize_runtime_memory(
+            context=context,
+            user_message="Давай сменим тему.",
+            assistant_message="Хорошо, о чем поговорим?",
+        )
+
+        self.assertIn(
+            "session_status: Active, discussing a new topic",
+            updated_memory,
+        )
+        self.assertIn(
+            "user_fact: Name is Sergey; lives in Kyiv",
+            updated_memory,
+        )
+        self.assertIn(
+            "jin_facts: JIN can keep runtime memory",
+            updated_memory,
+        )
+
+    async def test_summarizer_allows_explicit_fact_negation(self):
+
+        service_client = FakeServiceClient(
+            (
+                "user_fact: not true; user corrected this fact\n"
+                "session_status: Active, discussing a correction\n"
+                "last_jin_response: Acknowledged the correction."
+            )
+        )
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            emitter=SimpleNamespace(
+                events=[],
+                emit=None,
+            ),
+            logger=FakeLogger(),
+            runtime_memory=(
+                "user_fact: Name is Sergey; lives in Kyiv\n"
+                "active topic: personal context"
+            ),
+            runtime_memory_updates=1,
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
+            session_id="test-session",
+        )
+
+        async def emit(event):
+            context.emitter.events.append(
+                event
+            )
+
+        context.emitter.emit = emit
+
+        updated_memory = await summarize_runtime_memory(
+            context=context,
+            user_message="Это уже не факт.",
+            assistant_message="Понял, убираю этот факт из памяти.",
+        )
+
+        self.assertIn(
+            "user_fact: not true; user corrected this fact",
+            updated_memory,
+        )
+        self.assertNotIn(
+            "Name is Sergey; lives in Kyiv",
+            updated_memory,
+        )
+
     async def test_l2_memory_waits_for_repeated_patch_keys(self):
 
         service_client = FakeServiceClient(
@@ -1424,6 +1697,12 @@ class MessageMemoryTests(
 
         prompt = build_runtime_session_memory_user_prompt(
             current_session_memory="decision: old handoff",
+            session_event_snapshots=[
+                {
+                    "memory_type": "session_event_snapshot",
+                    "memory": "decision: previous event",
+                }
+            ],
             runtime_memory_snapshots=[
                 {
                     "index": 0,
@@ -1445,7 +1724,7 @@ class MessageMemoryTests(
         )
 
         self.assertIn(
-            "Complete L1 runtime memory snapshot history",
+            "Selected L1 runtime memory snapshot history",
             prompt,
         )
         self.assertIn(
@@ -1459,6 +1738,199 @@ class MessageMemoryTests(
         self.assertIn(
             '"total_diff": 80',
             prompt,
+        )
+        self.assertIn(
+            "omitted_middle_snapshots: 0",
+            prompt,
+        )
+        self.assertIn(
+            "Recent L1 diff history",
+            prompt,
+        )
+        self.assertIn(
+            "omitted_older_diffs: 0",
+            prompt,
+        )
+        self.assertIn(
+            "Session event snapshots array",
+            prompt,
+        )
+        self.assertIn(
+            "previous event",
+            prompt,
+        )
+
+    def test_l3_session_memory_prompt_bounds_long_snapshot_history(self):
+
+        prompt = build_runtime_session_memory_user_prompt(
+            current_session_memory="decision: old handoff",
+            session_event_snapshots=[
+                {
+                    "memory_type": "session_event_snapshot",
+                    "assistant_response": "x" * 1200,
+                }
+            ],
+            runtime_memory_snapshots=[
+                {
+                    "index": index,
+                    "raw_memory": f"topic: snapshot {index}",
+                    "total_diff": index,
+                }
+                for index in range(30)
+            ],
+            diff_history=[
+                {
+                    "snapshot_index": index,
+                    "total_diff": index,
+                }
+                for index in range(40)
+            ],
+        )
+
+        self.assertIn(
+            "omitted_middle_snapshots: 18",
+            prompt,
+        )
+        self.assertIn(
+            "topic: snapshot 0",
+            prompt,
+        )
+        self.assertIn(
+            "topic: snapshot 1",
+            prompt,
+        )
+        self.assertIn(
+            "topic: snapshot 29",
+            prompt,
+        )
+        self.assertNotIn(
+            "topic: snapshot 10",
+            prompt,
+        )
+        self.assertIn(
+            "omitted_older_diffs: 16",
+            prompt,
+        )
+        self.assertIn(
+            "<truncated>",
+            prompt,
+        )
+
+    def test_l3_session_memory_prompt_defines_episodic_key_moments(self):
+
+        prompt = build_runtime_session_memory_system_prompt()
+
+        self.assertIn(
+            "episodic_key_moment",
+            prompt,
+        )
+        self.assertIn(
+            "changed understanding of the project, user, or system",
+            prompt,
+        )
+        self.assertIn(
+            "Session event snapshots are stored by the runtime as an array",
+            prompt,
+        )
+        self.assertIn(
+            "always available at session-context level",
+            prompt,
+        )
+        self.assertIn(
+            "Do not ask the user to fill snapshot fields manually",
+            prompt,
+        )
+        self.assertIn(
+            "clear cause -> event -> outcome chain",
+            prompt,
+        )
+        self.assertIn(
+            "high emotional or narrative weight",
+            prompt,
+        )
+        self.assertIn(
+            "Do not create episodic_key_moment entries for ordinary progress updates",
+            prompt,
+        )
+        self.assertIn(
+            "memory_type: episodic_key_moment",
+            prompt,
+        )
+        self.assertIn(
+            "emotional_weight: low|medium|high",
+            prompt,
+        )
+        self.assertIn(
+            "preserve_detail:",
+            prompt,
+        )
+        self.assertIn(
+            "Preserve durable JIN/user fact lines from L1 snapshots as stable session facts",
+            prompt,
+        )
+        self.assertIn(
+            "keep their keys stable and change only values that were explicitly corrected or superseded",
+            prompt,
+        )
+
+    def test_l3_session_memory_user_prompt_preserves_existing_episodic_memory(self):
+
+        current_session_memory = (
+            "memory_type: episodic_key_moment\n"
+            "title: Meta-debug moment\n"
+            "emotional_weight: high\n"
+            "why_it_matters: The user corrected a memory interpretation bug.\n"
+            "sequence:\n"
+            "1. The assistant misread the experiment.\n"
+            "2. The user corrected it.\n"
+            "preserve_detail: The correction chain matters."
+        )
+
+        prompt = build_runtime_session_memory_user_prompt(
+            current_session_memory=current_session_memory,
+            runtime_memory_snapshots=[],
+            diff_history=[],
+        )
+
+        self.assertIn(
+            "Current L3 session memory:",
+            prompt,
+        )
+        self.assertIn(
+            "memory_type: episodic_key_moment",
+            prompt,
+        )
+        self.assertIn(
+            "title: Meta-debug moment",
+            prompt,
+        )
+        self.assertIn(
+            "preserve_detail: The correction chain matters.",
+            prompt,
+        )
+
+    def test_l3_session_memory_budget_uses_detected_context_window(self):
+
+        system_prompt = "system " * 2000
+        user_prompt = "user " * 2000
+
+        configured_budget = build_l3_session_memory_max_tokens(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+        detected_budget = build_l3_session_memory_max_tokens(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            context_window=8192,
+        )
+
+        self.assertEqual(
+            configured_budget,
+            128,
+        )
+        self.assertGreater(
+            detected_budget,
+            configured_budget,
         )
 
     async def test_l3_session_memory_updates_from_snapshot_history(self):
@@ -1482,6 +1954,7 @@ class MessageMemoryTests(
             session_memory="",
             session_memory_source="",
             runtime_session_memory_updates=0,
+            runtime_session_event_snapshots=[],
             runtime_l2_memory="",
             runtime_l1_diff_history=[
                 {
@@ -1529,6 +2002,10 @@ class MessageMemoryTests(
             context.session_memory_source,
             "L3",
         )
+        self.assertEqual(
+            context.runtime_session_event_snapshots,
+            [],
+        )
         self.assertIn(
             "topic: first topic",
             service_client.calls[0]["user_prompt"],
@@ -1541,12 +2018,28 @@ class MessageMemoryTests(
             service_client.calls[0]["timeout"],
             config.SERVICE_REQUEST_TIMEOUT,
         )
+        self.assertLess(
+            service_client.calls[0]["max_tokens"],
+            config.SERVICE_MAX_TOKENS,
+        )
+        self.assertGreaterEqual(
+            service_client.calls[0]["max_tokens"],
+            128,
+        )
         self.assertEqual(
-            context.emitter.events[-1]["type"],
+            context.emitter.events[-2]["type"],
             "runtime_session_memory_update",
         )
         self.assertTrue(
-            context.emitter.events[-1]["persist"],
+            context.emitter.events[-2]["persist"],
+        )
+        self.assertEqual(
+            context.emitter.events[-1],
+            {
+                "type": "runtime_action",
+                "action": "remember_session",
+                "status": "completed",
+            },
         )
 
     async def test_summarizer_usage_corrects_estimate_with_prompt_usage(self):
@@ -1751,6 +2244,64 @@ class MessageMemoryTests(
         )
         self.assertIn(
             "SilentError",
+            details,
+        )
+
+    async def test_summarizer_failure_logs_likely_token_reason(self):
+
+        request = httpx.Request(
+            "POST",
+            "http://127.0.0.1:1234/v1/chat/completions",
+        )
+        response = httpx.Response(
+            400,
+            json={
+                "error": {
+                    "message": (
+                        "This model's maximum context length is 8192 tokens, "
+                        "but the request asked for 9000 tokens."
+                    ),
+                    "type": "invalid_request_error",
+                    "code": "context_length_exceeded",
+                }
+            },
+            request=request,
+        )
+        service_client = FakeServiceClient(
+            httpx.HTTPStatusError(
+                "Client error '400 Bad Request'",
+                request=request,
+                response=response,
+            )
+        )
+        logger = FakeLogger()
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            logger=logger,
+            runtime_memory="Initial memory.",
+            runtime_memory_updates=0,
+        )
+
+        await summarize_runtime_memory(
+            context=context,
+            user_message="Remember this.",
+            assistant_message="I will remember it.",
+        )
+
+        _message, details = logger.errors[0]
+
+        self.assertIn(
+            "Likely reason: Token/context limit exceeded",
+            details,
+        )
+        self.assertIn(
+            "context_length_exceeded",
+            details,
+        )
+        self.assertIn(
+            "Traceback:",
             details,
         )
 

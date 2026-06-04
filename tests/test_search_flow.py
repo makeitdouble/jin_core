@@ -563,7 +563,7 @@ class SearchFlowTests(
 
         self.assertEqual(
             len(runtime_events),
-            1,
+            2,
         )
         self.assertEqual(
             runtime_events[0]["query"],
@@ -572,6 +572,15 @@ class SearchFlowTests(
         self.assertEqual(
             runtime_events[0]["id"],
             "web_search_001",
+        )
+        self.assertEqual(
+            runtime_events[1],
+            {
+                "type": "runtime_action",
+                "action": "web_search",
+                "id": "web_search_001",
+                "status": "completed",
+            },
         )
         self.assertIn(
             "<SEARCH_RESULT>",
@@ -725,11 +734,15 @@ class SearchFlowTests(
 
         self.assertEqual(
             len(runtime_events),
-            1,
+            2,
         )
         self.assertEqual(
             runtime_events[0]["query"],
             "tesla car price",
+        )
+        self.assertEqual(
+            runtime_events[1]["status"],
+            "completed",
         )
         self.assertEqual(
             len(brain_client.prompts),

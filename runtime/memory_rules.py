@@ -1,10 +1,291 @@
 import json
 
 
+MAX_SESSION_PROMPT_SNAPSHOTS = 12
+MAX_SESSION_PROMPT_DIFFS = 24
+MAX_SESSION_EVENT_TEXT_CHARS = 800
+
+
 DEFAULT_RUNTIME_MEMORY = (
     "This session has just begun. "
     "You have no history with the user yet."
 )
+
+
+def canonicalize_runtime_memory_entry(
+        key: str,
+        value: str,
+) -> tuple[str, str]:
+
+    cleaned_key = key.strip()
+    cleaned_value = value.strip()
+
+    legacy_purpose_map = {
+        "memory token": (
+            "stored_memory",
+            "future recall test",
+        ),
+    }
+
+    purpose_entry = legacy_purpose_map.get(
+        cleaned_key.lower()
+    )
+
+    if purpose_entry is None:
+        return cleaned_key, cleaned_value
+
+    canonical_key, purpose = purpose_entry
+
+    return (
+        canonical_key,
+        f"{cleaned_value} (purpose: {purpose})",
+    )
+
+
+def canonicalize_runtime_memory_key(
+        key: str,
+) -> str:
+
+    canonical_key, _ = canonicalize_runtime_memory_entry(
+        key,
+        "",
+    )
+
+    return canonical_key
+
+
+def canonicalize_runtime_memory_text(
+        memory: str,
+) -> str:
+
+    canonical_lines = []
+
+    for raw_line in (memory or "").splitlines():
+        line = raw_line.strip()
+
+        if not line:
+            continue
+
+        prefix = ""
+
+        while line.startswith("-"):
+            prefix += "- "
+            line = line[1:].strip()
+
+        if ":" not in line:
+            canonical_lines.append(
+                f"{prefix}{line}"
+            )
+            continue
+
+        key, value = line.split(
+            ":",
+            1,
+        )
+
+        canonical_key, canonical_value = canonicalize_runtime_memory_entry(
+            key,
+            value,
+        )
+
+        canonical_lines.append(
+            f"{prefix}{canonical_key}: {canonical_value}"
+        )
+
+    return "\n".join(
+        canonical_lines
+    )
+
+
+def detect_session_event_initiator(
+        user_message: str,
+) -> str:
+
+    normalized = (
+        user_message
+        or ""
+    ).casefold()
+
+    user_markers = (
+        "хочу это запомнить",
+        "хочу запомнить",
+        "сохрани это",
+        "сохранить это",
+        "это надо сохранить",
+        "это надо запомнить",
+        "запомни это",
+        "важный момент",
+        "надо сохранить",
+    )
+
+    if any(
+        marker in normalized
+        for marker in user_markers
+    ):
+        return "user"
+
+    return "jin"
+
+
+def build_runtime_session_event_snapshot(
+        context,
+        *,
+        source: str = "runtime_action",
+) -> dict:
+
+    existing_snapshots = list(
+        getattr(
+            context,
+            "runtime_session_event_snapshots",
+            [],
+        )
+        or []
+    )
+    runtime_snapshots = list(
+        getattr(
+            context,
+            "runtime_memory_snapshots",
+            [],
+        )
+        or []
+    )
+    diff_history = list(
+        getattr(
+            context,
+            "runtime_l1_diff_history",
+            [],
+        )
+        or []
+    )
+    user_message = getattr(
+        context,
+        "runtime_turn_user_message",
+        "",
+    )
+    assistant_response = getattr(
+        context,
+        "runtime_turn_assistant_response",
+        "",
+    )
+
+    return {
+        "index": len(existing_snapshots),
+        "memory_type": "session_event_snapshot",
+        "source": source,
+        "initiated_by": detect_session_event_initiator(
+            user_message
+        ),
+        "turn_number": getattr(
+            context,
+            "turn_number",
+            0,
+        ),
+        "user_message_count": getattr(
+            context,
+            "user_message_count",
+            0,
+        ),
+        "assistant_message_count": getattr(
+            context,
+            "assistant_message_count",
+            0,
+        ),
+        "runtime_snapshot_count": len(
+            runtime_snapshots
+        ),
+        "diff_count": len(
+            diff_history
+        ),
+        "user_message": user_message,
+        "assistant_response": assistant_response,
+    }
+
+
+def compact_session_prompt_text(
+        value,
+        *,
+        limit: int = MAX_SESSION_EVENT_TEXT_CHARS,
+) -> str:
+
+    text = str(
+        value
+        or ""
+    ).strip()
+
+    if len(text) <= limit:
+        return text
+
+    return (
+        text[:limit].rstrip()
+        + " ... <truncated>"
+    )
+
+
+def compact_session_event_snapshot(
+        snapshot: dict,
+) -> dict:
+
+    compact = {}
+
+    for key in (
+            "index",
+            "memory_type",
+            "source",
+            "initiated_by",
+            "turn_number",
+            "user_message_count",
+            "assistant_message_count",
+            "runtime_snapshot_count",
+            "diff_count",
+            "title",
+            "temperature",
+            "intensity",
+            "why_it_matters",
+            "preserve_detail",
+            "memory",
+            "user_message",
+            "assistant_response",
+    ):
+        if key not in snapshot:
+            continue
+
+        value = snapshot.get(
+            key
+        )
+
+        if isinstance(
+            value,
+            str,
+        ):
+            value = compact_session_prompt_text(
+                value
+            )
+
+        compact[key] = value
+
+    return compact
+
+
+def select_session_prompt_snapshots(
+        snapshots: list[dict],
+) -> tuple[list[dict], int]:
+
+    snapshots = list(
+        snapshots
+        or []
+    )
+
+    if len(snapshots) <= MAX_SESSION_PROMPT_SNAPSHOTS:
+        return snapshots, 0
+
+    head_count = 2
+    tail_count = MAX_SESSION_PROMPT_SNAPSHOTS - head_count
+
+    return (
+        snapshots[:head_count]
+        + snapshots[-tail_count:],
+        len(snapshots) - MAX_SESSION_PROMPT_SNAPSHOTS,
+    )
 
 
 def build_runtime_l2_memory_system_prompt() -> str:
@@ -137,12 +418,32 @@ def build_runtime_session_memory_system_prompt() -> str:
         "<key>: <value>\n"
         "Summarize the whole session from all L1 runtime memory snapshots, "
         "not only the latest snapshot.\n"
+        "Session event snapshots are stored by the runtime as an array and are always available at session-context level.\n"
+        "Treat that array as persistent event history for the session: use it to preserve causal sequence, important moments, and prior session-level decisions.\n"
+        "Do not ask the user to fill snapshot fields manually; infer event snapshot meaning from natural conversation and explicit user markings.\n"
         "Preserve what should survive a browser reload or a new tab: active project direction, "
         "explicit decisions, durable facts, unresolved tasks, constraints, and next step.\n"
+        "Session memory may include rare episodic_key_moment records for events that need richer sequence memory.\n"
+        "Use episodic_key_moment only when the moment changed understanding of the project, user, or system; "
+        "has a clear cause -> event -> outcome chain; was explicitly marked important by the user; "
+        "or carries high emotional or narrative weight.\n"
+        "Do not create episodic_key_moment entries for ordinary progress updates, routine feature work, "
+        "minor bugs, casual jokes, or low-signal chat.\n"
+        "When writing an episodic_key_moment, preserve the exact chain rather than only the conclusion.\n"
+        "Use this plain-text block format:\n"
+        "memory_type: episodic_key_moment\n"
+        "title: <short event title>\n"
+        "emotional_weight: low|medium|high\n"
+        "why_it_matters: <why this should survive the session>\n"
+        "sequence:\n"
+        "1. <first causal step>\n"
+        "2. <next causal step>\n"
+        "preserve_detail: <which exact details matter and why>\n"
         "Use the diff history to identify which topics or constraints actually changed during the session.\n"
         "Do not copy every L1 line. Compress repeated or superseded states.\n"
         "Do not infer durable user personality traits, relationship claims, or preferences from weak signal.\n"
-        "Keep user-requested memory tokens and explicit facts in their own retrieval-friendly lines.\n"
+        "Preserve durable JIN/user fact lines from L1 snapshots as stable session facts; keep their keys stable and change only values that were explicitly corrected or superseded.\n"
+        "Keep user-requested stored values with explicit purpose and explicit facts in their own retrieval-friendly lines.\n"
         "Drop transient last_jin_response details unless they contain an unresolved question or next step.\n"
         "The final L3 snapshot should feel like a session handoff note for fluent continuation."
     )
@@ -154,11 +455,17 @@ def build_runtime_session_memory_user_prompt(
         runtime_memory_snapshots: list[dict],
         diff_history: list[dict],
         runtime_l2_memory: str = "",
+        session_event_snapshots: list[dict] | None = None,
 ) -> str:
 
     snapshot_blocks = []
+    selected_snapshots, omitted_snapshot_count = (
+        select_session_prompt_snapshots(
+            runtime_memory_snapshots
+        )
+    )
 
-    for snapshot in runtime_memory_snapshots:
+    for snapshot in selected_snapshots:
         snapshot_blocks.append(
             "\n".join([
                 f"snapshot: {snapshot.get('index', 0)}",
@@ -174,16 +481,58 @@ def build_runtime_session_memory_user_prompt(
             ])
         )
 
+    selected_diff_history = list(
+        diff_history
+        or []
+    )[-MAX_SESSION_PROMPT_DIFFS:]
+    omitted_diff_count = max(
+        0,
+        len(
+            diff_history
+            or []
+        )
+        - len(selected_diff_history),
+    )
+    compact_event_snapshots = [
+        compact_session_event_snapshot(
+            snapshot
+        )
+        for snapshot in (
+            session_event_snapshots
+            or []
+        )
+        if isinstance(
+            snapshot,
+            dict,
+        )
+    ]
+
     return "\n\n".join([
         "Current L3 session memory:",
         current_session_memory.strip() or "<empty>",
         "Current L2 pattern memory for context only:",
         runtime_l2_memory.strip() or "<empty>",
-        "Complete L1 runtime memory snapshot history:",
-        "\n\n---\n\n".join(snapshot_blocks) or "<empty>",
-        "Complete L1 diff history:",
+        "Session event snapshots array:",
         json.dumps(
-            diff_history,
+            compact_event_snapshots,
+            ensure_ascii=False,
+            indent=2,
+        ),
+        "Selected L1 runtime memory snapshot history:",
+        (
+            f"omitted_middle_snapshots: {omitted_snapshot_count}"
+            if omitted_snapshot_count
+            else "omitted_middle_snapshots: 0"
+        ),
+        "\n\n---\n\n".join(snapshot_blocks) or "<empty>",
+        "Recent L1 diff history:",
+        (
+            f"omitted_older_diffs: {omitted_diff_count}"
+            if omitted_diff_count
+            else "omitted_older_diffs: 0"
+        ),
+        json.dumps(
+            selected_diff_history,
             ensure_ascii=False,
             indent=2,
         ),
@@ -244,10 +593,15 @@ def build_runtime_memory_system_prompt() -> str:
         "Preserve still-relevant existing memory. Update it instead of replacing it blindly.\n"
         "Give important facts their own semantic keys, such as key detail, explicit fact, user_fact, jin_fact, decision, constraint, or requirement. "
         "Do not bury strong facts inside active topic, active task, current request, or other temporary containers.\n"
-        "When the user asks to remember a word, code word, token, password-like label, or important detail, store it with a retrieval-friendly key such as key detail or memory token and include the user's label/synonym in the value.\n"
+        "For new durable facts about JIN, prefer the key jin_fact. For new durable facts about the user, prefer the key user_fact.\n"
+        "Treat any existing line about JIN's identity, nature, origin, role, capabilities, memory, or self-description as a durable JIN fact even when its key is not exactly jin_fact, such as jin self-introduction, JIN identity, or known fact about JIN.\n"
+        "Treat any existing line about the user's name, identity, role, preference, location, age, or other personal detail as a durable user fact even when its key is not exactly user_fact.\n"
+        "Once a durable JIN fact or durable user fact exists, keep its key permanently across L1 snapshots: do not delete it, rename it, demote it to known fact/current topic, or merge it into another line.\n"
+        "For durable JIN/user facts, only the value may change, and only when the latest current conversation explicitly corrects, cancels, or supersedes that fact.\n"
+        "When the user asks to remember a word, code word, token, password-like label, or important detail, store the value with a self-describing purpose, such as stored_memory: <value> (purpose: future recall test), and include the user's label/synonym when available.\n"
+        "Do not store bare ambiguous values like memory token: <value> without recording why the value matters.\n"
         "Preserve strong details until the current context directly makes them obsolete, corrected, cancelled, or irrelevant; a topic/task change alone is not enough.\n"
-        "If existing memory contains a jin_fact about JIN, such as gender, age, identity, origin, or other self-fact, preserve it exactly and never change, contradict, or overwrite it.\n"
-        "If existing memory contains a user_fact about the user, such as name, identity, role, preference, location, age, or other personal fact, preserve it exactly and never change, contradict, or overwrite it.\n"
+        "Topic/task changes, shallow summarization, memory pressure, or a new current request are never enough to remove or rename durable JIN/user fact keys.\n"
         "Do not update a value when JIN merely paraphrased, reordered, or reworded the same offer, "
         "open reference, pending choice, or conversational state without adding a new explicit fact.\n"
         "Treat semantic rephrasing as no-op memory: keep the previous value unchanged unless the actual meaning changed.\n"

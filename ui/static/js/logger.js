@@ -3,6 +3,7 @@ const consoleStream =
 
 let traceModal;
 let traceModalContent;
+let traceModalReason;
 let traceModalTitle;
 
 function ensureTraceModal() {
@@ -49,6 +50,15 @@ function ensureTraceModal() {
   closeButton.textContent =
     "close";
 
+  traceModalReason =
+    document.createElement("div");
+
+  traceModalReason.className =
+    "hidden border-b border-zinc-800 px-4 py-3 text-[12px] leading-relaxed text-red-200";
+
+  traceModalReason.style.overflowWrap =
+    "anywhere";
+
   traceModalContent =
     document.createElement("pre");
 
@@ -68,6 +78,10 @@ function ensureTraceModal() {
 
   panel.appendChild(
     header
+  );
+
+  panel.appendChild(
+    traceModalReason
   );
 
   panel.appendChild(
@@ -119,11 +133,28 @@ function ensureTraceModal() {
 function showTrace(
   details,
   title = "Trace",
+  reason = null,
 ) {
   ensureTraceModal();
 
   traceModalTitle.textContent =
     title;
+
+  if (reason) {
+    traceModalReason.textContent =
+      `Reason: ${reason}`;
+
+    traceModalReason.classList.remove(
+      "hidden"
+    );
+  } else {
+    traceModalReason.textContent =
+      "";
+
+    traceModalReason.classList.add(
+      "hidden"
+    );
+  }
 
   traceModalContent.textContent =
     String(details);
@@ -135,6 +166,83 @@ function showTrace(
   traceModal.classList.add(
     "flex"
   );
+}
+
+function extractTraceReason(
+  message,
+  details,
+) {
+  const text =
+    String(
+      details
+      || message
+      || ""
+    );
+
+  if (!text.trim()) {
+    return "";
+  }
+
+  const likelyReasonMatch =
+    text.match(
+      /^Likely reason:\s*(.+)$/m
+    );
+
+  if (likelyReasonMatch) {
+    return likelyReasonMatch[1].trim();
+  }
+
+  const httpStatusMatch =
+    text.match(
+      /HTTPStatusError:\s*(.+?)(?:\r?\n|$)/
+    );
+
+  if (httpStatusMatch) {
+    return httpStatusMatch[1]
+      .replace(
+        /\s+for url '([^']+)'/,
+        function (_match, url) {
+          return ` for ${summarizeTraceUrl(url)}`;
+        }
+      )
+      .trim();
+  }
+
+  const errorLines =
+    Array.from(
+      text.matchAll(
+        /^([A-Za-z_][\w.]*Error|Exception):\s*(.+)$/gm
+      )
+    );
+
+  if (errorLines.length) {
+    const match =
+      errorLines[errorLines.length - 1];
+
+    return `${match[1]}: ${match[2]}`.trim();
+  }
+
+  const nonEmptyLines =
+    text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+  return (
+    nonEmptyLines[nonEmptyLines.length - 1]
+    || ""
+  );
+}
+
+function summarizeTraceUrl(url) {
+  try {
+    const parsed =
+      new URL(url);
+
+    return `${parsed.host}${parsed.pathname}`;
+  } catch (_error) {
+    return url;
+  }
 }
 
 function splitInlineTrace(
@@ -320,6 +428,32 @@ function appendLog(
         "L2 pattern memory"
       );
 
+    const reason =
+      tag.includes("ERROR")
+        ? extractTraceReason(
+            normalized.message,
+            normalized.details
+          )
+        : "";
+
+    if (reason) {
+      const reasonSpan =
+        document.createElement("span");
+
+      reasonSpan.className =
+        "block mt-2 rounded border border-red-500/15 bg-red-500/5 px-2 py-1 text-red-200";
+
+      reasonSpan.style.overflowWrap =
+        "anywhere";
+
+      reasonSpan.textContent =
+        `Reason: ${reason}`;
+
+      logDiv.appendChild(
+        reasonSpan
+      );
+    }
+
     const actions =
       document.createElement("div");
 
@@ -359,7 +493,8 @@ function appendLog(
             ? "Session bootstrap"
             : isSummarizer
             ? "Summarizer payload"
-            : "Trace"
+            : "Trace",
+          reason
         );
       }
     );
