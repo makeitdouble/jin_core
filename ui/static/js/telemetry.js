@@ -189,10 +189,16 @@ function persistSessionMemory(
   data
 ) {
 
+  if (
+      !data
+      || data.persist !== true
+  ) {
+    return;
+  }
+
   const sessionMemory =
     (
-      data
-      && data.memory
+      data.memory
       || ""
     ).trim();
 
@@ -212,6 +218,7 @@ function persistSessionMemory(
     sessionMemoryStorageKey,
     {
       version: 1,
+      explicit_save: true,
       saved_at: savedAt,
       session_memory: sessionMemory,
       session_memory_updates:
@@ -252,8 +259,10 @@ window.getPersistedSessionBootstrap = function () {
   const sessionText =
     (
       sessionMemory
+      && sessionMemory.explicit_save === true
       && sessionMemory.session_memory
-    ) || "";
+    )
+    || "";
 
   const runtimeText =
     (
@@ -268,7 +277,6 @@ window.getPersistedSessionBootstrap = function () {
 
   if (
       !sessionText
-      && !runtimeText
   ) {
     return null;
   }
@@ -305,6 +313,22 @@ window.getPersistedSessionBootstrap = function () {
       )
       || null,
   };
+
+};
+
+
+window.clearPersistedSessionBootstrap = function () {
+
+  try {
+    window.localStorage.removeItem(
+      sessionMemoryStorageKey
+    );
+    window.localStorage.removeItem(
+      runtimeMemoryStorageKey
+    );
+  } catch (error) {
+    // Browser memory is helpful, not required for chat.
+  }
 
 };
 
@@ -1327,6 +1351,8 @@ function renderRuntimeMemorySnapshot() {
 
   if (!snapshot) {
     runtimeMemoryText.textContent = "";
+    runtimeMemoryPosition.textContent =
+        "0";
     updateRuntimeMemoryArrows();
     return;
   }
@@ -1336,7 +1362,7 @@ function renderRuntimeMemorySnapshot() {
   );
 
   runtimeMemoryPosition.textContent =
-      String(snapshot.index);
+      String(runtimeMemoryHistory.index);
 
   updateRuntimeMemoryArrows();
 }

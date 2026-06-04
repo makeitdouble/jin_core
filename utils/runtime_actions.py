@@ -361,16 +361,35 @@ def _runtime_action_tag_name(
     )
 
 
+def _runtime_action_tag_pattern(
+    action_name: str,
+) -> str:
+
+    normalized_action_name = normalize_runtime_action_name(
+        action_name
+    )
+
+    action_pattern = r"[\s_]+".join(
+        re.escape(part)
+        for part in normalized_action_name.split(
+            "_"
+        )
+    )
+
+    return (
+        r"RUNTIME[\s_]+ACTION\s*:\s*"
+        + action_pattern
+    )
+
+
 def _paired_action_open_pattern(
     action_name: str,
 ) -> str:
 
     return (
         r"<(?!/)[^<]*?"
-        + re.escape(
-            _runtime_action_tag_name(
-                action_name
-            )
+        + _runtime_action_tag_pattern(
+            action_name
         )
         + r"\s*>"
     )
@@ -382,10 +401,8 @@ def _self_closing_action_open_pattern(
 
     return (
         r"<(?!/)[^<]*?"
-        + re.escape(
-            _runtime_action_tag_name(
-                action_name
-            )
+        + _runtime_action_tag_pattern(
+            action_name
         )
         + r"\s*/?>"
     )

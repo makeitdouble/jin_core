@@ -3,13 +3,18 @@ import asyncio
 from types import SimpleNamespace
 
 from runtime import (
+    emit_runtime_session_memory_update,
     runtime_state,
+)
+from config_loader import (
+    config,
 )
 from utils.brain import (
     get_brain_runtime_config,
 )
 from websocket import (
     apply_session_bootstrap,
+    reject_when_all_models_offline,
     refresh_pending_brain_usage,
     wait_for_runtime_memory_update,
 )
@@ -61,7 +66,152 @@ class FakeLogger:
         )
 
 
+class FakeStatusResponse:
+
+    def __init__(
+        self,
+        status_code: int,
+    ):
+
+        self.status_code = status_code
+
+
+class FakeStatusHttpClient:
+
+    def __init__(
+        self,
+        *,
+        brain_online: bool,
+        service_online: bool,
+    ):
+
+        self.brain_online = brain_online
+        self.service_online = service_online
+        self.calls = []
+
+    async def get(
+        self,
+        url: str,
+        *,
+        timeout,
+    ):
+
+        self.calls.append(
+            (
+                url,
+                timeout,
+            )
+        )
+
+        if url.startswith(
+            config.BRAIN_API_BASE
+        ):
+            return FakeStatusResponse(
+                200 if self.brain_online else 503
+            )
+
+        if url.startswith(
+            config.SERVICE_API_BASE
+        ):
+            return FakeStatusResponse(
+                200 if self.service_online else 503
+            )
+
+        return FakeStatusResponse(
+            404
+        )
+
+
+class FakeWebSocket:
+
+    def __init__(self):
+
+        self.messages = []
+
+    async def send_json(
+        self,
+        payload,
+    ):
+
+        self.messages.append(
+            payload
+        )
+
+
 class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
+
+    async def test_rejects_user_request_when_all_models_are_offline(self):
+
+        http_client = FakeStatusHttpClient(
+            brain_online=False,
+            service_online=False,
+        )
+        context = SimpleNamespace(
+            clients={
+                "service": SimpleNamespace(
+                    client=http_client,
+                ),
+            },
+            logger=FakeLogger(),
+            websocket=FakeWebSocket(),
+        )
+
+        rejected = await reject_when_all_models_offline(
+            context
+        )
+
+        self.assertTrue(
+            rejected
+        )
+        self.assertEqual(
+            context.logger.errors,
+            [
+                (
+                    "[WS] all model runtimes are offline",
+                    None,
+                ),
+            ],
+        )
+        self.assertEqual(
+            context.websocket.messages[-1]["type"],
+            "error",
+        )
+        self.assertEqual(
+            context.websocket.messages[-1]["component"],
+            "runtime_status",
+        )
+
+    async def test_all_models_guard_allows_request_when_any_model_is_online(self):
+
+        http_client = FakeStatusHttpClient(
+            brain_online=True,
+            service_online=False,
+        )
+        context = SimpleNamespace(
+            clients={
+                "service": SimpleNamespace(
+                    client=http_client,
+                ),
+            },
+            logger=FakeLogger(),
+            websocket=FakeWebSocket(),
+        )
+
+        rejected = await reject_when_all_models_offline(
+            context
+        )
+
+        self.assertFalse(
+            rejected
+        )
+        self.assertEqual(
+            context.logger.errors,
+            [],
+        )
+        self.assertEqual(
+            context.websocket.messages,
+            [],
+        )
 
     async def test_session_bootstrap_restores_browser_memory(self):
 
@@ -132,6 +282,67 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             context.runtime_memory_snapshots[0]["raw_memory"],
             "topic: restored runtime state",
+        )
+
+    async def test_session_bootstrap_restores_runtime_snapshot_index(self):
+
+        context = SimpleNamespace(
+            runtime_memory="session status: New session",
+            runtime_memory_stable="session status: New session",
+            runtime_memory_updates=0,
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
+            session_memory="",
+            session_memory_source="",
+            runtime_l3_session_memory="",
+            runtime_session_memory_updates=0,
+        )
+
+        restored = apply_session_bootstrap(
+            context,
+            {
+                "type": "session_bootstrap",
+                "runtime_memory": "topic: restored runtime state",
+                "runtime_memory_updates": 7,
+                "runtime_snapshot": {
+                    "index": 4,
+                    "raw_memory": "topic: restored runtime state",
+                },
+            },
+        )
+
+        self.assertTrue(
+            restored
+        )
+        self.assertEqual(
+            context.runtime_memory_snapshot_index,
+            4,
+        )
+        self.assertEqual(
+            context.runtime_memory_snapshots[0]["index"],
+            4,
+        )
+
+    async def test_runtime_session_memory_update_is_not_browser_persisted_by_default(self):
+
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+            runtime_l3_session_memory="topic: restored but not saved",
+            session_memory="",
+            session_memory_source="browser_localStorage",
+            runtime_session_memory_updates=1,
+        )
+
+        await emit_runtime_session_memory_update(
+            context
+        )
+
+        self.assertEqual(
+            context.emitter.events[-1]["type"],
+            "runtime_session_memory_update",
+        )
+        self.assertFalse(
+            context.emitter.events[-1]["persist"],
         )
 
     async def test_pending_brain_usage_emits_before_stream_start(self):

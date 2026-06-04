@@ -88,6 +88,19 @@ def get_enabled_runtime_actions(
     )
 
 
+def get_enabled_thinking_runtime_actions(
+    runtime_actions=None,
+) -> tuple[str, ...]:
+
+    return tuple(
+        action_name
+        for action_name in get_enabled_runtime_actions(
+            runtime_actions
+        )
+        if action_name != RUNTIME_ACTION_REMEMBER_SESSION
+    )
+
+
 def count_deep_thought_calls(
     text: str,
     runtime_actions=None,
@@ -871,25 +884,24 @@ async def ask_brain(
                 )
             )
 
+            enabled_actions = get_enabled_runtime_actions(
+                runtime_actions
+            )
+            thinking_actions = get_enabled_thinking_runtime_actions(
+                runtime_actions
+            )
+
             reasoning_actions = (
                 extract_runtime_actions(
                     reasoning,
-                    enabled_actions=(
-                        get_enabled_runtime_actions(
-                            runtime_actions
-                        )
-                    ),
+                    enabled_actions=thinking_actions,
                 )
             )
 
             content_actions = (
                 extract_runtime_actions(
                     content,
-                    enabled_actions=(
-                        get_enabled_runtime_actions(
-                            runtime_actions
-                        )
-                    ),
+                    enabled_actions=enabled_actions,
                 )
             )
 
@@ -976,22 +988,21 @@ async def ask_brain(
             )
         )
 
+        enabled_actions = get_enabled_runtime_actions(
+            runtime_actions
+        )
+        thinking_actions = get_enabled_thinking_runtime_actions(
+            runtime_actions
+        )
+
         reasoning_actions = extract_runtime_actions(
             reasoning,
-            enabled_actions=(
-                get_enabled_runtime_actions(
-                    runtime_actions
-                )
-            ),
+            enabled_actions=thinking_actions,
         )
 
         content_actions = extract_runtime_actions(
             content,
-            enabled_actions=(
-                get_enabled_runtime_actions(
-                    runtime_actions
-                )
-            ),
+            enabled_actions=enabled_actions,
         )
 
         await apply_runtime_action_calls(
@@ -1056,9 +1067,12 @@ async def ask_brain_stream(
     enabled_actions = get_enabled_runtime_actions(
         runtime_actions
     )
+    thinking_actions = get_enabled_thinking_runtime_actions(
+        runtime_actions
+    )
 
     thinking_filter = RuntimeActionStreamFilter(
-        enabled_actions=enabled_actions,
+        enabled_actions=thinking_actions,
         preserve_action_text=True,
     )
     content_filter = RuntimeActionStreamFilter(

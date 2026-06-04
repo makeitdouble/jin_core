@@ -698,6 +698,22 @@ ws.onmessage = function (event) {
 // SEND MESSAGE
 // --------------------------------------------------
 
+function allModelRuntimesOffline() {
+
+  const status =
+    (
+      window.jinRuntimeConfig
+      && window.jinRuntimeConfig.runtimeStatus
+    )
+    || {};
+
+  return (
+    status.brain === false
+    && status.service === false
+  );
+
+}
+
 chatForm.addEventListener(
   "submit",
   function (e) {
@@ -723,6 +739,21 @@ chatForm.addEventListener(
 
     if (!text) {
       return;
+    }
+
+    if (allModelRuntimesOffline()) {
+
+      appendLog(
+        "[ERROR]",
+        "All model runtimes are offline."
+      );
+
+      setGenerationState(
+        false
+      );
+
+      return;
+
     }
 
     appendChatMessage(

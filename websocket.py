@@ -10,6 +10,7 @@ from starlette.websockets import (
 import asyncio
 import contextlib
 import json
+import httpx
 
 from websocket_logger import (
     WebSocketLogger,
@@ -37,6 +38,14 @@ from utils.token_usage import (
     format_token_usage_summary,
 )
 
+from config_loader import (
+    config,
+)
+
+from utils.urls import (
+    join_url,
+)
+
 from utils.tokens import (
     estimate_runtime_tokens,
 )
@@ -62,6 +71,11 @@ from runtime import (
 websocket_router = APIRouter()
 
 MAX_BOOTSTRAP_MEMORY_CHARS = 12000
+RUNTIME_STATUS_CHECK_TIMEOUT = getattr(
+    config,
+    "STATUS_CHECK_TIMEOUT",
+    0.5,
+)
 
 
 def clean_bootstrap_memory(
@@ -85,6 +99,107 @@ def clean_bootstrap_memory(
         return cleaned
 
     return cleaned[-limit:].strip()
+
+
+def get_status_http_client(
+    context,
+):
+
+    clients = getattr(
+        context,
+        "clients",
+        {},
+    )
+
+    for runtime_client in clients.values():
+        http_client = getattr(
+            runtime_client,
+            "client",
+            None,
+        )
+
+        if http_client is not None:
+            return http_client
+
+    return None
+
+
+async def check_model_status(
+    http_client,
+    base_url: str,
+) -> bool:
+
+    try:
+        response = await http_client.get(
+            join_url(
+                base_url,
+                config.MODELS_ENDPOINT,
+            ),
+            timeout=RUNTIME_STATUS_CHECK_TIMEOUT,
+        )
+
+        return response.status_code == 200
+
+    except (
+        httpx.HTTPError,
+        asyncio.TimeoutError,
+    ):
+        return False
+
+
+async def has_available_model_runtime(
+    context,
+) -> bool:
+
+    http_client = get_status_http_client(
+        context
+    )
+
+    if http_client is None:
+        return True
+
+    brain_status, service_status = await asyncio.gather(
+        check_model_status(
+            http_client,
+            config.BRAIN_API_BASE,
+        ),
+        check_model_status(
+            http_client,
+            config.SERVICE_API_BASE,
+        ),
+    )
+
+    return (
+        brain_status
+        or service_status
+    )
+
+
+async def reject_when_all_models_offline(
+    context,
+) -> bool:
+
+    if await has_available_model_runtime(
+        context
+    ):
+        return False
+
+    await context.logger.log_error(
+        "[WS] all model runtimes are offline"
+    )
+
+    await context.websocket.send_json({
+        "type": "error",
+        "message": (
+            "All model runtimes are offline."
+        ),
+        "details": (
+            "Start BRAIN or SERVICE before sending a request."
+        ),
+        "component": "runtime_status",
+    })
+
+    return True
 
 
 async def emit_current_runtime_memory(
@@ -227,6 +342,28 @@ def apply_session_bootstrap(
         ):
             pass
 
+        restored_index = 0
+
+        if isinstance(
+            runtime_snapshot,
+            dict,
+        ):
+            try:
+                restored_index = max(
+                    0,
+                    int(
+                        runtime_snapshot.get(
+                            "index",
+                            0,
+                        ) or 0
+                    ),
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                restored_index = 0
+
         context.runtime_memory_snapshots = []
 
         restored_snapshot = build_runtime_memory_snapshot(
@@ -234,10 +371,14 @@ def apply_session_bootstrap(
             context.runtime_memory,
         )
 
+        restored_snapshot["index"] = restored_index
+
         context.runtime_memory_snapshots.append(
             restored_snapshot
         )
-        context.runtime_memory_snapshot_index = 0
+        context.runtime_memory_snapshot_index = restored_snapshot[
+            "index"
+        ]
 
     return bool(
         session_memory
@@ -731,11 +872,10 @@ async def websocket_endpoint(
                 )
             )
 
-            await logger.log_system(
-                f"[WS] received: {message_data}"
-            )
-
             if message_data is None:
+                await logger.log_system(
+                    "[WS] received: None"
+                )
                 continue
 
             message_type = (
@@ -750,6 +890,16 @@ async def websocket_endpoint(
             # -------------------------------------------------
 
             if message_type == "session_bootstrap":
+
+                await logger.log(
+                    "[SESSION]",
+                    "[BOOTSTRAP] browser session restore request",
+                    details=json.dumps(
+                        message_data,
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                )
 
                 restored = apply_session_bootstrap(
                     context,
@@ -774,6 +924,10 @@ async def websocket_endpoint(
                     )
 
                 continue
+
+            await logger.log_system(
+                f"[WS] received: {message_data}"
+            )
 
             # -------------------------------------------------
             # ABORT GENERATION
@@ -808,6 +962,11 @@ async def websocket_endpoint(
                     "Received empty message."
                 )
 
+                continue
+
+            if await reject_when_all_models_offline(
+                context
+            ):
                 continue
 
             # -------------------------------------------------

@@ -21,6 +21,9 @@ from runtime import (
     schedule_runtime_memory_update,
     summarize_runtime_memory,
 )
+from runtime.memory import (
+    summarize_runtime_memory_pending_turns,
+)
 from config_loader import (
     config,
 )
@@ -1335,6 +1338,10 @@ class MessageMemoryTests(
             1,
         )
         self.assertEqual(
+            service_client.calls[0]["timeout"],
+            config.SERVICE_REQUEST_TIMEOUT,
+        )
+        self.assertEqual(
             context.runtime_l2_memory,
             "possible pattern: user revisits the same implementation tradeoff",
         )
@@ -1531,8 +1538,15 @@ class MessageMemoryTests(
             service_client.calls[0]["user_prompt"],
         )
         self.assertEqual(
+            service_client.calls[0]["timeout"],
+            config.SERVICE_REQUEST_TIMEOUT,
+        )
+        self.assertEqual(
             context.emitter.events[-1]["type"],
             "runtime_session_memory_update",
+        )
+        self.assertTrue(
+            context.emitter.events[-1]["persist"],
         )
 
     async def test_summarizer_usage_corrects_estimate_with_prompt_usage(self):
@@ -1647,6 +1661,10 @@ class MessageMemoryTests(
         self.assertEqual(
             service_client.calls[0]["max_tokens"],
             config.SERVICE_MAX_TOKENS,
+        )
+        self.assertEqual(
+            service_client.calls[0]["timeout"],
+            config.SERVICE_REQUEST_TIMEOUT,
         )
 
     async def test_summarizer_skips_incomplete_memory(self):
@@ -1776,10 +1794,58 @@ class MessageMemoryTests(
             "Updated background memory.",
         )
         self.assertEqual(
+            context.logger.summarizer_logs[0][0],
+            "[MEMORY] L1 summarizer request",
+        )
+        self.assertEqual(
+            service_client.calls[0]["timeout"],
+            config.SERVICE_REQUEST_TIMEOUT,
+        )
+        self.assertEqual(
             len(
                 context.background_tasks
             ),
             0,
+        )
+
+    async def test_pending_turns_log_batch_only_for_multiple_turns(self):
+
+        service_client = FakeServiceClient(
+            "Updated batch memory."
+        )
+        logger = FakeLogger()
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            logger=logger,
+            runtime_memory="Initial memory.",
+            runtime_memory_stable="Initial memory.",
+            runtime_memory_updates=0,
+            runtime_memory_pending_turns=[
+                {
+                    "user_message": "First message",
+                    "assistant_message": "First answer",
+                },
+                {
+                    "user_message": "Second message",
+                    "assistant_message": "Second answer",
+                },
+            ],
+            runtime_memory_update_task=None,
+        )
+
+        await summarize_runtime_memory_pending_turns(
+            context=context,
+        )
+
+        self.assertEqual(
+            logger.summarizer_logs[0][0],
+            "[MEMORY] L1 batch summarizer request",
+        )
+        self.assertEqual(
+            service_client.calls[0]["timeout"],
+            config.SERVICE_REQUEST_TIMEOUT,
         )
 
     async def test_interrupted_update_uses_partial_response(self):

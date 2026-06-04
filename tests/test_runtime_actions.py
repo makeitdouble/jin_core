@@ -54,6 +54,45 @@ class RuntimeActionTests(unittest.TestCase):
             1,
         )
 
+    def test_extracts_spaced_remember_session_marker(self):
+
+        result = extract_runtime_actions(
+            "before <RUNTIME ACTION:REMEMBER SESSION/> after",
+            enabled_actions=[
+                "CAN_REMEMBER_SESSION",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "before  after",
+        )
+        self.assertEqual(
+            result.count("REMEMBER_SESSION"),
+            1,
+        )
+
+    def test_stream_filter_removes_spaced_remember_session_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_REMEMBER_SESSION",
+            ],
+        )
+
+        result = stream_filter.filter(
+            "before <RUNTIME ACTION:REMEMBER SESSION/> after"
+        )
+
+        self.assertEqual(
+            result.text,
+            "before  after",
+        )
+        self.assertEqual(
+            result.count("REMEMBER_SESSION"),
+            1,
+        )
+
     def test_stream_filter_handles_split_marker(self):
 
         stream_filter = RuntimeActionStreamFilter()

@@ -1,8 +1,16 @@
+import asyncio
 import unittest
 
 from clients import (
     build_brain_system_prompt,
     get_enabled_runtime_actions,
+)
+from clients.brain_client import (
+    ask_brain,
+    ask_brain_stream,
+)
+from config_loader import (
+    config,
 )
 from runtime import (
     DEEP_THOUGHT_ACTION,
@@ -16,6 +24,122 @@ from utils.brain import (
 
 
 class BrainRuntimeActionTests(unittest.TestCase):
+
+    def test_non_stream_ignores_remember_session_marker_in_reasoning(self):
+
+        class FakeBrainClient:
+            async def ask(self, **_kwargs):
+                return {
+                    "model": config.BRAIN_MODEL_UID,
+                    "choices": [
+                        {
+                            "message": {
+                                "reasoning": (
+                                    "I should not emit "
+                                    f"{REMEMBER_SESSION_ACTION} now."
+                                ),
+                                "content": "ok",
+                            },
+                        },
+                    ],
+                }
+
+        class Context:
+            pass
+
+        context = Context()
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            answer = asyncio.run(
+                ask_brain(
+                    client=FakeBrainClient(),
+                    text="save it later",
+                    context=context,
+                    runtime_actions={
+                        "CAN_DEEP_THOUGHT": True,
+                        "CAN_REMEMBER_SESSION": True,
+                    },
+                )
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        self.assertEqual(
+            answer,
+            "ok",
+        )
+        self.assertFalse(
+            hasattr(
+                context,
+                "runtime_remember_session_requested",
+            )
+        )
+
+    def test_stream_ignores_remember_session_marker_in_thinking(self):
+
+        class FakeBrainClient:
+            async def stream(self, **_kwargs):
+                yield {
+                    "type": "thinking",
+                    "content": (
+                        "I should not emit "
+                        f"{REMEMBER_SESSION_ACTION} now."
+                    ),
+                }
+                yield {
+                    "type": "content",
+                    "content": "ok",
+                }
+
+        class Context:
+            pass
+
+        async def collect(context):
+            chunks = []
+
+            async for chunk in ask_brain_stream(
+                client=FakeBrainClient(),
+                text="save it later",
+                context=context,
+                runtime_actions={
+                    "CAN_DEEP_THOUGHT": True,
+                    "CAN_REMEMBER_SESSION": True,
+                },
+            ):
+                chunks.append(
+                    chunk
+                )
+
+            return chunks
+
+        context = Context()
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            chunks = asyncio.run(
+                collect(
+                    context
+                )
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        self.assertEqual(
+            chunks[-1],
+            {
+                "type": "content",
+                "content": "ok",
+            },
+        )
+        self.assertFalse(
+            hasattr(
+                context,
+                "runtime_remember_session_requested",
+            )
+        )
 
     def test_agent_runtime_action_flags_enable_search_and_remember_session(self):
 
