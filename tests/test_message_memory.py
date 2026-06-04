@@ -1670,6 +1670,10 @@ class MessageMemoryTests(
             logger.summarizer_logs[1][1],
             "possible pattern: user revisits the same implementation tradeoff",
         )
+        self.assertEqual(
+            context.runtime_memory_snapshots,
+            [],
+        )
         memory_events = [
             event
             for event in context.emitter.events
@@ -1678,19 +1682,7 @@ class MessageMemoryTests(
 
         self.assertEqual(
             len(memory_events),
-            1,
-        )
-        self.assertEqual(
-            memory_events[0]["type"],
-            "runtime_memory_update",
-        )
-        self.assertNotIn(
-            "possible pattern: user revisits the same implementation tradeoff",
-            memory_events[0]["snapshot"]["raw_memory"],
-        )
-        self.assertEqual(
-            memory_events[0]["snapshot"]["raw_memory"],
-            "",
+            0,
         )
 
     def test_l3_session_memory_prompt_uses_all_runtime_snapshots(self):

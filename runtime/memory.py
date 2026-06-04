@@ -1519,10 +1519,6 @@ async def maybe_summarize_runtime_l2_memory(
             result=updated_l2_memory,
         )
 
-        await emit_runtime_memory_update(
-            context
-        )
-
         return getattr(
             context,
             "runtime_l2_memory",
