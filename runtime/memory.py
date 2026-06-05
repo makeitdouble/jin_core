@@ -1157,10 +1157,28 @@ async def ask_runtime_session_memory_model(
         user_prompt=user_prompt,
         context_window=detected_context_window,
     )
+    calculated_max_tokens = max_tokens
     max_tokens = min(
         max_tokens,
         L3_OUTPUT_MAX_TOKENS,
     )
+
+    if max_tokens < calculated_max_tokens:
+        await safe_call(
+            getattr(
+                getattr(
+                    context,
+                    "logger",
+                    None,
+                ),
+                "log_runtime",
+                None,
+            ),
+            (
+                "[MEMORY] L3 session output token budget capped at "
+                f"{L3_OUTPUT_MAX_TOKENS}"
+            ),
+        )
 
     await log_runtime_summarizer_payload(
         context,
@@ -1815,6 +1833,19 @@ async def maybe_summarize_runtime_session_memory(
     )
 
     if not snapshots:
+        await safe_call(
+            getattr(
+                getattr(
+                    context,
+                    "logger",
+                    None,
+                ),
+                "log_runtime",
+                None,
+            ),
+            "[MEMORY] L3 session save skipped: no snapshots",
+        )
+
         await emit_runtime_action_completed(
             context,
             action="remember_session",
@@ -1859,6 +1890,19 @@ async def maybe_summarize_runtime_session_memory(
         skip_reason = None
 
         if is_runtime_memory_response_truncated(response):
+            await safe_call(
+                getattr(
+                    getattr(
+                        context,
+                        "logger",
+                        None,
+                    ),
+                    "log_runtime",
+                    None,
+                ),
+                "[MEMORY] L3 session summarizer reached max_tokens",
+            )
+
             skip_reason = "L3 session summarizer response was truncated by max_tokens."
 
         elif (
@@ -1908,6 +1952,7 @@ async def maybe_summarize_runtime_session_memory(
                 + 1
             )
             context.runtime_remember_session_requested = False
+            context.runtime_memory_snapshots = []
 
             await safe_call(
                 getattr(

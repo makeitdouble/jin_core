@@ -17,6 +17,21 @@ from utils.runtime_actions import (
 
 class RuntimeActionTests(unittest.TestCase):
 
+    def test_extract_runtime_actions_handles_none_text(self):
+
+        result = extract_runtime_actions(
+            None
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.actions,
+            (),
+        )
+
     def test_extracts_and_removes_deep_thought_marker(self):
 
         result = extract_runtime_actions(

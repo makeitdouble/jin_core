@@ -27,6 +27,7 @@ from runtime import (
 from runtime.memory import (
     build_l3_session_memory_max_tokens,
     collapse_duplicate_runtime_memory_keys,
+    L3_OUTPUT_MAX_TOKENS,
     parse_runtime_memory_lines,
     summarize_runtime_memory_pending_turns,
 )
@@ -117,7 +118,17 @@ class FakeLogger:
     def __init__(self):
         self.service_logs = []
         self.summarizer_logs = []
+        self.runtime_logs = []
         self.errors = []
+
+    async def log_runtime(
+        self,
+        message: str,
+    ):
+
+        self.runtime_logs.append(
+            message
+        )
 
     async def log_service(
         self,
@@ -2169,6 +2180,10 @@ class MessageMemoryTests(
             context.runtime_remember_session_requested,
         )
         self.assertEqual(
+            context.runtime_memory_snapshots,
+            [],
+        )
+        self.assertEqual(
             context.session_memory_source,
             "L3",
         )
@@ -2209,6 +2224,17 @@ class MessageMemoryTests(
             128,
         )
         self.assertEqual(
+            service_client.calls[0]["max_tokens"],
+            L3_OUTPUT_MAX_TOKENS,
+        )
+        self.assertIn(
+            (
+                "[MEMORY] L3 session output token budget capped at "
+                f"{L3_OUTPUT_MAX_TOKENS}"
+            ),
+            logger.runtime_logs,
+        )
+        self.assertEqual(
             context.emitter.events[-2]["type"],
             "runtime_session_memory_update",
         )
@@ -2222,6 +2248,82 @@ class MessageMemoryTests(
                 "action": "remember_session",
                 "status": "completed",
             },
+        )
+
+    async def test_l3_session_memory_logs_when_response_reaches_max_tokens(self):
+
+        service_client = FakeServiceClient(
+            "decision: incomplete",
+            finish_reasons=[
+                "length",
+            ],
+        )
+        logger = FakeLogger()
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            emitter=SimpleNamespace(
+                events=[],
+                emit=None,
+            ),
+            logger=logger,
+            runtime_remember_session_requested=True,
+            runtime_l3_session_memory="decision: keep current",
+            session_memory="decision: keep current",
+            session_memory_source="",
+            runtime_session_memory_updates=0,
+            runtime_session_event_snapshots=[],
+            runtime_l2_memory="",
+            runtime_l1_diff_history=[],
+            runtime_memory_snapshots=[
+                {
+                    "index": 0,
+                    "raw_memory": "topic: first topic",
+                    "total_diff": 30,
+                },
+            ],
+        )
+
+        async def emit(event):
+            context.emitter.events.append(
+                event
+            )
+
+        context.emitter.emit = emit
+
+        updated_memory = await maybe_summarize_runtime_session_memory(
+            context=context,
+        )
+
+        self.assertEqual(
+            updated_memory,
+            "decision: keep current",
+        )
+        self.assertTrue(
+            context.runtime_remember_session_requested,
+        )
+        self.assertEqual(
+            context.runtime_memory_snapshots,
+            [
+                {
+                    "index": 0,
+                    "raw_memory": "topic: first topic",
+                    "total_diff": 30,
+                },
+            ],
+        )
+        self.assertIn(
+            "[MEMORY] L3 session summarizer reached max_tokens",
+            logger.runtime_logs,
+        )
+        self.assertEqual(
+            logger.errors[-1][0],
+            "[MEMORY] L3 session memory update skipped",
+        )
+        self.assertIn(
+            "truncated by max_tokens",
+            logger.errors[-1][1],
         )
 
     async def test_l3_session_memory_skips_when_minimal_digest_exceeds_budget(self):
@@ -2295,6 +2397,134 @@ class MessageMemoryTests(
         self.assertIn(
             "compact digest still exceeds safe input budget",
             logger.errors[-1][1],
+        )
+        self.assertEqual(
+            context.runtime_memory_snapshots,
+            [
+                {
+                    "index": 0,
+                    "raw_memory": "decision: keep latest",
+                    "total_diff": 1,
+                }
+            ],
+        )
+
+    async def test_l3_session_memory_preserves_snapshots_when_update_fails(self):
+
+        service_client = FakeServiceClient(
+            RuntimeError("service unavailable")
+        )
+        logger = FakeLogger()
+        snapshots = [
+            {
+                "index": 0,
+                "raw_memory": "topic: first topic",
+                "total_diff": 30,
+            },
+            {
+                "index": 1,
+                "raw_memory": "decision: final direction",
+                "total_diff": 80,
+            },
+        ]
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            emitter=SimpleNamespace(
+                events=[],
+                emit=None,
+            ),
+            logger=logger,
+            runtime_remember_session_requested=True,
+            runtime_l3_session_memory="decision: keep current",
+            session_memory="decision: keep current",
+            session_memory_source="",
+            runtime_session_event_snapshots=[],
+            runtime_l2_memory="",
+            runtime_l1_diff_history=[],
+            runtime_memory_snapshots=list(snapshots),
+        )
+
+        async def emit(event):
+            context.emitter.events.append(
+                event
+            )
+
+        context.emitter.emit = emit
+
+        updated_memory = await maybe_summarize_runtime_session_memory(
+            context=context,
+        )
+
+        self.assertEqual(
+            updated_memory,
+            "decision: keep current",
+        )
+        self.assertTrue(
+            context.runtime_remember_session_requested,
+        )
+        self.assertEqual(
+            context.runtime_memory_snapshots,
+            snapshots,
+        )
+        self.assertEqual(
+            logger.errors[-1][0],
+            "[MEMORY] L3 session memory update failed",
+        )
+
+    async def test_l3_session_memory_no_snapshots_leaves_buffer_empty(self):
+
+        service_client = FakeServiceClient(
+            "should not be called"
+        )
+        logger = FakeLogger()
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            emitter=SimpleNamespace(
+                events=[],
+                emit=None,
+            ),
+            logger=logger,
+            runtime_remember_session_requested=True,
+            runtime_l3_session_memory="decision: keep current",
+            session_memory="decision: keep current",
+            runtime_memory_snapshots=[],
+        )
+
+        async def emit(event):
+            context.emitter.events.append(
+                event
+            )
+
+        context.emitter.emit = emit
+
+        updated_memory = await maybe_summarize_runtime_session_memory(
+            context=context,
+        )
+
+        self.assertEqual(
+            updated_memory,
+            "decision: keep current",
+        )
+        self.assertEqual(
+            service_client.calls,
+            [],
+        )
+        self.assertEqual(
+            context.runtime_memory_snapshots,
+            [],
+        )
+        self.assertTrue(
+            context.runtime_remember_session_requested,
+        )
+        self.assertEqual(
+            logger.runtime_logs,
+            [
+                "[MEMORY] L3 session save skipped: no snapshots",
+            ],
         )
 
     async def test_summarizer_usage_corrects_estimate_with_prompt_usage(self):
