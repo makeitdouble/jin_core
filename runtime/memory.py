@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import json
 import traceback
+from datetime import datetime
 from difflib import SequenceMatcher
 
 from clients.errors import (
@@ -22,6 +23,9 @@ from clients.response_extractor import (
 from runtime.state_sync import (
     refresh_runtime_state,
 )
+from runtime.context_contract import (
+    ContextContract,
+)
 from utils.tokens import (
     estimate_runtime_tokens,
 )
@@ -41,6 +45,9 @@ from runtime.memory_rules import (
 
 DEFAULT_RUNTIME_L2_MEMORY = ""
 DEFAULT_RUNTIME_L3_SESSION_MEMORY = ""
+L3_INPUT_TOKEN_TARGET_MAX = 6000
+L3_INPUT_TOKEN_RESERVE = 768
+L3_OUTPUT_MAX_TOKENS = 2048
 MIN_L2_TURNS = 3
 L2_PATCH_WINDOW = 5
 L2_REPEATED_KEY_THRESHOLD = 3
@@ -64,6 +71,111 @@ DURABLE_MEMORY_NEGATION_MARKERS = (
     "no longer",
     "invalid",
 )
+
+
+def build_runtime_summarizer_trusted_context(
+        context=None,
+) -> str:
+
+    timestamp = (
+        getattr(
+            context,
+            "timestamp",
+            "",
+        )
+        if context is not None
+        else ""
+    )
+    current_date = (
+        getattr(
+            context,
+            "current_date",
+            "",
+        )
+        if context is not None
+        else ""
+    )
+    current_time = (
+        getattr(
+            context,
+            "current_time",
+            "",
+        )
+        if context is not None
+        else ""
+    )
+    weekday = (
+        getattr(
+            context,
+            "weekday",
+            "",
+        )
+        if context is not None
+        else ""
+    )
+    year = (
+        getattr(
+            context,
+            "year",
+            None,
+        )
+        if context is not None
+        else None
+    )
+
+    now = None
+
+    if timestamp:
+        try:
+            now = datetime.fromisoformat(
+                str(timestamp).replace(
+                    "Z",
+                    "+00:00",
+                )
+            )
+        except ValueError:
+            now = None
+
+    if now is None:
+        now = datetime.now()
+        timestamp = timestamp or now.isoformat()
+
+    contract = ContextContract(
+        user_input="",
+        timestamp=str(timestamp),
+        current_date=str(
+            current_date
+            or now.date().isoformat()
+        ),
+        current_time=str(
+            current_time
+            or now.strftime("%H:%M:%S")
+        ),
+        weekday=str(
+            weekday
+            or now.strftime("%A")
+        ),
+        year=int(
+            year
+            or now.year
+        ),
+    )
+
+    return contract.to_runtime_xml()
+
+
+def build_runtime_summarizer_user_prompt(
+        *,
+        context=None,
+        prompt: str,
+) -> str:
+
+    return "\n\n".join([
+        build_runtime_summarizer_trusted_context(
+            context
+        ),
+        prompt,
+    ])
 
 
 def infer_memory_failure_reason(
@@ -636,6 +748,93 @@ def build_l3_session_memory_max_tokens(
     )
 
 
+class L3PromptBudgetExceeded(
+    RuntimeError,
+):
+
+    def __init__(
+            self,
+            diagnostic: dict,
+    ):
+
+        super().__init__(
+            "L3 session digest exceeds safe input budget"
+        )
+        self.diagnostic = diagnostic
+
+
+def get_l3_input_token_budget(
+        context_window: int | None,
+) -> int:
+
+    effective_context_window = (
+        context_window
+        or config.SERVICE_CONTEXT_WINDOW
+    )
+
+    return max(
+        1,
+        min(
+            L3_INPUT_TOKEN_TARGET_MAX,
+            effective_context_window
+            - L3_INPUT_TOKEN_RESERVE,
+        ),
+    )
+
+
+async def build_budgeted_l3_session_user_prompt(
+        *,
+        context,
+        system_prompt: str,
+        current_session_memory: str,
+        runtime_memory_snapshots: list[dict],
+        diff_history: list[dict],
+        runtime_l2_memory: str,
+        session_event_snapshots: list[dict],
+        context_window: int | None,
+) -> tuple[str, dict]:
+
+    target_budget = get_l3_input_token_budget(
+        context_window
+    )
+
+    for minimal in (
+            False,
+            True,
+    ):
+        raw_user_prompt = build_runtime_session_memory_user_prompt(
+            current_session_memory=current_session_memory,
+            runtime_memory_snapshots=runtime_memory_snapshots,
+            diff_history=diff_history,
+            runtime_l2_memory=runtime_l2_memory,
+            session_event_snapshots=session_event_snapshots,
+            minimal=minimal,
+        )
+        user_prompt = build_runtime_summarizer_user_prompt(
+            context=context,
+            prompt=raw_user_prompt,
+        )
+        input_tokens = estimate_runtime_tokens(
+            system_prompt=system_prompt,
+            user_input=user_prompt,
+        )
+        diagnostic = {
+            "minimal": minimal,
+            "context_window": context_window,
+            "input_tokens": input_tokens,
+            "target_budget": target_budget,
+            "prompt_chars": len(user_prompt),
+            "system_prompt_chars": len(system_prompt),
+        }
+
+        if input_tokens <= target_budget:
+            return user_prompt, diagnostic
+
+    raise L3PromptBudgetExceeded(
+        diagnostic
+    )
+
+
 async def log_runtime_summarizer_payload(
         context,
         *,
@@ -699,17 +898,20 @@ async def ask_runtime_memory_model(
     system_prompt = (
         build_runtime_memory_system_prompt()
     )
-    user_prompt = (
-        build_runtime_memory_user_prompt(
-            current_memory=current_memory,
-            user_message=user_message,
-            assistant_message=assistant_message,
-            current_l2_memory=getattr(
-                context,
-                "runtime_l2_memory",
-                "",
-            ),
-        )
+    user_prompt = build_runtime_summarizer_user_prompt(
+        context=context,
+        prompt=(
+            build_runtime_memory_user_prompt(
+                current_memory=current_memory,
+                user_message=user_message,
+                assistant_message=assistant_message,
+                current_l2_memory=getattr(
+                    context,
+                    "runtime_l2_memory",
+                    "",
+                ),
+            )
+        ),
     )
 
     await refresh_runtime_memory_summarizer_usage(
@@ -767,16 +969,19 @@ async def ask_runtime_memory_batch_model(
     system_prompt = (
         build_runtime_memory_system_prompt()
     )
-    user_prompt = (
-        build_runtime_memory_batch_user_prompt(
-            current_memory=current_memory,
-            turns=turns,
-            current_l2_memory=getattr(
-                context,
-                "runtime_l2_memory",
-                "",
-            ),
-        )
+    user_prompt = build_runtime_summarizer_user_prompt(
+        context=context,
+        prompt=(
+            build_runtime_memory_batch_user_prompt(
+                current_memory=current_memory,
+                turns=turns,
+                current_l2_memory=getattr(
+                    context,
+                    "runtime_l2_memory",
+                    "",
+                ),
+            )
+        ),
     )
 
     await refresh_runtime_memory_summarizer_usage(
@@ -902,8 +1107,21 @@ async def ask_runtime_session_memory_model(
     system_prompt = (
         build_runtime_session_memory_system_prompt()
     )
-    user_prompt = (
-        build_runtime_session_memory_user_prompt(
+
+    resolve_request_context_window = getattr(
+        service_client,
+        "resolve_request_context_window",
+        None,
+    )
+    detected_context_window = None
+
+    if resolve_request_context_window is not None:
+        detected_context_window = await resolve_request_context_window()
+
+    user_prompt, _prompt_diagnostic = (
+        await build_budgeted_l3_session_user_prompt(
+            context=context,
+            system_prompt=system_prompt,
             current_session_memory=current_session_memory,
             runtime_memory_snapshots=runtime_memory_snapshots,
             diff_history=diff_history,
@@ -920,18 +1138,9 @@ async def ask_runtime_session_memory_model(
                 )
                 or []
             ),
+            context_window=detected_context_window,
         )
     )
-
-    resolve_request_context_window = getattr(
-        service_client,
-        "resolve_request_context_window",
-        None,
-    )
-    detected_context_window = None
-
-    if resolve_request_context_window is not None:
-        detected_context_window = await resolve_request_context_window()
 
     await refresh_runtime_memory_summarizer_usage(
         context,
@@ -948,6 +1157,10 @@ async def ask_runtime_session_memory_model(
         user_prompt=user_prompt,
         context_window=detected_context_window,
     )
+    max_tokens = min(
+        max_tokens,
+        L3_OUTPUT_MAX_TOKENS,
+    )
 
     await log_runtime_summarizer_payload(
         context,
@@ -960,7 +1173,6 @@ async def ask_runtime_session_memory_model(
             max_tokens=max_tokens,
         ),
     )
-
     response = await ask_service_model(
         client=service_client,
         system_prompt=system_prompt,
@@ -1734,6 +1946,35 @@ async def maybe_summarize_runtime_session_memory(
 
     except asyncio.CancelledError:
         raise
+
+    except L3PromptBudgetExceeded as error:
+        await safe_call(
+            getattr(
+                getattr(
+                    context,
+                    "logger",
+                    None,
+                ),
+                "log_error",
+                None,
+            ),
+            "[MEMORY] L3 session memory update skipped",
+            details=(
+                "Reason: compact digest still exceeds safe input budget.\n\n"
+                + json.dumps(
+                    error.diagnostic,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            ),
+        )
+
+        await emit_runtime_action_completed(
+            context,
+            action="remember_session",
+        )
+
+        return current_session_memory
 
     except Exception as error:
         formatted_traceback = (

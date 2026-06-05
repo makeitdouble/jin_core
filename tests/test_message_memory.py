@@ -314,6 +314,22 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertIn(
+            "Treat TRUSTED_RUNTIME_CONTEXT timestamp as the source of truth for current time",
+            prompt,
+        )
+        self.assertIn(
+            "Do not write bare \"today\" into durable or restored memory",
+            prompt,
+        )
+        self.assertIn(
+            "On 2026-06-05, user requested not to discuss past topics for the rest of that day",
+            prompt,
+        )
+        self.assertIn(
+            "If the exact date cannot be inferred, write \"relative to current session\"",
+            prompt,
+        )
+        self.assertIn(
             "store the value with a self-describing purpose",
             prompt,
         )
@@ -1247,6 +1263,73 @@ class MessageMemoryTests(
             "The user is testing live runtime memory.",
         )
 
+    async def test_l1_summarizer_receives_trusted_timestamp_for_relative_time(self):
+
+        service_client = FakeServiceClient(
+            (
+                "temporary_preference: On 2026-06-05, user requested "
+                "not to discuss past topics for the rest of that day.\n"
+                "last_jin_response: Acknowledged the fresh-topic preference."
+            )
+        )
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            emitter=SimpleNamespace(
+                events=[],
+                emit=None,
+            ),
+            logger=FakeLogger(),
+            runtime_memory="",
+            runtime_memory_updates=0,
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
+            runtime_l2_memory="",
+            session_id="test-session",
+            timestamp="2026-06-05T13:38:50",
+            current_date="2026-06-05",
+            current_time="13:38:50",
+            weekday="Friday",
+            year=2026,
+        )
+
+        async def emit(event):
+            context.emitter.events.append(
+                event
+            )
+
+        context.emitter.emit = emit
+
+        updated_memory = await summarize_runtime_memory(
+            context=context,
+            user_message="сегодня не хочу обсуждать прошлые темы",
+            assistant_message="Хорошо, выберем свежую тему.",
+        )
+
+        user_prompt = service_client.calls[0]["user_prompt"]
+
+        self.assertIn(
+            "<TRUSTED_RUNTIME_CONTEXT>",
+            user_prompt,
+        )
+        self.assertIn(
+            "<TIMESTAMP>2026-06-05T13:38:50</TIMESTAMP>",
+            user_prompt,
+        )
+        self.assertLess(
+            user_prompt.index("<TRUSTED_RUNTIME_CONTEXT>"),
+            user_prompt.index("Current runtime memory:"),
+        )
+        self.assertNotIn(
+            "today",
+            updated_memory.lower(),
+        )
+        self.assertIn(
+            "On 2026-06-05, user requested not to discuss past topics for the rest of that day",
+            updated_memory,
+        )
+
     async def test_summarizer_preserves_durable_fact_keys(self):
 
         service_client = FakeServiceClient(
@@ -1759,6 +1842,7 @@ class MessageMemoryTests(
             session_event_snapshots=[
                 {
                     "memory_type": "session_event_snapshot",
+                    "initiated_by": "user",
                     "assistant_response": "x" * 1200,
                 }
             ],
@@ -1780,15 +1864,11 @@ class MessageMemoryTests(
         )
 
         self.assertIn(
-            "omitted_middle_snapshots: 18",
+            "omitted_middle_snapshots: 24",
             prompt,
         )
         self.assertIn(
             "topic: snapshot 0",
-            prompt,
-        )
-        self.assertIn(
-            "topic: snapshot 1",
             prompt,
         )
         self.assertIn(
@@ -1800,11 +1880,88 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertIn(
-            "omitted_older_diffs: 16",
+            "omitted_older_diffs: 32",
             prompt,
         )
         self.assertIn(
             "<truncated>",
+            prompt,
+        )
+
+    def test_l3_session_memory_prompt_uses_compact_digest_not_raw_archive(self):
+
+        prompt = build_runtime_session_memory_user_prompt(
+            current_session_memory="\n".join(
+                f"old narrative {index}: {'a' * 300}"
+                for index in range(20)
+            ),
+            runtime_l2_memory="\n".join(
+                f"stale l2 archive {index}: {'b' * 200}"
+                for index in range(20)
+            ),
+            session_event_snapshots=[
+                {
+                    "memory_type": "session_event_snapshot",
+                    "assistant_response": "c" * 1000,
+                }
+                for _index in range(10)
+            ],
+            runtime_memory_snapshots=[
+                {
+                    "index": index,
+                    "raw_memory": (
+                        f"decision: keep snapshot {index}\n"
+                        f"narrative: {'d' * 1200}"
+                    ),
+                    "total_diff": index,
+                }
+                for index in range(12)
+            ],
+            diff_history=[
+                {
+                    "snapshot_index": index,
+                    "total_diff": index,
+                    "changes": {
+                        "changed": [
+                            {
+                                "previous_key": "narrative",
+                                "previous_value": "e" * 1000,
+                                "current_key": "decision",
+                                "current_value": "f" * 1000,
+                            }
+                        ],
+                    },
+                }
+                for index in range(20)
+            ],
+        )
+
+        self.assertIn(
+            "L3 compact digest minimal: False",
+            prompt,
+        )
+        self.assertIn(
+            "Compact L2 pattern context:",
+            prompt,
+        )
+        self.assertNotIn(
+            "Current L2 pattern memory for context only:",
+            prompt,
+        )
+        self.assertLessEqual(
+            prompt.count("snapshot:"),
+            6,
+        )
+        self.assertNotIn(
+            "c" * 500,
+            prompt,
+        )
+        self.assertNotIn(
+            "e" * 500,
+            prompt,
+        )
+        self.assertIn(
+            "omitted_older_diffs:",
             prompt,
         )
 
@@ -1862,6 +2019,22 @@ class MessageMemoryTests(
         )
         self.assertIn(
             "keep their keys stable and change only values that were explicitly corrected or superseded",
+            prompt,
+        )
+        self.assertIn(
+            "Treat TRUSTED_RUNTIME_CONTEXT timestamp as the source of truth for current time",
+            prompt,
+        )
+        self.assertIn(
+            "L3 must convert relative temporal phrases from L1 snapshots into absolute or session-relative phrases",
+            prompt,
+        )
+        self.assertIn(
+            "must not contain ambiguous standalone words like today, now, or recently",
+            prompt,
+        )
+        self.assertIn(
+            "temporary_preference: User requested X for 2026-06-05 only; expires after that date unless renewed",
             prompt,
         )
 
@@ -1948,6 +2121,11 @@ class MessageMemoryTests(
             runtime_session_memory_updates=0,
             runtime_session_event_snapshots=[],
             runtime_l2_memory="",
+            timestamp="2026-06-05T13:38:50",
+            current_date="2026-06-05",
+            current_time="13:38:50",
+            weekday="Friday",
+            year=2026,
             runtime_l1_diff_history=[
                 {
                     "snapshot_index": 1,
@@ -2006,6 +2184,18 @@ class MessageMemoryTests(
             "decision: final direction",
             service_client.calls[0]["user_prompt"],
         )
+        self.assertIn(
+            "<TIMESTAMP>2026-06-05T13:38:50</TIMESTAMP>",
+            service_client.calls[0]["user_prompt"],
+        )
+        self.assertLess(
+            service_client.calls[0]["user_prompt"].index(
+                "<TRUSTED_RUNTIME_CONTEXT>"
+            ),
+            service_client.calls[0]["user_prompt"].index(
+                "Current L3 session memory:"
+            ),
+        )
         self.assertEqual(
             service_client.calls[0]["timeout"],
             config.SERVICE_REQUEST_TIMEOUT,
@@ -2032,6 +2222,79 @@ class MessageMemoryTests(
                 "action": "remember_session",
                 "status": "completed",
             },
+        )
+
+    async def test_l3_session_memory_skips_when_minimal_digest_exceeds_budget(self):
+
+        class TinyContextServiceClient(FakeServiceClient):
+
+            async def resolve_request_context_window(self):
+                return 600
+
+        service_client = TinyContextServiceClient(
+            "should not be called"
+        )
+        logger = FakeLogger()
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            emitter=SimpleNamespace(
+                events=[],
+                emit=None,
+            ),
+            logger=logger,
+            runtime_remember_session_requested=True,
+            runtime_l3_session_memory="decision: keep current",
+            session_memory="decision: keep current",
+            session_memory_source="",
+            runtime_session_memory_updates=0,
+            runtime_session_event_snapshots=[],
+            runtime_l2_memory="",
+            runtime_l1_diff_history=[],
+            runtime_memory_snapshots=[
+                {
+                    "index": 0,
+                    "raw_memory": "decision: keep latest",
+                    "total_diff": 1,
+                }
+            ],
+        )
+
+        async def emit(event):
+            context.emitter.events.append(
+                event
+            )
+
+        context.emitter.emit = emit
+
+        updated_memory = await maybe_summarize_runtime_session_memory(
+            context=context,
+        )
+
+        self.assertEqual(
+            updated_memory,
+            "decision: keep current",
+        )
+        self.assertEqual(
+            service_client.calls,
+            [],
+        )
+        self.assertEqual(
+            context.emitter.events[-1],
+            {
+                "type": "runtime_action",
+                "action": "remember_session",
+                "status": "completed",
+            },
+        )
+        self.assertEqual(
+            logger.errors[-1][0],
+            "[MEMORY] L3 session memory update skipped",
+        )
+        self.assertIn(
+            "compact digest still exceeds safe input budget",
+            logger.errors[-1][1],
         )
 
     async def test_summarizer_usage_corrects_estimate_with_prompt_usage(self):

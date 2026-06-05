@@ -8,6 +8,7 @@ from runtime import (
     DEEP_THOUGHT_ACTION,
     REMEMBER_EVENT_ACTION,
     REMEMBER_SESSION_ACTION,
+    REMEMBER_SESSION_ACTION_ENABLED,
     WEB_SEARCH_ACTION_CLOSE,
     WEB_SEARCH_ACTION_OPEN,
     WEB_SEARCH_ACTION_TEMPLATE,
@@ -41,7 +42,7 @@ class RuntimeActionTests(unittest.TestCase):
     def test_extracts_and_applies_remember_session_marker(self):
 
         result = extract_runtime_actions(
-            f"before {REMEMBER_SESSION_ACTION} after",
+            f"before {REMEMBER_SESSION_ACTION_ENABLED} after",
             enabled_actions=[
                 "CAN_REMEMBER_SESSION",
             ],
@@ -56,10 +57,46 @@ class RuntimeActionTests(unittest.TestCase):
             1,
         )
 
-    def test_extracts_spaced_remember_session_marker(self):
+    def test_ignores_default_disabled_remember_session_marker(self):
 
         result = extract_runtime_actions(
-            "before <RUNTIME ACTION:REMEMBER SESSION/> after",
+            f"before {REMEMBER_SESSION_ACTION} after",
+            enabled_actions=[
+                "CAN_REMEMBER_SESSION",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "before  after",
+        )
+        self.assertEqual(
+            result.count("REMEMBER_SESSION"),
+            0,
+        )
+
+    def test_ignores_legacy_unattributed_remember_session_marker(self):
+
+        result = extract_runtime_actions(
+            "before <RUNTIME_ACTION:REMEMBER_SESSION/> after",
+            enabled_actions=[
+                "CAN_REMEMBER_SESSION",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "before  after",
+        )
+        self.assertEqual(
+            result.count("REMEMBER_SESSION"),
+            0,
+        )
+
+    def test_extracts_spaced_enabled_remember_session_marker(self):
+
+        result = extract_runtime_actions(
+            'before <RUNTIME ACTION:REMEMBER SESSION enabled="true"/> after',
             enabled_actions=[
                 "CAN_REMEMBER_SESSION",
             ],
@@ -79,7 +116,7 @@ class RuntimeActionTests(unittest.TestCase):
         result = extract_runtime_actions(
             (
                 "before\n"
-                f"  {REMEMBER_SESSION_ACTION}\n"
+                f"  {REMEMBER_SESSION_ACTION_ENABLED}\n"
                 "after"
             ),
             enabled_actions=[
@@ -101,7 +138,7 @@ class RuntimeActionTests(unittest.TestCase):
         result = extract_runtime_actions(
             (
                 "before\n"
-                f"{REMEMBER_SESSION_ACTION}\n"
+                f"{REMEMBER_SESSION_ACTION_ENABLED}\n"
                 "\n"
                 "   \n"
                 "after"
@@ -125,7 +162,7 @@ class RuntimeActionTests(unittest.TestCase):
         result = extract_runtime_actions(
             (
                 "I should not emit "
-                f"{REMEMBER_SESSION_ACTION} now."
+                f"{REMEMBER_SESSION_ACTION_ENABLED} now."
             ),
             enabled_actions=[
                 "CAN_REMEMBER_SESSION",
@@ -220,7 +257,7 @@ class RuntimeActionTests(unittest.TestCase):
         )
 
         result = stream_filter.filter(
-            "before <RUNTIME ACTION:REMEMBER SESSION/> after"
+            'before <RUNTIME ACTION:REMEMBER SESSION enabled="true"/> after'
         )
 
         self.assertEqual(
@@ -267,6 +304,42 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             stream_filter.flush(),
             "",
+        )
+
+    def test_stream_filter_handles_split_enabled_remember_session_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_REMEMBER_SESSION",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "before <RUNTIME_ACTION:REMEMBER_SESSION enabled=\"tr"
+        )
+
+        second = stream_filter.filter(
+            "ue\"/> after"
+        )
+
+        self.assertEqual(
+            first.text,
+            "before ",
+        )
+
+        self.assertEqual(
+            first.count("REMEMBER_SESSION"),
+            0,
+        )
+
+        self.assertEqual(
+            second.text,
+            " after",
+        )
+
+        self.assertEqual(
+            second.count("REMEMBER_SESSION"),
+            1,
         )
 
     def test_stream_filter_flushes_false_partial(self):

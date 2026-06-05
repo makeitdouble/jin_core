@@ -181,6 +181,12 @@ class RuntimeClient:
             if model_id == self.model_uid:
                 return model
 
+            if self.model_uid in model_id or model_id in self.model_uid:
+                return model
+
+            if len(models) == 1:
+                return models[0]
+
         return None
 
     async def detect_context_window(self) -> int | None:

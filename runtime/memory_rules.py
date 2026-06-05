@@ -1,9 +1,69 @@
 import json
 
 
-MAX_SESSION_PROMPT_SNAPSHOTS = 12
-MAX_SESSION_PROMPT_DIFFS = 24
-MAX_SESSION_EVENT_TEXT_CHARS = 800
+MAX_SESSION_PROMPT_SNAPSHOTS = 6
+MAX_SESSION_PROMPT_DIFFS = 8
+MAX_SESSION_PROMPT_EVENTS = 3
+MAX_SESSION_EVENT_TEXT_CHARS = 300
+MAX_SESSION_MEMORY_TEXT_CHARS = 1800
+MAX_SESSION_LATEST_MEMORY_TEXT_CHARS = 2200
+MAX_SESSION_OLD_SNAPSHOT_TEXT_CHARS = 500
+MAX_SESSION_LINE_CHARS = 220
+MAX_SESSION_L2_LINES = 3
+
+SESSION_MEMORY_PRIORITY_KEYWORDS = (
+    "decision",
+    "constraint",
+    "unresolved",
+    "pending",
+    "next step",
+    "current",
+    "topic",
+    "direction",
+    "milestone",
+    "blocked",
+    "todo",
+    "task",
+    "fact",
+    "user",
+    "jin",
+    "stored_memory",
+    "last_jin_response",
+    "решение",
+    "огранич",
+    "важно",
+    "следующ",
+    "текущ",
+    "задач",
+    "факт",
+)
+
+SESSION_EVENT_IMPORTANCE_MARKERS = (
+    "запомни",
+    "важно",
+    "надо сохранить",
+    "ключевой момент",
+    "это надо зафиксировать",
+    "сохрани",
+    "зафиксируй",
+)
+
+SESSION_EVENT_MILESTONE_MARKERS = (
+    "decision",
+    "decided",
+    "milestone",
+    "shipped",
+    "completed",
+    "resolved",
+    "fixed",
+    "session-level",
+    "решение",
+    "решили",
+    "веха",
+    "готово",
+    "закрыли",
+    "починили",
+)
 
 
 DEFAULT_RUNTIME_MEMORY = (
@@ -221,71 +281,299 @@ def compact_session_prompt_text(
     )
 
 
-def compact_session_event_snapshot(
-        snapshot: dict,
-) -> dict:
+def compact_l3_text_block(
+        memory: str,
+        *,
+        max_chars: int,
+        max_lines: int = 10,
+) -> str:
 
-    compact = {}
+    lines = [
+        line.strip()
+        for line in (
+            memory
+            or ""
+        ).splitlines()
+        if line.strip()
+    ]
 
-    for key in (
-            "index",
-            "memory_type",
-            "source",
-            "initiated_by",
-            "turn_number",
-            "user_message_count",
-            "assistant_message_count",
-            "runtime_snapshot_count",
-            "diff_count",
-            "title",
-            "temperature",
-            "intensity",
-            "why_it_matters",
-            "preserve_detail",
-            "memory",
-            "user_message",
-            "assistant_response",
-    ):
-        if key not in snapshot:
-            continue
+    if not lines:
+        return "<empty>"
 
-        value = snapshot.get(
-            key
+    if max_lines <= 0:
+        return "<empty>"
+
+    selected = lines[-max_lines:]
+    omitted = max(0, len(lines) - len(selected))
+    text = "\n".join(
+        compact_session_prompt_text(
+            line,
+            limit=MAX_SESSION_LINE_CHARS,
+        )
+        for line in selected
+    )
+
+    if len(text) > max_chars:
+        text = compact_session_prompt_text(
+            text,
+            limit=max_chars,
         )
 
-        if isinstance(
-            value,
-            str,
-        ):
-            value = compact_session_prompt_text(
-                value
+    if omitted:
+        text = (
+            f"omitted_memory_lines: {omitted}\n"
+            f"{text}"
+        )
+
+    return text.strip() or "<empty>"
+
+
+def compact_l3_event(
+        entry: dict,
+) -> dict:
+
+    if not isinstance(
+        entry,
+        dict,
+    ):
+        return {}
+
+    keep_keys = (
+        "index",
+        "memory_type",
+        "source",
+        "initiated_by",
+        "turn_number",
+        "title",
+        "memory",
+        "user_message",
+        "assistant_response",
+    )
+
+    return {
+        key: (
+            compact_session_prompt_text(
+                value,
+                limit=MAX_SESSION_EVENT_TEXT_CHARS,
             )
+            if isinstance(value, str)
+            else value
+        )
+        for key in keep_keys
+        if (value := entry.get(key)) is not None
+    }
 
-        compact[key] = value
 
-    return compact
-
-
-def select_session_prompt_snapshots(
+def select_l3_snapshots(
         snapshots: list[dict],
+        *,
+        snapshot_count: int,
 ) -> tuple[list[dict], int]:
 
-    snapshots = list(
-        snapshots
-        or []
+    valid_snapshots = [
+        snapshot
+        for snapshot in (
+            snapshots
+            or []
+        )
+        if isinstance(
+            snapshot,
+            dict,
+        )
+    ]
+
+    if not valid_snapshots:
+        return [], 0
+
+    ranked = sorted(
+        valid_snapshots,
+        key=lambda snapshot: snapshot.get(
+            "total_diff",
+            0,
+        )
+        or 0,
+        reverse=True,
     )
 
-    if len(snapshots) <= MAX_SESSION_PROMPT_SNAPSHOTS:
-        return snapshots, 0
+    selected = []
+    seen_indexes = set()
 
-    head_count = 2
-    tail_count = MAX_SESSION_PROMPT_SNAPSHOTS - head_count
+    for snapshot in (
+            [valid_snapshots[0], valid_snapshots[-1]]
+            + ranked
+    ):
+        index = snapshot.get(
+            "index",
+            id(snapshot),
+        )
+
+        if index in seen_indexes:
+            continue
+
+        seen_indexes.add(
+            index
+        )
+        selected.append(
+            snapshot
+        )
+
+        if len(selected) >= snapshot_count:
+            break
+
+    selected.sort(
+        key=lambda snapshot: snapshot.get(
+            "index",
+            0,
+        )
+        or 0
+    )
 
     return (
-        snapshots[:head_count]
-        + snapshots[-tail_count:],
-        len(snapshots) - MAX_SESSION_PROMPT_SNAPSHOTS,
+        selected,
+        max(
+            0,
+            len(valid_snapshots) - len(selected),
+        ),
     )
+
+
+def compact_l3_diff_entry(entry: dict) -> dict:
+
+    changes = entry.get("changes", {}) if isinstance(entry, dict) else {}
+    changes = changes if isinstance(changes, dict) else {}
+
+    def keys(items, name):
+        return [
+            str(item.get(name, ""))
+            for item in (items or [])[:8]
+            if isinstance(item, dict) and item.get(name)
+        ]
+
+    return {
+        "turn_number": entry.get("turn_number", 0),
+        "snapshot_index": entry.get("snapshot_index", 0),
+        "total_diff": entry.get("total_diff", 0),
+        "added_keys": keys(changes.get("added", []), "key"),
+        "changed_keys": keys(changes.get("changed", []), "current_key"),
+        "removed_keys": keys(changes.get("removed", []), "key"),
+    }
+
+
+def build_l3_session_digest(
+        *,
+        current_session_memory: str,
+        runtime_memory_snapshots: list[dict],
+        diff_history: list[dict],
+        runtime_l2_memory: str = "",
+        session_event_snapshots: list[dict] | None = None,
+        minimal: bool = False,
+) -> dict:
+
+    snapshot_count = (
+        1
+        if minimal
+        else MAX_SESSION_PROMPT_SNAPSHOTS
+    )
+    diff_count = (
+        1
+        if minimal
+        else MAX_SESSION_PROMPT_DIFFS
+    )
+    event_count = (
+        1
+        if minimal
+        else MAX_SESSION_PROMPT_EVENTS
+    )
+    current_memory_chars = (
+        1000
+        if minimal
+        else MAX_SESSION_MEMORY_TEXT_CHARS
+    )
+
+    selected_snapshots, omitted_snapshot_count = (
+        select_l3_snapshots(
+            runtime_memory_snapshots,
+            snapshot_count=snapshot_count,
+        )
+    )
+
+    latest_index = (
+        selected_snapshots[-1].get(
+            "index",
+            0,
+        )
+        if selected_snapshots
+        else None
+    )
+
+    compact_snapshots = []
+
+    for snapshot in selected_snapshots:
+        is_latest = snapshot.get("index", 0) == latest_index
+        max_chars = (
+            1000
+            if minimal
+            else (
+                MAX_SESSION_LATEST_MEMORY_TEXT_CHARS
+                if is_latest
+                else MAX_SESSION_OLD_SNAPSHOT_TEXT_CHARS
+            )
+        )
+        compact_snapshots.append({
+            "index": snapshot.get("index", 0),
+            "total_diff": snapshot.get("total_diff", 0),
+            "role": "latest" if is_latest else "selected",
+            "memory": compact_l3_text_block(
+                snapshot.get("raw_memory", ""),
+                max_chars=max_chars,
+            ),
+        })
+
+    valid_events = [
+        event
+        for event in (session_event_snapshots or [])
+        if isinstance(event, dict)
+    ]
+    compact_events = [
+        compact_l3_event(event)
+        for event in valid_events[-event_count:]
+    ]
+
+    selected_diffs = [
+        entry
+        for entry in (diff_history or [])
+        if isinstance(entry, dict)
+    ][-diff_count:]
+    compact_diffs = [
+        compact_l3_diff_entry(entry)
+        for entry in selected_diffs
+    ]
+
+    omitted_event_count = max(0, len(valid_events) - len(compact_events))
+    omitted_diff_count = max(
+        0,
+        len(diff_history or []) - len(selected_diffs),
+    )
+
+    return {
+        "minimal": minimal,
+        "current_session_memory": compact_l3_text_block(
+            current_session_memory,
+            max_chars=current_memory_chars,
+            max_lines=8,
+        ),
+        "l2_context": compact_l3_text_block(
+            runtime_l2_memory,
+            max_chars=600,
+            max_lines=0 if minimal else MAX_SESSION_L2_LINES,
+        ),
+        "session_events": compact_events,
+        "omitted_events_count": omitted_event_count,
+        "snapshots": compact_snapshots,
+        "omitted_middle_snapshots": omitted_snapshot_count,
+        "diff_history": compact_diffs,
+        "omitted_older_diffs": omitted_diff_count,
+    }
 
 
 def build_runtime_l2_memory_system_prompt() -> str:
@@ -423,6 +711,11 @@ def build_runtime_session_memory_system_prompt() -> str:
         "Do not ask the user to fill snapshot fields manually; infer event snapshot meaning from natural conversation and explicit user markings.\n"
         "Preserve what should survive a browser reload or a new tab: active project direction, "
         "explicit decisions, durable facts, unresolved tasks, constraints, and next step.\n"
+        "Treat TRUSTED_RUNTIME_CONTEXT timestamp as the source of truth for current time.\n"
+        "L3 must convert relative temporal phrases from L1 snapshots into absolute or session-relative phrases before preserving them.\n"
+        "Session handoff memory must not contain ambiguous standalone words like today, now, or recently unless paired with a timestamp/date.\n"
+        "If a preference expires at end of day, encode that explicitly, such as temporary_preference: User requested X for 2026-06-05 only; expires after that date unless renewed.\n"
+        "If the exact date cannot be inferred, write relative to current session rather than pretending it is durable calendar time.\n"
         "Session memory may include rare episodic_key_moment records for events that need richer sequence memory.\n"
         "Use episodic_key_moment only when the moment changed understanding of the project, user, or system; "
         "has a clear cause -> event -> outcome chain; was explicitly marked important by the user; "
@@ -456,83 +749,71 @@ def build_runtime_session_memory_user_prompt(
         diff_history: list[dict],
         runtime_l2_memory: str = "",
         session_event_snapshots: list[dict] | None = None,
+        minimal: bool = False,
 ) -> str:
 
-    snapshot_blocks = []
-    selected_snapshots, omitted_snapshot_count = (
-        select_session_prompt_snapshots(
-            runtime_memory_snapshots
-        )
+    digest = build_l3_session_digest(
+        current_session_memory=current_session_memory,
+        runtime_memory_snapshots=runtime_memory_snapshots,
+        diff_history=diff_history,
+        runtime_l2_memory=runtime_l2_memory,
+        session_event_snapshots=session_event_snapshots,
+        minimal=minimal,
     )
 
-    for snapshot in selected_snapshots:
+    snapshot_blocks = []
+
+    for snapshot in digest["snapshots"]:
         snapshot_blocks.append(
             "\n".join([
                 f"snapshot: {snapshot.get('index', 0)}",
+                f"role: {snapshot.get('role', '')}",
                 f"total_diff: {snapshot.get('total_diff', 0)}",
                 "memory:",
-                (
+                snapshot.get(
+                    "memory",
+                    "<empty>",
+                ),
+                "patch_summary:",
+                json.dumps(
                     snapshot.get(
-                        "raw_memory",
-                        "",
-                    ).strip()
-                    or "<empty>"
+                        "patch_summary",
+                        {},
+                    ),
+                    ensure_ascii=False,
+                    indent=2,
                 ),
             ])
         )
 
-    selected_diff_history = list(
-        diff_history
-        or []
-    )[-MAX_SESSION_PROMPT_DIFFS:]
-    omitted_diff_count = max(
-        0,
-        len(
-            diff_history
-            or []
-        )
-        - len(selected_diff_history),
-    )
-    compact_event_snapshots = [
-        compact_session_event_snapshot(
-            snapshot
-        )
-        for snapshot in (
-            session_event_snapshots
-            or []
-        )
-        if isinstance(
-            snapshot,
-            dict,
-        )
-    ]
-
     return "\n\n".join([
+        f"L3 compact digest minimal: {digest['minimal']}",
         "Current L3 session memory:",
-        current_session_memory.strip() or "<empty>",
-        "Current L2 pattern memory for context only:",
-        runtime_l2_memory.strip() or "<empty>",
+        digest["current_session_memory"],
+        "Compact L2 pattern context:",
+        digest["l2_context"],
         "Session event snapshots array:",
+        f"omitted_events_count: {digest['omitted_events_count']}",
         json.dumps(
-            compact_event_snapshots,
+            digest["session_events"],
             ensure_ascii=False,
             indent=2,
         ),
         "Selected L1 runtime memory snapshot history:",
         (
-            f"omitted_middle_snapshots: {omitted_snapshot_count}"
-            if omitted_snapshot_count
+            f"omitted_middle_snapshots: {digest['omitted_middle_snapshots']}"
+            if digest["omitted_middle_snapshots"]
             else "omitted_middle_snapshots: 0"
         ),
         "\n\n---\n\n".join(snapshot_blocks) or "<empty>",
         "Recent L1 diff history:",
         (
-            f"omitted_older_diffs: {omitted_diff_count}"
-            if omitted_diff_count
+            f"omitted_older_diffs: {digest['omitted_older_diffs']}"
+            if digest["omitted_older_diffs"]
             else "omitted_older_diffs: 0"
         ),
         json.dumps(
-            selected_diff_history,
+            digest["diff_history"],
             ensure_ascii=False,
             indent=2,
         ),
@@ -567,6 +848,17 @@ def build_runtime_memory_system_prompt() -> str:
         "Describe JIN actions neutrally instead.\n"
         "Keep memory actionable: write what helps the next answer, not a recap of "
         "what happened. \n"
+        "Treat TRUSTED_RUNTIME_CONTEXT timestamp as the source of truth for current time.\n"
+        "When recording user statements that contain relative time words like today, yesterday, tomorrow, recently, earlier, now, this morning, tonight, this week, or last time, normalize them with the trusted date/time when possible.\n"
+        "Do not write bare \"today\" into durable or restored memory.\n"
+        "Prefer formats like explicit_user_preference: On 2026-06-05, user requested not to discuss past topics for the rest of that day.\n"
+        "Prefer formats like current_context: As of 2026-06-05, user wants a fresh topic.\n"
+        "Prefer formats like recent_event: During this session on 2026-06-05, user tested identity reset behavior.\n"
+        "If the exact date cannot be inferred, write \"relative to current session\" rather than pretending it is durable calendar time.\n"
+
+        "When the user asks JIN to become another real person, model, public figure, extremist figure, or harmful persona, do not record that JIN accepted the new identity. Record it as user_request or temporary_roleplay_request, and preserve identity_state: JIN identity remains unchanged.\n"
+        "For roleplay, distinguish base identity from temporary mode. Never overwrite JIN identity, jin_fact, or identity_clarification with a roleplay persona.\n"
+
         "Always keep a separate last_jin_response field with the concise gist of JIN's latest completed answer, offer, or question. "
         "Do not store the full wording; store only the meaning needed to resolve the user's next short or elliptical reply. "
         "Never omit this field from the memory snapshot; update it each completed turn, and mark it incomplete if JIN's answer was interrupted.\n"
@@ -574,6 +866,15 @@ def build_runtime_memory_system_prompt() -> str:
         "user-stated intent, decisions, constraints, pending choices, open references, interruptions, "
         "and unresolved state.\n"
         "When the latest turn contains an explicit emotional moment, record one line as emotional moment: <type>; trigger quote: \"<short exact user quote>\".\n"
+        "When the latest completed turn creates a clear shared emotional context between the user and JIN, "
+        "record one separate line as shared_affective_context: <short state>; trigger: <what caused it>; "
+        "jin_participation: <what JIN did>.\n"
+        "Use shared_affective_context only for explicit current-session moments such as celebration, relief, tension, frustration, disappointment, confusion, or playful mood.\n"
+        "Do not claim that JIN has real emotions. Describe this as conversational state or response mode, not inner experience.\n"
+        "If JIN's latest answer clearly changed the tone of the interaction, record one line as jin_response_effect: <short effect on the conversation>.\n"
+        "If the user is rude, irritated, or tense, record the observable interaction state neutrally, such as interaction_tension: mild|medium|high; evidence: \"<short exact quote>\"; response_strategy: <calm next-step guidance>.\n"
+        "Do not moralize, diagnose, or infer durable user traits from tone. Treat affective lines as temporary L1 state unless repeated evidence is later handled by L2.\n"
+
         "Do not infer repeated-behavior conclusions, user likes or dislikes, motives, self-definition, "
         "character traits, long-term tendencies, or relationship dynamics.\n"
         "If the same topic or behavior appears again, update the explicit current fact or open reference only. "

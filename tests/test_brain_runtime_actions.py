@@ -16,6 +16,7 @@ from runtime import (
     DEEP_THOUGHT_ACTION,
     REMEMBER_EVENT_ACTION,
     REMEMBER_SESSION_ACTION,
+    REMEMBER_SESSION_ACTION_ENABLED,
     WEB_SEARCH_ACTION_TEMPLATE,
 )
 from utils.brain import (
@@ -37,7 +38,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                             "message": {
                                 "reasoning": (
                                     "I should not emit "
-                                    f"{REMEMBER_SESSION_ACTION} now."
+                                    f"{REMEMBER_SESSION_ACTION_ENABLED} now."
                                 ),
                                 "content": "ok",
                             },
@@ -89,7 +90,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                             "message": {
                                 "reasoning": (
                                     "The user asked to save. "
-                                    f"{REMEMBER_SESSION_ACTION}"
+                                    f"{REMEMBER_SESSION_ACTION_ENABLED}"
                                 ),
                                 "content": "ok",
                             },
@@ -135,14 +136,14 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     "type": "thinking",
                     "content": (
                         "The user asked to save. "
-                        f"{REMEMBER_SESSION_ACTION}"
+                        f"{REMEMBER_SESSION_ACTION_ENABLED}"
                     ),
                 }
                 yield {
                     "type": "thinking",
                     "content": (
                         "Again "
-                        f"{REMEMBER_SESSION_ACTION}"
+                        f"{REMEMBER_SESSION_ACTION_ENABLED}"
                     ),
                 }
                 yield {
@@ -205,14 +206,14 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     "type": "thinking",
                     "content": (
                         "The user asked to save. "
-                        f"{REMEMBER_SESSION_ACTION}"
+                        f"{REMEMBER_SESSION_ACTION_ENABLED}"
                     ),
                 },
                 {
                     "type": "thinking",
                     "content": (
                         "Again "
-                        f"{REMEMBER_SESSION_ACTION}"
+                        f"{REMEMBER_SESSION_ACTION_ENABLED}"
                     ),
                 },
             ],
@@ -415,6 +416,14 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         self.assertIn(
             REMEMBER_SESSION_ACTION,
+            prompt,
+        )
+        self.assertIn(
+            REMEMBER_SESSION_ACTION_ENABLED,
+            prompt,
+        )
+        self.assertIn(
+            "enabled=\"true\"",
             prompt,
         )
         self.assertIn(
