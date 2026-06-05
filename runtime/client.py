@@ -178,6 +178,13 @@ class RuntimeClient:
                 )
             )
 
+            if not model_id:
+                continue
+
+            model_id = str(
+                model_id
+            )
+
             if model_id == self.model_uid:
                 return model
 

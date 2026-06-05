@@ -2143,6 +2143,7 @@ class MessageMemoryTests(
                     "total_diff": 80,
                 },
             ],
+            runtime_memory_snapshot_index=1,
             runtime_memory_snapshots=[
                 {
                     "index": 0,
@@ -2182,6 +2183,10 @@ class MessageMemoryTests(
         self.assertEqual(
             context.runtime_memory_snapshots,
             [],
+        )
+        self.assertEqual(
+            context.runtime_memory_snapshot_index,
+            1,
         )
         self.assertEqual(
             context.session_memory_source,

@@ -293,14 +293,22 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             len(context.runtime_memory_snapshots),
-            1,
+            2,
         )
         self.assertEqual(
             context.runtime_memory_snapshots[0]["raw_memory"],
+            "session status: New session",
+        )
+        self.assertEqual(
+            context.runtime_memory_snapshots[1]["raw_memory"],
             "topic: restored runtime state",
         )
+        self.assertEqual(
+            context.runtime_memory_snapshot_index,
+            1,
+        )
 
-    async def test_session_bootstrap_restores_runtime_snapshot_index(self):
+    async def test_session_bootstrap_normalizes_restored_snapshot_index(self):
 
         context = SimpleNamespace(
             runtime_memory="session status: New session",
@@ -333,11 +341,19 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             context.runtime_memory_snapshot_index,
-            4,
+            1,
         )
         self.assertEqual(
             context.runtime_memory_snapshots[0]["index"],
-            4,
+            0,
+        )
+        self.assertEqual(
+            context.runtime_memory_snapshots[1]["index"],
+            1,
+        )
+        self.assertEqual(
+            len(context.runtime_memory_snapshots),
+            2,
         )
 
     async def test_runtime_session_memory_update_is_not_browser_persisted_by_default(self):

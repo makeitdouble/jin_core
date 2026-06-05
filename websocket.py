@@ -339,6 +339,26 @@ def apply_session_bootstrap(
         ) or "browser"
 
     if runtime_memory:
+        previous_runtime_memory = getattr(
+            context,
+            "runtime_memory",
+            "",
+        )
+
+        if not getattr(
+            context,
+            "runtime_memory_snapshots",
+            [],
+        ):
+            context.runtime_memory_snapshots = []
+            initial_snapshot = build_runtime_memory_snapshot(
+                context,
+                previous_runtime_memory,
+            )
+            context.runtime_memory_snapshots.append(
+                initial_snapshot
+            )
+
         context.runtime_memory = runtime_memory
         context.runtime_memory_stable = runtime_memory
 
@@ -362,36 +382,10 @@ def apply_session_bootstrap(
         ):
             pass
 
-        restored_index = 0
-
-        if isinstance(
-            runtime_snapshot,
-            dict,
-        ):
-            try:
-                restored_index = max(
-                    0,
-                    int(
-                        runtime_snapshot.get(
-                            "index",
-                            0,
-                        ) or 0
-                    ),
-                )
-            except (
-                TypeError,
-                ValueError,
-            ):
-                restored_index = 0
-
-        context.runtime_memory_snapshots = []
-
         restored_snapshot = build_runtime_memory_snapshot(
             context,
             context.runtime_memory,
         )
-
-        restored_snapshot["index"] = restored_index
 
         context.runtime_memory_snapshots.append(
             restored_snapshot

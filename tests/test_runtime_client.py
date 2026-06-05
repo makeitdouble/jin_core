@@ -194,6 +194,41 @@ class RuntimeClientTests(
             1,
         )
 
+    async def test_context_window_detection_skips_model_without_id(self):
+
+        http_client = FakeHttpClient(
+            models_payload={
+                "data": [
+                    {
+                        "context_length": 1024,
+                    },
+                    {
+                        "id": "test-model",
+                        "context_length": 8192,
+                    },
+                ]
+            }
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            configured_context_window=4096,
+            client=http_client,
+        )
+
+        await client.ask(
+            system_prompt="system",
+            user_prompt="user",
+            temperature=0.1,
+            max_tokens=100,
+        )
+
+        self.assertEqual(
+            client.detected_context_window,
+            8192,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
