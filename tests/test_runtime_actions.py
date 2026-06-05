@@ -4,6 +4,9 @@ import unittest
 from clients import (
     apply_runtime_action_calls,
 )
+from clients.brain_client import (
+    should_execute_remember_session,
+)
 from runtime import (
     DEEP_THOUGHT_ACTION,
     REMEMBER_EVENT_ACTION,
@@ -36,6 +39,297 @@ class RuntimeActionTests(unittest.TestCase):
 
         self.assertEqual(
             result.deep_thought_count,
+            1,
+        )
+
+    def test_extracts_internal_remember_session_request(self):
+
+        result = extract_runtime_actions(
+            "ok\nINTERNAL_ACTION: REMEMBER_SESSION",
+            enabled_actions=[
+                "CAN_REMEMBER_SESSION",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "ok\n",
+        )
+        self.assertEqual(
+            result.count("REMEMBER_SESSION"),
+            1,
+        )
+
+    def test_extracts_bracketed_web_search_marker(self):
+
+        result = extract_runtime_actions(
+            "<INTERNAL_ACTION_WEB_SEARCH:синий помидор>",
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "синий помидор",
+            ),
+        )
+
+    def test_extracts_bracketed_web_search_marker_inside_text(self):
+
+        result = extract_runtime_actions(
+            (
+                "Before\n"
+                "<INTERNAL_ACTION_WEB_SEARCH:синий помидор>\n"
+                "After"
+            ),
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertNotIn(
+            "INTERNAL_ACTION_WEB_SEARCH",
+            result.text,
+        )
+        self.assertIn(
+            "Before",
+            result.text,
+        )
+        self.assertIn(
+            "After",
+            result.text,
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "синий помидор",
+            ),
+        )
+
+    def test_ignores_placeholder_bracketed_web_search_marker(self):
+
+        for marker in (
+            "<INTERNAL_ACTION_WEB_SEARCH:plain text query>",
+            "<INTERNAL_ACTION_WEB_SEARCH:<plain text query>>",
+        ):
+
+            result = extract_runtime_actions(
+                marker,
+                enabled_actions=[
+                    "CAN_WEB_SEARCH",
+                ],
+            )
+
+            self.assertEqual(
+                result.text,
+                "",
+            )
+            self.assertEqual(
+                result.count("WEB_SEARCH"),
+                0,
+            )
+
+    def test_extracts_bracketed_deep_thought_marker(self):
+
+        result = extract_runtime_actions(
+            "<INTERNAL_ACTION_DEEP_THOUGHT>",
+            enabled_actions=[
+                "CAN_DEEP_THOUGHT",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.count("DEEP_THOUGHT"),
+            1,
+        )
+
+    def test_extracts_bracketed_remember_event_marker(self):
+
+        result = extract_runtime_actions(
+            "<INTERNAL_ACTION_REMEMBER_EVENT>",
+            enabled_actions=[
+                "CAN_REMEMBER_EVENT",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.count("REMEMBER_EVENT"),
+            1,
+        )
+
+    def test_extracts_internal_web_search_request(self):
+
+        result = extract_runtime_actions(
+            "checking\nINTERNAL_ACTION: WEB_SEARCH query: latest Python version",
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "checking\n",
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "latest Python version",
+            ),
+        )
+
+    def test_extracts_space_variant_internal_web_search_request(self):
+
+        result = extract_runtime_actions(
+            "INTERNAL ACTION: WEB_SEARCH query: синий помидор",
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "синий помидор",
+            ),
+        )
+
+    def test_extracts_bullet_internal_web_search_request(self):
+
+        result = extract_runtime_actions(
+            "* INTERNAL_ACTION: WEB_SEARCH query: синий помидор",
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "синий помидор",
+            ),
+        )
+
+    def test_extracts_bold_label_internal_web_search_request(self):
+
+        result = extract_runtime_actions(
+            "**INTERNAL_ACTION:** WEB_SEARCH query: синий помидор",
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "синий помидор",
+            ),
+        )
+
+    def test_extracts_backticked_internal_web_search_request(self):
+
+        result = extract_runtime_actions(
+            "`INTERNAL_ACTION: WEB_SEARCH query: синий помидор`",
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "синий помидор",
+            ),
+        )
+
+    def test_extracts_markdown_wrapped_internal_web_search_request(self):
+
+        result = extract_runtime_actions(
+            "thinking\n*INTERNAL_ACTION: WEB_SEARCH query: синий помидор*",
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "thinking\n",
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "синий помидор",
+            ),
+        )
+
+    def test_extracts_bare_query_line_as_private_web_search_request(self):
+
+        result = extract_runtime_actions(
+            "query: синий помидор",
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "синий помидор",
+            ),
+        )
+
+    def test_meta_tag_request_answer_does_not_execute_or_show_runtime_marker(self):
+
+        result = extract_runtime_actions(
+            (
+                "внутренние теги не показываю; для сохранения скажи "
+                "'сохрани сессию' или 'закончим'.\n"
+                "INTERNAL_ACTION: REMEMBER_SESSION"
+            ),
+            enabled_actions=[
+                "CAN_REMEMBER_SESSION",
+            ],
+        )
+
+        self.assertNotIn(
+            "<RUNTIME_ACTION",
+            result.text,
+        )
+        self.assertEqual(
+            result.count("REMEMBER_SESSION"),
             1,
         )
 
@@ -640,6 +934,123 @@ class RuntimeActionTests(unittest.TestCase):
             "",
         )
 
+    def test_stream_filter_holds_split_internal_search_query_line(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "query: с"
+        )
+
+        second = stream_filter.filter(
+            "иний помидор\n"
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.count("WEB_SEARCH"),
+            0,
+        )
+        self.assertEqual(
+            second.text,
+            "",
+        )
+        self.assertEqual(
+            second.search_queries,
+            (
+                "синий помидор",
+            ),
+        )
+        self.assertEqual(
+            stream_filter.flush(),
+            "",
+        )
+
+    def test_stream_filter_handles_split_bracketed_web_search_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "<INTERNAL_ACTION_WEB_SEARCH:си"
+        )
+
+        second = stream_filter.filter(
+            "ний помидор>"
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.count("WEB_SEARCH"),
+            0,
+        )
+        self.assertEqual(
+            second.text,
+            "",
+        )
+        self.assertEqual(
+            second.search_queries,
+            (
+                "синий помидор",
+            ),
+        )
+        self.assertEqual(
+            stream_filter.flush(),
+            "",
+        )
+
+    def test_stream_filter_holds_split_markdown_internal_search_request(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "*INTERNAL_ACTION: WEB_SEARCH query: с"
+        )
+
+        second = stream_filter.filter(
+            "иний помидор*"
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.count("WEB_SEARCH"),
+            0,
+        )
+        self.assertEqual(
+            second.text,
+            "",
+        )
+        self.assertEqual(
+            second.search_queries,
+            (
+                "синий помидор",
+            ),
+        )
+        self.assertEqual(
+            stream_filter.flush(),
+            "",
+        )
+
     def test_stream_filter_handles_split_tool_call_prefixed_search_action(self):
 
         stream_filter = RuntimeActionStreamFilter(
@@ -996,6 +1407,7 @@ class RuntimeActionTests(unittest.TestCase):
                         name="REMEMBER_SESSION",
                     ),
                 ),
+                user_message="сохрани сессию",
             )
         )
 
@@ -1046,6 +1458,7 @@ class RuntimeActionTests(unittest.TestCase):
                         name="REMEMBER_SESSION",
                     ),
                 ),
+                user_message="закончим",
             )
         )
 
@@ -1056,6 +1469,142 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             len(context.emitter.events),
             1,
+        )
+
+    def test_apply_runtime_action_calls_blocks_meta_tag_session_request(self):
+
+        class Context:
+            pass
+
+        context = Context()
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="REMEMBER_SESSION",
+                    ),
+                ),
+                user_message="напиши полный тег сохранения сессии",
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            0,
+        )
+        self.assertFalse(
+            getattr(
+                context,
+                "runtime_remember_session_requested",
+                False,
+            )
+        )
+
+    def test_bracketed_remember_session_marker_blocked_by_meta_request(self):
+
+        class Context:
+            pass
+
+        context = Context()
+
+        result = extract_runtime_actions(
+            "<INTERNAL_ACTION_REMEMBER_SESSION>",
+            enabled_actions=[
+                "CAN_REMEMBER_SESSION",
+            ],
+        )
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                result.actions,
+                user_message="напиши полный тег сохранения сессии",
+            )
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            applied_count,
+            0,
+        )
+        self.assertFalse(
+            getattr(
+                context,
+                "runtime_remember_session_requested",
+                False,
+            )
+        )
+
+    def test_bracketed_remember_session_marker_allowed_by_save_request(self):
+
+        class Context:
+            pass
+
+        context = Context()
+
+        result = extract_runtime_actions(
+            "<INTERNAL_ACTION_REMEMBER_SESSION>",
+            enabled_actions=[
+                "CAN_REMEMBER_SESSION",
+            ],
+        )
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                result.actions,
+                user_message="сохрани сессию",
+            )
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertTrue(
+            context.runtime_remember_session_requested,
+        )
+
+    def test_remember_session_guard_intents(self):
+
+        self.assertTrue(
+            should_execute_remember_session(
+                "сохрани сессию"
+            )
+        )
+        self.assertTrue(
+            should_execute_remember_session(
+                "закончим"
+            )
+        )
+        self.assertFalse(
+            should_execute_remember_session(
+                "напиши полный тег сохранения сессии"
+            )
+        )
+        self.assertFalse(
+            should_execute_remember_session(
+                "покажи точный тег для сохранения сессии"
+            )
+        )
+        self.assertFalse(
+            should_execute_remember_session(
+                "пример тега"
+            )
+        )
+        self.assertFalse(
+            should_execute_remember_session(
+                "забудь прошлое, сменим тему"
+            )
         )
 
     def test_extracts_remember_event_marker(self):

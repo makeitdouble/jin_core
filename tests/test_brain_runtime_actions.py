@@ -57,7 +57,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             answer = asyncio.run(
                 ask_brain(
                     client=FakeBrainClient(),
-                    text="save it later",
+                    text="сохрани сессию",
                     context=context,
                     runtime_actions={
                         "CAN_DEEP_THOUGHT": True,
@@ -89,8 +89,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
                         {
                             "message": {
                                 "reasoning": (
-                                    "The user asked to save. "
-                                    f"{REMEMBER_SESSION_ACTION_ENABLED}"
+                                    "The user asked to save.\n"
+                                    "<INTERNAL_ACTION_REMEMBER_SESSION>"
                                 ),
                                 "content": "ok",
                             },
@@ -135,15 +135,15 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 yield {
                     "type": "thinking",
                     "content": (
-                        "The user asked to save. "
-                        f"{REMEMBER_SESSION_ACTION_ENABLED}"
+                        "The user asked to save.\n"
+                        "<INTERNAL_ACTION_REMEMBER_SESSION>"
                     ),
                 }
                 yield {
                     "type": "thinking",
                     "content": (
-                        "Again "
-                        f"{REMEMBER_SESSION_ACTION_ENABLED}"
+                        "Again\n"
+                        "<INTERNAL_ACTION_REMEMBER_SESSION>"
                     ),
                 }
                 yield {
@@ -159,7 +159,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
             async for chunk in ask_brain_stream(
                 client=FakeBrainClient(),
-                text="save it later",
+                text="сохрани сессию",
                 context=context,
                 runtime_actions={
                     "CAN_DEEP_THOUGHT": True,
@@ -205,17 +205,101 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 {
                     "type": "thinking",
                     "content": (
-                        "The user asked to save. "
-                        f"{REMEMBER_SESSION_ACTION_ENABLED}"
+                        "The user asked to save.\n"
+                        "<INTERNAL_ACTION_REMEMBER_SESSION>"
                     ),
                 },
                 {
                     "type": "thinking",
                     "content": (
-                        "Again "
-                        f"{REMEMBER_SESSION_ACTION_ENABLED}"
+                        "Again\n"
+                        "<INTERNAL_ACTION_REMEMBER_SESSION>"
                     ),
                 },
+            ],
+        )
+
+    def test_stream_applies_web_search_internal_action_in_thinking_and_stops(self):
+
+        class FakeBrainClient:
+            async def stream(self, **_kwargs):
+                yield {
+                    "type": "thinking",
+                    "content": (
+                        "Need current data.\n"
+                        "<INTERNAL_ACTION_WEB_SEARCH:синий помидор>\n"
+                    ),
+                }
+                yield {
+                    "type": "content",
+                    "content": "синий помидор",
+                }
+
+        class Context:
+            pass
+
+        async def collect(context):
+            chunks = []
+
+            async for chunk in ask_brain_stream(
+                client=FakeBrainClient(),
+                text="поищи в интернете синий помидор",
+                context=context,
+                runtime_actions={
+                    "CAN_WEB_SEARCH": True,
+                    "CAN_REMEMBER_SESSION": True,
+                },
+            ):
+                chunks.append(
+                    chunk
+                )
+
+            return chunks
+
+        context = Context()
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            chunks = asyncio.run(
+                collect(
+                    context
+                )
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        self.assertEqual(
+            getattr(
+                context,
+                "runtime_search_queries",
+            ),
+            [
+                "синий помидор",
+            ],
+        )
+        self.assertEqual(
+            getattr(
+                context,
+                "runtime_action_events",
+            )[0]["name"],
+            "web_search",
+        )
+        self.assertEqual(
+            getattr(
+                context,
+                "runtime_action_events",
+            )[0]["query"],
+            "синий помидор",
+        )
+        self.assertFalse(
+            [
+                chunk
+                for chunk in chunks
+                if (
+                    chunk["type"] == "content"
+                    and chunk["content"] == "синий помидор"
+                )
             ],
         )
 
@@ -272,7 +356,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
 
-        self.assertIn(
+        self.assertNotIn(
             WEB_SEARCH_ACTION_TEMPLATE,
             prompt,
         )
@@ -280,7 +364,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         self.assertIn(
             (
                 '<ACTION name="WEB_SEARCH">'
-                f"{WEB_SEARCH_ACTION_TEMPLATE}"
+                "<INTERNAL_ACTION_WEB_SEARCH:plain text query>"
                 "</ACTION>"
             ),
             prompt,
@@ -345,7 +429,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
 
-        self.assertIn(
+        self.assertNotIn(
             DEEP_THOUGHT_ACTION,
             prompt,
         )
@@ -353,7 +437,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         self.assertIn(
             (
                 '<ACTION name="DEEP_THOUGHT">'
-                f"{DEEP_THOUGHT_ACTION}"
+                "<INTERNAL_ACTION_DEEP_THOUGHT>"
                 "</ACTION>"
             ),
             prompt,
@@ -399,7 +483,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "not another JSON object",
+            "not JSON",
             prompt,
         )
 
@@ -414,15 +498,15 @@ class BrainRuntimeActionTests(unittest.TestCase):
             }
         )
 
-        self.assertIn(
+        self.assertNotIn(
             REMEMBER_SESSION_ACTION,
             prompt,
         )
-        self.assertIn(
+        self.assertNotIn(
             REMEMBER_SESSION_ACTION_ENABLED,
             prompt,
         )
-        self.assertIn(
+        self.assertNotIn(
             "enabled=\"true\"",
             prompt,
         )
@@ -434,8 +518,20 @@ class BrainRuntimeActionTests(unittest.TestCase):
             '<ACTION name="REMEMBER_SESSION">',
             prompt,
         )
-        self.assertIn(
+        self.assertNotIn(
             REMEMBER_EVENT_ACTION,
+            prompt,
+        )
+        self.assertNotIn(
+            "<RUNTIME_ACTION",
+            prompt,
+        )
+        self.assertIn(
+            "<INTERNAL_ACTION_REMEMBER_SESSION>",
+            prompt,
+        )
+        self.assertIn(
+            "<INTERNAL_ACTION_REMEMBER_EVENT>",
             prompt,
         )
         self.assertIn(

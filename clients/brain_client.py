@@ -168,9 +168,114 @@ async def apply_deep_thought_calls(
     return call_count
 
 
+SAVE_SESSION_INTENT_MARKERS = (
+    "закончим",
+    "на сегодня все",
+    "на сегодня всё",
+    "я ухожу",
+    "заканчиваем",
+    "сохрани сессию",
+    "сохрани текущий разговор",
+    "запомни где остановились",
+    "подведи итог и закрой",
+    "save session",
+    "save this session",
+    "remember where we stopped",
+    "wrap up and save",
+)
+
+META_TAG_REQUEST_MARKERS = (
+    "покажи тег",
+    "напиши тег",
+    "полный тег",
+    "точный тег",
+    "пример тега",
+    "как выглядит тег",
+    "процитируй тег",
+    "show tag",
+    "write tag",
+    "exact tag",
+    "full tag",
+    "tag example",
+    "quote tag",
+)
+
+
+def _normalize_action_guard_text(
+    text: str,
+) -> str:
+
+    return (
+        text
+        or ""
+    ).casefold().replace(
+        "ё",
+        "е",
+    )
+
+
+def should_execute_remember_session(
+    user_message: str,
+) -> bool:
+
+    normalized_message = _normalize_action_guard_text(
+        user_message
+    )
+
+    if not normalized_message:
+        return False
+
+    has_meta_request = any(
+        _normalize_action_guard_text(
+            marker
+        ) in normalized_message
+        for marker in META_TAG_REQUEST_MARKERS
+    )
+
+    if has_meta_request:
+        return False
+
+    return any(
+        _normalize_action_guard_text(
+            marker
+        ) in normalized_message
+        for marker in SAVE_SESSION_INTENT_MARKERS
+    )
+
+
+def resolve_runtime_action_user_message(
+    context,
+    user_message: str | None = None,
+) -> str:
+
+    if user_message:
+        return user_message
+
+    if context is None:
+        return ""
+
+    for attr_name in (
+        "runtime_turn_user_message",
+        "original_user_input",
+        "user_input",
+    ):
+
+        value = getattr(
+            context,
+            attr_name,
+            "",
+        )
+
+        if value:
+            return value
+
+    return ""
+
+
 async def apply_runtime_action_calls(
     context,
     actions,
+    user_message: str | None = None,
 ) -> int:
 
     if (
@@ -209,6 +314,10 @@ async def apply_runtime_action_calls(
     )
     remember_event_seen = False
     deep_thought_seen = False
+    resolved_user_message = resolve_runtime_action_user_message(
+        context,
+        user_message,
+    )
 
     for action in actions:
 
@@ -223,6 +332,11 @@ async def apply_runtime_action_calls(
             continue
 
         if action.name == RUNTIME_ACTION_REMEMBER_SESSION:
+            if not should_execute_remember_session(
+                resolved_user_message
+            ):
+                continue
+
             if remember_session_seen:
                 continue
 
@@ -1064,6 +1178,7 @@ async def ask_brain(
                 extract_runtime_actions(
                     reasoning,
                     enabled_actions=thinking_actions,
+                    preserve_action_text=True,
                 )
             )
 
@@ -1080,6 +1195,7 @@ async def ask_brain(
                     reasoning_actions.actions
                     + content_actions.actions
                 ),
+                user_message=text,
             )
 
             return content_actions.text
@@ -1167,6 +1283,7 @@ async def ask_brain(
         reasoning_actions = extract_runtime_actions(
             reasoning,
             enabled_actions=thinking_actions,
+            preserve_action_text=True,
         )
 
         content_actions = extract_runtime_actions(
@@ -1180,12 +1297,16 @@ async def ask_brain(
                 reasoning_actions.actions
                 + content_actions.actions
             ),
+            user_message=text,
         )
 
         if content_actions.text:
             return content_actions.text
 
-        return reasoning_actions.text
+        return extract_runtime_actions(
+            reasoning,
+            enabled_actions=thinking_actions,
+        ).text
 
     except Exception as error:
 
@@ -1302,6 +1423,7 @@ async def ask_brain_stream(
             await apply_runtime_action_calls(
                 context,
                 non_deep_actions,
+                user_message=text,
             )
 
             stop_for_runtime_action = any(

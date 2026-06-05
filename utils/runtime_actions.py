@@ -134,6 +134,72 @@ KNOWN_RUNTIME_ACTIONS = tuple(
 
 TOOL_CALL_MARKER = "<|tool_call>"
 
+BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
+    (
+        r"<\s*INTERNAL_ACTION_"
+        r"(?P<name>DEEP_THOUGHT|WEB_SEARCH|REMEMBER_SESSION|REMEMBER_EVENT)"
+        r"(?:\s*:\s*(?P<query>[^>]*?))?"
+        r"\s*>+"
+    ),
+    re.IGNORECASE,
+)
+
+INTERNAL_ACTION_BLOCK_PATTERN = re.compile(
+    (
+        r"(?ims)^[ \t]*(?:<INTERNAL_ACTIONS>|INTERNAL_ACTIONS:)[ \t]*\r?\n"
+        r"(?P<body>.*?)"
+        r"^[ \t]*(?:</INTERNAL_ACTIONS>|END_INTERNAL_ACTIONS)[ \t]*(?:\r?\n)?"
+    )
+)
+
+INTERNAL_ACTION_LINE_PATTERN = re.compile(
+    (
+        r"(?im)^[ \t]*"
+        r"(?:[-*+]\s+)?"
+        r"(?P<prefix>[\*_`~]{0,3})\s*"
+        r"(?:INTERNAL[_\s]+ACTION|REQUEST[_\s]+ACTION|ACTION[_\s]+REQUEST)"
+        r"\s*:?\s*"
+        r"(?P<label_suffix>[\*_`~]{0,3})\s*"
+        r"(?P<name>DEEP_THOUGHT|WEB_SEARCH|REMEMBER_SESSION|REMEMBER_EVENT)"
+        r"(?:\s+(?:query|with\s+query)\s*:\s*(?P<query>[^\r\n]*?))?"
+        r"\s*(?P<suffix>[\*_`~]{0,3})[ \t]*(?:\r?\n|$)"
+    )
+)
+
+WEB_SEARCH_REQUEST_LINE_PATTERN = re.compile(
+    (
+        r"(?im)^[ \t]*"
+        r"(?:[-*+]\s+)?"
+        r"(?P<prefix>[\*_`~]{0,3})\s*"
+        r"(?:request\s+)?WEB_SEARCH"
+        r"\s+(?:query|with\s+query)\s*:\s*"
+        r"(?P<query>[^\r\n]*?)"
+        r"\s*(?P<suffix>[\*_`~]{0,3})[ \t]*(?:\r?\n|$)"
+    )
+)
+
+WEB_SEARCH_QUERY_LINE_PATTERN = re.compile(
+    (
+        r"(?im)^[ \t]*"
+        r"(?:[-*+]\s+)?"
+        r"(?P<prefix>[\*_`~]{0,3})\s*"
+        r"query\s*:\s*"
+        r"(?P<query>[^\r\n]*?)"
+        r"\s*(?P<suffix>[\*_`~]{0,3})[ \t]*(?:\r?\n|$)"
+    )
+)
+
+REQUEST_ACTION_LINE_PATTERN = re.compile(
+    (
+        r"(?im)^[ \t]*"
+        r"(?:[-*+]\s+)?"
+        r"(?P<prefix>[\*_`~]{0,3})\s*"
+        r"request\s+"
+        r"(?P<name>DEEP_THOUGHT|REMEMBER_SESSION|REMEMBER_EVENT)"
+        r"\s*(?P<suffix>[\*_`~]{0,3})[ \t]*(?:\r?\n|$)"
+    )
+)
+
 
 def build_runtime_action_id(
     action_name: str,
@@ -260,6 +326,276 @@ def normalize_runtime_action_names(
 
     return tuple(
         actions
+    )
+
+
+def _build_internal_action_call(
+    action_name: str,
+    query: str = "",
+) -> RuntimeActionCall | None:
+
+    normalized_name = normalize_runtime_action_name(
+        action_name
+    )
+
+    if normalized_name not in KNOWN_RUNTIME_ACTIONS:
+        return None
+
+    payload = ""
+
+    if normalized_name == RUNTIME_ACTION_WEB_SEARCH:
+        query = _clean_internal_action_query(
+            query
+        )
+
+        if not query:
+            return None
+
+        payload = json.dumps(
+            {
+                "query": query,
+            },
+            ensure_ascii=False,
+        )
+
+    return RuntimeActionCall(
+        name=normalized_name,
+        payload=payload,
+    )
+
+
+def _is_placeholder_internal_query(
+    query: str,
+) -> bool:
+
+    normalized_query = (
+        query
+        or ""
+    ).strip().casefold()
+
+    normalized_query = normalized_query.strip(
+        "`'\"<>"
+    ).strip()
+
+    return normalized_query in {
+        "",
+        "...",
+        "plain text query",
+        "<plain text query>",
+    }
+
+
+def _extract_bracketed_internal_action_markers(
+    text: str,
+    enabled_action_names: tuple[str, ...],
+    preserve_action_text: bool,
+) -> RuntimeActionResult:
+
+    actions = []
+
+    def replace_marker(match):
+
+        query = (
+            match.groupdict().get(
+                "query",
+                "",
+            )
+            or ""
+        ).strip()
+
+        action_name = normalize_runtime_action_name(
+            match.group(
+                "name"
+            )
+        )
+
+        if (
+            action_name == RUNTIME_ACTION_WEB_SEARCH
+            and _is_placeholder_internal_query(
+                query
+            )
+        ):
+            return (
+                match.group(0)
+                if preserve_action_text
+                else ""
+            )
+
+        action = _build_internal_action_call(
+            action_name,
+            query,
+        )
+
+        if (
+            action is not None
+            and action.name in enabled_action_names
+        ):
+            actions.append(
+                action
+            )
+
+        return (
+            match.group(0)
+            if preserve_action_text
+            else ""
+        )
+
+    clean_text = _replace_runtime_action_matches(
+        text,
+        BRACKETED_INTERNAL_ACTION_PATTERN,
+        replace_marker,
+    )
+
+    return RuntimeActionResult(
+        text=clean_text,
+        actions=tuple(
+            actions
+        ),
+    )
+
+
+def _clean_internal_action_query(
+    query: str,
+) -> str:
+
+    return (
+        query
+        or ""
+    ).strip().strip(
+        "*_`~"
+    ).strip()
+
+
+def _extract_internal_action_lines(
+    text: str,
+    enabled_action_names: tuple[str, ...],
+    preserve_action_text: bool,
+) -> tuple[str, list[RuntimeActionCall]]:
+
+    actions = []
+
+    def replace_line(match):
+
+        action = _build_internal_action_call(
+            match.group(
+                "name"
+            ),
+            match.groupdict().get(
+                "query",
+                "",
+            ),
+        )
+
+        if (
+            action is not None
+            and action.name in enabled_action_names
+        ):
+            actions.append(
+                action
+            )
+
+        return (
+            match.group(0)
+            if preserve_action_text
+            else ""
+        )
+
+    clean_text = INTERNAL_ACTION_LINE_PATTERN.sub(
+        replace_line,
+        text,
+    )
+    clean_text = REQUEST_ACTION_LINE_PATTERN.sub(
+        replace_line,
+        clean_text,
+    )
+
+    def replace_search_line(match):
+
+        action = _build_internal_action_call(
+            RUNTIME_ACTION_WEB_SEARCH,
+            match.group(
+                "query"
+            ),
+        )
+
+        if (
+            action is not None
+            and action.name in enabled_action_names
+        ):
+            actions.append(
+                action
+            )
+
+        return (
+            match.group(0)
+            if preserve_action_text
+            else ""
+        )
+
+    clean_text = WEB_SEARCH_REQUEST_LINE_PATTERN.sub(
+        replace_search_line,
+        clean_text,
+    )
+    clean_text = WEB_SEARCH_QUERY_LINE_PATTERN.sub(
+        replace_search_line,
+        clean_text,
+    )
+
+    return (
+        clean_text,
+        actions,
+    )
+
+
+def _extract_internal_action_requests(
+    text: str,
+    enabled_action_names: tuple[str, ...],
+    preserve_action_text: bool,
+) -> RuntimeActionResult:
+
+    actions = []
+    clean_text = text
+
+    def replace_block(match):
+
+        _, block_actions = _extract_internal_action_lines(
+            match.group(
+                "body"
+            ),
+            enabled_action_names,
+            preserve_action_text=False,
+        )
+
+        actions.extend(
+            block_actions
+        )
+
+        return (
+            match.group(0)
+            if preserve_action_text
+            else ""
+        )
+
+    clean_text = INTERNAL_ACTION_BLOCK_PATTERN.sub(
+        replace_block,
+        clean_text,
+    )
+
+    clean_text, line_actions = _extract_internal_action_lines(
+        clean_text,
+        enabled_action_names,
+        preserve_action_text,
+    )
+
+    actions.extend(
+        line_actions
+    )
+
+    return RuntimeActionResult(
+        text=clean_text,
+        actions=tuple(
+            actions
+        ),
     )
 
 
@@ -698,8 +1034,26 @@ def extract_runtime_actions(
         enabled_actions
     )
 
-    actions = []
-    clean_text = text
+    bracketed_result = _extract_bracketed_internal_action_markers(
+        text,
+        enabled_action_names,
+        preserve_action_text,
+    )
+
+    actions = list(
+        bracketed_result.actions
+    )
+
+    internal_result = _extract_internal_action_requests(
+        bracketed_result.text,
+        enabled_action_names,
+        preserve_action_text,
+    )
+
+    actions.extend(
+        internal_result.actions
+    )
+    clean_text = internal_result.text
 
     for action_name, marker in SELF_CLOSING_ACTION_MARKERS.items():
 
@@ -1019,6 +1373,14 @@ def _enabled_action_start_markers(
     markers.append(
         TOOL_CALL_MARKER
     )
+    markers.extend(
+        (
+            "<INTERNAL_ACTION_DEEP_THOUGHT>",
+            "<INTERNAL_ACTION_REMEMBER_SESSION>",
+            "<INTERNAL_ACTION_REMEMBER_EVENT>",
+            "<INTERNAL_ACTION_WEB_SEARCH:",
+        )
+    )
 
     return tuple(
         markers
@@ -1166,6 +1528,157 @@ def _unclosed_paired_action_start(
     return latest_start
 
 
+def _unclosed_internal_action_request_start(
+    text: str,
+) -> int | None:
+
+    bracketed_start = _unclosed_bracketed_internal_action_start(
+        text
+    )
+
+    if bracketed_start is not None:
+        return bracketed_start
+
+    line_start = text.rfind(
+        "\n"
+    ) + 1
+
+    tail = text[
+        line_start:
+    ]
+
+    if not tail.strip():
+        return None
+
+    internal_match = INTERNAL_ACTION_LINE_PATTERN.fullmatch(
+        tail
+    )
+
+    if internal_match is not None:
+        if _is_unterminated_query_request(
+            internal_match
+        ):
+            return line_start
+
+        return None
+
+    if REQUEST_ACTION_LINE_PATTERN.fullmatch(
+        tail
+    ):
+        return None
+
+    web_search_match = WEB_SEARCH_REQUEST_LINE_PATTERN.fullmatch(
+        tail
+    )
+
+    if web_search_match is not None:
+        if _is_unterminated_query_request(
+            web_search_match
+        ):
+            return line_start
+
+        return None
+
+    query_match = WEB_SEARCH_QUERY_LINE_PATTERN.fullmatch(
+        tail
+    )
+
+    if query_match is not None:
+        if _is_unterminated_query_request(
+            query_match
+        ):
+            return line_start
+
+        return None
+
+    normalized_tail = re.sub(
+        r"^[-*+]\s+",
+        "",
+        tail.lstrip(),
+    ).lstrip(
+        "*_`~"
+    ).lstrip().lower()
+
+    prefixes = (
+        "<internal_actions>",
+        "internal_actions:",
+        "internal_action:",
+        "internal action:",
+        "internal action",
+        "request_action:",
+        "request action:",
+        "action_request:",
+        "action request:",
+        "request deep_thought",
+        "request remember_session",
+        "request remember_event",
+        "web_search query:",
+        "request web_search query:",
+        "request web_search with query:",
+        "query:",
+    )
+
+    if any(
+        prefix.startswith(
+            normalized_tail
+        )
+        or normalized_tail.startswith(
+            prefix
+        )
+        for prefix in prefixes
+    ):
+        return line_start
+
+    return None
+
+
+def _unclosed_bracketed_internal_action_start(
+    text: str,
+) -> int | None:
+
+    match = re.search(
+        (
+            r"<\s*INTERNAL_ACTION_"
+            r"(?:DEEP_THOUGHT|WEB_SEARCH|REMEMBER_SESSION|REMEMBER_EVENT)"
+            r"[^<>]*$"
+        ),
+        text,
+        re.IGNORECASE,
+    )
+
+    if match is None:
+        return None
+
+    return match.start()
+
+
+def _is_unterminated_query_request(
+    match,
+) -> bool:
+
+    query = match.groupdict().get(
+        "query",
+        "",
+    )
+
+    if not query:
+        return False
+
+    prefix = match.groupdict().get(
+        "prefix",
+        "",
+    )
+    suffix = match.groupdict().get(
+        "suffix",
+        "",
+    )
+
+    return not (
+        prefix
+        and suffix
+    )
+
+
 class RuntimeActionStreamFilter:
 
     def __init__(
@@ -1297,6 +1810,24 @@ class RuntimeActionStreamFilter:
                 preserve_action_text=self.preserve_action_text,
             )
 
+        unclosed_start = _unclosed_internal_action_request_start(
+            combined
+        )
+
+        if unclosed_start is not None:
+
+            self.pending = combined[
+                unclosed_start:
+            ]
+
+            return extract_runtime_actions(
+                combined[
+                    :unclosed_start
+                ],
+                enabled_actions=self.enabled_actions,
+                preserve_action_text=self.preserve_action_text,
+            )
+
         complete_result = extract_runtime_actions(
             combined,
             enabled_actions=self.enabled_actions,
@@ -1346,6 +1877,20 @@ class RuntimeActionStreamFilter:
         self.pending = ""
         self.pending_emitted_text = ""
 
-        return _strip_tool_call_markers(
+        if self.preserve_action_text:
+            return _strip_tool_call_markers(
+                pending
+            )
+
+        if _unclosed_internal_action_request_start(
             pending
+        ) == 0:
+            return ""
+
+        return _strip_tool_call_markers(
+            extract_runtime_actions(
+                pending,
+                enabled_actions=self.enabled_actions,
+                preserve_action_text=False,
+            ).text
         )

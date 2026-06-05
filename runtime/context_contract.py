@@ -17,6 +17,11 @@ WEB_SEARCH_ACTION_TEMPLATE = (
     f'{WEB_SEARCH_ACTION_OPEN}{{"query":"..."}}{WEB_SEARCH_ACTION_CLOSE}'
 )
 
+DEEP_THOUGHT_REQUEST = "<INTERNAL_ACTION_DEEP_THOUGHT>"
+WEB_SEARCH_REQUEST_TEMPLATE = "<INTERNAL_ACTION_WEB_SEARCH:plain text query>"
+REMEMBER_SESSION_REQUEST = "<INTERNAL_ACTION_REMEMBER_SESSION>"
+REMEMBER_EVENT_REQUEST = "<INTERNAL_ACTION_REMEMBER_EVENT>"
+
 
 def format_xml_field(
     tag: str,
@@ -93,7 +98,7 @@ class ContextContract:
             available_actions.append(
                 (
                     RUNTIME_ACTION_DEEP_THOUGHT,
-                    DEEP_THOUGHT_ACTION,
+                    DEEP_THOUGHT_REQUEST,
                 )
             )
 
@@ -101,7 +106,7 @@ class ContextContract:
             available_actions.append(
                 (
                     RUNTIME_ACTION_WEB_SEARCH,
-                    WEB_SEARCH_ACTION_TEMPLATE,
+                    WEB_SEARCH_REQUEST_TEMPLATE,
                 )
             )
 
@@ -109,7 +114,7 @@ class ContextContract:
             available_actions.append(
                 (
                     RUNTIME_ACTION_REMEMBER_SESSION,
-                    REMEMBER_SESSION_ACTION,
+                    REMEMBER_SESSION_REQUEST,
                 )
             )
 
@@ -117,7 +122,7 @@ class ContextContract:
             available_actions.append(
                 (
                     RUNTIME_ACTION_REMEMBER_EVENT,
-                    REMEMBER_EVENT_ACTION,
+                    REMEMBER_EVENT_REQUEST,
                 )
             )
 
