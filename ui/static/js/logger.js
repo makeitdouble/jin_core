@@ -339,6 +339,21 @@ function appendLog(
     );
   }
 
+  if (tag.includes("MEMORY:")) {
+    tagClass =
+      "text-blue-300 font-bold";
+
+    logDiv.classList.add(
+      "font-mono",
+      "text-[12px]",
+      "bg-blue-500/5",
+      "p-2",
+      "rounded",
+      "border",
+      "border-blue-500/10",
+    );
+  }
+
   if (tag.includes("SESSION")) {
     tagClass =
       "text-cyan-300 font-bold";
@@ -415,7 +430,8 @@ function appendLog(
 
   if (normalized.details) {
     const isSummarizer =
-      tag.includes("SUMMARIZER");
+      tag.includes("SUMMARIZER")
+      || tag.includes("MEMORY:");
 
     const isSession =
       tag.includes("SESSION");
@@ -428,31 +444,23 @@ function appendLog(
         "L2 pattern memory"
       );
 
-    const reason =
+    const shouldShowReason =
       tag.includes("ERROR")
+      || (
+          tag.includes("MEMORY:")
+          && (
+              String(normalized.message).includes("skipped")
+              || String(normalized.message).includes("failed")
+          )
+      );
+
+    const reason =
+      shouldShowReason
         ? extractTraceReason(
             normalized.message,
             normalized.details
           )
         : "";
-
-    if (reason) {
-      const reasonSpan =
-        document.createElement("span");
-
-      reasonSpan.className =
-        "block mt-2 rounded border border-red-500/15 bg-red-500/5 px-2 py-1 text-red-200";
-
-      reasonSpan.style.overflowWrap =
-        "anywhere";
-
-      reasonSpan.textContent =
-        `Reason: ${reason}`;
-
-      logDiv.appendChild(
-        reasonSpan
-      );
-    }
 
     const actions =
       document.createElement("div");

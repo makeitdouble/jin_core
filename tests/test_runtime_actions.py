@@ -456,6 +456,35 @@ class RuntimeActionTests(unittest.TestCase):
             context.runtime_remember_session_requested,
         )
 
+    def test_bracketed_remember_session_marker_allowed_by_bedtime_pause(self):
+
+        class Context:
+            pass
+
+        context = Context()
+        result = extract_runtime_actions(
+            "<INTERNAL_ACTION_REMEMBER_SESSION>",
+            enabled_actions=[
+                "CAN_REMEMBER_SESSION",
+            ],
+        )
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                result.actions,
+                user_message="ладно, я спать, до завтра!",
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertTrue(
+            context.runtime_remember_session_requested,
+        )
+
     def test_bracketed_remember_session_marker_blocked_by_meta_request(self):
 
         class Context:
@@ -503,6 +532,11 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertTrue(
             should_execute_remember_session(
                 "\u0437\u0430\u043a\u043e\u043d\u0447\u0438\u043c"
+            )
+        )
+        self.assertTrue(
+            should_execute_remember_session(
+                "\u043b\u0430\u0434\u043d\u043e, \u044f \u0441\u043f\u0430\u0442\u044c, \u0434\u043e \u0437\u0430\u0432\u0442\u0440\u0430!"
             )
         )
         self.assertFalse(

@@ -333,6 +333,79 @@ async def safe_call(
         )
 
 
+def get_memory_log_level(
+        label: str,
+) -> str:
+
+    return (
+        label
+        .split(
+            " ",
+            1,
+        )[0]
+        .upper()
+    )
+
+
+async def log_memory_event(
+        context,
+        *,
+        level: str,
+        message: str,
+        details: str | None = None,
+        fallback_channel: str = "runtime",
+) -> None:
+
+    logger = getattr(
+        context,
+        "logger",
+        None,
+    )
+
+    log_memory = getattr(
+        logger,
+        "log_memory",
+        None,
+    )
+
+    if log_memory is not None:
+        await safe_call(
+            log_memory,
+            level,
+            message,
+            details=details,
+        )
+        return
+
+    fallback = getattr(
+        logger,
+        f"log_{fallback_channel}",
+        None,
+    )
+    formatted_message = (
+        f"[MEMORY:{level}] {message}"
+    )
+
+    if (
+            details is not None
+            and fallback_channel in {
+                "error",
+                "summarizer",
+            }
+    ):
+        await safe_call(
+            fallback,
+            formatted_message,
+            details=details,
+        )
+        return
+
+    await safe_call(
+        fallback,
+        formatted_message,
+    )
+
+
 async def emit_runtime_memory_update(
         context,
 ) -> dict:
@@ -842,22 +915,18 @@ async def log_runtime_summarizer_payload(
         payload: dict,
 ) -> None:
 
-    await safe_call(
-        getattr(
-            getattr(
-                context,
-                "logger",
-                None,
-            ),
-            "log_summarizer",
-            None,
+    await log_memory_event(
+        context,
+        level=get_memory_log_level(
+            label
         ),
-        f"[MEMORY] {label} summarizer request",
+        message=f"{label} summarizer request",
         details=json.dumps(
             payload,
             ensure_ascii=False,
             indent=2,
         ),
+        fallback_channel="summarizer",
     )
 
 
@@ -868,21 +937,17 @@ async def log_runtime_summarizer_result(
         result: str,
 ) -> None:
 
-    await safe_call(
-        getattr(
-            getattr(
-                context,
-                "logger",
-                None,
-            ),
-            "log_summarizer",
-            None,
+    await log_memory_event(
+        context,
+        level=get_memory_log_level(
+            label
         ),
-        f"[MEMORY] {label} summarizer result",
+        message=f"{label} summarizer result",
         details=(
             result.strip()
             or "<empty>"
         ),
+        fallback_channel="summarizer",
     )
 
 
@@ -1164,20 +1229,14 @@ async def ask_runtime_session_memory_model(
     )
 
     if max_tokens < calculated_max_tokens:
-        await safe_call(
-            getattr(
-                getattr(
-                    context,
-                    "logger",
-                    None,
-                ),
-                "log_runtime",
-                None,
-            ),
-            (
-                "[MEMORY] L3 session output token budget capped at "
+        await log_memory_event(
+            context,
+            level="L3",
+            message=(
+                "L3 session output token budget capped at "
                 f"{L3_OUTPUT_MAX_TOKENS}"
             ),
+            fallback_channel="runtime",
         )
 
     await log_runtime_summarizer_payload(
@@ -1362,18 +1421,11 @@ async def record_runtime_l1_diff(
             ),
         }
 
-    await safe_call(
-        getattr(
-            getattr(
-                context,
-                "logger",
-                None,
-            ),
-            "log_service",
-            None,
-        ),
-        (
-            "[MEMORY] L1 diff "
+    await log_memory_event(
+        context,
+        level="L1",
+        message=(
+            "L1 diff "
             f"+{format_diff_value(total_diff)}; "
             f"recent diffs {format_diff_values(recent_diffs)}; "
             f"avg {format_diff_value(diff_average)}; "
@@ -1382,6 +1434,7 @@ async def record_runtime_l1_diff(
             f"repeated keys {repeated_keys}; "
             f"{l2_turn_label}"
         ),
+        fallback_channel="service",
     )
 
     await emit_runtime_l1_diff_update(
@@ -1704,22 +1757,16 @@ async def maybe_summarize_runtime_l2_memory(
             skip_reason = "L2 summarizer returned text that looks structurally incomplete."
 
         if skip_reason:
-            await safe_call(
-                getattr(
-                    getattr(
-                        context,
-                        "logger",
-                        None,
-                    ),
-                    "log_error",
-                    None,
-                ),
-                "[MEMORY] L2 memory update skipped",
+            await log_memory_event(
+                context,
+                level="L2",
+                message="L2 memory update skipped",
                 details=build_memory_update_skip_details(
                     reason=skip_reason,
                     previous_memory=current_l2_memory,
                     candidate_memory=updated_l2_memory,
                 ),
+                fallback_channel="error",
             )
 
             return current_l2_memory
@@ -1730,17 +1777,11 @@ async def maybe_summarize_runtime_l2_memory(
         )
         context.runtime_l2_pending_patches = []
 
-        await safe_call(
-            getattr(
-                getattr(
-                    context,
-                    "logger",
-                    None,
-                ),
-                "log_service",
-                None,
-            ),
-            "[MEMORY] L2 memory updated",
+        await log_memory_event(
+            context,
+            level="L2",
+            message="L2 memory updated",
+            fallback_channel="service",
         )
 
         await log_runtime_summarizer_result(
@@ -1763,22 +1804,16 @@ async def maybe_summarize_runtime_l2_memory(
             traceback.format_exc()
         )
 
-        await safe_call(
-            getattr(
-                getattr(
-                    context,
-                    "logger",
-                    None,
-                ),
-                "log_error",
-                None,
-            ),
-            "[MEMORY] L2 memory update failed",
+        await log_memory_event(
+            context,
+            level="L2",
+            message="L2 memory update failed",
             details=build_memory_failure_details(
                 stage="L2 memory summarizer",
                 error=error,
                 traceback_text=formatted_traceback,
             ),
+            fallback_channel="error",
         )
 
         return current_l2_memory
@@ -1833,17 +1868,11 @@ async def maybe_summarize_runtime_session_memory(
     )
 
     if not snapshots:
-        await safe_call(
-            getattr(
-                getattr(
-                    context,
-                    "logger",
-                    None,
-                ),
-                "log_runtime",
-                None,
-            ),
-            "[MEMORY] L3 session save skipped: no snapshots",
+        await log_memory_event(
+            context,
+            level="L3",
+            message="L3 session save skipped: no snapshots",
+            fallback_channel="runtime",
         )
 
         await emit_runtime_action_completed(
@@ -1890,17 +1919,11 @@ async def maybe_summarize_runtime_session_memory(
         skip_reason = None
 
         if is_runtime_memory_response_truncated(response):
-            await safe_call(
-                getattr(
-                    getattr(
-                        context,
-                        "logger",
-                        None,
-                    ),
-                    "log_runtime",
-                    None,
-                ),
-                "[MEMORY] L3 session summarizer reached max_tokens",
+            await log_memory_event(
+                context,
+                level="L3",
+                message="L3 session summarizer reached max_tokens",
+                fallback_channel="runtime",
             )
 
             skip_reason = "L3 session summarizer response was truncated by max_tokens."
@@ -1914,22 +1937,16 @@ async def maybe_summarize_runtime_session_memory(
             skip_reason = "L3 session summarizer returned text that looks structurally incomplete."
 
         if skip_reason:
-            await safe_call(
-                getattr(
-                    getattr(
-                        context,
-                        "logger",
-                        None,
-                    ),
-                    "log_error",
-                    None,
-                ),
-                "[MEMORY] L3 session memory update skipped",
+            await log_memory_event(
+                context,
+                level="L3",
+                message="L3 session memory update skipped",
                 details=build_memory_update_skip_details(
                     reason=skip_reason,
                     previous_memory=current_session_memory,
                     candidate_memory=updated_session_memory,
                 ),
+                fallback_channel="error",
             )
 
             await emit_runtime_action_completed(
@@ -1954,17 +1971,11 @@ async def maybe_summarize_runtime_session_memory(
             context.runtime_remember_session_requested = False
             context.runtime_memory_snapshots = []
 
-            await safe_call(
-                getattr(
-                    getattr(
-                        context,
-                        "logger",
-                        None,
-                    ),
-                    "log_service",
-                    None,
-                ),
-                "[MEMORY] L3 session memory updated",
+            await log_memory_event(
+                context,
+                level="L3",
+                message="L3 session memory updated",
+                fallback_channel="service",
             )
 
             await log_runtime_summarizer_result(
@@ -1993,17 +2004,10 @@ async def maybe_summarize_runtime_session_memory(
         raise
 
     except L3PromptBudgetExceeded as error:
-        await safe_call(
-            getattr(
-                getattr(
-                    context,
-                    "logger",
-                    None,
-                ),
-                "log_error",
-                None,
-            ),
-            "[MEMORY] L3 session memory update skipped",
+        await log_memory_event(
+            context,
+            level="L3",
+            message="L3 session memory update skipped",
             details=(
                 "Reason: compact digest still exceeds safe input budget.\n\n"
                 + json.dumps(
@@ -2012,6 +2016,7 @@ async def maybe_summarize_runtime_session_memory(
                     indent=2,
                 )
             ),
+            fallback_channel="error",
         )
 
         await emit_runtime_action_completed(
@@ -2026,22 +2031,16 @@ async def maybe_summarize_runtime_session_memory(
             traceback.format_exc()
         )
 
-        await safe_call(
-            getattr(
-                getattr(
-                    context,
-                    "logger",
-                    None,
-                ),
-                "log_error",
-                None,
-            ),
-            "[MEMORY] L3 session memory update failed",
+        await log_memory_event(
+            context,
+            level="L3",
+            message="L3 session memory update failed",
             details=build_memory_failure_details(
                 stage="L3 session memory summarizer",
                 error=error,
                 traceback_text=formatted_traceback,
             ),
+            fallback_channel="error",
         )
 
         await emit_runtime_action_completed(
@@ -2111,22 +2110,16 @@ async def summarize_runtime_memory(
             updated_memory
         )
         ):
-            await safe_call(
-                getattr(
-                    getattr(
-                        context,
-                        "logger",
-                        None,
-                    ),
-                    "log_error",
-                    None,
-                ),
-                "[MEMORY] runtime memory update skipped",
+            await log_memory_event(
+                context,
+                level="L1",
+                message="L1 runtime memory update skipped",
                 details=build_memory_update_skip_details(
                     reason="Summarizer returned an incomplete memory update.",
                     previous_memory=current_memory,
                     candidate_memory=updated_memory,
                 ),
+                fallback_channel="error",
             )
 
             return current_memory
@@ -2147,20 +2140,11 @@ async def summarize_runtime_memory(
             context.runtime_memory_stable = updated_memory
             context.runtime_memory_updates = updates_counter + 1
 
-            logger = getattr(
+            await log_memory_event(
                 context,
-                "logger",
-                None,
-            )
-            log_service = getattr(
-                logger,
-                "log_service",
-                None,
-            )
-
-            await safe_call(
-                log_service,
-                "[MEMORY] runtime memory updated",
+                level="L1",
+                message="L1 runtime memory updated",
+                fallback_channel="service",
             )
 
             snapshot = await emit_runtime_memory_update(
@@ -2198,25 +2182,16 @@ async def summarize_runtime_memory(
             traceback.format_exc()
         )
 
-        logger = getattr(
+        await log_memory_event(
             context,
-            "logger",
-            None,
-        )
-        log_error = getattr(
-            logger,
-            "log_error",
-            None,
-        )
-
-        await safe_call(
-            log_error,
-            "[MEMORY] runtime memory update failed",
+            level="L1",
+            message="L1 runtime memory update failed",
             details=build_memory_failure_details(
                 stage="L1 runtime memory summarizer",
                 error=error,
                 traceback_text=formatted_traceback,
             ),
+            fallback_channel="error",
         )
 
         return getattr(
@@ -2287,22 +2262,16 @@ async def summarize_runtime_memory_pending_turns(
             skip_reason = "Summarizer returned text that looks structurally incomplete."
 
         if skip_reason:
-            await safe_call(
-                getattr(
-                    getattr(
-                        context,
-                        "logger",
-                        None,
-                    ),
-                    "log_error",
-                    None,
-                ),
-                "[MEMORY] runtime memory update skipped",
+            await log_memory_event(
+                context,
+                level="L1",
+                message="L1 runtime memory update skipped",
                 details=build_memory_update_skip_details(
                     reason="Summarizer returned an incomplete memory update.",
                     previous_memory=initial_memory,
                     candidate_memory=updated_memory,
                 ),
+                fallback_channel="error",
             )
 
             return initial_memory
@@ -2329,20 +2298,11 @@ async def summarize_runtime_memory_pending_turns(
                 if turn not in turns
             ]
 
-            logger = getattr(
+            await log_memory_event(
                 context,
-                "logger",
-                None,
-            )
-            log_service = getattr(
-                logger,
-                "log_service",
-                None,
-            )
-
-            await safe_call(
-                log_service,
-                "[MEMORY] runtime memory updated",
+                level="L1",
+                message="L1 runtime memory updated",
+                fallback_channel="service",
             )
 
             snapshot = await emit_runtime_memory_update(
@@ -2375,25 +2335,16 @@ async def summarize_runtime_memory_pending_turns(
             traceback.format_exc()
         )
 
-        logger = getattr(
+        await log_memory_event(
             context,
-            "logger",
-            None,
-        )
-        log_error = getattr(
-            logger,
-            "log_error",
-            None,
-        )
-
-        await safe_call(
-            log_error,
-            "[MEMORY] runtime memory update failed",
+            level="L1",
+            message="L1 runtime memory update failed",
             details=build_memory_failure_details(
                 stage="L1 pending runtime memory summarizer",
                 error=error,
                 traceback_text=formatted_traceback,
             ),
+            fallback_channel="error",
         )
 
         return getattr(

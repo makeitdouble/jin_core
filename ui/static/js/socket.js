@@ -46,6 +46,29 @@ const MEMORY_GLOW_STAGES = {
   },
 };
 
+function isMemoryLog(data) {
+  return Boolean(
+    data
+    && (
+        String(data.tag || "").includes("MEMORY:")
+        || String(data.message || "").includes("[MEMORY]")
+    )
+  );
+}
+
+function memoryLogIncludes(data, text) {
+  return Boolean(
+    data
+    && (
+        String(data.message || "").includes(text)
+        || String(data.message || "").includes(`[MEMORY] ${text}`)
+        || String(data.message || "").includes(`[MEMORY:L1] ${text}`)
+        || String(data.message || "").includes(`[MEMORY:L2] ${text}`)
+        || String(data.message || "").includes(`[MEMORY:L3] ${text}`)
+    )
+  );
+}
+
 let activeMemoryGlowStage = "";
 let memoryGlowPulseTimer = null;
 let memoryGlowFadeTimer = null;
@@ -519,25 +542,23 @@ ws.onmessage = function (event) {
     }
 
     if (
-        data.tag === "[SUMMARIZER]" &&
-        data.message
-        && data.message.includes("[MEMORY] L2 summarizer request")
+        isMemoryLog(data)
+        && memoryLogIncludes(data, "L2 summarizer request")
     ) {
       startL2MemoryGlow();
     }
 
     if (
-        data.tag === "[SUMMARIZER]" &&
-        data.message
-        && data.message.includes("[MEMORY] L3 session summarizer request")
+        isMemoryLog(data)
+        && memoryLogIncludes(data, "L3 session summarizer request")
     ) {
       startL3MemoryGlow();
     }
 
     if (
-        data.message
-        && data.message.includes("[MEMORY]")
-        && !data.message.includes("[MEMORY] L2 memory")
+        isMemoryLog(data)
+        && !memoryLogIncludes(data, "L2 memory")
+        && !memoryLogIncludes(data, "L3 session memory")
         && (
             data.message.includes("updated")
             || data.message.includes("skipped")
@@ -548,8 +569,8 @@ ws.onmessage = function (event) {
     }
 
     if (
-        data.message
-        && data.message.includes("[MEMORY] L2 memory")
+        isMemoryLog(data)
+        && memoryLogIncludes(data, "L2 memory")
         && (
             data.message.includes("updated")
             || data.message.includes("skipped")
@@ -560,8 +581,8 @@ ws.onmessage = function (event) {
     }
 
     if (
-        data.message
-        && data.message.includes("[MEMORY] L3 session memory")
+        isMemoryLog(data)
+        && memoryLogIncludes(data, "L3 session memory")
         && (
             data.message.includes("updated")
             || data.message.includes("skipped")

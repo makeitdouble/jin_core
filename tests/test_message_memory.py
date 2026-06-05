@@ -1132,7 +1132,7 @@ class MessageMemoryTests(
             1,
         )
         self.assertIn(
-            "[MEMORY] L1 diff +167.3; "
+            "[MEMORY:L1] L1 diff +167.3; "
             "recent diffs [4.65, 296.85, 167.3]; "
             "avg 156.27; range 292.2;",
             logger.service_logs[0],
@@ -1202,12 +1202,12 @@ class MessageMemoryTests(
             build_runtime_memory_system_prompt(),
         )
         self.assertIn(
-            "[MEMORY] runtime memory updated",
+            "[MEMORY:L1] L1 runtime memory updated",
             logger.service_logs,
         )
         self.assertEqual(
             logger.summarizer_logs[0][0],
-            "[MEMORY] L1 summarizer request",
+            "[MEMORY:L1] L1 summarizer request",
         )
         self.assertIn(
             '"messages"',
@@ -1741,12 +1741,12 @@ class MessageMemoryTests(
             service_client.calls[0]["user_prompt"],
         )
         self.assertIn(
-            "[MEMORY] L2 memory updated",
+            "[MEMORY:L2] L2 memory updated",
             logger.service_logs,
         )
         self.assertEqual(
             logger.summarizer_logs[0][0],
-            "[MEMORY] L2 summarizer request",
+            "[MEMORY:L2] L2 summarizer request",
         )
         self.assertIn(
             '"messages"',
@@ -1758,7 +1758,7 @@ class MessageMemoryTests(
         )
         self.assertEqual(
             logger.summarizer_logs[1][0],
-            "[MEMORY] L2 pattern memory summarizer result",
+            "[MEMORY:L2] L2 pattern memory summarizer result",
         )
         self.assertEqual(
             logger.summarizer_logs[1][1],
@@ -2234,7 +2234,7 @@ class MessageMemoryTests(
         )
         self.assertIn(
             (
-                "[MEMORY] L3 session output token budget capped at "
+                "[MEMORY:L3] L3 session output token budget capped at "
                 f"{L3_OUTPUT_MAX_TOKENS}"
             ),
             logger.runtime_logs,
@@ -2319,12 +2319,12 @@ class MessageMemoryTests(
             ],
         )
         self.assertIn(
-            "[MEMORY] L3 session summarizer reached max_tokens",
+            "[MEMORY:L3] L3 session summarizer reached max_tokens",
             logger.runtime_logs,
         )
         self.assertEqual(
             logger.errors[-1][0],
-            "[MEMORY] L3 session memory update skipped",
+            "[MEMORY:L3] L3 session memory update skipped",
         )
         self.assertIn(
             "truncated by max_tokens",
@@ -2397,7 +2397,7 @@ class MessageMemoryTests(
         )
         self.assertEqual(
             logger.errors[-1][0],
-            "[MEMORY] L3 session memory update skipped",
+            "[MEMORY:L3] L3 session memory update skipped",
         )
         self.assertIn(
             "compact digest still exceeds safe input budget",
@@ -2475,7 +2475,7 @@ class MessageMemoryTests(
         )
         self.assertEqual(
             logger.errors[-1][0],
-            "[MEMORY] L3 session memory update failed",
+            "[MEMORY:L3] L3 session memory update failed",
         )
 
     async def test_l3_session_memory_no_snapshots_leaves_buffer_empty(self):
@@ -2528,7 +2528,7 @@ class MessageMemoryTests(
         self.assertEqual(
             logger.runtime_logs,
             [
-                "[MEMORY] L3 session save skipped: no snapshots",
+                "[MEMORY:L3] L3 session save skipped: no snapshots",
             ],
         )
 
@@ -2726,7 +2726,7 @@ class MessageMemoryTests(
 
         self.assertEqual(
             message,
-            "[MEMORY] runtime memory update failed",
+            "[MEMORY:L1] L1 runtime memory update failed",
         )
         self.assertIn(
             "Traceback (most recent call last):",
@@ -2836,7 +2836,7 @@ class MessageMemoryTests(
         )
         self.assertEqual(
             context.logger.summarizer_logs[0][0],
-            "[MEMORY] L1 summarizer request",
+            "[MEMORY:L1] L1 summarizer request",
         )
         self.assertEqual(
             service_client.calls[0]["timeout"],
@@ -2882,7 +2882,7 @@ class MessageMemoryTests(
 
         self.assertEqual(
             logger.summarizer_logs[0][0],
-            "[MEMORY] L1 batch summarizer request",
+            "[MEMORY:L1] L1 batch summarizer request",
         )
         self.assertEqual(
             service_client.calls[0]["timeout"],
