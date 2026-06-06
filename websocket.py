@@ -10,6 +10,7 @@ from starlette.websockets import (
 import asyncio
 import contextlib
 import json
+import httpx
 
 from websocket_logger import (
     WebSocketLogger,
@@ -37,6 +38,14 @@ from utils.token_usage import (
     format_token_usage_summary,
 )
 
+from config_loader import (
+    config,
+)
+
+from utils.urls import (
+    join_url,
+)
+
 from utils.tokens import (
     estimate_runtime_tokens,
 )
@@ -50,6 +59,8 @@ from runtime import (
     RuntimeContext,
     RuntimeEmitter,
     build_runtime_memory_snapshot,
+    emit_runtime_l1_diff_update,
+    emit_runtime_session_memory_update,
     refresh_runtime_state,
     schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
@@ -58,6 +69,340 @@ from runtime import (
 
 
 websocket_router = APIRouter()
+
+MAX_BOOTSTRAP_MEMORY_CHARS = 12000
+RUNTIME_STATUS_CHECK_TIMEOUT = getattr(
+    config,
+    "STATUS_CHECK_TIMEOUT",
+    0.5,
+)
+
+
+def clean_bootstrap_memory(
+    value,
+    *,
+    limit: int = MAX_BOOTSTRAP_MEMORY_CHARS,
+) -> str:
+
+    if not isinstance(
+        value,
+        str,
+    ):
+        return ""
+
+    cleaned = value.replace(
+        "\x00",
+        "",
+    ).strip()
+
+    if len(cleaned) <= limit:
+        return cleaned
+
+    return cleaned[-limit:].strip()
+
+
+def get_status_http_client(
+    context,
+):
+
+    clients = getattr(
+        context,
+        "clients",
+        {},
+    )
+
+    for runtime_client in clients.values():
+        http_client = getattr(
+            runtime_client,
+            "client",
+            None,
+        )
+
+        if http_client is not None:
+            return http_client
+
+    return None
+
+
+async def check_model_status(
+    http_client,
+    base_url: str,
+) -> bool:
+
+    try:
+        response = await http_client.get(
+            join_url(
+                base_url,
+                config.MODELS_ENDPOINT,
+            ),
+            timeout=RUNTIME_STATUS_CHECK_TIMEOUT,
+        )
+
+        return response.status_code == 200
+
+    except (
+        httpx.HTTPError,
+        asyncio.TimeoutError,
+    ):
+        return False
+
+
+async def has_available_model_runtime(
+    context,
+) -> bool:
+
+    http_client = get_status_http_client(
+        context
+    )
+
+    if http_client is None:
+        return True
+
+    brain_status, service_status = await asyncio.gather(
+        check_model_status(
+            http_client,
+            config.BRAIN_API_BASE,
+        ),
+        check_model_status(
+            http_client,
+            config.SERVICE_API_BASE,
+        ),
+    )
+
+    return (
+        brain_status
+        or service_status
+    )
+
+
+async def reject_when_all_models_offline(
+    context,
+) -> bool:
+
+    if await has_available_model_runtime(
+        context
+    ):
+        return False
+
+    await context.logger.log_error(
+        "[WS] all model runtimes are offline"
+    )
+
+    await context.websocket.send_json({
+        "type": "error",
+        "message": (
+            "All model runtimes are offline."
+        ),
+        "details": (
+            "Start BRAIN or SERVICE before sending a request."
+        ),
+        "component": "runtime_status",
+    })
+
+    return True
+
+
+async def emit_current_runtime_memory(
+    context,
+):
+
+    snapshots = getattr(
+        context,
+        "runtime_memory_snapshots",
+        [],
+    )
+
+    if snapshots:
+        snapshot_index = max(
+            0,
+            min(
+                getattr(
+                    context,
+                    "runtime_memory_snapshot_index",
+                    0,
+                ),
+                len(snapshots) - 1,
+            ),
+        )
+        snapshot = snapshots[snapshot_index]
+    else:
+        snapshot = build_runtime_memory_snapshot(
+            context,
+            context.runtime_memory,
+        )
+
+    await context.emitter.emit({
+        "type": "runtime_memory_update",
+        "memory": context.runtime_memory,
+        "updates": getattr(
+            context,
+            "runtime_memory_updates",
+            0,
+        ),
+        "snapshot": snapshot,
+        "snapshots_count": len(
+            snapshots
+        ) or 1,
+        "snapshot_index": snapshot.get(
+            "index",
+            0,
+        ),
+    })
+
+
+def apply_session_bootstrap(
+    context,
+    message_data: dict,
+) -> bool:
+
+    session_memory = clean_bootstrap_memory(
+        message_data.get(
+            "session_memory",
+            "",
+        )
+    )
+
+    runtime_memory = clean_bootstrap_memory(
+        message_data.get(
+            "runtime_memory",
+            "",
+        )
+    )
+
+    runtime_snapshot = message_data.get(
+        "runtime_snapshot",
+        {},
+    )
+    session_event_snapshots = message_data.get(
+        "session_event_snapshots",
+        message_data.get(
+            "runtime_session_event_snapshots",
+            [],
+        ),
+    )
+
+    if isinstance(
+        session_event_snapshots,
+        list,
+    ):
+        context.runtime_session_event_snapshots = [
+            snapshot
+            for snapshot in session_event_snapshots
+            if isinstance(
+                snapshot,
+                dict,
+            )
+        ]
+
+    if (
+        not runtime_memory
+        and isinstance(
+            runtime_snapshot,
+            dict,
+        )
+    ):
+        runtime_memory = clean_bootstrap_memory(
+            runtime_snapshot.get(
+                "raw_memory",
+                "",
+            )
+        )
+
+    if session_memory:
+        context.session_memory = session_memory
+        context.runtime_l3_session_memory = session_memory
+        try:
+            context.runtime_session_memory_updates = max(
+                int(
+                    message_data.get(
+                        "session_memory_updates",
+                        0,
+                    ) or 0
+                ),
+                getattr(
+                    context,
+                    "runtime_session_memory_updates",
+                    0,
+                ),
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            pass
+        context.session_memory_source = clean_bootstrap_memory(
+            message_data.get(
+                "session_memory_source",
+                "browser",
+            ),
+            limit=80,
+        ) or "browser"
+
+    if runtime_memory:
+        previous_runtime_memory = getattr(
+            context,
+            "runtime_memory",
+            "",
+        )
+
+        if not getattr(
+            context,
+            "runtime_memory_snapshots",
+            [],
+        ):
+            context.runtime_memory_snapshots = []
+            initial_snapshot = build_runtime_memory_snapshot(
+                context,
+                previous_runtime_memory,
+            )
+            context.runtime_memory_snapshots.append(
+                initial_snapshot
+            )
+
+        context.runtime_memory = runtime_memory
+        context.runtime_memory_stable = runtime_memory
+
+        try:
+            context.runtime_memory_updates = max(
+                int(
+                    message_data.get(
+                        "runtime_memory_updates",
+                        0,
+                    ) or 0
+                ),
+                getattr(
+                    context,
+                    "runtime_memory_updates",
+                    0,
+                ),
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            pass
+
+        restored_snapshot = build_runtime_memory_snapshot(
+            context,
+            context.runtime_memory,
+        )
+
+        context.runtime_memory_snapshots.append(
+            restored_snapshot
+        )
+        context.runtime_memory_snapshot_index = restored_snapshot[
+            "index"
+        ]
+
+    return bool(
+        session_memory
+        or runtime_memory
+        or getattr(
+            context,
+            "runtime_session_event_snapshots",
+            [],
+        )
+    )
 
 
 # ---------------------------------------------------------
@@ -74,20 +419,17 @@ async def initialize_connection(
         context
     )
 
-    await context.emitter.emit({
-        "type": "runtime_memory_update",
-        "memory": context.runtime_memory,
-        "updates": getattr(
-            context,
-            "runtime_memory_updates",
-            0,
-        ),
-        "snapshot": context.runtime_memory_snapshots[0],
-        "snapshots_count": len(
-            context.runtime_memory_snapshots
-        ),
-        "snapshot_index": 0,
-    })
+    await emit_current_runtime_memory(
+        context
+    )
+
+    await emit_runtime_l1_diff_update(
+        context
+    )
+
+    await emit_runtime_session_memory_update(
+        context
+    )
 
 
 # ---------------------------------------------------------
@@ -549,11 +891,10 @@ async def websocket_endpoint(
                 )
             )
 
-            await logger.log_system(
-                f"[WS] received: {message_data}"
-            )
-
             if message_data is None:
+                await logger.log_system(
+                    "[WS] received: None"
+                )
                 continue
 
             message_type = (
@@ -561,6 +902,50 @@ async def websocket_endpoint(
                     "type",
                     "message",
                 )
+            )
+
+            # -------------------------------------------------
+            # RESTORE BROWSER SESSION MEMORY
+            # -------------------------------------------------
+
+            if message_type == "session_bootstrap":
+
+                await logger.log(
+                    "[SESSION]",
+                    "[BOOTSTRAP] browser session restore request",
+                    details=json.dumps(
+                        message_data,
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                )
+
+                restored = apply_session_bootstrap(
+                    context,
+                    message_data,
+                )
+
+                if restored:
+                    await logger.log_system(
+                        "[WS] browser session memory restored"
+                    )
+
+                    await emit_current_runtime_memory(
+                        context
+                    )
+
+                    await emit_runtime_l1_diff_update(
+                        context
+                    )
+
+                    await emit_runtime_session_memory_update(
+                        context
+                    )
+
+                continue
+
+            await logger.log_system(
+                f"[WS] received: {message_data}"
             )
 
             # -------------------------------------------------
@@ -596,6 +981,11 @@ async def websocket_endpoint(
                     "Received empty message."
                 )
 
+                continue
+
+            if await reject_when_all_models_offline(
+                context
+            ):
                 continue
 
             # -------------------------------------------------

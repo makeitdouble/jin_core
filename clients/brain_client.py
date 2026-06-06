@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import datetime
 from xml.etree import ElementTree
 from xml.sax.saxutils import escape
@@ -9,7 +10,13 @@ from config_loader import (
 from runtime.context_contract import (
     ContextContract,
     RUNTIME_ACTION_DEEP_THOUGHT,
+    RUNTIME_ACTION_REMEMBER_EVENT,
+    RUNTIME_ACTION_REMEMBER_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
+)
+from runtime.memory_rules import (
+    build_runtime_session_event_snapshot,
+    canonicalize_runtime_memory_text,
 )
 
 from clients.brain_rules import (
@@ -66,6 +73,14 @@ def get_enabled_runtime_actions(
             RUNTIME_ACTION_WEB_SEARCH,
             "CAN_WEB_SEARCH",
         ),
+        (
+            RUNTIME_ACTION_REMEMBER_SESSION,
+            "CAN_REMEMBER_SESSION",
+        ),
+        (
+            RUNTIME_ACTION_REMEMBER_EVENT,
+            "CAN_REMEMBER_EVENT",
+        ),
     ):
 
         if bool(
@@ -80,6 +95,15 @@ def get_enabled_runtime_actions(
 
     return tuple(
         enabled_actions
+    )
+
+
+def get_enabled_thinking_runtime_actions(
+    runtime_actions=None,
+) -> tuple[str, ...]:
+
+    return get_enabled_runtime_actions(
+        runtime_actions
     )
 
 
@@ -144,9 +168,118 @@ async def apply_deep_thought_calls(
     return call_count
 
 
+SAVE_SESSION_INTENT_MARKERS = (
+    "закончим",
+    "на сегодня все",
+    "на сегодня всё",
+    "я ухожу",
+    "я спать",
+    "пойду спать",
+    "до завтра",
+    "спокойной ночи",
+    "заканчиваем",
+    "сохрани сессию",
+    "сохрани текущий разговор",
+    "запомни где остановились",
+    "подведи итог и закрой",
+    "save session",
+    "save this session",
+    "remember where we stopped",
+    "wrap up and save",
+)
+
+META_TAG_REQUEST_MARKERS = (
+    "покажи тег",
+    "напиши тег",
+    "полный тег",
+    "точный тег",
+    "пример тега",
+    "как выглядит тег",
+    "процитируй тег",
+    "show tag",
+    "write tag",
+    "exact tag",
+    "full tag",
+    "tag example",
+    "quote tag",
+)
+
+
+def _normalize_action_guard_text(
+    text: str,
+) -> str:
+
+    return (
+        text
+        or ""
+    ).casefold().replace(
+        "ё",
+        "е",
+    )
+
+
+def should_execute_remember_session(
+    user_message: str,
+) -> bool:
+
+    normalized_message = _normalize_action_guard_text(
+        user_message
+    )
+
+    if not normalized_message:
+        return False
+
+    has_meta_request = any(
+        _normalize_action_guard_text(
+            marker
+        ) in normalized_message
+        for marker in META_TAG_REQUEST_MARKERS
+    )
+
+    if has_meta_request:
+        return False
+
+    return any(
+        _normalize_action_guard_text(
+            marker
+        ) in normalized_message
+        for marker in SAVE_SESSION_INTENT_MARKERS
+    )
+
+
+def resolve_runtime_action_user_message(
+    context,
+    user_message: str | None = None,
+) -> str:
+
+    if user_message:
+        return user_message
+
+    if context is None:
+        return ""
+
+    for attr_name in (
+        "runtime_turn_user_message",
+        "original_user_input",
+        "user_input",
+    ):
+
+        value = getattr(
+            context,
+            attr_name,
+            "",
+        )
+
+        if value:
+            return value
+
+    return ""
+
+
 async def apply_runtime_action_calls(
     context,
     actions,
+    user_message: str | None = None,
 ) -> int:
 
     if (
@@ -174,8 +307,85 @@ async def apply_runtime_action_calls(
     )
 
     search_calls = []
+    filtered_actions = []
+    search_query_seen = False
+    remember_session_seen = bool(
+        getattr(
+            context,
+            "runtime_remember_session_requested",
+            False,
+        )
+    )
+    remember_event_seen = False
+    deep_thought_seen = False
+    resolved_user_message = resolve_runtime_action_user_message(
+        context,
+        user_message,
+    )
 
     for action in actions:
+
+        if action.name == RUNTIME_ACTION_DEEP_THOUGHT:
+            if deep_thought_seen:
+                continue
+
+            deep_thought_seen = True
+            filtered_actions.append(
+                action
+            )
+            continue
+
+        if action.name == RUNTIME_ACTION_REMEMBER_SESSION:
+            if not should_execute_remember_session(
+                resolved_user_message
+            ):
+                continue
+
+            if remember_session_seen:
+                continue
+
+            remember_session_seen = True
+            filtered_actions.append(
+                action
+            )
+            continue
+
+        if action.name == RUNTIME_ACTION_REMEMBER_EVENT:
+            if remember_event_seen:
+                continue
+
+            remember_event_seen = True
+            filtered_actions.append(
+                action
+            )
+            continue
+
+        if action.name == RUNTIME_ACTION_WEB_SEARCH:
+            query = extract_search_query(
+                action.payload
+            )
+
+            if (
+                not query
+                or search_query_seen
+                or getattr(
+                    context,
+                    "runtime_search_queries",
+                    [],
+                )
+            ):
+                continue
+
+            search_query_seen = True
+
+        filtered_actions.append(
+            action
+        )
+
+    if not filtered_actions:
+        return 0
+
+    for action in filtered_actions:
 
         action_event = {
             "name": action.name.lower(),
@@ -212,8 +422,20 @@ async def apply_runtime_action_calls(
 
     deep_thought_count = sum(
         1
-        for action in actions
+        for action in filtered_actions
         if action.name == RUNTIME_ACTION_DEEP_THOUGHT
+    )
+
+    remember_session_count = sum(
+        1
+        for action in filtered_actions
+        if action.name == RUNTIME_ACTION_REMEMBER_SESSION
+    )
+
+    remember_event_count = sum(
+        1
+        for action in filtered_actions
+        if action.name == RUNTIME_ACTION_REMEMBER_EVENT
     )
 
     applied_count = await apply_deep_thought_calls(
@@ -230,7 +452,7 @@ async def apply_runtime_action_calls(
             extract_search_query(
                 action.payload
             )
-            for action in actions
+            for action in filtered_actions
             if action.name == RUNTIME_ACTION_WEB_SEARCH
         )
         if query
@@ -271,8 +493,107 @@ async def apply_runtime_action_calls(
             f"search x{len(search_queries)}"
         )
 
+    if remember_session_count:
+        context.runtime_remember_session_requested = True
+
+        if log_runtime is not None:
+            await log_runtime(
+                "[RUNTIME ACTION] remember_session requested"
+            )
+
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is not None:
+            await emit({
+                "type": "runtime_action",
+                "action": "remember_session",
+                "text": "Remembering this session",
+            })
+
+    if remember_event_count:
+        if not hasattr(
+            context,
+            "runtime_session_event_snapshots",
+        ):
+            context.runtime_session_event_snapshots = []
+
+        context.runtime_session_event_snapshots.append(
+            build_runtime_session_event_snapshot(
+                context,
+                source="runtime_action",
+            )
+        )
+
+        if log_runtime is not None:
+            await log_runtime(
+                "[RUNTIME ACTION] remember_event saved"
+            )
+
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is not None:
+            session_memory = (
+                getattr(
+                    context,
+                    "runtime_l3_session_memory",
+                    "",
+                )
+                or getattr(
+                    context,
+                    "session_memory",
+                    "",
+                )
+            )
+            await emit({
+                "type": "runtime_action",
+                "action": "remember_event",
+                "text": "Remembering this event",
+            })
+            await emit({
+                "type": "runtime_session_memory_update",
+                "memory": session_memory,
+                "event_snapshots": list(
+                    context.runtime_session_event_snapshots
+                ),
+                "updates": getattr(
+                    context,
+                    "runtime_session_memory_updates",
+                    0,
+                ),
+                "source": getattr(
+                    context,
+                    "session_memory_source",
+                    "",
+                ),
+                "persist": True,
+            })
+
     return applied_count + len(
         search_queries
+    ) + min(
+        remember_session_count,
+        1,
+    ) + min(
+        remember_event_count,
+        1,
     )
 
 
@@ -503,6 +824,14 @@ def build_brain_runtime_context(
             RUNTIME_ACTION_WEB_SEARCH
             in enabled_actions
         ),
+        can_remember_session=(
+            RUNTIME_ACTION_REMEMBER_SESSION
+            in enabled_actions
+        ),
+        can_remember_event=(
+            RUNTIME_ACTION_REMEMBER_EVENT
+            in enabled_actions
+        ),
         timestamp=now.isoformat(),
         current_date=now.date().isoformat(),
         current_time=now.strftime("%H:%M:%S"),
@@ -527,6 +856,8 @@ def build_brain_runtime_context(
         )
 
     runtime_memory = ""
+    session_memory = ""
+    session_event_snapshots = []
     runtime_l2_memory = ""
     zero_diff_alert = None
     conversation_activity_diff = get_conversation_activity_diff(
@@ -540,6 +871,23 @@ def build_brain_runtime_context(
             context,
             "runtime_memory",
             "",
+        )
+        session_memory = getattr(
+            context,
+            "runtime_l3_session_memory",
+            "",
+        ) or getattr(
+            context,
+            "session_memory",
+            "",
+        )
+        session_event_snapshots = list(
+            getattr(
+                context,
+                "runtime_session_event_snapshots",
+                [],
+            )
+            or []
         )
         runtime_l2_memory = getattr(
             context,
@@ -571,10 +919,23 @@ def build_brain_runtime_context(
             session_state_xml
         )
 
+    if session_memory.strip():
+        runtime_context_parts.append(
+            "<SESSION_MEMORY priority=\"higher_than_runtime_memory\">\n"
+            f"{indent_xml(escape(session_memory))}\n"
+            "</SESSION_MEMORY>"
+        )
+
+    runtime_context_parts.append(
+        "<SESSION_EVENT_SNAPSHOTS priority=\"session_context\">\n"
+        f"{indent_xml(escape(json.dumps(session_event_snapshots, ensure_ascii=False, indent=2)))}\n"
+        "</SESSION_EVENT_SNAPSHOTS>"
+    )
+
     if runtime_memory.strip():
         runtime_context_parts.append(
             "<RUNTIME_MEMORY>\n"
-            f"{indent_xml(escape(runtime_memory))}\n"
+            f"{indent_xml(escape(canonicalize_runtime_memory_text(runtime_memory)))}\n"
             "</RUNTIME_MEMORY>"
         )
 
@@ -810,25 +1171,25 @@ async def ask_brain(
                 )
             )
 
+            enabled_actions = get_enabled_runtime_actions(
+                runtime_actions
+            )
+            thinking_actions = get_enabled_thinking_runtime_actions(
+                runtime_actions
+            )
+
             reasoning_actions = (
                 extract_runtime_actions(
                     reasoning,
-                    enabled_actions=(
-                        get_enabled_runtime_actions(
-                            runtime_actions
-                        )
-                    ),
+                    enabled_actions=thinking_actions,
+                    preserve_action_text=True,
                 )
             )
 
             content_actions = (
                 extract_runtime_actions(
                     content,
-                    enabled_actions=(
-                        get_enabled_runtime_actions(
-                            runtime_actions
-                        )
-                    ),
+                    enabled_actions=enabled_actions,
                 )
             )
 
@@ -838,6 +1199,7 @@ async def ask_brain(
                     reasoning_actions.actions
                     + content_actions.actions
                 ),
+                user_message=text,
             )
 
             return content_actions.text
@@ -915,22 +1277,22 @@ async def ask_brain(
             )
         )
 
+        enabled_actions = get_enabled_runtime_actions(
+            runtime_actions
+        )
+        thinking_actions = get_enabled_thinking_runtime_actions(
+            runtime_actions
+        )
+
         reasoning_actions = extract_runtime_actions(
             reasoning,
-            enabled_actions=(
-                get_enabled_runtime_actions(
-                    runtime_actions
-                )
-            ),
+            enabled_actions=thinking_actions,
+            preserve_action_text=True,
         )
 
         content_actions = extract_runtime_actions(
             content,
-            enabled_actions=(
-                get_enabled_runtime_actions(
-                    runtime_actions
-                )
-            ),
+            enabled_actions=enabled_actions,
         )
 
         await apply_runtime_action_calls(
@@ -939,12 +1301,16 @@ async def ask_brain(
                 reasoning_actions.actions
                 + content_actions.actions
             ),
+            user_message=text,
         )
 
         if content_actions.text:
             return content_actions.text
 
-        return reasoning_actions.text
+        return extract_runtime_actions(
+            reasoning,
+            enabled_actions=thinking_actions,
+        ).text
 
     except Exception as error:
 
@@ -995,9 +1361,12 @@ async def ask_brain_stream(
     enabled_actions = get_enabled_runtime_actions(
         runtime_actions
     )
+    thinking_actions = get_enabled_thinking_runtime_actions(
+        runtime_actions
+    )
 
     thinking_filter = RuntimeActionStreamFilter(
-        enabled_actions=enabled_actions,
+        enabled_actions=thinking_actions,
         preserve_action_text=True,
     )
     content_filter = RuntimeActionStreamFilter(
@@ -1058,9 +1427,22 @@ async def ask_brain_stream(
             await apply_runtime_action_calls(
                 context,
                 non_deep_actions,
+                user_message=text,
             )
 
-            stop_for_runtime_action = True
+            stop_for_runtime_action = any(
+                action.name == RUNTIME_ACTION_WEB_SEARCH
+                for action in non_deep_actions
+            )
+
+            if not stop_for_runtime_action:
+                if not result.text:
+                    return None
+
+                return {
+                    **action_chunk,
+                    "content": result.text,
+                }
 
             if (
                 chunk_type == "thinking"

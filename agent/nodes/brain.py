@@ -198,6 +198,13 @@ class BrainNode(BaseNode):
                 query=query,
             )
 
+            await context.websocket.send_json({
+                "type": "runtime_action",
+                "action": "web_search",
+                "id": tool_call_id,
+                "status": "completed",
+            })
+
             context.runtime_search_result = search_result
             context.runtime_search_result_id = tool_call_id
 

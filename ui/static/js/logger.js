@@ -3,6 +3,7 @@ const consoleStream =
 
 let traceModal;
 let traceModalContent;
+let traceModalReason;
 let traceModalTitle;
 
 function ensureTraceModal() {
@@ -49,6 +50,15 @@ function ensureTraceModal() {
   closeButton.textContent =
     "close";
 
+  traceModalReason =
+    document.createElement("div");
+
+  traceModalReason.className =
+    "hidden border-b border-zinc-800 px-4 py-3 text-[12px] leading-relaxed text-red-200";
+
+  traceModalReason.style.overflowWrap =
+    "anywhere";
+
   traceModalContent =
     document.createElement("pre");
 
@@ -68,6 +78,10 @@ function ensureTraceModal() {
 
   panel.appendChild(
     header
+  );
+
+  panel.appendChild(
+    traceModalReason
   );
 
   panel.appendChild(
@@ -119,11 +133,28 @@ function ensureTraceModal() {
 function showTrace(
   details,
   title = "Trace",
+  reason = null,
 ) {
   ensureTraceModal();
 
   traceModalTitle.textContent =
     title;
+
+  if (reason) {
+    traceModalReason.textContent =
+      `Reason: ${reason}`;
+
+    traceModalReason.classList.remove(
+      "hidden"
+    );
+  } else {
+    traceModalReason.textContent =
+      "";
+
+    traceModalReason.classList.add(
+      "hidden"
+    );
+  }
 
   traceModalContent.textContent =
     String(details);
@@ -135,6 +166,83 @@ function showTrace(
   traceModal.classList.add(
     "flex"
   );
+}
+
+function extractTraceReason(
+  message,
+  details,
+) {
+  const text =
+    String(
+      details
+      || message
+      || ""
+    );
+
+  if (!text.trim()) {
+    return "";
+  }
+
+  const likelyReasonMatch =
+    text.match(
+      /^Likely reason:\s*(.+)$/m
+    );
+
+  if (likelyReasonMatch) {
+    return likelyReasonMatch[1].trim();
+  }
+
+  const httpStatusMatch =
+    text.match(
+      /HTTPStatusError:\s*(.+?)(?:\r?\n|$)/
+    );
+
+  if (httpStatusMatch) {
+    return httpStatusMatch[1]
+      .replace(
+        /\s+for url '([^']+)'/,
+        function (_match, url) {
+          return ` for ${summarizeTraceUrl(url)}`;
+        }
+      )
+      .trim();
+  }
+
+  const errorLines =
+    Array.from(
+      text.matchAll(
+        /^([A-Za-z_][\w.]*Error|Exception):\s*(.+)$/gm
+      )
+    );
+
+  if (errorLines.length) {
+    const match =
+      errorLines[errorLines.length - 1];
+
+    return `${match[1]}: ${match[2]}`.trim();
+  }
+
+  const nonEmptyLines =
+    text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+  return (
+    nonEmptyLines[nonEmptyLines.length - 1]
+    || ""
+  );
+}
+
+function summarizeTraceUrl(url) {
+  try {
+    const parsed =
+      new URL(url);
+
+    return `${parsed.host}${parsed.pathname}`;
+  } catch (_error) {
+    return url;
+  }
 }
 
 function splitInlineTrace(
@@ -231,6 +339,36 @@ function appendLog(
     );
   }
 
+  if (tag.includes("MEMORY:")) {
+    tagClass =
+      "text-blue-300 font-bold";
+
+    logDiv.classList.add(
+      "font-mono",
+      "text-[12px]",
+      "bg-blue-500/5",
+      "p-2",
+      "rounded",
+      "border",
+      "border-blue-500/10",
+    );
+  }
+
+  if (tag.includes("SESSION")) {
+    tagClass =
+      "text-cyan-300 font-bold";
+
+    logDiv.classList.add(
+      "font-mono",
+      "text-[12px]",
+      "bg-cyan-500/5",
+      "p-2",
+      "rounded",
+      "border",
+      "border-cyan-500/10",
+    );
+  }
+
   if (tag.includes("AFTER")) {
     tagClass =
       "text-purple-500";
@@ -291,14 +429,12 @@ function appendLog(
   );
 
   if (normalized.details) {
-    const traceButton =
-      document.createElement("button");
-
-    traceButton.type =
-      "button";
-
     const isSummarizer =
-      tag.includes("SUMMARIZER");
+      tag.includes("SUMMARIZER")
+      || tag.includes("MEMORY:");
+
+    const isSession =
+      tag.includes("SESSION");
 
     const isPatternResult =
       isSummarizer
@@ -308,14 +444,48 @@ function appendLog(
         "L2 pattern memory"
       );
 
+    const shouldShowReason =
+      tag.includes("ERROR")
+      || (
+          tag.includes("MEMORY:")
+          && (
+              String(normalized.message).includes("skipped")
+              || String(normalized.message).includes("failed")
+          )
+      );
+
+    const reason =
+      shouldShowReason
+        ? extractTraceReason(
+            normalized.message,
+            normalized.details
+          )
+        : "";
+
+    const actions =
+      document.createElement("div");
+
+    actions.className =
+      "mt-2 flex flex-wrap items-center gap-2";
+
+    const traceButton =
+      document.createElement("button");
+
+    traceButton.type =
+      "button";
+
     traceButton.className =
       isSummarizer
         ? "mt-2 inline-flex items-center rounded border border-blue-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-blue-300 hover:bg-blue-500/10 transition"
+        : isSession
+        ? "inline-flex items-center rounded border border-cyan-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/10 transition"
         : "mt-2 inline-flex items-center rounded border border-red-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-red-300 hover:bg-red-500/10 transition";
 
     traceButton.textContent =
       isPatternResult
         ? "show patterns"
+        : isSession
+        ? "show"
         : isSummarizer
         ? "show payload"
         : "show trace";
@@ -327,15 +497,55 @@ function appendLog(
           normalized.details,
           isPatternResult
             ? "L2 pattern memory"
+            : isSession
+            ? "Session bootstrap"
             : isSummarizer
             ? "Summarizer payload"
-            : "Trace"
+            : "Trace",
+          reason
         );
       }
     );
 
-    logDiv.appendChild(
+    actions.appendChild(
       traceButton
+    );
+
+    if (isSession) {
+      const clearButton =
+        document.createElement("button");
+
+      clearButton.type =
+        "button";
+
+      clearButton.className =
+        "inline-flex items-center rounded border border-zinc-600/40 px-2 py-1 text-[10px] uppercase tracking-wider text-zinc-300 hover:bg-zinc-700/40 transition";
+
+      clearButton.textContent =
+        "clear";
+
+      clearButton.addEventListener(
+        "click",
+        function () {
+          if (window.clearPersistedSessionBootstrap) {
+            window.clearPersistedSessionBootstrap();
+          }
+
+          normalized.details = null;
+          clearButton.disabled = true;
+          clearButton.textContent = "cleared";
+          traceButton.disabled = true;
+          traceButton.classList.add("opacity-40");
+        }
+      );
+
+      actions.appendChild(
+        clearButton
+      );
+    }
+
+    logDiv.appendChild(
+      actions
     );
   }
 

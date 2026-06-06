@@ -22,9 +22,6 @@ from clients import (
 from runtime import (
     RuntimeContext,
     RuntimeEmitter,
-    WEB_SEARCH_ACTION_CLOSE,
-    WEB_SEARCH_ACTION_OPEN,
-    WEB_SEARCH_ACTION_TEMPLATE,
 )
 from websocket_logger import (
     WebSocketLogger,
@@ -511,8 +508,7 @@ class SearchFlowTests(
                         "type": "thinking",
                         "content": (
                             "Needs current pricing. "
-                            f'{WEB_SEARCH_ACTION_OPEN}{{"query":"tesla car price"}}'
-                            f"{WEB_SEARCH_ACTION_CLOSE}"
+                            "<INTERNAL_ACTION_WEB_SEARCH:tesla car price>"
                         ),
                     },
                 ],
@@ -563,7 +559,7 @@ class SearchFlowTests(
 
         self.assertEqual(
             len(runtime_events),
-            1,
+            2,
         )
         self.assertEqual(
             runtime_events[0]["query"],
@@ -572,6 +568,15 @@ class SearchFlowTests(
         self.assertEqual(
             runtime_events[0]["id"],
             "web_search_001",
+        )
+        self.assertEqual(
+            runtime_events[1],
+            {
+                "type": "runtime_action",
+                "action": "web_search",
+                "id": "web_search_001",
+                "status": "completed",
+            },
         )
         self.assertIn(
             "<SEARCH_RESULT>",
@@ -589,8 +594,7 @@ class SearchFlowTests(
         )
         self.assertIn(
             (
-                f'{WEB_SEARCH_ACTION_OPEN}{{"query":"tesla car price"}}'
-                f"{WEB_SEARCH_ACTION_CLOSE}"
+                "<INTERNAL_ACTION_WEB_SEARCH:tesla car price>"
             ),
             "".join(
                 thinking_chunks
@@ -664,7 +668,7 @@ class SearchFlowTests(
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertNotIn(
-            WEB_SEARCH_ACTION_TEMPLATE,
+            "<RUNTIME_ACTION:WEB_SEARCH>{\"query\":\"...\"}</RUNTIME_ACTION:WEB_SEARCH>",
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertEqual(
@@ -688,8 +692,7 @@ class SearchFlowTests(
                         "type": "content",
                         "content": (
                             "I will check. "
-                            f'{WEB_SEARCH_ACTION_OPEN}{{"query":"tesla car price"}}'
-                            f"{WEB_SEARCH_ACTION_CLOSE}"
+                            "<INTERNAL_ACTION_WEB_SEARCH:tesla car price>"
                         ),
                     },
                 ],
@@ -725,11 +728,15 @@ class SearchFlowTests(
 
         self.assertEqual(
             len(runtime_events),
-            1,
+            2,
         )
         self.assertEqual(
             runtime_events[0]["query"],
             "tesla car price",
+        )
+        self.assertEqual(
+            runtime_events[1]["status"],
+            "completed",
         )
         self.assertEqual(
             len(brain_client.prompts),
@@ -754,8 +761,7 @@ class SearchFlowTests(
                         "type": "thinking",
                         "content": (
                             "Needs current pricing. "
-                            f'{WEB_SEARCH_ACTION_OPEN}{{"query":"apple price"}}'
-                            f"{WEB_SEARCH_ACTION_CLOSE}"
+                            "<INTERNAL_ACTION_WEB_SEARCH:apple price>"
                         ),
                     },
                     {
@@ -820,8 +826,7 @@ class SearchFlowTests(
                     {
                         "type": "thinking",
                         "content": (
-                            f'{WEB_SEARCH_ACTION_OPEN}{{"query":"jupiter cost"}}'
-                            f"{WEB_SEARCH_ACTION_CLOSE}"
+                            "<INTERNAL_ACTION_WEB_SEARCH:jupiter cost>"
                         ),
                     },
                 ],
@@ -873,8 +878,7 @@ class SearchFlowTests(
                     {
                         "type": "thinking",
                         "content": (
-                            f'{WEB_SEARCH_ACTION_OPEN}{{"query":"latest Python version"}}'
-                            f"{WEB_SEARCH_ACTION_CLOSE}"
+                            "<INTERNAL_ACTION_WEB_SEARCH:latest Python version>"
                         ),
                     },
                 ],

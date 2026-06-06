@@ -123,63 +123,91 @@
         @keyframes memoryGlowPulse {
             0%, 100% {
                 box-shadow:
-                        0 0 0 1px rgba(255, 190, 100, 0.35),
-                        0 0 24px rgba(255, 170, 70, 0.32),
-                        0 0 70px rgba(255, 140, 40, 0.20),
-                        inset 0 0 22px rgba(255, 170, 70, 0.08);
+                        0 0 0 1px rgba(255, 190, 100, 0.25),
+                        0 0 18px rgba(255, 170, 70, 0.22),
+                        0 0 48px rgba(255, 140, 40, 0.12),
+                        inset 0 0 16px rgba(255, 170, 70, 0.05);
             }
 
             50% {
                 box-shadow:
-                        0 0 0 1px rgba(255, 205, 120, 0.65),
-                        0 0 38px rgba(255, 180, 80, 0.58),
-                        0 0 110px rgba(255, 145, 45, 0.36),
-                        inset 0 0 30px rgba(255, 185, 90, 0.14);
+                        0 0 0 1px rgba(255, 205, 120, 0.42),
+                        0 0 26px rgba(255, 180, 80, 0.34),
+                        0 0 72px rgba(255, 145, 45, 0.20),
+                        inset 0 0 22px rgba(255, 185, 90, 0.08);
             }
         }
 
         @keyframes memoryL2GlowPulse {
             0%, 100% {
                 box-shadow:
-                        0 0 0 1px rgba(255, 255, 255, 0.35),
-                        0 0 24px rgba(255, 255, 255, 0.32),
-                        0 0 70px rgba(255, 255, 255, 0.20),
-                        inset 0 0 22px rgba(255, 255, 255, 0.08);
+                        0 0 0 1px rgba(255, 255, 255, 0.22),
+                        0 0 18px rgba(255, 255, 255, 0.18),
+                        0 0 48px rgba(255, 255, 255, 0.10),
+                        inset 0 0 16px rgba(255, 255, 255, 0.04);
             }
 
             50% {
                 box-shadow:
-                        0 0 0 1px rgba(255, 255, 255, 0.65),
-                        0 0 38px rgba(255, 255, 255, 0.58),
-                        0 0 110px rgba(255, 255, 255, 0.36),
-                        inset 0 0 30px rgba(255, 255, 255, 0.14);
+                        0 0 0 1px rgba(255, 255, 255, 0.38),
+                        0 0 26px rgba(255, 255, 255, 0.28),
+                        0 0 72px rgba(255, 255, 255, 0.16),
+                        inset 0 0 22px rgba(255, 255, 255, 0.07);
+            }
+        }
+
+        @keyframes memoryL3GlowPulse {
+            0%, 100% {
+                box-shadow:
+                        0 0 0 1px rgba(190, 120, 255, 0.24),
+                        0 0 18px rgba(168, 85, 247, 0.20),
+                        0 0 48px rgba(126, 34, 206, 0.12),
+                        inset 0 0 16px rgba(168, 85, 247, 0.05);
+            }
+
+            50% {
+                box-shadow:
+                        0 0 0 1px rgba(216, 180, 254, 0.40),
+                        0 0 26px rgba(192, 132, 252, 0.32),
+                        0 0 72px rgba(147, 51, 234, 0.18),
+                        inset 0 0 22px rgba(192, 132, 252, 0.08);
             }
         }
 
         #settings-panel {
             transition:
-                    border-color 2s ease,
-                    box-shadow 2s ease;
+                    border-color 1.8s ease,
+                    box-shadow 1.8s ease;
         }
 
         #settings-panel.memory-updating {
-            border-color: rgba(255,190,95,.65);
+            border-color: rgba(255,190,95,.50);
 
             box-shadow:
-                    0 0 0 1px rgba(255,190,100,.35),
-                    0 0 24px rgba(255,170,70,.32),
-                    0 0 70px rgba(255,140,40,.20),
-                    inset 0 0 22px rgba(255,170,70,.08);
+                    0 0 0 1px rgba(255,190,100,.25),
+                    0 0 18px rgba(255,170,70,.22),
+                    0 0 48px rgba(255,140,40,.12),
+                    inset 0 0 16px rgba(255,170,70,.05);
         }
 
         #settings-panel.memory-l2-updating {
-            border-color: rgba(255, 255, 255, 0.65);
+            border-color: rgba(255, 255, 255, 0.50);
 
             box-shadow:
-                    0 0 0 1px rgba(255, 255, 255, 0.35),
-                    0 0 24px rgba(255, 255, 255, 0.32),
-                    0 0 70px rgba(255, 255, 255, 0.20),
-                    inset 0 0 22px rgba(255, 255, 255, 0.08);
+                    0 0 0 1px rgba(255, 255, 255, 0.22),
+                    0 0 18px rgba(255, 255, 255, 0.18),
+                    0 0 48px rgba(255, 255, 255, 0.10),
+                    inset 0 0 16px rgba(255, 255, 255, 0.04);
+        }
+
+        #settings-panel.memory-l3-updating {
+            border-color: rgba(190, 120, 255, 0.50);
+
+            box-shadow:
+                    0 0 0 1px rgba(190, 120, 255, 0.24),
+                    0 0 18px rgba(168, 85, 247, 0.20),
+                    0 0 48px rgba(126, 34, 206, 0.12),
+                    inset 0 0 16px rgba(168, 85, 247, 0.05);
         }
 
         #settings-panel.memory-updating.memory-pulse {
@@ -190,24 +218,38 @@
             animation: memoryL2GlowPulse 5s ease-in-out infinite;
         }
 
+        #settings-panel.memory-l3-updating.memory-l3-pulse {
+            animation: memoryL3GlowPulse 5s ease-in-out infinite;
+        }
+
         #settings-panel.memory-fading {
-            border-color: rgba(255, 190, 95, 0.25);
+            border-color: rgba(255, 190, 95, 0.18);
 
             box-shadow:
-                    0 0 0 1px rgba(255, 190, 100, 0.12),
-                    0 0 16px rgba(255, 170, 70, 0.16),
-                    0 0 44px rgba(255, 140, 40, 0.10),
-                    inset 0 0 14px rgba(255, 170, 70, 0.04);
+                    0 0 0 1px rgba(255, 190, 100, 0.08),
+                    0 0 12px rgba(255, 170, 70, 0.10),
+                    0 0 32px rgba(255, 140, 40, 0.06),
+                    inset 0 0 10px rgba(255, 170, 70, 0.03);
         }
 
         #settings-panel.memory-l2-fading {
-            border-color: rgba(255, 255, 255, 0.25);
+            border-color: rgba(255, 255, 255, 0.18);
 
             box-shadow:
-                    0 0 0 1px rgba(255, 255, 255, 0.12),
-                    0 0 16px rgba(255, 255, 255, 0.16),
-                    0 0 44px rgba(255, 255, 255, 0.10),
-                    inset 0 0 14px rgba(255, 255, 255, 0.04);
+                    0 0 0 1px rgba(255, 255, 255, 0.08),
+                    0 0 12px rgba(255, 255, 255, 0.10),
+                    0 0 32px rgba(255, 255, 255, 0.06),
+                    inset 0 0 10px rgba(255, 255, 255, 0.03);
+        }
+
+        #settings-panel.memory-l3-fading {
+            border-color: rgba(190, 120, 255, 0.18);
+
+            box-shadow:
+                    0 0 0 1px rgba(190, 120, 255, 0.08),
+                    0 0 12px rgba(168, 85, 247, 0.10),
+                    0 0 32px rgba(126, 34, 206, 0.06),
+                    inset 0 0 10px rgba(168, 85, 247, 0.03);
         }
         #user-input::placeholder {
             color: rgba(255,255,255,0.35);
@@ -488,7 +530,46 @@
                  class="max-w-4xl mx-auto mt-3 flex flex-wrap gap-2">
             </div>
 
-        </div>
+            <!--  <div
+                  id="runtime-diff-panel"
+                  class="rounded border bg-zinc-900 border-zinc-800">
+
+              <div class="p-3 space-y-3 font-mono">
+
+                  <div
+                          class="runtime-memory-header flex items-center justify-between gap-2 border-b border-purple-400/60 text-[11px] uppercase tracking-widest text-slate-100">
+
+                      <span class="min-w-0 truncate">
+                          [ memory diffs ]
+                      </span>
+
+                      <button
+                              id="runtime-diff-toggle"
+                              type="button"
+                              class="shrink-0 text-purple-300 transition hover:text-purple-100">
+                          show diffs
+                      </button>
+
+                  </div>
+
+                  <div
+                          id="runtime-diff-summary"
+                          class="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] leading-relaxed text-zinc-300">
+                      <span>count: <b id="runtime-diff-count" class="font-normal text-purple-200">0</b></span>
+                      <span>avg: <b id="runtime-diff-average" class="font-normal text-purple-200">0</b></span>
+                      <span>range: <b id="runtime-diff-range" class="font-normal text-purple-200">0</b></span>
+                      <span>max: <b id="runtime-diff-max" class="font-normal text-purple-200">0</b></span>
+                  </div>
+
+                  <pre
+                          id="runtime-diff-text"
+                          class="hidden max-h-52 overflow-auto whitespace-pre-wrap break-words border-t border-zinc-800 pt-3 text-[11px] leading-relaxed text-zinc-100"></pre>
+
+              </div>
+
+          </div>
+
+          --> </div>
 
     </section>
 
@@ -677,12 +758,12 @@
     "runtimeConfig": runtime_config,
     } | tojson }}
 </template>
-<script src="/static/js/telemetry.js?v=runtime-memory-1"></script>
+<script src="/static/js/telemetry.js?v=session-memory-4"></script>
 <script src="/static/js/status.js?v=status-check-4"></script>
 <script src="/static/js/dragdrop.js?v=context-panel-5"></script>
-<script src="/static/js/logger.js?v=context-popup-1"></script>
+<script src="/static/js/logger.js?v=session-card-1"></script>
 <script src="/static/js/chat.js?v=context-popup-1"></script>
-<script src="/static/js/socket.js?v=runtime-memory-1"></script>
+<script src="/static/js/socket.js?v=session-memory-2"></script>
 </body>
 
 </html>

@@ -4,13 +4,13 @@ from xml.sax.saxutils import escape
 
 RUNTIME_ACTION_DEEP_THOUGHT = "DEEP_THOUGHT"
 RUNTIME_ACTION_WEB_SEARCH = "WEB_SEARCH"
+RUNTIME_ACTION_REMEMBER_SESSION = "REMEMBER_SESSION"
+RUNTIME_ACTION_REMEMBER_EVENT = "REMEMBER_EVENT"
 
-DEEP_THOUGHT_ACTION = "<RUNTIME_ACTION:DEEP_THOUGHT/>"
-WEB_SEARCH_ACTION_OPEN = "<RUNTIME_ACTION:WEB_SEARCH>"
-WEB_SEARCH_ACTION_CLOSE = "</RUNTIME_ACTION:WEB_SEARCH>"
-WEB_SEARCH_ACTION_TEMPLATE = (
-    f'{WEB_SEARCH_ACTION_OPEN}{{"query":"..."}}{WEB_SEARCH_ACTION_CLOSE}'
-)
+DEEP_THOUGHT_REQUEST = "<INTERNAL_ACTION_DEEP_THOUGHT>"
+WEB_SEARCH_REQUEST_TEMPLATE = "<INTERNAL_ACTION_WEB_SEARCH:plain text query>"
+REMEMBER_SESSION_REQUEST = "<INTERNAL_ACTION_REMEMBER_SESSION>"
+REMEMBER_EVENT_REQUEST = "<INTERNAL_ACTION_REMEMBER_EVENT>"
 
 
 def format_xml_field(
@@ -63,6 +63,8 @@ class ContextContract:
     deep_thought_count: int = 0
     can_deep_thought: bool = False
     can_web_search: bool = True
+    can_remember_session: bool = False
+    can_remember_event: bool = False
 
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
     current_date: str = field(default_factory=lambda: datetime.now().date().isoformat())
@@ -86,7 +88,7 @@ class ContextContract:
             available_actions.append(
                 (
                     RUNTIME_ACTION_DEEP_THOUGHT,
-                    DEEP_THOUGHT_ACTION,
+                    DEEP_THOUGHT_REQUEST,
                 )
             )
 
@@ -94,7 +96,23 @@ class ContextContract:
             available_actions.append(
                 (
                     RUNTIME_ACTION_WEB_SEARCH,
-                    WEB_SEARCH_ACTION_TEMPLATE,
+                    WEB_SEARCH_REQUEST_TEMPLATE,
+                )
+            )
+
+        if self.can_remember_session:
+            available_actions.append(
+                (
+                    RUNTIME_ACTION_REMEMBER_SESSION,
+                    REMEMBER_SESSION_REQUEST,
+                )
+            )
+
+        if self.can_remember_event:
+            available_actions.append(
+                (
+                    RUNTIME_ACTION_REMEMBER_EVENT,
+                    REMEMBER_EVENT_REQUEST,
                 )
             )
 

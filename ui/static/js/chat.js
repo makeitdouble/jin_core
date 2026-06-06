@@ -273,11 +273,23 @@ function appendRuntimeAction(
   text
 ) {
 
+  const actionText =
+    String(
+      text || ""
+    );
+
+  if (!actionText.trim()) {
+    return;
+  }
+
   const row =
     document.createElement("div");
 
   row.className =
-    "mx-auto flex w-full max-w-4xl items-center gap-3 text-xs text-cyan-100";
+    "mx-auto flex w-full max-w-4xl items-center gap-3 text-xs text-cyan-100 transition duration-500";
+
+  row.dataset.runtimeAction =
+    action || "";
 
   const icon =
     document.createElement("div");
@@ -294,10 +306,10 @@ function appendRuntimeAction(
     document.createElement("div");
 
   label.className =
-    "px-3 py-2 rounded-lg border border-cyan-700/70 bg-cyan-950/40 font-mono";
+    "px-3 py-2 rounded-lg border border-cyan-700/70 bg-cyan-950/40 font-mono transition duration-500";
 
   label.textContent =
-    text;
+    actionText;
 
   row.appendChild(
     icon
@@ -313,6 +325,34 @@ function appendRuntimeAction(
 
   chatHistory.scrollTop =
     chatHistory.scrollHeight;
+
+}
+
+
+function fadeRuntimeAction(
+  action
+) {
+
+  const rows =
+    chatHistory.querySelectorAll(
+      `[data-runtime-action="${action}"]`
+    );
+
+  rows.forEach((row) => {
+    row.classList.add(
+      "opacity-45"
+    );
+
+    row
+      .querySelectorAll("div")
+      .forEach((element) => {
+        element.classList.add(
+          "border-zinc-700/50",
+          "bg-zinc-900/30",
+          "text-zinc-400"
+        );
+      });
+  });
 
 }
 
@@ -565,6 +605,14 @@ function appendStreamChunk(
   chunk
 ) {
 
+  if (
+    chunk === null
+    || chunk === undefined
+    || chunk === ""
+  ) {
+    return;
+  }
+
   const stream =
     streamMessages.get(
       messageId
@@ -608,6 +656,38 @@ function finishStreamMessage(
   messageId
 ) {
 
+  const stream =
+    streamMessages.get(
+      messageId
+    );
+
+  if (stream) {
+
+    if (
+      stream.group.createdAnswer
+      && !stream.answer.trim()
+      && stream.group.messageRow
+    ) {
+      stream.group.messageRow.remove();
+    }
+
+    if (
+      stream.group.createdThinking
+      && !stream.thinking.trim()
+      && stream.group.thinkWrapper
+    ) {
+      stream.group.thinkWrapper.remove();
+    }
+
+    if (
+      stream.group.wrapper
+      && stream.group.wrapper.childElementCount === 0
+    ) {
+      stream.group.wrapper.remove();
+    }
+
+  }
+
   streamMessages.delete(
     messageId
   );
@@ -620,6 +700,9 @@ window.appendChatMessage =
 
 window.appendRuntimeAction =
   appendRuntimeAction;
+
+window.fadeRuntimeAction =
+  fadeRuntimeAction;
 
 window.startStreamMessage =
   startStreamMessage;

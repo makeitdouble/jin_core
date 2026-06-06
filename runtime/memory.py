@@ -2,8 +2,12 @@ import asyncio
 import contextlib
 import json
 import traceback
+from datetime import datetime
 from difflib import SequenceMatcher
 
+from clients.errors import (
+    format_client_error,
+)
 from clients.service_client import (
     ask_service_model,
 )
@@ -19,20 +23,267 @@ from clients.response_extractor import (
 from runtime.state_sync import (
     refresh_runtime_state,
 )
+from runtime.context_contract import (
+    ContextContract,
+)
 from utils.tokens import (
     estimate_runtime_tokens,
 )
-
-
-DEFAULT_RUNTIME_MEMORY = (
-    "This session has just begun. "
-    "You have no history with the user yet."
+from runtime.memory_rules import (
+    DEFAULT_RUNTIME_MEMORY,
+    build_interrupted_assistant_message,
+    build_runtime_l2_memory_system_prompt,
+    build_runtime_l2_memory_user_prompt,
+    build_runtime_memory_batch_user_prompt,
+    build_runtime_memory_system_prompt,
+    build_runtime_memory_user_prompt,
+    build_runtime_session_memory_system_prompt,
+    build_runtime_session_memory_user_prompt,
+    canonicalize_runtime_memory_entry,
 )
 
+
 DEFAULT_RUNTIME_L2_MEMORY = ""
+DEFAULT_RUNTIME_L3_SESSION_MEMORY = ""
+L3_INPUT_TOKEN_TARGET_MAX = 6000
+L3_INPUT_TOKEN_RESERVE = 768
+L3_OUTPUT_MAX_TOKENS = 2048
 MIN_L2_TURNS = 3
 L2_PATCH_WINDOW = 5
 L2_REPEATED_KEY_THRESHOLD = 3
+DURABLE_MEMORY_KEY_TOKENS = (
+    "fact",
+    "identity",
+    "profile",
+    "preference",
+    "stored",
+)
+DURABLE_MEMORY_NEGATION_MARKERS = (
+    "not",
+    "not fact",
+    "not true",
+    "false",
+    "obsolete",
+    "removed",
+    "cancelled",
+    "canceled",
+    "superseded",
+    "no longer",
+    "invalid",
+)
+
+
+def build_runtime_summarizer_trusted_context(
+        context=None,
+) -> str:
+
+    timestamp = (
+        getattr(
+            context,
+            "timestamp",
+            "",
+        )
+        if context is not None
+        else ""
+    )
+    current_date = (
+        getattr(
+            context,
+            "current_date",
+            "",
+        )
+        if context is not None
+        else ""
+    )
+    current_time = (
+        getattr(
+            context,
+            "current_time",
+            "",
+        )
+        if context is not None
+        else ""
+    )
+    weekday = (
+        getattr(
+            context,
+            "weekday",
+            "",
+        )
+        if context is not None
+        else ""
+    )
+    year = (
+        getattr(
+            context,
+            "year",
+            None,
+        )
+        if context is not None
+        else None
+    )
+
+    now = None
+
+    if timestamp:
+        try:
+            now = datetime.fromisoformat(
+                str(timestamp).replace(
+                    "Z",
+                    "+00:00",
+                )
+            )
+        except ValueError:
+            now = None
+
+    if now is None:
+        now = datetime.now()
+        timestamp = timestamp or now.isoformat()
+
+    contract = ContextContract(
+        user_input="",
+        timestamp=str(timestamp),
+        current_date=str(
+            current_date
+            or now.date().isoformat()
+        ),
+        current_time=str(
+            current_time
+            or now.strftime("%H:%M:%S")
+        ),
+        weekday=str(
+            weekday
+            or now.strftime("%A")
+        ),
+        year=int(
+            year
+            or now.year
+        ),
+    )
+
+    return contract.to_runtime_xml()
+
+
+def build_runtime_summarizer_user_prompt(
+        *,
+        context=None,
+        prompt: str,
+) -> str:
+
+    return "\n\n".join([
+        build_runtime_summarizer_trusted_context(
+            context
+        ),
+        prompt,
+    ])
+
+
+def infer_memory_failure_reason(
+        error: Exception,
+) -> str:
+
+    response = getattr(
+        error,
+        "response",
+        None,
+    )
+    status_code = getattr(
+        response,
+        "status_code",
+        None,
+    )
+    response_text = (
+        getattr(
+            response,
+            "text",
+            "",
+        )
+        or ""
+    ).strip()
+
+    searchable_text = (
+        f"{error}\n{response_text}"
+    ).lower()
+
+    token_markers = (
+        "token",
+        "context length",
+        "context window",
+        "maximum context",
+        "max_tokens",
+        "too many tokens",
+        "prompt is too long",
+    )
+
+    if any(
+        marker in searchable_text
+        for marker in token_markers
+    ):
+        return (
+            "Token/context limit exceeded or max_tokens is too large "
+            "for the remaining context."
+        )
+
+    if status_code == 400:
+        if response_text:
+            return (
+                "Provider rejected the memory summarizer request "
+                "(400 Bad Request); see provider message below."
+            )
+
+        return (
+            "Provider rejected the memory summarizer request "
+            "(400 Bad Request) without an error body; exact cause is unknown. "
+            "Common causes are token/context limit mismatch or an invalid payload."
+        )
+
+    if status_code:
+        return (
+            "Provider rejected the memory summarizer request "
+            f"with HTTP {status_code}."
+        )
+
+    error_text = str(
+        error
+    ).strip()
+
+    if error_text:
+        return error_text
+
+    return (
+        "Memory summarizer failed before returning a result."
+    )
+
+
+def build_memory_failure_details(
+        *,
+        stage: str,
+        error: Exception,
+        traceback_text: str,
+) -> str:
+
+    request = getattr(
+        error,
+        "request",
+        None,
+    )
+    request_url = str(
+        getattr(
+            request,
+            "url",
+            "",
+        )
+        or config.SERVICE_API_BASE
+    )
+
+    return (
+        "Likely reason: "
+        f"{infer_memory_failure_reason(error)}"
+        "\n\nClient error details:\n"
+        f"{format_client_error(stage, request_url, config.SERVICE_MODEL_UID, error)}"
+        "\n\nTraceback:\n"
+        f"{traceback_text}"
+    )
 
 def change_ratio(
         previous: str,
@@ -82,6 +333,79 @@ async def safe_call(
         )
 
 
+def get_memory_log_level(
+        label: str,
+) -> str:
+
+    return (
+        label
+        .split(
+            " ",
+            1,
+        )[0]
+        .upper()
+    )
+
+
+async def log_memory_event(
+        context,
+        *,
+        level: str,
+        message: str,
+        details: str | None = None,
+        fallback_channel: str = "runtime",
+) -> None:
+
+    logger = getattr(
+        context,
+        "logger",
+        None,
+    )
+
+    log_memory = getattr(
+        logger,
+        "log_memory",
+        None,
+    )
+
+    if log_memory is not None:
+        await safe_call(
+            log_memory,
+            level,
+            message,
+            details=details,
+        )
+        return
+
+    fallback = getattr(
+        logger,
+        f"log_{fallback_channel}",
+        None,
+    )
+    formatted_message = (
+        f"[MEMORY:{level}] {message}"
+    )
+
+    if (
+            details is not None
+            and fallback_channel in {
+                "error",
+                "summarizer",
+            }
+    ):
+        await safe_call(
+            fallback,
+            formatted_message,
+            details=details,
+        )
+        return
+
+    await safe_call(
+        fallback,
+        formatted_message,
+    )
+
+
 async def emit_runtime_memory_update(
         context,
 ) -> dict:
@@ -126,303 +450,146 @@ async def emit_runtime_memory_update(
     return snapshot
 
 
-def build_runtime_l2_memory_system_prompt() -> str:
+def build_runtime_l1_diff_stats(
+        diff_history: list[dict],
+) -> dict:
 
-    return (
-        "You are JIN's L2 pattern memory summarizer.\n"
-        "Return only the new L2 pattern memory as plain text.\n"
-        "Do not output JSON.\n"
-        "Do not use Markdown headings.\n"
-        "Do not explain your reasoning or the summarization process.\n"
-        "Write memory as atomic bullet lines, one semantic entity per line.\n"
-        "Every memory entry MUST use the format:\n "
-        "<key>: <value>\n"
-        "L2 works above L1 factual runtime memory.\n"
-        "Use only the recent L1 patch window supplied by the runtime.\n"
-        "This window is selected because normalized L1 keys or topics repeated across patches.\n"
-        "Pattern memory should not learn from itself.\n"
-        "Do not treat existing possible pattern, observed tendency, emerging signal, or other pattern-memory entries as evidence.\n"
-        "Pattern entries may be displayed as context, but they must never contribute to occurrence counts or create new pattern entries.\n"
-        "Occurrences must be derived only from actual conversation evidence in the supplied L1 patches, not from previously generated pattern summaries.\n"
-        "L2 is a hypothesis generator, not a source of settled memory.\n"
-        "Allowed outputs: possible pattern, emerging signal, observed tendency, may indicate, contradiction, corrected assumption.\n"
-        "Prefer 'possible pattern' over 'pattern'.\n"
-        "Every possible pattern, emerging signal, or observed tendency MUST include an occurrence counter in the value: Occurrences: N.\n"
-        "Every possible pattern, emerging signal, or observed tendency SHOULD include accounting metadata in the value: "
-        "Occurrences: N; last_seen_snapshot: S; evidence summary: <short evidence>; confidence: low|medium|high.\n"
-        "For a brand-new pattern with no prior L2 entry, set Occurrences to the number of matching evidence lines in the supplied L1 patch window, not to 1 by default.\n"
-        "For a brand-new pattern, if the same-intent behavior repeated before L2 named it, count those earlier L1 evidence lines immediately when creating the counter.\n"
-        "For an existing pattern, preserve its old Occurrences count; do not recompute Occurrences from the supplied patch window alone.\n"
-        "For an existing pattern, new_occurrences = old_occurrences + count(new matching L1 evidence after last_seen_snapshot).\n"
-        "Only increment Occurrences when patch snapshot > last_seen_snapshot and the L1 evidence actually matches this pattern.\n"
-        "If last_seen_snapshot is missing for an existing pattern, initialize it as a baseline without incrementing Occurrences for old visible evidence.\n"
-        "Use the newest matching patch snapshot as the updated last_seen_snapshot after counting new evidence.\n"
-        "Never reduce an existing Occurrences count just because the current patch window contains fewer matching examples.\n"
-        "Never write Occurrences: 1 for a brand-new pattern when the supplied window shows two or more manifestations of that same pattern.\n"
-        "When the user explicitly cancels the pattern, stops doing it, or clearly changes topic, reset that pattern to Occurrences: 0.\n"
-        "Do not keep Occurrences: 0 entries unless they are still useful as immediate context; obsolete zero-count entries may be dropped.\n"
-        "Do not repeat factual L1 memory unless it is needed to explain an L2 signal.\n"
-        "Do not claim certainty from weak evidence. Prefer 'may', 'possible', 'observed', and 'emerging'.\n"
-        "Do not write categorical statements like '<signal> serves as a strong signal' or 'the user exhibits <trait>'.\n"
-        "Do not use these words in the generated memory: stable, established, strong signal, user exhibits, personality, identity, core preference.\n"
-        "If there is not enough signal for L2, return the current L2 memory unchanged.\n"
-    )
-
-
-def build_runtime_l2_memory_user_prompt(
-        *,
-        current_l2_memory: str,
-        patches: list[dict],
-) -> str:
-
-    lines = [
-        "Current L2 pattern memory:",
-        current_l2_memory.strip() or "<empty>",
-        "",
-        "Recent L1 patches since the last L2 update:",
+    values = [
+        item.get(
+            "total_diff",
+            0,
+        )
+        for item in diff_history
     ]
 
-    for index, patch in enumerate(
-            patches,
-            start=1,
-    ):
-        lines.extend([
-            "",
-            f"Patch {index}",
-            f"turn: {patch.get('turn_number', 0)}",
-            f"snapshot: {patch.get('snapshot_index', 0)}",
-            f"total_diff: {patch.get('total_diff', 0)}",
-        ])
+    return {
+        "count": len(values),
+        "average": average_diff(values),
+        "range": diff_value_range(values),
+        "min": min(values) if values else 0,
+        "max": max(values) if values else 0,
+    }
 
-        changes = patch.get(
-            "changes",
-            {},
+
+async def emit_runtime_l1_diff_update(
+        context,
+) -> None:
+
+    emitter = getattr(
+        context,
+        "emitter",
+        None,
+    )
+
+    emit = getattr(
+        emitter,
+        "emit",
+        None,
+    )
+
+    history = list(
+        getattr(
+            context,
+            "runtime_l1_diff_history",
+            [],
         )
-
-        for section in (
-                "added",
-                "changed",
-                "removed",
-        ):
-            entries = (
-                changes.get(
-                    section,
-                    [],
-                )
-                or []
-            )
-
-            if not entries:
-                continue
-
-            lines.append(
-                f"{section}:"
-            )
-
-            for entry in entries:
-                if section == "changed":
-                    lines.append(
-                        "- "
-                        f"{entry.get('previous_key', '')}: {entry.get('previous_value', '')} "
-                        "=> "
-                        f"{entry.get('current_key', '')}: {entry.get('current_value', '')}"
-                    )
-                else:
-                    lines.append(
-                        "- "
-                        f"{entry.get('key', '')}: {entry.get('value', '')}"
-                    )
-
-    lines.extend([
-        "",
-        "Rewrite the L2 pattern memory now.",
-    ])
-
-    return "\n".join(
-        lines
+        or []
     )
 
-
-def build_runtime_memory_system_prompt() -> str:
-
-    return (
-        "You are JIN's runtime memory summarizer.\n"
-        "This is L1 runtime memory: factual live state only.\n"
-        "Return only the new compressed L1 memory state as plain text.\n"
-        "Do not output JSON.\n"
-        "Do not use Markdown headings.\n"
-        "Do not explain your reasoning or the summarization process.\n"
-        "Write memory as atomic bullet lines, one semantic entity per line.\n"
-        "Memory keys are flexible. Memory syntax is NOT flexible.\n"
-        "Every memory entry MUST use the format:\n "
-        "<key>: <value>\n"
-        "You may invent semantic keys whenever they better capture an explicit current fact.\n"
-        "Do not treat the example keys as a closed schema.\n"
-        "Treat labels as semantic registers, not fixed database fields.\n"
-        "Prefer keeping an existing key when it still fits, but do not force a weak key from a list.\n"
-        "Avoid key churn: do not rename the same concept just for style.\n"
-        "Choose names that help immediate continuity and retrieval.\n"
-        "The examples below are illustrative only.\n"
-        "Each line should start with a compact semantic label such as topic, "
-        "session status, user request, user intent, active topics, open references, pending choices, "
-        "offered options, constraints, current concern, decisions, implementation detail, known fact, failures or interruptions.\n"
-        "Avoid writing about JIN's role unless the role itself changed or matters. "
-        "Describe JIN actions neutrally instead.\n"
-        "Keep memory actionable: write what helps the next answer, not a recap of "
-        "what happened. \n"
-        "Always keep a separate last_jin_response field with the concise gist of JIN's latest completed answer, offer, or question. "
-        "Do not store the full wording; store only the meaning needed to resolve the user's next short or elliptical reply. "
-        "Never omit this field from the memory snapshot; update it each completed turn, and mark it incomplete if JIN's answer was interrupted.\n"
-        "Record only explicit facts from the current conversation: active topic, current request, "
-        "user-stated intent, decisions, constraints, pending choices, open references, interruptions, "
-        "and unresolved state.\n"
-        "When the latest turn contains an explicit emotional moment, record one line as emotional moment: <type>; trigger quote: \"<short exact user quote>\".\n"
-        "Do not infer repeated-behavior conclusions, user likes or dislikes, motives, self-definition, "
-        "character traits, long-term tendencies, or relationship dynamics.\n"
-        "If the same topic or behavior appears again, update the explicit current fact or open reference only. "
-        "Do not write cross-turn interpretations in L1.\n"
-        "If current L2 pattern memory contains Occurrences counters, treat them as an active watchlist created by L2.\n"
-        "Do not invent new pattern counters in L1, but if the latest turn clearly manifests an existing counted L2 pattern, "
-        "record factual occurrence evidence in L1, such as occurrence evidence: <pattern> +1; reason: matches active L2 Occurrences counter.\n"
-        "L2 will reconcile those L1 occurrence evidence lines during its next check.\n"
-        "If there are unresolved pending choices or open references "
-        "that remain relevant to the current conversation, "
-        "you may naturally remind the user about them.\n"
-        "Do not interrupt a clearly established new topic. "
-        "Use reminders sparingly and only when they add value.\n"
-        "Do not merge unrelated facts into one sentence. Prefer separate lines "
-        "over broad phrasing like 'Topic established: X, specifically Y'.\n"
-        "Finish every bullet line completely. Never leave a line mid-phrase.\n"
-        "Preserve still-relevant existing memory. Update it instead of replacing it blindly.\n"
-        "Give important facts their own semantic keys, such as key detail, explicit fact, user_fact, jin_fact, decision, constraint, or requirement. "
-        "Do not bury strong facts inside active topic, active task, current request, or other temporary containers.\n"
-        "When the user asks to remember a word, code word, token, password-like label, or important detail, store it with a retrieval-friendly key such as key detail or memory token and include the user's label/synonym in the value.\n"
-        "Preserve strong details until the current context directly makes them obsolete, corrected, cancelled, or irrelevant; a topic/task change alone is not enough.\n"
-        "If existing memory contains a jin_fact about JIN, such as gender, age, identity, origin, or other self-fact, preserve it exactly and never change, contradict, or overwrite it.\n"
-        "If existing memory contains a user_fact about the user, such as name, identity, role, preference, location, age, or other personal fact, preserve it exactly and never change, contradict, or overwrite it.\n"
-        "Do not update a value when JIN merely paraphrased, reordered, or reworded the same offer, "
-        "open reference, pending choice, or conversational state without adding a new explicit fact.\n"
-        "Treat semantic rephrasing as no-op memory: keep the previous value unchanged unless the actual meaning changed.\n"
-        "Drop old details only when they are clearly obsolete, duplicated, or no longer useful.\n"
-        "Decide the summary depth from the signal in the latest turn.\n"
-        "Use shallow summarization for simple factual, isolated, or low-signal turns: "
-        "keep one or two bullet lines with only the dry fact, topic, or unresolved "
-        "reference that could help the next answer.\n"
-        "Use deep summarization for turns that reveal user intent, project direction, "
-        "decisions, constraints, pending choices, open references, implementation direction, "
-        "or a meaningful shift in the immediate conversation state; use three to six bullet lines when "
-        "the turn carries that much signal.\n"
-        "If the user asks a follow-up that depends on prior context, preserve the "
-        "referent clearly enough for the next brain prompt to resolve it.\n"
-        "If the user switches topic, keep the new topic without forcing it into the "
-        "previous one.\n"
-        "If JIN response was aborted or incomplete, mark it as incomplete "
-        "and do not treat it as resolved.\n"
-        "Do not infer durable user traits from a single turn.\n"
-        "Do not over-interpret jokes, tests, or casual topic changes.\n"
-        "Prefer compact continuity over transcript-like detail.\n"
-        "Remove noise, implementation chatter, and one-off details unless they change "
-        "what JIN should understand next.\n"
-        "The final memory snapshot should feel like current live trusted state.\n"
-    )
-
-
-def build_runtime_memory_user_prompt(
-        *,
-        current_memory: str,
-        user_message: str,
-        assistant_message: str,
-        current_l2_memory: str = "",
-) -> str:
-
-    return (
-        "Current runtime memory:\n"
-        f"{current_memory.strip() or DEFAULT_RUNTIME_MEMORY}\n\n"
-        "Current L2 pattern memory for occurrence tracking only:\n"
-        f"{current_l2_memory.strip() or '<empty>'}\n\n"
-        "Latest user message:\n"
-        f"{user_message.strip()}\n\n"
-        "Latest JIN answer:\n"
-        f"{assistant_message.strip()}\n\n"
-        "Rewrite the runtime memory now as atomic bullet lines."
-    )
-
-
-def build_runtime_memory_batch_user_prompt(
-        *,
-        current_memory: str,
-        turns: list[dict],
-        current_l2_memory: str = "",
-) -> str:
-
-    lines = [
-        "Current runtime memory:",
-        current_memory.strip() or DEFAULT_RUNTIME_MEMORY,
-        "",
-        "Current L2 pattern memory for occurrence tracking only:",
-        current_l2_memory.strip() or "<empty>",
-        "",
-        "New completed turns since that memory snapshot:",
-        ]
-
-    for index, turn in enumerate(
-            turns,
-            start=1,
-    ):
-        lines.extend([
-            "",
-            f"Turn {index}",
-            "Latest user message:",
-            (
-                turn.get(
-                    "user_message",
-                    "",
-                )
-                .strip()
+    await safe_call(
+        emit,
+        {
+            "type": "runtime_l1_diff_update",
+            "diffs": history,
+            "stats": build_runtime_l1_diff_stats(
+                history
             ),
-            "",
-            "Latest JIN answer:",
-            (
-                turn.get(
-                    "assistant_message",
-                    "",
-                )
-                .strip()
-            ),
-        ])
-
-    lines.extend([
-        "",
-        "Rewrite the runtime memory now as atomic bullet lines.",
-        "Use the current memory as the last stable snapshot.",
-        "Integrate all new completed turns in order.",
-    ])
-
-    return "\n".join(
-        lines
+        },
     )
 
 
-def build_interrupted_assistant_message(
+async def emit_runtime_session_memory_update(
+        context,
         *,
-        user_message: str,
-        assistant_message: str,
-) -> str:
+        persist_browser: bool = False,
+) -> None:
 
-    partial_text = assistant_message.strip()
+    emitter = getattr(
+        context,
+        "emitter",
+        None,
+    )
 
-    if not partial_text:
-        partial_text = (
-            "No complete assistant answer was delivered."
+    emit = getattr(
+        emitter,
+        "emit",
+        None,
+    )
+
+    memory = getattr(
+        context,
+        "runtime_l3_session_memory",
+        "",
+    ) or getattr(
+        context,
+        "session_memory",
+        "",
+    )
+    event_snapshots = list(
+        getattr(
+            context,
+            "runtime_session_event_snapshots",
+            [],
         )
+        or []
+    )
 
-    return (
-        "JIN response was interrupted by the user and is incomplete. "
-        "Do not treat this turn as resolved.\n\n"
-        "Interrupted user topic/request:\n"
-        f"{user_message.strip()}\n\n"
-        "Partial JIN text before interruption:\n"
-        f"{partial_text}"
+    await safe_call(
+        emit,
+        {
+            "type": "runtime_session_memory_update",
+            "memory": memory,
+            "event_snapshots": event_snapshots,
+            "updates": getattr(
+                context,
+                "runtime_session_memory_updates",
+                0,
+            ),
+            "source": getattr(
+                context,
+                "session_memory_source",
+                "",
+            ),
+            "persist": persist_browser,
+        },
+    )
+
+
+async def emit_runtime_action_completed(
+        context,
+        *,
+        action: str,
+) -> None:
+
+    emitter = getattr(
+        context,
+        "emitter",
+        None,
+    )
+
+    emit = getattr(
+        emitter,
+        "emit",
+        None,
+    )
+
+    await safe_call(
+        emit,
+        {
+            "type": "runtime_action",
+            "action": action,
+            "status": "completed",
+        },
     )
 
 
@@ -510,6 +677,7 @@ async def refresh_runtime_memory_summarizer_usage(
         system_prompt: str,
         user_prompt: str,
         response: dict | None = None,
+        context_window: int | None = None,
 ) -> None:
 
     if context is None:
@@ -583,7 +751,10 @@ async def refresh_runtime_memory_summarizer_usage(
             total_tokens
             or context_tokens
         ),
-        max_tokens=config.SERVICE_CONTEXT_WINDOW,
+        max_tokens=(
+            context_window
+            or config.SERVICE_CONTEXT_WINDOW
+        ),
         last_error=None,
         status="online",
     )
@@ -620,6 +791,123 @@ def build_runtime_summarizer_payload(
     }
 
 
+def build_l3_session_memory_max_tokens(
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        context_window: int | None = None,
+) -> int:
+
+    prompt_tokens = estimate_runtime_tokens(
+        system_prompt=system_prompt,
+        user_input=user_prompt,
+    )
+    effective_context_window = (
+        context_window
+        or config.SERVICE_CONTEXT_WINDOW
+    )
+    response_budget = (
+        effective_context_window
+        - prompt_tokens
+        - 128
+    )
+
+    return max(
+        128,
+        min(
+            config.SERVICE_MAX_TOKENS,
+            response_budget,
+        ),
+    )
+
+
+class L3PromptBudgetExceeded(
+    RuntimeError,
+):
+
+    def __init__(
+            self,
+            diagnostic: dict,
+    ):
+
+        super().__init__(
+            "L3 session digest exceeds safe input budget"
+        )
+        self.diagnostic = diagnostic
+
+
+def get_l3_input_token_budget(
+        context_window: int | None,
+) -> int:
+
+    effective_context_window = (
+        context_window
+        or config.SERVICE_CONTEXT_WINDOW
+    )
+
+    return max(
+        1,
+        min(
+            L3_INPUT_TOKEN_TARGET_MAX,
+            effective_context_window
+            - L3_INPUT_TOKEN_RESERVE,
+        ),
+    )
+
+
+async def build_budgeted_l3_session_user_prompt(
+        *,
+        context,
+        system_prompt: str,
+        current_session_memory: str,
+        runtime_memory_snapshots: list[dict],
+        diff_history: list[dict],
+        runtime_l2_memory: str,
+        session_event_snapshots: list[dict],
+        context_window: int | None,
+) -> tuple[str, dict]:
+
+    target_budget = get_l3_input_token_budget(
+        context_window
+    )
+
+    for minimal in (
+            False,
+            True,
+    ):
+        raw_user_prompt = build_runtime_session_memory_user_prompt(
+            current_session_memory=current_session_memory,
+            runtime_memory_snapshots=runtime_memory_snapshots,
+            diff_history=diff_history,
+            runtime_l2_memory=runtime_l2_memory,
+            session_event_snapshots=session_event_snapshots,
+            minimal=minimal,
+        )
+        user_prompt = build_runtime_summarizer_user_prompt(
+            context=context,
+            prompt=raw_user_prompt,
+        )
+        input_tokens = estimate_runtime_tokens(
+            system_prompt=system_prompt,
+            user_input=user_prompt,
+        )
+        diagnostic = {
+            "minimal": minimal,
+            "context_window": context_window,
+            "input_tokens": input_tokens,
+            "target_budget": target_budget,
+            "prompt_chars": len(user_prompt),
+            "system_prompt_chars": len(system_prompt),
+        }
+
+        if input_tokens <= target_budget:
+            return user_prompt, diagnostic
+
+    raise L3PromptBudgetExceeded(
+        diagnostic
+    )
+
+
 async def log_runtime_summarizer_payload(
         context,
         *,
@@ -627,22 +915,18 @@ async def log_runtime_summarizer_payload(
         payload: dict,
 ) -> None:
 
-    await safe_call(
-        getattr(
-            getattr(
-                context,
-                "logger",
-                None,
-            ),
-            "log_summarizer",
-            None,
+    await log_memory_event(
+        context,
+        level=get_memory_log_level(
+            label
         ),
-        f"[MEMORY] {label} summarizer request",
+        message=f"{label} summarizer request",
         details=json.dumps(
             payload,
             ensure_ascii=False,
             indent=2,
         ),
+        fallback_channel="summarizer",
     )
 
 
@@ -653,21 +937,17 @@ async def log_runtime_summarizer_result(
         result: str,
 ) -> None:
 
-    await safe_call(
-        getattr(
-            getattr(
-                context,
-                "logger",
-                None,
-            ),
-            "log_summarizer",
-            None,
+    await log_memory_event(
+        context,
+        level=get_memory_log_level(
+            label
         ),
-        f"[MEMORY] {label} summarizer result",
+        message=f"{label} summarizer result",
         details=(
             result.strip()
             or "<empty>"
         ),
+        fallback_channel="summarizer",
     )
 
 
@@ -683,17 +963,20 @@ async def ask_runtime_memory_model(
     system_prompt = (
         build_runtime_memory_system_prompt()
     )
-    user_prompt = (
-        build_runtime_memory_user_prompt(
-            current_memory=current_memory,
-            user_message=user_message,
-            assistant_message=assistant_message,
-            current_l2_memory=getattr(
-                context,
-                "runtime_l2_memory",
-                "",
-            ),
-        )
+    user_prompt = build_runtime_summarizer_user_prompt(
+        context=context,
+        prompt=(
+            build_runtime_memory_user_prompt(
+                current_memory=current_memory,
+                user_message=user_message,
+                assistant_message=assistant_message,
+                current_l2_memory=getattr(
+                    context,
+                    "runtime_l2_memory",
+                    "",
+                ),
+            )
+        ),
     )
 
     await refresh_runtime_memory_summarizer_usage(
@@ -727,6 +1010,7 @@ async def ask_runtime_memory_model(
         user_prompt=user_prompt,
         temperature=temperature,
         max_tokens=max_tokens,
+        timeout=config.SERVICE_REQUEST_TIMEOUT,
     )
 
     await refresh_runtime_memory_summarizer_usage(
@@ -750,16 +1034,19 @@ async def ask_runtime_memory_batch_model(
     system_prompt = (
         build_runtime_memory_system_prompt()
     )
-    user_prompt = (
-        build_runtime_memory_batch_user_prompt(
-            current_memory=current_memory,
-            turns=turns,
-            current_l2_memory=getattr(
-                context,
-                "runtime_l2_memory",
-                "",
-            ),
-        )
+    user_prompt = build_runtime_summarizer_user_prompt(
+        context=context,
+        prompt=(
+            build_runtime_memory_batch_user_prompt(
+                current_memory=current_memory,
+                turns=turns,
+                current_l2_memory=getattr(
+                    context,
+                    "runtime_l2_memory",
+                    "",
+                ),
+            )
+        ),
     )
 
     await refresh_runtime_memory_summarizer_usage(
@@ -774,10 +1061,15 @@ async def ask_runtime_memory_batch_model(
     max_tokens = (
         config.SERVICE_MAX_TOKENS
     )
+    log_label = (
+        "L1 batch"
+        if len(turns) > 1
+        else "L1"
+    )
 
     await log_runtime_summarizer_payload(
         context,
-        label="L1 batch",
+        label=log_label,
         payload=build_runtime_summarizer_payload(
             service_client=service_client,
             system_prompt=system_prompt,
@@ -793,6 +1085,7 @@ async def ask_runtime_memory_batch_model(
         user_prompt=user_prompt,
         temperature=temperature,
         max_tokens=max_tokens,
+        timeout=config.SERVICE_REQUEST_TIMEOUT,
     )
 
     await refresh_runtime_memory_summarizer_usage(
@@ -854,6 +1147,7 @@ async def ask_runtime_l2_memory_model(
         user_prompt=user_prompt,
         temperature=temperature,
         max_tokens=max_tokens,
+        timeout=config.SERVICE_REQUEST_TIMEOUT,
     )
 
     await refresh_runtime_memory_summarizer_usage(
@@ -861,6 +1155,116 @@ async def ask_runtime_l2_memory_model(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         response=response,
+    )
+
+    return response
+
+
+async def ask_runtime_session_memory_model(
+        *,
+        context=None,
+        service_client,
+        current_session_memory: str,
+        runtime_memory_snapshots: list[dict],
+        diff_history: list[dict],
+) -> dict:
+
+    system_prompt = (
+        build_runtime_session_memory_system_prompt()
+    )
+
+    resolve_request_context_window = getattr(
+        service_client,
+        "resolve_request_context_window",
+        None,
+    )
+    detected_context_window = None
+
+    if resolve_request_context_window is not None:
+        detected_context_window = await resolve_request_context_window()
+
+    user_prompt, _prompt_diagnostic = (
+        await build_budgeted_l3_session_user_prompt(
+            context=context,
+            system_prompt=system_prompt,
+            current_session_memory=current_session_memory,
+            runtime_memory_snapshots=runtime_memory_snapshots,
+            diff_history=diff_history,
+            runtime_l2_memory=getattr(
+                context,
+                "runtime_l2_memory",
+                "",
+            ),
+            session_event_snapshots=list(
+                getattr(
+                    context,
+                    "runtime_session_event_snapshots",
+                    [],
+                )
+                or []
+            ),
+            context_window=detected_context_window,
+        )
+    )
+
+    await refresh_runtime_memory_summarizer_usage(
+        context,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        context_window=detected_context_window,
+    )
+
+    temperature = (
+        config.SERVICE_TEMPERATURE
+    )
+    max_tokens = build_l3_session_memory_max_tokens(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        context_window=detected_context_window,
+    )
+    calculated_max_tokens = max_tokens
+    max_tokens = min(
+        max_tokens,
+        L3_OUTPUT_MAX_TOKENS,
+    )
+
+    if max_tokens < calculated_max_tokens:
+        await log_memory_event(
+            context,
+            level="L3",
+            message=(
+                "L3 session output token budget capped at "
+                f"{L3_OUTPUT_MAX_TOKENS}"
+            ),
+            fallback_channel="runtime",
+        )
+
+    await log_runtime_summarizer_payload(
+        context,
+        label="L3 session",
+        payload=build_runtime_summarizer_payload(
+            service_client=service_client,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        ),
+    )
+    response = await ask_service_model(
+        client=service_client,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        timeout=config.SERVICE_REQUEST_TIMEOUT,
+    )
+
+    await refresh_runtime_memory_summarizer_usage(
+        context,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        response=response,
+        context_window=detected_context_window,
     )
 
     return response
@@ -932,7 +1336,7 @@ async def record_runtime_l1_diff(
         context
     )
 
-    context.runtime_l2_pending_patches.append({
+    diff_entry = {
         "turn_number": user_turn_count,
         "snapshot_index": snapshot.get(
             "index",
@@ -943,7 +1347,26 @@ async def record_runtime_l1_diff(
             "patch",
             {},
         ),
-    })
+    }
+
+    context.runtime_l2_pending_patches.append(
+        diff_entry
+    )
+
+    if not hasattr(
+        context,
+        "runtime_l1_diff_history",
+    ):
+        context.runtime_l1_diff_history = []
+
+    context.runtime_l1_diff_history.append(
+        {
+            **diff_entry,
+            "history_index": len(
+                context.runtime_l1_diff_history
+            ),
+        }
+    )
 
     turns_since_l2 = (
         user_turn_count
@@ -998,18 +1421,11 @@ async def record_runtime_l1_diff(
             ),
         }
 
-    await safe_call(
-        getattr(
-            getattr(
-                context,
-                "logger",
-                None,
-            ),
-            "log_service",
-            None,
-        ),
-        (
-            "[MEMORY] L1 diff "
+    await log_memory_event(
+        context,
+        level="L1",
+        message=(
+            "L1 diff "
             f"+{format_diff_value(total_diff)}; "
             f"recent diffs {format_diff_values(recent_diffs)}; "
             f"avg {format_diff_value(diff_average)}; "
@@ -1018,6 +1434,11 @@ async def record_runtime_l1_diff(
             f"repeated keys {repeated_keys}; "
             f"{l2_turn_label}"
         ),
+        fallback_channel="service",
+    )
+
+    await emit_runtime_l1_diff_update(
+        context
     )
 
 
@@ -1336,22 +1757,16 @@ async def maybe_summarize_runtime_l2_memory(
             skip_reason = "L2 summarizer returned text that looks structurally incomplete."
 
         if skip_reason:
-            await safe_call(
-                getattr(
-                    getattr(
-                        context,
-                        "logger",
-                        None,
-                    ),
-                    "log_error",
-                    None,
-                ),
-                "[MEMORY] L2 memory update skipped",
+            await log_memory_event(
+                context,
+                level="L2",
+                message="L2 memory update skipped",
                 details=build_memory_update_skip_details(
                     reason=skip_reason,
                     previous_memory=current_l2_memory,
                     candidate_memory=updated_l2_memory,
                 ),
+                fallback_channel="error",
             )
 
             return current_l2_memory
@@ -1362,27 +1777,17 @@ async def maybe_summarize_runtime_l2_memory(
         )
         context.runtime_l2_pending_patches = []
 
-        await safe_call(
-            getattr(
-                getattr(
-                    context,
-                    "logger",
-                    None,
-                ),
-                "log_service",
-                None,
-            ),
-            "[MEMORY] L2 memory updated",
+        await log_memory_event(
+            context,
+            level="L2",
+            message="L2 memory updated",
+            fallback_channel="service",
         )
 
         await log_runtime_summarizer_result(
             context,
             label="L2 pattern memory",
             result=updated_l2_memory,
-        )
-
-        await emit_runtime_memory_update(
-            context
         )
 
         return getattr(
@@ -1394,26 +1799,256 @@ async def maybe_summarize_runtime_l2_memory(
     except asyncio.CancelledError:
         raise
 
-    except Exception:
+    except Exception as error:
         formatted_traceback = (
             traceback.format_exc()
         )
 
-        await safe_call(
-            getattr(
-                getattr(
-                    context,
-                    "logger",
-                    None,
-                ),
-                "log_error",
-                None,
+        await log_memory_event(
+            context,
+            level="L2",
+            message="L2 memory update failed",
+            details=build_memory_failure_details(
+                stage="L2 memory summarizer",
+                error=error,
+                traceback_text=formatted_traceback,
             ),
-            "[MEMORY] L2 memory update failed",
-            details=formatted_traceback,
+            fallback_channel="error",
         )
 
         return current_l2_memory
+
+
+async def maybe_summarize_runtime_session_memory(
+        *,
+        context,
+) -> str:
+
+    if not getattr(
+        context,
+        "runtime_remember_session_requested",
+        False,
+    ):
+        return getattr(
+            context,
+            "runtime_l3_session_memory",
+            DEFAULT_RUNTIME_L3_SESSION_MEMORY,
+        )
+
+    service_client = (
+        getattr(
+            context,
+            "clients",
+            {},
+        )
+        .get(
+            "service"
+        )
+    )
+
+    if service_client is None:
+        await emit_runtime_action_completed(
+            context,
+            action="remember_session",
+        )
+
+        return getattr(
+            context,
+            "runtime_l3_session_memory",
+            DEFAULT_RUNTIME_L3_SESSION_MEMORY,
+        )
+
+    snapshots = list(
+        getattr(
+            context,
+            "runtime_memory_snapshots",
+            [],
+        )
+        or []
+    )
+
+    if not snapshots:
+        await log_memory_event(
+            context,
+            level="L3",
+            message="L3 session save skipped: no snapshots",
+            fallback_channel="runtime",
+        )
+
+        await emit_runtime_action_completed(
+            context,
+            action="remember_session",
+        )
+
+        return getattr(
+            context,
+            "runtime_l3_session_memory",
+            DEFAULT_RUNTIME_L3_SESSION_MEMORY,
+        )
+
+    current_session_memory = getattr(
+        context,
+        "runtime_l3_session_memory",
+        "",
+    ) or getattr(
+        context,
+        "session_memory",
+        "",
+    )
+
+    try:
+        response = await ask_runtime_session_memory_model(
+            context=context,
+            service_client=service_client,
+            current_session_memory=current_session_memory,
+            runtime_memory_snapshots=snapshots,
+            diff_history=list(
+                getattr(
+                    context,
+                    "runtime_l1_diff_history",
+                    [],
+                )
+                or []
+            ),
+        )
+
+        updated_session_memory = extract_runtime_memory_text(
+            response
+        )
+
+        skip_reason = None
+
+        if is_runtime_memory_response_truncated(response):
+            await log_memory_event(
+                context,
+                level="L3",
+                message="L3 session summarizer reached max_tokens",
+                fallback_channel="runtime",
+            )
+
+            skip_reason = "L3 session summarizer response was truncated by max_tokens."
+
+        elif (
+                updated_session_memory.strip()
+                and looks_like_incomplete_runtime_memory(
+            updated_session_memory
+        )
+        ):
+            skip_reason = "L3 session summarizer returned text that looks structurally incomplete."
+
+        if skip_reason:
+            await log_memory_event(
+                context,
+                level="L3",
+                message="L3 session memory update skipped",
+                details=build_memory_update_skip_details(
+                    reason=skip_reason,
+                    previous_memory=current_session_memory,
+                    candidate_memory=updated_session_memory,
+                ),
+                fallback_channel="error",
+            )
+
+            await emit_runtime_action_completed(
+                context,
+                action="remember_session",
+            )
+
+            return current_session_memory
+
+        if updated_session_memory.strip():
+            context.runtime_l3_session_memory = updated_session_memory
+            context.session_memory = updated_session_memory
+            context.session_memory_source = "L3"
+            context.runtime_session_memory_updates = (
+                getattr(
+                    context,
+                    "runtime_session_memory_updates",
+                    0,
+                )
+                + 1
+            )
+            context.runtime_remember_session_requested = False
+            context.runtime_memory_snapshots = []
+
+            await log_memory_event(
+                context,
+                level="L3",
+                message="L3 session memory updated",
+                fallback_channel="service",
+            )
+
+            await log_runtime_summarizer_result(
+                context,
+                label="L3 session memory",
+                result=updated_session_memory,
+            )
+
+            await emit_runtime_session_memory_update(
+                context,
+                persist_browser=True,
+            )
+
+        await emit_runtime_action_completed(
+            context,
+            action="remember_session",
+        )
+
+        return getattr(
+            context,
+            "runtime_l3_session_memory",
+            DEFAULT_RUNTIME_L3_SESSION_MEMORY,
+        )
+
+    except asyncio.CancelledError:
+        raise
+
+    except L3PromptBudgetExceeded as error:
+        await log_memory_event(
+            context,
+            level="L3",
+            message="L3 session memory update skipped",
+            details=(
+                "Reason: compact digest still exceeds safe input budget.\n\n"
+                + json.dumps(
+                    error.diagnostic,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            ),
+            fallback_channel="error",
+        )
+
+        await emit_runtime_action_completed(
+            context,
+            action="remember_session",
+        )
+
+        return current_session_memory
+
+    except Exception as error:
+        formatted_traceback = (
+            traceback.format_exc()
+        )
+
+        await log_memory_event(
+            context,
+            level="L3",
+            message="L3 session memory update failed",
+            details=build_memory_failure_details(
+                stage="L3 session memory summarizer",
+                error=error,
+                traceback_text=formatted_traceback,
+            ),
+            fallback_channel="error",
+        )
+
+        await emit_runtime_action_completed(
+            context,
+            action="remember_session",
+        )
+
+        return current_session_memory
 
 
 async def summarize_runtime_memory(
@@ -1475,25 +2110,24 @@ async def summarize_runtime_memory(
             updated_memory
         )
         ):
-            await safe_call(
-                getattr(
-                    getattr(
-                        context,
-                        "logger",
-                        None,
-                    ),
-                    "log_error",
-                    None,
-                ),
-                "[MEMORY] runtime memory update skipped",
+            await log_memory_event(
+                context,
+                level="L1",
+                message="L1 runtime memory update skipped",
                 details=build_memory_update_skip_details(
                     reason="Summarizer returned an incomplete memory update.",
                     previous_memory=current_memory,
                     candidate_memory=updated_memory,
                 ),
+                fallback_channel="error",
             )
 
             return current_memory
+
+        updated_memory = merge_durable_memory_facts(
+            current_memory,
+            updated_memory,
+        )
 
         updates_counter = getattr(
             context,
@@ -1506,20 +2140,11 @@ async def summarize_runtime_memory(
             context.runtime_memory_stable = updated_memory
             context.runtime_memory_updates = updates_counter + 1
 
-            logger = getattr(
+            await log_memory_event(
                 context,
-                "logger",
-                None,
-            )
-            log_service = getattr(
-                logger,
-                "log_service",
-                None,
-            )
-
-            await safe_call(
-                log_service,
-                "[MEMORY] runtime memory updated",
+                level="L1",
+                message="L1 runtime memory updated",
+                fallback_channel="service",
             )
 
             snapshot = await emit_runtime_memory_update(
@@ -1539,6 +2164,9 @@ async def summarize_runtime_memory(
             await maybe_summarize_runtime_l2_memory(
                 context=context,
             )
+            await maybe_summarize_runtime_session_memory(
+                context=context,
+            )
 
         return getattr(
             context,
@@ -1549,26 +2177,21 @@ async def summarize_runtime_memory(
     except asyncio.CancelledError:
         raise
 
-    except Exception:
+    except Exception as error:
         formatted_traceback = (
             traceback.format_exc()
         )
 
-        logger = getattr(
+        await log_memory_event(
             context,
-            "logger",
-            None,
-        )
-        log_error = getattr(
-            logger,
-            "log_error",
-            None,
-        )
-
-        await safe_call(
-            log_error,
-            "[MEMORY] runtime memory update failed",
-            details=formatted_traceback,
+            level="L1",
+            message="L1 runtime memory update failed",
+            details=build_memory_failure_details(
+                stage="L1 runtime memory summarizer",
+                error=error,
+                traceback_text=formatted_traceback,
+            ),
+            fallback_channel="error",
         )
 
         return getattr(
@@ -1639,25 +2262,24 @@ async def summarize_runtime_memory_pending_turns(
             skip_reason = "Summarizer returned text that looks structurally incomplete."
 
         if skip_reason:
-            await safe_call(
-                getattr(
-                    getattr(
-                        context,
-                        "logger",
-                        None,
-                    ),
-                    "log_error",
-                    None,
-                ),
-                "[MEMORY] runtime memory update skipped",
+            await log_memory_event(
+                context,
+                level="L1",
+                message="L1 runtime memory update skipped",
                 details=build_memory_update_skip_details(
                     reason="Summarizer returned an incomplete memory update.",
                     previous_memory=initial_memory,
                     candidate_memory=updated_memory,
                 ),
+                fallback_channel="error",
             )
 
             return initial_memory
+
+        updated_memory = merge_durable_memory_facts(
+            initial_memory,
+            updated_memory,
+        )
 
         updates_counter = getattr(
             context,
@@ -1676,20 +2298,11 @@ async def summarize_runtime_memory_pending_turns(
                 if turn not in turns
             ]
 
-            logger = getattr(
+            await log_memory_event(
                 context,
-                "logger",
-                None,
-            )
-            log_service = getattr(
-                logger,
-                "log_service",
-                None,
-            )
-
-            await safe_call(
-                log_service,
-                "[MEMORY] runtime memory updated",
+                level="L1",
+                message="L1 runtime memory updated",
+                fallback_channel="service",
             )
 
             snapshot = await emit_runtime_memory_update(
@@ -1704,6 +2317,9 @@ async def summarize_runtime_memory_pending_turns(
             await maybe_summarize_runtime_l2_memory(
                 context=context,
             )
+            await maybe_summarize_runtime_session_memory(
+                context=context,
+            )
 
         return getattr(
             context,
@@ -1714,26 +2330,21 @@ async def summarize_runtime_memory_pending_turns(
     except asyncio.CancelledError:
         raise
 
-    except Exception:
+    except Exception as error:
         formatted_traceback = (
             traceback.format_exc()
         )
 
-        logger = getattr(
+        await log_memory_event(
             context,
-            "logger",
-            None,
-        )
-        log_error = getattr(
-            logger,
-            "log_error",
-            None,
-        )
-
-        await safe_call(
-            log_error,
-            "[MEMORY] runtime memory update failed",
-            details=formatted_traceback,
+            level="L1",
+            message="L1 runtime memory update failed",
+            details=build_memory_failure_details(
+                stage="L1 pending runtime memory summarizer",
+                error=error,
+                traceback_text=formatted_traceback,
+            ),
+            fallback_channel="error",
         )
 
         return getattr(
@@ -1898,9 +2509,14 @@ def parse_runtime_memory_lines(memory: str) -> list[dict]:
         else:
             key, value = "note", line
 
+        key, value = canonicalize_runtime_memory_entry(
+            key,
+            value,
+        )
+
         lines.append({
-            "key": key.strip(),
-            "value": value.strip(),
+            "key": key,
+            "value": value,
             "status": "same",
         })
 
@@ -1915,6 +2531,276 @@ def normalize_memory_key(
         .strip()
         .lower()
     )
+
+
+def is_durable_memory_key(
+        key: str,
+) -> bool:
+
+    normalized_key = normalize_memory_key(
+        key
+    )
+
+    return any(
+        token in normalized_key
+        for token in DURABLE_MEMORY_KEY_TOKENS
+    )
+
+
+def has_durable_fact_negation(
+        value: str,
+) -> bool:
+
+    normalized_value = (
+        value
+        or ""
+    ).strip().lower()
+
+    return any(
+        marker in normalized_value
+        for marker in DURABLE_MEMORY_NEGATION_MARKERS
+    )
+
+
+def durable_memory_line_text(
+        line: dict,
+) -> str:
+
+    key = (
+        line.get(
+            "key",
+            "",
+        )
+        or ""
+    ).strip()
+
+    value = (
+        line.get(
+            "value",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if not key:
+        return value
+
+    return f"{key}: {value}"
+
+
+def split_memory_value_parts(
+        value: str,
+) -> list[str]:
+
+    return [
+        part.strip()
+        for part in (
+            value
+            or ""
+        ).split(",")
+        if part.strip()
+    ]
+
+
+def collapse_duplicate_runtime_memory_keys(
+        memory: str,
+) -> str:
+
+    output_entries = []
+    grouped_by_key = {}
+    duplicate_found = False
+
+    for raw_line in (
+        memory
+        or ""
+    ).splitlines():
+
+        stripped_line = raw_line.strip()
+
+        if not stripped_line:
+            output_entries.append(
+                raw_line
+            )
+            continue
+
+        line = stripped_line.lstrip("-").strip()
+
+        if ":" not in line:
+            output_entries.append(
+                raw_line
+            )
+            continue
+
+        key, value = line.split(
+            ":",
+            1,
+        )
+
+        key, value = canonicalize_runtime_memory_entry(
+            key,
+            value,
+        )
+
+        normalized_key = normalize_memory_key(
+            key
+        )
+
+        if (
+            not normalized_key
+            or not is_durable_memory_key(
+                key
+            )
+        ):
+            output_entries.append(
+                raw_line
+            )
+            continue
+
+        existing = grouped_by_key.get(
+            normalized_key
+        )
+
+        if existing is None:
+            existing = {
+                "key": key,
+                "values": [],
+                "seen_values": set(),
+            }
+            grouped_by_key[normalized_key] = existing
+            output_entries.append(
+                existing
+            )
+        else:
+            duplicate_found = True
+
+        for part in split_memory_value_parts(
+            value
+        ):
+            normalized_value = part.casefold()
+
+            if normalized_value in existing["seen_values"]:
+                continue
+
+            existing["seen_values"].add(
+                normalized_value
+            )
+            existing["values"].append(
+                part
+            )
+
+    if not duplicate_found:
+        return memory
+
+    return "\n".join(
+        (
+            (
+                f'{entry["key"]}: {", ".join(entry["values"])}'
+                if entry["key"]
+                else ", ".join(entry["values"])
+            )
+            if isinstance(
+                entry,
+                dict,
+            )
+            else entry
+        )
+        for entry in output_entries
+    )
+
+
+def merge_durable_memory_facts(
+        previous_memory: str,
+        candidate_memory: str,
+) -> str:
+
+    previous_lines = parse_runtime_memory_lines(
+        previous_memory
+    )
+    candidate_lines = parse_runtime_memory_lines(
+        candidate_memory
+    )
+
+    candidate_by_key = {
+        normalize_memory_key(
+            line.get(
+                "key",
+                "",
+            )
+        ): line
+        for line in candidate_lines
+    }
+
+    preserved_lines = []
+
+    for previous_line in previous_lines:
+
+        previous_key = (
+            previous_line.get(
+                "key",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if not is_durable_memory_key(
+            previous_key
+        ):
+            continue
+
+        normalized_key = normalize_memory_key(
+            previous_key
+        )
+
+        candidate_line = candidate_by_key.get(
+            normalized_key
+        )
+
+        if candidate_line is not None:
+            candidate_value = candidate_line.get(
+                "value",
+                "",
+            )
+
+            if has_durable_fact_negation(
+                candidate_value
+            ):
+                continue
+
+            continue
+
+        preserved_lines.append(
+            durable_memory_line_text(
+                previous_line
+            )
+        )
+
+    if not preserved_lines:
+        return collapse_duplicate_runtime_memory_keys(
+            candidate_memory
+        )
+
+    candidate_text = (
+        candidate_memory
+        or ""
+    ).strip()
+
+    if not candidate_text:
+        return collapse_duplicate_runtime_memory_keys(
+            "\n".join(
+                preserved_lines
+            )
+        )
+
+    return collapse_duplicate_runtime_memory_keys(
+        (
+            candidate_text
+            + "\n"
+            + "\n".join(
+                preserved_lines
+            )
+        )
+    )
+
 
 def find_best_previous_line(
         key: str,

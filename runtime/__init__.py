@@ -1,10 +1,4 @@
 from .context import RuntimeContext, RuntimeEmitter
-from .context_contract import (
-    DEEP_THOUGHT_ACTION,
-    WEB_SEARCH_ACTION_CLOSE,
-    WEB_SEARCH_ACTION_OPEN,
-    WEB_SEARCH_ACTION_TEMPLATE,
-)
 from .memory import (
     DEFAULT_RUNTIME_MEMORY,
     L2_PATCH_WINDOW,
@@ -13,8 +7,13 @@ from .memory import (
     build_runtime_memory_snapshot,
     build_runtime_memory_system_prompt,
     build_runtime_memory_user_prompt,
+    build_runtime_session_memory_system_prompt,
+    build_runtime_session_memory_user_prompt,
+    emit_runtime_l1_diff_update,
+    emit_runtime_session_memory_update,
     cancel_runtime_memory_update,
     maybe_summarize_runtime_l2_memory,
+    maybe_summarize_runtime_session_memory,
     record_runtime_l1_diff,
     schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
@@ -31,7 +30,6 @@ from .stream import RuntimeStream
 from .telemetry import send_telemetry
 
 __all__ = [
-    "DEEP_THOUGHT_ACTION",
     "DEFAULT_RUNTIME_MEMORY",
     "L2_PATCH_WINDOW",
     "RUNTIME_MEMORY_SUMMARIZER_LABEL",
@@ -40,16 +38,18 @@ __all__ = [
     "RuntimeEmitter",
     "RuntimeState",
     "RuntimeStream",
-    "WEB_SEARCH_ACTION_CLOSE",
-    "WEB_SEARCH_ACTION_OPEN",
-    "WEB_SEARCH_ACTION_TEMPLATE",
     "build_interrupted_assistant_message",
     "build_runtime_l2_memory_system_prompt",
     "build_runtime_memory_snapshot",
     "build_runtime_memory_system_prompt",
     "build_runtime_memory_user_prompt",
+    "build_runtime_session_memory_system_prompt",
+    "build_runtime_session_memory_user_prompt",
     "cancel_runtime_memory_update",
+    "emit_runtime_l1_diff_update",
+    "emit_runtime_session_memory_update",
     "maybe_summarize_runtime_l2_memory",
+    "maybe_summarize_runtime_session_memory",
     "record_runtime_l1_diff",
     "refresh_runtime_state",
     "runtime_state",

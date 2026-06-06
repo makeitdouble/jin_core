@@ -4,10 +4,8 @@ import unittest
 from clients import (
     apply_runtime_action_calls,
 )
-from runtime import (
-    DEEP_THOUGHT_ACTION,
-    WEB_SEARCH_ACTION_CLOSE,
-    WEB_SEARCH_ACTION_OPEN,
+from clients.brain_client import (
+    should_execute_remember_session,
 )
 from utils.runtime_actions import (
     RuntimeActionCall,
@@ -19,456 +17,294 @@ from utils.runtime_actions import (
 
 class RuntimeActionTests(unittest.TestCase):
 
+    def test_extract_runtime_actions_handles_none_text(self):
+
+        result = extract_runtime_actions(
+            None
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.actions,
+            (),
+        )
+
     def test_extracts_and_removes_deep_thought_marker(self):
 
         result = extract_runtime_actions(
-            f"before {DEEP_THOUGHT_ACTION} after"
+            "before <INTERNAL_ACTION_DEEP_THOUGHT> after"
         )
 
         self.assertEqual(
             result.text,
             "before  after",
         )
-
         self.assertEqual(
             result.deep_thought_count,
             1,
         )
 
-    def test_stream_filter_handles_split_marker(self):
+    def test_extracts_bracketed_web_search_marker(self):
+
+        result = extract_runtime_actions(
+            "<INTERNAL_ACTION_WEB_SEARCH:\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440>",
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440",
+            ),
+        )
+
+    def test_extracts_bracketed_web_search_marker_inside_text(self):
+
+        result = extract_runtime_actions(
+            (
+                "Before\n"
+                "<INTERNAL_ACTION_WEB_SEARCH:\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440>\n"
+                "After"
+            ),
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertNotIn(
+            "INTERNAL_ACTION_WEB_SEARCH",
+            result.text,
+        )
+        self.assertIn(
+            "Before",
+            result.text,
+        )
+        self.assertIn(
+            "After",
+            result.text,
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440",
+            ),
+        )
+
+    def test_ignores_placeholder_bracketed_web_search_marker(self):
+
+        for marker in (
+            "<INTERNAL_ACTION_WEB_SEARCH:plain text query>",
+            "<INTERNAL_ACTION_WEB_SEARCH:<plain text query>>",
+            "<INTERNAL_ACTION_WEB_SEARCH:...>",
+        ):
+
+            result = extract_runtime_actions(
+                marker,
+                enabled_actions=[
+                    "CAN_WEB_SEARCH",
+                ],
+            )
+
+            self.assertEqual(
+                result.text,
+                "",
+            )
+            self.assertEqual(
+                result.count("WEB_SEARCH"),
+                0,
+            )
+
+    def test_extracts_bracketed_remember_session_marker(self):
+
+        result = extract_runtime_actions(
+            "<INTERNAL_ACTION_REMEMBER_SESSION>",
+            enabled_actions=[
+                "CAN_REMEMBER_SESSION",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.count("REMEMBER_SESSION"),
+            1,
+        )
+
+    def test_extracts_bracketed_remember_event_marker(self):
+
+        result = extract_runtime_actions(
+            "before <INTERNAL_ACTION_REMEMBER_EVENT> after",
+            enabled_actions=[
+                "CAN_REMEMBER_EVENT",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "before  after",
+        )
+        self.assertEqual(
+            result.count("REMEMBER_EVENT"),
+            1,
+        )
+
+    def test_old_xml_runtime_action_protocol_is_not_parsed(self):
+
+        result = extract_runtime_actions(
+            '<RUNTIME_ACTION:REMEMBER_SESSION enabled="true"/>',
+            enabled_actions=[
+                "CAN_REMEMBER_SESSION",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            '<RUNTIME_ACTION:REMEMBER_SESSION enabled="true"/>',
+        )
+        self.assertEqual(
+            result.actions,
+            (),
+        )
+
+    def test_old_internal_action_line_protocol_is_not_parsed(self):
+
+        result = extract_runtime_actions(
+            "INTERNAL_ACTION: WEB_SEARCH query: blue tomato",
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "INTERNAL_ACTION: WEB_SEARCH query: blue tomato",
+        )
+        self.assertEqual(
+            result.actions,
+            (),
+        )
+
+    def test_stream_filter_handles_split_bracketed_deep_thought_marker(self):
 
         stream_filter = RuntimeActionStreamFilter()
 
         first = stream_filter.filter(
-            "before <RUNTIME_ACTION"
+            "before <INTERNAL_ACTION_DEEP"
         )
-
         second = stream_filter.filter(
-            ":DEEP_THOUGHT/> after"
+            "_THOUGHT> after"
         )
 
         self.assertEqual(
             first.text,
             "before ",
         )
-
         self.assertEqual(
             first.deep_thought_count,
             0,
         )
-
         self.assertEqual(
             second.text,
             " after",
         )
-
         self.assertEqual(
             second.deep_thought_count,
             1,
         )
-
         self.assertEqual(
             stream_filter.flush(),
             "",
         )
 
-    def test_stream_filter_flushes_false_partial(self):
+    def test_stream_filter_handles_split_bracketed_web_search_marker(self):
 
-        stream_filter = RuntimeActionStreamFilter()
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "<INTERNAL_ACTION_WEB_SEARCH:\u0441\u0438"
+        )
+        second = stream_filter.filter(
+            "\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440>"
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.count("WEB_SEARCH"),
+            0,
+        )
+        self.assertEqual(
+            second.text,
+            "",
+        )
+        self.assertEqual(
+            second.search_queries,
+            (
+                "\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440",
+            ),
+        )
+        self.assertEqual(
+            stream_filter.flush(),
+            "",
+        )
+
+    def test_stream_filter_preserves_thinking_marker_text_when_requested(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+            preserve_action_text=True,
+        )
 
         result = stream_filter.filter(
-            "hello <RUNTIME"
+            "Need search. <INTERNAL_ACTION_WEB_SEARCH:\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440>"
+        )
+
+        self.assertEqual(
+            result.text,
+            "Need search. <INTERNAL_ACTION_WEB_SEARCH:\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440>",
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440",
+            ),
+        )
+
+    def test_stream_filter_flush_drops_incomplete_private_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        result = stream_filter.filter(
+            "hello <INTERNAL_ACTION_WEB_SEARCH:??"
         )
 
         self.assertEqual(
             result.text,
             "hello ",
         )
-
-        self.assertEqual(
-            stream_filter.flush(),
-            "<RUNTIME",
-        )
-
-    def test_extracts_multiple_markers(self):
-
-        result = extract_runtime_actions(
-            (
-                DEEP_THOUGHT_ACTION
-                + "answer"
-                + DEEP_THOUGHT_ACTION
-            )
-        )
-
-        self.assertEqual(
-            result.text,
-            "answer",
-        )
-
-        self.assertEqual(
-            result.deep_thought_count,
-            2,
-        )
-
-    def test_extracts_enabled_search_action(self):
-
-        result = extract_runtime_actions(
-            (
-                "before "
-                f'{WEB_SEARCH_ACTION_OPEN}{{"query":"python news"}}'
-                f"{WEB_SEARCH_ACTION_CLOSE} after"
-            ),
-            enabled_actions=[
-                "CAN_WEB_SEARCH",
-            ],
-        )
-
-        self.assertEqual(
-            result.text,
-            "before  after",
-        )
-
-        self.assertEqual(
-            result.count("WEB_SEARCH"),
-            1,
-        )
-
-        self.assertEqual(
-            result.search_queries,
-            (
-                "python news",
-            ),
-        )
-
-    def test_extracts_tool_call_prefixed_search_action(self):
-
-        result = extract_runtime_actions(
-            (
-                "before "
-                '<|tool_call>call:RUNTIME_ACTION:WEB_SEARCH>'
-                '{"query":"marijuana"}'
-                f"{WEB_SEARCH_ACTION_CLOSE} after"
-            ),
-            enabled_actions=[
-                "CAN_WEB_SEARCH",
-            ],
-        )
-
-        self.assertEqual(
-            result.text,
-            "before  after",
-        )
-
-        self.assertEqual(
-            result.count("WEB_SEARCH"),
-            1,
-        )
-
-        self.assertEqual(
-            result.search_queries,
-            (
-                "marijuana",
-            ),
-        )
-
-    def test_preserves_canonical_search_action_text_when_requested(self):
-
-        result = extract_runtime_actions(
-            (
-                "before "
-                '<|tool_call>call:RUNTIME_ACTION:WEB_SEARCH>'
-                '{"query":"marijuana"}'
-                f"{WEB_SEARCH_ACTION_CLOSE} after"
-            ),
-            enabled_actions=[
-                "CAN_WEB_SEARCH",
-            ],
-            preserve_action_text=True,
-        )
-
-        self.assertEqual(
-            result.text,
-            (
-                "before "
-                f'{WEB_SEARCH_ACTION_OPEN}{{"query":"marijuana"}}'
-                f"{WEB_SEARCH_ACTION_CLOSE} after"
-            ),
-        )
-
-        self.assertEqual(
-            result.search_queries,
-            (
-                "marijuana",
-            ),
-        )
-
-    def test_ignores_disabled_search_action(self):
-
-        text = (
-            f'{WEB_SEARCH_ACTION_OPEN}{{"query":"python news"}}'
-            f"{WEB_SEARCH_ACTION_CLOSE}"
-        )
-
-        result = extract_runtime_actions(
-            text,
-            enabled_actions=[],
-        )
-
-        self.assertEqual(
-            result.text,
-            text,
-        )
-
-        self.assertEqual(
-            result.count("WEB_SEARCH"),
-            0,
-        )
-
-    def test_stream_filter_handles_split_search_action(self):
-
-        stream_filter = RuntimeActionStreamFilter(
-            enabled_actions=[
-                "CAN_WEB_SEARCH",
-            ],
-        )
-
-        first = stream_filter.filter(
-            f'before {WEB_SEARCH_ACTION_OPEN}{{"query":"py'
-        )
-
-        second = stream_filter.filter(
-            f'thon"}}{WEB_SEARCH_ACTION_CLOSE} after'
-        )
-
-        self.assertEqual(
-            first.text,
-            "before ",
-        )
-
-        self.assertEqual(
-            first.count("WEB_SEARCH"),
-            0,
-        )
-
-        self.assertEqual(
-            second.text,
-            " after",
-        )
-
-        self.assertEqual(
-            second.search_queries,
-            (
-                "python",
-            ),
-        )
-
-        self.assertEqual(
-            stream_filter.flush(),
-            "",
-        )
-
-    def test_stream_filter_handles_split_tool_call_prefixed_search_action(self):
-
-        stream_filter = RuntimeActionStreamFilter(
-            enabled_actions=[
-                "CAN_WEB_SEARCH",
-            ],
-        )
-
-        first = stream_filter.filter(
-            (
-                "before "
-                '<|tool_call>call:RUNTIME_ACTION:WEB_SEARCH>'
-                '{"query":"mari'
-            )
-        )
-
-        second = stream_filter.filter(
-            f'juana"}}{WEB_SEARCH_ACTION_CLOSE} after'
-        )
-
-        self.assertEqual(
-            first.text,
-            "before ",
-        )
-
-        self.assertEqual(
-            first.count("WEB_SEARCH"),
-            0,
-        )
-
-        self.assertEqual(
-            second.text,
-            " after",
-        )
-
-        self.assertEqual(
-            second.search_queries,
-            (
-                "marijuana",
-            ),
-        )
-
-        self.assertEqual(
-            stream_filter.flush(),
-            "",
-        )
-
-    def test_stream_filter_preserves_complete_search_action_when_requested(self):
-
-        stream_filter = RuntimeActionStreamFilter(
-            enabled_actions=[
-                "CAN_WEB_SEARCH",
-            ],
-            preserve_action_text=True,
-        )
-
-        first = stream_filter.filter(
-            (
-                "before "
-                '<|tool_call>call:RUNTIME_ACTION:WEB_SEARCH>'
-                '{"query":"mari'
-            )
-        )
-
-        second = stream_filter.filter(
-            f'juana"}}{WEB_SEARCH_ACTION_CLOSE} after'
-        )
-
-        self.assertEqual(
-            first.text,
-            "before ",
-        )
-
-        self.assertEqual(
-            second.text,
-            (
-                f'{WEB_SEARCH_ACTION_OPEN}{{"query":"marijuana"}}'
-                f"{WEB_SEARCH_ACTION_CLOSE} after"
-            ),
-        )
-
-        self.assertEqual(
-            second.search_queries,
-            (
-                "marijuana",
-            ),
-        )
-
-    def test_stream_filter_preserves_mentioned_search_tag_without_stalling(self):
-
-        stream_filter = RuntimeActionStreamFilter(
-            enabled_actions=[
-                "CAN_WEB_SEARCH",
-            ],
-            preserve_action_text=True,
-        )
-
-        first = stream_filter.filter(
-            "like `<RUNTIME_ACTION:WEB_SEARCH>"
-        )
-
-        second = stream_filter.filter(
-            "`) is just a tag name"
-        )
-
-        self.assertEqual(
-            first.text,
-            "like `<RUNTIME_ACTION:WEB_SEARCH>",
-        )
-
-        self.assertEqual(
-            first.actions,
-            (),
-        )
-
-        self.assertEqual(
-            second.text,
-            "`) is just a tag name",
-        )
-
-        self.assertEqual(
-            second.actions,
-            (),
-        )
-
-    def test_stream_filter_parses_search_when_payload_follows_preserved_open_tag(self):
-
-        stream_filter = RuntimeActionStreamFilter(
-            enabled_actions=[
-                "CAN_WEB_SEARCH",
-            ],
-            preserve_action_text=True,
-        )
-
-        first = stream_filter.filter(
-            f"before {WEB_SEARCH_ACTION_OPEN}"
-        )
-
-        second = stream_filter.filter(
-            f'{{"query":"marijuana"}}{WEB_SEARCH_ACTION_CLOSE} after'
-        )
-
-        self.assertEqual(
-            first.text,
-            f"before {WEB_SEARCH_ACTION_OPEN}",
-        )
-
-        self.assertEqual(
-            first.actions,
-            (),
-        )
-
-        self.assertEqual(
-            second.text,
-            f'{{"query":"marijuana"}}{WEB_SEARCH_ACTION_CLOSE} after',
-        )
-
-        self.assertEqual(
-            second.search_queries,
-            (
-                "marijuana",
-            ),
-        )
-
-    def test_removes_stray_tool_call_marker(self):
-
-        result = extract_runtime_actions(
-            "before <|tool_call> after"
-        )
-
-        self.assertEqual(
-            result.text,
-            "before  after",
-        )
-
-        self.assertEqual(
-            result.actions,
-            (),
-        )
-
-    def test_stream_filter_removes_split_tool_call_marker(self):
-
-        stream_filter = RuntimeActionStreamFilter()
-
-        first = stream_filter.filter(
-            "before <|tool"
-        )
-
-        second = stream_filter.filter(
-            "_call> after"
-        )
-
-        self.assertEqual(
-            first.text,
-            "before ",
-        )
-
-        self.assertEqual(
-            second.text,
-            " after",
-        )
-
         self.assertEqual(
             stream_filter.flush(),
             "",
@@ -497,7 +333,6 @@ class RuntimeActionTests(unittest.TestCase):
             applied_count,
             1,
         )
-
         self.assertEqual(
             getattr(
                 context,
@@ -510,21 +345,273 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             getattr(
                 context,
+                "runtime_action_events",
+            )[0]["id"],
+            "web_search_001",
+        )
+
+    def test_apply_runtime_action_calls_ignores_empty_search_payload(self):
+
+        class Context:
+            pass
+
+        context = Context()
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="WEB_SEARCH",
+                        payload='{"query":"..."}',
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            0,
+        )
+        self.assertFalse(
+            getattr(
+                context,
                 "runtime_search_calls",
             ),
-            [
-                {
-                    "id": "web_search_001",
-                    "query": "test",
-                },
-            ],
+        )
+        self.assertFalse(
+            getattr(
+                context,
+                "runtime_action_events",
+            ),
+        )
+
+    def test_apply_runtime_action_calls_uses_one_search_query(self):
+
+        class Context:
+            pass
+
+        context = Context()
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="WEB_SEARCH",
+                        payload='{"query":"first"}',
+                    ),
+                    RuntimeActionCall(
+                        name="WEB_SEARCH",
+                        payload='{"query":"second"}',
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
         )
         self.assertEqual(
             getattr(
                 context,
-                "runtime_action_events",
-            )[0]["id"],
-            "web_search_001",
+                "runtime_search_queries",
+            ),
+            [
+                "first",
+            ],
+        )
+
+    def test_bracketed_remember_session_marker_allowed_by_save_request(self):
+
+        class Context:
+            pass
+
+        context = Context()
+        result = extract_runtime_actions(
+            "<INTERNAL_ACTION_REMEMBER_SESSION>",
+            enabled_actions=[
+                "CAN_REMEMBER_SESSION",
+            ],
+        )
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                result.actions,
+                user_message="\u0441\u043e\u0445\u0440\u0430\u043d\u0438 \u0441\u0435\u0441\u0441\u0438\u044e",
+            )
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertTrue(
+            context.runtime_remember_session_requested,
+        )
+
+    def test_bracketed_remember_session_marker_allowed_by_bedtime_pause(self):
+
+        class Context:
+            pass
+
+        context = Context()
+        result = extract_runtime_actions(
+            "<INTERNAL_ACTION_REMEMBER_SESSION>",
+            enabled_actions=[
+                "CAN_REMEMBER_SESSION",
+            ],
+        )
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                result.actions,
+                user_message="ладно, я спать, до завтра!",
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertTrue(
+            context.runtime_remember_session_requested,
+        )
+
+    def test_bracketed_remember_session_marker_blocked_by_meta_request(self):
+
+        class Context:
+            pass
+
+        context = Context()
+        result = extract_runtime_actions(
+            "<INTERNAL_ACTION_REMEMBER_SESSION>",
+            enabled_actions=[
+                "CAN_REMEMBER_SESSION",
+            ],
+        )
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                result.actions,
+                user_message="\u043d\u0430\u043f\u0438\u0448\u0438 \u043f\u043e\u043b\u043d\u044b\u0439 \u0442\u0435\u0433 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0438\u044f \u0441\u0435\u0441\u0441\u0438\u0438",
+            )
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            applied_count,
+            0,
+        )
+        self.assertFalse(
+            getattr(
+                context,
+                "runtime_remember_session_requested",
+                False,
+            )
+        )
+
+    def test_remember_session_guard_intents(self):
+
+        self.assertTrue(
+            should_execute_remember_session(
+                "\u0441\u043e\u0445\u0440\u0430\u043d\u0438 \u0441\u0435\u0441\u0441\u0438\u044e"
+            )
+        )
+        self.assertTrue(
+            should_execute_remember_session(
+                "\u0437\u0430\u043a\u043e\u043d\u0447\u0438\u043c"
+            )
+        )
+        self.assertTrue(
+            should_execute_remember_session(
+                "\u043b\u0430\u0434\u043d\u043e, \u044f \u0441\u043f\u0430\u0442\u044c, \u0434\u043e \u0437\u0430\u0432\u0442\u0440\u0430!"
+            )
+        )
+        self.assertFalse(
+            should_execute_remember_session(
+                "\u043d\u0430\u043f\u0438\u0448\u0438 \u043f\u043e\u043b\u043d\u044b\u0439 \u0442\u0435\u0433 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0438\u044f \u0441\u0435\u0441\u0441\u0438\u0438"
+            )
+        )
+        self.assertFalse(
+            should_execute_remember_session(
+                "\u043f\u043e\u043a\u0430\u0436\u0438 \u0442\u043e\u0447\u043d\u044b\u0439 \u0442\u0435\u0433 \u0434\u043b\u044f \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0438\u044f \u0441\u0435\u0441\u0441\u0438\u0438"
+            )
+        )
+        self.assertFalse(
+            should_execute_remember_session(
+                "\u043f\u0440\u0438\u043c\u0435\u0440 \u0442\u0435\u0433\u0430"
+            )
+        )
+        self.assertFalse(
+            should_execute_remember_session(
+                "\u0437\u0430\u0431\u0443\u0434\u044c \u043f\u0440\u043e\u0448\u043b\u043e\u0435, \u0441\u043c\u0435\u043d\u0438\u043c \u0442\u0435\u043c\u0443"
+            )
+        )
+
+    def test_apply_runtime_action_calls_saves_session_event_snapshot(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+        context.runtime_session_event_snapshots = []
+        context.runtime_turn_user_message = "\u0445\u043e\u0447\u0443 \u044d\u0442\u043e \u0437\u0430\u043f\u043e\u043c\u043d\u0438\u0442\u044c"
+        context.runtime_turn_assistant_response = "A memorable answer."
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="REMEMBER_EVENT",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertEqual(
+            len(context.runtime_session_event_snapshots),
+            1,
+        )
+        self.assertEqual(
+            context.runtime_session_event_snapshots[0]["memory_type"],
+            "session_event_snapshot",
+        )
+        self.assertEqual(
+            context.runtime_session_event_snapshots[0]["source"],
+            "runtime_action",
+        )
+        self.assertIn(
+            "A memorable answer.",
+            context.runtime_session_event_snapshots[0]["assistant_response"],
+        )
+        self.assertEqual(
+            context.emitter.events[-1]["type"],
+            "runtime_session_memory_update",
         )
 
     def test_extract_search_query_unnests_json_string(self):

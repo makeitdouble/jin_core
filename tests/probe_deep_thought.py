@@ -17,9 +17,6 @@ from clients import (
     build_brain_system_prompt,
     ResponseExtractor,
 )
-from runtime import (
-    DEEP_THOUGHT_ACTION,
-)
 from app_settings import settings
 from config_loader import (
     config,
@@ -178,7 +175,7 @@ async def run_case(
             action_count,
             1,
         ),
-        "marker": DEEP_THOUGHT_ACTION,
+        "marker": "<INTERNAL_ACTION_DEEP_THOUGHT>",
         "content_preview": content_actions.text[:240],
         "reasoning_preview": reasoning_actions.text[:240],
     }
