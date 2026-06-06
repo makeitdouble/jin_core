@@ -1,7 +1,3 @@
-const ws = new WebSocket(
-  `ws://${window.location.host}/ws/chat`
-);
-
 const chatForm =
   document.getElementById("chat-form");
 
@@ -15,6 +11,18 @@ const sendButton =
   chatForm.querySelector(
     'button[type="submit"]'
   );
+
+const websocketUrl =
+  `ws://${window.location.host}/ws/chat`;
+
+const websocketReconnectBaseDelay = 700;
+const websocketReconnectMaxDelay = 5000;
+
+let ws = null;
+let websocketReconnectTimer = null;
+let websocketReconnectAttempts = 0;
+let websocketDisconnectedLogged = false;
+let persistedSessionBootstrapSent = false;
 
 const MEMORY_GLOW_CLASSES = [
   "memory-updating",
@@ -202,6 +210,70 @@ window.stopL3MemoryGlow = stopL3MemoryGlow;
 
 let generationRunning = false;
 
+function isWebSocketOpen() {
+  return (
+    ws
+    && ws.readyState === WebSocket.OPEN
+  );
+}
+
+function sendSocketMessage(
+  payload
+) {
+
+  if (!isWebSocketOpen()) {
+    return false;
+  }
+
+  ws.send(
+    JSON.stringify(
+      payload
+    )
+  );
+
+  return true;
+
+}
+
+function clearWebSocketReconnectTimer() {
+
+  if (!websocketReconnectTimer) {
+    return;
+  }
+
+  clearTimeout(
+    websocketReconnectTimer
+  );
+
+  websocketReconnectTimer = null;
+
+}
+
+function scheduleWebSocketReconnect() {
+
+  if (websocketReconnectTimer) {
+    return;
+  }
+
+  websocketReconnectAttempts += 1;
+
+  const delay =
+    Math.min(
+      websocketReconnectMaxDelay,
+      websocketReconnectBaseDelay
+      * websocketReconnectAttempts
+    );
+
+  websocketReconnectTimer = setTimeout(
+    function () {
+      websocketReconnectTimer = null;
+      connectWebSocket();
+    },
+    delay
+  );
+
+}
+
 /**
  * @typedef {Object} SocketMessage
  * @property {string} type
@@ -333,9 +405,9 @@ function abortGeneration() {
     return;
   }
 
-  ws.send(JSON.stringify({
+  sendSocketMessage({
     type: "abort"
-  }));
+  });
 
   appendLog(
     "[SYSTEM]",
@@ -503,7 +575,7 @@ function resolveMessageRole(data) {
 // WS MESSAGE
 // --------------------------------------------------
 
-ws.onmessage = function (event) {
+function handleSocketMessage(event) {
 
   /** @type {SocketMessage} */
   const data = JSON.parse(
@@ -826,7 +898,7 @@ ws.onmessage = function (event) {
 
   }
 
-};
+}
 
 
 // --------------------------------------------------
@@ -891,22 +963,35 @@ chatForm.addEventListener(
 
     }
 
+    if (!isWebSocketOpen()) {
+
+      connectWebSocket();
+
+      appendLog(
+        "[SYSTEM]",
+        "WebSocket reconnecting. Try sending again in a moment."
+      );
+
+      return;
+
+    }
+
     appendChatMessage(
       "user",
       text
     );
 
-    if (window.markSessionBootstrapActive) {
-      window.markSessionBootstrapActive();
+    if (window.markSessionActivityDirty) {
+      window.markSessionActivityDirty();
     }
 
     setGenerationState(
       true
     );
 
-    ws.send(JSON.stringify({
+    sendSocketMessage({
       text: text
-    }));
+    });
 
     userInput.value = "";
 
@@ -917,20 +1002,24 @@ chatForm.addEventListener(
 );
 
 
-// --------------------------------------------------
-// CONNECTION STATUS
-// --------------------------------------------------
-
-ws.onopen = () => {
+function handleSocketOpen() {
 
   window.jinWebSocketConnected = true;
+
+  clearWebSocketReconnectTimer();
+
+  websocketReconnectAttempts = 0;
+  websocketDisconnectedLogged = false;
 
   appendLog(
     "[SYSTEM]",
     "WebSocket connected."
   );
 
-  if (!window.getPersistedSessionBootstrap) {
+  if (
+      persistedSessionBootstrapSent
+      || !window.getPersistedSessionBootstrap
+  ) {
     return;
   }
 
@@ -941,20 +1030,21 @@ ws.onopen = () => {
     return;
   }
 
-  ws.send(
-    JSON.stringify(
-      bootstrap
-    )
+  sendSocketMessage(
+    bootstrap
   );
+
+  persistedSessionBootstrapSent = true;
 
   appendLog(
     "[SYSTEM]",
     "Browser session memory sent."
   );
 
-};
+}
 
-ws.onclose = () => {
+
+function handleSocketClose() {
 
   window.jinWebSocketConnected = false;
 
@@ -962,9 +1052,53 @@ ws.onclose = () => {
     false
   );
 
-  appendLog(
-    "[SYSTEM]",
-    "WebSocket disconnected."
-  );
+  if (!websocketDisconnectedLogged) {
+    websocketDisconnectedLogged = true;
 
-};
+    appendLog(
+      "[SYSTEM]",
+      "WebSocket disconnected. Reconnecting..."
+    );
+  }
+
+  scheduleWebSocketReconnect();
+
+}
+
+
+function connectWebSocket() {
+
+  if (
+      ws
+      && (
+          ws.readyState === WebSocket.OPEN
+          || ws.readyState === WebSocket.CONNECTING
+      )
+  ) {
+    return;
+  }
+
+  ws =
+    new WebSocket(
+      websocketUrl
+    );
+
+  ws.onmessage =
+    handleSocketMessage;
+
+  ws.onopen =
+    handleSocketOpen;
+
+  ws.onclose =
+    handleSocketClose;
+
+  ws.onerror = function () {
+    if (ws) {
+      ws.close();
+    }
+  };
+
+}
+
+
+connectWebSocket();

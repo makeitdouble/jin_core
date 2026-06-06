@@ -97,6 +97,10 @@ const sessionMemoryStorageKey =
 const runtimeMemoryStorageKey =
   "jin.runtimeMemory.latest.v1";
 
+const defaultRuntimeMemoryText =
+  "This session has just begun. "
+  + "You have no history with the user yet.";
+
 const runtimeMemoryHistory = {
   snapshots: [],
   index: -1,
@@ -111,6 +115,7 @@ const runtimeDiffHistory = {
 window.jinWebSocketConnected = false;
 
 let persistedSessionBootstrapCleared = false;
+let hasUnsavedSessionActivity = false;
 
 function readBrowserMemory(
   key
@@ -226,6 +231,7 @@ function persistSessionMemory(
     new Date().toISOString();
 
   persistedSessionBootstrapCleared = false;
+  hasUnsavedSessionActivity = false;
 
   writeBrowserMemory(
     sessionMemoryStorageKey,
@@ -258,137 +264,44 @@ function persistSessionMemory(
 }
 
 
-function buildLatestRuntimeMemoryRecord() {
-
-  const storedRuntimeMemory =
-    readBrowserMemory(
-      runtimeMemoryStorageKey
-    );
-
-  if (
-      storedRuntimeMemory
-      && storedRuntimeMemory.runtime_memory
-  ) {
-    return storedRuntimeMemory;
-  }
-
-  const latestSnapshot =
-    runtimeMemoryHistory.snapshots[
-      runtimeMemoryHistory.snapshots.length - 1
-    ];
-
-  if (
-      !latestSnapshot
-      || !latestSnapshot.raw_memory
-  ) {
-    return null;
-  }
-
-  const runtimeMemory =
-    (
-      latestSnapshot.raw_memory
-      || ""
-    ).trim();
-
-  if (!runtimeMemory) {
-    return null;
-  }
-
-  return {
-    version: 1,
-    saved_at: new Date().toISOString(),
-    runtime_memory: runtimeMemory,
-    runtime_memory_updates: latestSnapshot.index || 0,
-    runtime_snapshot: latestSnapshot,
-  };
-
-}
-
-
 function hasTabCloseSessionBootstrap() {
-
-  if (window.jinWebSocketConnected === false) {
-    return false;
-  }
 
   if (persistedSessionBootstrapCleared) {
     return false;
   }
 
-  const chatHistory =
-    document.getElementById(
-      "chat-history"
-    );
+  return hasUnsavedSessionActivity;
+
+}
+
+
+function isReconnectInitialRuntimeMemoryUpdate(
+  data
+) {
 
   if (
-      !chatHistory
-      || chatHistory.children.length === 0
+      !data
+      || !data.snapshot
   ) {
+    return false;
+  }
+
+  if (Number(data.updates || 0) !== 0) {
+    return false;
+  }
+
+  if (runtimeMemoryHistory.snapshots.length === 0) {
     return false;
   }
 
   const runtimeMemory =
-    buildLatestRuntimeMemoryRecord();
-
-  const sessionMemory =
-    readBrowserMemory(
-      sessionMemoryStorageKey
-    );
-
-  const sessionText =
     (
-      sessionMemory
-      && sessionMemory.session_memory
-    )
-    || "";
+      data.snapshot.raw_memory
+      || data.memory
+      || ""
+    ).trim();
 
-  const eventSnapshots =
-    (
-      sessionMemory
-      && Array.isArray(
-        sessionMemory.session_event_snapshots
-      )
-      && sessionMemory.session_event_snapshots
-    )
-    || [];
-
-  const runtimeText =
-    (
-      runtimeMemory
-      && runtimeMemory.runtime_memory
-    )
-    || (
-      sessionMemory
-      && sessionMemory.runtime_memory
-    )
-    || "";
-
-  if (
-      !sessionText
-      && !eventSnapshots.length
-      && !runtimeText
-  ) {
-    return false;
-  }
-
-  if (
-      !sessionMemory
-      || sessionMemory.explicit_save !== true
-  ) {
-    return true;
-  }
-
-  if (
-      runtimeText
-      && runtimeText !== (
-        sessionMemory.runtime_memory
-        || ""
-      )
-  ) {
-    return true;
-  }
-
-  return false;
+  return runtimeMemory === defaultRuntimeMemoryText;
 
 }
 
@@ -503,6 +416,7 @@ window.getPersistedSessionBootstrap = function () {
 window.clearPersistedSessionBootstrap = function () {
 
   persistedSessionBootstrapCleared = true;
+  hasUnsavedSessionActivity = false;
 
   try {
     window.localStorage.removeItem(
@@ -518,11 +432,16 @@ window.clearPersistedSessionBootstrap = function () {
 };
 
 
-window.markSessionBootstrapActive = function () {
+window.markSessionActivityDirty = function () {
 
   persistedSessionBootstrapCleared = false;
+  hasUnsavedSessionActivity = true;
 
 };
+
+
+window.markSessionBootstrapActive =
+  window.markSessionActivityDirty;
 
 
 window.addEventListener(
@@ -1394,6 +1313,10 @@ window.handleRuntimeMemoryMessage = function (data) {
   }
 
   if (data.type !== "runtime_memory_update") {
+    return;
+  }
+
+  if (isReconnectInitialRuntimeMemoryUpdate(data)) {
     return;
   }
 
