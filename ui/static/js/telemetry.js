@@ -64,6 +64,12 @@ const runtimePanelState = {
   liveRuntimes: [],
 };
 
+const TELEMETRY_FRAME_WARNING_MS = 12;
+const CONTEXT_PANEL_RENDER_THROTTLE_MS = 300;
+
+let telemetryFrameScheduled = false;
+let contextPanelRenderTimer = null;
+
 const contextTabButtons = {
   service: document.getElementById(
     "service-context-tab"
@@ -116,6 +122,171 @@ window.jinWebSocketConnected = false;
 
 let persistedSessionBootstrapCleared = false;
 let hasUnsavedSessionActivity = false;
+
+function isTelemetryDebugEnabled() {
+
+  return Boolean(
+    window.jinStreamDebug
+    || window.jinDebugMode
+  );
+
+}
+
+
+function telemetryNowMs() {
+
+  return (
+    window.performance
+    && window.performance.now
+  )
+    ? window.performance.now()
+    : Date.now();
+
+}
+
+
+function requestTelemetryFrame(callback) {
+
+  if (window.requestAnimationFrame) {
+    window.requestAnimationFrame(
+      callback
+    );
+
+    return;
+  }
+
+  setTimeout(
+    callback,
+    16
+  );
+
+}
+
+
+function renderLiveRuntimeTelemetry() {
+
+  const serviceRuntime =
+    getRuntimeByLabel(
+      "service"
+    );
+
+  const brainRuntime =
+    getBrainRuntime();
+
+  updateChatHeader(
+    serviceRuntime,
+    brainRuntime
+  );
+
+  const selectedRuntime =
+    isContextTabDisabled(
+      runtimePanelState.activeTab
+    )
+      ? null
+      : getSelectedRuntime();
+
+  setContextPanelRuntime(
+    selectedRuntime
+  );
+
+}
+
+
+function flushRuntimeTelemetryFrame() {
+
+  const startedAt =
+    telemetryNowMs();
+
+  telemetryFrameScheduled = false;
+
+  renderLiveRuntimeTelemetry();
+
+  const elapsed =
+    telemetryNowMs() - startedAt;
+
+  if (
+    isTelemetryDebugEnabled()
+    && elapsed > TELEMETRY_FRAME_WARNING_MS
+  ) {
+    console.warn(
+      "[telemetry] frame update took",
+      `${elapsed.toFixed(1)}ms`
+    );
+  }
+
+}
+
+
+function scheduleRuntimeTelemetryFrame() {
+
+  if (telemetryFrameScheduled) {
+    return;
+  }
+
+  telemetryFrameScheduled = true;
+
+  requestTelemetryFrame(
+    flushRuntimeTelemetryFrame
+  );
+
+}
+
+
+function scheduleContextPanelRender(
+  final = false
+) {
+
+  if (final) {
+    if (contextPanelRenderTimer) {
+      clearTimeout(
+        contextPanelRenderTimer
+      );
+
+      contextPanelRenderTimer = null;
+    }
+
+    renderContextPanel();
+    return;
+  }
+
+  if (contextPanelRenderTimer) {
+    return;
+  }
+
+  contextPanelRenderTimer = setTimeout(
+    function () {
+      contextPanelRenderTimer = null;
+      renderContextPanel();
+    },
+    CONTEXT_PANEL_RENDER_THROTTLE_MS
+  );
+
+}
+
+
+function scheduleRuntimeTelemetryRender() {
+
+  scheduleRuntimeTelemetryFrame();
+  scheduleContextPanelRender();
+
+}
+
+
+function flushRuntimeTelemetryRender(
+  options = {}
+) {
+
+  if (telemetryFrameScheduled) {
+    flushRuntimeTelemetryFrame();
+  }
+
+  if (options.final) {
+    scheduleContextPanelRender(
+      true
+    );
+  }
+
+}
 
 function readBrowserMemory(
   key
@@ -1255,22 +1426,12 @@ window.handleTelemetryMessage = function (data) {
       data.runtime || {}
     );
 
-  const serviceRuntime =
-    getRuntimeByLabel(
-      "service"
-    );
-
-  const brainRuntime =
-    getBrainRuntime();
-
-  updateChatHeader(
-    serviceRuntime,
-    brainRuntime
-  );
-
-  renderContextPanel();
+  scheduleRuntimeTelemetryRender();
 
 };
+
+window.flushRuntimeTelemetryRender =
+  flushRuntimeTelemetryRender;
 
 
 window.handleRuntimeMemoryMessage = function (data) {

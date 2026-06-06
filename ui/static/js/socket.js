@@ -806,6 +806,12 @@ function handleSocketMessage(event) {
     === "agent_runtime_end"
   ) {
 
+    if (window.flushRuntimeTelemetryRender) {
+      window.flushRuntimeTelemetryRender({
+        final: true
+      });
+    }
+
     setGenerationState(
       false
     );
@@ -868,6 +874,12 @@ function handleSocketMessage(event) {
       data.message_id
     );
 
+    if (window.flushRuntimeTelemetryRender) {
+      window.flushRuntimeTelemetryRender({
+        final: true
+      });
+    }
+
     return;
 
   }
@@ -893,6 +905,12 @@ function handleSocketMessage(event) {
     finishStreamMessage(
       data.message_id
     );
+
+    if (window.flushRuntimeTelemetryRender) {
+      window.flushRuntimeTelemetryRender({
+        final: true
+      });
+    }
 
     return;
 
