@@ -607,8 +607,8 @@ function handleSocketMessage(event) {
     );
 
     if (
-        data.tag === "[SYSTEM]" &&
-        data.message === "[WS] agent runtime end"
+        isMemoryLog(data)
+        && memoryLogIncludes(data, "L1 summarizer request")
     ) {
       startMemoryGlow();
     }
@@ -1020,7 +1020,7 @@ chatForm.addEventListener(
 );
 
 
-function handleSocketOpen() {
+async function handleSocketOpen() {
 
   window.jinWebSocketConnected = true;
 
@@ -1041,6 +1041,21 @@ function handleSocketOpen() {
     return;
   }
 
+  if (window.jinSavedRuntimeFallbackReady) {
+    try {
+      await window.jinSavedRuntimeFallbackReady;
+    } catch (error) {
+      // File fallback is optional. Browser memory still works.
+    }
+  }
+
+  if (
+      !ws
+      || ws.readyState !== WebSocket.OPEN
+  ) {
+    return;
+  }
+
   const bootstrap =
     window.getPersistedSessionBootstrap();
 
@@ -1051,6 +1066,12 @@ function handleSocketOpen() {
   sendSocketMessage(
     bootstrap
   );
+
+  if (window.applyPersistedSessionBootstrap) {
+    window.applyPersistedSessionBootstrap(
+      bootstrap
+    );
+  }
 
   persistedSessionBootstrapSent = true;
 
