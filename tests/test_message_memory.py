@@ -580,6 +580,42 @@ class MessageMemoryTests(
             prompt,
         )
 
+    def test_brain_prompt_anchors_short_feedback_to_last_jin_response(self):
+
+        context = SimpleNamespace(
+            runtime_memory=(
+                "last_jin_response: Offered a short poem about rain."
+            ),
+            deep_thought_count=0,
+            runtime_search_result="",
+            runtime_search_result_id="",
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_WEB_SEARCH": False,
+                "CAN_DEEP_THOUGHT": False,
+            },
+        )
+
+        self.assertIn(
+            "Use last_jin_response from trusted runtime memory as the primary anchor",
+            prompt,
+        )
+        self.assertIn(
+            "For brief negative feedback, do not ask what exactly is wrong by default",
+            prompt,
+        )
+        self.assertIn(
+            "preferably from an unexpected angle",
+            prompt,
+        )
+        self.assertIn(
+            "Offered a short poem about rain",
+            prompt,
+        )
+
     def test_brain_prompt_canonicalizes_legacy_memory_token_with_future_recall_purpose(self):
 
         context = SimpleNamespace(

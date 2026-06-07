@@ -1,3 +1,5 @@
+from math import ceil
+
 from app_settings import settings
 
 
@@ -7,8 +9,25 @@ def estimate_tokens(
     if not text:
         return 1
 
-    return len(
+    word_estimate = len(
         text.split()
+    )
+    char_estimate = ceil(
+        len(text) / 4
+    )
+
+    if word_estimate <= 1:
+        return max(
+            1,
+            char_estimate,
+        )
+
+    return max(
+        1,
+        min(
+            word_estimate,
+            char_estimate,
+        ),
     )
 
 

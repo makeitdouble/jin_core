@@ -19,16 +19,23 @@ from runtime.memory_rules import (
     canonicalize_runtime_memory_text,
 )
 
-from clients.brain_rules import (
-    MEMORY_RECALL_RULES,
-    RETROSPECTIVE_CLAIM_RULES,
-    LOOP_RULES,
+from bootstrap.brain_bootstrap import (
     ZERO_DIFF_STALL_ACTIVE_RULE,
     build_brain_runtime_interface_rules,
     build_brain_soft_success_rules,
     build_conversation_activity_instruction,
     build_identity_context,
     build_zero_diff_stall_instruction,
+    get_image_input_rules,
+    get_last_jin_response_rules,
+    get_loop_rules,
+    get_memory_rules,
+    get_philosophy_mode,
+    SAVE_SESSION_INTENT_MARKERS,
+    META_TAG_REQUEST_MARKERS,
+    MEMORY_REQUEST_MARKERS,
+    PHILOSOPHY_MARKERS,
+    MEDIA_CONTEXT_ATTRS,
 )
 
 from clients.errors import (
@@ -166,43 +173,6 @@ async def apply_deep_thought_calls(
         )
 
     return call_count
-
-
-SAVE_SESSION_INTENT_MARKERS = (
-    "закончим",
-    "на сегодня все",
-    "на сегодня всё",
-    "я ухожу",
-    "я спать",
-    "пойду спать",
-    "до завтра",
-    "спокойной ночи",
-    "заканчиваем",
-    "сохрани сессию",
-    "сохрани текущий разговор",
-    "запомни где остановились",
-    "подведи итог и закрой",
-    "save session",
-    "save this session",
-    "remember where we stopped",
-    "wrap up and save",
-)
-
-META_TAG_REQUEST_MARKERS = (
-    "покажи тег",
-    "напиши тег",
-    "полный тег",
-    "точный тег",
-    "пример тега",
-    "как выглядит тег",
-    "процитируй тег",
-    "show tag",
-    "write tag",
-    "exact tag",
-    "full tag",
-    "tag example",
-    "quote tag",
-)
 
 
 def _normalize_action_guard_text(
@@ -1033,7 +1003,7 @@ def build_brain_runtime_context(
         )
 
     tool_results_xml = (
-        "<TOOL_RESULTS>\n"
+        '<TOOL_RESULTS type=\'external_untrusted_evidence\'>\n'
         f"    <TOOL_RESULT {tool_result_attrs}>\n"
         f"{indent_xml(search_result)}\n"
         "    </TOOL_RESULT>\n"
@@ -1065,6 +1035,229 @@ def has_zero_diff_stall_alert(
         )
     )
 
+def _get_current_user_message(
+    context=None,
+) -> str:
+
+    if context is None:
+        return ""
+
+    for attr_name in (
+        "runtime_turn_user_message",
+        "original_user_input",
+        "user_input",
+        "last_user_message",
+    ):
+
+        value = getattr(
+            context,
+            attr_name,
+            "",
+        )
+
+        if value:
+            return str(
+                value
+            )
+
+    return ""
+
+
+def _normalized_text(
+    value: str,
+) -> str:
+
+    return (
+        value
+        or ""
+    ).casefold().replace(
+        "ё",
+        "е",
+    )
+
+
+def _contains_any_marker(
+    text: str,
+    markers: tuple[str, ...],
+) -> bool:
+
+    normalized = _normalized_text(
+        text
+    )
+
+    return any(
+        _normalized_text(
+            marker
+        ) in normalized
+        for marker in markers
+    )
+
+
+def has_memory_rule_request(
+    context=None,
+) -> bool:
+
+    if context is None:
+        return False
+
+    explicit_flag = getattr(
+        context,
+        "has_memory_request",
+        None,
+    )
+
+    if explicit_flag is not None:
+        return bool(
+            explicit_flag
+        )
+
+    user_message = _get_current_user_message(
+        context
+    )
+
+    return _contains_any_marker(
+        user_message,
+        MEMORY_REQUEST_MARKERS,
+    )
+
+
+def has_loop_rule_signal(
+    context=None,
+) -> bool:
+
+    if context is None:
+        return False
+
+    pattern_counter = getattr(
+        context,
+        "runtime_pattern_counter",
+        None,
+    )
+
+    if pattern_counter is not None:
+        try:
+            return int(
+                pattern_counter
+            ) > 0
+        except (
+            TypeError,
+            ValueError,
+        ):
+            return False
+
+    runtime_l2_memory = getattr(
+        context,
+        "runtime_l2_memory",
+        "",
+    )
+
+    return bool(
+        str(
+            runtime_l2_memory
+            or ""
+        ).strip()
+    )
+
+
+def has_media_context(
+    context=None,
+) -> bool:
+
+    if context is None:
+        return False
+
+    explicit_flag = getattr(
+        context,
+        "has_media",
+        None,
+    )
+
+    if explicit_flag is not None:
+        return bool(
+            explicit_flag
+        )
+
+    for attr_name in MEDIA_CONTEXT_ATTRS:
+        value = getattr(
+            context,
+            attr_name,
+            None,
+        )
+
+        if value:
+            return True
+
+    return False
+
+
+def is_philosophy_mode_active(
+    context=None,
+) -> bool:
+
+    if context is None:
+        return False
+
+    explicit_flag = getattr(
+        context,
+        "philosophy_active",
+        None,
+    )
+
+    if explicit_flag is not None:
+        return bool(
+            explicit_flag
+        )
+
+    user_message = _get_current_user_message(
+        context
+    )
+
+    return _contains_any_marker(
+        user_message,
+        PHILOSOPHY_MARKERS,
+    )
+
+
+def build_conditional_prompt_rules(
+    context=None,
+) -> str:
+
+    rules = [
+        get_last_jin_response_rules(),
+    ]
+
+    if has_memory_rule_request(
+        context
+    ):
+        rules.append(
+            get_memory_rules()
+        )
+
+    if has_loop_rule_signal(
+        context
+    ):
+        rules.append(
+            get_loop_rules()
+        )
+
+    if has_media_context(
+        context
+    ):
+        rules.append(
+            get_image_input_rules()
+        )
+
+    if is_philosophy_mode_active(
+        context
+    ):
+        rules.append(
+            get_philosophy_mode()
+        )
+
+    return "".join(
+        rules
+    )
+
 
 def build_brain_system_prompt(
     context=None,
@@ -1090,12 +1283,8 @@ def build_brain_system_prompt(
 
     return (
         f"{build_identity_context(context)}"
-
         f"{soft_rules}"
-        f"{RETROSPECTIVE_CLAIM_RULES}"
-        f"{MEMORY_RECALL_RULES}"
-        f"{LOOP_RULES}"
-
+        f"{build_conditional_prompt_rules(context)}"
         f"{build_brain_runtime_interface_rules(enabled_actions)}"
         "\n"
         f"{build_brain_runtime_context(context, runtime_actions)}"
