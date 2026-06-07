@@ -310,6 +310,59 @@ class RuntimeActionTests(unittest.TestCase):
             "",
         )
 
+    def test_stream_filter_does_not_hold_plain_angle_text(self):
+
+        stream_filter = RuntimeActionStreamFilter()
+
+        first = stream_filter.filter(
+            "hello <"
+        )
+        second = stream_filter.filter(
+            "not action"
+        )
+
+        self.assertEqual(
+            first.text,
+            "hello ",
+        )
+        self.assertEqual(
+            second.text,
+            "<not action",
+        )
+
+    def test_stream_filter_holds_confirmed_action_until_close(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "<INTERNAL_ACTION_WEB_SEARCH:"
+        )
+        middle = stream_filter.filter(
+            "blue tomato"
+        )
+        final = stream_filter.filter(
+            ">"
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            middle.text,
+            "",
+        )
+        self.assertEqual(
+            final.search_queries,
+            (
+                "blue tomato",
+            ),
+        )
+
     def test_apply_runtime_action_calls_stores_search_queries(self):
 
         class Context:

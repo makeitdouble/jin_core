@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+from types import SimpleNamespace
 
 from clients import (
     build_brain_system_prompt,
@@ -517,12 +518,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "only available source of fresh external data",
+            "When the answer needs external search",
             prompt,
         )
 
         self.assertIn(
-            "do not rely on memory or guesses",
+            "Do not present guessed search results as facts",
             prompt,
         )
 
@@ -588,7 +589,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
         self.assertIn(
-            "хочу это запомнить",
+            "explicitly marks the current moment/event as worth saving",
             prompt,
         )
         self.assertIn(
@@ -596,17 +597,22 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
         self.assertIn(
-            "after the answer text for the event is complete",
+            "after the answer text is complete",
             prompt,
         )
         self.assertIn(
-            "do not ask the user to fill a form",
+            "so the snapshot captures the event",
             prompt,
         )
 
     def test_prompt_handles_vague_memory_recall_before_topic_redirect(self):
 
+        context = SimpleNamespace(
+            runtime_turn_user_message="помнишь кодовое слово?",
+        )
+
         prompt = build_brain_system_prompt(
+            context=context,
             runtime_actions={
                 "CAN_DEEP_THOUGHT": False,
                 "CAN_WEB_SEARCH": False,
@@ -614,17 +620,17 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "For memory recall questions, scan strong memory fields before denying recall",
+            "Memory recall: scan strong memory fields before denying recall",
             prompt,
         )
 
         self.assertIn(
-            "remembered word, code word, important detail, or saved item",
+            "remembered word, code word, or saved item",
             prompt,
         )
 
         self.assertIn(
-            "match by meaning against stored_memory entries with explicit purpose",
+            "match by meaning against stored_memory entries",
             prompt,
         )
 
@@ -639,7 +645,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "temporarily overrides active topic/task continuation",
+            "temporarily overrides active topic continuation",
             prompt,
         )
 

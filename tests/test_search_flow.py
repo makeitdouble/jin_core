@@ -644,7 +644,7 @@ class SearchFlowTests(
             brain_client.prompts[1]["user_prompt"],
         )
         self.assertIn(
-            "<TOOL_RESULTS>",
+            "<TOOL_RESULTS",
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertIn(

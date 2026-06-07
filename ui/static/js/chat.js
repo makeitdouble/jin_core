@@ -6,6 +6,11 @@ const chatHistory =
 const streamMessages =
   new Map();
 
+const STREAM_FRAME_WARNING_MS = 12;
+const STREAM_NEAR_BOTTOM_PX = 72;
+
+let streamFrameScheduled = false;
+
 /**
  * @typedef {Object} ContextSnapshot
  * @property {string=} system_prompt
@@ -22,6 +27,219 @@ function escapeHtml(text) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+
+}
+
+function isStreamDebugEnabled() {
+
+  return Boolean(
+    window.jinStreamDebug
+    || window.jinDebugMode
+  );
+
+}
+
+
+function nowMs() {
+
+  return (
+    window.performance
+    && window.performance.now
+  )
+    ? window.performance.now()
+    : Date.now();
+
+}
+
+
+function requestStreamFrame(callback) {
+
+  if (window.requestAnimationFrame) {
+    window.requestAnimationFrame(
+      callback
+    );
+
+    return;
+  }
+
+  setTimeout(
+    callback,
+    16
+  );
+
+}
+
+
+function shouldAutoScroll() {
+
+  if (!chatHistory) {
+    return false;
+  }
+
+  const distanceFromBottom =
+    chatHistory.scrollHeight
+    - chatHistory.scrollTop
+    - chatHistory.clientHeight;
+
+  return (
+    distanceFromBottom
+    <= STREAM_NEAR_BOTTOM_PX
+  );
+
+}
+
+
+function appendTextNodeData(
+  element,
+  nodeKey,
+  text
+) {
+
+  if (
+    !element
+    || !text
+  ) {
+    return null;
+  }
+
+  let textNode =
+    element[nodeKey];
+
+  if (!textNode) {
+    textNode =
+      document.createTextNode(
+        ""
+      );
+
+    element.appendChild(
+      textNode
+    );
+
+    element[nodeKey] =
+      textNode;
+  }
+
+  textNode.appendData(
+    text
+  );
+
+  return textNode;
+
+}
+
+
+function scheduleStreamFrameUpdate() {
+
+  if (streamFrameScheduled) {
+    return;
+  }
+
+  streamFrameScheduled = true;
+
+  requestStreamFrame(
+    flushStreamFrame
+  );
+
+}
+
+
+function flushStreamFrame() {
+
+  const startedAt =
+    nowMs();
+
+  streamFrameScheduled = false;
+
+  const autoscroll =
+    shouldAutoScroll();
+
+  streamMessages.forEach((stream) => {
+
+    if (
+      !stream.pendingThinking
+      && !stream.pendingAnswer
+    ) {
+      return;
+    }
+
+    ensureStreamGroup(
+      stream
+    );
+
+    if (stream.pendingThinking) {
+
+      if (
+        !stream.group.createdThinking
+      ) {
+
+        stream.group.wrapper.appendChild(
+          stream.group.thinkWrapper
+        );
+
+        stream.group.createdThinking =
+          true;
+
+      }
+
+      appendTextNodeData(
+        stream.group.thinkContent,
+        "__jinThinkTextNode",
+        stream.pendingThinking
+      );
+
+      stream.pendingThinking =
+        "";
+
+    }
+
+    if (stream.pendingAnswer) {
+
+      if (
+        !stream.group.createdAnswer
+      ) {
+
+        stream.group.wrapper.appendChild(
+          stream.group.messageRow
+        );
+
+        stream.group.createdAnswer =
+          true;
+
+      }
+
+      appendTextNodeData(
+        stream.group.answerContent,
+        "__jinAnswerTextNode",
+        stream.pendingAnswer
+      );
+
+      stream.pendingAnswer =
+        "";
+
+    }
+
+  });
+
+  if (
+    autoscroll
+    && chatHistory
+  ) {
+    chatHistory.scrollTop =
+      chatHistory.scrollHeight;
+  }
+
+  const elapsed =
+    nowMs() - startedAt;
+
+  if (
+    isStreamDebugEnabled()
+    && elapsed > STREAM_FRAME_WARNING_MS
+  ) {
+    console.warn(
+      "[stream] frame update took",
+      `${elapsed.toFixed(1)}ms`
+    );
+  }
 
 }
 
@@ -548,6 +766,8 @@ function startStreamMessage(
       group,
       thinking: "",
       answer: "",
+      pendingThinking: "",
+      pendingAnswer: "",
     }
   );
 
@@ -570,30 +790,10 @@ function appendThinkingChunk(
     return;
   }
 
-  ensureStreamGroup(
-    stream
-  );
-
-  if (
-    !stream.group.createdThinking
-  ) {
-
-    stream.group.wrapper.appendChild(
-      stream.group.thinkWrapper
-    );
-
-    stream.group.createdThinking =
-      true;
-
-  }
-
   stream.thinking += chunk;
+  stream.pendingThinking += chunk;
 
-  stream.group.thinkContent.textContent =
-    stream.thinking;
-
-  chatHistory.scrollTop =
-    chatHistory.scrollHeight;
+  scheduleStreamFrameUpdate();
 
 }
 
@@ -622,30 +822,10 @@ function appendStreamChunk(
     return;
   }
 
-  ensureStreamGroup(
-    stream
-  );
-
-  if (
-    !stream.group.createdAnswer
-  ) {
-
-    stream.group.wrapper.appendChild(
-      stream.group.messageRow
-    );
-
-    stream.group.createdAnswer =
-      true;
-
-  }
-
   stream.answer += chunk;
+  stream.pendingAnswer += chunk;
 
-  stream.group.answerContent.textContent =
-    stream.answer;
-
-  chatHistory.scrollTop =
-    chatHistory.scrollHeight;
+  scheduleStreamFrameUpdate();
 
 }
 
@@ -662,6 +842,8 @@ function finishStreamMessage(
     );
 
   if (stream) {
+
+    flushStreamFrame();
 
     if (
       stream.group.createdAnswer
@@ -715,3 +897,6 @@ window.finishStreamMessage =
 
 window.appendThinkingChunk =
   appendThinkingChunk;
+
+window.flushStreamFrame =
+  flushStreamFrame;

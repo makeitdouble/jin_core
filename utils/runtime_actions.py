@@ -573,6 +573,11 @@ def _trailing_marker_prefix_length(
     markers = _enabled_action_start_markers(
         enabled_actions
     )
+    upper_text = text.upper()
+    upper_markers = tuple(
+        marker.upper()
+        for marker in markers
+    )
 
     max_length = min(
         len(text),
@@ -591,34 +596,101 @@ def _trailing_marker_prefix_length(
         -1,
     ):
 
-        for marker in markers:
+        for marker in upper_markers:
 
-            if text.upper().endswith(
-                marker[:length].upper()
+            if upper_text.endswith(
+                marker[:length]
             ):
                 return length
 
     return 0
 
 
+def _action_text_may_contain_marker(
+    text: str,
+) -> bool:
+
+    if (
+        not text
+        or "<" not in text
+    ):
+        return False
+
+    return (
+        "INTERNAL_ACTION_"
+        in text.upper()
+    )
+
+
+def _extract_runtime_actions_if_needed(
+    text: str,
+    *,
+    enabled_actions=None,
+    preserve_action_text: bool = False,
+) -> RuntimeActionResult:
+
+    if not text:
+        return RuntimeActionResult(
+            text="",
+        )
+
+    if not _action_text_may_contain_marker(
+        text
+    ):
+        return RuntimeActionResult(
+            text=text,
+        )
+
+    return extract_runtime_actions(
+        text,
+        enabled_actions=enabled_actions,
+        preserve_action_text=preserve_action_text,
+    )
+
+
 def _unclosed_bracketed_internal_action_start(
     text: str,
 ) -> int | None:
 
-    match = re.search(
-        (
-            r"<\s*INTERNAL_ACTION_"
-            r"(?:DEEP_THOUGHT|WEB_SEARCH|REMEMBER_SESSION|REMEMBER_EVENT)"
-            r"[^<>]*$"
-        ),
-        text,
-        re.IGNORECASE,
+    marker_start = text.rfind(
+        "<"
     )
 
-    if match is None:
+    if marker_start < 0:
         return None
 
-    return match.start()
+    candidate = text[
+        marker_start + 1:
+    ]
+
+    if (
+        "<" in candidate
+        or ">" in candidate
+    ):
+        return None
+
+    normalized = (
+        candidate
+        .lstrip()
+        .upper()
+    )
+
+    if not normalized.startswith(
+        "INTERNAL_ACTION_"
+    ):
+        return None
+
+    action_name = normalized[
+        len("INTERNAL_ACTION_"):
+    ]
+
+    for known_action in KNOWN_RUNTIME_ACTIONS:
+        if action_name.startswith(
+            known_action
+        ):
+            return marker_start
+
+    return None
 
 
 def _unclosed_internal_action_request_start(
@@ -638,6 +710,7 @@ class RuntimeActionStreamFilter:
         preserve_action_text: bool = False,
     ):
         self.pending = ""
+        self.pending_is_action = False
         self.preserve_action_text = preserve_action_text
         self.enabled_actions = normalize_runtime_action_names(
             enabled_actions
@@ -653,11 +726,35 @@ class RuntimeActionStreamFilter:
                 text="",
             )
 
+        if (
+            not self.pending
+            and not _action_text_may_contain_marker(
+                chunk
+            )
+            and "<" not in chunk
+        ):
+            return RuntimeActionResult(
+                text=chunk,
+            )
+
+        if (
+            self.pending
+            and self.pending_is_action
+            and "<" not in chunk
+            and ">" not in chunk
+        ):
+            self.pending += chunk
+
+            return RuntimeActionResult(
+                text="",
+            )
+
         combined = (
             self.pending
             + chunk
         )
         self.pending = ""
+        self.pending_is_action = False
 
         unclosed_start = _unclosed_internal_action_request_start(
             combined
@@ -668,8 +765,9 @@ class RuntimeActionStreamFilter:
             self.pending = combined[
                 unclosed_start:
             ]
+            self.pending_is_action = True
 
-            return extract_runtime_actions(
+            return _extract_runtime_actions_if_needed(
                 combined[
                     :unclosed_start
                 ],
@@ -688,7 +786,7 @@ class RuntimeActionStreamFilter:
                 -hold_length:
             ]
 
-            return extract_runtime_actions(
+            return _extract_runtime_actions_if_needed(
                 combined[
                     :-hold_length
                 ],
@@ -696,7 +794,7 @@ class RuntimeActionStreamFilter:
                 preserve_action_text=self.preserve_action_text,
             )
 
-        return extract_runtime_actions(
+        return _extract_runtime_actions_if_needed(
             combined,
             enabled_actions=self.enabled_actions,
             preserve_action_text=self.preserve_action_text,
@@ -706,6 +804,7 @@ class RuntimeActionStreamFilter:
 
         pending = self.pending
         self.pending = ""
+        self.pending_is_action = False
 
         if self.preserve_action_text:
             return pending

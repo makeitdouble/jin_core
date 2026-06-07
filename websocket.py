@@ -101,6 +101,73 @@ def clean_bootstrap_memory(
     return cleaned[-limit:].strip()
 
 
+
+
+def parse_bootstrap_counter(
+    value,
+) -> int:
+
+    try:
+        return max(
+            0,
+            int(
+                value
+                or 0
+            ),
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return 0
+
+
+def build_l3_bootstrap_runtime_memory(
+    *,
+    session_memory_updates: int,
+) -> str:
+
+    return (
+        "session status: Restored from saved L3 session memory; browser L1 runtime snapshot was stale and was ignored.\n"
+        "current context: Use restored session_memory as the source of truth until new L1 runtime facts are created.\n"
+        f"session memory source: browser restore; L3 updates restored: {session_memory_updates}.\n"
+        "last_jin_response: Browser session restore completed; awaiting the user's next message."
+    )
+
+
+def should_ignore_bootstrap_runtime_memory(
+    *,
+    session_memory: str,
+    runtime_memory: str,
+    session_memory_updates: int,
+    runtime_memory_updates: int,
+) -> bool:
+
+    if not (
+        session_memory
+        and runtime_memory
+    ):
+        return False
+
+    # Always prefer L3 session memory when it exists and L1 snapshot is absent
+    # or unconfirmed. runtime_memory_updates == 0 usually means the restored
+    # runtime_memory came from runtime_snapshot.raw_memory fallback, not from an
+    # explicit fresh runtime_memory field.
+    if (
+        session_memory_updates > 0
+        and runtime_memory_updates == 0
+    ):
+        return True
+
+    if (
+        session_memory_updates > 0
+        and runtime_memory_updates < session_memory_updates
+    ):
+        return True
+
+    return False
+
+
 def get_status_http_client(
     context,
 ):
@@ -294,6 +361,10 @@ def apply_session_bootstrap(
             )
         ]
 
+    # Track whether runtime_memory was inferred from runtime_snapshot.raw_memory
+    # rather than being sent explicitly by the client.
+    runtime_memory_is_snapshot_fallback = False
+
     if (
         not runtime_memory
         and isinstance(
@@ -307,29 +378,59 @@ def apply_session_bootstrap(
                 "",
             )
         )
+        runtime_memory_is_snapshot_fallback = True
+
+    session_memory_updates = parse_bootstrap_counter(
+        message_data.get(
+            "session_memory_updates",
+            message_data.get(
+                "runtime_session_memory_updates",
+                0,
+            ),
+        )
+    )
+    runtime_memory_updates = parse_bootstrap_counter(
+        message_data.get(
+            "runtime_memory_updates",
+            0,
+        )
+    )
+
+    # If runtime_memory arrived only through snapshot fallback and L3 exists,
+    # force the L1 counter to 0 so stale bootstrap logic can reject it.
+    if (
+        runtime_memory_is_snapshot_fallback
+        and session_memory
+    ):
+        runtime_memory_updates = 0
+
+    # Preserve the original stale snapshot raw text for UI display before
+    # replacing runtime_memory with the agent-facing status message.
+    stale_runtime_memory_for_ui = None
+
+    if should_ignore_bootstrap_runtime_memory(
+        session_memory=session_memory,
+        runtime_memory=runtime_memory,
+        session_memory_updates=session_memory_updates,
+        runtime_memory_updates=runtime_memory_updates,
+    ):
+        stale_runtime_memory_for_ui = runtime_memory
+        runtime_memory = build_l3_bootstrap_runtime_memory(
+            session_memory_updates=session_memory_updates,
+        )
+        runtime_memory_updates = 0
 
     if session_memory:
         context.session_memory = session_memory
         context.runtime_l3_session_memory = session_memory
-        try:
-            context.runtime_session_memory_updates = max(
-                int(
-                    message_data.get(
-                        "session_memory_updates",
-                        0,
-                    ) or 0
-                ),
-                getattr(
-                    context,
-                    "runtime_session_memory_updates",
-                    0,
-                ),
-            )
-        except (
-            TypeError,
-            ValueError,
-        ):
-            pass
+        context.runtime_session_memory_updates = max(
+            session_memory_updates,
+            getattr(
+                context,
+                "runtime_session_memory_updates",
+                0,
+            ),
+        )
         context.session_memory_source = clean_bootstrap_memory(
             message_data.get(
                 "session_memory_source",
@@ -362,14 +463,19 @@ def apply_session_bootstrap(
         context.runtime_memory = runtime_memory
         context.runtime_memory_stable = runtime_memory
 
+        # If the stale L1 snapshot was preserved for UI, append it as an
+        # additional snapshot so the panel shows the original session fields.
+        # The agent still uses runtime_memory (the status message) as context.
+        if stale_runtime_memory_for_ui:
+            ui_snapshot = build_runtime_memory_snapshot(
+                context,
+                stale_runtime_memory_for_ui,
+            )
+            context.runtime_memory_snapshots.append(ui_snapshot)
+
         try:
             context.runtime_memory_updates = max(
-                int(
-                    message_data.get(
-                        "runtime_memory_updates",
-                        0,
-                    ) or 0
-                ),
+                runtime_memory_updates,
                 getattr(
                     context,
                     "runtime_memory_updates",
@@ -652,14 +758,6 @@ async def process_message(
 
         runtime = AgentRuntime()
 
-        await logger.log_system(
-            "[WS] runtime=AgentRuntime"
-        )
-
-        await logger.log_system(
-            "[WS] agent runtime start"
-        )
-
         await websocket.send_json({
             "type": "agent_runtime_start",
         })
@@ -881,10 +979,6 @@ async def websocket_endpoint(
 
         while True:
 
-            await logger.log_system(
-                "[WS] waiting message"
-            )
-
             message_data = (
                 await receive_message(
                     context,
@@ -944,8 +1038,8 @@ async def websocket_endpoint(
 
                 continue
 
-            await logger.log_system(
-                f"[WS] received: {message_data}"
+            await logger.log_user(
+                f'{message_data}'
             )
 
             # -------------------------------------------------

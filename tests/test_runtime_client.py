@@ -33,9 +33,11 @@ class FakeHttpClient:
             self,
             *,
             models_payload=None,
+            models_payloads_by_url=None,
     ):
 
         self.models_payload = models_payload
+        self.models_payloads_by_url = models_payloads_by_url or {}
         self.get_calls = []
         self.post_calls = []
 
@@ -52,7 +54,10 @@ class FakeHttpClient:
         })
 
         return FakeResponse(
-            self.models_payload
+            self.models_payloads_by_url.get(
+                url,
+                self.models_payload,
+            )
         )
 
     async def post(
@@ -148,10 +153,113 @@ class RuntimeClientTests(
 
         self.assertEqual(
             http_client.post_calls[0]["json"]["max_tokens"],
-            1968,
+            1584,
         )
         self.assertIsNone(
             client.detected_context_window,
+        )
+
+
+    async def test_symbol_heavy_prompt_does_not_over_shrink_output_budget(self):
+
+        http_client = FakeHttpClient(
+            models_payload={
+                "data": [
+                    {
+                        "id": "test-model",
+                        "context_length": 8192,
+                    }
+                ]
+            }
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            configured_context_window=4096,
+            client=http_client,
+        )
+
+        await client.ask(
+            system_prompt="* " * 7000,
+            user_prompt="user",
+            temperature=0.1,
+            max_tokens=8192,
+        )
+
+        self.assertGreater(
+            http_client.post_calls[0]["json"]["max_tokens"],
+            3000,
+        )
+
+    async def test_uses_lmstudio_native_loaded_context_when_openai_models_has_no_context(self):
+
+        http_client = FakeHttpClient(
+            models_payloads_by_url={
+                "http://runtime.test/v1/models": {
+                    "data": [
+                        {
+                            "id": "test-model",
+                        }
+                    ]
+                },
+                "http://runtime.test/api/v0/models": {
+                    "data": [
+                        {
+                            "id": "test-model",
+                            "max_context_length": 131072,
+                            "loaded_context_length": 8192,
+                            "loaded_instances": [
+                                {
+                                    "config": {
+                                        "context_length": 8192,
+                                    }
+                                }
+                            ],
+                        }
+                    ]
+                },
+            }
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            configured_context_window=4096,
+            client=http_client,
+        )
+
+        await client.ask(
+            system_prompt="system " * 1000,
+            user_prompt="user " * 1000,
+            temperature=0.1,
+            max_tokens=4096,
+        )
+
+        self.assertEqual(
+            client.detected_context_window,
+            8192,
+        )
+        self.assertEqual(
+            http_client.post_calls[0]["json"]["max_tokens"],
+            4096,
+        )
+        self.assertEqual(
+            len(http_client.get_calls),
+            2,
+        )
+
+    async def test_prefers_loaded_context_over_theoretical_max_context(self):
+
+        context_window = RuntimeClient.extract_context_window_from_model({
+            "id": "test-model",
+            "max_context_length": 131072,
+            "loaded_context_length": 8192,
+        })
+
+        self.assertEqual(
+            context_window,
+            8192,
         )
 
     async def test_context_window_detection_is_cached(self):
@@ -228,6 +336,107 @@ class RuntimeClientTests(
             client.detected_context_window,
             8192,
         )
+
+    async def test_uses_detected_context_window_as_max_tokens_when_configured_cap_is_default(self):
+
+        http_client = FakeHttpClient(
+            models_payload={
+                "data": [
+                    {
+                        "id": "test-model",
+                        "context_length": 8192,
+                    }
+                ]
+            }
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            configured_context_window=4096,
+            configured_max_tokens=4096,
+            client=http_client,
+        )
+
+        await client.ask(
+            system_prompt="system",
+            user_prompt="user",
+            temperature=0.1,
+            max_tokens=4096,
+        )
+
+        self.assertEqual(
+            http_client.post_calls[0]["json"]["max_tokens"],
+            7678,
+        )
+
+    async def test_uses_detected_explicit_max_tokens_before_context_window_for_output_cap(self):
+
+        http_client = FakeHttpClient(
+            models_payload={
+                "data": [
+                    {
+                        "id": "test-model",
+                        "context_length": 8192,
+                        "max_output_tokens": 6144,
+                    }
+                ]
+            }
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            configured_context_window=4096,
+            configured_max_tokens=4096,
+            client=http_client,
+        )
+
+        await client.ask(
+            system_prompt="system",
+            user_prompt="user",
+            temperature=0.1,
+            max_tokens=4096,
+        )
+
+        self.assertEqual(
+            http_client.post_calls[0]["json"]["max_tokens"],
+            6144,
+        )
+
+    async def test_preserves_smaller_per_call_max_tokens_when_server_max_fallback_is_enabled(self):
+
+        http_client = FakeHttpClient(
+            models_payload={
+                "data": [
+                    {
+                        "id": "test-model",
+                        "context_length": 8192,
+                    }
+                ]
+            }
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            configured_context_window=4096,
+            configured_max_tokens=4096,
+            client=http_client,
+        )
+
+        await client.ask(
+            system_prompt="system",
+            user_prompt="user",
+            temperature=0.1,
+            max_tokens=512,
+        )
+
+        self.assertEqual(
+            http_client.post_calls[0]["json"]["max_tokens"],
+            512,
+        )
+
 
 
 if __name__ == "__main__":

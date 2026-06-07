@@ -72,6 +72,23 @@ DEFAULT_RUNTIME_MEMORY = (
 )
 
 
+RUNTIME_MEMORY_DURABLE_CARRY_FORWARD_RULES_OLD = (
+    "Topic/task changes, shallow summarization, memory pressure, or a new current request are never enough to remove or rename durable JIN/user fact keys.\n"
+)
+
+
+RUNTIME_MEMORY_SUMMARY_DEPTH_RULES_OLD = (
+    "Decide the summary depth from the signal in the latest turn.\n"
+    "Use shallow summarization for simple factual, isolated, or low-signal turns: "
+    "keep one or two bullet lines with only the dry fact, topic, or unresolved "
+    "reference that could help the next answer.\n"
+    "Use deep summarization for turns that reveal user intent, project direction, "
+    "decisions, constraints, pending choices, open references, implementation direction, "
+    "or a meaningful shift in the immediate conversation state; use three to six bullet lines when "
+    "the turn carries that much signal.\n"
+)
+
+
 def canonicalize_runtime_memory_entry(
         key: str,
         value: str,
@@ -579,11 +596,19 @@ def build_l3_session_digest(
 def build_runtime_l2_memory_system_prompt() -> str:
 
     return (
-        "You are JIN's L2 pattern memory summarizer.\n"
+        "You are JIN's L2 memory summarizer for patterns.\n"
         "Return only the new L2 pattern memory as plain text.\n"
         "Do not output JSON.\n"
         "Do not use Markdown headings.\n"
         "Do not explain your reasoning or the summarization process.\n"
+        "Track what the user does, but respond to what the user is trying to achieve.\n"
+        "Separate observed behavior from inferred intent.\n"
+        "Do not store temporary interaction patterns as permanent user traits.\n"
+        "Do not use 'likes', 'prefers', or 'wants' unless the user explicitly says so.\n"
+        "When storing a pattern, prefer fields like observed_behavior, likely_intent, evidence, and scope over broad personality labels, for example:\n"
+        "observed_behavior: User rapidly switched across unrelated topics during context-arbitration testing. Occurrences: 8; evidence: cooking, finance, files, travel, car washing.\n"
+        "likely_intent: User may be stress-testing whether JIN checks context relevance before answering.\n"
+        "scope: Current session/test sequence, not a stable user preference.\n"
         "Write memory as atomic bullet lines, one semantic entity per line.\n"
         "Every memory entry MUST use the format:\n "
         "<key>: <value>\n"
@@ -824,7 +849,7 @@ def build_runtime_session_memory_user_prompt(
 def build_runtime_memory_system_prompt() -> str:
 
     return (
-        "You are JIN's runtime memory summarizer.\n"
+        "You are JIN's runtime L1 memory summarizer.\n"
         "This is L1 runtime memory: factual live state only.\n"
         "Return only the new compressed L1 memory state as plain text.\n"
         "Do not output JSON.\n"
@@ -903,17 +928,22 @@ def build_runtime_memory_system_prompt() -> str:
         "Do not store bare ambiguous values like memory token: <value> without recording why the value matters.\n"
         "Preserve strong details until the current context directly makes them obsolete, corrected, cancelled, or irrelevant; a topic/task change alone is not enough.\n"
         "Topic/task changes, shallow summarization, memory pressure, or a new current request are never enough to remove or rename durable JIN/user fact keys.\n"
+        "DURABLE LINES THAT MUST ALWAYS CARRY FORWARD VERBATIM unless explicitly corrected by the user in the current turn: "
+        "user_fact, jin_fact, jin_core_definition, stored_memory, shared_axiom_established, primary_goal, known fact about JIN. "
+        "These lines are immune to shallow summarization, topic switches, memory pressure, and low-signal turns. "
+        "If you are about to produce output that does not contain all of these lines from the current memory, stop and add them back.\n"
         "Do not update a value when JIN merely paraphrased, reordered, or reworded the same offer, "
         "open reference, pending choice, or conversational state without adding a new explicit fact.\n"
         "Treat semantic rephrasing as no-op memory: keep the previous value unchanged unless the actual meaning changed.\n"
         "Drop old details only when they are clearly obsolete, duplicated, or no longer useful.\n"
-        "Decide the summary depth from the signal in the latest turn.\n"
+        "Decide the summary depth from the signal in the latest turn. "
+        "Depth controls how much NEW content you add — not how much existing memory you keep.\n"
         "Use shallow summarization for simple factual, isolated, or low-signal turns: "
-        "keep one or two bullet lines with only the dry fact, topic, or unresolved "
-        "reference that could help the next answer.\n"
+        "add only the dry fact, topic, or unresolved reference from the current turn. "
+        "Shallow summarization never reduces total line count. All existing lines carry forward unchanged.\n"
         "Use deep summarization for turns that reveal user intent, project direction, "
         "decisions, constraints, pending choices, open references, implementation direction, "
-        "or a meaningful shift in the immediate conversation state; use three to six bullet lines when "
+        "or a meaningful shift in the immediate conversation state; add three to six new lines when "
         "the turn carries that much signal.\n"
         "If the user asks a follow-up that depends on prior context, preserve the "
         "referent clearly enough for the next brain prompt to resolve it.\n"

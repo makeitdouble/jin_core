@@ -6,7 +6,9 @@ from fastapi import (
 )
 
 from fastapi.responses import (
+    FileResponse,
     HTMLResponse,
+    Response,
 )
 
 from fastapi.staticfiles import (
@@ -19,6 +21,7 @@ from fastapi.templating import (
 
 import asyncio
 import httpx
+from pathlib import Path
 
 from config_loader import (
     config,
@@ -104,6 +107,26 @@ app.mount(
 app.include_router(
     websocket_router
 )
+
+
+@app.get(
+    "/saved_runtime.txt",
+)
+async def saved_runtime_file():
+
+    saved_runtime_path = Path(
+        "saved_runtime.txt"
+    )
+
+    if not saved_runtime_path.is_file():
+        return Response(
+            status_code=404
+        )
+
+    return FileResponse(
+        saved_runtime_path,
+        media_type="text/plain; charset=utf-8",
+    )
 
 
 # ---------------------------------------------------------
