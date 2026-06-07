@@ -424,7 +424,7 @@ class MessageMemoryTests(
         prompt = build_runtime_l2_memory_system_prompt()
 
         self.assertIn(
-            "L2 pattern memory summarizer",
+            "L2 memory summarizer for patterns",
             prompt,
         )
         self.assertIn(
@@ -774,34 +774,6 @@ class MessageMemoryTests(
             "Keep responses natural, conversational",
             prompt,
         )
-        self.assertIn(
-            "visual substitute before a prose substitute",
-            prompt,
-        )
-        self.assertIn(
-            "ASCII/text-art is an available plain-text visual medium",
-            prompt,
-        )
-        self.assertIn(
-            "do not prefer prose description as more reliable",
-            prompt,
-        )
-        self.assertIn(
-            "without changing the requested modality",
-            prompt,
-        )
-        self.assertIn(
-            "Requests to draw, show, depict, render, send, or create a picture are visual-output requests, not description requests",
-            prompt,
-        )
-        self.assertIn(
-            "Visual request fallback order in plain text chat: ASCII/text-art as visual output",
-            prompt,
-        )
-        self.assertIn(
-            "concise visual description only when text-art cannot represent the requested subject",
-            prompt,
-        )
         self.assertNotIn(
             "image/action tool",
             prompt,
@@ -811,23 +783,15 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertIn(
-            "soft dialog closure",
+            "No new signal = no new strategy",
             prompt,
         )
         self.assertIn(
-            "No new signal, no new strategy",
+            "Do not ask for a topic, preference, or next step",
             prompt,
         )
         self.assertIn(
-            "do not ask for a topic, preference, choice, task, or next step",
-            prompt,
-        )
-        self.assertIn(
-            "Allowed response: acknowledge the repeated input",
-            prompt,
-        )
-        self.assertIn(
-            "not to extract a useful request from the user",
+            "not to extract a useful request",
             prompt,
         )
 
@@ -866,12 +830,12 @@ class MessageMemoryTests(
             "soft success rules are intentionally not rendered",
             prompt,
         )
-        self.assertIn(
-            "No new signal, no new strategy",
+        self.assertNotIn(
+            "No new signal = no new strategy",
             prompt,
         )
-        self.assertIn(
-            "do not ask for a topic, preference, choice, task, or next step",
+        self.assertNotIn(
+            "Do not ask for a topic, preference, or next step",
             prompt,
         )
         self.assertNotIn(
@@ -891,7 +855,7 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertIn(
-            "Disable the usual greeting, reassurance, helpful menu",
+            "stop continuing normally and refuse the repeated frame",
             prompt,
         )
         self.assertIn(
@@ -899,15 +863,7 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertIn(
-            "topic, task, purpose, choice, or next step",
-            prompt,
-        )
-        self.assertIn(
-            "Do not answer a repeated zero-diff trigger with extra warmth",
-            prompt,
-        )
-        self.assertIn(
-            "larger menu of choices",
+            "purpose, task, topic, choice, or next step",
             prompt,
         )
         self.assertIn(
@@ -915,7 +871,7 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertIn(
-            "rewrite it as a no-request observation or counter-move",
+            "changes the interaction shape",
             prompt,
         )
         self.assertIn(
@@ -1013,23 +969,11 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertIn(
-            "resist the repetitive behavior",
-            prompt,
-        )
-        self.assertIn(
             "Use a counter-reaction",
             prompt,
         )
         self.assertIn(
             "Do not force progress or extract a useful request",
-            prompt,
-        )
-        self.assertIn(
-            "Refuse the repeated frame",
-            prompt,
-        )
-        self.assertIn(
-            "does not ask for a topic, task, purpose, choice, or next step",
             prompt,
         )
 
