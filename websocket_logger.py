@@ -12,6 +12,7 @@ class WebSocketLogger:
             tag: str,
             message: str,
             details: str | None = None,
+            **extra,
     ):
         payload = {
             "type": "log",
@@ -21,6 +22,12 @@ class WebSocketLogger:
 
         if details:
             payload["details"] = str(details)
+
+        payload.update({
+            key: value
+            for key, value in extra.items()
+            if value is not None
+        })
 
         await self.websocket.send_json(
             payload
@@ -55,16 +62,31 @@ class WebSocketLogger:
             details=details,
         )
 
+    async def log_user(
+            self,
+            message: str,
+            details: str | None = None,
+    ):
+        await self.log(
+            "[USER]",
+            message,
+            details=details,
+        )
+
     async def log_memory(
             self,
             level: str,
             message: str,
             details: str | None = None,
+            event: str | None = None,
     ):
         await self.log(
             f"[MEMORY:{level}]",
             message,
             details=details,
+            channel="memory",
+            memory_level=level,
+            memory_event=event,
         )
 
     async def log_service_as_brain(self, message: str):

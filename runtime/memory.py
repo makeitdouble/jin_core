@@ -354,6 +354,7 @@ async def log_memory_event(
         message: str,
         details: str | None = None,
         fallback_channel: str = "runtime",
+        event: str | None = None,
 ) -> None:
 
     logger = getattr(
@@ -374,6 +375,7 @@ async def log_memory_event(
             level,
             message,
             details=details,
+            event=event,
         )
         return
 
@@ -927,6 +929,7 @@ async def log_runtime_summarizer_payload(
             indent=2,
         ),
         fallback_channel="summarizer",
+        event="summarizer_request",
     )
 
 
@@ -948,6 +951,7 @@ async def log_runtime_summarizer_result(
             or "<empty>"
         ),
         fallback_channel="summarizer",
+        event="summarizer_result",
     )
 
 

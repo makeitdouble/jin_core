@@ -436,6 +436,9 @@ function appendLog(
     const isSession =
       tag.includes("SESSION");
 
+    const isUser =
+      tag.includes("USER");
+
     const isPatternResult =
       isSummarizer
       && String(
@@ -483,12 +486,14 @@ function appendLog(
 
     traceButton.textContent =
       isPatternResult
-        ? "show patterns"
+        ? "patterns"
         : isSession
         ? "show"
         : isSummarizer
-        ? "show payload"
-        : "show trace";
+        ? "payload"
+        : isUser
+        ? "message"
+        : "trace";
 
     traceButton.addEventListener(
       "click",
