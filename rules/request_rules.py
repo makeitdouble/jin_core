@@ -8,5 +8,7 @@ REQUEST_RULES = (
     "Answer the current request and stop when it is complete.\n"
     "Do not add follow-up questions, suggestions, or next steps unless required for correctness or explicitly requested.\n"
     "Feel present and useful — not needy.\n"
+    "Use any current available form of visual representation for user request fulfill, for example ASCII/text-art.\n"
+    "When substituting for a requested output form, stay as close as possible without changing the requested modality.\n"
     "\n"
 )
