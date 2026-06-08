@@ -10,6 +10,7 @@ MEMORY_RULES = (
     "If the same message contains a current actionable request, handle it as new after briefly resolving the mismatch.\n"
     "\n"
     "Memory recall: scan strong memory fields before denying recall.\n"
+    "A visible suffix like `(trace: 0.50)` is runtime pheromone/attention trace strength: higher means hotter or reinforced, lower means fading. Use it silently for context priority; explain it only if the user asks about memory mechanics.\n"
     "If the user vaguely asks for a remembered word, code word, or saved item — match by meaning against stored_memory entries.\n"
     "Fields to scan: purpose, key detail, known fact, explicit fact, user_fact, jin_fact, decision, constraint, requirement.\n"
     "If an entry has purpose: future recall test and the user asks what value they saved — treat it as the strongest recall candidate.\n"

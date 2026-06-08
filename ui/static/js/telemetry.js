@@ -2509,7 +2509,7 @@ function formatRuntimeMemoryStrengthSuffix(line) {
     return "";
   }
 
-  return ` (${strength.toFixed(2)})`;
+  return ` (trace: ${strength.toFixed(2)})`;
 }
 
 function renderRuntimeMemoryLines(snapshot) {

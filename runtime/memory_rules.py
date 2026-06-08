@@ -612,8 +612,14 @@ def build_runtime_l2_memory_system_prompt() -> str:
         "Write memory as atomic bullet lines, one semantic entity per line.\n"
         "Every memory entry MUST use the format:\n "
         "<key>: <value>\n"
+        "Runtime memory may be displayed to the user with a suffix like `(trace: 0.50)`. "
+        "This is session-local pheromone/attention trace strength: higher means hotter or reinforced, lower means fading. "
+        "Use trace silently for context priority, and explain it only when the user explicitly asks about memory mechanics. "
+        "Never copy `(trace: N)` into the generated memory text; trace is runtime metadata, not memory content.\n"
         "L2 works above L1 factual runtime memory.\n"
         "Use only the recent L1 patch window supplied by the runtime.\n"
+        "Patch entries may include `[trace: N]`; treat it as session-local pheromone/attention trace strength, not as user content. "
+        "Higher trace means the L1 item is hotter or recently reinforced; lower trace means it is fading.\n"
         "This window is selected because normalized L1 keys or topics repeated across patches.\n"
         "Pattern memory should not learn from itself.\n"
         "Do not treat existing possible pattern, observed tendency, emerging signal, or other pattern-memory entries as evidence.\n"
@@ -672,7 +678,7 @@ def build_runtime_l2_memory_user_prompt(
 
             return (
                 " "
-                f"[strength: {previous_strength if previous_strength is not None else '?'}"
+                f"[trace: {previous_strength if previous_strength is not None else '?'}"
                 " -> "
                 f"{current_strength if current_strength is not None else '?'}]"
             )
@@ -681,7 +687,7 @@ def build_runtime_l2_memory_user_prompt(
             "strength",
         )
 
-        return f" [strength: {strength}]" if strength is not None else ""
+        return f" [trace: {strength}]" if strength is not None else ""
 
     lines = [
         "Current L2 pattern memory:",
@@ -1015,7 +1021,7 @@ def build_runtime_memory_user_prompt(
         crystallized = ", ".join(strength_zones.get("crystallized", [])) or "none"
         fading = ", ".join(strength_zones.get("fading", [])) or "none"
         zones_hint = (
-            "Memory heat (pheromone strength):\n"
+            "Memory traces (pheromone strength):\n"
             f"Hot (active): {hot}\n"
             f"Crystallized (stable facts): {crystallized}\n"
             f"Fading (deprioritize): {fading}\n\n"
@@ -1054,7 +1060,7 @@ def build_runtime_memory_batch_user_prompt(
         crystallized = ", ".join(strength_zones.get("crystallized", [])) or "none"
         fading = ", ".join(strength_zones.get("fading", [])) or "none"
         lines.extend([
-            "Memory heat (pheromone strength):",
+            "Memory traces (pheromone strength):",
             f"Hot (active): {hot}",
             f"Crystallized (stable facts): {crystallized}",
             f"Fading (deprioritize): {fading}",

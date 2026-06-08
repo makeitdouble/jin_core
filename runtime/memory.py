@@ -70,6 +70,8 @@ GENERIC_MEMORY_MATCH_KEYS = (
 
     "active topic",
     "active topics",
+    "current topic",
+    "current topics",
 
     "open reference",
     "open references",
