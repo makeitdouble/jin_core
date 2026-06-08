@@ -286,10 +286,60 @@ function splitInlineTrace(
   };
 }
 
+function findLiveFlowLog(
+  flowId,
+) {
+  if (!flowId) {
+    return null;
+  }
+
+  return consoleStream.querySelector(
+    `[data-flow-id="${CSS.escape(flowId)}"]`
+  );
+}
+
+function moveLogToBottomWithFlip(
+  logDiv,
+) {
+  const firstRect =
+    logDiv.getBoundingClientRect();
+
+  consoleStream.appendChild(
+    logDiv
+  );
+
+  const lastRect =
+    logDiv.getBoundingClientRect();
+
+  const deltaY =
+    firstRect.top - lastRect.top;
+
+  if (!deltaY) {
+    return;
+  }
+
+  logDiv.style.transform =
+    `translateY(${deltaY}px)`;
+
+  logDiv.style.transition =
+    "transform 0s";
+
+  requestAnimationFrame(
+    function () {
+      logDiv.style.transition =
+        "transform 180ms ease-out";
+
+      logDiv.style.transform =
+        "translateY(0)";
+    }
+  );
+}
+
 function appendLog(
   tag,
   message,
   details = null,
+  meta = {},
 ) {
   const normalized =
     splitInlineTrace(
@@ -297,14 +347,34 @@ function appendLog(
       details,
     );
 
+  const flowId =
+    meta?.flow_id;
+
+  const existingFlowLog =
+    tag === "[FLOW]"
+      ? findLiveFlowLog(
+          flowId
+        )
+      : null;
+
   const logDiv =
-    document.createElement("div");
+    existingFlowLog
+    || document.createElement("div");
 
   logDiv.className =
     "mb-1 min-w-0 whitespace-pre-wrap break-words";
 
   logDiv.style.overflowWrap =
     "anywhere";
+
+  if (flowId) {
+    logDiv.dataset.flowId =
+      flowId;
+  }
+
+  if (existingFlowLog) {
+    logDiv.replaceChildren();
+  }
 
   let tagClass =
     "text-zinc-500";
@@ -382,6 +452,36 @@ function appendLog(
   if (tag.includes("FLOW TELEMETRY")) {
     tagClass =
       "text-purple-400";
+  }
+
+  if (tag === "[FLOW]") {
+    tagClass =
+      "text-zinc-400";
+
+    logDiv.classList.add(
+      "font-mono",
+      "text-[12px]",
+      "bg-zinc-500/5",
+      "p-2",
+      "rounded",
+      "border",
+      "border-zinc-500/10",
+    );
+  }
+
+  if (tag.includes("USER")) {
+    tagClass =
+      "text-sky-300 font-bold";
+  }
+
+  if (tag.includes("FLOW")) {
+    tagClass =
+      "text-purple-300 font-bold";
+  }
+
+  if (tag.includes("USAGE")) {
+    tagClass =
+      "text-zinc-300 font-bold";
   }
 
   if (tag.includes("ERROR")) {
@@ -554,9 +654,15 @@ function appendLog(
     );
   }
 
-  consoleStream.appendChild(
-    logDiv
-  );
+  if (existingFlowLog) {
+    moveLogToBottomWithFlip(
+      logDiv
+    );
+  } else {
+    consoleStream.appendChild(
+      logDiv
+    );
+  }
 
   consoleStream.scrollTop =
     consoleStream.scrollHeight;

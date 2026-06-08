@@ -31,6 +31,35 @@ class AgentRuntime:
 
         self.router = Router()
 
+    @staticmethod
+    async def _log_agent_flow(
+            context,
+            visited: list[str],
+    ):
+
+        if not visited:
+            return
+
+        message = " -> ".join(
+            visited
+        )
+
+        log_flow = getattr(
+            context.logger,
+            "log_flow",
+            None,
+        )
+
+        if log_flow:
+            await log_flow(
+                message
+            )
+            return
+
+        await context.logger.log_runtime(
+            f"[FLOW] {message}"
+        )
+
     async def run(
             self,
             state,
@@ -39,10 +68,17 @@ class AgentRuntime:
 
         current = "planner"
 
+        visited = []
+
         while current != "END":
 
-            await context.logger.log_runtime(
-                f"[AGENT] {current}"
+            visited.append(
+                current
+            )
+
+            await self._log_agent_flow(
+                context,
+                visited,
             )
 
             node = self.nodes[current]

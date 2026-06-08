@@ -323,10 +323,6 @@ class RuntimeStream:
 
             await self.refresh_token_usage()
 
-            await self.logger.log_runtime(
-                f"[STREAM START] role={self.role}"
-            )
-
             action_seen = False
 
             async for chunk in generator:

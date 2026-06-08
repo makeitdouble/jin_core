@@ -625,7 +625,8 @@ function handleSocketMessage(event) {
     appendLog(
       data.tag,
       data.message,
-      data.details
+      data.details,
+      data
     );
 
     if (
