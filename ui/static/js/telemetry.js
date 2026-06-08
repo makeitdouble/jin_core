@@ -1399,8 +1399,14 @@ function applyBootstrapRuntimeMemoryUpdate(
   runtimeMemoryHistory.index = 1;
 
   if (runtimeMemoryCount) {
+    // Use the saved snapshot's update count, not data.updates which is 0
+    // for the bootstrap L1 snapshot and would incorrectly reset the counter.
     runtimeMemoryCount.textContent =
-      String(data.updates || 0);
+      String(
+        savedRuntimeSnapshot.runtime_memory_updates
+        || data.updates
+        || 0
+      );
   }
 
   renderRuntimeMemorySnapshot();
