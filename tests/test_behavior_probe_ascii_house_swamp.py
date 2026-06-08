@@ -465,11 +465,10 @@ def print_behavior_probe_report(report: dict[str, Any]) -> None:
 class BehaviorProbeShapeTests(unittest.TestCase):
     def test_collect_dialogue_steps_finds_seed_steps(self):
         steps = collect_dialogue_steps()
-        self.assertEqual(len(steps), 4)
+        self.assertEqual(len(steps), 3)
         self.assertIn("привет", steps[0]["user_text"])
-        self.assertIn("привет", steps[1]["user_text"])
-        self.assertIn("нарисуй домик", steps[2]["user_text"])
-        self.assertIn("болото", steps[3]["user_text"])
+        self.assertIn("нарисуй домик", steps[1]["user_text"])
+        self.assertIn("болото", steps[2]["user_text"])
 
         for step in steps[2:]:
             self.assertEqual(step["expected_answer"], ["\\", "|", "/"])
