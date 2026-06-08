@@ -631,7 +631,7 @@ def apply_runtime_resume(
         and not is_default_runtime_memory_text(
             current_memory
         )
-        and current_updates > runtime_memory_updates
+        and current_updates >= runtime_memory_updates
     ):
         return False
 

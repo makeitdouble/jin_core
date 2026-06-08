@@ -1017,6 +1017,12 @@ chatForm.addEventListener(
 
     }
 
+    if (window.prepareRuntimeMemoryForUserMessage) {
+      window.prepareRuntimeMemoryForUserMessage(
+        text
+      );
+    }
+
     appendChatMessage(
       "user",
       text

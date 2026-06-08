@@ -2162,7 +2162,18 @@ class MessageMemoryTests(
         )
         self.assertEqual(
             context.runtime_memory_snapshots,
-            [],
+            [
+                {
+                    "index": 0,
+                    "raw_memory": "topic: first topic",
+                    "total_diff": 30,
+                },
+                {
+                    "index": 1,
+                    "raw_memory": "decision: final direction",
+                    "total_diff": 80,
+                },
+            ],
         )
         self.assertEqual(
             context.runtime_memory_snapshot_index,

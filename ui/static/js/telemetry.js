@@ -122,6 +122,8 @@ const runtimeMemoryHistory = {
 let runtimeMemoryDisplayMode = "runtime";
 let restoredSessionMemorySnapshot = null;
 let pendingBootstrapRuntimeMemorySnapshot = null;
+let lastStableRuntimeMemorySnapshot = null;
+let pendingSessionSaveRuntimeMemorySnapshot = null;
 
 const runtimeDiffHistory = {
   diffs: [],
@@ -608,6 +610,14 @@ function persistRuntimeMemorySnapshot(
     return;
   }
 
+  // A manual "save session" turn creates a temporary L1 page like
+  // "session saved / remembering this session". That is not the actual
+  // runtime state the user wanted to preserve. Keep the previous real L1
+  // snapshot as Latest runtime instead of overwriting it with save chatter.
+  if (runtimeSnapshotLooksLikeSessionSaveResult(data.snapshot)) {
+    return;
+  }
+
   const savedAt =
     new Date().toISOString();
 
@@ -665,78 +675,381 @@ function runtimeMemoryObjectFromSnapshot(
 }
 
 
+function runtimeMemoryObjectFromPersistedRuntime(
+  persisted
+) {
+
+  if (!persisted || typeof persisted !== "object") {
+    return null;
+  }
+
+  const runtimeMemory =
+    String(persisted.runtime_memory || "").trim();
+
+  if (!runtimeMemory) {
+    return null;
+  }
+
+  return {
+    runtime_memory: runtimeMemory,
+    runtime_memory_updates:
+      Number(persisted.runtime_memory_updates || 0),
+    runtime_snapshot:
+      (
+        persisted.runtime_snapshot
+        && typeof persisted.runtime_snapshot === "object"
+      )
+        ? buildPersistedRuntimeSnapshot(
+            persisted.runtime_snapshot
+          )
+        : null,
+  };
+
+}
+
+
+function isUsableStableRuntimeSnapshot(
+  snapshot
+) {
+
+  if (!snapshot || typeof snapshot !== "object") {
+    return false;
+  }
+
+  const runtimeMemory =
+    String(snapshot.raw_memory || "").trim();
+
+  if (
+      !runtimeMemory
+      || runtimeMemory === defaultRuntimeMemoryText
+      || snapshot.display_source === "default_runtime_memory"
+      || snapshot.display_source === "browser_l3_restore_status"
+      || snapshot.display_source === "l3_bootstrap_status"
+  ) {
+    return false;
+  }
+
+  if (runtimeSnapshotLooksLikeSessionSaveResult(snapshot)) {
+    return false;
+  }
+
+  return true;
+
+}
+
+
+function rememberStableRuntimeSnapshot(
+  snapshot
+) {
+
+  if (!isUsableStableRuntimeSnapshot(snapshot)) {
+    return;
+  }
+
+  lastStableRuntimeMemorySnapshot = {
+    ...snapshot,
+  };
+
+}
+
+
+function getLatestStableRuntimeMemoryObject() {
+
+  const snapshots =
+    runtimeMemoryHistory.snapshots || [];
+
+  for (let index = snapshots.length - 1; index >= 0; index -= 1) {
+    const candidate = snapshots[index];
+
+    if (!isUsableStableRuntimeSnapshot(candidate)) {
+      continue;
+    }
+
+    const runtimeMemory =
+      runtimeMemoryObjectFromSnapshot(candidate);
+
+    if (runtimeMemory) {
+      return runtimeMemory;
+    }
+  }
+
+  const rememberedRuntimeMemory =
+    runtimeMemoryObjectFromSnapshot(
+      lastStableRuntimeMemorySnapshot
+    );
+
+  if (rememberedRuntimeMemory) {
+    return rememberedRuntimeMemory;
+  }
+
+  const persistedRuntimeMemory =
+    runtimeMemoryObjectFromPersistedRuntime(
+      readBrowserMemory(runtimeMemoryStorageKey)
+    );
+
+  if (persistedRuntimeMemory) {
+    return persistedRuntimeMemory;
+  }
+
+  return null;
+
+}
+
+
+function getRuntimeSnapshotSearchText(
+  snapshot
+) {
+
+  if (!snapshot || typeof snapshot !== "object") {
+    return "";
+  }
+
+  const parts = [
+    snapshot.raw_memory,
+    snapshot.memory,
+    snapshot.current_request,
+    snapshot.user_query,
+    snapshot.last_jin_response,
+    snapshot.display_source,
+  ];
+
+  if (Array.isArray(snapshot.lines)) {
+    snapshot.lines.forEach(line => {
+      if (!line || typeof line !== "object") {
+        return;
+      }
+
+      parts.push(
+        line.key,
+        line.value
+      );
+    });
+  }
+
+  return parts
+    .filter(Boolean)
+    .map(part => String(part))
+    .join("\n")
+    .toLowerCase();
+
+}
+
+
+function runtimeTextLooksLikeOnlySessionSave(
+  text
+) {
+
+  const runtimeMemory =
+    String(text || "").toLowerCase();
+
+  if (!runtimeMemory.trim()) {
+    return false;
+  }
+
+  const hasSessionWord =
+    runtimeMemory.includes("session")
+    || runtimeMemory.includes("сесси");
+
+  const hasSaveWord =
+    runtimeMemory.includes("save")
+    || runtimeMemory.includes("saved")
+    || runtimeMemory.includes("saving")
+    || runtimeMemory.includes("remembering")
+    || runtimeMemory.includes("remember_session")
+    || runtimeMemory.includes("сохран")
+    || runtimeMemory.includes("запомн");
+
+  return hasSessionWord && hasSaveWord;
+
+}
+
+
+function runtimeSnapshotHasConversationContext(
+  snapshot
+) {
+
+  if (!snapshot || typeof snapshot !== "object") {
+    return false;
+  }
+
+  const usefulKeys = new Set([
+    "active_task",
+    "current_focus",
+    "current_request",
+    "focus",
+    "last_jin_response",
+    "topic",
+    "user_inquiry",
+    "user_request",
+  ]);
+
+  if (!Array.isArray(snapshot.lines)) {
+    return false;
+  }
+
+  return snapshot.lines.some(line => {
+    if (!line || typeof line !== "object") {
+      return false;
+    }
+
+    const key =
+      String(line.key || "")
+        .trim()
+        .toLowerCase();
+
+    const value =
+      String(line.value || "")
+        .trim();
+
+    if (!value || !usefulKeys.has(key)) {
+      return false;
+    }
+
+    return !runtimeTextLooksLikeOnlySessionSave(
+      value
+    );
+  });
+
+}
+
+
 function runtimeSnapshotLooksLikeSessionSaveResult(
   snapshot
 ) {
 
   const runtimeMemory =
-    String(
-      (
-        snapshot
-        && snapshot.raw_memory
-      )
-      || ""
-    ).toLowerCase();
+    getRuntimeSnapshotSearchText(
+      snapshot
+    );
 
   if (!runtimeMemory) {
     return false;
   }
 
-  return (
-    runtimeMemory.includes("save session")
-    || runtimeMemory.includes("saving of the session")
-    || runtimeMemory.includes("session initialized and confirmed saved")
+  const hasSessionWord =
+    runtimeMemory.includes("session")
+    || runtimeMemory.includes("сесси");
+
+  const hasSaveWord =
+    runtimeMemory.includes("save")
+    || runtimeMemory.includes("saved")
+    || runtimeMemory.includes("saving")
+    || runtimeMemory.includes("remembering")
+    || runtimeMemory.includes("remember_session")
+    || runtimeMemory.includes("сохран");
+
+  const hasSaveResultPhrase = (
+    runtimeMemory.includes("session saved")
+    || runtimeMemory.includes("session state successfully saved")
+    || runtimeMemory.includes("session state saved")
+    || runtimeMemory.includes("current state is saved")
+    || runtimeMemory.includes("state is saved")
+    || runtimeMemory.includes("state saved")
+    || runtimeMemory.includes("successfully saved")
+    || runtimeMemory.includes("confirmed saving")
     || runtimeMemory.includes("confirmed saved")
+    || runtimeMemory.includes("remembering this session")
     || runtimeMemory.includes("remember_session")
     || runtimeMemory.includes("сохрани сессию")
     || runtimeMemory.includes("сохранить сессию")
+    || runtimeMemory.includes("сохраняю")
+    || runtimeMemory.includes("сохранено")
+    || runtimeMemory.includes("сессия сохран")
   );
+
+  if (
+      hasSaveResultPhrase
+      || (
+        hasSessionWord
+        && hasSaveWord
+      )
+  ) {
+    // Do not throw away a real L1 runtime page just because the last
+    // turn also saved the session. The page after `save session` may
+    // still contain the useful current context: previous user request,
+    // active task, and last non-save JIN response. Only pure save-status
+    // pages should be treated as save chatter.
+    return !runtimeSnapshotHasConversationContext(
+      snapshot
+    );
+  }
+
+  return false;
 
 }
 
 
 function getRuntimeMemoryForSessionSave() {
 
-  const snapshots =
-    runtimeMemoryHistory.snapshots;
-
-  const latestIndex =
-    snapshots.length - 1;
-
-  const latestSnapshot =
-    latestIndex >= 0
-      ? snapshots[latestIndex]
-      : null;
-
-  const previousSnapshot =
-    latestIndex > 0
-      ? snapshots[latestIndex - 1]
-      : null;
-
-  const selectedSnapshot =
-    (
-      previousSnapshot
-      && runtimeSnapshotLooksLikeSessionSaveResult(
-        latestSnapshot
-      )
-    )
-      ? previousSnapshot
-      : latestSnapshot;
-
-  const runtimeMemory =
+  const pendingRuntimeMemory =
     runtimeMemoryObjectFromSnapshot(
-      selectedSnapshot
+      pendingSessionSaveRuntimeMemorySnapshot
     );
 
-  if (runtimeMemory) {
-    return runtimeMemory;
+  if (pendingRuntimeMemory) {
+    return pendingRuntimeMemory;
   }
 
-  return readBrowserMemory(
-    runtimeMemoryStorageKey
+  const stableRuntimeMemory =
+    getLatestStableRuntimeMemoryObject();
+
+  if (stableRuntimeMemory) {
+    return stableRuntimeMemory;
+  }
+
+  return runtimeMemoryObjectFromPersistedRuntime(
+    readBrowserMemory(runtimeMemoryStorageKey)
   );
 
 }
+
+
+function userMessageLooksLikeSessionSaveRequest(
+  text
+) {
+
+  const normalizedText =
+    String(text || "").toLowerCase();
+
+  if (!normalizedText.trim()) {
+    return false;
+  }
+
+  const hasSessionWord =
+    normalizedText.includes("session")
+    || normalizedText.includes("сесси");
+
+  const hasSaveWord =
+    normalizedText.includes("save")
+    || normalizedText.includes("remember")
+    || normalizedText.includes("сохран")
+    || normalizedText.includes("запомн");
+
+  return hasSessionWord && hasSaveWord;
+
+}
+
+
+window.prepareRuntimeMemoryForUserMessage = function (
+  text
+) {
+
+  if (!userMessageLooksLikeSessionSaveRequest(text)) {
+    return;
+  }
+
+  const stableRuntimeMemory =
+    getLatestStableRuntimeMemoryObject();
+
+  pendingSessionSaveRuntimeMemorySnapshot =
+    (
+      stableRuntimeMemory
+      && stableRuntimeMemory.runtime_snapshot
+    )
+    || lastStableRuntimeMemorySnapshot
+    || null;
+
+};
 
 
 function persistSessionMemory(
@@ -812,6 +1125,8 @@ function persistSessionMemory(
         ),
     }
   );
+
+  pendingSessionSaveRuntimeMemorySnapshot = null;
 
 }
 
@@ -1053,11 +1368,16 @@ function applyBootstrapRuntimeMemoryUpdate(
     return false;
   }
 
-  const snapshot = {
+  const bootstrapSnapshot = {
     ...data.snapshot,
     index: 0,
     runtime_memory_updates:
       Number(data.updates || 0),
+  };
+
+  const savedRuntimeSnapshot = {
+    ...pendingBootstrapRuntimeMemorySnapshot,
+    index: 1,
   };
 
   pendingBootstrapRuntimeMemorySnapshot = null;
@@ -1068,17 +1388,20 @@ function applyBootstrapRuntimeMemoryUpdate(
     window.stopMemoryGlow();
   }
 
-  runtimeMemoryHistory.snapshots = [snapshot];
-  runtimeMemoryHistory.index = 0;
+  // Page 0 should remain the fresh browser/L3 restore status from the server.
+  // Page 1 should keep the real runtime state saved with the session.
+  runtimeMemoryHistory.snapshots = [
+    bootstrapSnapshot,
+    savedRuntimeSnapshot,
+  ];
+  // After browser/L3 restore, keep the status page as page 0,
+  // but show the saved runtime page immediately.
+  runtimeMemoryHistory.index = 1;
 
   if (runtimeMemoryCount) {
     runtimeMemoryCount.textContent =
       String(data.updates || 0);
   }
-
-  persistRuntimeMemorySnapshot(
-    data
-  );
 
   renderRuntimeMemorySnapshot();
 
@@ -1243,6 +1566,10 @@ function applyRuntimeMemoryDisplaySnapshot(snapshot) {
       : null;
   runtimeMemoryHistory.snapshots = [displaySnapshot];
   runtimeMemoryHistory.index = 0;
+
+  rememberStableRuntimeSnapshot(
+    displaySnapshot
+  );
 
   if (runtimeMemoryCount) {
     runtimeMemoryCount.textContent =
@@ -2368,6 +2695,10 @@ window.handleRuntimeMemoryMessage = function (data) {
     runtimeMemoryHistory.snapshots.push(data.snapshot);
     runtimeMemoryHistory.index =
         runtimeMemoryHistory.snapshots.length - 1;
+
+    rememberStableRuntimeSnapshot(
+      data.snapshot
+    );
   }
 
   persistRuntimeMemorySnapshot(

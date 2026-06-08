@@ -2069,7 +2069,16 @@ async def maybe_summarize_runtime_session_memory(
                 + 1
             )
             context.runtime_remember_session_requested = False
-            context.runtime_memory_snapshots = []
+
+            runtime_snapshots = getattr(
+                context,
+                "runtime_memory_snapshots",
+                [],
+            )
+            if runtime_snapshots:
+                context.runtime_memory_snapshot_index = (
+                    len(runtime_snapshots) - 1
+                )
 
             await log_memory_event(
                 context,
