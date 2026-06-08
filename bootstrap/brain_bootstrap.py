@@ -43,6 +43,11 @@ SAVE_SESSION_INTENT_MARKERS = (
     "save this session",
     "remember where we stopped",
     "wrap up and save",
+    "продолжим завтра",
+    "сохрани и закрой",
+    "сохрани на сегодня",
+    "давай на сегодня всё",
+    "на сегодня хватит",
 )
 
 META_TAG_REQUEST_MARKERS = (

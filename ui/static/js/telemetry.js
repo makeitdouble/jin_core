@@ -66,6 +66,7 @@ const runtimePanelState = {
 
 const TELEMETRY_FRAME_WARNING_MS = 12;
 const CONTEXT_PANEL_RENDER_THROTTLE_MS = 300;
+const SAVE_RUNTIME_PHEROMONE_STRENGTH = true;
 
 let telemetryFrameScheduled = false;
 let contextPanelRenderTimer = null;
@@ -561,6 +562,26 @@ function writeBrowserMemory(
 }
 
 
+function buildPersistedRuntimeSnapshot(
+  snapshot
+) {
+
+  if (
+      !SAVE_RUNTIME_PHEROMONE_STRENGTH
+      || !snapshot
+      || typeof snapshot !== "object"
+  ) {
+    return null;
+  }
+
+  return {
+    ...snapshot,
+    persisted_pheromone_strength: true,
+  };
+
+}
+
+
 function persistRuntimeMemorySnapshot(
   data
 ) {
@@ -597,7 +618,9 @@ function persistRuntimeMemorySnapshot(
       saved_at: savedAt,
       runtime_memory: runtimeMemory,
       runtime_memory_updates: data.updates || 0,
-      runtime_snapshot: data.snapshot,
+      runtime_snapshot: buildPersistedRuntimeSnapshot(
+        data.snapshot
+      ),
     }
   );
 
@@ -633,10 +656,10 @@ function runtimeMemoryObjectFromSnapshot(
         && Number(runtimeMemoryCount.textContent || 0)
       )
       || 0,
-    runtime_snapshot: {
+    runtime_snapshot: buildPersistedRuntimeSnapshot({
       ...snapshot,
       raw_memory: runtimeMemory.trim(),
-    },
+    }),
   };
 
 }
@@ -783,10 +806,10 @@ function persistSessionMemory(
           && sessionRuntimeMemory.runtime_memory_updates
         ) || 0,
       runtime_snapshot:
-        (
+        buildPersistedRuntimeSnapshot(
           sessionRuntimeMemory
           && sessionRuntimeMemory.runtime_snapshot
-        ) || null,
+        ),
     }
   );
 
@@ -927,6 +950,54 @@ function isBootstrapRuntimeMemoryDuplicate(
 }
 
 
+function applyBootstrapRuntimeMemoryUpdate(
+  data
+) {
+
+  if (
+      !pendingBootstrapRuntimeMemorySnapshot
+      || !data
+      || data.type !== "runtime_memory_update"
+      || Number(data.updates || 0) !== 0
+      || !data.snapshot
+  ) {
+    return false;
+  }
+
+  const snapshot = {
+    ...data.snapshot,
+    index: 0,
+    runtime_memory_updates:
+      Number(data.updates || 0),
+  };
+
+  pendingBootstrapRuntimeMemorySnapshot = null;
+  runtimeMemoryDisplayMode = "runtime";
+  restoredSessionMemorySnapshot = null;
+
+  if (window.stopMemoryGlow) {
+    window.stopMemoryGlow();
+  }
+
+  runtimeMemoryHistory.snapshots = [snapshot];
+  runtimeMemoryHistory.index = 0;
+
+  if (runtimeMemoryCount) {
+    runtimeMemoryCount.textContent =
+      String(data.updates || 0);
+  }
+
+  persistRuntimeMemorySnapshot(
+    data
+  );
+
+  renderRuntimeMemorySnapshot();
+
+  return true;
+
+}
+
+
 function handleTabCloseSessionBootstrap(event) {
 
   if (!hasTabCloseSessionBootstrap()) {
@@ -1020,7 +1091,7 @@ function buildRuntimeMemoryDisplaySnapshot(
     session_id:
       sourceSnapshot.session_id
       || "browser_restore",
-    index: 1,
+    index: 0,
     display_source: "saved_runtime_at_session_save",
     raw_memory: runtimeMemory,
     lines:
@@ -1050,7 +1121,7 @@ function buildDefaultRuntimeMemorySnapshot() {
 
   return {
     session_id: "browser_restore",
-    index: 1,
+    index: 0,
     display_source: "default_runtime_memory",
     raw_memory: defaultRuntimeMemoryText,
     lines: [
@@ -2169,6 +2240,10 @@ window.handleRuntimeMemoryMessage = function (data) {
     return;
   }
 
+  if (applyBootstrapRuntimeMemoryUpdate(data)) {
+    return;
+  }
+
   if (isBootstrapRuntimeMemoryDuplicate(data)) {
     return;
   }
@@ -2426,6 +2501,17 @@ function applyRuntimeMemoryFlash(
   }, 1500);
 }
 
+function formatRuntimeMemoryStrengthSuffix(line) {
+  const strength =
+      Number(line && line.strength);
+
+  if (!Number.isFinite(strength)) {
+    return "";
+  }
+
+  return ` (trace: ${strength.toFixed(2)})`;
+}
+
 function renderRuntimeMemoryLines(snapshot) {
   if (!runtimeMemoryText) {
     return;
@@ -2478,7 +2564,7 @@ function renderRuntimeMemoryLines(snapshot) {
         "runtime-memory-value";
 
     valueSpan.textContent =
-        ` ${value}`;
+        ` ${value}${formatRuntimeMemoryStrengthSuffix(line)}`;
 
     row.appendChild(keySpan);
     row.appendChild(valueSpan);
