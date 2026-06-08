@@ -1285,6 +1285,16 @@ function isLatestRuntimeMemoryDuplicate(
     return false;
   }
 
+  // If the latest snapshot was restored from a previous session its
+  // runtime_memory_updates counter belongs to that old session. The server
+  // resets its counter to 0 on every new connection, so the first real L1
+  // update (updates=1) is always <= the old session counter (e.g. 3).
+  // Without this guard every post-bootstrap L1 update is incorrectly treated
+  // as a duplicate and dropped, leaving the panel stuck on the restore placeholder.
+  if (latestSnapshot && latestSnapshot.restored_from_session_save) {
+    return false;
+  }
+
   const latestUpdates = Number(
     (
       latestSnapshot
@@ -2698,12 +2708,21 @@ window.handleRuntimeMemoryMessage = function (data) {
   }
 
   if (data.snapshot) {
-    runtimeMemoryHistory.snapshots.push(data.snapshot);
+    const clientIndex = runtimeMemoryHistory.snapshots.length;
+    const clientSnapshot = {
+      ...data.snapshot,
+      index: clientIndex,
+    };
+
+    // The server-side snapshot.index can restart after bootstrap/restore.
+    // The right panel is client-side history, so display positions must follow
+    // the actual array order instead of reusing a stale server index.
+    runtimeMemoryHistory.snapshots.push(clientSnapshot);
     runtimeMemoryHistory.index =
         runtimeMemoryHistory.snapshots.length - 1;
 
     rememberStableRuntimeSnapshot(
-      data.snapshot
+      clientSnapshot
     );
   }
 

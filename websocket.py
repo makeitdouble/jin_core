@@ -367,6 +367,7 @@ def should_ignore_bootstrap_runtime_memory(
     runtime_memory: str,
     session_memory_updates: int,
     runtime_memory_updates: int,
+    runtime_memory_is_snapshot_fallback: bool = False,
 ) -> bool:
 
     if not (
@@ -375,14 +376,14 @@ def should_ignore_bootstrap_runtime_memory(
     ):
         return False
 
-    # Always prefer L3 session memory when it exists and L1 snapshot is absent
-    # or unconfirmed. runtime_memory_updates == 0 usually means the restored
-    # runtime_memory came from runtime_snapshot.raw_memory fallback, not from an
-    # explicit fresh runtime_memory field.
-    if (
-        session_memory_updates > 0
-        and runtime_memory_updates == 0
-    ):
+    # Only reject L1 during browser/L3 bootstrap when it was inferred from an
+    # unconfirmed runtime_snapshot.raw_memory fallback. An explicitly persisted
+    # session runtime is the exact L1 state saved with the session, so it must
+    # survive bootstrap even if its L1 counter is lower than the L3 counter.
+    if not runtime_memory_is_snapshot_fallback:
+        return False
+
+    if runtime_memory_updates == 0:
         return True
 
     if (
@@ -770,6 +771,7 @@ def apply_session_bootstrap(
         runtime_memory=runtime_memory,
         session_memory_updates=session_memory_updates,
         runtime_memory_updates=runtime_memory_updates,
+        runtime_memory_is_snapshot_fallback=runtime_memory_is_snapshot_fallback,
     ):
         stale_runtime_memory_for_ui = runtime_memory
         runtime_memory = build_l3_bootstrap_runtime_memory(
