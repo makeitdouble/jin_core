@@ -650,6 +650,39 @@ def build_runtime_l2_memory_user_prompt(
         patches: list[dict],
 ) -> str:
 
+    def format_l2_strength_suffix(
+            entry: dict,
+            *,
+            changed: bool = False,
+    ) -> str:
+
+        if changed:
+            previous_strength = entry.get(
+                "previous_strength",
+            )
+            current_strength = entry.get(
+                "current_strength",
+            )
+
+            if (
+                    previous_strength is None
+                    and current_strength is None
+            ):
+                return ""
+
+            return (
+                " "
+                f"[strength: {previous_strength if previous_strength is not None else '?'}"
+                " -> "
+                f"{current_strength if current_strength is not None else '?'}]"
+            )
+
+        strength = entry.get(
+            "strength",
+        )
+
+        return f" [strength: {strength}]" if strength is not None else ""
+
     lines = [
         "Current L2 pattern memory:",
         current_l2_memory.strip() or "<empty>",
@@ -701,11 +734,18 @@ def build_runtime_l2_memory_user_prompt(
                         f"{entry.get('previous_key', '')}: {entry.get('previous_value', '')} "
                         "=> "
                         f"{entry.get('current_key', '')}: {entry.get('current_value', '')}"
+                        + format_l2_strength_suffix(
+                            entry,
+                            changed=True,
+                        )
                     )
                 else:
                     lines.append(
                         "- "
                         f"{entry.get('key', '')}: {entry.get('value', '')}"
+                        + format_l2_strength_suffix(
+                            entry,
+                        )
                     )
 
     lines.extend([
@@ -966,11 +1006,25 @@ def build_runtime_memory_user_prompt(
         user_message: str,
         assistant_message: str,
         current_l2_memory: str = "",
+        strength_zones: dict | None = None,
 ) -> str:
+
+    zones_hint = ""
+    if strength_zones:
+        hot = ", ".join(strength_zones.get("hot", [])) or "none"
+        crystallized = ", ".join(strength_zones.get("crystallized", [])) or "none"
+        fading = ", ".join(strength_zones.get("fading", [])) or "none"
+        zones_hint = (
+            "Memory heat (pheromone strength):\n"
+            f"Hot (active): {hot}\n"
+            f"Crystallized (stable facts): {crystallized}\n"
+            f"Fading (deprioritize): {fading}\n\n"
+        )
 
     return (
         "Current runtime memory:\n"
         f"{current_memory.strip() or DEFAULT_RUNTIME_MEMORY}\n\n"
+        f"{zones_hint}"
         "Current L2 pattern memory for occurrence tracking only:\n"
         f"{current_l2_memory.strip() or '<empty>'}\n\n"
         "Latest user message:\n"
@@ -986,17 +1040,33 @@ def build_runtime_memory_batch_user_prompt(
         current_memory: str,
         turns: list[dict],
         current_l2_memory: str = "",
+        strength_zones: dict | None = None,
 ) -> str:
 
     lines = [
         "Current runtime memory:",
         current_memory.strip() or DEFAULT_RUNTIME_MEMORY,
         "",
+    ]
+
+    if strength_zones:
+        hot = ", ".join(strength_zones.get("hot", [])) or "none"
+        crystallized = ", ".join(strength_zones.get("crystallized", [])) or "none"
+        fading = ", ".join(strength_zones.get("fading", [])) or "none"
+        lines.extend([
+            "Memory heat (pheromone strength):",
+            f"Hot (active): {hot}",
+            f"Crystallized (stable facts): {crystallized}",
+            f"Fading (deprioritize): {fading}",
+            "",
+        ])
+
+    lines.extend([
         "Current L2 pattern memory for occurrence tracking only:",
         current_l2_memory.strip() or "<empty>",
         "",
         "New completed turns since that memory snapshot:",
-        ]
+    ])
 
     for index, turn in enumerate(
             turns,

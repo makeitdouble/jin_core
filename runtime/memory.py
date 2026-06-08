@@ -51,6 +51,29 @@ L3_OUTPUT_MAX_TOKENS = 2048
 MIN_L2_TURNS = 3
 L2_PATCH_WINDOW = 5
 L2_REPEATED_KEY_THRESHOLD = 3
+STRENGTH_DECAY = 0.82
+STRENGTH_PRESENCE_BOOST = 0.08
+STRENGTH_BOOST = 0.8
+STRENGTH_NEW_KEY = 0.5
+DURABLE_FLOOR = 0.25
+HOT_THRESHOLD = 0.5
+FADING_THRESHOLD = 0.1
+GENERIC_MEMORY_VALUE_SIMILARITY_MIN = 0.35
+GENERIC_MEMORY_MATCH_KEYS = (
+    "topic",
+    "focus",
+    "current task",
+    "current context",
+    "user request",
+    "user intent",
+    "active topic",
+    "active topics",
+    "open reference",
+    "open references",
+    "pending choice",
+    "pending choices",
+    "last jin response",
+)
 DURABLE_MEMORY_KEY_TOKENS = (
     "fact",
     "identity",
@@ -498,6 +521,20 @@ async def emit_runtime_l1_diff_update(
         or []
     )
 
+    snapshots = list(
+        getattr(
+            context,
+            "runtime_memory_snapshots",
+            [],
+        )
+        or []
+    )
+    latest_lines = (
+        snapshots[-1].get("lines", [])
+        if snapshots
+        else []
+    )
+
     await safe_call(
         emit,
         {
@@ -505,6 +542,12 @@ async def emit_runtime_l1_diff_update(
             "diffs": history,
             "stats": build_runtime_l1_diff_stats(
                 history
+            ),
+            "strength_map": build_strength_map(
+                latest_lines
+            ),
+            "strength_zones": get_strength_zones(
+                latest_lines
             ),
         },
     )
@@ -967,6 +1010,19 @@ async def ask_runtime_memory_model(
     system_prompt = (
         build_runtime_memory_system_prompt()
     )
+    _snapshots = list(
+        getattr(
+            context,
+            "runtime_memory_snapshots",
+            [],
+        )
+        or []
+    )
+    _latest_lines = (
+        _snapshots[-1].get("lines", [])
+        if _snapshots
+        else []
+    )
     user_prompt = build_runtime_summarizer_user_prompt(
         context=context,
         prompt=(
@@ -978,6 +1034,9 @@ async def ask_runtime_memory_model(
                     context,
                     "runtime_l2_memory",
                     "",
+                ),
+                strength_zones=get_strength_zones(
+                    _latest_lines
                 ),
             )
         ),
@@ -1038,6 +1097,19 @@ async def ask_runtime_memory_batch_model(
     system_prompt = (
         build_runtime_memory_system_prompt()
     )
+    _snapshots = list(
+        getattr(
+            context,
+            "runtime_memory_snapshots",
+            [],
+        )
+        or []
+    )
+    _latest_lines = (
+        _snapshots[-1].get("lines", [])
+        if _snapshots
+        else []
+    )
     user_prompt = build_runtime_summarizer_user_prompt(
         context=context,
         prompt=(
@@ -1048,6 +1120,9 @@ async def ask_runtime_memory_batch_model(
                     context,
                     "runtime_l2_memory",
                     "",
+                ),
+                strength_zones=get_strength_zones(
+                    _latest_lines
                 ),
             )
         ),
@@ -2551,6 +2626,62 @@ def is_durable_memory_key(
     )
 
 
+def compute_line_strength(
+        prev_strength: float | None,
+        change_ratio_val: float,
+        is_durable: bool,
+        is_new: bool,
+) -> float:
+    if is_new:
+        raw = STRENGTH_NEW_KEY
+    else:
+        raw = (
+            (prev_strength or 0.0) * STRENGTH_DECAY
+            + STRENGTH_PRESENCE_BOOST
+            + change_ratio_val * STRENGTH_BOOST
+        )
+
+    floor = DURABLE_FLOOR if is_durable else 0.0
+
+    return round(
+        min(
+            1.0,
+            max(
+                floor,
+                raw,
+            ),
+        ),
+        4,
+    )
+
+
+def get_strength_zones(
+        lines: list[dict],
+) -> dict:
+    hot, crystallized, fading = [], [], []
+    for line in lines:
+        key = line.get("key", "")
+        strength = line.get("strength", 0.0)
+        durable = is_durable_memory_key(key)
+        if strength >= HOT_THRESHOLD:
+            hot.append(key)
+        elif durable and strength <= DURABLE_FLOOR + 0.05:
+            crystallized.append(key)
+        elif strength <= FADING_THRESHOLD:
+            fading.append(key)
+    return {"hot": hot, "crystallized": crystallized, "fading": fading}
+
+
+def build_strength_map(
+        lines: list[dict],
+) -> dict[str, float]:
+    return {
+        line.get("key", ""): line.get("strength", 0.0)
+        for line in lines
+        if line.get("key")
+    }
+
+
 def has_durable_fact_negation(
         value: str,
 ) -> bool:
@@ -2806,9 +2937,104 @@ def merge_durable_memory_facts(
     )
 
 
+def normalize_generic_memory_key(
+        key: str,
+) -> str:
+
+    return (
+        normalize_memory_key(
+            key
+        )
+        .replace(
+            "_",
+            " ",
+        )
+        .replace(
+            "-",
+            " ",
+        )
+    )
+
+
+def is_generic_memory_match_key(
+        key: str,
+) -> bool:
+
+    return normalize_generic_memory_key(
+        key
+    ) in GENERIC_MEMORY_MATCH_KEYS
+
+
+def memory_value_similarity(
+        previous: str,
+        current: str,
+) -> float:
+
+    previous = (
+        previous
+        or ""
+    ).strip()
+    current = (
+        current
+        or ""
+    ).strip()
+
+    if not previous and not current:
+        return 1.0
+
+    if not previous or not current:
+        return 0.0
+
+    return round(
+        SequenceMatcher(
+            None,
+            previous.lower(),
+            current.lower(),
+        ).ratio(),
+        3,
+    )
+
+
+def should_match_previous_memory_line(
+        *,
+        key: str,
+        value: str,
+        previous_line: dict | None,
+) -> bool:
+
+    if previous_line is None:
+        return False
+
+    previous_key = previous_line.get(
+        "key",
+        "",
+    )
+
+    if not (
+            is_generic_memory_match_key(
+                key
+            )
+            or is_generic_memory_match_key(
+                previous_key
+            )
+    ):
+        return True
+
+    similarity = memory_value_similarity(
+        previous_line.get(
+            "value",
+            "",
+        ),
+        value,
+    )
+
+    return similarity >= GENERIC_MEMORY_VALUE_SIMILARITY_MIN
+
+
 def find_best_previous_line(
         key: str,
         previous_lines: list[dict],
+        value: str = "",
 ) -> dict | None:
 
     normalized_key = normalize_memory_key(
@@ -2840,7 +3066,14 @@ def find_best_previous_line(
             best_score = score
             best_line = previous_line
 
-    if best_score >= 0.58:
+    if (
+            best_score >= 0.58
+            and should_match_previous_memory_line(
+                key=key,
+                value=value,
+                previous_line=best_line,
+            )
+    ):
         return best_line
 
     return None
@@ -2857,6 +3090,14 @@ def apply_runtime_memory_diff(
             line["key_change_ratio"] = 1.0
             line["value_change_ratio"] = 1.0
             line["status"] = "new"
+            line["strength"] = compute_line_strength(
+                prev_strength=None,
+                change_ratio_val=1.0,
+                is_durable=is_durable_memory_key(
+                    line.get("key", "")
+                ),
+                is_new=True,
+            )
 
         return current_lines
 
@@ -2903,15 +3144,23 @@ def apply_runtime_memory_diff(
             key
         )
 
-        previous_line = (
-                previous_by_normalized_key.get(
-                    normalized_key
-                )
-                or find_best_previous_line(
-            key,
-            previous_lines,
+        previous_line = previous_by_normalized_key.get(
+            normalized_key
         )
-        )
+
+        if not should_match_previous_memory_line(
+                key=key,
+                value=value,
+                previous_line=previous_line,
+        ):
+            previous_line = None
+
+        if previous_line is None:
+            previous_line = find_best_previous_line(
+                key,
+                previous_lines,
+                value=value,
+            )
 
         # -----------------------------------------
         # EXACT KEY NOT FOUND
@@ -2923,6 +3172,12 @@ def apply_runtime_memory_diff(
             line["key_change_ratio"] = 1.0
             line["value_change_ratio"] = 1.0
             line["status"] = "new"
+            line["strength"] = compute_line_strength(
+                prev_strength=None,
+                change_ratio_val=1.0,
+                is_durable=is_durable_memory_key(key),
+                is_new=True,
+            )
 
             continue
 
@@ -2976,6 +3231,13 @@ def apply_runtime_memory_diff(
         else:
             line["status"] = "same"
 
+        line["strength"] = compute_line_strength(
+            prev_strength=previous_line.get("strength"),
+            change_ratio_val=max(key_delta, value_delta),
+            is_durable=is_durable_memory_key(key),
+            is_new=False,
+        )
+
     return current_lines
 
 
@@ -3001,6 +3263,10 @@ def build_runtime_memory_patch(
                 "value": line.get(
                     "value",
                     "",
+                ),
+                "strength": line.get(
+                    "strength",
+                    0.0,
                 ),
             })
             total_diff += 30
@@ -3043,19 +3309,35 @@ def build_runtime_memory_patch(
                 or ""
         ).strip()
 
+        value = (
+                line.get(
+                    "value",
+                    "",
+                )
+                or ""
+        ).strip()
+
         normalized_key = normalize_memory_key(
             key
         )
 
-        previous_line = (
-                previous_by_normalized_key.get(
-                    normalized_key
-                )
-                or find_best_previous_line(
-            key,
-            previous_lines,
+        previous_line = previous_by_normalized_key.get(
+            normalized_key
         )
-        )
+
+        if not should_match_previous_memory_line(
+                key=key,
+                value=value,
+                previous_line=previous_line,
+        ):
+            previous_line = None
+
+        if previous_line is None:
+            previous_line = find_best_previous_line(
+                key,
+                previous_lines,
+                value=value,
+            )
 
         if previous_line is None:
             patch["added"].append({
@@ -3063,6 +3345,10 @@ def build_runtime_memory_patch(
                 "value": line.get(
                     "value",
                     "",
+                ),
+                "strength": line.get(
+                    "strength",
+                    0.0,
                 ),
             })
             total_diff += 30
@@ -3098,6 +3384,14 @@ def build_runtime_memory_patch(
                 ),
                 "key_change_ratio": key_delta,
                 "value_change_ratio": value_delta,
+                "previous_strength": previous_line.get(
+                    "strength",
+                    0.0,
+                ),
+                "current_strength": line.get(
+                    "strength",
+                    0.0,
+                ),
             })
             total_diff += round(
                 (
@@ -3120,6 +3414,10 @@ def build_runtime_memory_patch(
             "value": previous_line.get(
                 "value",
                 "",
+            ),
+            "strength": previous_line.get(
+                "strength",
+                0.0,
             ),
         })
         total_diff += 20
