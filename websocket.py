@@ -122,6 +122,81 @@ def parse_bootstrap_counter(
         return 0
 
 
+def runtime_snapshot_has_pheromone_strength(
+    snapshot: dict,
+) -> bool:
+
+    if not isinstance(
+        snapshot,
+        dict,
+    ):
+        return False
+
+    lines = snapshot.get(
+        "lines",
+        [],
+    )
+
+    if not isinstance(
+        lines,
+        list,
+    ):
+        return False
+
+    return any(
+        isinstance(line, dict)
+        and line.get("strength") is not None
+        for line in lines
+    )
+
+
+def build_restored_runtime_pheromone_snapshot(
+    runtime_snapshot: dict,
+    runtime_memory: str,
+    *,
+    index: int = 0,
+) -> dict | None:
+
+    if not runtime_snapshot_has_pheromone_strength(
+        runtime_snapshot
+    ):
+        return None
+
+    snapshot_memory = clean_bootstrap_memory(
+        runtime_snapshot.get(
+            "raw_memory",
+            "",
+        )
+    )
+
+    if snapshot_memory != runtime_memory:
+        return None
+
+    lines = [
+        line
+        for line in runtime_snapshot.get(
+            "lines",
+            [],
+        )
+        if isinstance(
+            line,
+            dict,
+        )
+    ]
+
+    if not lines:
+        return None
+
+    return {
+        **runtime_snapshot,
+        "index": index,
+        "raw_memory": runtime_memory,
+        "lines": lines,
+        "display_source": "restored_runtime_pheromone_snapshot",
+        "restored_pheromone_strength": True,
+    }
+
+
 def build_l3_bootstrap_runtime_memory(
     *,
     session_memory_updates: int,
@@ -440,38 +515,26 @@ def apply_session_bootstrap(
         ) or "browser"
 
     if runtime_memory:
-        previous_runtime_memory = getattr(
-            context,
-            "runtime_memory",
-            "",
+        restored_pheromone_snapshot = (
+            build_restored_runtime_pheromone_snapshot(
+                runtime_snapshot,
+                runtime_memory,
+            )
+            if not stale_runtime_memory_for_ui
+            else None
         )
 
-        if not getattr(
-            context,
-            "runtime_memory_snapshots",
-            [],
-        ):
-            context.runtime_memory_snapshots = []
-            initial_snapshot = build_runtime_memory_snapshot(
-                context,
-                previous_runtime_memory,
-            )
-            context.runtime_memory_snapshots.append(
-                initial_snapshot
-            )
+        # Bootstrap should replace the initial/default runtime page, not append
+        # extra pages. If L3 made the saved L1 runtime stale, the stale snapshot
+        # must not stay visible as a separate page. If pheromone persistence is
+        # enabled and the saved snapshot matches runtime_memory, keep that
+        # snapshot as the single restored baseline so the next L1 update can
+        # continue strength calculations from it.
+        context.runtime_memory_snapshots = []
+        context.runtime_memory_snapshot_index = 0
 
         context.runtime_memory = runtime_memory
         context.runtime_memory_stable = runtime_memory
-
-        # If the stale L1 snapshot was preserved for UI, append it as an
-        # additional snapshot so the panel shows the original session fields.
-        # The agent still uses runtime_memory (the status message) as context.
-        if stale_runtime_memory_for_ui:
-            ui_snapshot = build_runtime_memory_snapshot(
-                context,
-                stale_runtime_memory_for_ui,
-            )
-            context.runtime_memory_snapshots.append(ui_snapshot)
 
         try:
             context.runtime_memory_updates = max(
@@ -488,17 +551,26 @@ def apply_session_bootstrap(
         ):
             pass
 
-        restored_snapshot = build_runtime_memory_snapshot(
-            context,
-            context.runtime_memory,
-        )
+        if restored_pheromone_snapshot:
+            restored_snapshot = {
+                **restored_pheromone_snapshot,
+                "index": 0,
+                "runtime_memory_updates": getattr(
+                    context,
+                    "runtime_memory_updates",
+                    runtime_memory_updates,
+                ),
+            }
+        else:
+            restored_snapshot = build_runtime_memory_snapshot(
+                context,
+                context.runtime_memory,
+            )
 
         context.runtime_memory_snapshots.append(
             restored_snapshot
         )
-        context.runtime_memory_snapshot_index = restored_snapshot[
-            "index"
-        ]
+        context.runtime_memory_snapshot_index = 0
 
     return bool(
         session_memory

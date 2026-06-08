@@ -62,7 +62,7 @@ GENERIC_MEMORY_VALUE_SIMILARITY_MIN = 0.35
 GENERIC_MEMORY_MATCH_KEYS = (
     "topic",
     "focus",
-    "next_step",
+    "next step",
     "last jin response",
 
     "user request",
