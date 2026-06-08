@@ -12,8 +12,30 @@ const sendButton =
     'button[type="submit"]'
   );
 
-const websocketUrl =
-  `ws://${window.location.host}/ws/chat`;
+const websocketClientId =
+  (window.crypto && window.crypto.randomUUID)
+    ? window.crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+let websocketHasOpened = false;
+
+function buildWebSocketUrl() {
+
+  const params =
+    new URLSearchParams({
+      client_id: websocketClientId,
+    });
+
+  if (websocketHasOpened) {
+    params.set(
+      "resume",
+      "soft"
+    );
+  }
+
+  return `ws://${window.location.host}/ws/chat?${params.toString()}`;
+
+}
 
 const websocketReconnectBaseDelay = 700;
 const websocketReconnectMaxDelay = 5000;
@@ -1029,10 +1051,30 @@ async function handleSocketOpen() {
   websocketReconnectAttempts = 0;
   websocketDisconnectedLogged = false;
 
+  const isSoftReconnect =
+    websocketHasOpened;
+
+  websocketHasOpened = true;
+
   appendLog(
     "[SYSTEM]",
     "WebSocket connected."
   );
+
+  if (isSoftReconnect) {
+    if (window.getSoftReconnectRuntimeResume) {
+      const runtimeResume =
+        window.getSoftReconnectRuntimeResume();
+
+      if (runtimeResume) {
+        sendSocketMessage(
+          runtimeResume
+        );
+      }
+    }
+
+    return;
+  }
 
   if (
       persistedSessionBootstrapSent
@@ -1119,7 +1161,7 @@ function connectWebSocket() {
 
   ws =
     new WebSocket(
-      websocketUrl
+      buildWebSocketUrl()
     );
 
   ws.onmessage =

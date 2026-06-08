@@ -10,6 +10,7 @@ from starlette.websockets import (
 import asyncio
 import contextlib
 import json
+import re
 import httpx
 
 from websocket_logger import (
@@ -77,6 +78,11 @@ RUNTIME_STATUS_CHECK_TIMEOUT = getattr(
     0.5,
 )
 
+MAX_RESUME_CLIENT_ID_CHARS = 80
+RESUME_CLIENT_ID_RE = re.compile(
+    r"[^a-zA-Z0-9_.:-]"
+)
+
 
 def clean_bootstrap_memory(
     value,
@@ -99,6 +105,151 @@ def clean_bootstrap_memory(
         return cleaned
 
     return cleaned[-limit:].strip()
+
+
+
+
+def normalize_resume_client_id(
+    value,
+) -> str:
+
+    if not isinstance(
+        value,
+        str,
+    ):
+        return ""
+
+    cleaned = RESUME_CLIENT_ID_RE.sub(
+        "",
+        value,
+    ).strip()
+
+    return cleaned[:MAX_RESUME_CLIENT_ID_CHARS]
+
+
+def is_soft_resume_request(
+    websocket: WebSocket,
+) -> bool:
+
+    return (
+        websocket.query_params.get(
+            "resume",
+            "",
+        ) == "soft"
+    )
+
+
+def get_resume_context_store(
+    websocket: WebSocket,
+) -> dict:
+
+    store = getattr(
+        websocket.app.state,
+        "websocket_runtime_contexts",
+        None,
+    )
+
+    if store is None:
+        store = {}
+        websocket.app.state.websocket_runtime_contexts = store
+
+    return store
+
+
+def attach_websocket_to_context(
+    context: RuntimeContext,
+    websocket: WebSocket,
+    logger: WebSocketLogger,
+):
+
+    context.websocket = websocket
+    context.emitter = RuntimeEmitter(
+        websocket
+    )
+    context.logger = logger
+    context.clients = websocket.app.state.clients
+
+
+def get_or_create_connection_context(
+    websocket: WebSocket,
+    logger: WebSocketLogger,
+) -> tuple[RuntimeContext, bool]:
+
+    client_id = normalize_resume_client_id(
+        websocket.query_params.get(
+            "client_id",
+            "",
+        )
+    )
+
+    if not client_id:
+        context = RuntimeContext(
+            websocket=websocket,
+            emitter=RuntimeEmitter(
+                websocket
+            ),
+            logger=logger,
+            clients=websocket.app.state.clients,
+        )
+
+        return context, False
+
+    store = get_resume_context_store(
+        websocket
+    )
+
+    existing_context = store.get(
+        client_id
+    )
+
+    if isinstance(
+        existing_context,
+        RuntimeContext,
+    ):
+        attach_websocket_to_context(
+            existing_context,
+            websocket,
+            logger,
+        )
+        existing_context.session_id = client_id
+        return existing_context, True
+
+    context = RuntimeContext(
+        websocket=websocket,
+        emitter=RuntimeEmitter(
+            websocket
+        ),
+        logger=logger,
+        clients=websocket.app.state.clients,
+        session_id=client_id,
+    )
+
+    store[client_id] = context
+
+    return context, False
+
+
+def ensure_initial_runtime_snapshot(
+    context: RuntimeContext,
+):
+
+    if getattr(
+        context,
+        "runtime_memory_snapshots",
+        [],
+    ):
+        return
+
+    initial_snapshot = build_runtime_memory_snapshot(
+        context,
+        context.runtime_memory,
+    )
+
+    context.runtime_memory_snapshots.append(
+        initial_snapshot
+    )
+
+    context.runtime_memory_snapshot_index = 0
 
 
 
@@ -392,6 +543,137 @@ async def emit_current_runtime_memory(
     })
 
 
+
+def is_default_runtime_memory_text(
+    value: str,
+) -> bool:
+
+    normalized = " ".join(
+        str(value or "").split()
+    ).lower()
+
+    return normalized == (
+        "this session has just begun. "
+        "you have no history with the user yet."
+    ).lower()
+
+
+def apply_runtime_resume(
+    context,
+    message_data: dict,
+) -> bool:
+
+    runtime_memory = clean_bootstrap_memory(
+        message_data.get(
+            "runtime_memory",
+            "",
+        )
+    )
+
+    runtime_snapshot = message_data.get(
+        "runtime_snapshot",
+        {},
+    )
+
+    runtime_memory_is_snapshot_fallback = False
+
+    if (
+        not runtime_memory
+        and isinstance(
+            runtime_snapshot,
+            dict,
+        )
+    ):
+        runtime_memory = clean_bootstrap_memory(
+            runtime_snapshot.get(
+                "raw_memory",
+                "",
+            )
+        )
+        runtime_memory_is_snapshot_fallback = True
+
+    if (
+        not runtime_memory
+        or is_default_runtime_memory_text(
+            runtime_memory
+        )
+    ):
+        return False
+
+    runtime_memory_updates = parse_bootstrap_counter(
+        message_data.get(
+            "runtime_memory_updates",
+            0,
+        )
+    )
+
+    if runtime_memory_is_snapshot_fallback:
+        runtime_memory_updates = 0
+
+    current_updates = parse_bootstrap_counter(
+        getattr(
+            context,
+            "runtime_memory_updates",
+            0,
+        )
+    )
+
+    current_memory = clean_bootstrap_memory(
+        getattr(
+            context,
+            "runtime_memory",
+            "",
+        )
+    )
+
+    if (
+        current_memory
+        and not is_default_runtime_memory_text(
+            current_memory
+        )
+        and current_updates > runtime_memory_updates
+    ):
+        return False
+
+    restored_pheromone_snapshot = (
+        build_restored_runtime_pheromone_snapshot(
+            runtime_snapshot,
+            runtime_memory,
+        )
+        if isinstance(
+            runtime_snapshot,
+            dict,
+        )
+        else None
+    )
+
+    context.runtime_memory = runtime_memory
+    context.runtime_memory_stable = runtime_memory
+    context.runtime_memory_updates = max(
+        current_updates,
+        runtime_memory_updates,
+    )
+
+    if restored_pheromone_snapshot:
+        restored_snapshot = {
+            **restored_pheromone_snapshot,
+            "index": 0,
+            "runtime_memory_updates": context.runtime_memory_updates,
+        }
+    else:
+        restored_snapshot = build_runtime_memory_snapshot(
+            context,
+            runtime_memory,
+        )
+
+    context.runtime_memory_snapshots = [
+        restored_snapshot
+    ]
+    context.runtime_memory_snapshot_index = 0
+
+    return True
+
+
 def apply_session_bootstrap(
     context,
     message_data: dict,
@@ -588,7 +870,9 @@ def apply_session_bootstrap(
 # ---------------------------------------------------------
 
 async def initialize_connection(
-    context
+    context,
+    *,
+    skip_initial_runtime_state: bool = False,
 ):
 
     await context.websocket.accept()
@@ -596,6 +880,12 @@ async def initialize_connection(
     await send_telemetry(
         context
     )
+
+    if skip_initial_runtime_state:
+        await context.logger.log_system(
+            "[WS] soft reconnect: initial runtime state skipped"
+        )
+        return
 
     await emit_current_runtime_memory(
         context
@@ -965,25 +1255,20 @@ async def websocket_endpoint(
         websocket
     )
 
-    context = RuntimeContext(
-        websocket=websocket,
-        emitter=RuntimeEmitter(
-            websocket
-        ),
-        logger=logger,
-        clients=websocket.app.state.clients,
+    soft_resume = is_soft_resume_request(
+        websocket
     )
 
-    initial_snapshot = build_runtime_memory_snapshot(
-        context,
-        context.runtime_memory,
+    context, resumed_context = get_or_create_connection_context(
+        websocket,
+        logger,
     )
 
-    context.runtime_memory_snapshots.append(
-        initial_snapshot
-    )
+    skip_initial_runtime_state = soft_resume
 
-    context.runtime_memory_snapshot_index = 0
+    ensure_initial_runtime_snapshot(
+        context
+    )
 
     current_task = None
     pending_requests = asyncio.Queue()
@@ -1046,7 +1331,8 @@ async def websocket_endpoint(
     try:
 
         await initialize_connection(
-            context
+            context,
+            skip_initial_runtime_state=skip_initial_runtime_state,
         )
 
         while True:
@@ -1069,6 +1355,24 @@ async def websocket_endpoint(
                     "message",
                 )
             )
+
+            # -------------------------------------------------
+            # SOFT RECONNECT RUNTIME RESUME
+            # -------------------------------------------------
+
+            if message_type == "runtime_resume":
+
+                restored = apply_runtime_resume(
+                    context,
+                    message_data,
+                )
+
+                if restored:
+                    await logger.log_system(
+                        "[WS] soft reconnect runtime resumed"
+                    )
+
+                continue
 
             # -------------------------------------------------
             # RESTORE BROWSER SESSION MEMORY

@@ -816,6 +816,47 @@ function persistSessionMemory(
 }
 
 
+function getRuntimeMemoryForSoftReconnect() {
+
+  return getRuntimeMemoryForSessionSave();
+
+}
+
+
+window.getSoftReconnectRuntimeResume = function () {
+
+  const runtimeMemory =
+    getRuntimeMemoryForSoftReconnect();
+
+  const runtimeText =
+    (
+      runtimeMemory
+      && runtimeMemory.runtime_memory
+      && String(runtimeMemory.runtime_memory).trim()
+    ) || "";
+
+  if (!runtimeText) {
+    return null;
+  }
+
+  return {
+    type: "runtime_resume",
+    runtime_memory: runtimeText,
+    runtime_memory_updates:
+      (
+        runtimeMemory
+        && runtimeMemory.runtime_memory_updates
+      ) || 0,
+    runtime_snapshot:
+      (
+        runtimeMemory
+        && runtimeMemory.runtime_snapshot
+      ) || null,
+  };
+
+};
+
+
 function hasTabCloseSessionBootstrap() {
 
   if (persistedSessionBootstrapCleared) {
@@ -893,6 +934,54 @@ function getRuntimeMemoryTextFromUpdate(
     )
     || ""
   );
+
+}
+
+
+function isLatestRuntimeMemoryDuplicate(
+  data
+) {
+
+  if (
+      !data
+      || data.type !== "runtime_memory_update"
+      || !runtimeMemoryHistory.snapshots.length
+  ) {
+    return false;
+  }
+
+  const latestSnapshot =
+    runtimeMemoryHistory.snapshots[
+      runtimeMemoryHistory.snapshots.length - 1
+    ];
+
+  const latestMemory = normalizeRuntimeMemoryText(
+    latestSnapshot && latestSnapshot.raw_memory
+  );
+
+  const incomingMemory =
+    getRuntimeMemoryTextFromUpdate(data);
+
+  if (
+      !latestMemory
+      || !incomingMemory
+      || latestMemory !== incomingMemory
+  ) {
+    return false;
+  }
+
+  const latestUpdates = Number(
+    (
+      latestSnapshot
+      && latestSnapshot.runtime_memory_updates
+    ) || 0
+  );
+
+  const incomingUpdates = Number(
+    data.updates || 0
+  );
+
+  return incomingUpdates <= latestUpdates;
 
 }
 
@@ -2237,6 +2326,10 @@ window.handleRuntimeMemoryMessage = function (data) {
   }
 
   if (isReconnectInitialRuntimeMemoryUpdate(data)) {
+    return;
+  }
+
+  if (isLatestRuntimeMemoryDuplicate(data)) {
     return;
   }
 
