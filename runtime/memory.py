@@ -62,17 +62,36 @@ GENERIC_MEMORY_VALUE_SIMILARITY_MIN = 0.35
 GENERIC_MEMORY_MATCH_KEYS = (
     "topic",
     "focus",
-    "current task",
-    "current context",
+    "next_step",
+    "last jin response",
+
     "user request",
     "user intent",
+
     "active topic",
     "active topics",
+
     "open reference",
     "open references",
+    "open question",
+
     "pending choice",
     "pending choices",
-    "last jin response",
+    "pending action",
+    "pending actions",
+
+    "session status",
+    "session state",
+
+    "current concern",
+    "current concerns",
+    "current task",
+    "current tasks",
+    "current context",
+    "current request",
+    "current requests",
+
+    "interaction state",
 )
 DURABLE_MEMORY_KEY_TOKENS = (
     "fact",

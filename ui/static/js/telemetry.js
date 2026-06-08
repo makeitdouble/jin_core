@@ -2426,6 +2426,17 @@ function applyRuntimeMemoryFlash(
   }, 1500);
 }
 
+function formatRuntimeMemoryStrengthSuffix(line) {
+  const strength =
+      Number(line && line.strength);
+
+  if (!Number.isFinite(strength)) {
+    return "";
+  }
+
+  return ` (${strength.toFixed(2)})`;
+}
+
 function renderRuntimeMemoryLines(snapshot) {
   if (!runtimeMemoryText) {
     return;
@@ -2478,7 +2489,7 @@ function renderRuntimeMemoryLines(snapshot) {
         "runtime-memory-value";
 
     valueSpan.textContent =
-        ` ${value}`;
+        ` ${value}${formatRuntimeMemoryStrengthSuffix(line)}`;
 
     row.appendChild(keySpan);
     row.appendChild(valueSpan);
