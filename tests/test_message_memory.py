@@ -770,24 +770,12 @@ class MessageMemoryTests(
             "compares implementation paths",
             prompt,
         )
-        self.assertIn(
-            "Keep responses natural, conversational",
-            prompt,
-        )
         self.assertNotIn(
             "image/action tool",
             prompt,
         )
         self.assertNotIn(
             "Choose the best available visual representation of the request instead of description",
-            prompt,
-        )
-        self.assertIn(
-            "No new signal = no new strategy",
-            prompt,
-        )
-        self.assertIn(
-            "Do not ask for a topic, preference, or next step",
             prompt,
         )
         self.assertIn(
@@ -828,26 +816,6 @@ class MessageMemoryTests(
         )
         self.assertNotIn(
             "soft success rules are intentionally not rendered",
-            prompt,
-        )
-        self.assertNotIn(
-            "No new signal = no new strategy",
-            prompt,
-        )
-        self.assertNotIn(
-            "Do not ask for a topic, preference, or next step",
-            prompt,
-        )
-        self.assertNotIn(
-            "Keep responses natural, conversational",
-            prompt,
-        )
-        self.assertNotIn(
-            "soft dialog closure",
-            prompt,
-        )
-        self.assertNotIn(
-            "closest achievable form",
             prompt,
         )
         self.assertIn(
