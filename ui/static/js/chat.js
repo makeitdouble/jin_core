@@ -253,30 +253,38 @@ function getRoleConfig(role) {
     case "user":
       return {
         avatar: "US",
-        bgClass:
-          "bg-slate-500 border-slate-400"
+        bubbleClass:
+          "jin-chat-bubble jin-chat-bubble-user",
+        avatarClass:
+          "jin-chat-avatar-user"
       };
 
     case "service":
       return {
         avatar: "SV",
-        bgClass:
-          "bg-emerald-950/70 border-emerald-700 shadow-[0_0_12px_rgba(16,185,129,0.08)]"
+        bubbleClass:
+          "jin-chat-bubble jin-chat-bubble-service",
+        avatarClass:
+          "jin-chat-avatar-service"
       };
       
     case "translator":
       return {
         avatar: "TR",
-        bgClass:
-            "bg-cyan-950/70 border-cyan-700 shadow-[0_0_12px_rgba(8,145,178,0.08)]"
+        bubbleClass:
+            "jin-chat-bubble jin-chat-bubble-translator",
+        avatarClass:
+            "jin-chat-avatar-translator"
       };
 
     case "brain":
     default:
       return {
         avatar: "BR",
-        bgClass:
-          "bg-zinc-800 border-zinc-600 shadow-[0_0_12px_rgba(255,255,255,0.04)]"
+        bubbleClass:
+          "jin-chat-bubble jin-chat-bubble-brain",
+        avatarClass:
+          "jin-chat-avatar-brain"
       };
 
   }
@@ -373,11 +381,11 @@ function createAvatarElement(
   }
 
   avatar.className =
-    "h-6 w-6 rounded bg-zinc-800 border border-zinc-700 flex items-center justify-center text-[10px] text-zinc-400 shrink-0";
+    `jin-chat-avatar ${config.avatarClass || ""}`;
 
   if (contextSnapshot) {
     avatar.className +=
-      " cursor-help transition hover:border-emerald-500 hover:text-zinc-100 hover:bg-zinc-700";
+      " cursor-help transition";
   }
 
   avatar.textContent =
@@ -425,19 +433,19 @@ function createMessageElement(
     document.createElement("div");
 
   msgDiv.className =
-    "mx-auto flex w-full max-w-4xl items-start gap-3";
+    "jin-message-row jin-message-shell mx-auto w-full max-w-4xl";
 
   const pre =
     document.createElement("pre");
 
   pre.className =
-    "text-zinc-50 leading-relaxed whitespace-pre-wrap overflow-x-auto font-mono text-[13px]";
+    "jin-chat-pre";
 
   const bubble =
     document.createElement("div");
 
   bubble.className =
-    `${config.bgClass} px-4 py-3 rounded-xl border shadow-sm`;
+    config.bubbleClass;
 
   bubble.appendChild(pre);
 
@@ -589,7 +597,7 @@ function createStreamGroup(
     document.createElement("div");
 
   wrapper.className =
-    "mx-auto w-full max-w-4xl space-y-3";
+    "jin-stream-wrapper mx-auto w-full max-w-4xl space-y-3";
 
   // THINKING
 
@@ -597,13 +605,13 @@ function createStreamGroup(
     document.createElement("div");
 
   thinkWrapper.className =
-    "space-y-2";
+    "jin-think-wrapper";
 
   const thinkHeader =
     document.createElement("button");
 
   thinkHeader.className =
-    "text-xs text-zinc-300 flex items-center gap-2 hover:text-zinc-100 transition";
+    "jin-think-header";
 
   thinkHeader.innerHTML =
     `▼ &lt;think&gt;`;
@@ -612,7 +620,7 @@ function createStreamGroup(
     document.createElement("div");
 
   thinkContent.className =
-    "border-l border-slate-500 pl-4 text-xs text-zinc-300 italic leading-relaxed whitespace-pre-wrap";
+    "jin-think-content";
 
   let collapsed = false;
 
@@ -647,19 +655,19 @@ function createStreamGroup(
     document.createElement("div");
 
   messageRow.className =
-    "flex items-start gap-3";
+    "jin-message-row";
 
   const pre =
     document.createElement("pre");
 
   pre.className =
-    "text-zinc-50 leading-relaxed whitespace-pre-wrap overflow-x-auto font-mono text-[13px]";
+    "jin-chat-pre";
 
   const bubble =
     document.createElement("div");
 
   bubble.className =
-    `${config.bgClass} px-4 py-3 rounded-xl border shadow-sm`;
+    config.bubbleClass;
 
   bubble.appendChild(pre);
 
@@ -788,6 +796,22 @@ function appendThinkingChunk(
 
   if (!stream) {
     return;
+  }
+
+  if (
+    !stream.thinking
+  ) {
+
+    chunk =
+      String(chunk || "").replace(
+        /^\s+/,
+        ""
+      );
+
+    if (!chunk) {
+      return;
+    }
+
   }
 
   stream.thinking += chunk;
