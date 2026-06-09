@@ -701,6 +701,345 @@
                     0 0 14px rgba(103, 232, 249, 0.024);
         }
 
+
+        /* =========================
+           JIN ANSWER RATING HOVER
+           Левая треть ответа = минус: мягкий красный край + лёгкий уход влево.
+           Центр = ноль: светло-серая подсветка без продавливания.
+           Правая треть = плюс: мягкий зелёный край + лёгкий уход вправо.
+           Важно: сам бабл больше не трансформируется, чтобы hit-zone не ездила под курсором.
+           ========================= */
+
+        .jin-chat-bubble-service {
+            isolation: isolate;
+            overflow: hidden;
+            transform: translateZ(0);
+            cursor: pointer;
+            transition:
+                    box-shadow 0.22s ease,
+                    filter 0.22s ease;
+            will-change: box-shadow, filter;
+        }
+
+        .jin-chat-bubble-service .jin-rating-hover-zones {
+            position: absolute;
+            inset: 0;
+            z-index: 5;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            border-radius: inherit;
+            overflow: hidden;
+            pointer-events: none;
+        }
+
+        .jin-chat-bubble-service .jin-rating-zone {
+            pointer-events: auto;
+            background: transparent;
+        }
+
+        .jin-chat-bubble-service .jin-chat-pre {
+            position: relative;
+            z-index: 2;
+            transition:
+                    transform 0.22s ease,
+                    text-shadow 0.22s ease;
+            transform-origin: center center;
+            will-change: transform, text-shadow;
+        }
+
+        .jin-chat-bubble-service::before,
+        .jin-chat-bubble-service::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            opacity: 0;
+            pointer-events: none;
+            border-radius: inherit;
+            transition:
+                    opacity 0.22s ease,
+                    background 0.22s ease,
+                    box-shadow 0.22s ease;
+        }
+
+        .jin-chat-bubble-service::before {
+            background:
+                    linear-gradient(90deg,
+                            rgba(248, 113, 113, 0.105) 0%,
+                            rgba(248, 113, 113, 0.040) 16%,
+                            rgba(248, 113, 113, 0.010) 38%,
+                            transparent 68%);
+            box-shadow:
+                    inset 1px 0 0 rgba(248, 113, 113, 0.05),
+                    inset 14px 0 22px rgba(127, 29, 29, 0.105),
+                    -6px 0 18px rgba(248, 113, 113, 0.055);
+        }
+
+        .jin-chat-bubble-service::after {
+            background:
+                    linear-gradient(270deg,
+                            rgba(74, 222, 128, 0.105) 0%,
+                            rgba(74, 222, 128, 0.040) 16%,
+                            rgba(74, 222, 128, 0.010) 38%,
+                            transparent 68%);
+            box-shadow:
+                    inset -1px 0 0 rgba(74, 222, 128, 0.05),
+                    inset -14px 0 22px rgba(20, 83, 45, 0.105),
+                    6px 0 18px rgba(74, 222, 128, 0.055);
+        }
+
+        .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-minus:hover) {
+            box-shadow:
+                    0 14px 42px rgba(0, 0, 0, 0.25),
+                    0 0 24px rgba(248, 113, 113, 0.050),
+                    0 0 28px rgba(45, 212, 191, 0.040),
+                    inset 0 1px 0 rgba(204, 251, 241, 0.040),
+                    inset 0 0 22px rgba(248, 113, 113, 0.024),
+                    inset 0 0 30px rgba(103, 232, 249, 0.010);
+            filter: saturate(1.015);
+        }
+
+        .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-minus:hover)::before {
+            opacity: 1;
+        }
+
+        .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-minus:hover) .jin-chat-pre {
+            transform: translateX(-2px) skewY(-0.18deg);
+        }
+
+        .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-neutral:hover) {
+            box-shadow:
+                    0 14px 42px rgba(0, 0, 0, 0.24),
+                    0 0 30px rgba(226, 232, 240, 0.070),
+                    0 0 28px rgba(45, 212, 191, 0.040),
+                    inset 0 1px 0 rgba(248, 250, 252, 0.060),
+                    inset 0 0 24px rgba(226, 232, 240, 0.035),
+                    inset 0 0 30px rgba(103, 232, 249, 0.010);
+            filter: brightness(1.03);
+        }
+
+        .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-neutral:hover) .jin-chat-pre {
+            text-shadow:
+                    0 0 10px rgba(226, 232, 240, 0.070),
+                    0 0 14px rgba(103, 232, 249, 0.018);
+        }
+
+        .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-plus:hover) {
+            box-shadow:
+                    0 14px 42px rgba(0, 0, 0, 0.25),
+                    0 0 24px rgba(74, 222, 128, 0.055),
+                    0 0 28px rgba(45, 212, 191, 0.040),
+                    inset 0 1px 0 rgba(204, 251, 241, 0.040),
+                    inset 0 0 22px rgba(74, 222, 128, 0.026),
+                    inset 0 0 30px rgba(103, 232, 249, 0.010);
+            filter: saturate(1.015);
+        }
+
+        .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-plus:hover)::after {
+            opacity: 1;
+        }
+
+        .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-plus:hover) .jin-chat-pre {
+            transform: translateX(2px) skewY(0.18deg);
+        }
+
+
+        @keyframes jinRatingClickPreMinus {
+            0% {
+                transform: translateX(-2px) skewY(-0.18deg);
+            }
+
+            34% {
+                transform: translateX(-3px) skewY(-0.20deg);
+            }
+
+            68% {
+                transform: translateX(-1px) skewY(-0.08deg);
+            }
+
+            100% {
+                transform: translateX(-2px) skewY(-0.18deg);
+            }
+        }
+
+        @keyframes jinRatingClickPreNeutral {
+            0% {
+                transform: translateZ(0) scale(1);
+                text-shadow:
+                        0 0 10px rgba(226, 232, 240, 0.12),
+                        0 0 20px rgba(226, 232, 240, 0.08),
+                        0 0 14px rgba(103, 232, 249, 0.020);
+            }
+
+            38% {
+                transform: translateZ(0) scale(0.996);
+            }
+
+            76% {
+                transform: translateZ(0) scale(1.002);
+            }
+
+            100% {
+                transform: translateZ(0) scale(1);
+                text-shadow:
+                        0 0 10px rgba(45, 212, 191, 0.040),
+                        0 0 14px rgba(103, 232, 249, 0.024);
+            }
+        }
+
+        @keyframes jinRatingClickPrePlus {
+            0% {
+                transform: translateX(2px) skewY(0.18deg);
+            }
+
+            34% {
+                transform: translateX(3px) skewY(0.20deg);
+            }
+
+            68% {
+                transform: translateX(1px) skewY(0.08deg);
+            }
+
+            100% {
+                transform: translateX(2px) skewY(0.18deg);
+            }
+        }
+
+        @keyframes jinRatingClickEdgeMinus {
+            0% {
+                opacity: 0.95;
+            }
+
+            42% {
+                opacity: 0.72;
+            }
+
+            100% {
+                opacity: 0.68;
+            }
+        }
+
+        @keyframes jinRatingClickEdgePlus {
+            0% {
+                opacity: 0.95;
+            }
+
+            42% {
+                opacity: 0.72;
+            }
+
+            100% {
+                opacity: 0.68;
+            }
+        }
+
+        .jin-chat-bubble-service.jin-rating-press-neutral {
+            box-shadow:
+                    0 14px 42px rgba(0, 0, 0, 0.24),
+                    0 0 34px rgba(226, 232, 240, 0.075),
+                    0 0 28px rgba(45, 212, 191, 0.040),
+                    inset 0 1px 0 rgba(248, 250, 252, 0.060),
+                    inset 0 0 24px rgba(226, 232, 240, 0.035),
+                    inset 0 0 30px rgba(103, 232, 249, 0.010);
+        }
+
+        .jin-chat-bubble-service.jin-rating-press-minus::before {
+            opacity: 1;
+            animation: jinRatingClickEdgeMinus 0.62s ease-out forwards;
+        }
+
+        .jin-chat-bubble-service.jin-rating-press-plus::after {
+            opacity: 1;
+            animation: jinRatingClickEdgePlus 0.62s ease-out forwards;
+        }
+
+        .jin-chat-bubble-service.jin-rating-press-minus .jin-chat-pre {
+            animation: jinRatingClickPreMinus 0.42s cubic-bezier(0.18, 0.92, 0.22, 1.00);
+        }
+
+        .jin-chat-bubble-service.jin-rating-press-neutral .jin-chat-pre {
+            animation: jinRatingClickPreNeutral 0.44s ease-out;
+        }
+
+        .jin-chat-bubble-service.jin-rating-press-plus .jin-chat-pre {
+            animation: jinRatingClickPrePlus 0.42s cubic-bezier(0.18, 0.92, 0.22, 1.00);
+        }
+
+
+        .jin-chat-bubble-service.jin-rating-committed::before,
+        .jin-chat-bubble-service.jin-rating-committed::after {
+            animation: none !important;
+        }
+
+        .jin-chat-bubble-service.jin-rating-committed {
+            cursor: default;
+        }
+
+        .jin-chat-bubble-service.jin-rating-committed .jin-rating-zone {
+            pointer-events: none;
+            cursor: default;
+        }
+
+        .jin-chat-bubble-service.jin-rating-selected-active .jin-rating-zone {
+            cursor: pointer;
+        }
+
+        .jin-chat-bubble-service.jin-rating-selected-minus {
+            box-shadow:
+                    0 14px 42px rgba(0, 0, 0, 0.25),
+                    0 0 28px rgba(248, 113, 113, 0.085),
+                    0 0 30px rgba(45, 212, 191, 0.035),
+                    inset 0 1px 0 rgba(204, 251, 241, 0.038),
+                    inset 0 0 26px rgba(248, 113, 113, 0.042),
+                    inset 0 0 30px rgba(103, 232, 249, 0.008);
+            filter: saturate(1.035);
+        }
+
+        .jin-chat-bubble-service.jin-rating-selected-minus::before {
+            opacity: 0.68;
+        }
+
+        .jin-chat-bubble-service.jin-rating-selected-minus .jin-chat-pre {
+            transform: translateX(-2px) skewY(-0.18deg);
+        }
+
+        .jin-chat-bubble-service.jin-rating-selected-neutral {
+            box-shadow:
+                    0 14px 42px rgba(0, 0, 0, 0.24),
+                    0 0 34px rgba(226, 232, 240, 0.095),
+                    0 0 30px rgba(45, 212, 191, 0.035),
+                    inset 0 1px 0 rgba(248, 250, 252, 0.072),
+                    inset 0 0 26px rgba(226, 232, 240, 0.048),
+                    inset 0 0 30px rgba(103, 232, 249, 0.008);
+            filter: brightness(1.04);
+        }
+
+        .jin-chat-bubble-service.jin-rating-selected-neutral .jin-chat-pre {
+            transform: none;
+            text-shadow:
+                    0 0 10px rgba(226, 232, 240, 0.070),
+                    0 0 14px rgba(103, 232, 249, 0.018);
+        }
+
+        .jin-chat-bubble-service.jin-rating-selected-plus {
+            box-shadow:
+                    0 14px 42px rgba(0, 0, 0, 0.25),
+                    0 0 28px rgba(74, 222, 128, 0.092),
+                    0 0 30px rgba(45, 212, 191, 0.035),
+                    inset 0 1px 0 rgba(204, 251, 241, 0.038),
+                    inset 0 0 26px rgba(74, 222, 128, 0.046),
+                    inset 0 0 30px rgba(103, 232, 249, 0.008);
+            filter: saturate(1.035);
+        }
+
+        .jin-chat-bubble-service.jin-rating-selected-plus::after {
+            opacity: 0.68;
+        }
+
+        .jin-chat-bubble-service.jin-rating-selected-plus .jin-chat-pre {
+            transform: translateX(2px) skewY(0.18deg);
+        }
+
         .runtime-memory-line {
             margin: 0 0 10px 0;
             line-height: 1.5;
@@ -1062,10 +1401,15 @@
                            cursor-grab active:cursor-grabbing
                            select-none">
 
-            <h3
-                    class="text-xs font-bold uppercase tracking-widest text-zinc-100">
+            <button
+                    id="fact-check-trigger"
+                    type="button"
+                    title="Run fact check"
+                    class="text-xs font-bold uppercase tracking-widest text-zinc-100
+                           transition hover:text-cyan-200 hover:drop-shadow-[0_0_8px_rgba(34,211,238,0.55)]
+                           cursor-pointer">
                 JIN
-            </h3>
+            </button>
 
         </div>
 
@@ -1214,6 +1558,190 @@
     </section>
 
 </main>
+
+
+<script>
+    (function () {
+        const ratingSelectionClasses = [
+            "jin-rating-selected-active",
+            "jin-rating-committed",
+            "jin-rating-selected-minus",
+            "jin-rating-selected-neutral",
+            "jin-rating-selected-plus",
+            "jin-rating-press-minus",
+            "jin-rating-press-neutral",
+            "jin-rating-press-plus",
+        ];
+
+        function clearBubbleRating(bubble, reason = "outside") {
+            if (!bubble || bubble.classList.contains("jin-rating-committed")) {
+                return;
+            }
+
+            const previousRating = bubble.dataset.ratingSelected || null;
+
+            bubble.classList.remove(...ratingSelectionClasses);
+            delete bubble.dataset.ratingSelected;
+            delete bubble.dataset.ratingPending;
+
+            const zones = bubble.querySelector(":scope > .jin-rating-hover-zones");
+            if (zones) {
+                zones.title = "";
+            }
+
+            if (previousRating) {
+                bubble.dispatchEvent(new CustomEvent("jin:answer-rating-cleared", {
+                    bubbles: true,
+                    detail: {
+                        previousRating,
+                        reason,
+                    },
+                }));
+            }
+        }
+
+        function addRatingHoverZones(root) {
+            const scope = root instanceof Element ? root : document;
+
+            scope.querySelectorAll(".jin-chat-bubble-service").forEach((bubble) => {
+                if (bubble.querySelector(":scope > .jin-rating-hover-zones")) {
+                    return;
+                }
+
+                const zones = document.createElement("div");
+                zones.className = "jin-rating-hover-zones";
+                zones.setAttribute("aria-hidden", "true");
+
+                [
+                    ["jin-rating-zone jin-rating-zone-minus", "minus", "negative feedback hover zone"],
+                    ["jin-rating-zone jin-rating-zone-neutral", "neutral", "neutral feedback hover zone"],
+                    ["jin-rating-zone jin-rating-zone-plus", "plus", "positive feedback hover zone"],
+                ].forEach(([className, ratingValue, label]) => {
+                    const zone = document.createElement("div");
+                    zone.className = className;
+                    zone.dataset.ratingValue = ratingValue;
+                    zone.dataset.ratingHover = label;
+
+                    zone.addEventListener("click", (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+
+                        if (bubble.classList.contains("jin-rating-committed")) {
+                            return;
+                        }
+
+                        const globalCounts = window.jinAnswerRatingCounts || {
+                            minus: 0,
+                            neutral: 0,
+                            plus: 0,
+                            total: 0,
+                        };
+
+                        globalCounts[ratingValue] = (globalCounts[ratingValue] || 0) + 1;
+                        globalCounts.total = (globalCounts.total || 0) + 1;
+                        window.jinAnswerRatingCounts = globalCounts;
+
+                        const bubbleClickCount = Number(bubble.dataset.ratingClickCount || 0) + 1;
+                        const bubbleRatingCountKey = `rating${ratingValue[0].toUpperCase()}${ratingValue.slice(1)}Count`;
+                        const previousRating = bubble.dataset.ratingSelected || null;
+
+                        bubble.dataset.ratingSelected = ratingValue;
+                        bubble.dataset.ratingPending = "true";
+                        bubble.dataset.ratingClickCount = String(bubbleClickCount);
+                        bubble.dataset[bubbleRatingCountKey] = String(Number(bubble.dataset[bubbleRatingCountKey] || 0) + 1);
+
+                        bubble.classList.remove(...ratingSelectionClasses);
+
+                        const pressClass = `jin-rating-press-${ratingValue}`;
+                        // Restart click animation even if the same zone is clicked twice.
+                        void bubble.offsetWidth;
+
+                        bubble.classList.add(
+                            "jin-rating-selected-active",
+                            `jin-rating-selected-${ratingValue}`,
+                            pressClass
+                        );
+
+                        window.setTimeout(() => {
+                            bubble.classList.remove(pressClass);
+                        }, 680);
+
+                        zones.title = `pending rating: ${ratingValue}; clicks: ${bubbleClickCount}; total: ${globalCounts.total}`;
+
+                        bubble.dispatchEvent(new CustomEvent("jin:answer-rating-clicked", {
+                            bubbles: true,
+                            detail: {
+                                rating: ratingValue,
+                                previousRating,
+                                bubbleClickCount,
+                                pending: true,
+                                globalCounts: { ...globalCounts },
+                            },
+                        }));
+                    });
+
+                    zones.appendChild(zone);
+                });
+
+                bubble.appendChild(zones);
+            });
+        }
+
+        addRatingHoverZones(document);
+
+        document.addEventListener("click", (event) => {
+            if (event.target.closest(".jin-chat-bubble-service")) {
+                return;
+            }
+
+            document
+                .querySelectorAll(".jin-chat-bubble-service.jin-rating-selected-active:not(.jin-rating-committed)")
+                .forEach((bubble) => clearBubbleRating(bubble, "outside"));
+        });
+
+        const chatForm = document.getElementById("chat-form");
+        if (chatForm) {
+            chatForm.addEventListener("submit", () => {
+                document
+                    .querySelectorAll(".jin-chat-bubble-service.jin-rating-selected-active:not(.jin-rating-committed)")
+                    .forEach((bubble) => {
+                        bubble.classList.remove("jin-rating-selected-active");
+                        bubble.classList.add("jin-rating-committed");
+                        bubble.dataset.ratingPending = "false";
+                        bubble.dataset.ratingCommitted = "true";
+
+                        bubble.dispatchEvent(new CustomEvent("jin:answer-rating-committed", {
+                            bubbles: true,
+                            detail: {
+                                rating: bubble.dataset.ratingSelected || null,
+                                bubbleClickCount: Number(bubble.dataset.ratingClickCount || 0),
+                            },
+                        }));
+                    });
+            });
+        }
+
+        const chatHistory = document.getElementById("chat-history");
+        if (!chatHistory) {
+            return;
+        }
+
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        addRatingHoverZones(node);
+                    }
+                });
+            });
+        });
+
+        observer.observe(chatHistory, {
+            childList: true,
+            subtree: true,
+        });
+    })();
+</script>
 
 <!-- AUTO HEIGHT -->
 

@@ -12,6 +12,11 @@ const sendButton =
     'button[type="submit"]'
   );
 
+const factCheckTrigger =
+  document.getElementById(
+    "fact-check-trigger"
+  );
+
 const websocketClientId =
   (window.crypto && window.crypto.randomUUID)
     ? window.crypto.randomUUID()
@@ -256,6 +261,33 @@ function sendSocketMessage(
   return true;
 
 }
+
+function triggerManualFactCheck() {
+
+  if (!isWebSocketOpen()) {
+    connectWebSocket();
+
+    appendLog(
+      "[SYSTEM]",
+      "WebSocket reconnecting. Fact check was not started."
+    );
+
+    return false;
+  }
+
+  appendLog(
+    "[MEMORY:FACT_CHECK]",
+    "manual fact check requested"
+  );
+
+  return sendSocketMessage({
+    type: "fact_check"
+  });
+
+}
+
+window.triggerManualFactCheck = triggerManualFactCheck;
+
 
 function clearWebSocketReconnectTimer() {
 
@@ -960,6 +992,17 @@ function allModelRuntimesOffline() {
     && status.service === false
   );
 
+}
+
+if (factCheckTrigger) {
+  factCheckTrigger.addEventListener(
+    "click",
+    (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      triggerManualFactCheck();
+    }
+  );
 }
 
 chatForm.addEventListener(

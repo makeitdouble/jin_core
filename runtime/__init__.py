@@ -1,4 +1,10 @@
 from .context import RuntimeContext, RuntimeEmitter
+from .fact_check import (
+    CONFIRMABLE_MEMORY_KEYS,
+    cancel_idle_fact_check,
+    run_fact_check_once,
+    schedule_idle_fact_check,
+)
 from .memory import (
     DEFAULT_RUNTIME_MEMORY,
     L2_PATCH_WINDOW,
@@ -38,6 +44,7 @@ __all__ = [
     "RuntimeEmitter",
     "RuntimeState",
     "RuntimeStream",
+    "CONFIRMABLE_MEMORY_KEYS",
     "build_interrupted_assistant_message",
     "build_runtime_l2_memory_system_prompt",
     "build_runtime_memory_snapshot",
@@ -46,13 +53,16 @@ __all__ = [
     "build_runtime_session_memory_system_prompt",
     "build_runtime_session_memory_user_prompt",
     "cancel_runtime_memory_update",
+    "cancel_idle_fact_check",
     "emit_runtime_l1_diff_update",
     "emit_runtime_session_memory_update",
     "maybe_summarize_runtime_l2_memory",
     "maybe_summarize_runtime_session_memory",
     "record_runtime_l1_diff",
     "refresh_runtime_state",
+    "run_fact_check_once",
     "runtime_state",
+    "schedule_idle_fact_check",
     "schedule_interrupted_runtime_memory_update",
     "schedule_runtime_memory_update",
     "send_telemetry",

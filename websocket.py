@@ -60,9 +60,12 @@ from runtime import (
     RuntimeContext,
     RuntimeEmitter,
     build_runtime_memory_snapshot,
+    cancel_idle_fact_check,
     emit_runtime_l1_diff_update,
     emit_runtime_session_memory_update,
     refresh_runtime_state,
+    run_fact_check_once,
+    schedule_idle_fact_check,
     schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
     send_telemetry,
@@ -1161,6 +1164,13 @@ async def process_message(
         context.assistant_message_count += 1
         context.turn_number += 1
 
+        # Arm the background fact-check only after the turn is fully finalized.
+        # The idle worker waits for the pending memory update, then checks one
+        # remaining (confirmed: none) fact and stops.
+        schedule_idle_fact_check(
+            context
+        )
+
     except asyncio.CancelledError:
 
         await logger.log_runtime(
@@ -1437,6 +1447,51 @@ async def websocket_endpoint(
                 continue
 
             # -------------------------------------------------
+            # MANUAL FACT CHECK
+            # -------------------------------------------------
+
+            if message_type == "fact_check":
+
+                if (
+                    current_task is not None
+                    and not current_task.done()
+                ):
+                    await logger.log_runtime(
+                        "[FACT_CHECK] skipped: generation is running"
+                    )
+                    continue
+
+                cancel_idle_fact_check(
+                    context
+                )
+
+                await logger.log(
+                    "[MEMORY:FACT_CHECK]",
+                    "[FACT_CHECK] manual web check requested",
+                    channel="memory",
+                    memory_level="FACT_CHECK",
+                    memory_event="fact_check_manual",
+                )
+
+                runtime_memory_task = getattr(
+                    context,
+                    "runtime_memory_update_task",
+                    None,
+                )
+
+                if runtime_memory_task is not None:
+                    await logger.log_runtime(
+                        "[FACT_CHECK] waiting for runtime memory update"
+                    )
+                    await runtime_memory_task
+
+                await run_fact_check_once(
+                    context
+                )
+
+                continue
+
+            # -------------------------------------------------
             # IGNORE EMPTY MESSAGE
             # -------------------------------------------------
 
@@ -1454,6 +1509,10 @@ async def websocket_endpoint(
                 )
 
                 continue
+
+            cancel_idle_fact_check(
+                context
+            )
 
             if await reject_when_all_models_offline(
                 context
@@ -1525,6 +1584,9 @@ async def websocket_endpoint(
         )
 
     finally:
+        cancel_idle_fact_check(
+            context
+        )
         pending_processor.cancel()
 
         with contextlib.suppress(

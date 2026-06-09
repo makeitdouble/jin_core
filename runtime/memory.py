@@ -41,6 +41,9 @@ from runtime.memory_rules import (
     build_runtime_session_memory_user_prompt,
     canonicalize_runtime_memory_entry,
 )
+from runtime.fact_check import (
+    ensure_confirmable_memory_markers,
+)
 
 
 DEFAULT_RUNTIME_L2_MEMORY = ""
@@ -1871,6 +1874,10 @@ async def maybe_summarize_runtime_l2_memory(
 
             return current_l2_memory
 
+        updated_l2_memory = ensure_confirmable_memory_markers(
+            updated_l2_memory,
+        )
+
         context.runtime_l2_memory = updated_l2_memory
         context.runtime_l2_last_turn = get_runtime_l2_user_turn_count(
             context
@@ -2237,6 +2244,11 @@ async def summarize_runtime_memory(
             current_memory,
             updated_memory,
         )
+        updated_memory = ensure_confirmable_memory_markers(
+            updated_memory,
+            user_message=user_message,
+            assistant_message=assistant_message,
+        )
 
         updates_counter = getattr(
             context,
@@ -2388,6 +2400,19 @@ async def summarize_runtime_memory_pending_turns(
         updated_memory = merge_durable_memory_facts(
             initial_memory,
             updated_memory,
+        )
+
+        latest_turn = turns[-1] if turns else {}
+        updated_memory = ensure_confirmable_memory_markers(
+            updated_memory,
+            user_message=latest_turn.get(
+                "user_message",
+                "",
+            ),
+            assistant_message=latest_turn.get(
+                "assistant_message",
+                "",
+            ),
         )
 
         updates_counter = getattr(
