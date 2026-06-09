@@ -119,6 +119,8 @@ const runtimeMemoryHistory = {
   index: -1,
 };
 
+const pinnedRuntimeMemorySnapshotIndexes = new Set();
+
 let runtimeMemoryDisplayMode = "runtime";
 let restoredSessionMemorySnapshot = null;
 let pendingBootstrapRuntimeMemorySnapshot = null;
@@ -2852,6 +2854,23 @@ function renderRuntimeDiffs() {
 }
 
 
+function isCurrentRuntimeMemorySnapshotPinned() {
+  return pinnedRuntimeMemorySnapshotIndexes.has(
+      runtimeMemoryHistory.index
+  );
+}
+
+function updateRuntimeMemoryPinGlow() {
+  if (!runtimeMemoryPosition) {
+    return;
+  }
+
+  runtimeMemoryPosition.classList.toggle(
+      "runtime-memory-position-pinned",
+      isCurrentRuntimeMemorySnapshotPinned()
+  );
+}
+
 function renderRuntimeMemorySnapshot() {
   const snapshot =
       runtimeMemoryHistory.snapshots[
@@ -2863,11 +2882,13 @@ function renderRuntimeMemorySnapshot() {
     runtimeMemoryPosition.textContent =
         "0";
     updateRuntimeMemoryArrows();
+    updateRuntimeMemoryPinGlow();
     return;
   }
 
   renderRuntimeMemoryLines(
-      snapshot
+      snapshot,
+      isCurrentRuntimeMemorySnapshotPinned()
   );
 
   runtimeMemoryPosition.textContent =
@@ -2878,6 +2899,7 @@ function renderRuntimeMemorySnapshot() {
       );
 
   updateRuntimeMemoryArrows();
+  updateRuntimeMemoryPinGlow();
 }
 
 function clampMemoryRatio(value) {
@@ -2894,7 +2916,8 @@ function applyRuntimeMemoryFlash(
     element,
     status,
     kind,
-    ratio
+    ratio,
+    persist = false
 ) {
   if (!element) {
     return;
@@ -2934,6 +2957,10 @@ function applyRuntimeMemoryFlash(
     return;
   }
 
+  if (persist) {
+    return;
+  }
+
   setTimeout(() => {
     element.classList.remove(
         "flash-new",
@@ -2961,12 +2988,16 @@ function formatRuntimeMemoryStrengthSuffix(line) {
   return ` (trace: ${strength.toFixed(2)})`;
 }
 
-function renderRuntimeMemoryLines(snapshot) {
+function renderRuntimeMemoryLines(snapshot, persistGlow = false) {
   if (!runtimeMemoryText) {
     return;
   }
 
   runtimeMemoryText.innerHTML = "";
+  runtimeMemoryText.classList.toggle(
+      "runtime-memory-text-pinned",
+      persistGlow
+  );
 
   const lines =
       snapshot.lines || [];
@@ -3024,14 +3055,16 @@ function renderRuntimeMemoryLines(snapshot) {
         keySpan,
         keyStatus,
         "key",
-        line.key_change_ratio
+        line.key_change_ratio,
+        persistGlow
     );
 
     applyRuntimeMemoryFlash(
         valueSpan,
         valueStatus,
         "value",
-        line.value_change_ratio
+        line.value_change_ratio,
+        persistGlow
     );
   });
 }
@@ -3074,6 +3107,61 @@ runtimeMemoryNext?.addEventListener("click", () => {
 
   runtimeMemoryHistory.index += 1;
   renderRuntimeMemorySnapshot();
+});
+
+runtimeMemoryPosition?.addEventListener("click", () => {
+  if (runtimeMemoryHistory.index < 0) {
+    return;
+  }
+
+  const wasPinned =
+      isCurrentRuntimeMemorySnapshotPinned();
+
+  if (wasPinned) {
+    pinnedRuntimeMemorySnapshotIndexes.delete(
+        runtimeMemoryHistory.index
+    );
+  } else {
+    pinnedRuntimeMemorySnapshotIndexes.add(
+        runtimeMemoryHistory.index
+    );
+  }
+
+  renderRuntimeMemorySnapshot();
+
+  if (wasPinned && runtimeMemoryText) {
+    runtimeMemoryText
+        .querySelectorAll(
+            ".flash-new, .flash-changed"
+        )
+        .forEach((element) => {
+          element.classList.add(
+              "runtime-memory-flash-off"
+          );
+          element.classList.remove(
+              "flash-new",
+              "flash-changed"
+          );
+
+          requestAnimationFrame(() => {
+            element.classList.remove(
+                "runtime-memory-flash-off"
+            );
+          });
+        });
+  }
+});
+
+runtimeMemoryPosition?.addEventListener("keydown", (event) => {
+  if (
+      event.key !== "Enter"
+      && event.key !== " "
+  ) {
+    return;
+  }
+
+  event.preventDefault();
+  runtimeMemoryPosition.click();
 });
 
 runtimeDiffToggle?.addEventListener("click", () => {
