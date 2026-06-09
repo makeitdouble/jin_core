@@ -13,6 +13,8 @@ The engine is designed for multi-runtime local AI setups where the main reasonin
 
 Runtime memory can now influence conversation strategy, not just store facts. JIN tracks interaction patterns during a session and can adjust replies when the conversation starts looping instead of blindly restarting the same exchange.
 
+Session memory can survive across browser sessions. When the user explicitly ends or saves a session, JIN compresses the conversation into a compact L3 digest that the browser stores locally and replays on reconnect.
+
 ![JIN Core Engine runtime UI](ui/static/images/jin-core-split-history.png)
 
 ![highlight](ui/static/images/highlight.png)
@@ -24,7 +26,10 @@ Runtime memory can now influence conversation strategy, not just store facts. JI
 - A memory timeline you can inspect: step through snapshots and see which facts or patterns were added instead of guessing what the assistant remembered.
 - A calmer loop breaker: when the conversation starts repeating itself, JIN can notice the pattern and change strategy instead of giving the same polite answer again.
 - A built-in search move: the model can ask the runtime to search, then answer from trusted results without dumping raw tool syntax into the chat.
+- A session save and restore path: saying something like "save the session" or "that's all for today" triggers a compact L3 memory digest. The browser stores it locally and replays it on reconnect so the next session starts from context rather than blank slate.
+- A philosophy reasoning mode: questions touching consciousness, meaning, subjectivity, or qualia activate a stricter set of reasoning rules that resist premature structure and push for causal coherence.
 - A multilingual path that stays out of your way: Cyrillic input can be translated internally while the visible conversation remains natural.
+- A file and image attachment surface: files and images can be dragged into the chat column or selected via the attachment button and queued before sending.
 - A right sidebar that shows what is happening under the hood: model status, context pressure, token usage, runtime memory, and live logs are there when you want them.
 - A keyboard-first writing flow: Enter sends, Ctrl/Shift+Enter adds a newline, and the input box turns into the stop control while JIN is working.
 - A local-first setup for people who run their own models: use separate brain, service, and translator runtimes, or collapse to one service model when you want a simpler setup.
@@ -49,7 +54,7 @@ FastAPI app.py
         planner -> optional translator -> brain -> validator
                               |
                               +-- runtime actions -> search service
-                              |
+                              |                  -> session memory save
                               v
                       RuntimeClient.stream()
                                           |
@@ -60,7 +65,7 @@ FastAPI app.py
                     background service summarizers
                               |
                               v
-                 L1 factual memory -> L2 pattern memory
+                 L1 factual memory -> L2 pattern memory -> L3 session digest
                               |
                               v
                     trusted brain prompt context
@@ -85,18 +90,23 @@ Each memory update is also stored as a per-session snapshot. The UI can step bac
 
 If generation is aborted, the runtime captures the partial answer and schedules an interrupted memory update. The memory summarizer is instructed to mark the turn as incomplete and not treat it as resolved.
 
+When the user signals the end of a session — explicitly or through natural closing phrases — the brain emits a `REMEMBER_SESSION` action. The runtime builds a compact L3 digest from the current snapshot history and sends it to the browser for local storage. On the next connection, the browser sends the digest back as part of the bootstrap payload and the runtime injects it as trusted session context before the first turn.
+
+Certain topics activate a stricter reasoning mode automatically. Questions about consciousness, subjectivity, qualia, or meaning cause the brain prompt to include a philosophy rule block that resists premature categorization, demands causal coherence in scene reasoning, and treats obvious answers as the first thing worth questioning.
+
 ## Runtime Memory
 
 Runtime memory is intentionally lightweight, but it is no longer passive storage only. It gives JIN short-term continuity and can now influence conversational behavior when repeated patterns appear.
 
 - It lives in the active `RuntimeContext`, not in a database.
 - It is updated by separate service-model requests after a turn finishes.
-- It is split into factual L1 memory and higher-level L2 pattern memory.
+- It is split into factual L1 memory, higher-level L2 pattern memory, and a long-horizon L3 session digest.
 - L1 is written as compact, actionable bullet-like state rather than full transcript history.
 - L2 tracks possible repeated interaction patterns and occurrence signals during the active session.
+- L3 is a compressed session summary generated at explicit save points and stored in the browser. It survives page reloads and reconnects.
 - Memory is injected into the brain prompt as trusted runtime context.
-- It is mirrored in the right sidebar through `runtime_memory_update` WebSocket events.
-- Each update is captured as a session snapshot with an index, raw memory text, parsed key/value lines, and diff metadata.
+- It is mirrored in the right sidebar through `runtime_memory_update` and `runtime_session_memory_update` WebSocket events.
+- Each L1/L2 update is captured as a session snapshot with an index, raw memory text, parsed key/value lines, and diff metadata.
 - The UI can navigate previous snapshots and replay visual highlights for new or changed memory fields.
 - Conversation activity and no-signal alerts can suppress overly soft default behavior when the exchange is clearly stuck.
 - Truncated or obviously incomplete summarizer output is rejected so it does not overwrite the previous memory.
@@ -115,10 +125,12 @@ This gives JIN observable short-term memory and behavior adaptation without intr
 |-- app_settings.py         # Typed settings wrapper
 |-- package.json            # Local command shortcuts
 |-- requirements.txt        # Pinned Python dependencies
+|-- saved_runtime.example.txt  # Template for persisted L3 session memory
 |-- .github/workflows/      # GitHub Actions CI
 |-- agent/                  # Agent runtime, state, router, and nodes
 |-- clients/                # Runtime client builders and provider helpers
 |-- runtime/                # Runtime client, context, contracts, memory, stream, registry
+|-- rules/                  # Brain prompt rule blocks: identity, loop, philosophy, vision, runtime actions
 |-- ui/                     # HTML templates, browser JavaScript, and README assets
 |-- tests/                  # Unit and optional model integration tests
 `-- utils/                  # Stream, telemetry, language, token, error helpers
@@ -203,6 +215,7 @@ USE_SERVICE_AS_BRAIN = False
 
 CHAT_ENDPOINT = "/v1/chat/completions"
 MODELS_ENDPOINT = "/v1/models"
+NATIVE_MODELS_ENDPOINT = "/api/v0/models"
 
 BRAIN_API_BASE = "http://brain-host:1234"
 BRAIN_MODEL_UID = "brain-model"
@@ -215,6 +228,10 @@ SERVICE_MODEL_UID = "service-model"
 SERVICE_CONTEXT_WINDOW = 8192
 SERVICE_TEMPERATURE = 0.15
 SERVICE_MAX_TOKENS = 1024
+
+RUNTIME_OUTPUT_TOKEN_RESERVE = 512
+RUNTIME_CONTEXT_WINDOW_FALLBACK_TO_SERVER = True
+RUNTIME_MAX_TOKENS_FALLBACK_TO_SERVER = True
 
 SEARCH_PROVIDER = "serper"
 SEARCH_SERPER_API_KEY = "mock-serper-api-key"
@@ -232,6 +249,7 @@ TRANSLATION_MAX_TOKENS = 2048
 ### Key Options
 
 - `USE_SERVICE_AS_BRAIN`: Uses the service runtime for brain responses when enabled.
+- `NATIVE_MODELS_ENDPOINT`: Optional provider-native metadata endpoint. LM Studio exposes the currently loaded context length here, which is more accurate than some `/v1/models` responses. Leave empty to disable native probing.
 - `BRAIN_API_BASE`: Base URL for the brain provider.
 - `BRAIN_MODEL_UID`: Model ID for the brain provider.
 - `BRAIN_CONTEXT_WINDOW`: Context capacity displayed in telemetry.
@@ -242,6 +260,9 @@ TRANSLATION_MAX_TOKENS = 2048
 - `SERVICE_CONTEXT_WINDOW`: Context capacity displayed in telemetry.
 - `SERVICE_TEMPERATURE`: Sampling temperature for service calls.
 - `SERVICE_MAX_TOKENS`: Maximum generated tokens for service calls.
+- `RUNTIME_OUTPUT_TOKEN_RESERVE`: Reserved context headroom kept free when calculating the dynamic response budget. Prevents requests from filling the context window exactly. Defaults to `512`.
+- `RUNTIME_CONTEXT_WINDOW_FALLBACK_TO_SERVER`: When `true`, JIN prefers the loaded context length reported by the runtime server over local config values. Defaults to `true`.
+- `RUNTIME_MAX_TOKENS_FALLBACK_TO_SERVER`: When `true`, JIN prefers the server-reported output token limit for model calls. Defaults to `true`.
 - `SEARCH_PROVIDER`: Search backend used by runtime search actions.
 - `SEARCH_SERPER_API_KEY`: API key for the Serper search provider.
 - `SEARCH_MAX_RESULTS`: Maximum search results returned to the runtime.
@@ -252,6 +273,20 @@ TRANSLATION_MAX_TOKENS = 2048
 - `TRANSLATION_TEMPERATURE`: Sampling temperature for translation calls.
 - `TRANSLATION_MIN_TOKENS`: Minimum token budget for translation.
 - `TRANSLATION_MAX_TOKENS`: Maximum token budget for translation.
+
+## Session Memory Persistence
+
+L3 session memory lets context survive across browser sessions without a server-side database.
+
+To save a session, say something that signals you are done: "save the session", "that's all for today", "wrap it up", "I'm going to sleep", or the Russian equivalents. The brain emits a `REMEMBER_SESSION` action and the runtime builds a compressed digest from the current snapshot history. The browser stores this digest in `localStorage` and also writes it back to `saved_runtime.txt` if that path is configured.
+
+On the next page load or reconnect, the browser includes the saved digest in its bootstrap payload. The runtime receives it, validates it against any fresh L1 memory that may have accumulated, and injects the session context into the brain prompt before the first turn.
+
+The sidebar shows a distinct indicator when a session was restored from a saved digest rather than built from live L1 memory.
+
+`saved_runtime.example.txt` shows the expected format for a pre-populated session memory file. Copy it to `saved_runtime.txt` and edit the contents to seed JIN with static facts that should survive every session.
+
+Important events — a major decision, a strong insight, a correction that changes how JIN understands the user — can also be saved mid-session with a `REMEMBER_EVENT` action. The brain emits this automatically when the conversation reaches a clear milestone.
 
 ## Tests
 
@@ -342,16 +377,71 @@ Runtime memory update:
 }
 ```
 
+Runtime L1 diff update (incremental key-level change history):
+
+```json
+{
+  "type": "runtime_l1_diff_update",
+  "diffs": [...],
+  "stats": { "total_changes": 4, "keys_added": 1, "keys_changed": 3 },
+  "strength_map": { "active topic": 0.8 },
+  "strength_zones": { "high": ["active topic"], "low": [] }
+}
+```
+
+Session memory update (L3 digest, sent after save or restore):
+
+```json
+{
+  "type": "runtime_session_memory_update",
+  "memory": "- decided: use separate runtimes\n- user: prefers terse replies",
+  "updates": 2,
+  "source": "browser_localStorage",
+  "persist": true,
+  "event_snapshots": []
+}
+```
+
 ## Frontend
 
 The UI is served directly by FastAPI:
 
 - `ui/templates/index.html` renders the shell.
-- `ui/static/js/socket.js` handles WebSocket connection, send, abort, and stream events.
+- `ui/static/js/socket.js` handles WebSocket connection, send, abort, stream events, and session bootstrap.
 - `ui/static/js/chat.js` renders normal and streaming messages.
 - `ui/static/js/status.js` updates provider online/offline indicators.
-- `ui/static/js/telemetry.js` updates runtime status, context usage, runtime memory snapshots, and memory diff highlighting.
+- `ui/static/js/telemetry.js` updates runtime status, context usage, runtime memory snapshots, memory diff highlighting, L3 session save and restore, and localStorage persistence.
 - `ui/static/js/logger.js` renders the runtime console.
-- `ui/static/js/dragdrop.js` handles attachment UI state.
+- `ui/static/js/dragdrop.js` handles file and image attachment UI: drag-and-drop onto the chat column, manual file picker via the attachment button, multi-file queuing, and per-file removal before send.
 
 The frontend uses vanilla JavaScript and Tailwind from CDN. The current input behavior is keyboard-first: Enter sends, Ctrl/Shift+Enter inserts a newline, and the whole input field becomes a red stop control while a generation is active.
+
+## Future Features
+
+The following capabilities are planned but not yet implemented.
+
+**Image and file attachments (multimodal pipeline).** The attachment UI already collects files via drag-and-drop and the file picker, but they are not yet sent through the WebSocket or passed to the model. The planned work covers: base64 serialization of images in the socket payload, multimodal content format in `RuntimeClient` (`image_url` blocks alongside text), backend state propagation through `AgentState` and `RuntimeContext`, and conditional injection of the vision rule block into the brain prompt when images are present. Non-image files will be metadata-only on first iteration.
+
+**Conversation mode switcher (dynamic instruction modes).** A deterministic selector that injects one of three instruction sets — `default`, `claude` (deep/philosophical/analytical), or `deepseek` (low-pressure/playful/tired) — based on L2 telemetry fields (`conversation_depth`, `user_energy`, `desired_tone`, `conversation_pressure`) and explicit user commands. The selector runs in code, not in the LLM. The selected mode is injected as a single block after the core identity prompt and expires after a configurable TTL. Core identity, memory facts, and runtime actions are never overridden by mode.
+
+**Structured interaction state.** A typed `InteractionState` enum (`NORMAL`, `LOW_SIGNAL_REPEAT`, `USER_STUCK`, `TASK_ACTIVE`, `EMOTIONAL_SUPPORT`) derived deterministically from runtime signals. The runtime computes state and confidence, injects a compact `<INTERACTION_STATE>` block into the brain prompt, and maps each state to a matching rules pack. This removes the need for the brain to infer its conversational situation from raw L1/L2 values on every turn.
+
+**Long-term facts layer (LTF).** A cross-session key-fact store extracted from completed turns by the service model, stored as JSON, and retrieved via keyword scoring before each brain call. Facts carry category, relevance, confidence, and mention count. A deduplication pass prevents drift from accumulating near-duplicate entries. The top-N retrieved facts are injected into the brain prompt as low-priority background context. No vector search or embedding index; heuristic scoring only for MVP.
+
+**Pending facts and open loops.** A lightweight `pending_fact` key in L1 memory that tracks unresolved external outcomes — moderation status, waiting for a reply, a deployment in progress. Each entry carries a trusted timestamp. When the pending outcome is older than roughly one day and still open, the brain may tactfully surface it. On resolution the entry is renamed to `resolved_fact` and moved to archive memory.
+
+**User and JIN profiles.** A periodic distillation of session snapshots into two versioned JSON files: `user_profile.json` (stable preferences, recurring themes, friction points, open projects) and `jin_profile.json` (emergent behavioral biases, voice tendencies, avoidances). Profiles are built from snapshot archives in batches, not in real time. They are injected as soft background context, not as hard identity constraints. Old profile versions are kept for rollback.
+
+**Night Brain — cross-session consolidation.** An offline background process that reads completed session snapshots, identifies durable patterns versus one-time events, proposes permanent memory updates, and prepares a morning brief. The first iteration operates on session snapshots only; it does not touch raw message logs. Night Brain also drives a watchlist: observations flagged by intent analysis are checked once during a low-traffic window. Allowed actions are `observe` and `analyze` only; nothing is posted or modified without explicit user approval.
+
+**Trusted archive search.** A `TRUSTED_ARCHIVE_SEARCH` runtime action that retrieves original message logs when the runtime memory is disputed, a user says "you said" or "we already discussed this", or a summarizer conclusion needs verification. The archive is not injected into the normal context; it is queried on demand. Retrieval results are treated as primary evidence, not as instruction.
+
+**Background LLM job queue.** A non-blocking `BackgroundLLMJob` model and in-memory worker that moves heavy service-model calls (L3 session saves, memory consolidation, future night-brain tasks) out of the interactive chat path. The worker runs as an `asyncio` task inside the existing `lifespan` hook, respects a concurrency semaphore, and logs through the existing `log_memory_event` channel. Disabled by default via `BACKGROUND_LLM_ENABLED = False`. A Stage 2 adds fair scheduling across job sources to prevent one session from starving other background work.
+
+**Brain fallback on low repair score.** When a service-model code/diff attempt scores below a configurable threshold (default 50), the next repair attempt is routed to the brain model with a clean snapshot containing only the original task, the current file state, the failed patch, and the exact error. The brain model does not receive the previous model's reasoning chain.
+
+**Think-block rule citation highlighting.** After a thinking block completes, the UI scans the text for phrases matching known injected prompt sections (core identity, mode rules, runtime memory, session memory). Matched fragments are highlighted with a soft color; hovering shows a tooltip with the source name, type, layer, and full rule text. This makes prompt influence visible during debugging without affecting the streaming display.
+
+**Memory event temperature.** Episodic key moments saved via `REMEMBER_EVENT` will carry emotional temperature (`positive`, `negative`, `mixed`), intensity, and initiator (`user_marked` or `jin_detected`). The service model infers these fields from natural language rather than requiring the user to fill a form. JIN may occasionally propose saving a moment it judges significant, but does so rarely.
+
+**Safe memory key normalization.** All memory keys arriving from model output or runtime updates are normalized before storage: trimmed, capped at 120 characters, and stripped of characters outside `[a-zA-Z0-9_\-:.]`. When normalization changes a key, the original is preserved as `raw_label` metadata. Conflicts from key collisions after normalization get numeric suffixes. Keys and values are rendered as `textContent` in the UI, never as `innerHTML`.
