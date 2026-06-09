@@ -15,7 +15,7 @@ Runtime memory can now influence conversation strategy, not just store facts. JI
 
 Session memory can survive across browser sessions. When the user explicitly ends or saves a session, JIN compresses the conversation into a compact L3 digest that the browser stores locally and replays on reconnect.
 
-![JIN Core Engine runtime UI](ui/static/images/jin-core-split-history.png)
+![JIN Core Engine runtime UI](ui/static/images/jin-core-redesign.png)
 
 ![highlight](ui/static/images/highlight.png)
 
@@ -37,39 +37,7 @@ Session memory can survive across browser sessions. When the user explicitly end
 
 ## Architecture
 
-```text
-Browser UI
-  |
-  v
-FastAPI app.py
-  |
-  +-- GET /            -> ui/templates/index.html
-  +-- GET /api/status  -> provider availability and runtime metadata
-  +-- WS  /ws/chat     -> streaming chat transport
-                              |
-                              v
-                         AgentRuntime
-                              |
-                              v
-        planner -> optional translator -> brain -> validator
-                              |
-                              +-- runtime actions -> search service
-                              |                  -> session memory save
-                              v
-                      RuntimeClient.stream()
-                                          |
-                                          v
-                              OpenAI-compatible provider
-                              |
-                              v
-                    background service summarizers
-                              |
-                              v
-                 L1 factual memory -> L2 pattern memory -> L3 session digest
-                              |
-                              v
-                    trusted brain prompt context
-```
+![highlight](ui/static/images/shema.png)
 
 ## Runtime Flow
 

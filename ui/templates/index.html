@@ -35,6 +35,12 @@
             --safe-right: 380px;
 
             --chat-max-width: 820px;
+
+            /* Вертикальный ритм чата: добавляет немного воздуха между ходами. */
+            --chat-turn-gap: 2.05rem;
+            --chat-inner-gap: 0.85rem;
+            --chat-question-gap: 2.55rem;
+            --chat-history-edge-gap: 1.9rem;
         }
 
         body {
@@ -101,6 +107,24 @@
         #chat-history {
             padding-left: var(--safe-left);
             padding-right: var(--safe-right);
+            padding-top: var(--chat-history-edge-gap) !important;
+            padding-bottom: var(--chat-history-edge-gap) !important;
+            scroll-padding-bottom: calc(var(--chat-history-edge-gap) + 0.5rem);
+        }
+
+        #chat-history > :not([hidden]) ~ :not([hidden]) {
+            /* Перебивает tailwind space-y-6 и даёт стабильный, чуть более воздушный шаг. */
+            margin-top: var(--chat-turn-gap) !important;
+        }
+
+        #chat-history > :not([hidden]) ~ :not([hidden]):has(.jin-chat-bubble-user) {
+            /* Чуть больше пауза перед новым запросом: визуально отделяет ответ JIN от следующего хода USER. */
+            margin-top: var(--chat-question-gap) !important;
+        }
+
+        #chat-history > :last-child {
+            /* Чтобы последний ход не прилипал к input-панели при автоскролле. */
+            margin-bottom: 0.35rem;
         }
 
         #chat-input-shell {
@@ -279,6 +303,404 @@
                     0 0 12px rgba(255,255,255,0.2);
         }
 
+
+
+        /* =========================
+           ЧАТ / БАБЛЫ / АВАТАРКИ
+           Подписи для ручной настройки:
+           - rgba(..., A): последнее число A = сила слоя / прозрачность.
+             Меньше A -> прозрачнее и тише, больше A -> плотнее и ярче.
+           - blur(px): сила размытия стекла. Меньше -> резче, больше -> мутнее.
+           - box-shadow: внешние и внутренние свечения. Первые строки обычно внешние,
+             строки с inset — внутренний свет/объём внутри плашки.
+           ========================= */
+
+        :root {
+            /* Общий цвет линий/акцентов JIN. Влияет на холодный cyan-вайб интерфейса. */
+            --jin-chat-line: rgba(103, 232, 249, 0.60);
+
+            /* Более слабый cyan-акцент для вторичных линий. */
+            --jin-chat-line-soft: rgba(103, 232, 249, 0.14);
+
+            /* Базовое внешнее свечение обычного JIN-бабла. */
+            --jin-chat-glow: rgba(45, 212, 191, 0.12);
+
+            /* Основной цвет текста JIN до переопределений ниже. */
+            --jin-chat-text: rgba(154, 242, 251, 0.95);
+
+            /* Приглушённый текст для think-блока. */
+            --jin-chat-muted: rgba(203, 213, 225, 0.62);
+
+            /* Базовая масса обычной JIN-плашки: последнее число = плотность фона. */
+            --jin-chat-panel: rgba(8, 17, 22, 0.76);
+
+            /* Базовая масса USER-плашки: главный регулятор прозрачности user-бабла. */
+            --jin-chat-panel-user: rgba(14, 21, 31, 0.76);
+
+            /* Базовая масса think-плашки: чем меньше alpha, тем больше она "в воздухе". */
+            --jin-chat-panel-think: rgba(12, 12, 14, 0.44);
+        }
+
+        .jin-stream-wrapper,
+        .jin-message-shell {
+            /* Нужна база для внутренних абсолютных/визуальных элементов сообщения. */
+            position: relative;
+        }
+
+        #chat-history .jin-stream-wrapper + .jin-stream-wrapper,
+        #chat-history .jin-stream-wrapper + .jin-message-shell,
+        #chat-history .jin-message-shell + .jin-stream-wrapper,
+        #chat-history .jin-message-shell + .jin-message-shell {
+            /* Фолбэк для динамических сообщений, если они обходят tailwind space-y. */
+            margin-top: var(--chat-turn-gap);
+        }
+
+        #chat-history .jin-stream-wrapper + .jin-message-shell:has(.jin-chat-bubble-user),
+        #chat-history .jin-message-shell + .jin-message-shell:has(.jin-chat-bubble-user) {
+            /* Дополнительный воздух именно перед новым пользовательским запросом, без раздувания think -> answer. */
+            margin-top: var(--chat-question-gap) !important;
+        }
+
+        .jin-message-row {
+            /* Горизонтальная строка: аватарка слева, бабл справа. */
+            display: flex;
+
+            /* Прижимает аватарку и бабл к верхнему краю строки. */
+            align-items: flex-start;
+
+            /* Расстояние между аватаркой и баблом. */
+            gap: 12px;
+        }
+
+        .jin-chat-avatar {
+            /* Размер квадратной аватарки SV/US. */
+            width: 28px;
+            height: 28px;
+            flex: 0 0 28px;
+
+            /* Центровка букв внутри аватарки. */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            /* Скругление аватарки. Сейчас 4px — тот же радиус, что у баблов. */
+            border-radius: 4px;
+
+            /* Cyan-рамка JIN/SV-аватарки. Alpha управляет заметностью рамки. */
+            border: 1px solid rgba(103, 232, 249, 0.34);
+
+            /* Тёмная cyan-подложка аватарки. */
+            background: rgba(7, 20, 26, 0.68);
+
+            /* Цвет букв внутри аватарки. */
+            color: rgba(153, 246, 228, 0.95);
+
+            /* Типографика букв SV/US. */
+            font-size: 10px;
+            line-height: 1;
+            letter-spacing: 0.04em;
+
+            /* 1) тонкая тёмная обводка, 2) внешнее cyan-свечение, 3) внутренний свет. */
+            box-shadow:
+                    0 0 0 1px rgba(0, 0, 0, 0.35),
+                    0 0 14px rgba(20, 184, 166, 0.14),
+                    inset 0 0 12px rgba(103, 232, 249, 0.04);
+        }
+
+        .jin-chat-avatar-user {
+            /* Рамка US-аватарки: холоднее и серее, чем у JIN/SV. */
+            border-color: rgba(148, 163, 184, 0.42);
+
+            /* Фон US-аватарки: slate/blue-gray. */
+            background: rgba(20, 27, 38, 0.70);
+
+            /* Цвет букв US. */
+            color: rgba(226, 232, 240, 0.88);
+
+            /* Серое внешнее и внутреннее свечение US-аватарки. */
+            box-shadow:
+                    0 0 0 1px rgba(0, 0, 0, 0.32),
+                    0 0 12px rgba(148, 163, 184, 0.12),
+                    inset 0 0 12px rgba(226, 232, 240, 0.03);
+        }
+
+        .jin-chat-avatar-brain,
+        .jin-chat-avatar-translator {
+            /* Цветовая ветка BRAIN/translator-аватарок: немного в фиолетово-синий. */
+            border-color: rgba(165, 180, 252, 0.34);
+            color: rgba(199, 210, 254, 0.92);
+        }
+
+        .jin-chat-avatar.cursor-help:hover {
+            /* Hover аватарки: подсказка, что элемент кликабельный/интерактивный. */
+            border-color: rgba(110, 231, 183, 0.65);
+            color: rgba(236, 253, 245, 0.98);
+            background: rgba(13, 34, 34, 0.74);
+        }
+
+        .jin-chat-bubble {
+            /* Общая база для ВСЕХ баблов: JIN, USER, BRAIN. */
+            position: relative;
+            flex: 0 1 auto;
+
+            /* Бабл подстраивается под текст, а не растягивается на всю строку. */
+            width: fit-content;
+
+            /* Максимальная ширина длинного ответа. Уменьшай, если плашки слишком широкие. */
+            max-width: min(100%, 720px);
+
+            /* Защита от переполнения внутри flex-строки. */
+            min-width: 0;
+
+            /* Внутренние отступы всех баблов: верх/низ 14px, лево/право 18px. */
+            padding: 14px 18px;
+
+            /* Базовый цвет текста до role-specific переопределений. */
+            color: var(--jin-chat-text);
+
+            /* Базовый фон: верхний блик + вертикальная стеклянная плёнка + масса плашки. */
+            background:
+                    radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.075), transparent 42%),
+                    linear-gradient(180deg, rgba(255, 255, 255, 0.040), rgba(255, 255, 255, 0.012)),
+                    var(--jin-chat-panel);
+
+            /* Бордер отключён: форма держится светом и тенью. */
+            border: 0;
+
+            /* Скругление всех баблов. Сейчас совпадает с аватарками. */
+            border-radius: 4px;
+
+            /* Срезанные углы отключены. */
+            clip-path: none;
+
+            /* Общее стеклянное размытие фона под баблом. */
+            backdrop-filter: blur(12px);
+
+            /* Общая глубина: тень вниз, внешнее свечение, внутренний объём. */
+            box-shadow:
+                    0 10px 34px rgba(0, 0, 0, 0.32),
+                    0 0 24px var(--jin-chat-glow),
+                    inset 0 0 30px rgba(255, 255, 255, 0.030),
+                    inset 0 0 28px rgba(20, 184, 166, 0.035);
+        }
+
+        .jin-chat-bubble::before,
+        .jin-chat-bubble::after {
+            /* Декоративные псевдоэлементы отключены, чтобы не было лишних рамок/углов. */
+            content: none;
+        }
+
+        .jin-chat-bubble-service {
+            /* Старый/базовый shadow для JIN. Ниже есть финальное переопределение JIN-бабла. */
+            box-shadow:
+                    0 10px 34px rgba(0, 0, 0, 0.34),
+                    0 0 28px rgba(20, 184, 166, 0.14),
+                    inset 0 0 30px rgba(255, 255, 255, 0.026),
+                    inset 0 0 32px rgba(45, 212, 191, 0.05);
+        }
+
+        .jin-chat-bubble-user {
+            /* Цвет текста USER. Alpha делает текст тише/ярче. */
+            color: rgba(226, 235, 246, 0.76);
+
+            /* Радиус USER-бабла. Сейчас как у аватарки. */
+            border-radius: 4px;
+
+            /* USER-фон:
+               1) верхний blue-блик,
+               2) правый мягкий blue-свет,
+               3) нижняя slate-глубина,
+               4) стеклянная вертикальная плёнка,
+               5) основная масса через --jin-chat-panel-user. */
+            background:
+                    radial-gradient(circle at 18% 0%, rgba(147, 197, 253, 0.052), transparent 44%),
+                    radial-gradient(circle at 88% 20%, rgba(96, 165, 250, 0.034), transparent 42%),
+                    radial-gradient(circle at 64% 100%, rgba(148, 163, 184, 0.026), transparent 48%),
+                    linear-gradient(180deg, rgba(219, 234, 254, 0.034), rgba(15, 23, 42, 0.022)),
+                    var(--jin-chat-panel-user);
+
+            /* Размытие USER-бабла. Уменьшай, если плашка слишком мутная. */
+            backdrop-filter: blur(9.75px);
+
+            /* USER-тени:
+               1) физическая тень,
+               2) синее внешнее свечение,
+               3) широкая бледная blue-аура,
+               4-6) внутренние блики и объём. */
+            box-shadow:
+                    0 12px 32px rgba(0, 0, 0, 0.23),
+                    0 0 28px rgba(96, 165, 250, 0.062),
+                    0 0 42px rgba(147, 197, 253, 0.030),
+                    inset 0 1px 0 rgba(219, 234, 254, 0.050),
+                    inset 0 0 24px rgba(96, 165, 250, 0.018),
+                    inset 0 0 28px rgba(147, 197, 253, 0.012);
+
+            /* Очень слабое свечение текста USER. */
+            text-shadow:
+                    0 0 10px rgba(96, 165, 250, 0.030);
+        }
+
+        .jin-chat-bubble-brain,
+        .jin-chat-bubble-translator {
+            /* Отдельная ветка для BRAIN/translator-баблов: мягкий indigo-оттенок. */
+            box-shadow:
+                    0 10px 32px rgba(0, 0, 0, 0.32),
+                    0 0 24px rgba(129, 140, 248, 0.10),
+                    inset 0 0 28px rgba(255, 255, 255, 0.022),
+                    inset 0 0 28px rgba(129, 140, 248, 0.035);
+        }
+
+        .jin-chat-pre {
+            /* Текст внутри бабла: pre нужен для переносов и ASCII/форматирования. */
+            margin: 0;
+
+            /* Не даёт тексту вылезать шире бабла. */
+            max-width: 100%;
+            overflow-x: auto;
+
+            /* Сохраняет переносы, но позволяет длинным строкам ломаться. */
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+
+            /* Наследуем font-family от body/font-mono. */
+            font-family: inherit;
+
+            /* Размер и ритм текста в сообщениях. */
+            font-size: 13px;
+            line-height: 1.72;
+            letter-spacing: 0.01em;
+
+            /* Цвет берётся от конкретного бабла. */
+            color: inherit;
+
+            /* Базовое cyan-свечение текста; ниже JIN/USER могут переопределять. */
+            text-shadow: 0 0 10px rgba(94, 234, 212, 0.08);
+        }
+
+        .jin-think-wrapper {
+            /* Ширина think-блока совпадает с шириной длинных баблов. */
+            max-width: 720px;
+
+            /* Сдвиг think вправо, чтобы он начинался после аватарки. */
+            margin-left: 40px;
+
+            /* Небольшая пауза между мыслью и следующим видимым ответом. */
+            margin-bottom: var(--chat-inner-gap);
+
+            /* Общая видимость think-блока. Меньше -> больше "в воздухе". */
+            opacity: 0.92;
+        }
+
+        .jin-think-header {
+            /* Строка заголовка <think>. */
+            display: flex;
+            align-items: center;
+            gap: 8px;
+
+            /* Приглушённый цвет заголовка think. */
+            color: rgba(203, 213, 225, 0.72);
+
+            /* Размер подписи think. */
+            font-size: 11px;
+
+            /* Плавность подсветки при hover. */
+            transition: color 0.2s ease;
+        }
+
+        .jin-think-header:hover {
+            /* Заголовок think становится читабельнее при наведении. */
+            color: rgba(226, 232, 240, 0.96);
+        }
+
+        .jin-think-content {
+            /* Отступ между заголовком <think> и телом мысли. */
+            margin-top: 8px;
+
+            /* Внутренние отступы think-плашки. */
+            padding: 14px 18px;
+
+            /* Цвет текста think. */
+            color: var(--jin-chat-muted);
+
+            /* Think чуть мельче обычного ответа. */
+            font-size: 12px;
+            line-height: 1.65;
+
+            /* Курсив отделяет мысль от обычного голоса. */
+            font-style: italic;
+
+            /* Сохраняет переносы текста think. */
+            white-space: pre-wrap;
+
+            /* Масса think-плашки. Регулируется --jin-chat-panel-think. */
+            background: var(--jin-chat-panel-think);
+
+            /* Тонкая рамка think-плашки. */
+            border: 1px solid rgba(148, 163, 184, 0.14);
+
+            /* Think пока мягче скруглён, чем основные баблы. */
+            border-radius: 10px;
+
+            /* Размытие фона под think. */
+            backdrop-filter: blur(8px);
+
+            /* Тень и внутренний объём think. */
+            box-shadow:
+                    0 8px 26px rgba(0, 0, 0, 0.28),
+                    inset 0 0 18px rgba(255, 255, 255, 0.025);
+        }
+
+        #chat-history .border-l.border-slate-500.pl-4.text-xs.text-zinc-300.italic.leading-relaxed.whitespace-pre-wrap {
+            /* Сброс старого tailwind-стиля think: убирает левую линию. */
+            border-left: 0 !important;
+
+            /* Сброс старого отступа от левой линии. */
+            padding-left: 0 !important;
+        }
+
+        .jin-chat-bubble-service {
+            /* Финальный JIN-фон:
+               1) верхний cyan-блик,
+               2) правый teal-свет,
+               3) нижняя слабая indigo-глубина,
+               4) стеклянная вертикальная плёнка,
+               5) основная масса JIN-бабла. */
+            background:
+                    radial-gradient(circle at 18% 0%, rgba(103, 232, 249, 0.050), transparent 44%),
+                    radial-gradient(circle at 86% 18%, rgba(45, 212, 191, 0.040), transparent 42%),
+                    radial-gradient(circle at 64% 100%, rgba(129, 140, 248, 0.024), transparent 48%),
+                    linear-gradient(180deg, rgba(204, 251, 241, 0.030), rgba(10, 18, 22, 0.022)),
+                    rgba(10, 18, 22, 0.48);
+
+            /* Финальный цвет текста JIN. */
+            color: rgba(222, 238, 235, 0.86);
+
+            /* Финальное JIN-свечение:
+               1) физическая тень,
+               2) teal-аура,
+               3) cyan-аура,
+               4) слабая indigo-глубина,
+               5-7) внутренний свет и объём. */
+            box-shadow:
+                    0 14px 42px rgba(0, 0, 0, 0.24),
+                    0 0 32px rgba(45, 212, 191, 0.070),
+                    0 0 44px rgba(103, 232, 249, 0.035),
+                    0 0 34px rgba(129, 140, 248, 0.018),
+                    inset 0 1px 0 rgba(204, 251, 241, 0.045),
+                    inset 0 0 26px rgba(45, 212, 191, 0.020),
+                    inset 0 0 30px rgba(103, 232, 249, 0.014);
+        }
+
+        .jin-chat-bubble-service .jin-chat-pre {
+            /* Цвет текста внутри JIN-бабла дублируется здесь для надёжности. */
+            color: rgba(222, 238, 235, 0.86);
+
+            /* Свечение текста JIN: teal + cyan. */
+            text-shadow:
+                    0 0 10px rgba(45, 212, 191, 0.040),
+                    0 0 14px rgba(103, 232, 249, 0.024);
+        }
+
         .runtime-memory-line {
             margin: 0 0 10px 0;
             line-height: 1.5;
@@ -356,6 +778,21 @@
                             94,
                             var(--memory-change-glow, 0.22)
                     );
+        }
+
+
+
+        /* Final bubble geometry pass: both message bubbles use avatar-like corners. */
+        .jin-chat-bubble,
+        .jin-chat-bubble-service,
+        .jin-chat-bubble-user {
+            border-radius: 4px;
+        }
+
+        .jin-chat-bubble-user .jin-chat-pre {
+            color: rgba(226, 235, 246, 0.76);
+            text-shadow:
+                    0 0 10px rgba(96, 165, 250, 0.030);
         }
     </style>
 </head>
