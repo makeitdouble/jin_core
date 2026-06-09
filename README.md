@@ -15,7 +15,7 @@ Runtime memory can now influence conversation strategy, not just store facts. JI
 
 Session memory can survive across browser sessions. When the user explicitly ends or saves a session, JIN compresses the conversation into a compact L3 digest that the browser stores locally and replays on reconnect.
 
-![JIN Core Engine runtime UI](ui/static/images/jin-core-split-history.png)
+![JIN Core Engine runtime UI](ui/static/images/jin-core-redesign.png)
 
 ![highlight](ui/static/images/highlight.png)
 
