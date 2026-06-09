@@ -1380,11 +1380,34 @@ function applyBootstrapRuntimeMemoryUpdate(
     return false;
   }
 
+  const incomingBootstrapMemory =
+    getRuntimeMemoryTextFromUpdate(data);
+
+  const pendingBootstrapMemory =
+    normalizeRuntimeMemoryText(
+      pendingBootstrapRuntimeMemorySnapshot.raw_memory
+    );
+
+  const incomingIsSameSavedRuntime = Boolean(
+    incomingBootstrapMemory
+    && pendingBootstrapMemory
+    && incomingBootstrapMemory === pendingBootstrapMemory
+  );
+
   const bootstrapSnapshot = {
     ...data.snapshot,
     index: 0,
     runtime_memory_updates:
-      Number(data.updates || 0),
+      incomingIsSameSavedRuntime
+        ? Number(
+            pendingBootstrapRuntimeMemorySnapshot
+              .runtime_memory_updates || 0
+          )
+        : Number(data.updates || 0),
+    restored_from_session_save:
+      incomingIsSameSavedRuntime
+        ? true
+        : data.snapshot.restored_from_session_save,
   };
 
   const savedRuntimeSnapshot = {
@@ -1400,22 +1423,33 @@ function applyBootstrapRuntimeMemoryUpdate(
     window.stopMemoryGlow();
   }
 
-  // Page 0 should remain the fresh browser/L3 restore status from the server.
-  // Page 1 should keep the real runtime state saved with the session.
-  runtimeMemoryHistory.snapshots = [
-    bootstrapSnapshot,
-    savedRuntimeSnapshot,
-  ];
-  // After browser/L3 restore, keep the status page as page 0,
-  // but show the saved runtime page immediately.
-  runtimeMemoryHistory.index = 1;
+  if (incomingIsSameSavedRuntime) {
+    // On a hard page refresh the server can echo the saved runtime as its
+    // initial L1 update. The UI has already rendered that saved runtime from
+    // localStorage, so appending the server echo creates two identical runtime
+    // pages: <0> and <1>. Treat that echo as confirmation and keep one page.
+    runtimeMemoryHistory.snapshots = [
+      bootstrapSnapshot,
+    ];
+    runtimeMemoryHistory.index = 0;
+  } else {
+    // Page 0 is the fresh browser/L3 restore status from the server.
+    // Page 1 keeps the real runtime state saved with the session.
+    runtimeMemoryHistory.snapshots = [
+      bootstrapSnapshot,
+      savedRuntimeSnapshot,
+    ];
+    runtimeMemoryHistory.index = 1;
+  }
 
   if (runtimeMemoryCount) {
-    // Use the saved snapshot's update count, not data.updates which is 0
-    // for the bootstrap L1 snapshot and would incorrectly reset the counter.
     runtimeMemoryCount.textContent =
       String(
-        savedRuntimeSnapshot.runtime_memory_updates
+        (
+          incomingIsSameSavedRuntime
+            ? bootstrapSnapshot.runtime_memory_updates
+            : savedRuntimeSnapshot.runtime_memory_updates
+        )
         || data.updates
         || 0
       );
