@@ -59,6 +59,7 @@ from utils.ws_errors import (
 from runtime import (
     RuntimeContext,
     RuntimeEmitter,
+    apply_runtime_response_feedback,
     build_runtime_memory_snapshot,
     cancel_idle_fact_check,
     emit_runtime_l1_diff_update,
@@ -1303,6 +1304,18 @@ async def websocket_endpoint(
 
                 await wait_for_runtime_memory_update(
                     context
+                )
+
+                await apply_runtime_response_feedback(
+                    context,
+                    (
+                        message_data.get(
+                            "pending_last_response_rating",
+                        )
+                        or message_data.get(
+                            "runtime_response_feedback",
+                        )
+                    ),
                 )
 
                 await refresh_pending_brain_usage(

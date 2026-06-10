@@ -134,3 +134,5 @@ class RuntimeContext:
     runtime_turn_assistant_response: str = ""
 
     runtime_turn_interrupted: bool = False
+
+    runtime_last_response_feedback: dict | None = None

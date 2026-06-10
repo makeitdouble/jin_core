@@ -737,6 +737,14 @@
             background: transparent;
         }
 
+        .jin-chat-bubble-service.jin-rating-l1-waiting .jin-rating-zone {
+            cursor: wait;
+        }
+
+        .jin-chat-bubble-service.jin-rating-l1-waiting {
+            filter: saturate(0.92);
+        }
+
         .jin-chat-bubble-service .jin-chat-pre {
             position: relative;
             z-index: 2;
@@ -1573,8 +1581,23 @@
             "jin-rating-press-plus",
         ];
 
+        function isRatingInteractionBlocked() {
+            return Boolean(
+                (
+                    window.isJinGenerationRunning
+                    && window.isJinGenerationRunning()
+                )
+                || window.jinGenerationRunning
+            );
+        }
+
         function clearBubbleRating(bubble, reason = "outside") {
-            if (!bubble || bubble.classList.contains("jin-rating-committed")) {
+            if (
+                !bubble
+                || bubble.classList.contains("jin-rating-committed")
+                || bubble.dataset.ratingCommitted === "true"
+                || isRatingInteractionBlocked()
+            ) {
                 return;
             }
 
@@ -1590,6 +1613,14 @@
             }
 
             if (previousRating) {
+                if (window.clearJinAnswerRating) {
+                    window.clearJinAnswerRating({
+                        previousRating,
+                        reason,
+                        runtimeSnapshotIndex: bubble.dataset.runtimeSnapshotIndex || null,
+                    });
+                }
+
                 bubble.dispatchEvent(new CustomEvent("jin:answer-rating-cleared", {
                     bubbles: true,
                     detail: {
@@ -1600,13 +1631,63 @@
             }
         }
 
+        function getCurrentRatingGateGeneration() {
+            if (!window.getJinAnswerRatingL1GateState) {
+                return 0;
+            }
+
+            const gateState = window.getJinAnswerRatingL1GateState() || {};
+            return Number(gateState.waitingGeneration || gateState.generation || 0);
+        }
+
+        function isBubbleRatingL1Ready(bubble) {
+            const generation = Number(bubble && bubble.dataset.ratingGateGeneration || 0);
+
+            if (!generation) {
+                return true;
+            }
+
+            if (!window.isJinAnswerRatingReadyForGateGeneration) {
+                return false;
+            }
+
+            return Boolean(window.isJinAnswerRatingReadyForGateGeneration(generation));
+        }
+
+        function markBubbleRatingL1State(bubble) {
+            if (!bubble) {
+                return;
+            }
+
+            const blocked = isRatingInteractionBlocked();
+            const ready = !blocked && isBubbleRatingL1Ready(bubble);
+            bubble.dataset.ratingL1Ready = ready ? "true" : "false";
+            bubble.classList.toggle("jin-rating-l1-waiting", !ready);
+
+            const zones = bubble.querySelector(":scope > .jin-rating-hover-zones");
+            if (zones && blocked) {
+                zones.title = "rating is locked while JIN is generating";
+            } else if (zones && !ready) {
+                zones.title = "waiting for L1 snapshot before rating";
+            } else if (zones && !bubble.dataset.ratingSelected) {
+                zones.title = "";
+            }
+        }
+
         function addRatingHoverZones(root) {
             const scope = root instanceof Element ? root : document;
 
             scope.querySelectorAll(".jin-chat-bubble-service").forEach((bubble) => {
                 if (bubble.querySelector(":scope > .jin-rating-hover-zones")) {
+                    markBubbleRatingL1State(bubble);
                     return;
                 }
+
+                if (!bubble.dataset.ratingGateGeneration) {
+                    bubble.dataset.ratingGateGeneration = String(getCurrentRatingGateGeneration());
+                }
+
+                markBubbleRatingL1State(bubble);
 
                 const zones = document.createElement("div");
                 zones.className = "jin-rating-hover-zones";
@@ -1626,7 +1707,18 @@
                         event.preventDefault();
                         event.stopPropagation();
 
-                        if (bubble.classList.contains("jin-rating-committed")) {
+                        if (
+                            bubble.classList.contains("jin-rating-committed")
+                            || bubble.dataset.ratingCommitted === "true"
+                            || isRatingInteractionBlocked()
+                        ) {
+                            markBubbleRatingL1State(bubble);
+                            return;
+                        }
+
+                        markBubbleRatingL1State(bubble);
+
+                        if (!isBubbleRatingL1Ready(bubble)) {
                             return;
                         }
 
@@ -1668,15 +1760,23 @@
 
                         zones.title = `pending rating: ${ratingValue}; clicks: ${bubbleClickCount}; total: ${globalCounts.total}`;
 
+                        const ratingDetail = {
+                            rating: ratingValue,
+                            previousRating,
+                            bubbleClickCount,
+                            pending: true,
+                            globalCounts: { ...globalCounts },
+                            runtimeSnapshotIndex: bubble.dataset.runtimeSnapshotIndex || null,
+                            ratingGateGeneration: bubble.dataset.ratingGateGeneration || null,
+                        };
+
+                        if (window.recordJinAnswerRating) {
+                            window.recordJinAnswerRating(ratingDetail);
+                        }
+
                         bubble.dispatchEvent(new CustomEvent("jin:answer-rating-clicked", {
                             bubbles: true,
-                            detail: {
-                                rating: ratingValue,
-                                previousRating,
-                                bubbleClickCount,
-                                pending: true,
-                                globalCounts: { ...globalCounts },
-                            },
+                            detail: ratingDetail,
                         }));
                     });
 
@@ -1687,6 +1787,16 @@
             });
         }
 
+        window.addEventListener("jin:l1-rating-gate-ready", () => {
+            addRatingHoverZones(document);
+        });
+
+        window.addEventListener("jin:generation-state-changed", () => {
+            document
+                .querySelectorAll(".jin-chat-bubble-service")
+                .forEach(markBubbleRatingL1State);
+        });
+
         addRatingHoverZones(document);
 
         document.addEventListener("click", (event) => {
@@ -1694,9 +1804,17 @@
                 return;
             }
 
-            document
+            const answerRow = event.target.closest(".jin-message-row");
+            if (
+                !answerRow
+                || !answerRow.querySelector(".jin-chat-bubble-service")
+            ) {
+                return;
+            }
+
+            answerRow
                 .querySelectorAll(".jin-chat-bubble-service.jin-rating-selected-active:not(.jin-rating-committed)")
-                .forEach((bubble) => clearBubbleRating(bubble, "outside"));
+                .forEach((bubble) => clearBubbleRating(bubble, "answer-row-outside-bubble"));
         });
 
         const chatForm = document.getElementById("chat-form");
@@ -1709,6 +1827,11 @@
                         bubble.classList.add("jin-rating-committed");
                         bubble.dataset.ratingPending = "false";
                         bubble.dataset.ratingCommitted = "true";
+
+                        const zones = bubble.querySelector(":scope > .jin-rating-hover-zones");
+                        if (zones) {
+                            zones.title = `committed rating: ${bubble.dataset.ratingSelected || "unknown"}`;
+                        }
 
                         bubble.dispatchEvent(new CustomEvent("jin:answer-rating-committed", {
                             bubbles: true,

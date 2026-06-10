@@ -46,6 +46,228 @@ from runtime.fact_check import (
 )
 
 
+
+
+RUNTIME_RESPONSE_FEEDBACK_KEY = "JIN_LAST_RESPONSE_USER_FEEDBACK"
+RUNTIME_RESPONSE_FEEDBACK_DISLIKED_VALUE = (
+    "User disliked your last response. "
+    "Before answering, find and understand why it failed using context or memory, then start the next reply with a brief acknowledgement of that miss, then continue with a concrete corrected answer."
+)
+RUNTIME_RESPONSE_FEEDBACK_NEUTRAL_VALUE = (
+    "User gave neutral feedback to your last response. "
+    "Continue carefully without changing course too much and treat it as a signal for response improvement."
+)
+RUNTIME_RESPONSE_FEEDBACK_LIKED_VALUE = (
+    "User liked your last response. "
+    "Keep the current direction."
+)
+RUNTIME_RESPONSE_FEEDBACK_RATINGS = {
+    "disliked": "disliked",
+    "neutral": "neutral",
+    "liked": "liked",
+}
+
+
+def normalize_runtime_response_feedback(feedback) -> dict | None:
+
+    if not isinstance(feedback, dict):
+        return None
+
+    raw_rating = str(
+        feedback.get("rating")
+        or ""
+    ).strip().casefold()
+
+    rating = RUNTIME_RESPONSE_FEEDBACK_RATINGS.get(
+        raw_rating
+    )
+
+    if rating is None:
+        return None
+
+    return {
+        "rating": rating,
+    }
+
+
+def build_runtime_response_feedback_value(feedback: dict) -> str:
+
+    rating = feedback.get(
+        "rating",
+        "neutral",
+    )
+
+    if rating == "disliked":
+        return RUNTIME_RESPONSE_FEEDBACK_DISLIKED_VALUE
+
+    if rating == "liked":
+        return RUNTIME_RESPONSE_FEEDBACK_LIKED_VALUE
+
+    return RUNTIME_RESPONSE_FEEDBACK_NEUTRAL_VALUE
+
+
+
+def remove_runtime_memory_entry_text(
+        memory: str,
+        key: str,
+) -> str:
+
+    target_key = str(key or "").strip()
+    if not target_key:
+        return memory or ""
+
+    target_key_normalized = target_key.casefold()
+
+    lines = [
+        line.rstrip()
+        for line in str(memory or "").splitlines()
+    ]
+
+    kept_lines = []
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        current_key = stripped.split(":", 1)[0].strip().casefold()
+
+        if current_key == target_key_normalized:
+            continue
+
+        kept_lines.append(stripped)
+
+    return "\n".join(kept_lines).strip()
+
+
+def upsert_runtime_memory_entry_text(
+        memory: str,
+        key: str,
+        value: str,
+) -> str:
+
+    target_key = str(key or "").strip()
+    if not target_key:
+        return memory or ""
+
+    target_key_normalized = target_key.casefold()
+    replacement = f"{target_key}: {str(value or '').strip()}"
+
+    lines = [
+        line.rstrip()
+        for line in str(memory or "").splitlines()
+    ]
+
+    updated_lines = []
+    replaced = False
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        current_key = stripped.split(":", 1)[0].strip().casefold()
+
+        if current_key == target_key_normalized:
+            if not replaced:
+                updated_lines.append(replacement)
+                replaced = True
+            continue
+
+        updated_lines.append(stripped)
+
+    if not replaced:
+        updated_lines.append(replacement)
+
+    return "\n".join(updated_lines).strip()
+
+
+def remove_runtime_response_feedback_text(
+        memory: str,
+) -> str:
+
+    return remove_runtime_memory_entry_text(
+        memory or "",
+        RUNTIME_RESPONSE_FEEDBACK_KEY,
+    ).strip()
+
+
+def clear_runtime_response_feedback(
+        context,
+) -> None:
+
+    if context is None:
+        return
+
+    context.runtime_memory = remove_runtime_response_feedback_text(
+        getattr(
+            context,
+            "runtime_memory",
+            "",
+        )
+    )
+
+    context.runtime_memory_stable = remove_runtime_response_feedback_text(
+        getattr(
+            context,
+            "runtime_memory_stable",
+            "",
+        )
+    )
+
+    context.runtime_last_response_feedback = None
+
+
+async def apply_runtime_response_feedback(
+        context,
+        feedback,
+) -> dict | None:
+
+    normalized_feedback = normalize_runtime_response_feedback(
+        feedback
+    )
+
+    if normalized_feedback is None:
+        return None
+
+    value = build_runtime_response_feedback_value(
+        normalized_feedback
+    )
+
+    current_memory = getattr(
+        context,
+        "runtime_memory",
+        "",
+    )
+
+    cleaned_memory = remove_runtime_response_feedback_text(
+        current_memory
+    )
+
+    updated_memory = upsert_runtime_memory_entry_text(
+        cleaned_memory,
+        RUNTIME_RESPONSE_FEEDBACK_KEY,
+        value,
+    )
+
+    if updated_memory == current_memory:
+        context.runtime_last_response_feedback = normalized_feedback
+        return None
+
+    context.runtime_memory = updated_memory
+    context.runtime_last_response_feedback = normalized_feedback
+
+    # Rating clicks are an in-place mutation of the current L1 snapshot.
+    # Do not increment runtime_memory_updates and do not emit
+    # runtime_memory_update here, otherwise the UI creates a new runtime page.
+    # This is a transient next-turn alert, not durable L1 memory.
+    # Keep runtime_memory_stable clean so L1 cannot preserve it.
+    return {
+        "applied": True,
+        "rating": normalized_feedback["rating"],
+        "runtime_memory": updated_memory,
+    }
+
 DEFAULT_RUNTIME_L2_MEMORY = ""
 DEFAULT_RUNTIME_L3_SESSION_MEMORY = ""
 L3_INPUT_TOKEN_TARGET_MAX = 6000
@@ -2199,11 +2421,23 @@ async def summarize_runtime_memory(
             "",
         )
 
-    current_memory = getattr(
-        context,
-        "runtime_memory",
-        "",
+    current_memory = remove_runtime_response_feedback_text(
+        getattr(
+            context,
+            "runtime_memory",
+            "",
+        )
     )
+
+    context.runtime_memory = current_memory
+    context.runtime_memory_stable = remove_runtime_response_feedback_text(
+        getattr(
+            context,
+            "runtime_memory_stable",
+            "",
+        )
+    )
+    context.runtime_last_response_feedback = None
 
     try:
         response = await ask_runtime_memory_model(
@@ -2216,6 +2450,9 @@ async def summarize_runtime_memory(
 
         updated_memory = extract_runtime_memory_text(
             response
+        )
+        updated_memory = remove_runtime_response_feedback_text(
+            updated_memory
         )
 
         if (
@@ -2244,10 +2481,16 @@ async def summarize_runtime_memory(
             current_memory,
             updated_memory,
         )
+        updated_memory = remove_runtime_response_feedback_text(
+            updated_memory
+        )
         updated_memory = ensure_confirmable_memory_markers(
             updated_memory,
             user_message=user_message,
             assistant_message=assistant_message,
+        )
+        updated_memory = remove_runtime_response_feedback_text(
+            updated_memory
         )
 
         updates_counter = getattr(
@@ -2356,11 +2599,23 @@ async def summarize_runtime_memory_pending_turns(
             "",
         )
 
-    initial_memory = getattr(
-        context,
-        "runtime_memory_stable",
-        "",
+    initial_memory = remove_runtime_response_feedback_text(
+        getattr(
+            context,
+            "runtime_memory_stable",
+            "",
+        )
     )
+
+    context.runtime_memory = remove_runtime_response_feedback_text(
+        getattr(
+            context,
+            "runtime_memory",
+            "",
+        )
+    )
+    context.runtime_memory_stable = initial_memory
+    context.runtime_last_response_feedback = None
 
     try:
         response = await ask_runtime_memory_batch_model(
@@ -2372,6 +2627,9 @@ async def summarize_runtime_memory_pending_turns(
 
         updated_memory = extract_runtime_memory_text(
             response
+        )
+        updated_memory = remove_runtime_response_feedback_text(
+            updated_memory
         )
 
         skip_reason = None
@@ -2401,6 +2659,9 @@ async def summarize_runtime_memory_pending_turns(
             initial_memory,
             updated_memory,
         )
+        updated_memory = remove_runtime_response_feedback_text(
+            updated_memory
+        )
 
         latest_turn = turns[-1] if turns else {}
         updated_memory = ensure_confirmable_memory_markers(
@@ -2413,6 +2674,9 @@ async def summarize_runtime_memory_pending_turns(
                 "assistant_message",
                 "",
             ),
+        )
+        updated_memory = remove_runtime_response_feedback_text(
+            updated_memory
         )
 
         updates_counter = getattr(
@@ -2902,6 +3166,13 @@ def merge_durable_memory_facts(
         previous_memory: str,
         candidate_memory: str,
 ) -> str:
+
+    previous_memory = remove_runtime_response_feedback_text(
+        previous_memory
+    )
+    candidate_memory = remove_runtime_response_feedback_text(
+        candidate_memory
+    )
 
     previous_lines = parse_runtime_memory_lines(
         previous_memory

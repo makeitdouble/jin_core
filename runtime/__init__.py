@@ -8,6 +8,7 @@ from .fact_check import (
 from .memory import (
     DEFAULT_RUNTIME_MEMORY,
     L2_PATCH_WINDOW,
+    apply_runtime_response_feedback,
     build_interrupted_assistant_message,
     build_runtime_l2_memory_system_prompt,
     build_runtime_memory_snapshot,
@@ -45,6 +46,7 @@ __all__ = [
     "RuntimeState",
     "RuntimeStream",
     "CONFIRMABLE_MEMORY_KEYS",
+    "apply_runtime_response_feedback",
     "build_interrupted_assistant_message",
     "build_runtime_l2_memory_system_prompt",
     "build_runtime_memory_snapshot",

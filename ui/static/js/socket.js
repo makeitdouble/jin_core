@@ -237,6 +237,17 @@ window.stopL3MemoryGlow = stopL3MemoryGlow;
 
 let generationRunning = false;
 
+window.jinGenerationRunning = false;
+
+window.isJinGenerationRunning = function () {
+
+  return Boolean(
+    generationRunning
+  );
+
+};
+
+
 function isWebSocketOpen() {
   return (
     ws
@@ -353,6 +364,22 @@ function setGenerationState(
 
   generationRunning =
     active;
+
+  window.jinGenerationRunning =
+    Boolean(active);
+
+  if (typeof window.dispatchEvent === "function") {
+    window.dispatchEvent(
+      new CustomEvent(
+        "jin:generation-state-changed",
+        {
+          detail: {
+            active: Boolean(active),
+          },
+        }
+      )
+    );
+  }
 
   userInput.readOnly =
     active;
@@ -1066,6 +1093,10 @@ chatForm.addEventListener(
       );
     }
 
+    if (window.startJinAnswerRatingL1GateForTurn) {
+      window.startJinAnswerRatingL1GateForTurn();
+    }
+
     appendChatMessage(
       "user",
       text
@@ -1079,9 +1110,20 @@ chatForm.addEventListener(
       true
     );
 
-    sendSocketMessage({
-      text: text
-    });
+    const pendingLastResponseRating =
+      window.consumePendingLastResponseRating
+        ? window.consumePendingLastResponseRating()
+        : null;
+
+    const payload = {
+      text: text,
+    };
+
+    if (pendingLastResponseRating) {
+      payload.pending_last_response_rating = pendingLastResponseRating;
+    }
+
+    sendSocketMessage(payload);
 
     userInput.value = "";
 

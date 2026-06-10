@@ -1,4 +1,3 @@
-import asyncio
 import json
 import re
 from dataclasses import dataclass
@@ -9,7 +8,6 @@ from clients.service_client import ask_service_model
 from config_loader import config
 
 
-FACT_CHECK_IDLE_DELAY_SECONDS = 30
 FACT_CHECK_MAX_CANDIDATES_PER_RUN = 1
 
 
@@ -1843,86 +1841,24 @@ def apply_fact_check_result_to_memory(
     return "\n".join(lines).strip()
 
 
-async def log_idle_fact_check_message(context, message: str) -> None:
-    logger = getattr(context, "logger", None)
+def cancel_idle_fact_check(context) -> None:
+    """Compatibility no-op.
 
-    if logger is None:
-        return
-
-    log_runtime = getattr(logger, "log_runtime", None)
-    if log_runtime is not None:
-        await log_runtime(message)
-        return
-
-    log_service = getattr(logger, "log_service", None)
-    if log_service is not None:
-        await log_service(message)
+    Background/idle fact-checking was removed: fact-checks must be
+    started explicitly by the UI click path. Keep this function so old
+    callers/imports do not crash while no task can remain scheduled.
+    """
+    context.fact_check_idle_task = None
 
 
-async def run_idle_fact_check(
+def schedule_idle_fact_check(
         context,
         *,
-        delay_seconds: float = FACT_CHECK_IDLE_DELAY_SECONDS,
-        scheduled_after_user_message_count: int | None = None,
-        idle_generation: int | None = None,
-) -> None:
-    try:
-        await asyncio.sleep(delay_seconds)
-
-        # If another idle timer replaced this one, this task is stale.
-        if (
-                idle_generation is not None
-                and idle_generation != getattr(context, "fact_check_idle_generation", None)
-        ):
-            await log_idle_fact_check_message(
-                context,
-                "[FACT_CHECK] idle check skipped: stale timer",
-            )
-            return
-
-        # Background check is allowed only while the user has not made another
-        # turn since this timer was scheduled. This keeps the worker from
-        # fact-checking old memory while a new request is already in flight.
-        if (
-                scheduled_after_user_message_count is not None
-                and scheduled_after_user_message_count != int(getattr(context, "user_message_count", 0) or 0)
-        ):
-            await log_idle_fact_check_message(
-                context,
-                "[FACT_CHECK] idle check skipped: user sent another message",
-            )
-            return
-
-        await log_idle_fact_check_message(
-            context,
-            "[FACT_CHECK] idle timer fired; waiting for memory update",
-        )
-        await wait_for_runtime_memory_update(context)
-
-        if (
-                scheduled_after_user_message_count is not None
-                and scheduled_after_user_message_count != int(getattr(context, "user_message_count", 0) or 0)
-        ):
-            await log_idle_fact_check_message(
-                context,
-                "[FACT_CHECK] idle check skipped: user sent another message after memory wait",
-            )
-            return
-
-        checks = await run_fact_check_once(
-            context,
-            max_checks=FACT_CHECK_MAX_CANDIDATES_PER_RUN,
-            reason="idle",
-        )
-
-        if not checks:
-            await log_idle_fact_check_message(
-                context,
-                "[FACT_CHECK] idle check found no pending confirmed:none facts",
-            )
-
-    except asyncio.CancelledError:
-        raise
+        delay_seconds: float | None = None,
+):
+    """Compatibility no-op for the removed idle fact-check scheduler."""
+    cancel_idle_fact_check(context)
+    return None
 
 
 async def wait_for_runtime_memory_update(context) -> None:
@@ -2091,45 +2027,3 @@ async def run_fact_check_once(
             )
 
     return checks
-
-
-def cancel_idle_fact_check(context) -> None:
-    task = getattr(context, "fact_check_idle_task", None)
-
-    if task is not None and not task.done():
-        task.cancel()
-
-    context.fact_check_idle_task = None
-
-
-def schedule_idle_fact_check(
-        context,
-        *,
-        delay_seconds: float = FACT_CHECK_IDLE_DELAY_SECONDS,
-) -> asyncio.Task:
-    cancel_idle_fact_check(context)
-
-    idle_generation = int(getattr(context, "fact_check_idle_generation", 0) or 0) + 1
-    context.fact_check_idle_generation = idle_generation
-    scheduled_after_user_message_count = int(getattr(context, "user_message_count", 0) or 0)
-
-    task = asyncio.create_task(
-        run_idle_fact_check(
-            context,
-            delay_seconds=delay_seconds,
-            scheduled_after_user_message_count=scheduled_after_user_message_count,
-            idle_generation=idle_generation,
-        )
-    )
-    context.fact_check_idle_task = task
-
-    background_tasks = getattr(context, "background_tasks", None)
-
-    if background_tasks is None:
-        background_tasks = set()
-        context.background_tasks = background_tasks
-
-    background_tasks.add(task)
-    task.add_done_callback(background_tasks.discard)
-
-    return task
