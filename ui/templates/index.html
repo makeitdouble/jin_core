@@ -64,6 +64,25 @@
             height: calc(100% - (var(--panel-gap) * 2));
         }
 
+        @keyframes factCheckGlowPulse {
+            0%, 100% {
+                box-shadow:
+                        0 0 0 1px rgba(56, 189, 248, 0.26),
+                        0 0 18px rgba(59, 130, 246, 0.22),
+                        0 0 48px rgba(37, 99, 235, 0.13),
+                        inset 0 0 16px rgba(14, 165, 233, 0.06);
+            }
+
+            50% {
+                box-shadow:
+                        0 0 0 1px rgba(125, 211, 252, 0.46),
+                        0 0 28px rgba(96, 165, 250, 0.36),
+                        0 0 76px rgba(37, 99, 235, 0.22),
+                        inset 0 0 24px rgba(56, 189, 248, 0.10);
+            }
+        }
+
+
         #settings-panel {
             right: var(--panel-gap);
             top: var(--panel-gap);
@@ -198,6 +217,25 @@
             }
         }
 
+        @keyframes factCheckGlowPulse {
+            0%, 100% {
+                box-shadow:
+                        0 0 0 1px rgba(56, 189, 248, 0.26),
+                        0 0 18px rgba(59, 130, 246, 0.22),
+                        0 0 48px rgba(37, 99, 235, 0.13),
+                        inset 0 0 16px rgba(14, 165, 233, 0.06);
+            }
+
+            50% {
+                box-shadow:
+                        0 0 0 1px rgba(125, 211, 252, 0.46),
+                        0 0 28px rgba(96, 165, 250, 0.36),
+                        0 0 76px rgba(37, 99, 235, 0.22),
+                        inset 0 0 24px rgba(56, 189, 248, 0.10);
+            }
+        }
+
+
         #settings-panel {
             transition:
                     border-color 1.8s ease,
@@ -275,6 +313,30 @@
                     0 0 32px rgba(126, 34, 206, 0.06),
                     inset 0 0 10px rgba(168, 85, 247, 0.03);
         }
+        #settings-panel.fact-check-running {
+            border-color: rgba(56, 189, 248, 0.58);
+
+            box-shadow:
+                    0 0 0 1px rgba(56, 189, 248, 0.28),
+                    0 0 20px rgba(59, 130, 246, 0.24),
+                    0 0 56px rgba(37, 99, 235, 0.16),
+                    inset 0 0 18px rgba(14, 165, 233, 0.06);
+        }
+
+        #settings-panel.fact-check-running.fact-check-pulse {
+            animation: factCheckGlowPulse 4s ease-in-out infinite;
+        }
+
+        #settings-panel.fact-check-fading {
+            border-color: rgba(56, 189, 248, 0.20);
+
+            box-shadow:
+                    0 0 0 1px rgba(56, 189, 248, 0.09),
+                    0 0 12px rgba(59, 130, 246, 0.12),
+                    0 0 34px rgba(37, 99, 235, 0.07),
+                    inset 0 0 10px rgba(14, 165, 233, 0.03);
+        }
+
         #user-input::placeholder {
             color: rgba(255,255,255,0.35);
         }

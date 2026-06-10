@@ -108,8 +108,90 @@ let activeMemoryGlowStage = "";
 let memoryGlowPulseTimer = null;
 let memoryGlowFadeTimer = null;
 
+let factCheckGlowActive = false;
+let factCheckGlowPulseTimer = null;
+let factCheckGlowFadeTimer = null;
+
 function getMemoryPanel() {
   return document.getElementById("settings-panel");
+}
+
+function clearFactCheckGlowTimers() {
+  if (factCheckGlowPulseTimer) {
+    clearTimeout(factCheckGlowPulseTimer);
+    factCheckGlowPulseTimer = null;
+  }
+
+  if (factCheckGlowFadeTimer) {
+    clearTimeout(factCheckGlowFadeTimer);
+    factCheckGlowFadeTimer = null;
+  }
+}
+
+function startFactCheckGlow() {
+  const panel = getMemoryPanel();
+
+  if (!panel) {
+    return;
+  }
+
+  clearFactCheckGlowTimers();
+  factCheckGlowActive = true;
+
+  panel.classList.remove(
+    "fact-check-fading"
+  );
+
+  panel.classList.add(
+    "fact-check-running"
+  );
+
+  factCheckGlowPulseTimer = setTimeout(() => {
+    if (
+      !factCheckGlowActive
+      || !panel.classList.contains("fact-check-running")
+    ) {
+      return;
+    }
+
+    panel.classList.add(
+      "fact-check-pulse"
+    );
+  }, 900);
+}
+
+function stopFactCheckGlow() {
+  const panel = getMemoryPanel();
+
+  if (!panel) {
+    return;
+  }
+
+  clearFactCheckGlowTimers();
+  factCheckGlowActive = false;
+
+  panel.classList.remove(
+    "fact-check-pulse"
+  );
+
+  if (!panel.classList.contains("fact-check-running")) {
+    return;
+  }
+
+  panel.classList.add(
+    "fact-check-fading"
+  );
+
+  factCheckGlowFadeTimer = setTimeout(() => {
+    if (factCheckGlowActive) {
+      return;
+    }
+
+    panel.classList.remove(
+      "fact-check-running",
+      "fact-check-fading"
+    );
+  }, 1200);
 }
 
 function clearMemoryGlowTimers() {
@@ -230,6 +312,8 @@ window.startL2MemoryGlow = startL2MemoryGlow;
 window.stopL2MemoryGlow = stopL2MemoryGlow;
 window.startL3MemoryGlow = startL3MemoryGlow;
 window.stopL3MemoryGlow = stopL3MemoryGlow;
+window.startFactCheckGlow = startFactCheckGlow;
+window.stopFactCheckGlow = stopFactCheckGlow;
 
 // --------------------------------------------------
 // STATE
@@ -291,9 +375,15 @@ function triggerManualFactCheck() {
     "manual fact check requested"
   );
 
-  return sendSocketMessage({
+  const sent = sendSocketMessage({
     type: "fact_check"
   });
+
+  if (sent) {
+    startFactCheckGlow();
+  }
+
+  return sent;
 
 }
 
@@ -675,6 +765,20 @@ function handleSocketMessage(event) {
     );
   }
 
+  if (data.type === "fact_check_state") {
+    if (data.active) {
+      startFactCheckGlow();
+    } else {
+      stopFactCheckGlow();
+    }
+
+    return;
+  }
+
+  if (data.type === "fact_check_update") {
+    stopFactCheckGlow();
+  }
+
   // -----------------------------
   // LOGS
   // -----------------------------
@@ -769,6 +873,8 @@ function handleSocketMessage(event) {
       data.message,
       data.details
     );
+
+    stopFactCheckGlow();
 
     return;
 

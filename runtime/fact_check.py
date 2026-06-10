@@ -1861,6 +1861,25 @@ def schedule_idle_fact_check(
     return None
 
 
+async def emit_fact_check_state(
+        context,
+        *,
+        active: bool,
+        reason: str,
+) -> None:
+    emitter = getattr(context, "emitter", None)
+    emit = getattr(emitter, "emit", None)
+
+    if emit is None:
+        return
+
+    await emit({
+        "type": "fact_check_state",
+        "active": bool(active),
+        "reason": reason,
+    })
+
+
 async def wait_for_runtime_memory_update(context) -> None:
     task = getattr(context, "runtime_memory_update_task", None)
 
@@ -1876,154 +1895,167 @@ async def run_fact_check_once(
         max_checks: int = FACT_CHECK_MAX_CANDIDATES_PER_RUN,
         reason: str = "manual",
 ) -> list[dict]:
-    checks = []
-    changed_layers = set()
-    checks_remaining = max(1, int(max_checks or FACT_CHECK_MAX_CANDIDATES_PER_RUN))
-    memory_snapshots = {
-        "L1": getattr(context, "runtime_memory", ""),
-        "L2": getattr(context, "runtime_l2_memory", ""),
-    }
-    l1_memory_before = getattr(
+    await emit_fact_check_state(
         context,
-        "runtime_memory",
-        "",
+        active=True,
+        reason=reason,
     )
 
-    for layer, attr in (
-            ("L1", "runtime_memory"),
-            ("L2", "runtime_l2_memory"),
-    ):
-        memory = getattr(context, attr, "")
-        candidates = extract_fact_check_candidates(
-            memory,
-            layer=layer,
+    try:
+        checks = []
+        changed_layers = set()
+        checks_remaining = max(1, int(max_checks or FACT_CHECK_MAX_CANDIDATES_PER_RUN))
+        memory_snapshots = {
+            "L1": getattr(context, "runtime_memory", ""),
+            "L2": getattr(context, "runtime_l2_memory", ""),
+        }
+        l1_memory_before = getattr(
+            context,
+            "runtime_memory",
+            "",
         )
 
-        for candidate in candidates:
+        for layer, attr in (
+                ("L1", "runtime_memory"),
+                ("L2", "runtime_l2_memory"),
+        ):
+            memory = getattr(context, attr, "")
+            candidates = extract_fact_check_candidates(
+                memory,
+                layer=layer,
+            )
+
+            for candidate in candidates:
+                if checks_remaining <= 0:
+                    break
+
+                fact_check = await run_llm_fact_check_candidate(
+                    context=context,
+                    candidate=candidate,
+                    memory_snapshot=memory_snapshots.get(layer, ""),
+                )
+                query = fact_check["query"]
+                status = fact_check["status"]
+                results = fact_check["results"]
+                provider_error = fact_check["provider_error"]
+
+                current_memory = getattr(context, attr, "")
+                updated_memory = apply_fact_check_result_to_memory(
+                    current_memory,
+                    candidate,
+                    status,
+                )
+                changed = updated_memory != current_memory
+
+                if changed:
+                    setattr(context, attr, updated_memory)
+                    changed_layers.add(layer)
+
+                checks.append({
+                    "reason": reason,
+                    "layer": layer,
+                    "key": candidate.key,
+                    "value": candidate.value,
+                    "line": candidate.line,
+                    "memory_snapshot": memory_snapshots.get(layer, ""),
+                    "query": query,
+                    "status": status,
+                    "changed": changed,
+                    "claim": fact_check.get("claim", ""),
+                    "plan": fact_check.get("plan", {}),
+                    "searches": fact_check.get("searches", []),
+                    "results": results,
+                    "provider_error": provider_error,
+                    "reasoning": fact_check.get("reasoning", ""),
+                    "decision": fact_check.get("decision", {}),
+                })
+                checks_remaining -= 1
+
             if checks_remaining <= 0:
                 break
 
-            fact_check = await run_llm_fact_check_candidate(
-                context=context,
-                candidate=candidate,
-                memory_snapshot=memory_snapshots.get(layer, ""),
-            )
-            query = fact_check["query"]
-            status = fact_check["status"]
-            results = fact_check["results"]
-            provider_error = fact_check["provider_error"]
-
-            current_memory = getattr(context, attr, "")
-            updated_memory = apply_fact_check_result_to_memory(
-                current_memory,
-                candidate,
-                status,
-            )
-            changed = updated_memory != current_memory
-
-            if changed:
-                setattr(context, attr, updated_memory)
-                changed_layers.add(layer)
-
-            checks.append({
-                "reason": reason,
-                "layer": layer,
-                "key": candidate.key,
-                "value": candidate.value,
-                "line": candidate.line,
-                "memory_snapshot": memory_snapshots.get(layer, ""),
-                "query": query,
-                "status": status,
-                "changed": changed,
-                "claim": fact_check.get("claim", ""),
-                "plan": fact_check.get("plan", {}),
-                "searches": fact_check.get("searches", []),
-                "results": results,
-                "provider_error": provider_error,
-                "reasoning": fact_check.get("reasoning", ""),
-                "decision": fact_check.get("decision", {}),
-            })
-            checks_remaining -= 1
-
-        if checks_remaining <= 0:
-            break
-
-    l1_memory_after = getattr(
-        context,
-        "runtime_memory",
-        "",
-    )
-    l1_memory_changed = (
-        "L1" in changed_layers
-        or l1_memory_after != l1_memory_before
-    )
-
-    if checks:
-        context.runtime_memory_stable = l1_memory_after
-
-        emitter = getattr(context, "emitter", None)
-        emit = getattr(emitter, "emit", None)
-
-        if emit is not None:
-            await emit({
-                "type": "fact_check_update",
-                "checks": checks,
-                "runtime_memory": l1_memory_after,
-                "runtime_l2_memory": getattr(context, "runtime_l2_memory", ""),
-            })
-
-        if l1_memory_changed:
-            context.runtime_memory_updates = (
-                int(getattr(context, "runtime_memory_updates", 0) or 0)
-                + 1
-            )
-
-            # Emit a real runtime snapshot, not a snapshot=None event.
-            # The frontend renders the right memory panel from snapshot history;
-            # a raw memory payload alone is intentionally ignored by the panel.
-            from runtime.memory import emit_runtime_memory_update
-
-            await emit_runtime_memory_update(
-                context
-            )
-
-    logger = getattr(context, "logger", None)
-    log_service = getattr(logger, "log_service", None)
-
-    if checks and logger is not None:
-        changed_count = sum(
-            1
-            for check in checks
-            if check.get("changed")
+        l1_memory_after = getattr(
+            context,
+            "runtime_memory",
+            "",
         )
-        statuses = ", ".join(
-            f"{check.get('layer')}:{check.get('key')}={check.get('status')}"
-            for check in checks
+        l1_memory_changed = (
+            "L1" in changed_layers
+            or l1_memory_after != l1_memory_before
         )
-        message = (
-            f"[FACT_CHECK] {reason} web check completed "
-            f"({changed_count}/{len(checks)} changed; {statuses})"
-        )
-        details = build_fact_check_payload(
-            checks=checks,
-            memory_snapshots=memory_snapshots,
-            runtime_memory=getattr(context, "runtime_memory", ""),
-            runtime_l2_memory=getattr(context, "runtime_l2_memory", ""),
-        )
-        log = getattr(logger, "log", None)
 
-        if log is not None:
-            await log(
-                "[MEMORY:FACT_CHECK]",
-                message,
-                details=details,
-                channel="memory",
-                memory_level="FACT_CHECK",
-                memory_event="fact_check",
-            )
-        elif log_service is not None:
-            await log_service(
-                message
-            )
+        if checks:
+            context.runtime_memory_stable = l1_memory_after
 
-    return checks
+            emitter = getattr(context, "emitter", None)
+            emit = getattr(emitter, "emit", None)
+
+            if emit is not None:
+                await emit({
+                    "type": "fact_check_update",
+                    "checks": checks,
+                    "runtime_memory": l1_memory_after,
+                    "runtime_l2_memory": getattr(context, "runtime_l2_memory", ""),
+                })
+
+            if l1_memory_changed:
+                context.runtime_memory_updates = (
+                    int(getattr(context, "runtime_memory_updates", 0) or 0)
+                    + 1
+                )
+
+                # Emit a real runtime snapshot, not a snapshot=None event.
+                # The frontend renders the right memory panel from snapshot history;
+                # a raw memory payload alone is intentionally ignored by the panel.
+                from runtime.memory import emit_runtime_memory_update
+
+                await emit_runtime_memory_update(
+                    context
+                )
+
+        logger = getattr(context, "logger", None)
+        log_service = getattr(logger, "log_service", None)
+
+        if checks and logger is not None:
+            changed_count = sum(
+                1
+                for check in checks
+                if check.get("changed")
+            )
+            statuses = ", ".join(
+                f"{check.get('layer')}:{check.get('key')}={check.get('status')}"
+                for check in checks
+            )
+            message = (
+                f"[FACT_CHECK] {reason} web check completed "
+                f"({changed_count}/{len(checks)} changed; {statuses})"
+            )
+            details = build_fact_check_payload(
+                checks=checks,
+                memory_snapshots=memory_snapshots,
+                runtime_memory=getattr(context, "runtime_memory", ""),
+                runtime_l2_memory=getattr(context, "runtime_l2_memory", ""),
+            )
+            log = getattr(logger, "log", None)
+
+            if log is not None:
+                await log(
+                    "[MEMORY:FACT_CHECK]",
+                    message,
+                    details=details,
+                    channel="memory",
+                    memory_level="FACT_CHECK",
+                    memory_event="fact_check",
+                )
+            elif log_service is not None:
+                await log_service(
+                    message
+                )
+
+        return checks
+    finally:
+        await emit_fact_check_state(
+            context,
+            active=False,
+            reason=reason,
+        )
