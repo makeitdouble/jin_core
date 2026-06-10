@@ -408,6 +408,132 @@ def extract_fact_check_candidates(
 
 
 
+def format_confirmable_memory_keys_for_payload() -> str:
+    grouped_keys = {}
+
+    for key in CONFIRMABLE_MEMORY_KEYS:
+        normalized = normalize_key(key)
+        grouped_keys.setdefault(normalized, [])
+
+        if key not in grouped_keys[normalized]:
+            grouped_keys[normalized].append(key)
+
+    lines = ["Available fact keys:"]
+
+    for normalized in sorted(grouped_keys):
+        aliases = [
+            key
+            for key in grouped_keys[normalized]
+            if normalize_key(key) != key
+        ]
+
+        if aliases:
+            lines.append(
+                f"  - {normalized} (aliases: {', '.join(aliases)})"
+            )
+        else:
+            lines.append(f"  - {normalized}")
+
+    return "\n".join(lines)
+
+
+def describe_fact_check_skip_reason(
+        memory_by_layer: dict[str, str],
+) -> tuple[str, str]:
+    memory_lines = 0
+    confirmable_lines = 0
+    web_confirmed_lines = 0
+    layer_summaries = []
+
+    for layer, memory in memory_by_layer.items():
+        layer_memory_lines = 0
+        layer_confirmable_lines = 0
+        layer_web_confirmed_lines = 0
+        layer_seen_keys = []
+
+        for raw_line in (memory or "").splitlines():
+            line = raw_line.strip()
+
+            if not line:
+                continue
+
+            parsed = parse_memory_line(line)
+
+            if parsed is None:
+                continue
+
+            layer_memory_lines += 1
+            key, _ = parsed
+
+            if key not in layer_seen_keys:
+                layer_seen_keys.append(key)
+
+            if not is_confirmable_key(key):
+                continue
+
+            layer_confirmable_lines += 1
+
+            if has_successful_web_confirmation(line):
+                layer_web_confirmed_lines += 1
+
+        memory_lines += layer_memory_lines
+        confirmable_lines += layer_confirmable_lines
+        web_confirmed_lines += layer_web_confirmed_lines
+        seen_keys = ", ".join(layer_seen_keys) if layer_seen_keys else "<none>"
+        layer_summaries.append(
+            f"  - {layer}: lines={layer_memory_lines}, "
+            f"fact_keys={layer_confirmable_lines}, "
+            f"web_confirmed={layer_web_confirmed_lines}, "
+            f"seen_keys={seen_keys}"
+        )
+
+    if memory_lines <= 0:
+        reason = "no memory lines found"
+    elif confirmable_lines <= 0:
+        reason = "no fact keys found"
+    else:
+        reason = "no unchecked fact keys found"
+
+    details = "\n".join([
+        "Layer scan:",
+        *layer_summaries,
+        "",
+        format_confirmable_memory_keys_for_payload(),
+    ]).strip()
+    return reason, details
+
+
+async def log_fact_check_skip(
+        context,
+        *,
+        reason: str,
+        details: str = "",
+) -> None:
+    logger = getattr(context, "logger", None)
+
+    if logger is None:
+        return
+
+    message = f"[FACT_CHECK] skipped: {reason}"
+    log = getattr(logger, "log", None)
+
+    if log is not None:
+        await log(
+            "[MEMORY:FACT_CHECK]",
+            message,
+            details=details or None,
+            channel="memory",
+            memory_level="FACT_CHECK",
+            memory_event="fact_check_skip",
+        )
+        return
+
+    log_service = getattr(logger, "log_service", None)
+
+    if log_service is not None:
+        await log_service(message)
+
+
 def extract_model_text(response: dict) -> str:
     return (
         ResponseExtractor.extract_content_text(response)
@@ -1983,6 +2109,16 @@ async def run_fact_check_once(
             "L1" in changed_layers
             or l1_memory_after != l1_memory_before
         )
+
+        if not checks:
+            skip_reason, skip_details = describe_fact_check_skip_reason(
+                memory_snapshots
+            )
+            await log_fact_check_skip(
+                context,
+                reason=skip_reason,
+                details=skip_details,
+            )
 
         if checks:
             context.runtime_memory_stable = l1_memory_after
