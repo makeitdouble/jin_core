@@ -59,7 +59,7 @@ class FactCheckWorkerTests(unittest.IsolatedAsyncioTestCase):
         updated = add_or_update_confirmation(line, web_status="fail")
 
         self.assertEqual(
-            "pending_fact: Four Tet album R R R exists. (confirmed: none, web: fail)",
+            "pending_fact: Four Tet album R R R exists. (confirmed: none, web: fail (1))",
             updated,
         )
 
@@ -86,11 +86,11 @@ class FactCheckWorkerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn(
             "jin_fact: Recommended *Rathmore* as the ideal album. "
-            "(confirmed: none, web: fail) (trace: 0.50)",
+            "(confirmed: none, web: fail (1)) (trace: 0.50)",
             updated,
         )
 
-    async def test_idle_fact_check_uses_injected_search_provider_and_marks_web(self):
+    async def test_manual_fact_check_uses_injected_search_provider_and_marks_web(self):
         async def search_provider(query):
             return [
                 {
@@ -115,13 +115,24 @@ class FactCheckWorkerTests(unittest.IsolatedAsyncioTestCase):
             logger=SimpleNamespace(log_service=None),
         )
 
-        checks = await run_fact_check_once(context)
+        checks = await run_fact_check_once(context, reason="manual")
 
         self.assertEqual("web", checks[0]["status"])
         self.assertTrue(checks[0]["changed"])
         self.assertIn("(confirmed: web)", context.runtime_memory)
         self.assertTrue(
             any(event.get("type") == "fact_check_update" for event in context.emitter.events)
+        )
+        self.assertEqual(
+            [
+                {"type": "fact_check_state", "active": True, "reason": "manual"},
+                {"type": "fact_check_state", "active": False, "reason": "manual"},
+            ],
+            [
+                event
+                for event in context.emitter.events
+                if event.get("type") == "fact_check_state"
+            ],
         )
 
 
