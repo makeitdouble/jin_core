@@ -113,6 +113,8 @@ class RuntimeContext:
 
     runtime_memory_update_task: object | None = None
 
+    fact_check_idle_task: object | None = None
+
     runtime_memory_snapshots: list[dict] = field(
         default_factory=list
     )
@@ -132,3 +134,5 @@ class RuntimeContext:
     runtime_turn_assistant_response: str = ""
 
     runtime_turn_interrupted: bool = False
+
+    runtime_last_response_feedback: dict | None = None

@@ -12,6 +12,11 @@ const sendButton =
     'button[type="submit"]'
   );
 
+const factCheckTrigger =
+  document.getElementById(
+    "fact-check-trigger"
+  );
+
 const websocketClientId =
   (window.crypto && window.crypto.randomUUID)
     ? window.crypto.randomUUID()
@@ -103,8 +108,90 @@ let activeMemoryGlowStage = "";
 let memoryGlowPulseTimer = null;
 let memoryGlowFadeTimer = null;
 
+let factCheckGlowActive = false;
+let factCheckGlowPulseTimer = null;
+let factCheckGlowFadeTimer = null;
+
 function getMemoryPanel() {
   return document.getElementById("settings-panel");
+}
+
+function clearFactCheckGlowTimers() {
+  if (factCheckGlowPulseTimer) {
+    clearTimeout(factCheckGlowPulseTimer);
+    factCheckGlowPulseTimer = null;
+  }
+
+  if (factCheckGlowFadeTimer) {
+    clearTimeout(factCheckGlowFadeTimer);
+    factCheckGlowFadeTimer = null;
+  }
+}
+
+function startFactCheckGlow() {
+  const panel = getMemoryPanel();
+
+  if (!panel) {
+    return;
+  }
+
+  clearFactCheckGlowTimers();
+  factCheckGlowActive = true;
+
+  panel.classList.remove(
+    "fact-check-fading"
+  );
+
+  panel.classList.add(
+    "fact-check-running"
+  );
+
+  factCheckGlowPulseTimer = setTimeout(() => {
+    if (
+      !factCheckGlowActive
+      || !panel.classList.contains("fact-check-running")
+    ) {
+      return;
+    }
+
+    panel.classList.add(
+      "fact-check-pulse"
+    );
+  }, 900);
+}
+
+function stopFactCheckGlow() {
+  const panel = getMemoryPanel();
+
+  if (!panel) {
+    return;
+  }
+
+  clearFactCheckGlowTimers();
+  factCheckGlowActive = false;
+
+  panel.classList.remove(
+    "fact-check-pulse"
+  );
+
+  if (!panel.classList.contains("fact-check-running")) {
+    return;
+  }
+
+  panel.classList.add(
+    "fact-check-fading"
+  );
+
+  factCheckGlowFadeTimer = setTimeout(() => {
+    if (factCheckGlowActive) {
+      return;
+    }
+
+    panel.classList.remove(
+      "fact-check-running",
+      "fact-check-fading"
+    );
+  }, 1200);
 }
 
 function clearMemoryGlowTimers() {
@@ -225,12 +312,25 @@ window.startL2MemoryGlow = startL2MemoryGlow;
 window.stopL2MemoryGlow = stopL2MemoryGlow;
 window.startL3MemoryGlow = startL3MemoryGlow;
 window.stopL3MemoryGlow = stopL3MemoryGlow;
+window.startFactCheckGlow = startFactCheckGlow;
+window.stopFactCheckGlow = stopFactCheckGlow;
 
 // --------------------------------------------------
 // STATE
 // --------------------------------------------------
 
 let generationRunning = false;
+
+window.jinGenerationRunning = false;
+
+window.isJinGenerationRunning = function () {
+
+  return Boolean(
+    generationRunning
+  );
+
+};
+
 
 function isWebSocketOpen() {
   return (
@@ -256,6 +356,39 @@ function sendSocketMessage(
   return true;
 
 }
+
+function triggerManualFactCheck() {
+
+  if (!isWebSocketOpen()) {
+    connectWebSocket();
+
+    appendLog(
+      "[SYSTEM]",
+      "WebSocket reconnecting. Fact check was not started."
+    );
+
+    return false;
+  }
+
+  appendLog(
+    "[MEMORY:FACT_CHECK]",
+    "manual fact check requested"
+  );
+
+  const sent = sendSocketMessage({
+    type: "fact_check"
+  });
+
+  if (sent) {
+    startFactCheckGlow();
+  }
+
+  return sent;
+
+}
+
+window.triggerManualFactCheck = triggerManualFactCheck;
+
 
 function clearWebSocketReconnectTimer() {
 
@@ -321,6 +454,22 @@ function setGenerationState(
 
   generationRunning =
     active;
+
+  window.jinGenerationRunning =
+    Boolean(active);
+
+  if (typeof window.dispatchEvent === "function") {
+    window.dispatchEvent(
+      new CustomEvent(
+        "jin:generation-state-changed",
+        {
+          detail: {
+            active: Boolean(active),
+          },
+        }
+      )
+    );
+  }
 
   userInput.readOnly =
     active;
@@ -616,6 +765,20 @@ function handleSocketMessage(event) {
     );
   }
 
+  if (data.type === "fact_check_state") {
+    if (data.active) {
+      startFactCheckGlow();
+    } else {
+      stopFactCheckGlow();
+    }
+
+    return;
+  }
+
+  if (data.type === "fact_check_update") {
+    stopFactCheckGlow();
+  }
+
   // -----------------------------
   // LOGS
   // -----------------------------
@@ -710,6 +873,8 @@ function handleSocketMessage(event) {
       data.message,
       data.details
     );
+
+    stopFactCheckGlow();
 
     return;
 
@@ -962,6 +1127,17 @@ function allModelRuntimesOffline() {
 
 }
 
+if (factCheckTrigger) {
+  factCheckTrigger.addEventListener(
+    "click",
+    (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      triggerManualFactCheck();
+    }
+  );
+}
+
 chatForm.addEventListener(
   "submit",
   function (e) {
@@ -1023,6 +1199,10 @@ chatForm.addEventListener(
       );
     }
 
+    if (window.startJinAnswerRatingL1GateForTurn) {
+      window.startJinAnswerRatingL1GateForTurn();
+    }
+
     appendChatMessage(
       "user",
       text
@@ -1036,9 +1216,20 @@ chatForm.addEventListener(
       true
     );
 
-    sendSocketMessage({
-      text: text
-    });
+    const pendingLastResponseRating =
+      window.consumePendingLastResponseRating
+        ? window.consumePendingLastResponseRating()
+        : null;
+
+    const payload = {
+      text: text,
+    };
+
+    if (pendingLastResponseRating) {
+      payload.pending_last_response_rating = pendingLastResponseRating;
+    }
+
+    sendSocketMessage(payload);
 
     userInput.value = "";
 
