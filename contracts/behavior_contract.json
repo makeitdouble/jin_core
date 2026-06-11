@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "action_guards": {
+    "remember_session": {
+      "description": "Allows the model to request saving the current session when the user clearly ends, wraps up, or asks to save the session.",
+      "runtime_action": "REMEMBER_SESSION",
+      "private_marker": "<INTERNAL_ACTION_REMEMBER_SESSION>",
+      "triggers": [
+        "закончим",
+        "на сегодня все",
+        "на сегодня всё",
+        "я ухожу",
+        "я спать",
+        "пойду спать",
+        "до завтра",
+        "спокойной ночи",
+        "заканчиваем",
+        "сохрани",
+        "сохрани сессию",
+        "сохрани текущий разговор",
+        "запомни где остановились",
+        "подведи итог и закрой",
+        "save session",
+        "save this session",
+        "remember where we stopped",
+        "wrap up and save",
+        "продолжим завтра",
+        "сохрани и закрой",
+        "сохрани на сегодня",
+        "давай на сегодня всё",
+        "на сегодня хватит"
+      ],
+      "blockers": [
+        "покажи тег",
+        "напиши тег",
+        "полный тег",
+        "точный тег",
+        "пример тега",
+        "как выглядит тег",
+        "процитируй тег",
+        "show tag",
+        "write tag",
+        "exact tag",
+        "full tag",
+        "tag example",
+        "quote tag"
+      ],
+      "effects": {
+        "save_session": true,
+        "suppress_followup": true,
+        "suppress_offer": true,
+        "final_reply_mode": "short_closure"
+      }
+    }
+  }
+}

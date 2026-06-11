@@ -10,6 +10,9 @@ from runtime.context_contract import (
     RUNTIME_ACTION_WEB_SEARCH,
     WEB_SEARCH_REQUEST_TEMPLATE,
 )
+from runtime.behavior_contract import (
+    get_action_guard_triggers,
+)
 
 from rules import (
     AUTONOMY_RULES,
@@ -24,48 +27,6 @@ from rules import (
 
 
 ZERO_DIFF_STALL_ACTIVE_RULE = "ZERO_DIFF_STALL_ALERT is active.\n"
-
-SAVE_SESSION_INTENT_MARKERS = (
-    "закончим",
-    "на сегодня все",
-    "на сегодня всё",
-    "я ухожу",
-    "я спать",
-    "пойду спать",
-    "до завтра",
-    "спокойной ночи",
-    "заканчиваем",
-    "сохрани",
-    "сохрани сессию",
-    "сохрани текущий разговор",
-    "запомни где остановились",
-    "подведи итог и закрой",
-    "save session",
-    "save this session",
-    "remember where we stopped",
-    "wrap up and save",
-    "продолжим завтра",
-    "сохрани и закрой",
-    "сохрани на сегодня",
-    "давай на сегодня всё",
-    "на сегодня хватит",
-)
-
-META_TAG_REQUEST_MARKERS = (
-    "покажи тег",
-    "напиши тег",
-    "полный тег",
-    "точный тег",
-    "пример тега",
-    "как выглядит тег",
-    "процитируй тег",
-    "show tag",
-    "write tag",
-    "exact tag",
-    "full tag",
-    "tag example",
-    "quote tag",
-)
 
 MEMORY_REQUEST_MARKERS = (
     "помнишь",
@@ -181,15 +142,23 @@ def build_runtime_action_instructions(enabled_actions: tuple[str, ...]) -> str:
         )
 
     if RUNTIME_ACTION_REMEMBER_SESSION in enabled_actions:
+        remember_session_examples = ", ".join(
+            f"'{trigger}'"
+            for trigger in get_action_guard_triggers(
+                "remember_session"
+            )
+        )
+
         instructions.append(
-            "When the user explicitly ends, closes, pauses, wraps up the dialogue, "
+            "When the user explicitly ends, closes, wraps up the dialogue, "
             "or directly asks you to remember/save/summarize this session for next time, "
             f"request REMEMBER_SESSION once with this private marker: {REMEMBER_SESSION_REQUEST}. "
+            f"Natural trigger examples: {remember_session_examples}. "
             "Do not emit it for ordinary topic changes, brief silence, casual thanks, "
             "or while active implementation work is still clearly continuing. "
             "Do not request it when the user asks to show, write, quote, or explain an internal tag. "
             "For tag/meta requests, answer naturally: internal tags are not shown; "
-            "to save, say 'сохрани сессию' or 'закончим'. "
+            "to save, the user can use a natural save/end request. "
             "The runtime validates REMEMBER_SESSION against the user message; answer naturally after requesting it."
         )
 

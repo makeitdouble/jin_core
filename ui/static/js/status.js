@@ -15,6 +15,36 @@ const STATUS_REFRESH_COOLDOWN_MS = 1000;
 let runtimeStatusRequestInFlight = false;
 let lastRuntimeStatusStartedAt = 0;
 
+async function loadBehaviorContract() {
+
+    try {
+
+        const response = await fetch(
+            "/api/behavior-contract",
+            {
+                cache: "no-store",
+            }
+        );
+
+        if (!response.ok) {
+            throw new Error(
+                `HTTP ${response.status}`
+            );
+        }
+
+        window.JIN_BEHAVIOR_CONTRACT =
+            await response.json();
+
+    } catch (err) {
+
+        console.warn(
+            "[behavior_contract] failed to load",
+            err
+        );
+
+    }
+}
+
 // -----------------------------------
 // UPDATE UI
 // -----------------------------------
@@ -189,6 +219,8 @@ function refreshRuntimeStatus() {
 }
 
 // FIRST RUN
+
+void loadBehaviorContract();
 
 void updateRuntime({
     showChecking: !(

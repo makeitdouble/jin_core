@@ -42,6 +42,9 @@ from clients import (
 from runtime import (
     RUNTIME_MEMORY_SUMMARIZER_LABEL,
 )
+from runtime.behavior_contract import (
+    get_behavior_contract,
+)
 
 STATUS_CHECK_TIMEOUT = getattr(
     config,
@@ -286,6 +289,12 @@ async def api_status():
     return await build_status_snapshot(
         app.state.http_client
     )
+
+
+@app.get("/api/behavior-contract")
+async def api_behavior_contract():
+
+    return get_behavior_contract()
 
 
 # ---------------------------------------------------------

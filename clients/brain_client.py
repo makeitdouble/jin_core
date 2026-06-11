@@ -15,6 +15,9 @@ from runtime.context_contract import (
     RUNTIME_ACTION_REMEMBER_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
 )
+from runtime.behavior_contract import (
+    should_execute_action_guard,
+)
 from runtime.memory_rules import (
     build_runtime_memory_context_text,
     build_runtime_session_event_snapshot,
@@ -33,8 +36,6 @@ from bootstrap.brain_bootstrap import (
     get_loop_rules,
     get_memory_rules,
     get_philosophy_mode,
-    SAVE_SESSION_INTENT_MARKERS,
-    META_TAG_REQUEST_MARKERS,
     MEMORY_REQUEST_MARKERS,
     PHILOSOPHY_MARKERS,
     MEDIA_CONTEXT_ATTRS,
@@ -576,45 +577,12 @@ async def apply_deep_thought_calls(
     return call_count
 
 
-def _normalize_action_guard_text(
-    text: str,
-) -> str:
-
-    return (
-        text
-        or ""
-    ).casefold().replace(
-        "ё",
-        "е",
-    )
-
-
 def should_execute_remember_session(
     user_message: str,
 ) -> bool:
-
-    normalized_message = _normalize_action_guard_text(
+    return should_execute_action_guard(
+        "remember_session",
         user_message
-    )
-
-    if not normalized_message:
-        return False
-
-    has_meta_request = any(
-        _normalize_action_guard_text(
-            marker
-        ) in normalized_message
-        for marker in META_TAG_REQUEST_MARKERS
-    )
-
-    if has_meta_request:
-        return False
-
-    return any(
-        _normalize_action_guard_text(
-            marker
-        ) in normalized_message
-        for marker in SAVE_SESSION_INTENT_MARKERS
     )
 
 

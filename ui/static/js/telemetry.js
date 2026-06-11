@@ -908,7 +908,7 @@ function persistRuntimeMemorySnapshot(
     return;
   }
 
-  // A manual "save session" turn creates a temporary L1 page like
+  // A manual session-save turn creates a temporary L1 page like
   // "session saved / remembering this session". That is not the actual
   // runtime state the user wanted to preserve. Keep the previous real L1
   // snapshot as Latest runtime instead of overwriting it with save chatter.
@@ -1138,6 +1138,69 @@ function getRuntimeSnapshotSearchText(
 }
 
 
+function normalizeBehaviorContractSearchText(
+  text
+) {
+
+  return String(text || "")
+    .toLowerCase()
+    .replace(/ё/g, "е");
+
+}
+
+
+function getBehaviorContractActionGuardPhrases(
+  name,
+  key
+) {
+
+  const contract =
+    window.JIN_BEHAVIOR_CONTRACT;
+
+  const guard =
+    contract
+    && contract.action_guards
+    && contract.action_guards[name];
+
+  const phrases =
+    guard
+    && guard[key];
+
+  if (!Array.isArray(phrases)) {
+    return [];
+  }
+
+  return phrases
+    .filter(phrase => typeof phrase === "string");
+
+}
+
+
+function behaviorContractPhraseAppears(
+  text,
+  name,
+  key
+) {
+
+  const normalizedText =
+    normalizeBehaviorContractSearchText(
+      text
+    );
+
+  return getBehaviorContractActionGuardPhrases(
+    name,
+    key
+  ).some(phrase => (
+    normalizedText.includes(
+      normalizeBehaviorContractSearchText(
+        phrase
+      )
+    )
+  ));
+
+}
+
+
 function runtimeTextLooksLikeOnlySessionSave(
   text
 ) {
@@ -1241,6 +1304,13 @@ function runtimeSnapshotLooksLikeSessionSaveResult(
     || runtimeMemory.includes("remember_session")
     || runtimeMemory.includes("сохран");
 
+  const hasRememberSessionTrigger =
+    behaviorContractPhraseAppears(
+      runtimeMemory,
+      "remember_session",
+      "triggers"
+    );
+
   const hasSaveResultPhrase = (
     runtimeMemory.includes("session saved")
     || runtimeMemory.includes("session state successfully saved")
@@ -1253,8 +1323,7 @@ function runtimeSnapshotLooksLikeSessionSaveResult(
     || runtimeMemory.includes("confirmed saved")
     || runtimeMemory.includes("remembering this session")
     || runtimeMemory.includes("remember_session")
-    || runtimeMemory.includes("сохрани сессию")
-    || runtimeMemory.includes("сохранить сессию")
+    || hasRememberSessionTrigger
     || runtimeMemory.includes("сохраняю")
     || runtimeMemory.includes("сохранено")
     || runtimeMemory.includes("сессия сохран")
@@ -1268,7 +1337,7 @@ function runtimeSnapshotLooksLikeSessionSaveResult(
       )
   ) {
     // Do not throw away a real L1 runtime page just because the last
-    // turn also saved the session. The page after `save session` may
+    // turn also saved the session. The page after a save request may
     // still contain the useful current context: previous user request,
     // active task, and last non-save JIN response. Only pure save-status
     // pages should be treated as save chatter.
