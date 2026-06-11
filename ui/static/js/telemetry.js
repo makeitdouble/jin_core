@@ -107,14 +107,14 @@ const runtimeMemoryCount =
     "runtime-memory-count"
   );
 
-const sessionMemoryStorageKey =
-  "jin.sessionMemory.v1";
+const latestSavedSessionMemoryStorageKey =
+  "jin.latestSavedSessionMemory.v1";
 
-const runtimeMemoryStorageKey =
-  "jin.runtimeMemory.latest.v1";
+const latestRuntimeMemoryStorageKey =
+  "jin.latestRuntimeMemory.v1";
 
-const sessionRuntimeMemoryStorageKey =
-  "jin.sessionRuntimeMemory.v1";
+const latestSavedRuntimeMemoryStorageKey =
+  "jin.latestSavedRuntimeMemory.v1";
 
 const savedRuntimeFallbackPath =
   "/saved_runtime.txt";
@@ -122,6 +122,9 @@ const savedRuntimeFallbackPath =
 const defaultRuntimeMemoryText =
   "This session has just begun. "
   + "You have no history with the user yet.";
+
+const sessionStartedRuntimeMemoryText =
+  "session_status: Session started";
 
 const runtimeMemoryHistory = {
   snapshots: [],
@@ -135,6 +138,8 @@ let restoredSessionMemorySnapshot = null;
 let pendingBootstrapRuntimeMemorySnapshot = null;
 let lastStableRuntimeMemorySnapshot = null;
 let pendingSessionSaveRuntimeMemorySnapshot = null;
+let waitingForSessionSaveRuntimeSnapshot = false;
+let pendingSessionMemoryPersistData = null;
 
 const runtimeDiffHistory = {
   diffs: [],
@@ -767,7 +772,7 @@ function buildSavedRuntimeFallback(
           session_memory_updates: 1,
         }
       : null,
-    session_runtime_memory: runtimeMemory
+    latest_saved_runtime_memory: runtimeMemory
       ? {
           version: 1,
           explicit_save: true,
@@ -920,7 +925,7 @@ function persistRuntimeMemorySnapshot(
     new Date().toISOString();
 
   writeBrowserMemory(
-    runtimeMemoryStorageKey,
+    latestRuntimeMemoryStorageKey,
     {
       version: 1,
       saved_at: savedAt,
@@ -1087,7 +1092,7 @@ function getLatestStableRuntimeMemoryObject() {
 
   const persistedRuntimeMemory =
     runtimeMemoryObjectFromPersistedRuntime(
-      readBrowserMemory(runtimeMemoryStorageKey)
+      readBrowserMemory(latestRuntimeMemoryStorageKey)
     );
 
   if (persistedRuntimeMemory) {
@@ -1292,6 +1297,13 @@ function runtimeSnapshotLooksLikeSessionSaveResult(
     return false;
   }
 
+  if (
+      runtimeMemory.includes("session management")
+      && runtimeMemory.includes("paused")
+  ) {
+    return false;
+  }
+
   const hasSessionWord =
     runtimeMemory.includes("session")
     || runtimeMemory.includes("сесси");
@@ -1370,7 +1382,7 @@ function getRuntimeMemoryForSessionSave() {
   }
 
   return runtimeMemoryObjectFromPersistedRuntime(
-    readBrowserMemory(runtimeMemoryStorageKey)
+    readBrowserMemory(latestRuntimeMemoryStorageKey)
   );
 
 }
@@ -1410,16 +1422,9 @@ window.prepareRuntimeMemoryForUserMessage = function (
     return;
   }
 
-  const stableRuntimeMemory =
-    getLatestStableRuntimeMemoryObject();
-
-  pendingSessionSaveRuntimeMemorySnapshot =
-    (
-      stableRuntimeMemory
-      && stableRuntimeMemory.runtime_snapshot
-    )
-    || lastStableRuntimeMemorySnapshot
-    || null;
+  pendingSessionSaveRuntimeMemorySnapshot = null;
+  waitingForSessionSaveRuntimeSnapshot = true;
+  pendingSessionMemoryPersistData = null;
 
 };
 
@@ -1432,6 +1437,14 @@ function persistSessionMemory(
       !data
       || data.persist !== true
   ) {
+    return;
+  }
+
+  if (
+      waitingForSessionSaveRuntimeSnapshot
+      && !pendingSessionSaveRuntimeMemorySnapshot
+  ) {
+    pendingSessionMemoryPersistData = data;
     return;
   }
 
@@ -1452,7 +1465,7 @@ function persistSessionMemory(
     }
   }
 
-  const sessionRuntimeMemory =
+  const latestSavedRuntimeMemory =
     getRuntimeMemoryForSessionSave();
 
   const savedAt =
@@ -1462,7 +1475,7 @@ function persistSessionMemory(
   hasUnsavedSessionActivity = false;
 
   writeBrowserMemory(
-    sessionMemoryStorageKey,
+    latestSavedSessionMemoryStorageKey,
     {
       version: 1,
       explicit_save: true,
@@ -1475,30 +1488,32 @@ function persistSessionMemory(
   );
 
   writeBrowserMemory(
-    sessionRuntimeMemoryStorageKey,
+    latestSavedRuntimeMemoryStorageKey,
     {
       version: 1,
       explicit_save: true,
       saved_at: savedAt,
       runtime_memory:
         (
-          sessionRuntimeMemory
-          && sessionRuntimeMemory.runtime_memory
+          latestSavedRuntimeMemory
+          && latestSavedRuntimeMemory.runtime_memory
         ) || "",
       runtime_memory_updates:
         (
-          sessionRuntimeMemory
-          && sessionRuntimeMemory.runtime_memory_updates
+          latestSavedRuntimeMemory
+          && latestSavedRuntimeMemory.runtime_memory_updates
         ) || 0,
       runtime_snapshot:
         buildPersistedRuntimeSnapshot(
-          sessionRuntimeMemory
-          && sessionRuntimeMemory.runtime_snapshot
+          latestSavedRuntimeMemory
+          && latestSavedRuntimeMemory.runtime_snapshot
         ),
     }
   );
 
   pendingSessionSaveRuntimeMemorySnapshot = null;
+  waitingForSessionSaveRuntimeSnapshot = false;
+  pendingSessionMemoryPersistData = null;
 
 }
 
@@ -1506,6 +1521,30 @@ function persistSessionMemory(
 function getRuntimeMemoryForSoftReconnect() {
 
   return getRuntimeMemoryForSessionSave();
+
+}
+
+
+function captureSessionSaveRuntimeSnapshot(
+  snapshot
+) {
+
+  if (
+      !waitingForSessionSaveRuntimeSnapshot
+      || !snapshot
+  ) {
+    return;
+  }
+
+  pendingSessionSaveRuntimeMemorySnapshot = snapshot;
+
+  if (pendingSessionMemoryPersistData) {
+    const data = pendingSessionMemoryPersistData;
+    pendingSessionMemoryPersistData = null;
+    persistSessionMemory(
+      data
+    );
+  }
 
 }
 
@@ -1650,6 +1689,14 @@ function isLatestRuntimeMemoryDuplicate(
     getRuntimeMemoryTextFromUpdate(data);
 
   if (
+      latestSnapshot
+      && latestSnapshot.restored_from_session_save
+      && Number(data.updates || 0) === 0
+  ) {
+    return true;
+  }
+
+  if (
       !latestMemory
       || !incomingMemory
       || latestMemory !== incomingMemory
@@ -1750,39 +1797,9 @@ function applyBootstrapRuntimeMemoryUpdate(
     return false;
   }
 
-  const incomingBootstrapMemory =
-    getRuntimeMemoryTextFromUpdate(data);
-
-  const pendingBootstrapMemory =
-    normalizeRuntimeMemoryText(
-      pendingBootstrapRuntimeMemorySnapshot.raw_memory
-    );
-
-  const incomingIsSameSavedRuntime = Boolean(
-    incomingBootstrapMemory
-    && pendingBootstrapMemory
-    && incomingBootstrapMemory === pendingBootstrapMemory
-  );
-
-  const bootstrapSnapshot = {
-    ...data.snapshot,
-    index: 0,
-    runtime_memory_updates:
-      incomingIsSameSavedRuntime
-        ? Number(
-            pendingBootstrapRuntimeMemorySnapshot
-              .runtime_memory_updates || 0
-          )
-        : Number(data.updates || 0),
-    restored_from_session_save:
-      incomingIsSameSavedRuntime
-        ? true
-        : data.snapshot.restored_from_session_save,
-  };
-
   const savedRuntimeSnapshot = {
     ...pendingBootstrapRuntimeMemorySnapshot,
-    index: 1,
+    index: 0,
   };
 
   pendingBootstrapRuntimeMemorySnapshot = null;
@@ -1793,36 +1810,16 @@ function applyBootstrapRuntimeMemoryUpdate(
     window.stopMemoryGlow();
   }
 
-  if (incomingIsSameSavedRuntime) {
-    // On a hard page refresh the server can echo the saved runtime as its
-    // initial L1 update. The UI has already rendered that saved runtime from
-    // localStorage, so appending the server echo creates two identical runtime
-    // pages: <0> and <1>. Treat that echo as confirmation and keep one page.
-    runtimeMemoryHistory.snapshots = [
-      bootstrapSnapshot,
-    ];
-    runtimeMemoryHistory.index = 0;
-  } else {
-    // Page 0 is the fresh browser/L3 restore status from the server.
-    // Page 1 keeps the real runtime state saved with the session.
-    runtimeMemoryHistory.snapshots = [
-      bootstrapSnapshot,
-      savedRuntimeSnapshot,
-    ];
-    runtimeMemoryHistory.index = 1;
-  }
+  // During persisted-session restore, page 0 must stay the saved runtime from
+  // browser memory. Server updates=0 messages are bootstrap chatter/echoes.
+  runtimeMemoryHistory.snapshots = [
+    savedRuntimeSnapshot,
+  ];
+  runtimeMemoryHistory.index = 0;
 
   if (runtimeMemoryCount) {
     runtimeMemoryCount.textContent =
-      String(
-        (
-          incomingIsSameSavedRuntime
-            ? bootstrapSnapshot.runtime_memory_updates
-            : savedRuntimeSnapshot.runtime_memory_updates
-        )
-        || data.updates
-        || 0
-      );
+      String(savedRuntimeSnapshot.runtime_memory_updates || 0);
   }
 
   renderRuntimeMemorySnapshot();
@@ -2732,11 +2729,11 @@ function buildDefaultRuntimeMemorySnapshot() {
     session_id: "browser_restore",
     index: 0,
     display_source: "default_runtime_memory",
-    raw_memory: defaultRuntimeMemoryText,
+    raw_memory: sessionStartedRuntimeMemoryText,
     lines: [
       {
-        key: "note",
-        value: defaultRuntimeMemoryText,
+        key: "session_status",
+        value: "Session started",
         status: "same",
         key_status: "same",
         value_status: "same",
@@ -2801,10 +2798,15 @@ window.getPersistedSessionBootstrap = function () {
   const savedRuntimeFallback =
     getSavedRuntimeMemoryFallback();
 
-  const browserSessionMemory =
-    readBrowserMemory(
-      sessionMemoryStorageKey
-    );
+  const shouldUseBrowserMemory =
+    !savedRuntimeFallback;
+
+  const browserLatestSavedSessionMemory =
+    shouldUseBrowserMemory
+      ? readBrowserMemory(
+          latestSavedSessionMemoryStorageKey
+        )
+      : null;
 
   const sessionMemory =
     (
@@ -2812,9 +2814,9 @@ window.getPersistedSessionBootstrap = function () {
       && savedRuntimeFallback.session_memory
     )
     || (
-      browserSessionMemory
-      && browserSessionMemory.explicit_save === true
-        ? browserSessionMemory
+      browserLatestSavedSessionMemory
+      && browserLatestSavedSessionMemory.explicit_save === true
+        ? browserLatestSavedSessionMemory
         : null
     );
 
@@ -2832,8 +2834,8 @@ window.getPersistedSessionBootstrap = function () {
     )
       ? savedRuntimeFallback.source
       : (
-          browserSessionMemory
-          && browserSessionMemory.explicit_save === true
+          browserLatestSavedSessionMemory
+          && browserLatestSavedSessionMemory.explicit_save === true
             ? "browser_localStorage"
             : "unknown"
         );
@@ -2846,20 +2848,22 @@ window.getPersistedSessionBootstrap = function () {
     )
     || "";
 
-  const browserSessionRuntimeMemory =
-    readBrowserMemory(
-      sessionRuntimeMemoryStorageKey
-    );
+  const browserLatestSavedRuntimeMemory =
+    shouldUseBrowserMemory
+      ? readBrowserMemory(
+          latestSavedRuntimeMemoryStorageKey
+        )
+      : null;
 
-  const sessionRuntimeMemory =
+  const latestSavedRuntimeMemory =
     (
       savedRuntimeFallback
-      && savedRuntimeFallback.session_runtime_memory
+      && savedRuntimeFallback.latest_saved_runtime_memory
     )
     || (
-      browserSessionRuntimeMemory
-      && browserSessionRuntimeMemory.explicit_save === true
-        ? browserSessionRuntimeMemory
+      browserLatestSavedRuntimeMemory
+      && browserLatestSavedRuntimeMemory.explicit_save === true
+        ? browserLatestSavedRuntimeMemory
         : null
     );
 
@@ -2876,10 +2880,10 @@ window.getPersistedSessionBootstrap = function () {
 
   const runtimeMemory =
     (
-      sessionRuntimeMemory
-      && sessionRuntimeMemory.explicit_save === true
+      latestSavedRuntimeMemory
+      && latestSavedRuntimeMemory.explicit_save === true
     )
-      ? sessionRuntimeMemory
+      ? latestSavedRuntimeMemory
       : legacyEmbeddedRuntimeMemory;
 
   const runtimeText =
@@ -2960,13 +2964,13 @@ window.clearPersistedSessionBootstrap = function () {
 
   try {
     window.localStorage.removeItem(
-      sessionMemoryStorageKey
+      latestSavedSessionMemoryStorageKey
     );
     window.localStorage.removeItem(
-      sessionRuntimeMemoryStorageKey
+      latestSavedRuntimeMemoryStorageKey
     );
     window.localStorage.removeItem(
-      runtimeMemoryStorageKey
+      latestRuntimeMemoryStorageKey
     );
   } catch (error) {
     // Browser memory is helpful, not required for chat.
@@ -3888,9 +3892,11 @@ window.handleRuntimeMemoryMessage = function (data) {
         String(data.updates || 0);
   }
 
+  let clientSnapshot = null;
+
   if (data.snapshot) {
     const clientIndex = runtimeMemoryHistory.snapshots.length;
-    const clientSnapshot = {
+    clientSnapshot = {
       ...data.snapshot,
       index: clientIndex,
     };
@@ -3928,6 +3934,10 @@ window.handleRuntimeMemoryMessage = function (data) {
 
   persistRuntimeMemorySnapshot(
     data
+  );
+
+  captureSessionSaveRuntimeSnapshot(
+    clientSnapshot
   );
 
   renderRuntimeMemorySnapshot();

@@ -84,9 +84,13 @@ PREVIOUS_THINK_SECTION_TITLES = (
         "Check Context/State",
         "Check State",
         "Check Context",
+        "Check Memory/Context",
         "Review Context/Memory",
         "Review Memory",
         "Review Context",
+    ],
+    [
+        "Check last_jin_response",
     ],
     [
         "Formulate Response",
@@ -105,15 +109,27 @@ def normalize_previous_think_section_title(
     title: str,
 ) -> str:
 
-    return (
+    cleaned = (
         title
         .strip()
         .replace(
             "**",
             "",
         )
+        .replace(
+            "`",
+            "",
+        )
         .strip()
     )
+
+    cleaned = re.sub(
+        r"(?i)\b(Check\s+)[\"'](last_jin_response)[\"']",
+        r"\1\2",
+        cleaned,
+    )
+
+    return cleaned.strip()
 
 
 def match_previous_think_section_title(

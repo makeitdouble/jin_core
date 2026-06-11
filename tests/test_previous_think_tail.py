@@ -129,6 +129,71 @@ class PreviousThinkTailTests(unittest.TestCase):
             result["text"],
         )
 
+    def test_matches_check_memory_context_alias(self):
+
+        raw_think = (
+            "1. **Identify the Goal:**\n"
+            "   ignored\n"
+            "2. **Check Memory/Context:** The runtime memory shows state.\n"
+            "   `last_jin_response`: saved recommendation.\n"
+            "3. **Determine Tone/Style:**\n"
+            "   ignored\n"
+        )
+
+        result = extract_previous_think_tail(
+            raw_think
+        )
+
+        self.assertEqual(
+            result["sections_found"],
+            [
+                "Check Context/State",
+            ],
+        )
+        self.assertIn(
+            "Check Memory/Context: The runtime memory shows state.",
+            result["text"],
+        )
+        self.assertNotIn(
+            "Identify the Goal",
+            result["text"],
+        )
+
+    def test_matches_last_jin_response_with_or_without_quotes(self):
+
+        raw_think = (
+            "1. **Check `last_jin_response`:**\n"
+            "   latest response summary\n"
+            "2. **Check \"last_jin_response\":**\n"
+            "   quoted response summary\n"
+            "3. **Check 'last_jin_response':**\n"
+            "   single quoted response summary\n"
+            "4. **Check last_jin_response:**\n"
+            "   plain response summary\n"
+        )
+
+        result = extract_previous_think_tail(
+            raw_think
+        )
+
+        self.assertEqual(
+            result["sections_found"],
+            [
+                "Check last_jin_response",
+                "Check last_jin_response",
+                "Check last_jin_response",
+                "Check last_jin_response",
+            ],
+        )
+        self.assertIn(
+            "Check last_jin_response:",
+            result["text"],
+        )
+        self.assertNotIn(
+            "`last_jin_response`",
+            result["text"],
+        )
+
     def test_cleans_number_and_markdown_from_inline_heading(self):
 
         raw_think = (
