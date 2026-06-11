@@ -25,6 +25,7 @@ from runtime import (
     summarize_runtime_memory,
 )
 from runtime.memory import (
+    build_runtime_memory_snapshot,
     build_l3_session_memory_max_tokens,
     collapse_duplicate_runtime_memory_keys,
     L3_OUTPUT_MAX_TOKENS,
@@ -218,6 +219,55 @@ class MessageMemoryTests(
         self.assertIn(
             DEFAULT_RUNTIME_MEMORY,
             prompt,
+        )
+
+    def test_brain_prompt_places_user_idle_in_runtime_memory(self):
+
+        context = RuntimeContext(
+            websocket=object(),
+            emitter=object(),
+            logger=object(),
+            clients={},
+        )
+        context.runtime_user_idle_seconds = 2
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_WEB_SEARCH": False,
+                "CAN_DEEP_THOUGHT": False,
+            },
+        )
+
+        self.assertNotIn(
+            "<USER_IDLE>",
+            prompt,
+        )
+        self.assertIn(
+            "<RUNTIME_MEMORY>",
+            prompt,
+        )
+        self.assertIn(
+            f"note: {DEFAULT_RUNTIME_MEMORY}",
+            prompt,
+        )
+        self.assertIn(
+            "user_idle: 2s",
+            prompt,
+        )
+
+        snapshot = build_runtime_memory_snapshot(
+            context,
+            context.runtime_memory,
+        )
+
+        self.assertIn(
+            f"note: {DEFAULT_RUNTIME_MEMORY}",
+            snapshot["raw_memory"],
+        )
+        self.assertIn(
+            "user_idle: 2s",
+            snapshot["raw_memory"],
         )
 
     def test_runtime_memory_prompt_focuses_on_summary_depth(self):

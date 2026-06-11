@@ -15,6 +15,7 @@ from runtime.context_contract import (
     RUNTIME_ACTION_WEB_SEARCH,
 )
 from runtime.memory_rules import (
+    build_runtime_memory_context_text,
     build_runtime_session_event_snapshot,
     canonicalize_runtime_memory_text,
 )
@@ -841,6 +842,10 @@ def build_brain_runtime_context(
             context,
             "runtime_memory",
             "",
+        )
+        runtime_memory = build_runtime_memory_context_text(
+            runtime_memory,
+            context,
         )
         session_memory = getattr(
             context,

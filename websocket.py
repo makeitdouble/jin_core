@@ -71,6 +71,9 @@ from runtime import (
     schedule_runtime_memory_update,
     send_telemetry,
 )
+from runtime.memory_rules import (
+    remove_runtime_user_idle_lines,
+)
 
 
 websocket_router = APIRouter()
@@ -109,6 +112,20 @@ def clean_bootstrap_memory(
         return cleaned
 
     return cleaned[-limit:].strip()
+
+
+def clean_bootstrap_runtime_memory(
+    value,
+    *,
+    limit: int = MAX_BOOTSTRAP_MEMORY_CHARS,
+) -> str:
+
+    return remove_runtime_user_idle_lines(
+        clean_bootstrap_memory(
+            value,
+            limit=limit,
+        )
+    ).strip()
 
 
 
@@ -531,7 +548,10 @@ async def emit_current_runtime_memory(
 
     await context.emitter.emit({
         "type": "runtime_memory_update",
-        "memory": context.runtime_memory,
+        "memory": snapshot.get(
+            "raw_memory",
+            context.runtime_memory,
+        ),
         "updates": getattr(
             context,
             "runtime_memory_updates",
@@ -553,8 +573,22 @@ def is_default_runtime_memory_text(
     value: str,
 ) -> bool:
 
+    text = str(
+        value
+        or ""
+    ).strip()
+
+    if ":" in text:
+        key, candidate = text.split(
+            ":",
+            1,
+        )
+
+        if key.strip().lower() == "note":
+            text = candidate.strip()
+
     normalized = " ".join(
-        str(value or "").split()
+        text.split()
     ).lower()
 
     return normalized == (
@@ -568,7 +602,7 @@ def apply_runtime_resume(
     message_data: dict,
 ) -> bool:
 
-    runtime_memory = clean_bootstrap_memory(
+    runtime_memory = clean_bootstrap_runtime_memory(
         message_data.get(
             "runtime_memory",
             "",
@@ -589,7 +623,7 @@ def apply_runtime_resume(
             dict,
         )
     ):
-        runtime_memory = clean_bootstrap_memory(
+        runtime_memory = clean_bootstrap_runtime_memory(
             runtime_snapshot.get(
                 "raw_memory",
                 "",
@@ -691,7 +725,7 @@ def apply_session_bootstrap(
         )
     )
 
-    runtime_memory = clean_bootstrap_memory(
+    runtime_memory = clean_bootstrap_runtime_memory(
         message_data.get(
             "runtime_memory",
             "",
@@ -734,7 +768,7 @@ def apply_session_bootstrap(
             dict,
         )
     ):
-        runtime_memory = clean_bootstrap_memory(
+        runtime_memory = clean_bootstrap_runtime_memory(
             runtime_snapshot.get(
                 "raw_memory",
                 "",
@@ -1090,6 +1124,67 @@ async def wait_for_runtime_memory_update(
                 context.runtime_memory_update_task = None
 
 
+def parse_user_idle_seconds(
+    value,
+) -> int | None:
+
+    try:
+        seconds = int(
+            float(
+                value
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return None
+
+    if seconds < 0:
+        return None
+
+    # Keep the value useful for conversational context, not as an
+    # unbounded client-controlled payload. One year is more than enough
+    # for a human re-entry signal.
+    return min(
+        seconds,
+        365 * 24 * 60 * 60,
+    )
+
+
+def apply_user_idle_context(
+    context,
+    message_data: dict,
+):
+
+    seconds = parse_user_idle_seconds(
+        message_data.get(
+            "user_idle_seconds",
+        )
+    )
+
+    if seconds is None:
+        context.runtime_user_idle_seconds = None
+        context.runtime_user_idle_text = ""
+        context.runtime_user_idle_paused = False
+        return
+
+    context.runtime_user_idle_seconds = seconds
+    context.runtime_user_idle_text = str(
+        message_data.get(
+            "user_idle",
+            "",
+        )
+        or ""
+    ).strip()[:32]
+    context.runtime_user_idle_paused = bool(
+        message_data.get(
+            "user_idle_paused",
+            False,
+        )
+    )
+
+
 async def process_message(
     context,
     message_data: dict,
@@ -1109,6 +1204,10 @@ async def process_message(
         context.runtime_turn_user_message = user_text
         context.runtime_turn_assistant_response = ""
         context.runtime_turn_interrupted = False
+        apply_user_idle_context(
+            context,
+            message_data,
+        )
         context.user_message_count += 1
 
         state = AgentState(

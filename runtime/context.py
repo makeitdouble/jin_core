@@ -135,4 +135,10 @@ class RuntimeContext:
 
     runtime_turn_interrupted: bool = False
 
+    runtime_user_idle_seconds: int | None = None
+
+    runtime_user_idle_text: str = ""
+
+    runtime_user_idle_paused: bool = False
+
     runtime_last_response_feedback: dict | None = None
