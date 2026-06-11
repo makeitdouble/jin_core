@@ -67,6 +67,15 @@ const runtimePanelState = {
 const TELEMETRY_FRAME_WARNING_MS = 12;
 const CONTEXT_PANEL_RENDER_THROTTLE_MS = 300;
 const SAVE_RUNTIME_PHEROMONE_STRENGTH = true;
+const USER_IDLE_REFRESH_MS = 1000;
+const USER_IDLE_TYPING_RESUME_DELAY_MS = 30000;
+
+let userIdleStartedAt = Date.now();
+let userIdleTimer = null;
+let userIdleValueNode = null;
+let userIdlePausedAt = null;
+let userIdleResumeTimer = null;
+let userIdleInputFreezeInstalled = false;
 
 let telemetryFrameScheduled = false;
 let contextPanelRenderTimer = null;
@@ -132,6 +141,293 @@ const runtimeDiffHistory = {
   stats: {},
   expanded: false,
 };
+
+function formatUserIdleDuration(ms) {
+  const totalSeconds = Math.max(
+      0,
+      Math.floor(Number(ms || 0) / 1000)
+  );
+
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (totalMinutes < 60) {
+    return seconds
+      ? `${totalMinutes}m ${seconds}s`
+      : `${totalMinutes}m`;
+  }
+
+  const totalHours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (totalHours < 24) {
+    return minutes
+      ? `${totalHours}h ${minutes}m`
+      : `${totalHours}h`;
+  }
+
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+
+  return hours
+    ? `${days}d ${hours}h`
+    : `${days}d`;
+}
+
+function getUserIdleElapsedMs() {
+  const now =
+      userIdlePausedAt !== null
+        ? userIdlePausedAt
+        : Date.now();
+
+  return now - userIdleStartedAt;
+}
+
+function getUserIdleText() {
+  return formatUserIdleDuration(
+      getUserIdleElapsedMs()
+  );
+}
+
+function updateUserIdleTimerText() {
+  if (!userIdleValueNode) {
+    return;
+  }
+
+  userIdleValueNode.textContent =
+      ` ${getUserIdleText()}`;
+}
+
+function clearUserIdleResumeTimer() {
+  if (!userIdleResumeTimer) {
+    return;
+  }
+
+  clearTimeout(
+      userIdleResumeTimer
+  );
+
+  userIdleResumeTimer = null;
+}
+
+function stopUserIdleTimer() {
+  if (!userIdleTimer) {
+    return;
+  }
+
+  clearInterval(
+      userIdleTimer
+  );
+
+  userIdleTimer = null;
+}
+
+function ensureUserIdleTimer() {
+  if (userIdlePausedAt !== null) {
+    return;
+  }
+
+  if (userIdleTimer) {
+    return;
+  }
+
+  userIdleTimer = setInterval(
+      updateUserIdleTimerText,
+      USER_IDLE_REFRESH_MS
+  );
+}
+
+function isUserIdleChatInputFocused() {
+  const input =
+      document.getElementById(
+        "user-input"
+      );
+
+  return Boolean(
+      input
+      && document.activeElement === input
+  );
+}
+
+function resumeUserIdleTimer() {
+  if (userIdlePausedAt === null) {
+    ensureUserIdleTimer();
+    return;
+  }
+
+  const frozenElapsed =
+      Math.max(
+        0,
+        userIdlePausedAt - userIdleStartedAt
+      );
+
+  userIdleStartedAt =
+      Date.now() - frozenElapsed;
+
+  userIdlePausedAt = null;
+  clearUserIdleResumeTimer();
+  updateUserIdleTimerText();
+  ensureUserIdleTimer();
+}
+
+function scheduleUserIdleResumeIfChatLostFocus() {
+  clearUserIdleResumeTimer();
+
+  if (userIdlePausedAt === null) {
+    return;
+  }
+
+  userIdleResumeTimer = setTimeout(
+      function () {
+        userIdleResumeTimer = null;
+
+        if (
+            isUserIdleChatInputFocused()
+            && document.hasFocus()
+            && !document.hidden
+        ) {
+          return;
+        }
+
+        resumeUserIdleTimer();
+      },
+      USER_IDLE_TYPING_RESUME_DELAY_MS
+  );
+}
+
+function pauseUserIdleTimerForTyping() {
+  if (userIdlePausedAt === null) {
+    userIdlePausedAt = Date.now();
+  }
+
+  stopUserIdleTimer();
+  updateUserIdleTimerText();
+  scheduleUserIdleResumeIfChatLostFocus();
+}
+
+function resetUserIdleTimer() {
+  userIdleStartedAt = Date.now();
+  userIdlePausedAt = null;
+  clearUserIdleResumeTimer();
+  updateUserIdleTimerText();
+  ensureUserIdleTimer();
+}
+
+function freezeUserIdleTimerAtMs(
+  elapsedMs
+) {
+  const now = Date.now();
+  const frozenElapsedMs = Math.max(
+      0,
+      Number(elapsedMs || 0)
+  );
+
+  userIdleStartedAt = now - frozenElapsedMs;
+  userIdlePausedAt = now;
+  clearUserIdleResumeTimer();
+  stopUserIdleTimer();
+  updateUserIdleTimerText();
+}
+
+function freezeUserIdleTimerAtSeconds(
+  elapsedSeconds
+) {
+  freezeUserIdleTimerAtMs(
+      Math.max(
+        0,
+        Number(elapsedSeconds || 0)
+      ) * 1000
+  );
+}
+
+function freezeUserIdleTimerAtZero() {
+  freezeUserIdleTimerAtMs(
+      0
+  );
+}
+
+function installUserIdleInputFreeze() {
+  if (userIdleInputFreezeInstalled) {
+    return;
+  }
+
+  const input =
+      document.getElementById(
+        "user-input"
+      );
+
+  if (!input) {
+    return;
+  }
+
+  userIdleInputFreezeInstalled = true;
+
+  input.addEventListener(
+      "input",
+      pauseUserIdleTimerForTyping
+  );
+
+  input.addEventListener(
+      "focus",
+      function () {
+        if (userIdlePausedAt !== null) {
+          clearUserIdleResumeTimer();
+        }
+      }
+  );
+
+  input.addEventListener(
+      "blur",
+      scheduleUserIdleResumeIfChatLostFocus
+  );
+
+  window.addEventListener(
+      "blur",
+      scheduleUserIdleResumeIfChatLostFocus
+  );
+
+  document.addEventListener(
+      "visibilitychange",
+      function () {
+        if (document.hidden) {
+          scheduleUserIdleResumeIfChatLostFocus();
+        }
+      }
+  );
+}
+
+window.jinResetUserIdleTimer =
+    resetUserIdleTimer;
+
+window.jinFreezeUserIdleTimerAtZero =
+    freezeUserIdleTimerAtZero;
+
+window.jinFreezeUserIdleTimerAtSeconds =
+    freezeUserIdleTimerAtSeconds;
+
+function getJinUserIdleContext() {
+  const elapsedMs = Math.max(
+      0,
+      getUserIdleElapsedMs()
+  );
+
+  return {
+    user_idle: formatUserIdleDuration(
+        elapsedMs
+    ),
+    user_idle_seconds: Math.floor(
+        elapsedMs / 1000
+    ),
+    user_idle_paused: userIdlePausedAt !== null,
+  };
+}
+
+window.getJinUserIdleContext =
+    getJinUserIdleContext;
 
 window.jinWebSocketConnected = false;
 
@@ -1488,6 +1784,151 @@ function splitMemoryTextLines(text) {
     .split(/\r?\n+/)
     .map(line => line.trim())
     .filter(Boolean);
+
+}
+
+
+function normalizeRuntimeMemoryKey(key) {
+
+  return String(key || "")
+    .trim()
+    .replace(/\s+/g, "_")
+    .toLowerCase();
+
+}
+
+
+function isUserIdleRuntimeMemoryKey(key) {
+
+  return normalizeRuntimeMemoryKey(key) === "user_idle";
+
+}
+
+
+function isUserIdleRuntimeMemoryLine(line) {
+
+  if (!line) {
+    return false;
+  }
+
+  if (typeof line === "object") {
+    return isUserIdleRuntimeMemoryKey(line.key);
+  }
+
+  const separatorIndex =
+      String(line).indexOf(":");
+
+  if (separatorIndex <= 0) {
+    return false;
+  }
+
+  return isUserIdleRuntimeMemoryKey(
+      String(line).slice(0, separatorIndex)
+  );
+
+}
+
+
+function stripUserIdleRuntimeMemoryText(text) {
+
+  return splitMemoryTextLines(text)
+    .filter(line => !isUserIdleRuntimeMemoryLine(line))
+    .join("\n");
+
+}
+
+
+function getUserIdleRuntimeMemoryLine(snapshot) {
+
+  if (
+      snapshot
+      && Array.isArray(snapshot.lines)
+  ) {
+    return snapshot.lines.find(
+        line => isUserIdleRuntimeMemoryLine(line)
+    ) || null;
+  }
+
+  const rawLine =
+      splitMemoryTextLines(
+          snapshot && snapshot.raw_memory
+      ).find(
+          line => isUserIdleRuntimeMemoryLine(line)
+      );
+
+  return rawLine ? parseRuntimeMemoryLine(rawLine) : null;
+
+}
+
+
+function runtimeMemoryTextIsDefaultNote(text) {
+
+  const normalized =
+      String(text || "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLowerCase();
+
+  const defaultNormalized =
+      defaultRuntimeMemoryText
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLowerCase();
+
+  return (
+      normalized === defaultNormalized
+      || normalized === `note: ${defaultNormalized}`
+  );
+
+}
+
+
+function attachFirstUserIdleToInitialRuntimeSnapshot(sourceSnapshot) {
+
+  const firstSnapshot =
+      runtimeMemoryHistory.snapshots[0];
+
+  if (!firstSnapshot) {
+    return;
+  }
+
+  if (getUserIdleRuntimeMemoryLine(firstSnapshot)) {
+    return;
+  }
+
+  const firstRawMemory =
+      String(firstSnapshot.raw_memory || "");
+
+  if (!runtimeMemoryTextIsDefaultNote(firstRawMemory)) {
+    return;
+  }
+
+  const userIdleLine =
+      getUserIdleRuntimeMemoryLine(sourceSnapshot);
+
+  if (!userIdleLine) {
+    return;
+  }
+
+  const nextLine = {
+    ...userIdleLine,
+    status: "same",
+    key_status: "same",
+    value_status: "same",
+  };
+
+  firstSnapshot.lines = [
+    ...(Array.isArray(firstSnapshot.lines)
+      ? firstSnapshot.lines
+      : splitMemoryTextLines(firstRawMemory)
+        .map(parseRuntimeMemoryLine)),
+    nextLine,
+  ];
+
+  firstSnapshot.raw_memory = [
+    firstRawMemory.trim() || `note: ${defaultRuntimeMemoryText}`,
+    `user_idle: ${nextLine.value || ""}`.trim(),
+  ].filter(Boolean).join("\n");
 
 }
 
@@ -3385,12 +3826,22 @@ window.handleRuntimeMemoryMessage = function (data) {
       index: clientIndex,
     };
 
+    attachFirstUserIdleToInitialRuntimeSnapshot(
+      clientSnapshot
+    );
+
     // The server-side snapshot.index can restart after bootstrap/restore.
     // The right panel is client-side history, so display positions must follow
     // the actual array order instead of reusing a stale server index.
     runtimeMemoryHistory.snapshots.push(clientSnapshot);
     runtimeMemoryHistory.index =
         runtimeMemoryHistory.snapshots.length - 1;
+
+    if (window.jinGenerationRunning) {
+      freezeUserIdleTimerAtSeconds(
+          window.jinActiveTurnUserIdleSeconds
+      );
+    }
 
     rememberStableRuntimeSnapshot(
       clientSnapshot
@@ -3580,6 +4031,13 @@ function renderRuntimeMemorySnapshot() {
   updateRuntimeMemoryPinGlow();
 }
 
+function isLatestRuntimeMemorySnapshot() {
+  return (
+      runtimeMemoryHistory.index >=
+      runtimeMemoryHistory.snapshots.length - 1
+  );
+}
+
 function clampMemoryRatio(value) {
   const number =
       Number(value || 0);
@@ -3677,12 +4135,31 @@ function renderRuntimeMemoryLines(snapshot, persistGlow = false) {
       persistGlow
   );
 
+  const showLiveUserIdle =
+      isLatestRuntimeMemorySnapshot();
+
   const lines =
-      snapshot.lines || [];
+      showLiveUserIdle
+        ? (snapshot.lines || [])
+          .filter(line => !isUserIdleRuntimeMemoryLine(line))
+        : snapshot.lines || [];
 
   if (!lines.length) {
+    const rawMemory =
+        showLiveUserIdle
+          ? stripUserIdleRuntimeMemoryText(snapshot.raw_memory || "")
+          : snapshot.raw_memory || "";
+
     runtimeMemoryText.textContent =
-        (snapshot.raw_memory || "").trim();
+        `${rawMemory.trim()}\n`;
+
+    if (showLiveUserIdle) {
+      appendUserIdleRuntimeMemoryLine();
+    } else {
+      userIdleValueNode = null;
+    }
+
+    installUserIdleInputFreeze();
 
     return;
   }
@@ -3745,6 +4222,51 @@ function renderRuntimeMemoryLines(snapshot, persistGlow = false) {
         persistGlow
     );
   });
+
+  if (showLiveUserIdle) {
+    appendUserIdleRuntimeMemoryLine();
+  } else {
+    userIdleValueNode = null;
+  }
+
+  installUserIdleInputFreeze();
+}
+
+function appendUserIdleRuntimeMemoryLine() {
+  if (!runtimeMemoryText) {
+    return;
+  }
+
+  const row =
+      document.createElement("div");
+
+  row.className =
+      "runtime-memory-line runtime-memory-user-idle";
+
+  const keySpan =
+      document.createElement("span");
+
+  keySpan.className =
+      "runtime-memory-key";
+
+  keySpan.textContent =
+      "user_idle:";
+
+  const valueSpan =
+      document.createElement("span");
+
+  valueSpan.className =
+      "runtime-memory-value";
+
+  userIdleValueNode =
+      valueSpan;
+
+  row.appendChild(keySpan);
+  row.appendChild(valueSpan);
+
+  runtimeMemoryText.appendChild(row);
+  updateUserIdleTimerText();
+  ensureUserIdleTimer();
 }
 
 function updateRuntimeMemoryArrows() {

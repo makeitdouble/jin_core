@@ -1004,6 +1004,12 @@ function handleSocketMessage(event) {
       false
     );
 
+    window.jinActiveTurnUserIdleSeconds = 0;
+
+    if (window.jinResetUserIdleTimer) {
+      window.jinResetUserIdleTimer();
+    }
+
     return;
 
   }
@@ -1225,11 +1231,36 @@ chatForm.addEventListener(
       text: text,
     };
 
+    const userIdleContext =
+      window.getJinUserIdleContext
+        ? window.getJinUserIdleContext()
+        : null;
+
+    if (userIdleContext) {
+      payload.user_idle =
+        userIdleContext.user_idle;
+      payload.user_idle_seconds =
+        userIdleContext.user_idle_seconds;
+      payload.user_idle_paused =
+        userIdleContext.user_idle_paused;
+    }
+
+    window.jinActiveTurnUserIdleSeconds =
+      userIdleContext
+        ? Number(userIdleContext.user_idle_seconds || 0)
+        : 0;
+
     if (pendingLastResponseRating) {
       payload.pending_last_response_rating = pendingLastResponseRating;
     }
 
     sendSocketMessage(payload);
+
+    if (window.jinFreezeUserIdleTimerAtSeconds) {
+      window.jinFreezeUserIdleTimerAtSeconds(
+        window.jinActiveTurnUserIdleSeconds
+      );
+    }
 
     userInput.value = "";
 
