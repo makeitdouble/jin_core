@@ -72,6 +72,23 @@ DEFAULT_RUNTIME_MEMORY = (
 )
 
 
+RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES = (
+    "[CONTEXT PRESSURE OVERRIDE]\n"
+    "Context usage is critically high.\n"
+    "L1 must switch from normal summarization to survival compression.\n"
+
+    "Rules:\n"
+    "- Compress harder than usual.\n"
+    "- Keep only information needed to continue the session after context loss.\n"
+    "- Prefer durable state: decisions, active task, bugs, next steps, user preferences, project changes, unresolved risks.\n"
+    "- Drop examples, jokes, emotional texture, repeated explanations, and wording that does not change future behavior.\n"
+    "- Do not restate memory that already exists unless it changed.\n"
+    "- Merge related details into fewer atomic key:value lines.\n"
+    "- Use short values. No markdown. No commentary.\n"
+    "- If nothing durable changed, output only: no durable update.\n"
+)
+
+
 RUNTIME_MEMORY_DURABLE_CARRY_FORWARD_RULES_OLD = (
     "Topic/task changes, shallow summarization, memory pressure, or a new current request are never enough to remove or rename durable JIN/user fact keys.\n"
 )
@@ -895,9 +912,12 @@ def build_runtime_session_memory_user_prompt(
     ])
 
 
-def build_runtime_memory_system_prompt() -> str:
+def build_runtime_memory_system_prompt(
+        *,
+        last_turn_context_overloaded: bool = False,
+) -> str:
 
-    return (
+    prompt = (
         "You are JIN's runtime L1 memory summarizer.\n"
         "This is L1 runtime memory: factual live state only.\n"
         "Return only the new compressed L1 memory state as plain text.\n"
@@ -1014,6 +1034,17 @@ def build_runtime_memory_system_prompt() -> str:
         "what JIN should understand next.\n"
         "The final memory snapshot should feel like current live trusted state.\n"
     )
+
+    if (
+            last_turn_context_overloaded
+            and RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES.strip()
+    ):
+        prompt += (
+            "\n"
+            + RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES
+        )
+
+    return prompt
 
 
 def build_runtime_memory_user_prompt(

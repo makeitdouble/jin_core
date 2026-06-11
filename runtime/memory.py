@@ -23,6 +23,9 @@ from clients.response_extractor import (
 from runtime.state_sync import (
     refresh_runtime_state,
 )
+from runtime.registry import (
+    runtime_state,
+)
 from runtime.context_contract import (
     ContextContract,
 )
@@ -1051,6 +1054,122 @@ async def refresh_runtime_memory_summarizer_usage(
     )
 
 
+def coerce_positive_int(
+        value,
+) -> int:
+
+    try:
+        number = int(
+            value
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return 0
+
+    return max(
+        0,
+        number,
+    )
+
+
+def runtime_usage_is_context_overloaded(
+        runtime: dict | None,
+) -> bool:
+
+    if not isinstance(
+            runtime,
+            dict,
+    ):
+        return False
+
+    max_tokens = coerce_positive_int(
+        runtime.get(
+            "max_tokens"
+        )
+    )
+
+    if not max_tokens:
+        return False
+
+    used_tokens = max(
+        coerce_positive_int(
+            runtime.get(
+                "context_tokens"
+            )
+        ),
+        coerce_positive_int(
+            runtime.get(
+                "total_tokens"
+            )
+        ),
+        coerce_positive_int(
+            runtime.get(
+                "used_tokens"
+            )
+        ),
+    )
+
+    return used_tokens > max_tokens
+
+
+def latest_turn_context_is_overloaded(
+        context,
+) -> bool:
+
+    explicit_value = getattr(
+        context,
+        "runtime_last_turn_context_overloaded",
+        None,
+    )
+
+    if explicit_value is not None:
+        return bool(
+            explicit_value
+        )
+
+    runtime_id = (
+        config.SERVICE_MODEL_UID
+        if config.USE_SERVICE_AS_BRAIN
+        else config.BRAIN_MODEL_UID
+    )
+
+    runtime = (
+        runtime_state
+        .get_all_runtime_states()
+        .get(
+            runtime_id
+        )
+    )
+
+    return runtime_usage_is_context_overloaded(
+        runtime
+    )
+
+
+def runtime_prompt_is_context_overloaded(
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        context_window: int | None,
+) -> bool:
+
+    resolved_context_window = coerce_positive_int(
+        context_window
+    )
+
+    if not resolved_context_window:
+        return False
+
+    prompt_tokens = estimate_runtime_tokens(
+        system_prompt=system_prompt,
+        user_input=user_prompt,
+    )
+
+    return prompt_tokens > resolved_context_window
+
+
 def build_runtime_summarizer_payload(
         *,
         service_client,
@@ -1253,6 +1372,18 @@ async def ask_runtime_memory_model(
         assistant_message: str,
 ) -> dict:
 
+    resolve_request_context_window = getattr(
+        service_client,
+        "resolve_request_context_window",
+        None,
+    )
+    detected_context_window = None
+
+    if resolve_request_context_window is not None:
+        detected_context_window = (
+            await resolve_request_context_window()
+        )
+
     system_prompt = (
         build_runtime_memory_system_prompt()
     )
@@ -1288,10 +1419,29 @@ async def ask_runtime_memory_model(
         ),
     )
 
+    last_turn_context_overloaded = (
+        latest_turn_context_is_overloaded(
+            context
+        )
+        or runtime_prompt_is_context_overloaded(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            context_window=detected_context_window,
+        )
+    )
+
+    if last_turn_context_overloaded:
+        system_prompt = (
+            build_runtime_memory_system_prompt(
+                last_turn_context_overloaded=True,
+            )
+        )
+
     await refresh_runtime_memory_summarizer_usage(
         context,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
+        context_window=detected_context_window,
     )
 
     temperature = (
@@ -1327,6 +1477,7 @@ async def ask_runtime_memory_model(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         response=response,
+        context_window=detected_context_window,
     )
 
     return response
