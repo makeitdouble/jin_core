@@ -72,7 +72,11 @@ from runtime import (
     send_telemetry,
 )
 from runtime.memory_rules import (
+    build_runtime_memory_context_text,
     remove_runtime_user_idle_lines,
+)
+from runtime.memory import (
+    parse_runtime_memory_lines,
 )
 
 
@@ -271,6 +275,109 @@ def ensure_initial_runtime_snapshot(
     )
 
     context.runtime_memory_snapshot_index = 0
+
+
+def runtime_snapshot_has_user_idle(
+    snapshot,
+) -> bool:
+
+    if not isinstance(
+        snapshot,
+        dict,
+    ):
+        return False
+
+    for line in snapshot.get(
+        "lines",
+        [],
+    ) or []:
+        if not isinstance(
+            line,
+            dict,
+        ):
+            continue
+
+        key = str(
+            line.get(
+                "key",
+                "",
+            )
+            or ""
+        ).strip().lower()
+
+        if key == "user_idle":
+            return True
+
+    return any(
+        raw_line.strip().lower().startswith(
+            "user_idle:"
+        )
+        for raw_line in str(
+            snapshot.get(
+                "raw_memory",
+                "",
+            )
+            or ""
+        ).splitlines()
+    )
+
+
+def attach_user_idle_to_initial_runtime_snapshot(
+    context,
+):
+
+    if getattr(
+        context,
+        "user_message_count",
+        0,
+    ) != 0:
+        return
+
+    snapshots = getattr(
+        context,
+        "runtime_memory_snapshots",
+        [],
+    )
+
+    if not snapshots:
+        return
+
+    initial_snapshot = snapshots[0]
+
+    if runtime_snapshot_has_user_idle(
+        initial_snapshot
+    ):
+        return
+
+    raw_memory = str(
+        initial_snapshot.get(
+            "raw_memory",
+            "",
+        )
+        or ""
+    )
+
+    if not is_default_runtime_memory_text(
+        raw_memory
+    ):
+        return
+
+    display_memory = build_runtime_memory_context_text(
+        getattr(
+            context,
+            "runtime_memory",
+            "",
+        ),
+        context,
+    )
+
+    if "user_idle:" not in display_memory:
+        return
+
+    initial_snapshot["raw_memory"] = display_memory
+    initial_snapshot["lines"] = parse_runtime_memory_lines(
+        display_memory
+    )
 
 
 
@@ -1182,6 +1289,9 @@ def apply_user_idle_context(
             "user_idle_paused",
             False,
         )
+    )
+    attach_user_idle_to_initial_runtime_snapshot(
+        context
     )
 
 

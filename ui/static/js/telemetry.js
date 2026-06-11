@@ -1749,6 +1749,151 @@ function splitMemoryTextLines(text) {
 }
 
 
+function normalizeRuntimeMemoryKey(key) {
+
+  return String(key || "")
+    .trim()
+    .replace(/\s+/g, "_")
+    .toLowerCase();
+
+}
+
+
+function isUserIdleRuntimeMemoryKey(key) {
+
+  return normalizeRuntimeMemoryKey(key) === "user_idle";
+
+}
+
+
+function isUserIdleRuntimeMemoryLine(line) {
+
+  if (!line) {
+    return false;
+  }
+
+  if (typeof line === "object") {
+    return isUserIdleRuntimeMemoryKey(line.key);
+  }
+
+  const separatorIndex =
+      String(line).indexOf(":");
+
+  if (separatorIndex <= 0) {
+    return false;
+  }
+
+  return isUserIdleRuntimeMemoryKey(
+      String(line).slice(0, separatorIndex)
+  );
+
+}
+
+
+function stripUserIdleRuntimeMemoryText(text) {
+
+  return splitMemoryTextLines(text)
+    .filter(line => !isUserIdleRuntimeMemoryLine(line))
+    .join("\n");
+
+}
+
+
+function getUserIdleRuntimeMemoryLine(snapshot) {
+
+  if (
+      snapshot
+      && Array.isArray(snapshot.lines)
+  ) {
+    return snapshot.lines.find(
+        line => isUserIdleRuntimeMemoryLine(line)
+    ) || null;
+  }
+
+  const rawLine =
+      splitMemoryTextLines(
+          snapshot && snapshot.raw_memory
+      ).find(
+          line => isUserIdleRuntimeMemoryLine(line)
+      );
+
+  return rawLine ? parseRuntimeMemoryLine(rawLine) : null;
+
+}
+
+
+function runtimeMemoryTextIsDefaultNote(text) {
+
+  const normalized =
+      String(text || "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLowerCase();
+
+  const defaultNormalized =
+      defaultRuntimeMemoryText
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLowerCase();
+
+  return (
+      normalized === defaultNormalized
+      || normalized === `note: ${defaultNormalized}`
+  );
+
+}
+
+
+function attachFirstUserIdleToInitialRuntimeSnapshot(sourceSnapshot) {
+
+  const firstSnapshot =
+      runtimeMemoryHistory.snapshots[0];
+
+  if (!firstSnapshot) {
+    return;
+  }
+
+  if (getUserIdleRuntimeMemoryLine(firstSnapshot)) {
+    return;
+  }
+
+  const firstRawMemory =
+      String(firstSnapshot.raw_memory || "");
+
+  if (!runtimeMemoryTextIsDefaultNote(firstRawMemory)) {
+    return;
+  }
+
+  const userIdleLine =
+      getUserIdleRuntimeMemoryLine(sourceSnapshot);
+
+  if (!userIdleLine) {
+    return;
+  }
+
+  const nextLine = {
+    ...userIdleLine,
+    status: "same",
+    key_status: "same",
+    value_status: "same",
+  };
+
+  firstSnapshot.lines = [
+    ...(Array.isArray(firstSnapshot.lines)
+      ? firstSnapshot.lines
+      : splitMemoryTextLines(firstRawMemory)
+        .map(parseRuntimeMemoryLine)),
+    nextLine,
+  ];
+
+  firstSnapshot.raw_memory = [
+    firstRawMemory.trim() || `note: ${defaultRuntimeMemoryText}`,
+    `user_idle: ${nextLine.value || ""}`.trim(),
+  ].filter(Boolean).join("\n");
+
+}
+
+
 function parseRuntimeMemoryLine(line) {
 
   const separatorIndex =
@@ -3642,6 +3787,10 @@ window.handleRuntimeMemoryMessage = function (data) {
       index: clientIndex,
     };
 
+    attachFirstUserIdleToInitialRuntimeSnapshot(
+      clientSnapshot
+    );
+
     // The server-side snapshot.index can restart after bootstrap/restore.
     // The right panel is client-side history, so display positions must follow
     // the actual array order instead of reusing a stale server index.
@@ -3839,6 +3988,13 @@ function renderRuntimeMemorySnapshot() {
   updateRuntimeMemoryPinGlow();
 }
 
+function isLatestRuntimeMemorySnapshot() {
+  return (
+      runtimeMemoryHistory.index >=
+      runtimeMemoryHistory.snapshots.length - 1
+  );
+}
+
 function clampMemoryRatio(value) {
   const number =
       Number(value || 0);
@@ -3936,14 +4092,30 @@ function renderRuntimeMemoryLines(snapshot, persistGlow = false) {
       persistGlow
   );
 
+  const showLiveUserIdle =
+      isLatestRuntimeMemorySnapshot();
+
   const lines =
-      snapshot.lines || [];
+      showLiveUserIdle
+        ? (snapshot.lines || [])
+          .filter(line => !isUserIdleRuntimeMemoryLine(line))
+        : snapshot.lines || [];
 
   if (!lines.length) {
-    runtimeMemoryText.textContent =
-        `${(snapshot.raw_memory || "").trim()}\n`;
+    const rawMemory =
+        showLiveUserIdle
+          ? stripUserIdleRuntimeMemoryText(snapshot.raw_memory || "")
+          : snapshot.raw_memory || "";
 
-    appendUserIdleRuntimeMemoryLine();
+    runtimeMemoryText.textContent =
+        `${rawMemory.trim()}\n`;
+
+    if (showLiveUserIdle) {
+      appendUserIdleRuntimeMemoryLine();
+    } else {
+      userIdleValueNode = null;
+    }
+
     installUserIdleInputFreeze();
 
     return;
@@ -4008,7 +4180,12 @@ function renderRuntimeMemoryLines(snapshot, persistGlow = false) {
     );
   });
 
-  appendUserIdleRuntimeMemoryLine();
+  if (showLiveUserIdle) {
+    appendUserIdleRuntimeMemoryLine();
+  } else {
+    userIdleValueNode = null;
+  }
+
   installUserIdleInputFreeze();
 }
 

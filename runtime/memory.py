@@ -41,6 +41,7 @@ from runtime.memory_rules import (
     build_runtime_session_memory_system_prompt,
     build_runtime_session_memory_user_prompt,
     canonicalize_runtime_memory_entry,
+    remove_runtime_user_idle_lines,
 )
 from runtime.fact_check import (
     ensure_confirmable_memory_markers,
@@ -2497,6 +2498,9 @@ async def summarize_runtime_memory(
         updated_memory = remove_runtime_response_feedback_text(
             updated_memory
         )
+        updated_memory = remove_runtime_user_idle_lines(
+            updated_memory
+        )
 
         updates_counter = getattr(
             context,
@@ -2681,6 +2685,9 @@ async def summarize_runtime_memory_pending_turns(
             ),
         )
         updated_memory = remove_runtime_response_feedback_text(
+            updated_memory
+        )
+        updated_memory = remove_runtime_user_idle_lines(
             updated_memory
         )
 

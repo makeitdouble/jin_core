@@ -252,7 +252,7 @@ def get_user_idle_context_text(
         "runtime_user_idle_paused",
         False,
     ):
-        return f"{formatted} (paused while user was typing)"
+        return f"{formatted}"
 
     return formatted
 
