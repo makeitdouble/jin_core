@@ -26,6 +26,7 @@ from runtime import (
 )
 from runtime.memory import (
     ask_runtime_memory_model,
+    build_runtime_memory_snapshot,
     build_l3_session_memory_max_tokens,
     collapse_duplicate_runtime_memory_keys,
     L3_OUTPUT_MAX_TOKENS,
@@ -231,6 +232,108 @@ class MessageMemoryTests(
         self.assertIn(
             DEFAULT_RUNTIME_MEMORY,
             prompt,
+        )
+
+    def test_brain_prompt_places_user_idle_in_runtime_memory(self):
+
+        context = RuntimeContext(
+            websocket=object(),
+            emitter=object(),
+            logger=object(),
+            clients={},
+        )
+        context.runtime_user_idle_seconds = 2
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_WEB_SEARCH": False,
+                "CAN_DEEP_THOUGHT": False,
+            },
+        )
+
+        self.assertNotIn(
+            "<USER_IDLE>",
+            prompt,
+        )
+        self.assertIn(
+            "<RUNTIME_MEMORY>",
+            prompt,
+        )
+        self.assertIn(
+            f"note: {DEFAULT_RUNTIME_MEMORY}",
+            prompt,
+        )
+        self.assertIn(
+            "user_idle: 2s",
+            prompt,
+        )
+
+        snapshot = build_runtime_memory_snapshot(
+            context,
+            context.runtime_memory,
+        )
+
+        self.assertIn(
+            f"note: {DEFAULT_RUNTIME_MEMORY}",
+            snapshot["raw_memory"],
+        )
+        self.assertIn(
+            "user_idle: 2s",
+            snapshot["raw_memory"],
+        )
+
+    def test_runtime_memory_context_replaces_stale_user_idle(self):
+
+        context = RuntimeContext(
+            websocket=object(),
+            emitter=object(),
+            logger=object(),
+            clients={},
+        )
+        context.runtime_memory = (
+            "active topic: Metaphorical identity query\n"
+            "user_idle: 3m 3s (trace: 0.50)"
+        )
+        context.runtime_user_idle_seconds = 9
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_WEB_SEARCH": False,
+                "CAN_DEEP_THOUGHT": False,
+            },
+        )
+
+        self.assertEqual(
+            prompt.count("user_idle:"),
+            1,
+        )
+        self.assertIn(
+            "user_idle: 9s",
+            prompt,
+        )
+        self.assertNotIn(
+            "user_idle: 3m 3s",
+            prompt,
+        )
+
+        snapshot = build_runtime_memory_snapshot(
+            context,
+            context.runtime_memory,
+        )
+
+        self.assertEqual(
+            snapshot["raw_memory"].count("user_idle:"),
+            1,
+        )
+        self.assertIn(
+            "user_idle: 9s",
+            snapshot["raw_memory"],
+        )
+        self.assertNotIn(
+            "user_idle: 3m 3s",
+            snapshot["raw_memory"],
         )
 
     def test_runtime_memory_prompt_focuses_on_summary_depth(self):

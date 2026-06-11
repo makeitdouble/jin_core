@@ -71,6 +71,8 @@ DEFAULT_RUNTIME_MEMORY = (
     "You have no history with the user yet."
 )
 
+RUNTIME_USER_IDLE_KEY = "user_idle"
+
 
 RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES = (
     "[CONTEXT PRESSURE OVERRIDE]\n"
@@ -188,6 +190,162 @@ def canonicalize_runtime_memory_text(
 
     return "\n".join(
         canonical_lines
+    )
+
+
+def format_user_idle_seconds(
+        seconds,
+) -> str:
+
+    try:
+        total_seconds = max(
+            0,
+            int(seconds),
+        )
+    except (
+            TypeError,
+            ValueError,
+    ):
+        return ""
+
+    if total_seconds < 60:
+        return f"{total_seconds}s"
+
+    total_minutes, remainder_seconds = divmod(
+        total_seconds,
+        60,
+    )
+
+    if total_minutes < 60:
+        if remainder_seconds:
+            return f"{total_minutes}m {remainder_seconds}s"
+
+        return f"{total_minutes}m"
+
+    total_hours, remainder_minutes = divmod(
+        total_minutes,
+        60,
+    )
+
+    if total_hours < 24:
+        if remainder_minutes:
+            return f"{total_hours}h {remainder_minutes}m"
+
+        return f"{total_hours}h"
+
+    days, remainder_hours = divmod(
+        total_hours,
+        24,
+    )
+
+    if remainder_hours:
+        return f"{days}d {remainder_hours}h"
+
+    return f"{days}d"
+
+
+def get_user_idle_context_text(
+        context=None,
+) -> str:
+
+    if context is None:
+        return ""
+
+    seconds = getattr(
+        context,
+        "runtime_user_idle_seconds",
+        None,
+    )
+
+    formatted = format_user_idle_seconds(
+        seconds,
+    )
+
+    if not formatted:
+        return ""
+
+    if getattr(
+        context,
+        "runtime_user_idle_paused",
+        False,
+    ):
+        return f"{formatted}"
+
+    return formatted
+
+
+def remove_runtime_user_idle_lines(
+        memory: str,
+) -> str:
+
+    lines = []
+
+    for raw_line in (memory or "").splitlines():
+        line = raw_line.strip()
+
+        if not line:
+            continue
+
+        if ":" in line:
+            key, _ = line.split(
+                ":",
+                1,
+            )
+
+            if (
+                    canonicalize_runtime_memory_key(key)
+                    == RUNTIME_USER_IDLE_KEY
+            ):
+                continue
+
+        lines.append(
+            raw_line
+        )
+
+    return "\n".join(
+        lines
+    )
+
+
+def build_runtime_memory_context_text(
+        memory: str,
+        context=None,
+) -> str:
+
+    durable_memory = remove_runtime_user_idle_lines(
+        memory
+    ).strip()
+
+    memory_text = canonicalize_runtime_memory_text(
+        durable_memory or DEFAULT_RUNTIME_MEMORY
+    )
+
+    lines = []
+
+    for raw_line in memory_text.splitlines():
+        line = raw_line.strip()
+
+        if not line:
+            continue
+
+        if line == DEFAULT_RUNTIME_MEMORY:
+            line = f"note: {line}"
+
+        lines.append(
+            line
+        )
+
+    user_idle_text = get_user_idle_context_text(
+        context
+    )
+
+    if user_idle_text:
+        lines.append(
+            f"{RUNTIME_USER_IDLE_KEY}: {user_idle_text}"
+        )
+
+    return "\n".join(
+        lines
     )
 
 

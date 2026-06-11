@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 from datetime import datetime
 from xml.etree import ElementTree
 from xml.sax.saxutils import escape
@@ -15,6 +16,7 @@ from runtime.context_contract import (
     RUNTIME_ACTION_WEB_SEARCH,
 )
 from runtime.memory_rules import (
+    build_runtime_memory_context_text,
     build_runtime_session_event_snapshot,
     canonicalize_runtime_memory_text,
 )
@@ -62,6 +64,405 @@ from utils.runtime_actions import (
 # ---------------------------------------------------------
 # SYSTEM PROMPT
 # ---------------------------------------------------------
+
+MAX_PREVIOUS_THINK_CHARS = 9000
+MAX_PREVIOUS_THINK_SECTION_CHARS = 3000
+
+PREVIOUS_THINK_SECTION_TITLES = (
+    [
+        "Analyze User Input",
+        "Analyze the User Input",
+        "Analyze Intent",
+        "Analyze the Intent",
+        "Analyze Request",
+        "Analyze the Request",
+        "Determine Intent",
+        "Determine the Intent",
+    ],
+    [
+        "Check Context/State",
+        "Check State",
+        "Check Context",
+        "Review Context/Memory",
+        "Review Memory",
+        "Review Context",
+    ],
+    [
+        "Formulate Response",
+        "Formulate the Response",
+        "Final Output Generation",
+        "Final Polish",
+    ],
+)
+
+PREVIOUS_THINK_SECTION_RE = re.compile(
+    r"(?m)^\s*\d+\.\s+(?P<title>.+)$"
+)
+
+
+def normalize_previous_think_section_title(
+    title: str,
+) -> str:
+
+    return (
+        title
+        .strip()
+        .replace(
+            "**",
+            "",
+        )
+        .strip()
+    )
+
+
+def match_previous_think_section_title(
+    title: str,
+) -> str:
+
+    normalized = normalize_previous_think_section_title(
+        title
+    )
+
+    normalized_lower = normalized.lower()
+
+    for configured_title in PREVIOUS_THINK_SECTION_TITLES:
+
+        if isinstance(
+            configured_title,
+            str,
+        ):
+            aliases = [
+                configured_title,
+            ]
+        elif isinstance(
+            configured_title,
+            (
+                list,
+                tuple,
+            ),
+        ):
+            aliases = [
+                alias
+                for alias in configured_title
+                if isinstance(
+                    alias,
+                    str,
+                )
+            ]
+        else:
+            aliases = []
+
+        if not aliases:
+            continue
+
+        canonical_title = aliases[0]
+
+        for alias in aliases:
+
+            alias_lower = (
+                normalize_previous_think_section_title(
+                    alias
+                )
+                .lower()
+            )
+
+            if not alias_lower:
+                continue
+
+            if (
+                normalized_lower == alias_lower
+                or normalized_lower.startswith(
+                    f"{alias_lower}:"
+                )
+            ):
+                return canonical_title
+
+    return ""
+
+
+def clean_previous_think_section_text(
+    section_text: str,
+) -> str:
+
+    lines = section_text.splitlines()
+
+    if not lines:
+        return ""
+
+    heading_match = PREVIOUS_THINK_SECTION_RE.match(
+        lines[0]
+    )
+
+    if not heading_match:
+        cleaned_lines = lines
+    else:
+        heading = normalize_previous_think_section_title(
+            heading_match.group(
+                "title"
+            )
+        )
+
+        cleaned_lines = [
+            heading,
+            *lines[1:],
+        ]
+
+    cleaned = "\n".join(
+        cleaned_lines
+    )
+
+    cleaned = cleaned.replace(
+        "**",
+        "",
+    )
+
+    return cleaned.strip()
+
+
+def trim_previous_think_section_text(
+    section_text: str,
+) -> tuple[str, bool]:
+
+    trimmed = (
+        len(
+            section_text
+        )
+        > MAX_PREVIOUS_THINK_SECTION_CHARS
+    )
+
+    if not trimmed:
+        return (
+            section_text,
+            False,
+        )
+
+    return (
+        section_text[
+            :MAX_PREVIOUS_THINK_SECTION_CHARS
+        ].rstrip(),
+        True,
+    )
+
+
+def extract_previous_think_tail(
+    text: str,
+) -> dict:
+
+    if not isinstance(
+        text,
+        str,
+    ):
+        text = ""
+
+    sections = []
+    sections_found = []
+    section_trimmed = False
+    matches = list(
+        PREVIOUS_THINK_SECTION_RE.finditer(
+            text
+        )
+    )
+
+    for index, match in enumerate(
+        matches
+    ):
+
+        section_title = match_previous_think_section_title(
+            match.group(
+                "title"
+            )
+        )
+
+        if not section_title:
+            continue
+
+        next_match = (
+            matches[index + 1]
+            if index + 1 < len(matches)
+            else None
+        )
+
+        section_text = text[
+            match.start(): (
+                next_match.start()
+                if next_match
+                else len(text)
+            )
+        ].strip()
+
+        section_text = clean_previous_think_section_text(
+            section_text
+        )
+
+        if not section_text:
+            continue
+
+        section_text, was_section_trimmed = (
+            trim_previous_think_section_text(
+                section_text
+            )
+        )
+        section_trimmed = (
+            section_trimmed
+            or was_section_trimmed
+        )
+
+        sections.append(
+            section_text
+        )
+        sections_found.append(
+            section_title
+        )
+
+    extracted = "\n\n".join(
+        sections
+    ).strip()
+
+    total_trimmed = (
+        len(
+            extracted
+        )
+        > MAX_PREVIOUS_THINK_CHARS
+    )
+
+    if total_trimmed:
+        extracted = extracted[
+            :MAX_PREVIOUS_THINK_CHARS
+        ].rstrip()
+
+    trimmed = (
+        section_trimmed
+        or total_trimmed
+    )
+
+    return {
+        "text": extracted,
+        "sections_found": sections_found,
+        "chars": len(
+            extracted
+        ),
+        "trimmed": trimmed,
+    }
+
+
+def build_previous_think_block(
+    text: str,
+) -> tuple[str, dict]:
+
+    extracted = extract_previous_think_tail(
+        text
+    )
+
+    metadata = {
+        "previous_think_appended": bool(
+            extracted["text"]
+        ),
+        "previous_think_sections_found": (
+            extracted["sections_found"]
+        ),
+        "previous_think_chars": extracted["chars"],
+        "previous_think_trimmed": extracted["trimmed"],
+    }
+
+    if not extracted["text"]:
+        return (
+            "",
+            metadata,
+        )
+
+    return (
+        "\n".join([
+            "<LOW_PRIORITY_PREVIOUS_THINK>",
+            extracted["text"],
+            "</LOW_PRIORITY_PREVIOUS_THINK>",
+        ]),
+        metadata,
+    )
+
+
+def get_previous_think_context_block(
+    context=None,
+) -> str:
+
+    previous_think = getattr(
+        context,
+        "runtime_previous_think_raw",
+        "",
+    )
+
+    block, metadata = build_previous_think_block(
+        previous_think
+    )
+
+    if context is not None:
+        context.runtime_previous_think_payload_log = metadata
+
+    return block
+
+
+def record_previous_think(
+    context,
+    reasoning: str,
+):
+
+    if context is None:
+        return
+
+    if not isinstance(
+        reasoning,
+        str,
+    ):
+        reasoning = ""
+
+    context.runtime_previous_think_raw = reasoning
+
+
+async def log_previous_think_payload(
+    context,
+):
+
+    metadata = getattr(
+        context,
+        "runtime_previous_think_payload_log",
+        None,
+    )
+
+    if not isinstance(
+        metadata,
+        dict,
+    ):
+        return
+
+    logger = getattr(
+        context,
+        "logger",
+        None,
+    )
+    log = getattr(
+        logger,
+        "log",
+        None,
+    )
+
+    if not callable(
+        log
+    ):
+        return
+
+    try:
+        await log(
+            "[PAYLOAD]",
+            "previous think continuity",
+            **metadata,
+        )
+    except TypeError:
+        await log(
+            "[PAYLOAD]",
+            (
+                "previous think continuity "
+                f"{json.dumps(metadata, ensure_ascii=False)}"
+            ),
+        )
 
 def get_enabled_runtime_actions(
     runtime_actions=None,
@@ -842,6 +1243,10 @@ def build_brain_runtime_context(
             "runtime_memory",
             "",
         )
+        runtime_memory = build_runtime_memory_context_text(
+            runtime_memory,
+            context,
+        )
         session_memory = getattr(
             context,
             "runtime_l3_session_memory",
@@ -931,6 +1336,15 @@ def build_brain_runtime_context(
             f"{indent_xml(escape(activity_instruction))}\n"
             "    </INSTRUCTION>\n"
             "</CONVERSATION_ACTIVITY>"
+        )
+
+    previous_think_block = get_previous_think_context_block(
+        context
+    )
+
+    if previous_think_block:
+        runtime_context_parts.append(
+            previous_think_block
         )
 
     if zero_diff_alert:
@@ -1322,6 +1736,17 @@ async def ask_brain(
         )
     )
 
+    system_prompt = (
+        build_brain_system_prompt(
+            context,
+            runtime_actions,
+        )
+    )
+
+    await log_previous_think_payload(
+        context
+    )
+
     # -----------------------------------------------------
     # SERVICE AS BRAIN
     # -----------------------------------------------------
@@ -1333,12 +1758,7 @@ async def ask_brain(
             result = await ask_service_model(
                 client=client,
                 user_prompt=brain_payload,
-                system_prompt=(
-                    build_brain_system_prompt(
-                        context,
-                        runtime_actions,
-                    )
-                ),
+                system_prompt=system_prompt,
                 temperature=(
                     config.BRAIN_TEMPERATURE
                 ),
@@ -1391,6 +1811,11 @@ async def ask_brain(
                 user_message=text,
             )
 
+            record_previous_think(
+                context,
+                reasoning,
+            )
+
             return content_actions.text
 
         except Exception as error:
@@ -1415,12 +1840,7 @@ async def ask_brain(
     try:
 
         result = await client.ask(
-            system_prompt=(
-                build_brain_system_prompt(
-                    context,
-                    runtime_actions,
-                )
-            ),
+            system_prompt=system_prompt,
             user_prompt=brain_payload,
             temperature=(
                 config
@@ -1491,6 +1911,11 @@ async def ask_brain(
                 + content_actions.actions
             ),
             user_message=text,
+        )
+
+        record_previous_think(
+            context,
+            reasoning,
         )
 
         if content_actions.text:

@@ -35,6 +35,7 @@ from utils.tokens import (
 from runtime.memory_rules import (
     DEFAULT_RUNTIME_MEMORY,
     build_interrupted_assistant_message,
+    build_runtime_memory_context_text,
     build_runtime_l2_memory_system_prompt,
     build_runtime_l2_memory_user_prompt,
     build_runtime_memory_batch_user_prompt,
@@ -43,6 +44,7 @@ from runtime.memory_rules import (
     build_runtime_session_memory_system_prompt,
     build_runtime_session_memory_user_prompt,
     canonicalize_runtime_memory_entry,
+    remove_runtime_user_idle_lines,
 )
 from runtime.fact_check import (
     ensure_confirmable_memory_markers,
@@ -691,6 +693,10 @@ async def emit_runtime_memory_update(
     )
 
     memory = getattr(context, "runtime_memory", "")
+    display_memory = build_runtime_memory_context_text(
+        memory,
+        context,
+    )
 
     if not hasattr(
         context,
@@ -713,7 +719,7 @@ async def emit_runtime_memory_update(
         emit,
         {
             "type": "runtime_memory_update",
-            "memory": memory,
+            "memory": display_memory,
             "updates": getattr(context, "runtime_memory_updates", 0),
             "snapshot": snapshot,
             "snapshots_count": len(context.runtime_memory_snapshots),
@@ -2643,6 +2649,9 @@ async def summarize_runtime_memory(
         updated_memory = remove_runtime_response_feedback_text(
             updated_memory
         )
+        updated_memory = remove_runtime_user_idle_lines(
+            updated_memory
+        )
 
         updates_counter = getattr(
             context,
@@ -2827,6 +2836,9 @@ async def summarize_runtime_memory_pending_turns(
             ),
         )
         updated_memory = remove_runtime_response_feedback_text(
+            updated_memory
+        )
+        updated_memory = remove_runtime_user_idle_lines(
             updated_memory
         )
 
@@ -3922,8 +3934,13 @@ def build_runtime_memory_snapshot(
         else None
     )
 
+    display_memory = build_runtime_memory_context_text(
+        memory,
+        context,
+    )
+
     lines = parse_runtime_memory_lines(
-        memory
+        display_memory
     )
 
     lines = apply_runtime_memory_diff(
@@ -3939,7 +3956,7 @@ def build_runtime_memory_snapshot(
     return {
         "session_id": getattr(context, "session_id", ""),
         "index": len(snapshots),
-        "raw_memory": memory,
+        "raw_memory": display_memory,
         "lines": lines,
         "patch": patch_details["patch"],
         "total_diff": patch_details["total_diff"],
