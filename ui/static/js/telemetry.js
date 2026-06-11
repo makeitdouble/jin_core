@@ -317,6 +317,39 @@ function resetUserIdleTimer() {
   ensureUserIdleTimer();
 }
 
+function freezeUserIdleTimerAtMs(
+  elapsedMs
+) {
+  const now = Date.now();
+  const frozenElapsedMs = Math.max(
+      0,
+      Number(elapsedMs || 0)
+  );
+
+  userIdleStartedAt = now - frozenElapsedMs;
+  userIdlePausedAt = now;
+  clearUserIdleResumeTimer();
+  stopUserIdleTimer();
+  updateUserIdleTimerText();
+}
+
+function freezeUserIdleTimerAtSeconds(
+  elapsedSeconds
+) {
+  freezeUserIdleTimerAtMs(
+      Math.max(
+        0,
+        Number(elapsedSeconds || 0)
+      ) * 1000
+  );
+}
+
+function freezeUserIdleTimerAtZero() {
+  freezeUserIdleTimerAtMs(
+      0
+  );
+}
+
 function installUserIdleInputFreeze() {
   if (userIdleInputFreezeInstalled) {
     return;
@@ -369,6 +402,12 @@ function installUserIdleInputFreeze() {
 
 window.jinResetUserIdleTimer =
     resetUserIdleTimer;
+
+window.jinFreezeUserIdleTimerAtZero =
+    freezeUserIdleTimerAtZero;
+
+window.jinFreezeUserIdleTimerAtSeconds =
+    freezeUserIdleTimerAtSeconds;
 
 function getJinUserIdleContext() {
   const elapsedMs = Math.max(
@@ -3798,7 +3837,11 @@ window.handleRuntimeMemoryMessage = function (data) {
     runtimeMemoryHistory.index =
         runtimeMemoryHistory.snapshots.length - 1;
 
-    resetUserIdleTimer();
+    if (window.jinGenerationRunning) {
+      freezeUserIdleTimerAtSeconds(
+          window.jinActiveTurnUserIdleSeconds
+      );
+    }
 
     rememberStableRuntimeSnapshot(
       clientSnapshot
