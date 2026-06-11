@@ -1562,6 +1562,10 @@ const jinAnswerRatingL1Gate = {
   waitingGeneration: 0,
   readyGeneration: 0,
   baselineUpdates: 0,
+  // All gate generations strictly below this value are permanently locked:
+  // the user has already submitted a subsequent message, so retroactive
+  // ratings for those turns must be silently dropped.
+  lockedBelowGeneration: 0,
 };
 
 function getLatestRuntimeMemoryUpdatesForRatingGate() {
@@ -1675,6 +1679,30 @@ window.startJinAnswerRatingL1GateForTurn = function () {
     jinAnswerRatingL1Gate.generation;
   jinAnswerRatingL1Gate.baselineUpdates =
     getLatestRuntimeMemoryUpdatesForRatingGate();
+
+  // Hard-lock every bubble that belongs to a generation older than the one
+  // we are about to start.  This is the authoritative guard: the user has
+  // just sent a new message, so rating any previous assistant turn is no
+  // longer valid regardless of the committed/waiting state of the feedback
+  // flags.
+  jinAnswerRatingL1Gate.lockedBelowGeneration =
+    jinAnswerRatingL1Gate.generation;
+
+  if (typeof document !== "undefined") {
+    document
+      .querySelectorAll(
+        ".jin-chat-bubble-service[data-rating-gate-generation]"
+      )
+      .forEach((bubble) => {
+        const bubbleGen = Number(bubble.dataset.ratingGateGeneration || 0);
+        if (bubbleGen < jinAnswerRatingL1Gate.lockedBelowGeneration) {
+          bubble.classList.remove("jin-rating-selected-active");
+          bubble.classList.add("jin-rating-committed");
+          bubble.dataset.ratingCommitted = "true";
+          bubble.dataset.ratingPastTurn = "true";
+        }
+      });
+  }
 
   return {
     generation: jinAnswerRatingL1Gate.waitingGeneration,
@@ -2037,6 +2065,20 @@ window.recordJinAnswerRating = function (
 ) {
 
   if (runtimeResponseFeedbackCommitted) {
+    return null;
+  }
+
+  // Generation guard: reject ratings for bubbles that belong to a turn
+  // older than the one currently awaiting a response.  The user already
+  // submitted a newer message, so mutating an earlier snapshot would
+  // inject stale feedback into the wrong memory slice.
+  const incomingGeneration = Number(
+    detail && detail.ratingGateGeneration || 0
+  );
+  if (
+    incomingGeneration > 0
+    && incomingGeneration < jinAnswerRatingL1Gate.lockedBelowGeneration
+  ) {
     return null;
   }
 

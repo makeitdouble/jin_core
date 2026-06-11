@@ -800,7 +800,7 @@
         }
 
         .jin-chat-bubble-service.jin-rating-l1-waiting .jin-rating-zone {
-            cursor: wait;
+            cursor: default;
         }
 
         .jin-chat-bubble-service.jin-rating-l1-waiting {
@@ -1772,8 +1772,25 @@
                         if (
                             bubble.classList.contains("jin-rating-committed")
                             || bubble.dataset.ratingCommitted === "true"
+                            || bubble.dataset.ratingPastTurn === "true"
                             || isRatingInteractionBlocked()
                         ) {
+                            markBubbleRatingL1State(bubble);
+                            return;
+                        }
+
+                        // Generation guard: if a newer turn has already been
+                        // submitted, this bubble's gate generation is below the
+                        // lock threshold — treat it as permanently committed.
+                        const bubbleGen = Number(bubble.dataset.ratingGateGeneration || 0);
+                        const gateState = window.getJinAnswerRatingL1GateState
+                            ? window.getJinAnswerRatingL1GateState()
+                            : {};
+                        const lockedBelow = Number(gateState.lockedBelowGeneration || 0);
+                        if (bubbleGen > 0 && bubbleGen < lockedBelow) {
+                            bubble.classList.add("jin-rating-committed");
+                            bubble.dataset.ratingCommitted = "true";
+                            bubble.dataset.ratingPastTurn = "true";
                             markBubbleRatingL1State(bubble);
                             return;
                         }
