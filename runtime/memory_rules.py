@@ -28,6 +28,15 @@ SESSION_MEMORY_PRIORITY_KEYWORDS = (
     "user",
     "jin",
     "stored_memory",
+    "open_contract",
+    "countdown_contract",
+    "count_from",
+    "count_to",
+    "current",
+    "remaining",
+    "created_at",
+    "created_user_message_count",
+    "due_user_message_count",
     "last_jin_response",
     "решение",
     "огранич",
@@ -82,12 +91,13 @@ RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES = (
     "Rules:\n"
     "- Compress harder than usual.\n"
     "- Keep only information needed to continue the session after context loss.\n"
-    "- Prefer durable state: decisions, active task, bugs, next steps, user preferences, project changes, unresolved risks.\n"
+    "- Prefer durable state: decisions, active task, bugs, next steps, user preferences, project changes, unresolved risks, and active recall contracts.\n"
     "- Drop examples, jokes, emotional texture, repeated explanations, and wording that does not change future behavior.\n"
     "- Do not restate memory that already exists unless it changed.\n"
-    "- Merge related details into fewer atomic key:value lines.\n"
+    "- Context pressure may shorten temporary state, but must not remove stored_memory, open_contract, countdown_contract, durable facts, pending contracts, unresolved implementation tasks, or explicit user decisions.\n"
+    "- Merge related temporary details into fewer atomic key:value lines.\n"
+    "- If a durable line is long, shorten its value without changing its meaning.\n"
     "- Use short values. No markdown. No commentary.\n"
-    "- If nothing durable changed, output only: no durable update.\n"
 )
 
 
@@ -1086,6 +1096,7 @@ def build_runtime_memory_system_prompt(
         "Memory keys are flexible. Memory syntax is NOT flexible.\n"
         "Every memory entry MUST use the format:\n "
         "<key>: <value>\n"
+
         "You may invent semantic keys whenever they better capture an explicit current fact.\n"
         "Do not treat the example keys as a closed schema.\n"
         "Treat labels as semantic registers, not fixed database fields.\n"
@@ -1098,6 +1109,97 @@ def build_runtime_memory_system_prompt(
         "offered options, constraints, current concern, decisions, implementation detail, known fact, failures or interruptions.\n"
         "Avoid writing about JIN's role unless the role itself changed or matters. "
         "Describe JIN actions neutrally instead.\n"
+
+        # Defines L1's job: live factual memory, not transcript, analysis, or pattern memory.
+        "L1 is a live continuity layer, not a transcript and not a reasoning log.\n"
+        "Store only factual state that helps the next answer continue correctly.\n"
+        "Do not summarize the whole dialogue.\n"
+        "Do not explain why a memory line was kept, changed, or removed.\n"
+        "Do not record analysis of the user's personality, motives, or long-term behavior.\n"
+
+        # Keeps output stable and parseable.
+        "Every memory line must be a complete key:value entry.\n"
+        "One line must contain one semantic entity.\n"
+        "Do not use nested bullets, numbered lists, JSON, markdown tables, or headings.\n"
+        "Do not output empty keys or bare values.\n"
+        "Do not end a line with an unfinished phrase.\n"
+
+        # Defines how keys should behave: flexible, but stable.
+        "Keys are semantic handles for retrieval, not decorative labels.\n"
+        "Use a new key only when the current fact does not fit an existing key.\n"
+        "Do not rename an existing key if the underlying concept is the same.\n"
+        "Do not split one stable concept across multiple competing keys.\n"
+        "Do not merge a durable key into a temporary key.\n"
+
+        # Separates temporary conversation state from durable survival state.
+        "Temporary state may change when the topic changes.\n"
+        "Durable state must survive topic changes unless explicitly corrected, cancelled, completed, or superseded.\n"
+        "Temporary keys include active topic, current task, current request, pending choice, last_jin_response, and interaction state.\n"
+        "Survival-priority memory includes stored_memory, open_contract, countdown_contract, durable facts, pending contracts, explicit user decisions, and unresolved implementation tasks.\n"
+        "When memory competes for space, survival-priority memory outranks active topic, last_jin_response, affective context, examples, and conversational texture.\n"
+        "Durable keys include user_fact, jin_fact, jin_core_definition, stored_memory, open_contract, countdown_contract, shared_axiom_established, primary_goal, known fact about JIN.\n"
+        "A new topic never automatically deletes durable state.\n"
+
+        # Protects recall-test words, code words, and remembered tokens.
+        "stored_memory is a high-priority active recall contract.\n"
+        "When the user asks JIN to remember a word, code word, token, label, or important detail, store it as stored_memory.\n"
+        "stored_memory must include the exact remembered value and its purpose.\n"
+        "Revealing, assigning, or sending the stored value to the user is not a recall event.\n"
+        "If JIN has only given the stored value to the user, keep stored_memory status: pending.\n"
+        "Set stored_memory status to recalled only after JIN later asks the user to recall it and the user answers with the stored value.\n"
+        "Use this format when possible: stored_memory: \"<exact value>\" (purpose: <why it matters>; status: <pending|recalled|cancelled>)\n"
+        "Do not store bare ambiguous values without purpose.\n"
+        "Do not hide stored_memory inside active topic, current task, user request, or last_jin_response.\n"
+        "Do not remove stored_memory just because the conversation moved to another topic.\n"
+
+        # Defines when stored_memory may be removed.
+        "A stored_memory line may be removed only when the user explicitly cancels it, replaces it, or the recall contract is clearly complete.\n"
+        "If JIN recalls or guesses the stored value and the user confirms it, keep stored_memory for at least one more L1 snapshot with status: recalled.\n"
+        "If the user confirms the remembered value and immediately changes topic, preserve stored_memory with status: recalled until the next completed L1 update.\n"
+        "If recall is still pending, stored_memory must remain present regardless of topic changes or context pressure.\n"
+
+        # Keeps pending contracts distinct from current topic.
+        "Open contracts are not the same as active topics.\n"
+        "A memory test, pending recall, promised follow-up, unresolved choice, or active implementation task must survive casual topic switches.\n"
+        "If the user starts a new topic while an open contract remains unresolved, keep both the new active topic and the unresolved contract.\n"
+        "Use separate lines for active topic and unresolved contract.\n"
+
+        # Makes open_contract fields actionable by embedding turn progress or time progress.
+        "When a stored_memory recall contract specifies a turn window (e.g. 'within N turns', 'через N ходов'), "
+        "also write a companion open_contract line that describes the obligation in plain language and includes live turn progress.\n"
+        "For turn-based recall contracts, use this format: "
+        "open_contract: JIN must prompt user to recall the secret word \"<word>\" within <N> turns, without being prompted by the user. "
+        "(turn <current_user_message_count - contract_created_user_message_count + 1>/<N>)\n"
+        "For time-based recall contracts, use this format: "
+        "open_contract: JIN must prompt user to recall the secret word \"<word>\" within <N> minutes, without being prompted by the user. "
+        "(start_time: <created_at>; current_time: <current trusted timestamp>)\n"
+        "On every L1 update while the recall contract is pending, recompute the turn progress or elapsed time and update the open_contract line.\n"
+        "The open_contract line must always reflect the current turn so JIN knows how many turns remain before the window closes.\n"
+        "When the turn counter in open_contract reaches or exceeds N, JIN must ask the recall question in its very next response — do not wait for the user to prompt it.\n"
+        "Do not remove or skip the open_contract line while stored_memory status is pending; remove it only when stored_memory status becomes recalled or cancelled.\n"
+
+        # Makes relative turn countdowns anchor to runtime counters instead of vague prose.
+        "If the user creates a relative turn-count contract, such as 'через три хода', 'через 3 моих хода', 'after three turns', or 'in N messages', store it as countdown_contract.\n"
+        "A countdown_contract must anchor to the exact trusted runtime time and the exact trusted user_message_count at the moment the contract is created.\n"
+        "The creation anchor is immutable: once created_at, created_user_message_count, count_from, count_to, or due_user_message_count are written, do not change them unless the user explicitly restarts, resets, replaces, or cancels the countdown.\n"
+        "For countdown_contract, use this format when possible: countdown_contract: <purpose>; created_at: <trusted runtime timestamp at creation>; created_user_message_count: <exact user_message_count at creation>; count_from: <same exact user_message_count at creation>; count_to: <count_from + N>; due_user_message_count: <same as count_to>; current: <latest trusted user_message_count>; remaining: <max(count_to-current,0)>; status: <active|due|completed|cancelled>; trigger: <what JIN must do when due>\n"
+        "If TRUSTED_RUNTIME_CONTEXT includes a timestamp, copy that exact timestamp into created_at when the countdown is first created; do not replace it with vague words like now, today, recently, or this turn.\n"
+        "If TRUSTED_RUNTIME_CONTEXT includes turn_number and user_message_count, prefer user_message_count for user-step countdown math and preserve the exact turn_number only as optional metadata such as created_turn_number: <turn_number>.\n"
+        "If the prompt contains no trusted timestamp or no trusted user_message_count, explicitly mark the missing anchor inside countdown_contract, for example created_at: unknown or created_user_message_count: unknown; do not invent numbers.\n"
+        "When the user says 'через N ходов' without specifying whose turns, interpret it as N future user turns/messages unless the current conversation explicitly defines a different unit.\n"
+        "Do not restart created_at, created_user_message_count, count_from, count_to, or due_user_message_count when JIN acknowledges, apologizes, reminds, or repeats the countdown.\n"
+        "Only restart count_from when the user explicitly says to restart, reset, replace, or create a new countdown.\n"
+        "On every L1 update while countdown_contract is active, recompute current from trusted user_message_count and recompute remaining from count_to-current.\n"
+        "If current is less than count_to, keep status: active and do not execute the trigger yet.\n"
+        "If current is greater than or equal to count_to, set status: due and preserve the trigger so the next answer can perform it.\n"
+        "When countdown_contract status is due, JIN must execute the trigger as an actual direct user-facing question, not as a reminder, hint, aside, or soft follow-up.\n"
+        "For due recall contracts, JIN must ask the user to provide the remembered value without revealing, quoting, paraphrasing, or restating the stored value first.\n"
+        "Valid due recall wording examples: 'Какое слово я загадал?' or 'Назови слово, которое я загадал?'\n"
+        "Invalid due recall wording examples: 'не забудь вспомнить слово <value>', 'помнишь слово <value>?', 'мы договаривались о слове <value>', or any wording that exposes the stored value before the user answers.\n"
+        "When a due recall trigger is executed, the answer may still briefly satisfy the current user request first, but it must end with the direct recall question and must not reveal the stored value.\n"
+        "When status is due, do not include the stored value in the answer unless the user has already answered it in a later turn.\n"
+        "Set status: completed only after JIN performs the trigger or the user explicitly confirms the contract is done.\n"
+        "A countdown_contract is an open contract and survival-priority memory; topic changes, context pressure, and shallow summarization must not remove it.\n"
         "Keep memory actionable: write what helps the next answer, not a recap of "
         "what happened. \n"
         "Treat TRUSTED_RUNTIME_CONTEXT timestamp as the source of truth for current time.\n"
@@ -1163,7 +1265,7 @@ def build_runtime_memory_system_prompt(
         "Preserve strong details until the current context directly makes them obsolete, corrected, cancelled, or irrelevant; a topic/task change alone is not enough.\n"
         "Topic/task changes, shallow summarization, memory pressure, or a new current request are never enough to remove or rename durable JIN/user fact keys.\n"
         "DURABLE LINES THAT MUST ALWAYS CARRY FORWARD VERBATIM unless explicitly corrected by the user in the current turn: "
-        "user_fact, jin_fact, jin_core_definition, stored_memory, shared_axiom_established, primary_goal, known fact about JIN. "
+        "user_fact, jin_fact, jin_core_definition, stored_memory, open_contract, countdown_contract, shared_axiom_established, primary_goal, known fact about JIN. "
         "These lines are immune to shallow summarization, topic switches, memory pressure, and low-signal turns. "
         "If you are about to produce output that does not contain all of these lines from the current memory, stop and add them back.\n"
         "Do not update a value when JIN merely paraphrased, reordered, or reworded the same offer, "
@@ -1190,6 +1292,14 @@ def build_runtime_memory_system_prompt(
         "Prefer compact continuity over transcript-like detail.\n"
         "Remove noise, implementation chatter, and one-off details unless they change "
         "what JIN should understand next.\n"
+
+        # Final survival check before output.
+        "Before final output, check whether every durable line from current memory is still present unless explicitly corrected, cancelled, completed, or superseded in the latest turn.\n"
+        "Before final output, check whether every active stored_memory line is still present until its recall contract is resolved.\n"
+        "Before final output, check whether every active open_contract line is still present and its turn progress counter has been updated to the current turn.\n"
+        "Before final output, check whether every active countdown_contract line still contains created_at, created_user_message_count, count_from, count_to, current, remaining, status, and trigger.\n"
+        "If a required durable line or active stored_memory line is missing, add it back before output.\n"
+        "If nothing durable changed, preserve durable lines unchanged and update only temporary state plus last_jin_response.\n"
         "The final memory snapshot should feel like current live trusted state.\n"
     )
 
