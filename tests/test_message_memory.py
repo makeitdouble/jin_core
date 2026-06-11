@@ -25,12 +25,19 @@ from runtime import (
     summarize_runtime_memory,
 )
 from runtime.memory import (
+    ask_runtime_memory_model,
     build_runtime_memory_snapshot,
     build_l3_session_memory_max_tokens,
     collapse_duplicate_runtime_memory_keys,
     L3_OUTPUT_MAX_TOKENS,
     parse_runtime_memory_lines,
     summarize_runtime_memory_pending_turns,
+)
+from runtime.memory_rules import (
+    RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES,
+)
+from runtime.registry import (
+    runtime_state,
 )
 from config_loader import (
     config,
@@ -44,6 +51,7 @@ class FakeServiceClient:
         response_text,
         finish_reasons=None,
         usage=None,
+        context_window=None,
     ):
 
         self.response_text = response_text
@@ -52,7 +60,12 @@ class FakeServiceClient:
             or []
         )
         self.usage = usage
+        self.context_window = context_window
         self.calls = []
+
+    async def resolve_request_context_window(self):
+
+        return self.context_window
 
     async def ask(
         self,
@@ -482,6 +495,79 @@ class MessageMemoryTests(
         self.assertNotIn(
             "after one completed user/JIN turn",
             prompt,
+        )
+        self.assertNotIn(
+            RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES.strip(),
+            prompt,
+        )
+
+    def test_runtime_memory_prompt_can_include_context_overload_rules(self):
+
+        prompt = build_runtime_memory_system_prompt(
+            last_turn_context_overloaded=True,
+        )
+
+        self.assertIn(
+            RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES.strip(),
+            prompt,
+        )
+
+    async def test_l1_prompt_includes_context_overload_rules_after_turn_overload(self):
+
+        service_client = FakeServiceClient(
+            "- active_topic: context overload handling",
+            context_window=8192,
+        )
+        context = SimpleNamespace(
+            runtime_memory="Initial memory.",
+            runtime_l2_memory="",
+            runtime_memory_snapshots=[],
+            emitter=SimpleNamespace(
+                emit=None,
+            ),
+            logger=FakeLogger(),
+        )
+        runtime_id = (
+            config.SERVICE_MODEL_UID
+            if config.USE_SERVICE_AS_BRAIN
+            else config.BRAIN_MODEL_UID
+        )
+        previous_state = runtime_state.get_runtime_state(
+            runtime_id
+        )
+
+        runtime_state.update_runtime_state(
+            runtime_id=runtime_id,
+            used_tokens=5000,
+            context_tokens=3900,
+            total_tokens=5000,
+            max_tokens=4096,
+            last_error=None,
+            status="online",
+        )
+
+        try:
+            await ask_runtime_memory_model(
+                context=context,
+                service_client=service_client,
+                current_memory="Initial memory.",
+                user_message="Remember the overload behavior.",
+                assistant_message="I will preserve it.",
+            )
+        finally:
+            runtime_state.update_runtime_state(
+                runtime_id=runtime_id,
+                used_tokens=previous_state["used_tokens"],
+                context_tokens=previous_state["context_tokens"],
+                total_tokens=previous_state["total_tokens"],
+                max_tokens=previous_state["max_tokens"],
+                last_error=previous_state["last_error"],
+                status=previous_state["status"],
+            )
+
+        self.assertIn(
+            RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES.strip(),
+            service_client.calls[0]["system_prompt"],
         )
 
     def test_runtime_memory_parser_canonicalizes_legacy_memory_token(self):
@@ -2603,6 +2689,7 @@ class MessageMemoryTests(
                 "completion_tokens": 33,
                 "total_tokens": 123,
             },
+            context_window=8192,
         )
         context = SimpleNamespace(
             clients={
@@ -2660,6 +2747,12 @@ class MessageMemoryTests(
                 RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID
             ]["total_tokens"],
             123,
+        )
+        self.assertEqual(
+            telemetry_events[-1]["runtime"][
+                RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID
+            ]["max_tokens"],
+            8192,
         )
 
     async def test_summarizer_uses_service_max_tokens(self):
