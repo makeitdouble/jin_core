@@ -110,8 +110,34 @@ const runtimeMemoryCount =
 const latestSavedSessionMemoryStorageKey =
   "jin.latestSavedSessionMemory.v1";
 
-const latestRuntimeMemoryStorageKey =
-  "jin.latestRuntimeMemory.v1";
+const runtimeSessionIdSessionStorageKey =
+  "jin.runtimeSessionId.v1";
+
+const runtimeSessionBroadcastChannelName =
+  "jin.runtimeSession.v1";
+
+const latestRuntimeMemoryStorageKeyPrefix =
+  "jin.latestRuntimeMemory";
+
+const latestRuntimeMemoryStorageKeyVersion =
+  "v1";
+
+const runtimeSessionInstanceId =
+  generateRuntimeSessionId();
+
+let clonedRuntimeSessionId = null;
+
+let runtimeSessionId =
+  getRuntimeSessionId();
+
+let latestRuntimeMemoryStorageKey =
+  getLatestRuntimeMemoryStorageKey(
+    runtimeSessionId
+  );
+
+const legacyLatestRuntimeMemoryStorageKey =
+  `${latestRuntimeMemoryStorageKeyPrefix}`
+  + `.${latestRuntimeMemoryStorageKeyVersion}`;
 
 const latestSavedRuntimeMemoryStorageKey =
   "jin.latestSavedRuntimeMemory.v1";
@@ -140,6 +166,274 @@ let lastStableRuntimeMemorySnapshot = null;
 let pendingSessionSaveRuntimeMemorySnapshot = null;
 let waitingForSessionSaveRuntimeSnapshot = false;
 let pendingSessionMemoryPersistData = null;
+
+function generateRuntimeSessionId() {
+
+  if (
+      window.crypto
+      && typeof window.crypto.randomUUID === "function"
+  ) {
+    return window.crypto.randomUUID();
+  }
+
+  return [
+    "session",
+    Date.now().toString(36),
+    Math.random().toString(36).slice(2, 10),
+  ].join("-");
+
+}
+
+function getRuntimeSessionId() {
+
+  try {
+    const storedSessionId =
+      String(
+        window.sessionStorage.getItem(
+          runtimeSessionIdSessionStorageKey
+        ) || ""
+      ).trim();
+
+    if (storedSessionId) {
+      const newRuntimeSessionId =
+        generateRuntimeSessionId();
+
+      clonedRuntimeSessionId = storedSessionId;
+
+      window.sessionStorage.setItem(
+        runtimeSessionIdSessionStorageKey,
+        newRuntimeSessionId
+      );
+
+      return newRuntimeSessionId;
+    }
+
+    const newRuntimeSessionId =
+      generateRuntimeSessionId();
+
+    window.sessionStorage.setItem(
+      runtimeSessionIdSessionStorageKey,
+      newRuntimeSessionId
+    );
+
+    return newRuntimeSessionId;
+  } catch (error) {
+    return generateRuntimeSessionId();
+  }
+
+}
+
+function getLatestRuntimeMemoryStorageKey(
+  runtimeSessionId
+) {
+
+  return `${latestRuntimeMemoryStorageKeyPrefix}`
+    + `.${runtimeSessionId}`
+    + `.${latestRuntimeMemoryStorageKeyVersion}`;
+
+}
+
+function setRuntimeSessionId(
+  nextRuntimeSessionId
+) {
+
+  const normalizedRuntimeSessionId =
+    String(nextRuntimeSessionId || "").trim();
+
+  if (!normalizedRuntimeSessionId) {
+    return;
+  }
+
+  runtimeSessionId = normalizedRuntimeSessionId;
+  latestRuntimeMemoryStorageKey =
+    getLatestRuntimeMemoryStorageKey(
+      runtimeSessionId
+    );
+
+  try {
+    window.sessionStorage.setItem(
+      runtimeSessionIdSessionStorageKey,
+      runtimeSessionId
+    );
+  } catch (error) {
+    // Browser memory is helpful, not required for chat.
+  }
+
+}
+
+function cloneRuntimeMemoryToCurrentSession(
+  runtimeMemory
+) {
+
+  if (
+      !runtimeMemory
+      || typeof runtimeMemory !== "object"
+      || readBrowserMemory(latestRuntimeMemoryStorageKey)
+  ) {
+    return;
+  }
+
+  writeBrowserMemory(
+    latestRuntimeMemoryStorageKey,
+    {
+      ...runtimeMemory,
+      session_id: runtimeSessionId,
+      runtime_session_instance_id:
+        runtimeSessionInstanceId,
+      cloned_from_session_id:
+        runtimeMemory.session_id || null,
+    }
+  );
+
+}
+
+function cloneRuntimeMemoryFromSessionId(
+  sourceRuntimeSessionId
+) {
+
+  const normalizedSourceRuntimeSessionId =
+    String(sourceRuntimeSessionId || "").trim();
+
+  if (!normalizedSourceRuntimeSessionId) {
+    return;
+  }
+
+  const sourceRuntimeMemory =
+    readBrowserMemory(
+      getLatestRuntimeMemoryStorageKey(
+        normalizedSourceRuntimeSessionId
+      )
+    );
+
+  cloneRuntimeMemoryToCurrentSession(
+    sourceRuntimeMemory
+  );
+
+}
+
+function rotateRuntimeSessionId(
+  options = {}
+) {
+
+  const runtimeMemoryToClone =
+    options.cloneCurrentRuntimeMemory
+      ? readBrowserMemory(
+          latestRuntimeMemoryStorageKey
+        )
+      : null;
+
+  setRuntimeSessionId(
+    generateRuntimeSessionId()
+  );
+
+  cloneRuntimeMemoryToCurrentSession(
+    runtimeMemoryToClone
+  );
+
+}
+
+function cloneBootRuntimeMemoryIfNeeded() {
+
+  if (!clonedRuntimeSessionId) {
+    return;
+  }
+
+  cloneRuntimeMemoryFromSessionId(
+    clonedRuntimeSessionId
+  );
+
+  clonedRuntimeSessionId = null;
+
+}
+
+function clearLegacyActiveRuntimeSessionKey() {
+
+  try {
+    window.localStorage.removeItem(
+      "jin.activeSessionId.v1"
+    );
+  } catch (error) {
+    // Browser memory is helpful, not required for chat.
+  }
+
+}
+
+clearLegacyActiveRuntimeSessionKey();
+cloneBootRuntimeMemoryIfNeeded();
+
+function setupRuntimeSessionCollisionChannel() {
+
+  if (typeof window.BroadcastChannel !== "function") {
+    return;
+  }
+
+  let channel = null;
+
+  try {
+    channel =
+      new window.BroadcastChannel(
+        runtimeSessionBroadcastChannelName
+      );
+  } catch (error) {
+    return;
+  }
+
+  channel.addEventListener(
+    "message",
+    function (event) {
+      const message =
+        (
+          event
+          && event.data
+          && typeof event.data === "object"
+        )
+          ? event.data
+          : {};
+
+      if (message.instance_id === runtimeSessionInstanceId) {
+        return;
+      }
+
+      if (
+          message.type === "runtime_session_probe"
+          && message.session_id === runtimeSessionId
+      ) {
+        channel.postMessage(
+          {
+            type: "runtime_session_claimed",
+            session_id: runtimeSessionId,
+            instance_id: runtimeSessionInstanceId,
+            target_instance_id: message.instance_id,
+          }
+        );
+        return;
+      }
+
+      if (
+          message.type === "runtime_session_claimed"
+          && message.session_id === runtimeSessionId
+          && message.target_instance_id === runtimeSessionInstanceId
+      ) {
+        rotateRuntimeSessionId(
+          {
+            cloneCurrentRuntimeMemory: true,
+          }
+        );
+      }
+    }
+  );
+
+  channel.postMessage(
+    {
+      type: "runtime_session_probe",
+      session_id: runtimeSessionId,
+      instance_id: runtimeSessionInstanceId,
+    }
+  );
+
+}
+
+setupRuntimeSessionCollisionChannel();
 
 const runtimeDiffHistory = {
   diffs: [],
@@ -620,6 +914,128 @@ function readBrowserMemory(
 
 }
 
+function getNavigationType() {
+
+  const entries =
+    (
+      window.performance
+      && typeof window.performance.getEntriesByType === "function"
+    )
+      ? window.performance.getEntriesByType("navigation")
+      : [];
+
+  const navigation =
+    entries && entries[0];
+
+  return String(
+    (
+      navigation
+      && navigation.type
+    )
+    || ""
+  );
+
+}
+
+function canReuseExistingRuntimeMemoryKey() {
+
+  const navigationType =
+    getNavigationType();
+
+  return (
+    navigationType === "reload"
+    || navigationType === "back_forward"
+  );
+
+}
+
+function getRuntimeMemoryInstanceId(
+  runtimeMemory
+) {
+
+  return String(
+    (
+      runtimeMemory
+      && runtimeMemory.runtime_session_instance_id
+    )
+    || ""
+  ).trim();
+
+}
+
+function ensureWritableRuntimeSessionId() {
+
+  const existingRuntimeMemory =
+    readBrowserMemory(
+      latestRuntimeMemoryStorageKey
+    );
+
+  if (!existingRuntimeMemory) {
+    return;
+  }
+
+  if (canReuseExistingRuntimeMemoryKey()) {
+    return;
+  }
+
+  const existingInstanceId =
+    getRuntimeMemoryInstanceId(
+      existingRuntimeMemory
+    );
+
+  if (existingInstanceId === runtimeSessionInstanceId) {
+    return;
+  }
+
+  rotateRuntimeSessionId();
+
+}
+
+function hasSavedSessionMemoryBootstrap() {
+
+  const savedRuntimeFallback =
+    getSavedRuntimeMemoryFallback();
+
+  if (
+      savedRuntimeFallback
+      && savedRuntimeFallback.session_memory
+  ) {
+    return true;
+  }
+
+  const browserLatestSavedSessionMemory =
+    readBrowserMemory(
+      latestSavedSessionMemoryStorageKey
+    );
+
+  return Boolean(
+      browserLatestSavedSessionMemory
+      && browserLatestSavedSessionMemory.explicit_save === true
+  );
+
+}
+
+function readLatestRuntimeMemory() {
+
+  const scopedRuntimeMemory =
+    readBrowserMemory(
+      latestRuntimeMemoryStorageKey
+    );
+
+  if (scopedRuntimeMemory) {
+    return scopedRuntimeMemory;
+  }
+
+  if (hasSavedSessionMemoryBootstrap()) {
+    return null;
+  }
+
+  return readBrowserMemory(
+    legacyLatestRuntimeMemoryStorageKey
+  );
+
+}
+
 
 let savedRuntimeFileFallback = null;
 let savedRuntimeFileFallbackLoaded = false;
@@ -866,7 +1282,6 @@ function writeBrowserMemory(
 
 }
 
-
 function buildPersistedRuntimeSnapshot(
   snapshot
 ) {
@@ -924,10 +1339,15 @@ function persistRuntimeMemorySnapshot(
   const savedAt =
     new Date().toISOString();
 
+  ensureWritableRuntimeSessionId();
+
   writeBrowserMemory(
     latestRuntimeMemoryStorageKey,
     {
       version: 1,
+      session_id: runtimeSessionId,
+      runtime_session_instance_id:
+        runtimeSessionInstanceId,
       saved_at: savedAt,
       runtime_memory: runtimeMemory,
       runtime_memory_updates: data.updates || 0,
@@ -1092,7 +1512,7 @@ function getLatestStableRuntimeMemoryObject() {
 
   const persistedRuntimeMemory =
     runtimeMemoryObjectFromPersistedRuntime(
-      readBrowserMemory(latestRuntimeMemoryStorageKey)
+      readLatestRuntimeMemory()
     );
 
   if (persistedRuntimeMemory) {
@@ -1382,7 +1802,7 @@ function getRuntimeMemoryForSessionSave() {
   }
 
   return runtimeMemoryObjectFromPersistedRuntime(
-    readBrowserMemory(latestRuntimeMemoryStorageKey)
+    readLatestRuntimeMemory()
   );
 
 }
@@ -3074,6 +3494,9 @@ window.clearPersistedSessionBootstrap = function () {
     );
     window.localStorage.removeItem(
       latestRuntimeMemoryStorageKey
+    );
+    window.localStorage.removeItem(
+      legacyLatestRuntimeMemoryStorageKey
     );
   } catch (error) {
     // Browser memory is helpful, not required for chat.
