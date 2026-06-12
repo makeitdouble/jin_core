@@ -6,9 +6,17 @@
 ![OpenAI Compatible](https://img.shields.io/badge/API-OpenAI--compatible-111827.svg)
 ![Tests](https://github.com/makeitdouble/jin_core/actions/workflows/tests.yml/badge.svg)
 
-JIN Core is a local AI runtime that runs entirely on your machine, using local model instances in different runtime roles rather than treating a model as a single stateless chat box: one role handles the main conversation, while another maintains live context and session memory, all surfaced through a single browser window with no frontend build step required. 
+**JIN Core** is a local-first AI orchestration runtime. Instead of treating models as simple stateless chat boxes, it splits them into dedicated runtime roles (reasoning, service, translation) inside a single, seamless browser interface — with no frontend build step required.
 
-Memory is structured across three layers: L1 holds live session facts in process memory; L2 tracks repetition patterns with occurrence counters that feed back into prompting strategy; L3 is a compressed session digest serialized to browser localStorage and replayed on reconnect. Every L1/L2 update is stored as a numbered snapshot with diff metadata, navigable through the right-side panel.
+### 3-Layer Memory
+JIN doesn't just store logs. It uses short-term continuity to dynamically guide conversation strategy:
+
+* **L1 (Live Facts):** Actionable session state kept in active process memory.
+* **L2 (Patterns):** Tracks interaction loops and repetition counters to adapt prompts on the fly.
+* **L3 (Digest):** Compressed session snapshots serialized to browser `localStorage` and replayed on reconnect.
+
+*Every memory update is captured as a versioned snapshot with diff highlights, fully inspectable in the right-side timeline panel.*
+
 
 ![JIN Core Engine runtime UI](ui/static/images/jin-core-redesign.png)
 
