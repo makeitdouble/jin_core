@@ -7,9 +7,9 @@ assignees: ''
 
 ---
 
-**Describe the bug**
+## What happened?
 
-A clear and concise description of what the bug is.
+Describe the bug clearly.
 
 ## What did you expect to happen?
 
