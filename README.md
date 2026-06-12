@@ -6,14 +6,17 @@
 ![OpenAI Compatible](https://img.shields.io/badge/API-OpenAI--compatible-111827.svg)
 ![Tests](https://github.com/makeitdouble/jin_core/actions/workflows/tests.yml/badge.svg)
 
+**JIN Core** is a local-first AI orchestration runtime. Instead of treating models as simple stateless chat boxes, it splits them into dedicated runtime roles (reasoning, service, translation) inside a single, seamless browser interface — with no frontend build step required.
 
-JIN Core Engine is a local AI orchestration runtime for OpenAI-compatible model servers. It combines a FastAPI backend, a streaming WebSocket chat interface, model-role routing, runtime actions, live in-memory context, stream validation, and a compact browser UI with no frontend build step.
+### 3-Layer Memory
+JIN doesn't just store logs. It uses short-term continuity to dynamically guide conversation strategy:
 
-The engine is designed for multi-runtime local AI setups where the main reasoning model, service model, and translation model can run as separate providers while sharing one coherent room-like chat surface.
+* **L1 (Live Facts):** Actionable session state kept in active process memory.
+* **L2 (Patterns):** Tracks interaction loops and repetition counters to adapt prompts on the fly.
+* **L3 (Digest):** Compressed session snapshots serialized to browser `localStorage` and replayed on reconnect.
 
-Runtime memory can now influence conversation strategy, not just store facts. JIN tracks interaction patterns during a session and can adjust replies when the conversation starts looping instead of blindly restarting the same exchange.
+*Every memory update is captured as a versioned snapshot with diff highlights, fully inspectable in the right-side timeline panel.*
 
-Session memory can survive across browser sessions. When the user explicitly ends or saves a session, JIN compresses the conversation into a compact L3 digest that the browser stores locally and replays on reconnect.
 
 ![JIN Core Engine runtime UI](ui/static/images/jin-core-redesign.png)
 
@@ -91,6 +94,8 @@ This gives JIN observable short-term memory and behavior adaptation without intr
 |-- config.example.py       # Runtime configuration template
 |-- config_loader.py        # Local config module loader
 |-- app_settings.py         # Typed settings wrapper
+|-- launch_jin.bat          # Windows one-click launcher
+|-- launch_jin.ps1          # LM Studio readiness check and startup script
 |-- package.json            # Local command shortcuts
 |-- requirements.txt        # Pinned Python dependencies
 |-- saved_runtime.example.txt  # Template for persisted L3 session memory
@@ -111,6 +116,51 @@ This gives JIN observable short-term memory and behavior adaptation without intr
 - Provider endpoints that support:
   - `POST /v1/chat/completions`
   - `GET /v1/models`
+
+## Windows One-Click Launcher
+
+Windows users can start JIN with LM Studio through:
+
+```text
+launch_jin.bat
+```
+
+The launcher uses LM Studio as the default provider. When `config.py` already exists, it checks configured provider base URLs first, in this order: `SERVICE_API_BASE`, `BRAIN_API_BASE`, then `TRANSLATOR_API_BASE`. If no configured provider responds, it falls back to the default OpenAI-compatible API at:
+
+```text
+http://localhost:1234/v1/models
+```
+
+Before running it:
+
+- Install and open LM Studio.
+- Download a supported Gemma model in LM Studio. Recommended default: `google/gemma-3-12b-it`.
+- Start the LM Studio Local Server.
+
+The launcher does not download models automatically. LM Studio downloads are intentionally left to the LM Studio UI.
+
+When the Local Server is reachable, the launcher reads and prints the returned model IDs, then checks local `config.py`.
+
+For `BRAIN_MODEL_UID`, `SERVICE_MODEL_UID`, and `TRANSLATOR_MODEL_UID`, the launcher only writes a Gemma model automatically when the current value is empty or still uses the template defaults: `brain-model`, `service-model`, or `translator-model`. If a user-defined model ID is already present, the launcher keeps it unchanged.
+
+For provider base URLs, the launcher points empty/template values at the working LM Studio base URL it found, but keeps user-defined values unchanged.
+
+If LM Studio is not running, it prints:
+
+```text
+LM Studio is not running.
+Open LM Studio, start Local Server, then run this script again.
+```
+
+If no supported Gemma model is returned, it prints the recommended model ID and asks you to download it in LM Studio, then rerun the launcher.
+
+After the readiness check passes, the launcher creates `.venv` if needed, installs `requirements.txt`, starts the backend, and opens:
+
+```text
+http://127.0.0.1:8000
+```
+
+If the launcher is already running, a second click exits immediately instead of repeating the LM Studio, config, dependency, and backend checks.
 
 ## Quick Start
 
