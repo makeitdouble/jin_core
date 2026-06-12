@@ -658,6 +658,10 @@ class RuntimeActionTests(unittest.TestCase):
             context.runtime_session_event_snapshots[0]["source"],
             "runtime_action",
         )
+        self.assertEqual(
+            context.runtime_session_event_snapshots[0]["initiated_by"],
+            "user",
+        )
         self.assertIn(
             "A memorable answer.",
             context.runtime_session_event_snapshots[0]["assistant_response"],
@@ -665,6 +669,36 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             context.emitter.events[-1]["type"],
             "runtime_session_memory_update",
+        )
+
+    def test_apply_runtime_action_calls_marks_auto_session_event_as_jin_initiated(self):
+
+        class Context:
+            pass
+
+        context = Context()
+        context.runtime_session_event_snapshots = []
+        context.runtime_turn_user_message = "let's keep implementing this"
+        context.runtime_turn_assistant_response = "A high-signal correction."
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="REMEMBER_EVENT",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertEqual(
+            context.runtime_session_event_snapshots[0]["initiated_by"],
+            "jin",
         )
 
     def test_extract_search_query_unnests_json_string(self):

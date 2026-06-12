@@ -34,6 +34,8 @@ from utils.tokens import (
 )
 from runtime.memory_rules import (
     DEFAULT_RUNTIME_MEMORY,
+)
+from runtime.memory_utils import (
     build_interrupted_assistant_message,
     build_runtime_memory_context_text,
     build_runtime_l2_memory_system_prompt,

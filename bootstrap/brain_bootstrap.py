@@ -163,9 +163,17 @@ def build_runtime_action_instructions(enabled_actions: tuple[str, ...]) -> str:
         )
 
     if RUNTIME_ACTION_REMEMBER_EVENT in enabled_actions:
+        remember_event_examples = ", ".join(
+            f"'{trigger}'"
+            for trigger in get_action_guard_triggers(
+                "remember_event"
+            )
+        )
+
         instructions.append(
             "When the user explicitly marks the current moment/event as worth saving, "
             f"request REMEMBER_EVENT once with this private marker: {REMEMBER_EVENT_REQUEST}. "
+            f"Natural trigger examples: {remember_event_examples}. "
             "JIN may also emit it on its own only for rare high-signal events: "
             "major decision, strong insight, memorable emotional moment, "
             "or a correction that changes understanding of JIN, user, or system. "

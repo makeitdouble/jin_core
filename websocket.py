@@ -71,7 +71,7 @@ from runtime import (
     schedule_runtime_memory_update,
     send_telemetry,
 )
-from runtime.memory_rules import (
+from runtime.memory_utils import (
     build_runtime_memory_context_text,
     remove_runtime_user_idle_lines,
 )
