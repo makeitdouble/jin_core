@@ -2427,6 +2427,89 @@ function getUserIdleRuntimeMemoryLine(snapshot) {
 }
 
 
+function setRuntimeMemorySnapshotUserIdle(
+  snapshot,
+  userIdleText
+) {
+
+  if (!snapshot || typeof snapshot !== "object") {
+    return;
+  }
+
+  const value =
+      String(userIdleText || "").trim();
+
+  if (!value) {
+    return;
+  }
+
+  const rawLine =
+      `user_idle: ${value}`;
+
+  const rawMemory =
+      String(snapshot.raw_memory || "");
+
+  if (rawMemory.trim()) {
+    const userIdleLinePattern =
+        /^(\s*user_idle\s*:).*$/im;
+
+    snapshot.raw_memory =
+        userIdleLinePattern.test(rawMemory)
+          ? rawMemory.replace(
+              userIdleLinePattern,
+              rawLine
+            )
+          : `${rawMemory.trimEnd()}\n${rawLine}`;
+  } else {
+    snapshot.raw_memory = rawLine;
+  }
+
+  if (!Array.isArray(snapshot.lines)) {
+    return;
+  }
+
+  let replaced = false;
+
+  snapshot.lines = snapshot.lines.map((line) => {
+    if (!isUserIdleRuntimeMemoryLine(line)) {
+      return line;
+    }
+
+    replaced = true;
+
+    return {
+      ...line,
+      key: "user_idle",
+      value,
+    };
+  });
+
+  if (!replaced) {
+    snapshot.lines.push(
+      parseRuntimeMemoryLine(rawLine)
+    );
+  }
+
+}
+
+
+window.freezeLatestRuntimeMemoryUserIdle = function (
+  userIdleText
+) {
+
+  const latestSnapshot =
+      runtimeMemoryHistory.snapshots[
+        runtimeMemoryHistory.snapshots.length - 1
+      ];
+
+  setRuntimeMemorySnapshotUserIdle(
+    latestSnapshot,
+    userIdleText
+  );
+
+};
+
+
 function runtimeMemoryTextIsDefaultNote(text) {
 
   const normalized =

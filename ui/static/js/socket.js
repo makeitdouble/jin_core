@@ -1338,6 +1338,12 @@ chatForm.addEventListener(
         userIdleContext.user_idle_seconds;
       payload.user_idle_paused =
         userIdleContext.user_idle_paused;
+
+      if (window.freezeLatestRuntimeMemoryUserIdle) {
+        window.freezeLatestRuntimeMemoryUserIdle(
+          userIdleContext.user_idle
+        );
+      }
     }
 
     window.jinActiveTurnUserIdleSeconds =
