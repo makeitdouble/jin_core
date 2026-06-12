@@ -91,6 +91,8 @@ This gives JIN observable short-term memory and behavior adaptation without intr
 |-- config.example.py       # Runtime configuration template
 |-- config_loader.py        # Local config module loader
 |-- app_settings.py         # Typed settings wrapper
+|-- launch_jin.bat          # Windows one-click launcher
+|-- launch_jin.ps1          # LM Studio readiness check and startup script
 |-- package.json            # Local command shortcuts
 |-- requirements.txt        # Pinned Python dependencies
 |-- saved_runtime.example.txt  # Template for persisted L3 session memory
@@ -111,6 +113,45 @@ This gives JIN observable short-term memory and behavior adaptation without intr
 - Provider endpoints that support:
   - `POST /v1/chat/completions`
   - `GET /v1/models`
+
+## Windows One-Click Launcher
+
+Windows users can start JIN with LM Studio through:
+
+```text
+launch_jin.bat
+```
+
+The launcher uses LM Studio as the default provider and checks the OpenAI-compatible API at:
+
+```text
+http://localhost:1234/v1/models
+```
+
+Before running it:
+
+- Install and open LM Studio.
+- Download a supported Gemma model in LM Studio. Recommended default: `google/gemma-3-12b-it`.
+- Start the LM Studio Local Server.
+
+The launcher does not download models automatically. LM Studio downloads are intentionally left to the LM Studio UI.
+
+When the Local Server is reachable, the launcher reads the returned model IDs, prints them, chooses a supported Gemma model, logs the exact selected `model_id`, and writes it into local `config.py` for the brain, service, and translator model settings. It also points the provider base URLs at `http://localhost:1234`.
+
+If LM Studio is not running, it prints:
+
+```text
+LM Studio is not running.
+Open LM Studio, start Local Server, then run this script again.
+```
+
+If no supported Gemma model is returned, it prints the recommended model ID and asks you to download it in LM Studio, then rerun the launcher.
+
+After the readiness check passes, the launcher creates `.venv` if needed, installs `requirements.txt`, starts the backend, and opens:
+
+```text
+http://127.0.0.1:8000
+```
 
 ## Quick Start
 
