@@ -122,7 +122,7 @@ Windows users can start JIN with LM Studio through:
 launch_jin.bat
 ```
 
-The launcher uses LM Studio as the default provider and checks the OpenAI-compatible API at:
+The launcher uses LM Studio as the default provider. When `config.py` already exists, it checks configured provider base URLs first, in this order: `SERVICE_API_BASE`, `BRAIN_API_BASE`, then `TRANSLATOR_API_BASE`. If no configured provider responds, it falls back to the default OpenAI-compatible API at:
 
 ```text
 http://localhost:1234/v1/models
@@ -136,7 +136,11 @@ Before running it:
 
 The launcher does not download models automatically. LM Studio downloads are intentionally left to the LM Studio UI.
 
-When the Local Server is reachable, the launcher reads the returned model IDs, prints them, chooses a supported Gemma model, logs the exact selected `model_id`, and writes it into local `config.py` for the brain, service, and translator model settings. It also points the provider base URLs at `http://localhost:1234`.
+When the Local Server is reachable, the launcher reads and prints the returned model IDs, then checks local `config.py`.
+
+For `BRAIN_MODEL_UID`, `SERVICE_MODEL_UID`, and `TRANSLATOR_MODEL_UID`, the launcher only writes a Gemma model automatically when the current value is empty or still uses the template defaults: `brain-model`, `service-model`, or `translator-model`. If a user-defined model ID is already present, the launcher keeps it unchanged.
+
+For provider base URLs, the launcher points empty/template values at the working LM Studio base URL it found, but keeps user-defined values unchanged.
 
 If LM Studio is not running, it prints:
 
@@ -152,6 +156,8 @@ After the readiness check passes, the launcher creates `.venv` if needed, instal
 ```text
 http://127.0.0.1:8000
 ```
+
+If the launcher is already running, a second click exits immediately instead of repeating the LM Studio, config, dependency, and backend checks.
 
 ## Quick Start
 

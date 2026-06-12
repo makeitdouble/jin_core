@@ -6,8 +6,9 @@ param(
 $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ModelsUrl = "$LmStudioBaseUrl/v1/models"
 $RecommendedModel = "google/gemma-3-12b-it"
+$LauncherMutex = $null
+$LauncherMutexName = "Global\JINCoreLauncher"
 
 function Write-Step {
     param([string]$Message)
@@ -20,6 +21,43 @@ function Fail-WithMessage {
     Write-Host ""
     Write-Host $Message
     exit 1
+}
+
+function Normalize-BaseUrl {
+    param([string]$BaseUrl)
+
+    if ($null -eq $BaseUrl) {
+        return ""
+    }
+
+    return $BaseUrl.Trim().TrimEnd("/")
+}
+
+function Add-UniqueBaseUrl {
+    param(
+        [System.Collections.Generic.List[string]]$BaseUrls,
+        [string]$BaseUrl
+    )
+
+    $normalized = Normalize-BaseUrl -BaseUrl $BaseUrl
+
+    if ($normalized.Length -eq 0) {
+        return
+    }
+
+    foreach ($existing in $BaseUrls) {
+        if (
+            [string]::Equals(
+                $existing,
+                $normalized,
+                [System.StringComparison]::OrdinalIgnoreCase
+            )
+        ) {
+            return
+        }
+    }
+
+    $BaseUrls.Add($normalized)
 }
 
 function Get-ModelIds {
@@ -107,9 +145,10 @@ function Set-PythonConfigValue {
 
     $pattern = "(?m)^$Name\s*=.*$"
     $replacement = "$Name = $renderedValue"
+    $safeReplacement = $replacement.Replace('$', '$$')
 
     if ([regex]::IsMatch($content, $pattern)) {
-        $content = [regex]::Replace($content, $pattern, $replacement, 1)
+        $content = [regex]::Replace($content, $pattern, $safeReplacement, 1)
     }
     else {
         $content = $content.TrimEnd() + "`r`n`r`n" + $replacement + "`r`n"
@@ -118,32 +157,239 @@ function Set-PythonConfigValue {
     Set-Content -Path $Path -Value $content -Encoding UTF8
 }
 
-function Write-JinConfig {
-    param([string]$ModelId)
+function Get-PythonConfigValue {
+    param(
+        [string]$Path,
+        [string]$Name
+    )
 
+    if (-not (Test-Path $Path)) {
+        return $null
+    }
+
+    $content = Get-Content -Raw -Path $Path
+    $match = [regex]::Match(
+        $content,
+        "(?m)^\s*$Name\s*=\s*(?<value>.*?)(?:\s+#.*)?$"
+    )
+
+    if (-not $match.Success) {
+        return $null
+    }
+
+    $rawValue = $match.Groups["value"].Value.Trim()
+
+    if ($rawValue -match '^"(.*)"$') {
+        return $Matches[1]
+    }
+
+    if ($rawValue -match "^'(.*)'$") {
+        return $Matches[1]
+    }
+
+    if ($rawValue -in @("None", '$null')) {
+        return ""
+    }
+
+    return $rawValue
+}
+
+function Test-AutoModelConfigValue {
+    param(
+        [string]$Name,
+        [string]$Value
+    )
+
+    if ($null -eq $Value -or $Value.Trim().Length -eq 0) {
+        return $true
+    }
+
+    $templateValues = @{
+        "BRAIN_MODEL_UID" = "brain-model"
+        "SERVICE_MODEL_UID" = "service-model"
+        "TRANSLATOR_MODEL_UID" = "translator-model"
+    }
+
+    return (
+        $templateValues.ContainsKey($Name) -and
+        [string]::Equals(
+            $Value,
+            $templateValues[$Name],
+            [System.StringComparison]::Ordinal
+        )
+    )
+}
+
+function Test-AutoProviderBaseValue {
+    param(
+        [string]$Name,
+        [string]$Value
+    )
+
+    if ($null -eq $Value -or $Value.Trim().Length -eq 0) {
+        return $true
+    }
+
+    $templateValues = @{
+        "BRAIN_API_BASE" = "http://brain-host:1234"
+        "SERVICE_API_BASE" = "http://service-host:1234"
+        "TRANSLATOR_API_BASE" = "http://translator-host:1234"
+    }
+
+    return (
+        $templateValues.ContainsKey($Name) -and
+        [string]::Equals(
+            $Value,
+            $templateValues[$Name],
+            [System.StringComparison]::OrdinalIgnoreCase
+        )
+    )
+}
+
+function Ensure-JinConfig {
     $configPath = Join-Path $Root "config.py"
     $examplePath = Join-Path $Root "config.example.py"
 
-    if (-not (Test-Path $configPath)) {
-        if (-not (Test-Path $examplePath)) {
-            Fail-WithMessage "Cannot find config.py or config.example.py."
-        }
-
-        Write-Host "config.py is missing. Creating it from config.example.py..."
-        Copy-Item -Path $examplePath -Destination $configPath
+    if (Test-Path $configPath) {
+        return $configPath
     }
 
-    Set-PythonConfigValue -Path $configPath -Name "USE_SERVICE_AS_BRAIN" -Value $true
-    Set-PythonConfigValue -Path $configPath -Name "TRANSLATION_ENABLED" -Value $false
-    Set-PythonConfigValue -Path $configPath -Name "BRAIN_API_BASE" -Value $LmStudioBaseUrl
-    Set-PythonConfigValue -Path $configPath -Name "SERVICE_API_BASE" -Value $LmStudioBaseUrl
-    Set-PythonConfigValue -Path $configPath -Name "TRANSLATOR_API_BASE" -Value $LmStudioBaseUrl
-    Set-PythonConfigValue -Path $configPath -Name "BRAIN_MODEL_UID" -Value $ModelId
-    Set-PythonConfigValue -Path $configPath -Name "SERVICE_MODEL_UID" -Value $ModelId
-    Set-PythonConfigValue -Path $configPath -Name "TRANSLATOR_MODEL_UID" -Value $ModelId
-    Set-PythonConfigValue -Path $configPath -Name "CHAT_ENDPOINT" -Value "/v1/chat/completions"
-    Set-PythonConfigValue -Path $configPath -Name "MODELS_ENDPOINT" -Value "/v1/models"
-    Set-PythonConfigValue -Path $configPath -Name "NATIVE_MODELS_ENDPOINT" -Value "/api/v0/models"
+    if (-not (Test-Path $examplePath)) {
+        Fail-WithMessage "Cannot find config.py or config.example.py."
+    }
+
+    Write-Host "config.py is missing. Creating it from config.example.py..."
+    Copy-Item -Path $examplePath -Destination $configPath
+
+    return $configPath
+}
+
+function Get-ConfiguredBaseUrlCandidates {
+    param([string]$ConfigPath)
+
+    $baseUrls = New-Object System.Collections.Generic.List[string]
+    $baseNames = @(
+        "SERVICE_API_BASE",
+        "BRAIN_API_BASE",
+        "TRANSLATOR_API_BASE"
+    )
+
+    foreach ($name in $baseNames) {
+        $value = Get-PythonConfigValue -Path $ConfigPath -Name $name
+
+        if (Test-AutoProviderBaseValue -Name $name -Value $value) {
+            continue
+        }
+
+        Add-UniqueBaseUrl -BaseUrls $baseUrls -BaseUrl $value
+    }
+
+    return $baseUrls
+}
+
+function Get-LmStudioModels {
+    param([string[]]$BaseUrls)
+
+    $checkedUrls = New-Object System.Collections.Generic.List[string]
+
+    foreach ($baseUrl in $BaseUrls) {
+        $normalizedBaseUrl = Normalize-BaseUrl -BaseUrl $baseUrl
+
+        if ($normalizedBaseUrl.Length -eq 0) {
+            continue
+        }
+
+        $modelsUrl = "$normalizedBaseUrl/v1/models"
+        $checkedUrls.Add($modelsUrl)
+
+        Write-Host "Checking LM Studio API: $modelsUrl"
+
+        try {
+            $modelsResponse = Invoke-RestMethod -Method Get -Uri $modelsUrl -TimeoutSec 5
+            $modelIds = @(Get-ModelIds -Response $modelsResponse)
+
+            return [pscustomobject]@{
+                BaseUrl = $normalizedBaseUrl
+                ModelsUrl = $modelsUrl
+                ModelIds = $modelIds
+            }
+        }
+        catch {
+            Write-Host "No response from $modelsUrl"
+        }
+    }
+
+    $checkedText = (
+        $checkedUrls -join "`r`n"
+    )
+
+    Fail-WithMessage "LM Studio is not running.`r`nOpen LM Studio, start Local Server, then run this script again.`r`nChecked endpoints:`r`n$checkedText"
+}
+
+function Update-ProviderBaseConfig {
+    param(
+        [string]$ConfigPath,
+        [string]$Name,
+        [string]$ActiveBaseUrl
+    )
+
+    $currentValue = Get-PythonConfigValue -Path $ConfigPath -Name $Name
+
+    if (Test-AutoProviderBaseValue -Name $Name -Value $currentValue) {
+        Write-Host "$Name is empty/default. Setting it to $ActiveBaseUrl."
+        Set-PythonConfigValue -Path $ConfigPath -Name $Name -Value $ActiveBaseUrl
+        return
+    }
+
+    Write-Host "$Name already set. Keeping: $currentValue"
+}
+
+function Update-ModelConfig {
+    param(
+        [string]$ConfigPath,
+        [string]$Name,
+        [string]$SuggestedModel
+    )
+
+    $currentValue = Get-PythonConfigValue -Path $ConfigPath -Name $Name
+
+    if (Test-AutoModelConfigValue -Name $Name -Value $currentValue) {
+        if (-not $SuggestedModel) {
+            Fail-WithMessage "No supported Gemma model found.`r`nRecommended default: $RecommendedModel`r`nPlease download it in LM Studio, then run this script again."
+        }
+
+        Write-Host "$Name is empty/default. Writing model: $SuggestedModel"
+        Set-PythonConfigValue -Path $ConfigPath -Name $Name -Value $SuggestedModel
+        return
+    }
+
+    Write-Host "$Name already set by user. Keeping: $currentValue"
+}
+
+function Write-JinConfig {
+    param(
+        [string]$ConfigPath,
+        [string]$ActiveBaseUrl,
+        [string[]]$ModelIds
+    )
+
+    $suggestedModel = Find-GemmaModel -ModelIds $ModelIds
+
+    if ($suggestedModel) {
+        Write-Host "Found supported Gemma model: $suggestedModel"
+    }
+    else {
+        Write-Host "No supported Gemma model found in LM Studio."
+        Write-Host "Recommended default: $RecommendedModel"
+    }
+
+    Update-ProviderBaseConfig -ConfigPath $configPath -Name "BRAIN_API_BASE" -ActiveBaseUrl $ActiveBaseUrl
+    Update-ProviderBaseConfig -ConfigPath $configPath -Name "SERVICE_API_BASE" -ActiveBaseUrl $ActiveBaseUrl
+    Update-ProviderBaseConfig -ConfigPath $configPath -Name "TRANSLATOR_API_BASE" -ActiveBaseUrl $ActiveBaseUrl
+
+    Update-ModelConfig -ConfigPath $configPath -Name "BRAIN_MODEL_UID" -SuggestedModel $suggestedModel
+    Update-ModelConfig -ConfigPath $configPath -Name "SERVICE_MODEL_UID" -SuggestedModel $suggestedModel
+    Update-ModelConfig -ConfigPath $configPath -Name "TRANSLATOR_MODEL_UID" -SuggestedModel $suggestedModel
 }
 
 function Get-PythonCommand {
@@ -160,97 +406,123 @@ function Get-PythonCommand {
     Fail-WithMessage "Python was not found. Install Python 3, then run this script again."
 }
 
-Set-Location $Root
-
-Write-Host "JIN one-click launcher"
-Write-Host "LM Studio API: $ModelsUrl"
-
-Write-Step "Checking LM Studio Local Server..."
-
 try {
-    $modelsResponse = Invoke-RestMethod -Method Get -Uri $ModelsUrl -TimeoutSec 5
-}
-catch {
-    Fail-WithMessage "LM Studio is not running.`r`nOpen LM Studio, start Local Server, then run this script again."
-}
+    $createdNew = $false
+    $LauncherMutex = New-Object System.Threading.Mutex($true, $LauncherMutexName, [ref]$createdNew)
 
-$modelIds = @(Get-ModelIds -Response $modelsResponse)
-
-if ($modelIds.Count -eq 0) {
-    Fail-WithMessage "No models returned by LM Studio.`r`nRecommended default: $RecommendedModel`r`nPlease download it in LM Studio, then run this script again."
-}
-
-Write-Host "Models returned by LM Studio:"
-foreach ($modelId in $modelIds) {
-    Write-Host "  - $modelId"
-}
-
-$selectedModel = Find-GemmaModel -ModelIds $modelIds
-
-if (-not $selectedModel) {
-    Fail-WithMessage "No supported Gemma model found.`r`nRecommended default: $RecommendedModel`r`nPlease download it in LM Studio, then run this script again."
-}
-
-Write-Host ""
-Write-Host "Found model: $selectedModel"
-Write-Host "Writing it to config..."
-Write-JinConfig -ModelId $selectedModel
-
-$venvPath = Join-Path $Root ".venv"
-$venvPython = Join-Path $venvPath "Scripts\python.exe"
-
-if (-not (Test-Path $venvPython)) {
-    Write-Step "Creating .venv..."
-    $pythonCommand = Get-PythonCommand
-    $pythonExe = $pythonCommand[0]
-    $pythonArgs = @()
-
-    if ($pythonCommand.Length -gt 1) {
-        $pythonArgs += $pythonCommand[1..($pythonCommand.Length - 1)]
+    if (-not $createdNew) {
+        Write-Host "JIN launcher is already running."
+        Write-Host "Use the existing launcher window instead of starting a second copy."
+        exit 0
     }
 
-    & $pythonExe @pythonArgs -m venv $venvPath
-}
-else {
-    Write-Step ".venv already exists."
-}
+    Set-Location $Root
 
-if (-not (Test-Path $venvPython)) {
-    Fail-WithMessage "Virtual environment was not created correctly."
-}
+    Write-Host "JIN one-click launcher"
 
-Write-Step "Installing requirements..."
-& $venvPython -m pip install -r (Join-Path $Root "requirements.txt")
+    Write-Step "Checking LM Studio Local Server..."
 
-Write-Step "Starting JIN backend..."
-Write-Host "Backend URL: $AppUrl"
-Write-Host "Opening browser shortly. Keep this window open while using JIN."
+    $configPath = Ensure-JinConfig
+    $baseUrlCandidates = New-Object System.Collections.Generic.List[string]
 
-$browserJob = Start-Job -ScriptBlock {
-    param([string]$Url)
+    if ($PSBoundParameters.ContainsKey("LmStudioBaseUrl")) {
+        Add-UniqueBaseUrl -BaseUrls $baseUrlCandidates -BaseUrl $LmStudioBaseUrl
+    }
 
-    for ($i = 0; $i -lt 30; $i++) {
-        try {
-            $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 1
-            if ($response.StatusCode -lt 500) {
-                break
+    $configuredBaseUrls = Get-ConfiguredBaseUrlCandidates -ConfigPath $configPath
+
+    foreach ($baseUrl in $configuredBaseUrls) {
+        Add-UniqueBaseUrl -BaseUrls $baseUrlCandidates -BaseUrl $baseUrl
+    }
+
+    Add-UniqueBaseUrl -BaseUrls $baseUrlCandidates -BaseUrl $LmStudioBaseUrl
+
+    $lmStudio = Get-LmStudioModels -BaseUrls $baseUrlCandidates
+    $LmStudioBaseUrl = $lmStudio.BaseUrl
+    $modelIds = @($lmStudio.ModelIds)
+
+    Write-Host "Using LM Studio API: $($lmStudio.ModelsUrl)"
+
+    if ($modelIds.Count -eq 0) {
+        Fail-WithMessage "No models returned by LM Studio.`r`nRecommended default: $RecommendedModel`r`nPlease download it in LM Studio, then run this script again."
+    }
+
+    Write-Host "Models returned by LM Studio:"
+    foreach ($modelId in $modelIds) {
+        Write-Host "  - $modelId"
+    }
+
+    Write-Host ""
+    Write-Host "Checking local config model IDs..."
+    Write-JinConfig -ConfigPath $configPath -ActiveBaseUrl $LmStudioBaseUrl -ModelIds $modelIds
+
+    $venvPath = Join-Path $Root ".venv"
+    $venvPython = Join-Path $venvPath "Scripts\python.exe"
+
+    if (-not (Test-Path $venvPython)) {
+        Write-Step "Creating .venv..."
+        $pythonCommand = Get-PythonCommand
+        $pythonExe = $pythonCommand[0]
+        $pythonArgs = @()
+
+        if ($pythonCommand.Length -gt 1) {
+            $pythonArgs += $pythonCommand[1..($pythonCommand.Length - 1)]
+        }
+
+        & $pythonExe @pythonArgs -m venv $venvPath
+    }
+    else {
+        Write-Step ".venv already exists."
+    }
+
+    if (-not (Test-Path $venvPython)) {
+        Fail-WithMessage "Virtual environment was not created correctly."
+    }
+
+    Write-Step "Installing requirements..."
+    & $venvPython -m pip install -r (Join-Path $Root "requirements.txt")
+
+    Write-Step "Starting JIN backend..."
+    Write-Host "Backend URL: $AppUrl"
+    Write-Host "Opening browser shortly. Keep this window open while using JIN."
+
+    $browserJob = Start-Job -ScriptBlock {
+        param([string]$Url)
+
+        for ($i = 0; $i -lt 30; $i++) {
+            try {
+                $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 1
+                if ($response.StatusCode -lt 500) {
+                    break
+                }
+            }
+            catch {
+                Start-Sleep -Seconds 1
             }
         }
-        catch {
-            Start-Sleep -Seconds 1
-        }
+
+        Start-Process $Url
+    } -ArgumentList $AppUrl
+
+    try {
+        & $venvPython (Join-Path $Root "app.py")
     }
+    finally {
+        if ($browserJob.State -eq "Running") {
+            Stop-Job $browserJob | Out-Null
+        }
 
-    Start-Process $Url
-} -ArgumentList $AppUrl
-
-try {
-    & $venvPython (Join-Path $Root "app.py")
+        Remove-Job $browserJob -Force -ErrorAction SilentlyContinue
+    }
 }
 finally {
-    if ($browserJob.State -eq "Running") {
-        Stop-Job $browserJob | Out-Null
-    }
+    if ($LauncherMutex) {
+        try {
+            $LauncherMutex.ReleaseMutex()
+        }
+        catch {
+        }
 
-    Remove-Job $browserJob -Force -ErrorAction SilentlyContinue
+        $LauncherMutex.Dispose()
+    }
 }
