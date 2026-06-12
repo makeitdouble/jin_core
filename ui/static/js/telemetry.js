@@ -1854,6 +1854,109 @@ function splitMemoryTextLines(text) {
 }
 
 
+function appendProperties(
+  value,
+  properties = []
+) {
+
+  const normalizedProperties =
+      (Array.isArray(properties)
+        ? properties
+        : [properties])
+        .map(property => String(property || "").trim())
+        .filter(Boolean)
+        .map((property) => {
+          if (
+              property.startsWith("[")
+              && property.endsWith("]")
+          ) {
+            return property;
+          }
+
+          return `[${property}]`;
+        });
+
+  return [
+    String(value || "").trimEnd(),
+    ...normalizedProperties,
+  ].filter(Boolean).join(" ");
+
+}
+
+
+function splitMemoryMeta(value) {
+
+  const raw =
+      String(value || "");
+
+  const tags = [];
+  let text = raw;
+
+  const tagRe =
+      /\s*\[([a-zA-Z0-9_.-]+)\s*:\s*([^\]]*)\]\s*$/;
+
+  while (true) {
+    const match =
+        text.match(tagRe);
+
+    if (!match) {
+      break;
+    }
+
+    tags.unshift({
+      key: match[1],
+      value: match[2].trim(),
+      raw: match[0].trim(),
+    });
+
+    text =
+        text.slice(0, match.index).trimEnd();
+  }
+
+  return {
+    text,
+    tags,
+    raw,
+  };
+
+}
+
+
+function memoryMetaHasTag(
+  parsed,
+  key
+) {
+
+  const normalizedKey =
+      String(key || "").trim().toLowerCase();
+
+  return Boolean(
+      parsed
+      && Array.isArray(parsed.tags)
+      && parsed.tags.some(
+        tag => String(tag.key || "").toLowerCase() === normalizedKey
+      )
+  );
+
+}
+
+
+function stripMemoryMetaForDisplay(value) {
+
+  return splitMemoryMeta(value).text;
+
+}
+
+
+function stripMemoryTextMetaForDisplay(text) {
+
+  return splitMemoryTextLines(text)
+    .map(stripMemoryMetaForDisplay)
+    .join("\n");
+
+}
+
+
 function normalizeRuntimeMemoryKey(key) {
 
   return String(key || "")
@@ -4192,15 +4295,36 @@ function applyRuntimeMemoryFlash(
   }, 1500);
 }
 
-function formatRuntimeMemoryStrengthSuffix(line) {
+function formatRuntimeMemoryStrengthProperties(line) {
   const strength =
       Number(line && line.strength);
 
   if (!Number.isFinite(strength)) {
-    return "";
+    return [];
   }
 
-  return ` (trace: ${strength.toFixed(2)})`;
+  return [`trace: ${strength.toFixed(2)}`];
+}
+
+function buildRuntimeMemoryValuePresentation(line) {
+  const value =
+      line && line.value || "";
+
+  const parsedValue =
+      splitMemoryMeta(value);
+
+  const strengthProperties =
+      memoryMetaHasTag(parsedValue, "trace")
+        ? []
+        : formatRuntimeMemoryStrengthProperties(line);
+
+  const rawValue =
+      appendProperties(
+        value,
+        strengthProperties
+      );
+
+  return splitMemoryMeta(rawValue);
 }
 
 function renderRuntimeMemoryLines(snapshot, persistGlow = false) {
@@ -4212,6 +4336,9 @@ function renderRuntimeMemoryLines(snapshot, persistGlow = false) {
   runtimeMemoryText.classList.toggle(
       "runtime-memory-text-pinned",
       persistGlow
+  );
+  runtimeMemoryText.removeAttribute(
+      "title"
   );
 
   const showLiveUserIdle =
@@ -4230,7 +4357,12 @@ function renderRuntimeMemoryLines(snapshot, persistGlow = false) {
           : snapshot.raw_memory || "";
 
     runtimeMemoryText.textContent =
-        `${rawMemory.trim()}\n`;
+        `${stripMemoryTextMetaForDisplay(rawMemory).trim()}\n`;
+
+    if (rawMemory.trim()) {
+      runtimeMemoryText.title =
+          rawMemory.trim();
+    }
 
     if (showLiveUserIdle) {
       appendUserIdleRuntimeMemoryLine();
@@ -4253,8 +4385,11 @@ function renderRuntimeMemoryLines(snapshot, persistGlow = false) {
     const key =
         line.key || "note";
 
-    const value =
-        line.value || "";
+    const valuePresentation =
+        buildRuntimeMemoryValuePresentation(line);
+
+    const fullRawLine =
+        `${key}: ${valuePresentation.raw}`;
 
     const keyStatus =
         line.key_status || line.status || "same";
@@ -4278,7 +4413,12 @@ function renderRuntimeMemoryLines(snapshot, persistGlow = false) {
         "runtime-memory-value";
 
     valueSpan.textContent =
-        ` ${value}${formatRuntimeMemoryStrengthSuffix(line)}`;
+        ` ${valuePresentation.text}`;
+
+    row.title =
+        fullRawLine;
+    valueSpan.title =
+        fullRawLine;
 
     row.appendChild(keySpan);
     row.appendChild(valueSpan);
