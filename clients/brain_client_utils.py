@@ -1,4 +1,3 @@
-import json
 import re
 from xml.etree import ElementTree
 
@@ -428,49 +427,7 @@ def record_previous_think(
 async def log_previous_think_payload(
     context,
 ):
-
-    metadata = getattr(
-        context,
-        "runtime_previous_think_payload_log",
-        None,
-    )
-
-    if not isinstance(
-        metadata,
-        dict,
-    ):
-        return
-
-    logger = getattr(
-        context,
-        "logger",
-        None,
-    )
-    log = getattr(
-        logger,
-        "log",
-        None,
-    )
-
-    if not callable(
-        log
-    ):
-        return
-
-    try:
-        await log(
-            "[PAYLOAD]",
-            "previous think continuity",
-            **metadata,
-        )
-    except TypeError:
-        await log(
-            "[PAYLOAD]",
-            (
-                "previous think continuity "
-                f"{json.dumps(metadata, ensure_ascii=False)}"
-            ),
-        )
+    return
 
 def get_enabled_runtime_actions(
     runtime_actions=None,
@@ -671,6 +628,13 @@ async def apply_runtime_action_calls(
             False,
         )
     )
+    remember_session_action_emitted = bool(
+        getattr(
+            context,
+            "runtime_remember_session_action_emitted",
+            False,
+        )
+    )
     remember_event_seen = False
     deep_thought_seen = False
     resolved_user_message = resolve_runtime_action_user_message(
@@ -697,9 +661,16 @@ async def apply_runtime_action_calls(
                 continue
 
             if remember_session_seen:
+                if not remember_session_action_emitted:
+                    remember_session_action_emitted = True
+                    filtered_actions.append(
+                        action
+                    )
+
                 continue
 
             remember_session_seen = True
+            remember_session_action_emitted = True
             filtered_actions.append(
                 action
             )
@@ -850,6 +821,7 @@ async def apply_runtime_action_calls(
 
     if remember_session_count:
         context.runtime_remember_session_requested = True
+        context.runtime_remember_session_action_emitted = True
 
         if log_runtime is not None:
             await log_runtime(

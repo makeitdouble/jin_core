@@ -1338,10 +1338,6 @@ class MessageMemoryTests(
             service_client.calls[0]["system_prompt"],
             build_runtime_memory_system_prompt(),
         )
-        self.assertIn(
-            "[MEMORY:L1] L1 runtime memory updated",
-            logger.service_logs,
-        )
         self.assertEqual(
             logger.summarizer_logs[0][0],
             "[MEMORY:L1] L1 summarizer request",

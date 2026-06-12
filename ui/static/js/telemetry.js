@@ -113,22 +113,19 @@ const latestSavedSessionMemoryStorageKey =
 const runtimeSessionIdSessionStorageKey =
   "jin.runtimeSessionId.v1";
 
-const runtimeSessionBroadcastChannelName =
-  "jin.runtimeSession.v1";
-
 const latestRuntimeMemoryStorageKeyPrefix =
   "jin.latestRuntimeMemory";
 
 const latestRuntimeMemoryStorageKeyVersion =
   "v1";
 
-const runtimeSessionInstanceId =
-  generateRuntimeSessionId();
-
 let clonedRuntimeSessionId = null;
 
 let runtimeSessionId =
   getRuntimeSessionId();
+
+window.jinRuntimeSessionId =
+  runtimeSessionId;
 
 let latestRuntimeMemoryStorageKey =
   getLatestRuntimeMemoryStorageKey(
@@ -233,6 +230,138 @@ function getLatestRuntimeMemoryStorageKey(
 
 }
 
+function isLatestRuntimeMemoryKey(
+  key
+) {
+
+  if (key === legacyLatestRuntimeMemoryStorageKey) {
+    return true;
+  }
+
+  return (
+    typeof key === "string"
+    && key.startsWith(
+      `${latestRuntimeMemoryStorageKeyPrefix}.`
+    )
+    && key.endsWith(
+      `.${latestRuntimeMemoryStorageKeyVersion}`
+    )
+  );
+
+}
+
+function getSessionIdFromLatestRuntimeMemoryKey(
+  key
+) {
+
+  if (key === legacyLatestRuntimeMemoryStorageKey) {
+    return "legacy";
+  }
+
+  const prefix =
+    `${latestRuntimeMemoryStorageKeyPrefix}.`;
+
+  const suffix =
+    `.${latestRuntimeMemoryStorageKeyVersion}`;
+
+  if (
+      typeof key !== "string"
+      || !key.startsWith(prefix)
+      || !key.endsWith(suffix)
+  ) {
+    return "";
+  }
+
+  return key.slice(
+    prefix.length,
+    key.length - suffix.length
+  );
+
+}
+
+function collectOtherLatestRuntimeMemorySnapshots() {
+
+  const snapshots = [];
+
+  try {
+    for (
+      let index = window.localStorage.length - 1;
+      index >= 0;
+      index -= 1
+    ) {
+      const key =
+        window.localStorage.key(index);
+
+      if (
+          !isLatestRuntimeMemoryKey(key)
+          || key === latestRuntimeMemoryStorageKey
+      ) {
+        continue;
+      }
+
+      const keySessionId =
+        getSessionIdFromLatestRuntimeMemoryKey(
+          key
+        );
+
+      if (keySessionId === runtimeSessionId) {
+        continue;
+      }
+
+      const value =
+        readBrowserMemory(
+          key
+        );
+
+      snapshots.push({
+        key,
+        key_session_id: keySessionId,
+        session_id:
+          (
+            value
+            && value.session_id
+          )
+          || keySessionId
+          || null,
+        saved_at:
+          (
+            value
+            && value.saved_at
+          )
+          || null,
+        runtime_memory_updates:
+          (
+            value
+            && value.runtime_memory_updates
+          )
+          || 0,
+        runtime_memory:
+          (
+            value
+            && value.runtime_memory
+          )
+          || "",
+      });
+    }
+  } catch (error) {
+    return [];
+  }
+
+  return snapshots.sort(
+    function (
+      left,
+      right,
+    ) {
+      return String(
+        right.saved_at || ""
+      ).localeCompare(
+        String(left.saved_at || "")
+      );
+    }
+  );
+
+}
+
 function setRuntimeSessionId(
   nextRuntimeSessionId
 ) {
@@ -245,6 +374,8 @@ function setRuntimeSessionId(
   }
 
   runtimeSessionId = normalizedRuntimeSessionId;
+  window.jinRuntimeSessionId =
+    runtimeSessionId;
   latestRuntimeMemoryStorageKey =
     getLatestRuntimeMemoryStorageKey(
       runtimeSessionId
@@ -276,10 +407,20 @@ function cloneRuntimeMemoryToCurrentSession(
   writeBrowserMemory(
     latestRuntimeMemoryStorageKey,
     {
-      ...runtimeMemory,
+      version:
+        runtimeMemory.version || 1,
       session_id: runtimeSessionId,
-      runtime_session_instance_id:
-        runtimeSessionInstanceId,
+      saved_at:
+        runtimeMemory.saved_at
+        || new Date().toISOString(),
+      runtime_memory:
+        runtimeMemory.runtime_memory || "",
+      runtime_memory_updates:
+        runtimeMemory.runtime_memory_updates || 0,
+      runtime_snapshot:
+        buildPersistedRuntimeSnapshot(
+          runtimeMemory.runtime_snapshot
+        ),
       cloned_from_session_id:
         runtimeMemory.session_id || null,
     }
@@ -307,27 +448,6 @@ function cloneRuntimeMemoryFromSessionId(
 
   cloneRuntimeMemoryToCurrentSession(
     sourceRuntimeMemory
-  );
-
-}
-
-function rotateRuntimeSessionId(
-  options = {}
-) {
-
-  const runtimeMemoryToClone =
-    options.cloneCurrentRuntimeMemory
-      ? readBrowserMemory(
-          latestRuntimeMemoryStorageKey
-        )
-      : null;
-
-  setRuntimeSessionId(
-    generateRuntimeSessionId()
-  );
-
-  cloneRuntimeMemoryToCurrentSession(
-    runtimeMemoryToClone
   );
 
 }
@@ -360,80 +480,6 @@ function clearLegacyActiveRuntimeSessionKey() {
 
 clearLegacyActiveRuntimeSessionKey();
 cloneBootRuntimeMemoryIfNeeded();
-
-function setupRuntimeSessionCollisionChannel() {
-
-  if (typeof window.BroadcastChannel !== "function") {
-    return;
-  }
-
-  let channel = null;
-
-  try {
-    channel =
-      new window.BroadcastChannel(
-        runtimeSessionBroadcastChannelName
-      );
-  } catch (error) {
-    return;
-  }
-
-  channel.addEventListener(
-    "message",
-    function (event) {
-      const message =
-        (
-          event
-          && event.data
-          && typeof event.data === "object"
-        )
-          ? event.data
-          : {};
-
-      if (message.instance_id === runtimeSessionInstanceId) {
-        return;
-      }
-
-      if (
-          message.type === "runtime_session_probe"
-          && message.session_id === runtimeSessionId
-      ) {
-        channel.postMessage(
-          {
-            type: "runtime_session_claimed",
-            session_id: runtimeSessionId,
-            instance_id: runtimeSessionInstanceId,
-            target_instance_id: message.instance_id,
-          }
-        );
-        return;
-      }
-
-      if (
-          message.type === "runtime_session_claimed"
-          && message.session_id === runtimeSessionId
-          && message.target_instance_id === runtimeSessionInstanceId
-      ) {
-        rotateRuntimeSessionId(
-          {
-            cloneCurrentRuntimeMemory: true,
-          }
-        );
-      }
-    }
-  );
-
-  channel.postMessage(
-    {
-      type: "runtime_session_probe",
-      session_id: runtimeSessionId,
-      instance_id: runtimeSessionInstanceId,
-    }
-  );
-
-}
-
-setupRuntimeSessionCollisionChannel();
 
 const runtimeDiffHistory = {
   diffs: [],
@@ -914,83 +960,6 @@ function readBrowserMemory(
 
 }
 
-function getNavigationType() {
-
-  const entries =
-    (
-      window.performance
-      && typeof window.performance.getEntriesByType === "function"
-    )
-      ? window.performance.getEntriesByType("navigation")
-      : [];
-
-  const navigation =
-    entries && entries[0];
-
-  return String(
-    (
-      navigation
-      && navigation.type
-    )
-    || ""
-  );
-
-}
-
-function canReuseExistingRuntimeMemoryKey() {
-
-  const navigationType =
-    getNavigationType();
-
-  return (
-    navigationType === "reload"
-    || navigationType === "back_forward"
-  );
-
-}
-
-function getRuntimeMemoryInstanceId(
-  runtimeMemory
-) {
-
-  return String(
-    (
-      runtimeMemory
-      && runtimeMemory.runtime_session_instance_id
-    )
-    || ""
-  ).trim();
-
-}
-
-function ensureWritableRuntimeSessionId() {
-
-  const existingRuntimeMemory =
-    readBrowserMemory(
-      latestRuntimeMemoryStorageKey
-    );
-
-  if (!existingRuntimeMemory) {
-    return;
-  }
-
-  if (canReuseExistingRuntimeMemoryKey()) {
-    return;
-  }
-
-  const existingInstanceId =
-    getRuntimeMemoryInstanceId(
-      existingRuntimeMemory
-    );
-
-  if (existingInstanceId === runtimeSessionInstanceId) {
-    return;
-  }
-
-  rotateRuntimeSessionId();
-
-}
-
 function hasSavedSessionMemoryBootstrap() {
 
   const savedRuntimeFallback =
@@ -1296,6 +1265,7 @@ function buildPersistedRuntimeSnapshot(
 
   return {
     ...snapshot,
+    session_id: runtimeSessionId,
     persisted_pheromone_strength: true,
   };
 
@@ -1328,26 +1298,14 @@ function persistRuntimeMemorySnapshot(
     return;
   }
 
-  // A manual session-save turn creates a temporary L1 page like
-  // "session saved / remembering this session". That is not the actual
-  // runtime state the user wanted to preserve. Keep the previous real L1
-  // snapshot as Latest runtime instead of overwriting it with save chatter.
-  if (runtimeSnapshotLooksLikeSessionSaveResult(data.snapshot)) {
-    return;
-  }
-
   const savedAt =
     new Date().toISOString();
-
-  ensureWritableRuntimeSessionId();
 
   writeBrowserMemory(
     latestRuntimeMemoryStorageKey,
     {
       version: 1,
       session_id: runtimeSessionId,
-      runtime_session_instance_id:
-        runtimeSessionInstanceId,
       saved_at: savedAt,
       runtime_memory: runtimeMemory,
       runtime_memory_updates: data.updates || 0,
@@ -2267,6 +2225,10 @@ function splitMemoryTextLines(text) {
 
   return String(text || "")
     .replace(/\\n/g, "\n")
+    .replace(
+      /;\s+(?=[a-z][a-z0-9_]*\s*:)/g,
+      "\n"
+    )
     .split(/\r?\n+/)
     .map(line => line.trim())
     .filter(Boolean);
@@ -3501,6 +3463,58 @@ window.clearPersistedSessionBootstrap = function () {
   } catch (error) {
     // Browser memory is helpful, not required for chat.
   }
+
+};
+
+window.getCurrentLatestRuntimeMemoryStorageKey = function () {
+
+  return latestRuntimeMemoryStorageKey;
+
+};
+
+
+window.getOtherLatestRuntimeMemorySnapshots = function () {
+
+  return collectOtherLatestRuntimeMemorySnapshots();
+
+};
+
+
+window.clearOtherLatestRuntimeMemorySnapshots = function () {
+
+  const snapshots =
+    collectOtherLatestRuntimeMemorySnapshots();
+
+  try {
+    snapshots.forEach(
+      function (
+        snapshot
+      ) {
+        if (
+            snapshot
+            && snapshot.key
+            && snapshot.key !== latestRuntimeMemoryStorageKey
+        ) {
+          window.localStorage.removeItem(
+            snapshot.key
+          );
+        }
+      }
+    );
+  } catch (error) {
+    // Browser memory cleanup is helpful, not required for chat.
+  }
+
+  return {
+    cleared: snapshots.length,
+    keys: snapshots.map(
+      function (
+        snapshot
+      ) {
+        return snapshot.key;
+      }
+    ),
+  };
 
 };
 

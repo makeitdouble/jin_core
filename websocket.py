@@ -26,6 +26,9 @@ from clients import (
     build_brain_payload,
     build_brain_system_prompt,
 )
+from clients.brain_client import (
+    should_execute_remember_session,
+)
 
 from utils.brain import (
     get_brain_runtime_config,
@@ -1092,6 +1095,44 @@ async def receive_message(
 # PROCESS MESSAGE
 # ---------------------------------------------------------
 
+async def arm_remember_session_from_user_text(
+    context,
+    user_text: str,
+) -> bool:
+
+    if getattr(
+        context,
+        "runtime_remember_session_requested",
+        False,
+    ):
+        return False
+
+    if not should_execute_remember_session(
+        user_text,
+    ):
+        return False
+
+    context.runtime_remember_session_requested = True
+
+    logger = getattr(
+        context,
+        "logger",
+        None,
+    )
+    log_runtime = getattr(
+        logger,
+        "log_runtime",
+        None,
+    )
+
+    if log_runtime is not None:
+        await log_runtime(
+            "[RUNTIME ACTION] remember_session requested"
+        )
+
+    return True
+
+
 async def refresh_pending_brain_usage(
     context,
     user_text: str,
@@ -1314,6 +1355,10 @@ async def process_message(
         context.runtime_turn_user_message = user_text
         context.runtime_turn_assistant_response = ""
         context.runtime_turn_interrupted = False
+        await arm_remember_session_from_user_text(
+            context,
+            user_text,
+        )
         apply_user_idle_context(
             context,
             message_data,
@@ -1365,11 +1410,23 @@ async def process_message(
                 or context.runtime_turn_assistant_response
         )
 
-        schedule_runtime_memory_update(
+        memory_update_task = schedule_runtime_memory_update(
             context=context,
             user_message=user_text,
             assistant_message=assistant_message,
         )
+
+        if (
+            memory_update_task is not None
+            and getattr(
+                context,
+                "runtime_remember_session_requested",
+                False,
+            )
+        ):
+            await wait_for_runtime_memory_update(
+                context
+            )
 
         context.assistant_message_count += 1
         context.turn_number += 1

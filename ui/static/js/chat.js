@@ -784,6 +784,38 @@ function startStreamMessage(
 
 // THINKING CHUNK
 
+function stripInternalActionMarkers(
+  text
+) {
+
+  return String(text || "")
+    .replace(
+      /(^|\n)[^\S\r\n]*<INTERNAL_ACTION_(?:DEEP_THOUGHT|REMEMBER_SESSION|REMEMBER_EVENT)>[^\S\r\n]*(?=\n|$)/gi,
+      "$1"
+    )
+    .replace(
+      /(^|\n)[^\S\r\n]*<INTERNAL_ACTION_WEB_SEARCH:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
+      "$1"
+    )
+    .replace(
+      /\n{3,}/g,
+      "\n\n"
+    );
+
+}
+
+function collapseAnswerMarkerGap(
+  text
+) {
+
+  return String(text || "")
+    .replace(
+      /\n{3,}/g,
+      "\n\n"
+    );
+
+}
+
 function appendThinkingChunk(
   messageId,
   chunk
@@ -846,8 +878,26 @@ function appendStreamChunk(
     return;
   }
 
+  chunk =
+    stripInternalActionMarkers(
+      chunk
+    );
+
+  if (!chunk) {
+    return;
+  }
+
   stream.answer += chunk;
   stream.pendingAnswer += chunk;
+
+  stream.answer =
+    collapseAnswerMarkerGap(
+      stream.answer
+    );
+  stream.pendingAnswer =
+    collapseAnswerMarkerGap(
+      stream.pendingAnswer
+    );
 
   scheduleStreamFrameUpdate();
 

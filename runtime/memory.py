@@ -2666,13 +2666,6 @@ async def summarize_runtime_memory(
             context.runtime_memory_stable = updated_memory
             context.runtime_memory_updates = updates_counter + 1
 
-            await log_memory_event(
-                context,
-                level="L1",
-                message="L1 runtime memory updated",
-                fallback_channel="service",
-            )
-
             snapshot = await emit_runtime_memory_update(
                 context
             )
@@ -2860,13 +2853,6 @@ async def summarize_runtime_memory_pending_turns(
                 for turn in context.runtime_memory_pending_turns
                 if turn not in turns
             ]
-
-            await log_memory_event(
-                context,
-                level="L1",
-                message="L1 runtime memory updated",
-                fallback_channel="service",
-            )
 
             snapshot = await emit_runtime_memory_update(
                 context
