@@ -33,6 +33,10 @@ from runtime.memory import (
     parse_runtime_memory_lines,
     summarize_runtime_memory_pending_turns,
 )
+from runtime.memory_utils import (
+    merge_runtime_l2_pattern_evidence_memory,
+    normalize_l2_pattern_evidence_example,
+)
 from runtime.memory_rules import (
     RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES,
 )
@@ -629,7 +633,19 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertIn(
+            "first_seen_snapshot",
+            prompt,
+        )
+        self.assertIn(
             "last_seen_snapshot",
+            prompt,
+        )
+        self.assertIn(
+            "L2_pattern_evidence_N",
+            prompt,
+        )
+        self.assertIn(
+            "first_seen_turn_snapshot",
             prompt,
         )
         self.assertIn(
@@ -711,6 +727,50 @@ class MessageMemoryTests(
         self.assertIn(
             "Occurrences must be derived only from actual conversation evidence",
             prompt,
+        )
+
+    def test_l2_pattern_evidence_merge_preserves_first_seen_and_deduplicates(self):
+
+        merged = merge_runtime_l2_pattern_evidence_memory(
+            previous_memory=(
+                "possible pattern: old line. Occurrences: 1; "
+                "first_seen_snapshot: 5; last_seen_snapshot: 5; "
+                "evidence summary: banana question; confidence: medium\n"
+                'L2_pattern_evidence_1: user repeatedly sending message - "что такое бананы" '
+                "[ first_seen_turn_snapshot: 5 ] [ last_seen_turn_snapshot: 5 ] [ occurrences: 1 ]"
+            ),
+            candidate_memory=(
+                "possible pattern: updated line. Occurrences: 2; "
+                "first_seen_snapshot: 5; last_seen_snapshot: 10; "
+                "evidence summary: banana question; confidence: medium\n"
+                'L2_pattern_evidence_2: user repeatedly sending message - "что такое бананы" '
+                "[ last_seen_turn_snapshot: 10 ] [ occurrences: 2 ]"
+            ),
+        )
+
+        self.assertIn(
+            "possible pattern: updated line",
+            merged,
+        )
+        self.assertEqual(
+            1,
+            merged.count(
+                "L2_pattern_evidence_"
+            ),
+        )
+        self.assertIn(
+            'L2_pattern_evidence_1: user repeatedly sending message - "что такое бананы" '
+            "[ first_seen_turn_snapshot: 5 ] [ last_seen_turn_snapshot: 10 ] [ occurrences: 2 ]",
+            merged,
+        )
+
+    def test_l2_pattern_evidence_example_normalizer_strips_spaces_commas_and_dots(self):
+
+        self.assertEqual(
+            "чтотакоебананы",
+            normalize_l2_pattern_evidence_example(
+                " Что, такое. бананы "
+            ),
         )
 
     def test_interrupted_assistant_message_marks_incomplete(self):

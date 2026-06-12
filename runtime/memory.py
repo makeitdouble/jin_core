@@ -45,7 +45,9 @@ from runtime.memory_utils import (
     build_runtime_memory_user_prompt,
     build_runtime_session_memory_system_prompt,
     build_runtime_session_memory_user_prompt,
+    build_runtime_l2_repeated_user_message_evidence_memory,
     canonicalize_runtime_memory_entry,
+    merge_runtime_l2_pattern_evidence_memory,
     remove_runtime_user_idle_lines,
 )
 from runtime.fact_check import (
@@ -752,6 +754,120 @@ def build_runtime_l1_diff_stats(
         "max": max(values) if values else 0,
     }
 
+
+
+
+def rebuild_latest_runtime_memory_snapshot(
+        context,
+) -> dict | None:
+
+    snapshots = getattr(
+        context,
+        "runtime_memory_snapshots",
+        [],
+    )
+
+    if not snapshots:
+        return None
+
+    latest_snapshot = snapshots[-1]
+    previous_snapshot = (
+        snapshots[-2]
+        if len(snapshots) > 1
+        else None
+    )
+
+    display_memory = build_runtime_memory_context_text(
+        getattr(
+            context,
+            "runtime_memory",
+            "",
+        ),
+        context,
+    )
+
+    lines = parse_runtime_memory_lines(
+        display_memory
+    )
+
+    lines = apply_runtime_memory_diff(
+        lines,
+        previous_snapshot,
+    )
+
+    patch_details = build_runtime_memory_patch(
+        lines,
+        previous_snapshot,
+    )
+
+    refreshed_snapshot = {
+        **latest_snapshot,
+        "raw_memory": display_memory,
+        "lines": lines,
+        "patch": patch_details["patch"],
+        "total_diff": patch_details["total_diff"],
+    }
+
+    snapshots[-1] = refreshed_snapshot
+    context.runtime_memory_snapshots = snapshots
+    context.runtime_memory_snapshot_index = refreshed_snapshot["index"]
+
+    return refreshed_snapshot
+
+
+async def emit_runtime_memory_snapshot_refresh(
+        context,
+        snapshot: dict | None,
+) -> None:
+
+    if snapshot is None:
+        return
+
+    emitter = getattr(
+        context,
+        "emitter",
+        None,
+    )
+
+    emit = getattr(
+        emitter,
+        "emit",
+        None,
+    )
+
+    await safe_call(
+        emit,
+        {
+            "type": "runtime_memory_update",
+            "memory": snapshot.get(
+                "raw_memory",
+                "",
+            ),
+            "updates": getattr(
+                context,
+                "runtime_memory_updates",
+                0,
+            ),
+            "snapshot": snapshot,
+            "snapshots_count": len(
+                getattr(
+                    context,
+                    "runtime_memory_snapshots",
+                    [],
+                )
+                or []
+            ),
+            "snapshot_index": getattr(
+                context,
+                "runtime_memory_snapshot_index",
+                snapshot.get(
+                    "index",
+                    0,
+                ),
+            ),
+            "replace_latest": True,
+        },
+    )
 
 async def emit_runtime_l1_diff_update(
         context,
@@ -1795,6 +1911,162 @@ def ensure_runtime_l2_state(
         context.runtime_l2_last_turn = 0
 
 
+def is_runtime_l2_context_line_key(
+        key: str,
+) -> bool:
+
+    return (
+        str(
+            key
+            or ""
+        )
+        .strip()
+        .casefold()
+        .startswith(
+            "l2_pattern_evidence_"
+        )
+    )
+
+
+def filter_runtime_l2_context_lines_from_patch(
+        patch: dict,
+) -> dict:
+
+    if not isinstance(
+        patch,
+        dict,
+    ):
+        return {}
+
+    filtered_patch = {
+        "added": [],
+        "changed": [],
+        "removed": [],
+    }
+
+    for entry in patch.get(
+            "added",
+            [],
+    ) or []:
+        if is_runtime_l2_context_line_key(
+                entry.get(
+                    "key",
+                    "",
+                )
+        ):
+            continue
+
+        filtered_patch["added"].append(
+            entry
+        )
+
+    for entry in patch.get(
+            "changed",
+            [],
+    ) or []:
+        if (
+                is_runtime_l2_context_line_key(
+                    entry.get(
+                        "previous_key",
+                        "",
+                    )
+                )
+                or is_runtime_l2_context_line_key(
+                    entry.get(
+                        "current_key",
+                        "",
+                    )
+                )
+        ):
+            continue
+
+        filtered_patch["changed"].append(
+            entry
+        )
+
+    for entry in patch.get(
+            "removed",
+            [],
+    ) or []:
+        if is_runtime_l2_context_line_key(
+                entry.get(
+                    "key",
+                    "",
+                )
+        ):
+            continue
+
+        filtered_patch["removed"].append(
+            entry
+        )
+
+    return filtered_patch
+
+
+def compact_runtime_l2_user_message_evidence(
+        value,
+        *,
+        limit: int = 160,
+) -> str:
+
+    text = str(
+        value
+        or ""
+    ).strip()
+
+    text = " ".join(
+        text.split()
+    )
+
+    if len(text) <= limit:
+        return text
+
+    return text[:limit].rstrip()
+
+
+def runtime_l1_patch_total_diff(
+        patch: dict,
+) -> float:
+
+    total_diff = 0
+
+    total_diff += 30 * len(
+        patch.get(
+            "added",
+            [],
+        )
+        or []
+    )
+    total_diff += 20 * len(
+        patch.get(
+            "removed",
+            [],
+        )
+        or []
+    )
+
+    for entry in patch.get(
+            "changed",
+            [],
+    ) or []:
+        total_diff += round(
+            (
+                entry.get(
+                    "key_change_ratio",
+                    0,
+                )
+                + entry.get(
+                    "value_change_ratio",
+                    0,
+                )
+            )
+            * 50,
+            2,
+        )
+
+    return total_diff
+
+
 async def record_runtime_l1_diff(
         context,
         snapshot: dict,
@@ -1805,15 +2077,40 @@ async def record_runtime_l1_diff(
         context
     )
 
-    total_diff = snapshot.get(
-        "total_diff",
-        0,
+    filtered_patch = filter_runtime_l2_context_lines_from_patch(
+        snapshot.get(
+            "patch",
+            {},
+        )
+    )
+    total_diff = runtime_l1_patch_total_diff(
+        filtered_patch
     )
     context.runtime_conversation_activity_diff = total_diff
 
     observed_turns = list(
         turns
         or []
+    )
+    observed_user_messages = [
+        compact_runtime_l2_user_message_evidence(
+            turn.get(
+                "user_message",
+                "",
+            )
+        )
+        for turn in observed_turns
+        if compact_runtime_l2_user_message_evidence(
+            turn.get(
+                "user_message",
+                "",
+            )
+        )
+    ]
+    latest_user_message = (
+        observed_user_messages[-1]
+        if observed_user_messages
+        else ""
     )
 
     user_turn_count = get_runtime_l2_user_turn_count(
@@ -1827,10 +2124,9 @@ async def record_runtime_l1_diff(
             0,
         ),
         "total_diff": total_diff,
-        "changes": snapshot.get(
-            "patch",
-            {},
-        ),
+        "changes": filtered_patch,
+        "user_message": latest_user_message,
+        "user_messages": observed_user_messages[-3:],
     }
 
     context.runtime_l2_pending_patches.append(
@@ -2258,6 +2554,23 @@ async def maybe_summarize_runtime_l2_memory(
         updated_l2_memory = ensure_confirmable_memory_markers(
             updated_l2_memory,
         )
+        updated_l2_memory = merge_runtime_l2_pattern_evidence_memory(
+            previous_memory=current_l2_memory,
+            candidate_memory=updated_l2_memory,
+        )
+
+        deterministic_repeated_message_evidence = (
+            build_runtime_l2_repeated_user_message_evidence_memory(
+                previous_memory=updated_l2_memory,
+                patches=patches,
+            )
+        )
+
+        if deterministic_repeated_message_evidence.strip():
+            updated_l2_memory = merge_runtime_l2_pattern_evidence_memory(
+                previous_memory=updated_l2_memory,
+                candidate_memory=deterministic_repeated_message_evidence,
+            )
 
         context.runtime_l2_memory = updated_l2_memory
         context.runtime_l2_last_turn = get_runtime_l2_user_turn_count(
@@ -2276,6 +2589,13 @@ async def maybe_summarize_runtime_l2_memory(
             context,
             label="L2 pattern memory",
             result=updated_l2_memory,
+        )
+
+        await emit_runtime_memory_snapshot_refresh(
+            context,
+            rebuild_latest_runtime_memory_snapshot(
+                context
+            ),
         )
 
         return getattr(

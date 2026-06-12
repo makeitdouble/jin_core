@@ -1,4 +1,5 @@
 import json
+import re
 
 from runtime.memory_rules import (
     DEFAULT_RUNTIME_MEMORY,
@@ -218,6 +219,37 @@ def remove_runtime_user_idle_lines(
     )
 
 
+def extract_runtime_l2_pattern_evidence_lines(
+        runtime_l2_memory: str,
+) -> list[str]:
+
+    evidence_lines = []
+
+    for raw_line in (runtime_l2_memory or "").splitlines():
+        line = raw_line.strip()
+
+        if not line:
+            continue
+
+        parsed_line = split_l2_memory_line(
+            line
+        )
+
+        if (
+                parsed_line is None
+                or not is_l2_pattern_evidence_key(
+                    parsed_line[0]
+                )
+        ):
+            continue
+
+        evidence_lines.append(
+            line
+        )
+
+    return evidence_lines
+
+
 def build_runtime_memory_context_text(
         memory: str,
         context=None,
@@ -246,6 +278,19 @@ def build_runtime_memory_context_text(
             line
         )
 
+    if context is not None:
+        for evidence_line in extract_runtime_l2_pattern_evidence_lines(
+                getattr(
+                    context,
+                    "runtime_l2_memory",
+                    "",
+                )
+        ):
+            if evidence_line not in lines:
+                lines.append(
+                    evidence_line
+                )
+
     user_idle_text = get_user_idle_context_text(
         context
     )
@@ -259,6 +304,649 @@ def build_runtime_memory_context_text(
         lines
     )
 
+
+
+L2_PATTERN_EVIDENCE_KEY_RE = re.compile(
+    r"^L2_pattern_evidence_(?P<index>\d+)$",
+    re.IGNORECASE,
+)
+L2_EVIDENCE_QUOTE_RE = re.compile(
+    r'"(?P<quote>[^"]+)"',
+)
+L2_EVIDENCE_FIRST_SEEN_RE = re.compile(
+    r"\[\s*first_seen_turn_snapshot\s*:\s*(?P<value>\d+)\s*\]",
+    re.IGNORECASE,
+)
+L2_EVIDENCE_LAST_SEEN_RE = re.compile(
+    r"\[\s*last_seen_turn_snapshot\s*:\s*(?P<value>\d+)\s*\]",
+    re.IGNORECASE,
+)
+L2_EVIDENCE_OCCURRENCES_RE = re.compile(
+    r"\[\s*occurrences\s*:\s*(?P<value>\d+)\s*\]",
+    re.IGNORECASE,
+)
+L2_EVIDENCE_QUOTE_META_RE = re.compile(
+    r"\[\s*quote\s*:\s*\"(?P<quote>[^\"]*)\"\s*\]",
+    re.IGNORECASE,
+)
+
+
+def normalize_l2_pattern_evidence_example(
+        value: str,
+        *,
+        limit: int = 100,
+) -> str:
+
+    text = str(
+        value
+        or ""
+    ).casefold()
+    text = re.sub(
+        r"[\s,.]+",
+        "",
+        text,
+    )
+
+    return text[:limit]
+
+
+def compact_l2_pattern_evidence_example(
+        value: str,
+        *,
+        limit: int = 100,
+) -> str:
+
+    text = str(
+        value
+        or ""
+    ).strip()
+    text = re.sub(
+        r"[\s,.]+",
+        " ",
+        text.casefold(),
+    ).strip()
+
+    return text[:limit].rstrip()
+
+
+def is_l2_pattern_evidence_key(
+        key: str,
+) -> bool:
+
+    return bool(
+        L2_PATTERN_EVIDENCE_KEY_RE.match(
+            str(
+                key
+                or ""
+            ).strip()
+        )
+    )
+
+
+def split_l2_memory_line(
+        line: str,
+) -> tuple[str, str] | None:
+
+    if ":" not in line:
+        return None
+
+    key, value = line.split(
+        ":",
+        1,
+    )
+
+    return key.strip(), value.strip()
+
+
+def parse_l2_pattern_evidence_value(
+        value: str,
+) -> dict:
+
+    quote_meta_match = L2_EVIDENCE_QUOTE_META_RE.search(
+        value
+    )
+    quote_match = L2_EVIDENCE_QUOTE_RE.search(
+        value
+    )
+    quote = (
+        quote_meta_match.group(
+            "quote"
+        )
+        if quote_meta_match
+        else (
+            quote_match.group(
+                "quote"
+            )
+            if quote_match
+            else value
+        )
+    )
+    first_seen_match = L2_EVIDENCE_FIRST_SEEN_RE.search(
+        value
+    )
+    last_seen_match = L2_EVIDENCE_LAST_SEEN_RE.search(
+        value
+    )
+    occurrences_match = L2_EVIDENCE_OCCURRENCES_RE.search(
+        value
+    )
+
+    return {
+        "value": value,
+        "quote": quote,
+        "normalized_quote": normalize_l2_pattern_evidence_example(
+            quote,
+        ),
+        "first_seen": (
+            int(first_seen_match.group("value"))
+            if first_seen_match
+            else None
+        ),
+        "last_seen": (
+            int(last_seen_match.group("value"))
+            if last_seen_match
+            else None
+        ),
+        "occurrences": (
+            int(occurrences_match.group("value"))
+            if occurrences_match
+            else None
+        ),
+    }
+
+
+def format_l2_pattern_evidence_value(
+        value: str,
+        *,
+        first_seen: int | None = None,
+        last_seen: int | None = None,
+        occurrences: int | None = None,
+) -> str:
+
+    cleaned = re.sub(
+        r"\s*\[\s*(?:first_seen_turn_snapshot|last_seen_turn_snapshot|occurrences)\s*:\s*\d+\s*\]",
+        "",
+        value,
+        flags=re.IGNORECASE,
+    ).strip()
+
+    metadata = []
+
+    if first_seen is not None:
+        metadata.append(
+            f"[ first_seen_turn_snapshot: {first_seen} ]"
+        )
+
+    if last_seen is not None:
+        metadata.append(
+            f"[ last_seen_turn_snapshot: {last_seen} ]"
+        )
+
+    if occurrences is not None:
+        metadata.append(
+            f"[ occurrences: {occurrences} ]"
+        )
+
+    return " ".join(
+        [cleaned]
+        + metadata
+    ).strip()
+
+
+
+def escape_l2_pattern_evidence_quote(
+        value: str,
+) -> str:
+
+    return (
+        str(value or "")
+        .replace("\\", "\\\\")
+        .replace('"', '\\"')
+    )
+
+
+def extract_l2_patch_user_messages(
+        patch: dict,
+) -> list[str]:
+
+    if not isinstance(
+        patch,
+        dict,
+    ):
+        return []
+
+    messages = []
+
+    def add_message(
+            value,
+    ) -> None:
+
+        text = compact_l2_pattern_evidence_example(
+            value,
+            limit=100,
+        )
+
+        if text:
+            messages.append(
+                text
+            )
+
+    add_message(
+        patch.get(
+            "user_message",
+            "",
+        )
+    )
+
+    for value in patch.get(
+            "user_messages",
+            [],
+    ) or []:
+        add_message(
+            value
+        )
+
+    changes = patch.get(
+        "changes",
+        {},
+    )
+
+    if not isinstance(
+        changes,
+        dict,
+    ):
+        return list(
+            dict.fromkeys(
+                messages
+            )
+        )
+
+    for entry in changes.get(
+            "added",
+            [],
+    ) or []:
+        if (
+                str(entry.get("key", "")).strip().casefold()
+                == "user_message"
+        ):
+            add_message(
+                entry.get(
+                    "value",
+                    "",
+                )
+            )
+
+    for entry in changes.get(
+            "changed",
+            [],
+    ) or []:
+        if (
+                str(entry.get("current_key", "")).strip().casefold()
+                == "user_message"
+        ):
+            add_message(
+                entry.get(
+                    "current_value",
+                    "",
+                )
+            )
+
+    return list(
+        dict.fromkeys(
+            messages
+        )
+    )
+
+
+def extract_l2_previous_evidence_by_quote(
+        previous_memory: str,
+) -> dict[str, dict]:
+
+    evidence_by_quote = {}
+
+    for raw_line in (previous_memory or "").splitlines():
+        line = raw_line.strip()
+
+        if not line:
+            continue
+
+        parsed_line = split_l2_memory_line(
+            line
+        )
+
+        if (
+                parsed_line is None
+                or not is_l2_pattern_evidence_key(
+                    parsed_line[0]
+                )
+        ):
+            continue
+
+        parsed = parse_l2_pattern_evidence_value(
+            parsed_line[1]
+        )
+        normalized_quote = parsed.get(
+            "normalized_quote",
+            "",
+        )
+
+        if normalized_quote:
+            evidence_by_quote[normalized_quote] = parsed
+
+    return evidence_by_quote
+
+
+def build_runtime_l2_repeated_user_message_evidence_memory(
+        *,
+        previous_memory: str,
+        patches: list[dict],
+) -> str:
+
+    observations_by_quote: dict[str, dict] = {}
+
+    for patch in patches or []:
+        try:
+            snapshot_index = int(
+                patch.get(
+                    "snapshot_index",
+                    0,
+                )
+                or 0
+            )
+        except (
+                TypeError,
+                ValueError,
+        ):
+            snapshot_index = 0
+
+        if snapshot_index <= 0:
+            continue
+
+        for message in extract_l2_patch_user_messages(
+                patch
+        ):
+            normalized_quote = normalize_l2_pattern_evidence_example(
+                message,
+            )
+
+            if not normalized_quote:
+                continue
+
+            bucket = observations_by_quote.setdefault(
+                normalized_quote,
+                {
+                    "quote": message,
+                    "snapshots": set(),
+                },
+            )
+            bucket["snapshots"].add(
+                snapshot_index
+            )
+
+    previous_by_quote = extract_l2_previous_evidence_by_quote(
+        previous_memory
+    )
+
+    output_lines = []
+
+    for normalized_quote, observation in observations_by_quote.items():
+        snapshots = sorted(
+            observation.get(
+                "snapshots",
+                set(),
+            )
+        )
+
+        if len(snapshots) < 2 and normalized_quote not in previous_by_quote:
+            continue
+
+        previous = previous_by_quote.get(
+            normalized_quote,
+            {},
+        )
+        previous_first_seen = previous.get(
+            "first_seen",
+        )
+        previous_last_seen = previous.get(
+            "last_seen",
+        )
+        previous_occurrences = previous.get(
+            "occurrences",
+            0,
+        ) or 0
+
+        new_snapshots = [
+            snapshot
+            for snapshot in snapshots
+            if (
+                    previous_last_seen is None
+                    or snapshot > previous_last_seen
+            )
+        ]
+
+        if previous and not new_snapshots:
+            continue
+
+        first_seen = min(
+            value
+            for value in (
+                previous_first_seen,
+                snapshots[0] if snapshots else None,
+            )
+            if value is not None
+        )
+        last_seen = max(
+            value
+            for value in (
+                previous_last_seen,
+                snapshots[-1] if snapshots else None,
+            )
+            if value is not None
+        )
+        occurrences = (
+            previous_occurrences + len(new_snapshots)
+            if previous
+            else len(snapshots)
+        )
+
+        if occurrences < 2:
+            continue
+
+        output_lines.append(
+            "L2_pattern_evidence_1: "
+            "user repeatedly sending one message in a row "
+            f"[ quote: \"{escape_l2_pattern_evidence_quote(observation.get('quote', ''))}\" ] "
+            f"[ first_seen_turn_snapshot: {first_seen} ] "
+            f"[ last_seen_turn_snapshot: {last_seen} ] "
+            f"[ occurrences: {occurrences} ]"
+        )
+
+    return "\n".join(
+        output_lines
+    )
+
+
+def merge_runtime_l2_pattern_evidence_memory(
+        *,
+        previous_memory: str,
+        candidate_memory: str,
+) -> str:
+
+    output_lines = []
+    evidence_by_example: dict[str, dict] = {}
+
+    def ingest_evidence_line(
+            line: str,
+            *,
+            prefer_candidate_text: bool,
+    ) -> None:
+
+        parsed_line = split_l2_memory_line(
+            line
+        )
+
+        if parsed_line is None:
+            return
+
+        _key, value = parsed_line
+        parsed = parse_l2_pattern_evidence_value(
+            value
+        )
+        example_key = parsed.get(
+            "normalized_quote",
+            "",
+        )
+
+        if not example_key:
+            return
+
+        existing = evidence_by_example.get(
+            example_key
+        )
+
+        if existing is None:
+            evidence_by_example[example_key] = {
+                **parsed,
+                "value": value,
+            }
+            return
+
+        old_first = existing.get(
+            "first_seen",
+        )
+        new_first = parsed.get(
+            "first_seen",
+        )
+        old_last = existing.get(
+            "last_seen",
+        )
+        new_last = parsed.get(
+            "last_seen",
+        )
+        old_occurrences = existing.get(
+            "occurrences",
+        )
+        new_occurrences = parsed.get(
+            "occurrences",
+        )
+
+        existing.update({
+            "value": (
+                value
+                if prefer_candidate_text
+                else existing.get(
+                    "value",
+                    value,
+                )
+            ),
+            "first_seen": min(
+                value
+                for value in (old_first, new_first)
+                if value is not None
+            ) if any(
+                value is not None
+                for value in (old_first, new_first)
+            ) else None,
+            "last_seen": max(
+                value
+                for value in (old_last, new_last)
+                if value is not None
+            ) if any(
+                value is not None
+                for value in (old_last, new_last)
+            ) else None,
+            "occurrences": max(
+                value
+                for value in (old_occurrences, new_occurrences)
+                if value is not None
+            ) if any(
+                value is not None
+                for value in (old_occurrences, new_occurrences)
+            ) else None,
+        })
+
+    for raw_line in (
+            previous_memory
+            or ""
+    ).splitlines():
+        line = raw_line.strip()
+
+        if not line:
+            continue
+
+        parsed_line = split_l2_memory_line(
+            line
+        )
+
+        if (
+                parsed_line is not None
+                and is_l2_pattern_evidence_key(
+            parsed_line[0]
+        )
+        ):
+            ingest_evidence_line(
+                line,
+                prefer_candidate_text=False,
+            )
+
+    for raw_line in (
+            candidate_memory
+            or ""
+    ).splitlines():
+        line = raw_line.strip()
+
+        if not line:
+            continue
+
+        parsed_line = split_l2_memory_line(
+            line
+        )
+
+        if (
+                parsed_line is not None
+                and is_l2_pattern_evidence_key(
+            parsed_line[0]
+        )
+        ):
+            ingest_evidence_line(
+                line,
+                prefer_candidate_text=True,
+            )
+            continue
+
+        output_lines.append(
+            raw_line
+        )
+
+    for index, evidence in enumerate(
+            evidence_by_example.values(),
+            start=1,
+    ):
+        output_lines.append(
+            "L2_pattern_evidence_"
+            f"{index}: "
+            + format_l2_pattern_evidence_value(
+                evidence.get(
+                    "value",
+                    "",
+                ),
+                first_seen=evidence.get(
+                    "first_seen",
+                ),
+                last_seen=evidence.get(
+                    "last_seen",
+                ),
+                occurrences=evidence.get(
+                    "occurrences",
+                ),
+            )
+        )
+
+    return "\n".join(
+        line
+        for line in output_lines
+        if str(line).strip()
+    )
 
 def build_runtime_session_event_snapshot(
         context,
@@ -688,10 +1376,19 @@ def build_runtime_l2_memory_system_prompt() -> str:
         "Prefer 'possible pattern' over 'pattern'.\n"
         "Every possible pattern, emerging signal, or observed tendency MUST include an occurrence counter in the value: Occurrences: N.\n"
         "Every possible pattern, emerging signal, or observed tendency SHOULD include accounting metadata in the value: "
-        "Occurrences: N; last_seen_snapshot: S; evidence summary: <short evidence>; confidence: low|medium|high.\n"
+        "Occurrences: N; first_seen_snapshot: S1; last_seen_snapshot: S2; evidence summary: <short evidence>; confidence: low|medium|high.\n"
+        "When L2 names or updates a concrete repeated pattern, also write a companion evidence line named L2_pattern_evidence_N. "
+        "Use this exact shape: L2_pattern_evidence_N: <short pattern description> [ quote: \"<literal user_message value>\" ] [ first_seen_turn_snapshot: S1 ] [ last_seen_turn_snapshot: S2 ] [ occurrences: N ]\n"
+        "For repeated-message patterns, the quoted literal MUST be copied from the supplied user_message field exactly in the user's original language. "
+        "Do not translate it, do not paraphrase it, and do not replace it with an English command or description.\n"
+        "The quoted literal may only be stripped of leading/trailing whitespace and cleaned of repeated spaces; keep it at maximum 100 characters. "
+        "If no matching user_message is available, omit the L2_pattern_evidence_N line instead of inventing a quote.\n"
+        "L2_pattern_evidence_N is runtime accounting evidence, not a personality trait and not a durable user fact.\n"
+        "If an existing L2_pattern_evidence_N line matches the same normalized literal example or the same pattern, preserve first_seen_turn_snapshot and Occurrences, then update only last_seen_turn_snapshot and Occurrences when new matching L1 evidence appears.\n"
+        "Do not duplicate an existing pattern under a new L2_pattern_evidence_N key; update the existing evidence line instead.\n"
         "For a brand-new pattern with no prior L2 entry, set Occurrences to the number of matching evidence lines in the supplied L1 patch window, not to 1 by default.\n"
         "For a brand-new pattern, if the same-intent behavior repeated before L2 named it, count those earlier L1 evidence lines immediately when creating the counter.\n"
-        "For an existing pattern, preserve its old Occurrences count; do not recompute Occurrences from the supplied patch window alone.\n"
+        "For an existing pattern, preserve its old Occurrences count and first_seen_snapshot; do not recompute Occurrences from the supplied patch window alone.\n"
         "For an existing pattern, new_occurrences = old_occurrences + count(new matching L1 evidence after last_seen_snapshot).\n"
         "Only increment Occurrences when patch snapshot > last_seen_snapshot and the L1 evidence actually matches this pattern.\n"
         "If last_seen_snapshot is missing for an existing pattern, initialize it as a baseline without incrementing Occurrences for old visible evidence.\n"
@@ -765,6 +1462,22 @@ def build_runtime_l2_memory_user_prompt(
             f"snapshot: {patch.get('snapshot_index', 0)}",
             f"total_diff: {patch.get('total_diff', 0)}",
         ])
+
+        user_messages = [
+            str(message or "").replace("\n", " ").strip()
+            for message in (patch.get("user_messages", []) or [])
+            if str(message or "").strip()
+        ]
+
+        if user_messages:
+            lines.append(
+                "user_messages:"
+            )
+
+            for message in user_messages:
+                lines.append(
+                    f'- "{message}"'
+                )
 
         changes = patch.get(
             "changes",
@@ -1082,6 +1795,11 @@ def build_runtime_memory_system_prompt(
 
         "When the user asks JIN to become another real person, model, public figure, extremist figure, or harmful persona, do not record that JIN accepted the new identity. Record it as user_request or temporary_roleplay_request, and preserve identity_state: JIN identity remains unchanged.\n"
         "For roleplay, distinguish base identity from temporary mode. Never overwrite JIN identity, jin_fact, or identity_clarification with a roleplay persona.\n"
+
+        "Always keep a separate user_message field containing the latest user message as a direct verbatim quote. "
+        "Use this exact format: user_message: \"<latest user message exactly as written>\". "
+        "Do not translate, summarize, normalize, or replace the user's wording with an English intent label. "
+        "This field is runtime evidence for L2 counters and must update on every L1 snapshot. "
 
         "Always keep a separate last_jin_response field with the concise gist of JIN's latest completed answer, offer, or question. "
         "Do not store the full wording; store only the meaning needed to resolve the user's next short or elliptical reply. "

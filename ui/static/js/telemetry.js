@@ -99,6 +99,11 @@ const runtimeMemoryText =
     "runtime-memory-text"
   );
 
+const runtimeMemoryTitle =
+  document.getElementById(
+    "runtime-memory-title"
+  );
+
 const runtimeMemoryPanel =
     document.getElementById("settings-panel");
 
@@ -545,6 +550,12 @@ function updateUserIdleTimerText() {
 
   userIdleValueNode.textContent =
       ` ${getUserIdleText()}`;
+
+  updateRuntimeMemoryTitleMetrics(
+      runtimeMemoryHistory.snapshots[
+          runtimeMemoryHistory.index
+      ]
+  );
 }
 
 function clearUserIdleResumeTimer() {
@@ -2054,6 +2065,10 @@ function isLatestRuntimeMemoryDuplicate(
     return false;
   }
 
+  if (data.replace_latest === true) {
+    return false;
+  }
+
   const latestSnapshot =
     runtimeMemoryHistory.snapshots[
       runtimeMemoryHistory.snapshots.length - 1
@@ -2275,7 +2290,7 @@ function splitMemoryMeta(value) {
   let text = raw;
 
   const tagRe =
-      /\s*\[([a-zA-Z0-9_.-]+)\s*:\s*([^\]]*)\]\s*$/;
+      /\s*\[\s*([\w.-]+)\s*:\s*([^\]]*)\]\s*$/;
 
   while (true) {
     const match =
@@ -4435,37 +4450,59 @@ window.handleRuntimeMemoryMessage = function (data) {
   let clientSnapshot = null;
 
   if (data.snapshot) {
-    const clientIndex = runtimeMemoryHistory.snapshots.length;
-    clientSnapshot = {
-      ...data.snapshot,
-      index: clientIndex,
-    };
+    if (
+        data.replace_latest === true
+        && runtimeMemoryHistory.snapshots.length
+    ) {
+      const clientIndex =
+          runtimeMemoryHistory.snapshots.length - 1;
 
-    attachFirstUserIdleToInitialRuntimeSnapshot(
-      clientSnapshot
-    );
+      clientSnapshot = {
+        ...runtimeMemoryHistory.snapshots[clientIndex],
+        ...data.snapshot,
+        index: clientIndex,
+      };
 
-    // The server-side snapshot.index can restart after bootstrap/restore.
-    // The right panel is client-side history, so display positions must follow
-    // the actual array order instead of reusing a stale server index.
-    runtimeMemoryHistory.snapshots.push(clientSnapshot);
-    runtimeMemoryHistory.index =
-        runtimeMemoryHistory.snapshots.length - 1;
+      runtimeMemoryHistory.snapshots[clientIndex] =
+          clientSnapshot;
+      runtimeMemoryHistory.index = clientIndex;
 
-    if (window.jinGenerationRunning) {
-      freezeUserIdleTimerAtSeconds(
-          window.jinActiveTurnUserIdleSeconds
+      rememberStableRuntimeSnapshot(
+        clientSnapshot
+      );
+    } else {
+      const clientIndex = runtimeMemoryHistory.snapshots.length;
+      clientSnapshot = {
+        ...data.snapshot,
+        index: clientIndex,
+      };
+
+      attachFirstUserIdleToInitialRuntimeSnapshot(
+        clientSnapshot
+      );
+
+      // The server-side snapshot.index can restart after bootstrap/restore.
+      // The right panel is client-side history, so display positions must follow
+      // the actual array order instead of reusing a stale server index.
+      runtimeMemoryHistory.snapshots.push(clientSnapshot);
+      runtimeMemoryHistory.index =
+          runtimeMemoryHistory.snapshots.length - 1;
+
+      if (window.jinGenerationRunning) {
+        freezeUserIdleTimerAtSeconds(
+            window.jinActiveTurnUserIdleSeconds
+        );
+      }
+
+      rememberStableRuntimeSnapshot(
+        clientSnapshot
+      );
+
+      markJinAnswerRatingL1ReadyFromRuntimeUpdate(
+        data,
+        clientIndex
       );
     }
-
-    rememberStableRuntimeSnapshot(
-      clientSnapshot
-    );
-
-    markJinAnswerRatingL1ReadyFromRuntimeUpdate(
-      data,
-      clientIndex
-    );
   } else {
     markJinAnswerRatingL1ReadyFromRuntimeUpdate(
       data
@@ -4619,6 +4656,96 @@ function updateRuntimeMemoryPinGlow() {
   );
 }
 
+function estimateRuntimeMemoryTokens(text) {
+  if (!text) {
+    return 0;
+  }
+
+  return Math.max(
+      1,
+      Math.ceil(
+          Array.from(text).length / 4
+      )
+  );
+}
+
+function getRuntimeMemorySnapshotMetricText(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") {
+    return "";
+  }
+
+  const includeLiveUserIdle =
+      isLatestRuntimeMemorySnapshot();
+
+  const rawMemory =
+      String(snapshot.raw_memory || "");
+
+  if (rawMemory.trim()) {
+    const stableMemory =
+        includeLiveUserIdle
+          ? stripUserIdleRuntimeMemoryText(rawMemory)
+          : rawMemory;
+
+    return [
+      stableMemory.trim(),
+      includeLiveUserIdle
+        ? `user_idle: ${getUserIdleText()}`
+        : "",
+    ].filter(Boolean).join("\n");
+  }
+
+  if (!Array.isArray(snapshot.lines)) {
+    return "";
+  }
+
+  const lines =
+      snapshot.lines
+      .filter((line) => (
+          !includeLiveUserIdle
+          || !isUserIdleRuntimeMemoryLine(line)
+      ))
+      .map((line) => {
+        const key =
+            line && line.key
+              ? String(line.key)
+              : "note";
+
+        const value =
+            line && line.value
+              ? String(line.value)
+              : "";
+
+        return `${key}: ${value}`;
+      })
+      .filter(Boolean);
+
+  if (includeLiveUserIdle) {
+    lines.push(
+        `user_idle: ${getUserIdleText()}`
+    );
+  }
+
+  return lines.join("\n").trim();
+}
+
+function updateRuntimeMemoryTitleMetrics(snapshot) {
+  if (!runtimeMemoryTitle) {
+    return;
+  }
+
+  const metricText =
+      getRuntimeMemorySnapshotMetricText(snapshot);
+
+  const charCount =
+      Array.from(metricText).length;
+
+  const tokenCount =
+      estimateRuntimeMemoryTokens(metricText);
+
+  runtimeMemoryTitle.title =
+      `${charCount} chars / ~${tokenCount} tokens`;
+}
+
 function renderRuntimeMemorySnapshot() {
   const snapshot =
       runtimeMemoryHistory.snapshots[
@@ -4629,6 +4756,7 @@ function renderRuntimeMemorySnapshot() {
     runtimeMemoryText.textContent = "";
     runtimeMemoryPosition.textContent =
         "0";
+    updateRuntimeMemoryTitleMetrics(null);
     updateRuntimeMemoryArrows();
     updateRuntimeMemoryPinGlow();
     return;
@@ -4646,6 +4774,7 @@ function renderRuntimeMemorySnapshot() {
             : runtimeMemoryHistory.index + 1
       );
 
+  updateRuntimeMemoryTitleMetrics(snapshot);
   updateRuntimeMemoryArrows();
   updateRuntimeMemoryPinGlow();
 }
