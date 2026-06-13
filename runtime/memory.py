@@ -34,6 +34,30 @@ from utils.tokens import (
 )
 from runtime.memory_rules import (
     DEFAULT_RUNTIME_MEMORY,
+    DEFAULT_RUNTIME_L2_MEMORY,
+    DEFAULT_RUNTIME_L3_SESSION_MEMORY,
+    DURABLE_FLOOR,
+    DURABLE_MEMORY_KEY_TOKENS,
+    DURABLE_MEMORY_NEGATION_MARKERS,
+    GENERIC_MEMORY_MATCH_KEYS,
+    GENERIC_MEMORY_VALUE_SIMILARITY_MIN,
+    HOT_THRESHOLD,
+    HOT_TRACE_EXCLUDED_KEYS,
+    L2_PATCH_WINDOW,
+    L2_REPEATED_KEY_THRESHOLD,
+    L3_INPUT_TOKEN_RESERVE,
+    L3_INPUT_TOKEN_TARGET_MAX,
+    L3_OUTPUT_MAX_TOKENS,
+    MIN_L2_TURNS,
+    RUNTIME_RESPONSE_FEEDBACK_DISLIKED_VALUE,
+    RUNTIME_RESPONSE_FEEDBACK_KEY,
+    RUNTIME_RESPONSE_FEEDBACK_LIKED_VALUE,
+    RUNTIME_RESPONSE_FEEDBACK_NEUTRAL_VALUE,
+    RUNTIME_RESPONSE_FEEDBACK_RATINGS,
+    STRENGTH_BOOST,
+    STRENGTH_DECAY,
+    STRENGTH_NEW_KEY,
+    STRENGTH_PRESENCE_BOOST,
 )
 from runtime.memory_utils import (
     build_interrupted_assistant_message,
@@ -56,29 +80,6 @@ from runtime.memory_utils import (
 from runtime.fact_check import (
     ensure_confirmable_memory_markers,
 )
-
-
-
-
-RUNTIME_RESPONSE_FEEDBACK_KEY = "JIN_LAST_RESPONSE_USER_FEEDBACK"
-RUNTIME_RESPONSE_FEEDBACK_DISLIKED_VALUE = (
-    "User disliked your last response. "
-    "Before answering, find and understand why it failed using context or memory, then start the next reply with a brief acknowledgement of that miss, then continue with a concrete corrected answer."
-)
-RUNTIME_RESPONSE_FEEDBACK_NEUTRAL_VALUE = (
-    "User gave neutral feedback to your last response. "
-    "Continue carefully without changing course too much and treat it as a signal for response improvement."
-)
-RUNTIME_RESPONSE_FEEDBACK_LIKED_VALUE = (
-    "User liked your last response. "
-    "Keep the current direction."
-)
-RUNTIME_RESPONSE_FEEDBACK_RATINGS = {
-    "disliked": "disliked",
-    "neutral": "neutral",
-    "liked": "liked",
-}
-
 
 def normalize_runtime_response_feedback(feedback) -> dict | None:
 
@@ -279,82 +280,6 @@ async def apply_runtime_response_feedback(
         "rating": normalized_feedback["rating"],
         "runtime_memory": updated_memory,
     }
-
-DEFAULT_RUNTIME_L2_MEMORY = ""
-DEFAULT_RUNTIME_L3_SESSION_MEMORY = ""
-L3_INPUT_TOKEN_TARGET_MAX = 6000
-L3_INPUT_TOKEN_RESERVE = 768
-L3_OUTPUT_MAX_TOKENS = 2048
-MIN_L2_TURNS = 3
-L2_PATCH_WINDOW = 5
-L2_REPEATED_KEY_THRESHOLD = 3
-STRENGTH_DECAY = 0.82
-STRENGTH_PRESENCE_BOOST = 0.08
-STRENGTH_BOOST = 0.8
-STRENGTH_NEW_KEY = 0.5
-DURABLE_FLOOR = 0.25
-HOT_THRESHOLD = 0.5
-HOT_TRACE_EXCLUDED_KEYS = [
-    "user_idle",
-]
-GENERIC_MEMORY_VALUE_SIMILARITY_MIN = 0.35
-GENERIC_MEMORY_MATCH_KEYS = (
-    "topic",
-    "focus",
-    "next step",
-    "last jin response",
-
-    "user request",
-    "user intent",
-
-    "active topic",
-    "active topics",
-    "current topic",
-    "current topics",
-
-    "open reference",
-    "open references",
-    "open question",
-
-    "pending choice",
-    "pending choices",
-    "pending action",
-    "pending actions",
-
-    "session status",
-    "session state",
-
-    "current concern",
-    "current concerns",
-    "current task",
-    "current tasks",
-    "current context",
-    "current request",
-    "current requests",
-
-    "interaction state",
-)
-DURABLE_MEMORY_KEY_TOKENS = (
-    "fact",
-    "identity",
-    "profile",
-    "preference",
-    "stored",
-)
-DURABLE_MEMORY_NEGATION_MARKERS = (
-    "not",
-    "not fact",
-    "not true",
-    "false",
-    "obsolete",
-    "removed",
-    "cancelled",
-    "canceled",
-    "superseded",
-    "no longer",
-    "invalid",
-)
-
 
 def build_runtime_summarizer_trusted_context(
         context=None,
