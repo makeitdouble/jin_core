@@ -66,8 +66,6 @@ const runtimePanelState = {
 
 const TELEMETRY_FRAME_WARNING_MS = 12;
 const CONTEXT_PANEL_RENDER_THROTTLE_MS = 300;
-const USER_IDLE_REFRESH_MS = 1000;
-const USER_IDLE_TYPING_RESUME_DELAY_MS = 30000;
 
 const storage =
   window.JinRuntime
@@ -86,6 +84,16 @@ const memoryModel =
 if (!memoryModel) {
   throw new Error(
     "JinRuntime.memoryModel must be loaded before telemetry.js"
+  );
+}
+
+const idle =
+  window.JinRuntime
+  && window.JinRuntime.idle;
+
+if (!idle) {
+  throw new Error(
+    "JinRuntime.idle must be loaded before telemetry.js"
   );
 }
 
@@ -118,12 +126,7 @@ const {
   getSavedRuntimeMemoryFallback,
 } = storage;
 
-let userIdleStartedAt = Date.now();
-let userIdleTimer = null;
 let userIdleValueNode = null;
-let userIdlePausedAt = null;
-let userIdleResumeTimer = null;
-let userIdleInputFreezeInstalled = false;
 
 let telemetryFrameScheduled = false;
 let contextPanelRenderTimer = null;
@@ -190,64 +193,19 @@ const runtimeDiffHistory = {
   expanded: false,
 };
 
-function formatUserIdleDuration(ms) {
-  const totalSeconds = Math.max(
-      0,
-      Math.floor(Number(ms || 0) / 1000)
-  );
-
-  if (totalSeconds < 60) {
-    return `${totalSeconds}s`;
-  }
-
-  const totalMinutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-
-  if (totalMinutes < 60) {
-    return seconds
-      ? `${totalMinutes}m ${seconds}s`
-      : `${totalMinutes}m`;
-  }
-
-  const totalHours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  if (totalHours < 24) {
-    return minutes
-      ? `${totalHours}h ${minutes}m`
-      : `${totalHours}h`;
-  }
-
-  const days = Math.floor(totalHours / 24);
-  const hours = totalHours % 24;
-
-  return hours
-    ? `${days}d ${hours}h`
-    : `${days}d`;
-}
-
-function getUserIdleElapsedMs() {
-  const now =
-      userIdlePausedAt !== null
-        ? userIdlePausedAt
-        : Date.now();
-
-  return now - userIdleStartedAt;
-}
-
 function getUserIdleText() {
-  return formatUserIdleDuration(
-      getUserIdleElapsedMs()
-  );
+  return idle.getText();
 }
 
-function updateUserIdleTimerText() {
+function updateUserIdleTimerText(
+  text = getUserIdleText()
+) {
   if (!userIdleValueNode) {
     return;
   }
 
   userIdleValueNode.textContent =
-      ` ${getUserIdleText()}`;
+      ` ${text}`;
 
   updateRuntimeMemoryTitleMetrics(
       runtimeMemoryHistory.snapshots[
@@ -256,232 +214,13 @@ function updateUserIdleTimerText() {
   );
 }
 
-function clearUserIdleResumeTimer() {
-  if (!userIdleResumeTimer) {
-    return;
-  }
-
-  clearTimeout(
-      userIdleResumeTimer
-  );
-
-  userIdleResumeTimer = null;
-}
-
-function stopUserIdleTimer() {
-  if (!userIdleTimer) {
-    return;
-  }
-
-  clearInterval(
-      userIdleTimer
-  );
-
-  userIdleTimer = null;
-}
-
-function ensureUserIdleTimer() {
-  if (userIdlePausedAt !== null) {
-    return;
-  }
-
-  if (userIdleTimer) {
-    return;
-  }
-
-  userIdleTimer = setInterval(
-      updateUserIdleTimerText,
-      USER_IDLE_REFRESH_MS
-  );
-}
-
-function isUserIdleChatInputFocused() {
-  const input =
-      document.getElementById(
-        "user-input"
-      );
-
-  return Boolean(
-      input
-      && document.activeElement === input
-  );
-}
-
-function resumeUserIdleTimer() {
-  if (userIdlePausedAt === null) {
-    ensureUserIdleTimer();
-    return;
-  }
-
-  const frozenElapsed =
-      Math.max(
-        0,
-        userIdlePausedAt - userIdleStartedAt
-      );
-
-  userIdleStartedAt =
-      Date.now() - frozenElapsed;
-
-  userIdlePausedAt = null;
-  clearUserIdleResumeTimer();
-  updateUserIdleTimerText();
-  ensureUserIdleTimer();
-}
-
-function scheduleUserIdleResumeIfChatLostFocus() {
-  clearUserIdleResumeTimer();
-
-  if (userIdlePausedAt === null) {
-    return;
-  }
-
-  userIdleResumeTimer = setTimeout(
-      function () {
-        userIdleResumeTimer = null;
-
-        if (
-            isUserIdleChatInputFocused()
-            && document.hasFocus()
-            && !document.hidden
-        ) {
-          return;
-        }
-
-        resumeUserIdleTimer();
-      },
-      USER_IDLE_TYPING_RESUME_DELAY_MS
-  );
-}
-
-function pauseUserIdleTimerForTyping() {
-  if (userIdlePausedAt === null) {
-    userIdlePausedAt = Date.now();
-  }
-
-  stopUserIdleTimer();
-  updateUserIdleTimerText();
-  scheduleUserIdleResumeIfChatLostFocus();
-}
-
-function resetUserIdleTimer() {
-  userIdleStartedAt = Date.now();
-  userIdlePausedAt = null;
-  clearUserIdleResumeTimer();
-  updateUserIdleTimerText();
-  ensureUserIdleTimer();
-}
-
-function freezeUserIdleTimerAtMs(
-  elapsedMs
-) {
-  const now = Date.now();
-  const frozenElapsedMs = Math.max(
-      0,
-      Number(elapsedMs || 0)
-  );
-
-  userIdleStartedAt = now - frozenElapsedMs;
-  userIdlePausedAt = now;
-  clearUserIdleResumeTimer();
-  stopUserIdleTimer();
-  updateUserIdleTimerText();
-}
-
-function freezeUserIdleTimerAtSeconds(
-  elapsedSeconds
-) {
-  freezeUserIdleTimerAtMs(
-      Math.max(
-        0,
-        Number(elapsedSeconds || 0)
-      ) * 1000
-  );
-}
-
-function freezeUserIdleTimerAtZero() {
-  freezeUserIdleTimerAtMs(
-      0
-  );
-}
-
-function installUserIdleInputFreeze() {
-  if (userIdleInputFreezeInstalled) {
-    return;
-  }
-
-  const input =
-      document.getElementById(
-        "user-input"
-      );
-
-  if (!input) {
-    return;
-  }
-
-  userIdleInputFreezeInstalled = true;
-
-  input.addEventListener(
-      "input",
-      pauseUserIdleTimerForTyping
-  );
-
-  input.addEventListener(
-      "focus",
-      function () {
-        if (userIdlePausedAt !== null) {
-          clearUserIdleResumeTimer();
-        }
-      }
-  );
-
-  input.addEventListener(
-      "blur",
-      scheduleUserIdleResumeIfChatLostFocus
-  );
-
-  window.addEventListener(
-      "blur",
-      scheduleUserIdleResumeIfChatLostFocus
-  );
-
-  document.addEventListener(
-      "visibilitychange",
-      function () {
-        if (document.hidden) {
-          scheduleUserIdleResumeIfChatLostFocus();
-        }
-      }
-  );
-}
-
-window.jinResetUserIdleTimer =
-    resetUserIdleTimer;
-
-window.jinFreezeUserIdleTimerAtZero =
-    freezeUserIdleTimerAtZero;
-
-window.jinFreezeUserIdleTimerAtSeconds =
-    freezeUserIdleTimerAtSeconds;
-
-function getJinUserIdleContext() {
-  const elapsedMs = Math.max(
-      0,
-      getUserIdleElapsedMs()
-  );
-
-  return {
-    user_idle: formatUserIdleDuration(
-        elapsedMs
-    ),
-    user_idle_seconds: Math.floor(
-        elapsedMs / 1000
-    ),
-    user_idle_paused: userIdlePausedAt !== null,
-  };
-}
-
-window.getJinUserIdleContext =
-    getJinUserIdleContext;
+idle.configure({
+  onIdleTextChanged(text) {
+    updateUserIdleTimerText(
+      text
+    );
+  },
+});
 
 window.jinWebSocketConnected = false;
 
@@ -3548,7 +3287,7 @@ window.handleRuntimeMemoryMessage = function (data) {
           runtimeMemoryHistory.snapshots.length - 1;
 
       if (window.jinGenerationRunning) {
-        freezeUserIdleTimerAtSeconds(
+        idle.freezeAtSeconds(
             window.jinActiveTurnUserIdleSeconds
         );
       }
@@ -3963,7 +3702,7 @@ function renderRuntimeMemoryLines(snapshot, persistGlow = false) {
       userIdleValueNode = null;
     }
 
-    installUserIdleInputFreeze();
+    idle.start();
 
     return;
   }
@@ -4041,7 +3780,7 @@ function renderRuntimeMemoryLines(snapshot, persistGlow = false) {
     userIdleValueNode = null;
   }
 
-  installUserIdleInputFreeze();
+  idle.start();
 }
 
 function appendUserIdleRuntimeMemoryLine() {
@@ -4077,8 +3816,8 @@ function appendUserIdleRuntimeMemoryLine() {
   row.appendChild(valueSpan);
 
   runtimeMemoryText.appendChild(row);
-  updateUserIdleTimerText();
-  ensureUserIdleTimer();
+  idle.onSnapshotChanged();
+  idle.start();
 }
 
 function updateRuntimeMemoryArrows() {
