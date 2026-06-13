@@ -137,10 +137,6 @@ let latestRuntimeMemoryStorageKey =
     runtimeSessionId
   );
 
-const legacyLatestRuntimeMemoryStorageKey =
-  `${latestRuntimeMemoryStorageKeyPrefix}`
-  + `.${latestRuntimeMemoryStorageKeyVersion}`;
-
 const latestSavedRuntimeMemoryStorageKey =
   "jin.latestSavedRuntimeMemory.v1";
 
@@ -239,18 +235,17 @@ function isLatestRuntimeMemoryKey(
   key
 ) {
 
-  if (key === legacyLatestRuntimeMemoryStorageKey) {
-    return true;
-  }
+  const prefix =
+    `${latestRuntimeMemoryStorageKeyPrefix}.`;
+
+  const suffix =
+    `.${latestRuntimeMemoryStorageKeyVersion}`;
 
   return (
     typeof key === "string"
-    && key.startsWith(
-      `${latestRuntimeMemoryStorageKeyPrefix}.`
-    )
-    && key.endsWith(
-      `.${latestRuntimeMemoryStorageKeyVersion}`
-    )
+    && key.startsWith(prefix)
+    && key.endsWith(suffix)
+    && key.length > prefix.length + suffix.length
   );
 
 }
@@ -258,10 +253,6 @@ function isLatestRuntimeMemoryKey(
 function getSessionIdFromLatestRuntimeMemoryKey(
   key
 ) {
-
-  if (key === legacyLatestRuntimeMemoryStorageKey) {
-    return "legacy";
-  }
 
   const prefix =
     `${latestRuntimeMemoryStorageKeyPrefix}.`;
@@ -471,19 +462,6 @@ function cloneBootRuntimeMemoryIfNeeded() {
 
 }
 
-function clearLegacyActiveRuntimeSessionKey() {
-
-  try {
-    window.localStorage.removeItem(
-      "jin.activeSessionId.v1"
-    );
-  } catch (error) {
-    // Browser memory is helpful, not required for chat.
-  }
-
-}
-
-clearLegacyActiveRuntimeSessionKey();
 cloneBootRuntimeMemoryIfNeeded();
 
 const runtimeDiffHistory = {
@@ -971,47 +949,10 @@ function readBrowserMemory(
 
 }
 
-function hasSavedSessionMemoryBootstrap() {
-
-  const savedRuntimeFallback =
-    getSavedRuntimeMemoryFallback();
-
-  if (
-      savedRuntimeFallback
-      && savedRuntimeFallback.session_memory
-  ) {
-    return true;
-  }
-
-  const browserLatestSavedSessionMemory =
-    readBrowserMemory(
-      latestSavedSessionMemoryStorageKey
-    );
-
-  return Boolean(
-      browserLatestSavedSessionMemory
-      && browserLatestSavedSessionMemory.explicit_save === true
-  );
-
-}
-
 function readLatestRuntimeMemory() {
 
-  const scopedRuntimeMemory =
-    readBrowserMemory(
-      latestRuntimeMemoryStorageKey
-    );
-
-  if (scopedRuntimeMemory) {
-    return scopedRuntimeMemory;
-  }
-
-  if (hasSavedSessionMemoryBootstrap()) {
-    return null;
-  }
-
   return readBrowserMemory(
-    legacyLatestRuntimeMemoryStorageKey
+    latestRuntimeMemoryStorageKey
   );
 
 }
@@ -3554,9 +3495,6 @@ window.clearPersistedSessionBootstrap = function () {
     );
     window.localStorage.removeItem(
       latestRuntimeMemoryStorageKey
-    );
-    window.localStorage.removeItem(
-      legacyLatestRuntimeMemoryStorageKey
     );
   } catch (error) {
     // Browser memory is helpful, not required for chat.

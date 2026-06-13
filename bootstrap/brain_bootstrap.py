@@ -266,7 +266,7 @@ def build_zero_diff_stall_instruction() -> str:
 
 
 # ─────────────────────────────────────────────
-# Compatibility wrappers for old call sites
+# Rule accessors used by brain clients
 # ─────────────────────────────────────────────
 
 def build_brain_soft_success_rules() -> str:
