@@ -95,6 +95,22 @@ PREVIOUS_THINK_SECTION_RE = re.compile(
 )
 
 
+COUNTDOWN_CONTRACT_RULES = (
+    "Runtime countdown_contract is active.\n"
+    "Treat every countdown_contract line in RUNTIME_MEMORY as an active "
+    "user-facing obligation from creation until it is completed or cancelled.\n"
+    "Countdown contracts are turn-based or time-based obligations; use the "
+    "contract fields in RUNTIME_MEMORY as trusted state.\n"
+    "If countdown_contract status is active and remaining is greater than 0, "
+    "do not execute the trigger early, but preserve the obligation in your "
+    "response planning.\n"
+    "If countdown_contract status is due or remaining is 0, execute its trigger "
+    "in this answer as an actual direct user-facing action or question.\n"
+    "For due recall triggers, ask the user for the remembered value without "
+    "revealing, quoting, paraphrasing, or restating the stored value first.\n"
+)
+
+
 def normalize_previous_think_section_title(
     title: str,
 ) -> str:
@@ -1199,6 +1215,38 @@ def _contains_any_marker(
         for marker in markers
     )
 
+def has_countdown_contract(
+    context=None,
+) -> bool:
+
+    if context is None:
+        return False
+
+    runtime_memory = str(
+        getattr(
+            context,
+            "runtime_memory",
+            "",
+        )
+        or ""
+    )
+
+    for raw_line in runtime_memory.splitlines():
+        line = raw_line.strip()
+
+        while line.startswith("-"):
+            line = line[1:].strip()
+
+        key = line.split(
+            ":",
+            1,
+        )[0].strip().casefold()
+
+        if key == "countdown_contract":
+            return True
+
+    return False
+
 
 def has_memory_rule_request(
     context=None,
@@ -1332,6 +1380,13 @@ def build_conditional_prompt_rules(
     rules = [
         get_last_jin_response_rules(),
     ]
+
+    if has_countdown_contract(
+        context
+    ):
+        rules.append(
+            COUNTDOWN_CONTRACT_RULES
+        )
 
     if has_memory_rule_request(
         context

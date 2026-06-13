@@ -926,6 +926,72 @@ class MessageMemoryTests(
             prompt,
         )
 
+    def test_brain_prompt_includes_countdown_contract_rules_while_active(self):
+
+        context = SimpleNamespace(
+            runtime_memory=(
+                'stored_memory: "Sky" (purpose: recall test; status: pending)\n'
+                'countdown_contract: Recall the secret word "Sky"; '
+                "created_user_message_count: 1; count_from: 1; count_to: 4; "
+                "due_user_message_count: 4; current: 2; remaining: 2; "
+                "status: active; trigger: Ask the user to recall the secret word."
+            ),
+            runtime_turn_user_message="thanks",
+            deep_thought_count=0,
+            runtime_search_result="",
+            runtime_search_result_id="",
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_WEB_SEARCH": False,
+                "CAN_DEEP_THOUGHT": False,
+            },
+        )
+
+        self.assertIn(
+            "Runtime countdown_contract is active.",
+            prompt,
+        )
+        self.assertIn(
+            "do not execute the trigger early",
+            prompt,
+        )
+        self.assertIn(
+            "If countdown_contract status is due or remaining is 0",
+            prompt,
+        )
+        self.assertNotIn(
+            "stored_memory is a high-priority active recall contract",
+            prompt,
+        )
+
+    def test_brain_prompt_omits_countdown_contract_rules_without_contract(self):
+
+        context = SimpleNamespace(
+            runtime_memory=(
+                "last_jin_response: Answered a casual thanks."
+            ),
+            runtime_turn_user_message="thanks",
+            deep_thought_count=0,
+            runtime_search_result="",
+            runtime_search_result_id="",
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_WEB_SEARCH": False,
+                "CAN_DEEP_THOUGHT": False,
+            },
+        )
+
+        self.assertNotIn(
+            "Runtime countdown_contract is active.",
+            prompt,
+        )
+
     def test_brain_prompt_anchors_short_feedback_to_last_jin_response(self):
 
         context = SimpleNamespace(
