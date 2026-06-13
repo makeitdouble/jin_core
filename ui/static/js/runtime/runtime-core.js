@@ -1,0 +1,1 @@
+window.JinRuntime = window.JinRuntime || {};

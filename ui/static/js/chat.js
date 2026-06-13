@@ -10,6 +10,7 @@ const STREAM_FRAME_WARNING_MS = 12;
 const STREAM_NEAR_BOTTOM_PX = 72;
 
 let streamFrameScheduled = false;
+const deferredRuntimeActionsAfterResponse = [];
 
 /**
  * @typedef {Object} ContextSnapshot
@@ -489,6 +490,10 @@ function appendChatMessage(
   pre.innerHTML =
     escapeHtml(text);
 
+  flushRuntimeActionsAfterResponse(
+    role
+  );
+
 }
 
 
@@ -512,7 +517,7 @@ function appendRuntimeAction(
     document.createElement("div");
 
   row.className =
-    "mx-auto flex w-full max-w-4xl items-center gap-3 text-xs text-cyan-100 transition duration-500";
+    "jin-message-row jin-runtime-action-row mx-auto w-full max-w-4xl text-xs text-cyan-100 transition duration-500";
 
   row.dataset.runtimeAction =
     action || "";
@@ -555,9 +560,83 @@ function appendRuntimeAction(
 }
 
 
+function queueRuntimeActionAfterNextResponse(
+  action,
+  text
+) {
+
+  const actionText =
+    String(
+      text || ""
+    );
+
+  if (!actionText.trim()) {
+    return;
+  }
+
+  deferredRuntimeActionsAfterResponse.push({
+    action:
+      action || "",
+    text: actionText,
+    completed: false,
+  });
+
+}
+
+
+function isResponseRole(
+  role
+) {
+
+  return ![
+    "user",
+    "system",
+  ].includes(
+    String(role || "").toLowerCase()
+  );
+
+}
+
+
+function flushRuntimeActionsAfterResponse(
+  role
+) {
+
+  if (
+    !isResponseRole(role)
+    || !deferredRuntimeActionsAfterResponse.length
+  ) {
+    return;
+  }
+
+  const actions =
+    deferredRuntimeActionsAfterResponse.splice(0);
+
+  actions.forEach((entry) => {
+    appendRuntimeAction(
+      entry.action,
+      entry.text
+    );
+
+    if (entry.completed) {
+      fadeRuntimeAction(
+        entry.action
+      );
+    }
+  });
+
+}
+
+
 function fadeRuntimeAction(
   action
 ) {
+
+  deferredRuntimeActionsAfterResponse.forEach((entry) => {
+    if (entry.action === action) {
+      entry.completed = true;
+    }
+  });
 
   const rows =
     chatHistory.querySelectorAll(
@@ -883,6 +962,14 @@ function appendStreamChunk(
       chunk
     );
 
+  if (!stream.answer.trim()) {
+    chunk =
+      chunk.replace(
+        /^\s+/,
+        ""
+      );
+  }
+
   if (!chunk) {
     return;
   }
@@ -942,6 +1029,12 @@ function finishStreamMessage(
       stream.group.wrapper.remove();
     }
 
+    if (stream.answer.trim()) {
+      flushRuntimeActionsAfterResponse(
+        stream.role
+      );
+    }
+
   }
 
   streamMessages.delete(
@@ -956,6 +1049,9 @@ window.appendChatMessage =
 
 window.appendRuntimeAction =
   appendRuntimeAction;
+
+window.queueRuntimeActionAfterNextResponse =
+  queueRuntimeActionAfterNextResponse;
 
 window.fadeRuntimeAction =
   fadeRuntimeAction;
