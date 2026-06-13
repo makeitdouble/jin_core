@@ -250,6 +250,86 @@ def extract_runtime_l2_pattern_evidence_lines(
     return evidence_lines
 
 
+def remove_runtime_l2_pattern_evidence_lines(
+        runtime_l2_memory: str,
+) -> str:
+
+    output_lines = []
+
+    for raw_line in (runtime_l2_memory or "").splitlines():
+        line = raw_line.strip()
+
+        if not line:
+            continue
+
+        parsed_line = split_l2_memory_line(
+            line
+        )
+
+        if (
+                parsed_line is not None
+                and is_l2_pattern_evidence_key(
+            parsed_line[0]
+        )
+        ):
+            continue
+
+        output_lines.append(
+            raw_line
+        )
+
+    return "\n".join(
+        output_lines
+    )
+
+
+L2_OCCURRENCE_PATTERN_KEYS = {
+    "possible pattern",
+    "emerging signal",
+    "observed tendency",
+    "may indicate",
+}
+
+
+def remove_runtime_l2_occurrence_pattern_lines(
+        runtime_l2_memory: str,
+) -> str:
+
+    output_lines = []
+
+    for raw_line in (runtime_l2_memory or "").splitlines():
+        line = raw_line.strip()
+
+        if not line:
+            continue
+
+        parsed_line = split_l2_memory_line(
+            line
+        )
+
+        if parsed_line is None:
+            output_lines.append(
+                raw_line
+            )
+            continue
+
+        key, value = parsed_line
+
+        if (
+                key.strip().casefold() in L2_OCCURRENCE_PATTERN_KEYS
+                and "occurrences:" in value.casefold()
+        ):
+            continue
+
+        output_lines.append(
+            raw_line
+        )
+
+    return "\n".join(
+        output_lines
+    )
+
+
 def build_runtime_memory_context_text(
         memory: str,
         context=None,
@@ -1368,6 +1448,8 @@ def build_runtime_l2_memory_system_prompt() -> str:
         "Do not treat existing possible pattern, observed tendency, emerging signal, or other pattern-memory entries as evidence.\n"
         "Pattern entries may be displayed as context, but they must never contribute to occurrence counts or create new pattern entries.\n"
         "Occurrences must be derived only from actual conversation evidence in the supplied L1 patches, not from previously generated pattern summaries.\n"
+        "Count occurrences by unique patch snapshot values, not by how many rows mention the same behavior inside one patch.\n"
+        "If the same user_message appears in both user_messages and changes for one snapshot, it still counts as one occurrence.\n"
         "L2 is a hypothesis generator, not a source of settled memory.\n"
         "If L2 writes one of these confirmable keys, it MUST include a marker: "
         "user_fact, jin_fact, pending_fact, jin_recommendation, user_recommendation. "
@@ -1386,8 +1468,9 @@ def build_runtime_l2_memory_system_prompt() -> str:
         "L2_pattern_evidence_N is runtime accounting evidence, not a personality trait and not a durable user fact.\n"
         "If an existing L2_pattern_evidence_N line matches the same normalized literal example or the same pattern, preserve first_seen_turn_snapshot and Occurrences, then update only last_seen_turn_snapshot and Occurrences when new matching L1 evidence appears.\n"
         "Do not duplicate an existing pattern under a new L2_pattern_evidence_N key; update the existing evidence line instead.\n"
-        "For a brand-new pattern with no prior L2 entry, set Occurrences to the number of matching evidence lines in the supplied L1 patch window, not to 1 by default.\n"
-        "For a brand-new pattern, if the same-intent behavior repeated before L2 named it, count those earlier L1 evidence lines immediately when creating the counter.\n"
+        "For a brand-new pattern with no prior L2 entry, set Occurrences to the number of unique patch snapshots with matching evidence in the supplied L1 patch window, not to 1 by default.\n"
+        "For a brand-new pattern, if the same-intent behavior repeated before L2 named it, count those earlier unique matching L1 patch snapshots immediately when creating the counter.\n"
+        "Do not create a brand-new pattern when all matching evidence is confined to one unique patch snapshot, even if that snapshot contains multiple rows for the same message.\n"
         "For an existing pattern, preserve its old Occurrences count and first_seen_snapshot; do not recompute Occurrences from the supplied patch window alone.\n"
         "For an existing pattern, new_occurrences = old_occurrences + count(new matching L1 evidence after last_seen_snapshot).\n"
         "Only increment Occurrences when patch snapshot > last_seen_snapshot and the L1 evidence actually matches this pattern.\n"

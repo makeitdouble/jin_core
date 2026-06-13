@@ -47,7 +47,10 @@ from runtime.memory_utils import (
     build_runtime_session_memory_user_prompt,
     build_runtime_l2_repeated_user_message_evidence_memory,
     canonicalize_runtime_memory_entry,
+    extract_runtime_l2_pattern_evidence_lines,
     merge_runtime_l2_pattern_evidence_memory,
+    remove_runtime_l2_occurrence_pattern_lines,
+    remove_runtime_l2_pattern_evidence_lines,
     remove_runtime_user_idle_lines,
 )
 from runtime.fact_check import (
@@ -2554,16 +2557,29 @@ async def maybe_summarize_runtime_l2_memory(
         updated_l2_memory = ensure_confirmable_memory_markers(
             updated_l2_memory,
         )
+        candidate_pattern_evidence = extract_runtime_l2_pattern_evidence_lines(
+            updated_l2_memory,
+        )
+        deterministic_repeated_message_evidence = (
+            build_runtime_l2_repeated_user_message_evidence_memory(
+                previous_memory=current_l2_memory,
+                patches=patches,
+            )
+        )
+        if (
+                candidate_pattern_evidence
+                and not deterministic_repeated_message_evidence.strip()
+        ):
+            updated_l2_memory = remove_runtime_l2_occurrence_pattern_lines(
+                updated_l2_memory,
+            )
+
+        updated_l2_memory = remove_runtime_l2_pattern_evidence_lines(
+            updated_l2_memory,
+        )
         updated_l2_memory = merge_runtime_l2_pattern_evidence_memory(
             previous_memory=current_l2_memory,
             candidate_memory=updated_l2_memory,
-        )
-
-        deterministic_repeated_message_evidence = (
-            build_runtime_l2_repeated_user_message_evidence_memory(
-                previous_memory=updated_l2_memory,
-                patches=patches,
-            )
         )
 
         if deterministic_repeated_message_evidence.strip():

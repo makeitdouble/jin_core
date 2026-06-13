@@ -36,6 +36,7 @@ from runtime.memory import (
 from runtime.memory_utils import (
     merge_runtime_l2_pattern_evidence_memory,
     normalize_l2_pattern_evidence_example,
+    remove_runtime_l2_pattern_evidence_lines,
 )
 from runtime.memory_rules import (
     RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES,
@@ -728,6 +729,14 @@ class MessageMemoryTests(
             "Occurrences must be derived only from actual conversation evidence",
             prompt,
         )
+        self.assertIn(
+            "Count occurrences by unique patch snapshot values",
+            prompt,
+        )
+        self.assertIn(
+            "Do not create a brand-new pattern when all matching evidence is confined to one unique patch snapshot",
+            prompt,
+        )
 
     def test_l2_pattern_evidence_merge_preserves_first_seen_and_deduplicates(self):
 
@@ -762,6 +771,21 @@ class MessageMemoryTests(
             'L2_pattern_evidence_1: user repeatedly sending message - "что такое бананы" '
             "[ first_seen_turn_snapshot: 5 ] [ last_seen_turn_snapshot: 10 ] [ occurrences: 2 ]",
             merged,
+        )
+
+    def test_l2_candidate_evidence_lines_are_removed_before_deterministic_merge(self):
+
+        cleaned = remove_runtime_l2_pattern_evidence_lines(
+            "possible pattern: repeated message. Occurrences: 4\n"
+            'L2_pattern_evidence_1: user repeatedly sending one message [ quote: "ping" ] '
+            "[ first_seen_turn_snapshot: 9 ] [ last_seen_turn_snapshot: 10 ] [ occurrences: 4 ]\n"
+            "scope: current session"
+        )
+
+        self.assertEqual(
+            "possible pattern: repeated message. Occurrences: 4\n"
+            "scope: current session",
+            cleaned,
         )
 
     def test_l2_pattern_evidence_example_normalizer_strips_spaces_commas_and_dots(self):
@@ -1736,6 +1760,89 @@ class MessageMemoryTests(
         self.assertEqual(
             context.runtime_l2_memory,
             "",
+        )
+
+    async def test_l2_memory_drops_model_evidence_from_one_unique_snapshot(self):
+
+        service_client = FakeServiceClient(
+            "possible pattern: user may be repeating one message. "
+            "Occurrences: 4; first_seen_snapshot: 9; last_seen_snapshot: 10; "
+            "evidence summary: duplicate rows for one snapshot; confidence: medium\n"
+            'L2_pattern_evidence_1: user repeatedly sending one message [ quote: "ping" ] '
+            "[ first_seen_turn_snapshot: 9 ] [ last_seen_turn_snapshot: 10 ] [ occurrences: 4 ]"
+        )
+        logger = FakeLogger()
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            logger=logger,
+            runtime_memory="",
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
+            runtime_l2_memory="",
+            runtime_l2_pending_patches=[
+                {
+                    "turn_number": index + 1,
+                    "snapshot_index": index + 1,
+                    "total_diff": 120,
+                    "changes": {
+                        "added": [
+                            {
+                                "key": "topic",
+                                "value": f"value {index}",
+                            },
+                        ],
+                    },
+                }
+                for index in range(L2_PATCH_WINDOW - 1)
+            ] + [
+                {
+                    "turn_number": 10,
+                    "snapshot_index": 10,
+                    "total_diff": 140,
+                    "user_message": "ping",
+                    "user_messages": [
+                        "ping",
+                    ],
+                    "changes": {
+                        "added": [
+                            {
+                                "key": "topic",
+                                "value": "value final",
+                            },
+                            {
+                                "key": "user_message",
+                                "value": "ping",
+                            },
+                        ],
+                    },
+                },
+            ],
+            runtime_l1_diff_history=[],
+            runtime_l2_last_turn=0,
+            user_message_count=L2_PATCH_WINDOW,
+        )
+
+        updated_memory = await maybe_summarize_runtime_l2_memory(
+            context=context,
+        )
+
+        self.assertNotIn(
+            "possible pattern",
+            updated_memory,
+        )
+        self.assertNotIn(
+            "L2_pattern_evidence_",
+            updated_memory,
+        )
+        self.assertEqual(
+            "",
+            updated_memory,
+        )
+        self.assertNotIn(
+            "[ occurrences: 4 ]",
+            updated_memory,
         )
 
     async def test_l2_memory_runs_after_repeated_patch_keys_even_with_noisy_diff(self):
