@@ -35,6 +35,8 @@
             --safe-right: 380px;
 
             --chat-max-width: 820px;
+            --chat-min-width: 200px;
+            --scene-shade-alpha: 0.25;
 
             /* Вертикальный ритм чата: добавляет немного воздуха между ходами. */
             --chat-turn-gap: 2.05rem;
@@ -50,6 +52,19 @@
         #scene-bg {
             background-size: cover;
             background-position: center;
+        }
+
+        #scene-shade {
+            background: rgba(0, 0, 0, var(--scene-shade-alpha));
+            transition: background 0.22s ease;
+        }
+
+        main.panels-collapsed-1 #scene-shade {
+            --scene-shade-alpha: 0.3125;
+        }
+
+        main.panels-collapsed-2 #scene-shade {
+            --scene-shade-alpha: 0.375;
         }
 
         #console-panel,
@@ -136,8 +151,8 @@
         }
 
         #chat-history {
-            padding-left: var(--safe-left);
-            padding-right: var(--safe-right);
+            padding-left: min(var(--safe-left), calc((100% - var(--chat-min-width)) / 2));
+            padding-right: min(var(--safe-right), calc((100% - var(--chat-min-width)) / 2));
             padding-top: var(--chat-history-edge-gap) !important;
             padding-bottom: var(--chat-history-edge-gap) !important;
             scroll-padding-bottom: calc(var(--chat-history-edge-gap) + 0.5rem);
@@ -159,16 +174,21 @@
         }
 
         #chat-input-shell {
-            padding-left: var(--safe-left);
-            padding-right: var(--safe-right);
+            padding-left: min(var(--safe-left), calc((100% - var(--chat-min-width)) / 2));
+            padding-right: min(var(--safe-right), calc((100% - var(--chat-min-width)) / 2));
         }
 
         #chat-form {
             width: min(100%, var(--chat-max-width));
-            min-width: 520px;
+            min-width: var(--chat-min-width);
 
             margin-left: auto;
             margin-right: auto;
+        }
+
+        #attached-files {
+            width: min(100%, var(--chat-max-width));
+            min-width: var(--chat-min-width);
         }
 
         #user-input {
@@ -438,6 +458,7 @@
         .jin-message-row {
             /* Горизонтальная строка: аватарка слева, бабл справа. */
             display: flex;
+            padding-left: 48px;
 
             /* Прижимает аватарку и бабл к верхнему краю строки. */
             align-items: flex-start;
@@ -656,7 +677,8 @@
             max-width: 720px;
 
             /* Сдвиг think вправо, чтобы он начинался после аватарки. */
-            margin-left: 40px;
+            margin-left: auto;
+            margin-right: auto;
 
             /* Небольшая пауза между мыслью и следующим видимым ответом. */
             margin-bottom: var(--chat-inner-gap);
@@ -1282,8 +1304,8 @@
          style="background-image:url('static/images/states/default.png')">
     </div>
 
-    <div
-            class="absolute inset-0 bg-black/25 pointer-events-none">
+    <div id="scene-shade"
+            class="absolute inset-0 pointer-events-none">
     </div>
 
     <!-- LEFT CONSOLE -->

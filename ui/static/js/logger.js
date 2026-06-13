@@ -758,6 +758,35 @@ window.showTrace =
 const consolePanel = document.getElementById("console-panel");
     const consoleDragHandle = document.getElementById("console-drag-handle");
 
+    function syncSceneShadeToPanelCollapse() {
+        const root =
+            document.querySelector("main");
+
+        if (!root) {
+            return;
+        }
+
+        const collapsedCount =
+            [
+                consolePanel,
+                memoryPanel,
+            ].filter((panel) => (
+                panel
+                && panel.classList.contains("panel-collapsed")
+            )).length;
+
+        root.classList.remove(
+            "panels-collapsed-1",
+            "panels-collapsed-2"
+        );
+
+        if (collapsedCount > 0) {
+            root.classList.add(
+                `panels-collapsed-${collapsedCount}`
+            );
+        }
+    }
+
     function togglePanelCollapseFromHeader(event, panel, handle) {
         if (
             event.target !== handle
@@ -768,6 +797,7 @@ const consolePanel = document.getElementById("console-panel");
 
         event.preventDefault();
         panel.classList.toggle("panel-collapsed");
+        syncSceneShadeToPanelCollapse();
     }
 
     let isConsoleDragging = false;
