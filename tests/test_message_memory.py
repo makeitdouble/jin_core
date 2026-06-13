@@ -24,22 +24,26 @@ from runtime import (
     schedule_runtime_memory_update,
     summarize_runtime_memory,
 )
-from runtime.memory import (
+from runtime.L1_memory import (
     ask_runtime_memory_model,
     build_runtime_memory_snapshot,
-    build_l3_session_memory_max_tokens,
     collapse_duplicate_runtime_memory_keys,
     get_strength_zones,
-    L3_OUTPUT_MAX_TOKENS,
     parse_runtime_memory_lines,
     summarize_runtime_memory_pending_turns,
+)
+from runtime.L3_memory import (
+    build_l3_session_memory_max_tokens,
+)
+from runtime.L3_memory_rules import (
+    L3_OUTPUT_MAX_TOKENS,
 )
 from runtime.memory_utils import (
     merge_runtime_l2_pattern_evidence_memory,
     normalize_l2_pattern_evidence_example,
     remove_runtime_l2_pattern_evidence_lines,
 )
-from runtime.memory_rules import (
+from runtime.L1_memory_rules import (
     RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES,
 )
 from runtime.registry import (

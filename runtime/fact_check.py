@@ -2123,7 +2123,7 @@ async def run_fact_check_once(
                 # Emit a real runtime snapshot, not a snapshot=None event.
                 # The frontend renders the right memory panel from snapshot history;
                 # a raw memory payload alone is intentionally ignored by the panel.
-                from runtime.memory import emit_runtime_memory_update
+                from runtime.memory_events import emit_runtime_memory_update
 
                 await emit_runtime_memory_update(
                     context

@@ -1,10 +1,16 @@
 import json
 import re
 
-from runtime.memory_rules import (
+from runtime.L1_memory_rules import (
     DEFAULT_RUNTIME_MEMORY,
-    MAX_SESSION_EVENT_TEXT_CHARS,
+    RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES,
+    RUNTIME_USER_IDLE_KEY,
+)
+from runtime.L2_memory_rules import (
     MAX_SESSION_L2_LINES,
+)
+from runtime.L3_memory_rules import (
+    MAX_SESSION_EVENT_TEXT_CHARS,
     MAX_SESSION_LATEST_MEMORY_TEXT_CHARS,
     MAX_SESSION_LINE_CHARS,
     MAX_SESSION_MEMORY_TEXT_CHARS,
@@ -12,8 +18,6 @@ from runtime.memory_rules import (
     MAX_SESSION_PROMPT_DIFFS,
     MAX_SESSION_PROMPT_EVENTS,
     MAX_SESSION_PROMPT_SNAPSHOTS,
-    RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES,
-    RUNTIME_USER_IDLE_KEY,
 )
 
 

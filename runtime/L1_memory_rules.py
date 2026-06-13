@@ -1,59 +1,8 @@
-# Limits how many prompt snapshots are kept in session memory context.
-MAX_SESSION_PROMPT_SNAPSHOTS = 6
-
-# Limits how many prompt diffs are kept in session memory context.
-MAX_SESSION_PROMPT_DIFFS = 8
-
-# Limits how many recent session events are included in memory context.
-MAX_SESSION_PROMPT_EVENTS = 3
-
-# Limits the text length for each captured session event.
-MAX_SESSION_EVENT_TEXT_CHARS = 300
-
-# Limits the total session memory text included in prompts.
-MAX_SESSION_MEMORY_TEXT_CHARS = 1800
-
-# Limits the latest memory text included in prompts.
-MAX_SESSION_LATEST_MEMORY_TEXT_CHARS = 2200
-
-# Limits older snapshot text included in prompts.
-MAX_SESSION_OLD_SNAPSHOT_TEXT_CHARS = 500
-
-# Limits the length of each generated session memory line.
-MAX_SESSION_LINE_CHARS = 220
-
-# Limits how many L2 memory lines are included for session context.
-MAX_SESSION_L2_LINES = 3
-
 # Provides the initial runtime memory text for a brand-new session.
 DEFAULT_RUNTIME_MEMORY = (
     "This session has just begun. "
     "You have no history with the user yet."
 )
-
-# Provides the initial L2 memory text before any L2 summary exists.
-DEFAULT_RUNTIME_L2_MEMORY = ""
-
-# Provides the initial L3 session memory text before any session summary exists.
-DEFAULT_RUNTIME_L3_SESSION_MEMORY = ""
-
-# Sets the target maximum input token budget for L3 session summarization.
-L3_INPUT_TOKEN_TARGET_MAX = 6000
-
-# Reserves input tokens for prompt framing around L3 summarization content.
-L3_INPUT_TOKEN_RESERVE = 768
-
-# Limits output tokens for L3 session summarization.
-L3_OUTPUT_MAX_TOKENS = 2048
-
-# Sets the minimum number of turns before L2 summarization can run.
-MIN_L2_TURNS = 3
-
-# Sets how many recent L1 diffs are considered for L2 patching.
-L2_PATCH_WINDOW = 5
-
-# Sets how often a key must repeat before L2 treats it as recurring evidence.
-L2_REPEATED_KEY_THRESHOLD = 3
 
 # Decays existing memory strength between scoring passes.
 STRENGTH_DECAY = 0.82
@@ -146,6 +95,9 @@ DURABLE_MEMORY_NEGATION_MARKERS = (
 # Stores the runtime state key used for the last response feedback signal.
 RUNTIME_RESPONSE_FEEDBACK_KEY = "JIN_LAST_RESPONSE_USER_FEEDBACK"
 
+# Stores the runtime state key used for user idle markers.
+RUNTIME_USER_IDLE_KEY = "user_idle"
+
 # Describes how to react after the user disliked the last response.
 RUNTIME_RESPONSE_FEEDBACK_DISLIKED_VALUE = (
     "User disliked your last response. "
@@ -171,10 +123,6 @@ RUNTIME_RESPONSE_FEEDBACK_RATINGS = {
     "liked": "liked",
 }
 
-# Stores the runtime state key used for user idle markers.
-RUNTIME_USER_IDLE_KEY = "user_idle"
-
-
 # Defines stricter memory compression rules when context usage is high.
 RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES = (
     "[CONTEXT PRESSURE OVERRIDE]\n"
@@ -192,4 +140,3 @@ RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES = (
     "- If a durable line is long, shorten its value without changing its meaning.\n"
     "- Use short values. No markdown. No commentary.\n"
 )
-

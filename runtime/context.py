@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 
 from websocket_logger import WebSocketLogger
 
-from runtime.memory import (
+from runtime.L1_memory_rules import (
     DEFAULT_RUNTIME_MEMORY,
 )
 
