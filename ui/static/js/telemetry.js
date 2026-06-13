@@ -3391,24 +3391,13 @@ window.getPersistedSessionBootstrap = function () {
         : null
     );
 
-  const legacyEmbeddedRuntimeMemory =
-    (
-      sessionMemory
-      && (
-        sessionMemory.runtime_memory
-        || sessionMemory.runtime_snapshot
-      )
-    )
-      ? sessionMemory
-      : null;
-
   const runtimeMemory =
     (
       latestSavedRuntimeMemory
       && latestSavedRuntimeMemory.explicit_save === true
     )
       ? latestSavedRuntimeMemory
-      : legacyEmbeddedRuntimeMemory;
+      : null;
 
   const runtimeText =
     (
