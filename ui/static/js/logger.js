@@ -758,11 +758,27 @@ window.showTrace =
 const consolePanel = document.getElementById("console-panel");
     const consoleDragHandle = document.getElementById("console-drag-handle");
 
+    function togglePanelCollapseFromHeader(event, panel, handle) {
+        if (
+            event.target !== handle
+            || !panel
+        ) {
+            return;
+        }
+
+        event.preventDefault();
+        panel.classList.toggle("panel-collapsed");
+    }
+
     let isConsoleDragging = false;
     let consoleOffsetX = 0;
     let consoleOffsetY = 0;
 
     consoleDragHandle.addEventListener("mousedown", (event) => {
+        if (event.detail > 1) {
+            return;
+        }
+
         isConsoleDragging = true;
 
         const rect = consolePanel.getBoundingClientRect();
@@ -800,6 +816,14 @@ const consolePanel = document.getElementById("console-panel");
         document.body.style.userSelect = "";
     });
 
+    consoleDragHandle.addEventListener("dblclick", (event) => {
+        togglePanelCollapseFromHeader(
+            event,
+            consolePanel,
+            consoleDragHandle
+        );
+    });
+
 
 
 
@@ -813,6 +837,10 @@ let memoryOffsetX = 0;
 let memoryOffsetY = 0;
 
 memoryDragHandle.addEventListener("mousedown", (event) => {
+    if (event.detail > 1) {
+        return;
+    }
+
     isMemoryDragging = true;
 
     const rect = memoryPanel.getBoundingClientRect();
@@ -859,4 +887,12 @@ window.addEventListener("mousemove", (event) => {
 window.addEventListener("mouseup", () => {
     isMemoryDragging = false;
     document.body.style.userSelect = "";
+});
+
+memoryDragHandle.addEventListener("dblclick", (event) => {
+    togglePanelCollapseFromHeader(
+        event,
+        memoryPanel,
+        memoryDragHandle
+    );
 });

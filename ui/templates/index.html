@@ -58,6 +58,18 @@
             max-height: calc(100% - (var(--panel-gap) * 2));
         }
 
+        #console-panel.panel-collapsed,
+        #settings-panel.panel-collapsed {
+            height: 40px !important;
+            min-height: 40px;
+            max-height: 40px;
+        }
+
+        #console-panel.panel-collapsed #console-stream,
+        #settings-panel.panel-collapsed .settings-scroll {
+            display: none;
+        }
+
         #console-panel {
             left: var(--panel-gap);
             top: var(--panel-gap);
