@@ -474,6 +474,30 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertIn(
+            "Do not write the current turn, turn_number, or user_message_count into ordinary L1 memory lines such as session status",
+            prompt,
+        )
+        self.assertIn(
+            "Trusted runtime context already carries those counters",
+            prompt,
+        )
+        self.assertIn(
+            "L2_pattern_evidence_N lines are owned by L2 and are immutable for L1",
+            prompt,
+        )
+        self.assertIn(
+            "L1 MUST create or update a separate companion key using this exact shape",
+            prompt,
+        )
+        self.assertIn(
+            "L2_pattern_evidence_N_status: status: <resolved|cancelled|corrected|test>; reason: <short reason>",
+            prompt,
+        )
+        self.assertIn(
+            "L2_pattern_evidence_1_status: status: resolved; reason: identified as a test",
+            prompt,
+        )
+        self.assertIn(
             "include the user's label/synonym",
             prompt,
         )
@@ -735,6 +759,14 @@ class MessageMemoryTests(
         )
         self.assertIn(
             "Do not create a brand-new pattern when all matching evidence is confined to one unique patch snapshot",
+            prompt,
+        )
+        self.assertIn(
+            "final token on the line MUST be the closing bracket of [ occurrences: N ]",
+            prompt,
+        )
+        self.assertIn(
+            "Never append status, notes, explanations, conclusions, punctuation, or any other text after the final [ occurrences: N ] bracket",
             prompt,
         )
 
