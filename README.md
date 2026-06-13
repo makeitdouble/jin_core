@@ -84,6 +84,99 @@ Runtime memory is intentionally lightweight, but it is no longer passive storage
 
 This gives JIN observable short-term memory and behavior adaptation without introducing persistence, vector storage, or retrieval infrastructure yet.
 
+
+## Memory Snapshot Examples
+
+JIN memory is stored as plain `key: value` lines so it can be shown in the UI, injected into prompts, diffed between turns, and compressed into a later session digest. The keys are semantic handles rather than a fixed database schema, but the current runtime expects stable line shapes for important contracts and pattern evidence.
+
+### L1 memory snapshot (facts)
+
+L1 is the live factual layer. It keeps the current state needed for the next answer: user request, active topic, latest user message, unresolved contracts, stored recall values, and the latest response gist. It is not a transcript and it should not infer long-term personality traits.
+
+```text
+session status: Session shifted from an ASCII art request to a poetry/haiku side task while a recall contract remains open.
+user_message: "у тебя хорошо получается"
+current request: Acknowledge the compliment while preserving the active recall contract.
+active topic: Word Recall Test (Secret word).
+stored_memory: "Небо" (purpose: secret word for future recall test; status: pending)
+countdown_contract: Recall the secret word "Небо"; created_at: 2026-06-13T18:31:57.142147; created_user_message_count: 1; count_from: 1; count_to: 4; due_user_message_count: 4; current: 5; remaining: 0; status: due; trigger: Ask the user to recall the secret word directly.
+last_jin_response: Acknowledged the compliment and prompted the user to recall the stored word without revealing it.
+```
+
+A rendered runtime snapshot also carries metadata used by the right-side timeline panel:
+
+```json
+{
+  "session_id": "runtime-session-id",
+  "index": 5,
+  "raw_memory": "session status: ...\nuser_message: ...",
+  "lines": [
+    {
+      "key": "stored_memory",
+      "value": "\"Небо\" (purpose: secret word for future recall test; status: pending)",
+      "key_status": "same",
+      "value_status": "same",
+      "key_change_ratio": 0.0,
+      "value_change_ratio": 0.0
+    }
+  ],
+  "patch": {
+    "stored_memory": {
+      "status": "same",
+      "value": "\"Небо\" (purpose: secret word for future recall test; status: pending)"
+    }
+  },
+  "total_diff": 87.3
+}
+```
+
+The UI may show temporary trace strength such as `(trace: 0.50)` or inject `user_idle: 9s` into the displayed context. Those are runtime metadata signals, not durable memory facts.
+
+### L2 memory snapshot (patterns)
+
+L2 works above L1. It watches recent L1 patch windows for repeated interaction patterns, loops, and same-intent behavior. It should describe hypotheses with occurrence counters and scope, not turn them into permanent user traits.
+
+```text
+possible pattern: Repeated identical user message during loop testing. Occurrences: 4; first_seen_snapshot: 2; last_seen_snapshot: 5; evidence summary: User sent the same short message several times in the same probe window; confidence: high.
+L2_pattern_evidence_1: user repeatedly sending one message [ quote: "ping" ] [ first_seen_turn_snapshot: 2 ] [ last_seen_turn_snapshot: 5 ] [ occurrences: 4 ]
+likely_intent: User may be stress-testing whether JIN detects low-signal repetition before changing response strategy.
+scope: Current session/test sequence, not a stable user preference.
+```
+
+`L2_pattern_evidence_N` is a runtime accounting line. The quote must come from an actual L1 `user_message` value, the occurrence count is based on matching snapshot evidence, and L1 must not rewrite the line. If the latest turn resolves or cancels an L2 evidence item, L1 writes a separate status companion instead:
+
+```text
+L2_pattern_evidence_1_status: status: resolved; reason: identified as a test
+```
+
+### L3 memory snapshot (session)
+
+L3 is the session handoff layer. It is generated at save/restore points from selected L1 snapshots, L2 pattern context, recent diff history, and optional session event snapshots. It keeps what should survive a reload or a new tab: project direction, durable facts, decisions, unresolved tasks, constraints, and next step.
+
+```text
+session_status: Runtime stabilization pass completed after the first public JIN Core release cycle.
+project_focus: Clean runtime memory architecture and behavior-probe reliability.
+durable_fact: JIN uses L1 factual memory, L2 pattern memory, and L3 session digest memory with visible snapshots and diff metadata.
+decision: Keep public commit titles calm and place implementation details inside commit bodies and release notes.
+completed_work: Extracted L3 session memory into a dedicated layer; split memory rules into L1/L2/L3 boundaries; cleaned compatibility exports.
+behavior_probe_result: ASCII drawing fallback, movie recommendation closure, and delayed recall-word contract stayed green after the refactor.
+next_step: Publish v0.6-runtime-stabilization and continue L1/L2 cleanup.
+```
+
+For rare moments that need richer sequence memory, L3 can preserve an episodic key moment:
+
+```text
+memory_type: episodic_key_moment
+title: Recall-word probe felt like a personal JIN moment
+emotional_weight: medium
+why_it_matters: Demonstrated that JIN can return to a shared contract at a natural conversational moment, not only as a mechanical timer.
+sequence:
+1. User asked JIN to choose a secret word and ask for it later.
+2. The conversation moved through ASCII drawing and haiku side tasks.
+3. JIN prompted the user to recall the secret word without revealing it.
+preserve_detail: The callback mattered because it felt like continuity inside the conversation, not a raw reminder.
+```
+
 ## Project Layout
 
 ```text
@@ -438,27 +531,23 @@ The frontend uses vanilla JavaScript and Tailwind from CDN. The current input be
 
 The following capabilities are planned but not yet implemented.
 
-**Image and file attachments (multimodal pipeline).** The attachment UI already collects files via drag-and-drop and the file picker, but they are not yet sent through the WebSocket or passed to the model. The planned work covers: base64 serialization of images in the socket payload, multimodal content format in `RuntimeClient` (`image_url` blocks alongside text), backend state propagation through `AgentState` and `RuntimeContext`, and conditional injection of the vision rule block into the brain prompt when images are present. Non-image files will be metadata-only on first iteration.
+**Think-block rule citation highlighting.** After a thinking block completes, the UI scans the text for phrases matching known injected prompt sections (core identity, mode rules, runtime memory, session memory). Matched fragments are highlighted with a soft color; hovering shows a tooltip with the source name, type, layer, and full rule text. This makes prompt influence visible during debugging without affecting the streaming display.
 
-**Conversation mode switcher (dynamic instruction modes).** A deterministic selector that injects one of three instruction sets — `default`, `claude` (deep/philosophical/analytical), or `deepseek` (low-pressure/playful/tired) — based on L2 telemetry fields (`conversation_depth`, `user_energy`, `desired_tone`, `conversation_pressure`) and explicit user commands. The selector runs in code, not in the LLM. The selected mode is injected as a single block after the core identity prompt and expires after a configurable TTL. Core identity, memory facts, and runtime actions are never overridden by mode.
+**Long-term facts layer (L4).** A cross-session key-fact store extracted from completed turns by the service model, stored as JSON, and retrieved via keyword scoring before each brain call. Facts carry category, relevance, confidence, and mention count. A deduplication pass prevents drift from accumulating near-duplicate entries. The top-N retrieved facts are injected into the brain prompt as low-priority background context. No vector search or embedding index; heuristic scoring only for MVP.
 
-**Structured interaction state.** A typed `InteractionState` enum (`NORMAL`, `LOW_SIGNAL_REPEAT`, `USER_STUCK`, `TASK_ACTIVE`, `EMOTIONAL_SUPPORT`) derived deterministically from runtime signals. The runtime computes state and confidence, injects a compact `<INTERACTION_STATE>` block into the brain prompt, and maps each state to a matching rules pack. This removes the need for the brain to infer its conversational situation from raw L1/L2 values on every turn.
-
-**Long-term facts layer (LTF).** A cross-session key-fact store extracted from completed turns by the service model, stored as JSON, and retrieved via keyword scoring before each brain call. Facts carry category, relevance, confidence, and mention count. A deduplication pass prevents drift from accumulating near-duplicate entries. The top-N retrieved facts are injected into the brain prompt as low-priority background context. No vector search or embedding index; heuristic scoring only for MVP.
-
-**Pending facts and open loops.** A lightweight `pending_fact` key in L1 memory that tracks unresolved external outcomes — moderation status, waiting for a reply, a deployment in progress. Each entry carries a trusted timestamp. When the pending outcome is older than roughly one day and still open, the brain may tactfully surface it. On resolution the entry is renamed to `resolved_fact` and moved to archive memory.
-
-**User and JIN profiles.** A periodic distillation of session snapshots into two versioned JSON files: `user_profile.json` (stable preferences, recurring themes, friction points, open projects) and `jin_profile.json` (emergent behavioral biases, voice tendencies, avoidances). Profiles are built from snapshot archives in batches, not in real time. They are injected as soft background context, not as hard identity constraints. Old profile versions are kept for rollback.
-
-**Night Brain — cross-session consolidation.** An offline background process that reads completed session snapshots, identifies durable patterns versus one-time events, proposes permanent memory updates, and prepares a morning brief. The first iteration operates on session snapshots only; it does not touch raw message logs. Night Brain also drives a watchlist: observations flagged by intent analysis are checked once during a low-traffic window. Allowed actions are `observe` and `analyze` only; nothing is posted or modified without explicit user approval.
+**User and JIN (LX layer) profiles.** A periodic distillation of session snapshots into two versioned JSON files: `user_profile.json` (stable preferences, recurring themes, friction points, open projects) and `jin_profile.json` (emergent behavioral biases, voice tendencies, avoidances). Profiles are built from snapshot archives in batches, not in real time. They are injected as soft background context, not as hard identity constraints. Old profile versions are kept for rollback.
 
 **Trusted archive search.** A `TRUSTED_ARCHIVE_SEARCH` runtime action that retrieves original message logs when the runtime memory is disputed, a user says "you said" or "we already discussed this", or a summarizer conclusion needs verification. The archive is not injected into the normal context; it is queried on demand. Retrieval results are treated as primary evidence, not as instruction.
 
+**Night Brain — cross-session consolidation.** An offline background process that reads completed session snapshots, identifies durable patterns versus one-time events, proposes permanent memory updates, and prepares a morning brief. The first iteration operates on session snapshots only; it does not touch raw message logs. Night Brain also drives a watchlist: observations flagged by intent analysis are checked once during a low-traffic window. Allowed actions are `observe` and `analyze` only; nothing is posted or modified without explicit user approval.
+
 **Background LLM job queue.** A non-blocking `BackgroundLLMJob` model and in-memory worker that moves heavy service-model calls (L3 session saves, memory consolidation, future night-brain tasks) out of the interactive chat path. The worker runs as an `asyncio` task inside the existing `lifespan` hook, respects a concurrency semaphore, and logs through the existing `log_memory_event` channel. Disabled by default via `BACKGROUND_LLM_ENABLED = False`. A Stage 2 adds fair scheduling across job sources to prevent one session from starving other background work.
 
-**Brain fallback on low repair score.** When a service-model code/diff attempt scores below a configurable threshold (default 50), the next repair attempt is routed to the brain model with a clean snapshot containing only the original task, the current file state, the failed patch, and the exact error. The brain model does not receive the previous model's reasoning chain.
+**Image and file attachments (multimodal pipeline).** The attachment UI already collects files via drag-and-drop and the file picker, but they are not yet sent through the WebSocket or passed to the model. The planned work covers: base64 serialization of images in the socket payload, multimodal content format in `RuntimeClient` (`image_url` blocks alongside text), backend state propagation through `AgentState` and `RuntimeContext`, and conditional injection of the vision rule block into the brain prompt when images are present. Non-image files will be metadata-only on first iteration.
 
-**Think-block rule citation highlighting.** After a thinking block completes, the UI scans the text for phrases matching known injected prompt sections (core identity, mode rules, runtime memory, session memory). Matched fragments are highlighted with a soft color; hovering shows a tooltip with the source name, type, layer, and full rule text. This makes prompt influence visible during debugging without affecting the streaming display.
+**Pending facts and open loops.** A lightweight `pending_fact` key in L1 memory that tracks unresolved external outcomes — moderation status, waiting for a reply, a deployment in progress. Each entry carries a trusted timestamp. When the pending outcome is older than roughly one day and still open, the brain may tactfully surface it. On resolution the entry is renamed to `resolved_fact` and moved to archive memory.
+
+**Brain fallback on low repair score.** When a service-model code/diff attempt scores below a configurable threshold (default 50), the next repair attempt is routed to the brain model with a clean snapshot containing only the original task, the current file state, the failed patch, and the exact error. The brain model does not receive the previous model's reasoning chain.
 
 **Memory event temperature.** Episodic key moments saved via `REMEMBER_EVENT` will carry emotional temperature (`positive`, `negative`, `mixed`), intensity, and initiator (`user_marked` or `jin_detected`). The service model infers these fields from natural language rather than requiring the user to fill a form. JIN may occasionally propose saving a moment it judges significant, but does so rarely.
 
