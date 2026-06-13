@@ -294,7 +294,9 @@ STRENGTH_BOOST = 0.8
 STRENGTH_NEW_KEY = 0.5
 DURABLE_FLOOR = 0.25
 HOT_THRESHOLD = 0.5
-FADING_THRESHOLD = 0.1
+HOT_TRACE_EXCLUDED_KEYS = [
+    "user_idle",
+]
 GENERIC_MEMORY_VALUE_SIMILARITY_MIN = 0.35
 GENERIC_MEMORY_MATCH_KEYS = (
     "topic",
@@ -1534,11 +1536,6 @@ async def ask_runtime_memory_model(
                 current_memory=current_memory,
                 user_message=user_message,
                 assistant_message=assistant_message,
-                current_l2_memory=getattr(
-                    context,
-                    "runtime_l2_memory",
-                    "",
-                ),
                 strength_zones=get_strength_zones(
                     _latest_lines
                 ),
@@ -1640,11 +1637,6 @@ async def ask_runtime_memory_batch_model(
             build_runtime_memory_batch_user_prompt(
                 current_memory=current_memory,
                 turns=turns,
-                current_l2_memory=getattr(
-                    context,
-                    "runtime_l2_memory",
-                    "",
-                ),
                 strength_zones=get_strength_zones(
                     _latest_lines
                 ),
@@ -3464,18 +3456,27 @@ def compute_line_strength(
 def get_strength_zones(
         lines: list[dict],
 ) -> dict:
-    hot, crystallized, fading = [], [], []
+    hot = []
+    excluded_hot_trace_keys = {
+        normalize_memory_key(
+            key
+        )
+        for key in HOT_TRACE_EXCLUDED_KEYS
+    }
+
     for line in lines:
         key = line.get("key", "")
         strength = line.get("strength", 0.0)
-        durable = is_durable_memory_key(key)
         if strength >= HOT_THRESHOLD:
+            if normalize_memory_key(
+                key
+            ) in excluded_hot_trace_keys:
+                continue
             hot.append(key)
-        elif durable and strength <= DURABLE_FLOOR + 0.05:
-            crystallized.append(key)
-        elif strength <= FADING_THRESHOLD:
-            fading.append(key)
-    return {"hot": hot, "crystallized": crystallized, "fading": fading}
+
+    return {
+        "hot": hot,
+    }
 
 
 def build_strength_map(

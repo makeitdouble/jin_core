@@ -1998,28 +1998,20 @@ def build_runtime_memory_user_prompt(
         current_memory: str,
         user_message: str,
         assistant_message: str,
-        current_l2_memory: str = "",
         strength_zones: dict | None = None,
 ) -> str:
 
-    zones_hint = ""
+    hot_traces = ""
     if strength_zones:
         hot = ", ".join(strength_zones.get("hot", [])) or "none"
-        crystallized = ", ".join(strength_zones.get("crystallized", [])) or "none"
-        fading = ", ".join(strength_zones.get("fading", [])) or "none"
-        zones_hint = (
-            "Memory traces (pheromone strength):\n"
-            f"Hot (active): {hot}\n"
-            f"Crystallized (stable facts): {crystallized}\n"
-            f"Fading (deprioritize): {fading}\n\n"
+        hot_traces = (
+            f"hot_traces: {hot}\n\n"
         )
 
     return (
         "Current runtime memory:\n"
         f"{current_memory.strip() or DEFAULT_RUNTIME_MEMORY}\n\n"
-        f"{zones_hint}"
-        "Current L2 pattern memory for occurrence tracking only:\n"
-        f"{current_l2_memory.strip() or '<empty>'}\n\n"
+        f"{hot_traces}"
         "Latest user message:\n"
         f"{user_message.strip()}\n\n"
         "Latest JIN answer:\n"
@@ -2032,7 +2024,6 @@ def build_runtime_memory_batch_user_prompt(
         *,
         current_memory: str,
         turns: list[dict],
-        current_l2_memory: str = "",
         strength_zones: dict | None = None,
 ) -> str:
 
@@ -2044,20 +2035,12 @@ def build_runtime_memory_batch_user_prompt(
 
     if strength_zones:
         hot = ", ".join(strength_zones.get("hot", [])) or "none"
-        crystallized = ", ".join(strength_zones.get("crystallized", [])) or "none"
-        fading = ", ".join(strength_zones.get("fading", [])) or "none"
         lines.extend([
-            "Memory traces (pheromone strength):",
-            f"Hot (active): {hot}",
-            f"Crystallized (stable facts): {crystallized}",
-            f"Fading (deprioritize): {fading}",
+            f"hot_traces: {hot}",
             "",
         ])
 
     lines.extend([
-        "Current L2 pattern memory for occurrence tracking only:",
-        current_l2_memory.strip() or "<empty>",
-        "",
         "New completed turns since that memory snapshot:",
     ])
 

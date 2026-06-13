@@ -14,6 +14,7 @@ from utils.brain import (
 )
 from websocket import (
     apply_session_bootstrap,
+    arm_remember_session_from_user_text,
     reject_when_all_models_offline,
     refresh_pending_brain_usage,
     wait_for_runtime_memory_update,
@@ -139,6 +140,39 @@ class FakeWebSocket:
 
 
 class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
+
+    async def test_arm_remember_session_emits_runtime_action(self):
+
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            runtime_remember_session_requested=False,
+        )
+
+        armed = await arm_remember_session_from_user_text(
+            context,
+            "\u0441\u043e\u0445\u0440\u0430\u043d\u0438 \u0441\u0435\u0441\u0441\u0438\u044e",
+        )
+
+        self.assertTrue(
+            armed,
+        )
+        self.assertTrue(
+            context.runtime_remember_session_requested,
+        )
+        self.assertTrue(
+            context.runtime_remember_session_action_emitted,
+        )
+        self.assertEqual(
+            context.emitter.events,
+            [
+                {
+                    "type": "runtime_action",
+                    "action": "remember_session",
+                    "text": "Remembering this session",
+                },
+            ],
+        )
 
     async def test_rejects_user_request_when_all_models_are_offline(self):
 

@@ -29,6 +29,7 @@ from runtime.memory import (
     build_runtime_memory_snapshot,
     build_l3_session_memory_max_tokens,
     collapse_duplicate_runtime_memory_keys,
+    get_strength_zones,
     L3_OUTPUT_MAX_TOKENS,
     parse_runtime_memory_lines,
     summarize_runtime_memory_pending_turns,
@@ -195,21 +196,57 @@ class MessageMemoryTests(
             current_memory="",
             user_message="hello",
             assistant_message="hi",
-            current_l2_memory=(
-                "possible pattern: repeated greeting loop; Occurrences: 2"
-            ),
         )
 
         self.assertIn(
             DEFAULT_RUNTIME_MEMORY,
             prompt,
         )
-        self.assertIn(
-            "Current L2 pattern memory for occurrence tracking only",
+        self.assertNotIn(
+            "Current L2 pattern memory",
             prompt,
         )
-        self.assertIn(
+        self.assertNotIn(
             "Occurrences: 2",
+            prompt,
+        )
+
+    def test_runtime_memory_user_prompt_uses_filtered_hot_traces(self):
+
+        prompt = build_runtime_memory_user_prompt(
+            current_memory="user_message: hello",
+            user_message="hello",
+            assistant_message="hi",
+            strength_zones=get_strength_zones([
+                {
+                    "key": "user_message",
+                    "strength": 0.9,
+                },
+                {
+                    "key": "user_idle",
+                    "strength": 0.9,
+                },
+            ]),
+        )
+
+        self.assertIn(
+            "hot_traces: user_message",
+            prompt,
+        )
+        self.assertNotIn(
+            "user_idle",
+            prompt,
+        )
+        self.assertNotIn(
+            "Memory traces (pheromone strength)",
+            prompt,
+        )
+        self.assertNotIn(
+            "Crystallized (stable facts)",
+            prompt,
+        )
+        self.assertNotIn(
+            "Fading (deprioritize)",
             prompt,
         )
 

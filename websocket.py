@@ -1113,6 +1113,7 @@ async def arm_remember_session_from_user_text(
         return False
 
     context.runtime_remember_session_requested = True
+    context.runtime_remember_session_action_emitted = True
 
     logger = getattr(
         context,
@@ -1129,6 +1130,24 @@ async def arm_remember_session_from_user_text(
         await log_runtime(
             "[RUNTIME ACTION] remember_session requested"
         )
+
+    emitter = getattr(
+        context,
+        "emitter",
+        None,
+    )
+    emit = getattr(
+        emitter,
+        "emit",
+        None,
+    )
+
+    if emit is not None:
+        await emit({
+            "type": "runtime_action",
+            "action": "remember_session",
+            "text": "Remembering this session",
+        })
 
     return True
 

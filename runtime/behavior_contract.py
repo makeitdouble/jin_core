@@ -113,6 +113,45 @@ def _normalize_guard_text(
     )
 
 
+def _has_guard_trigger(
+    normalized_text: str,
+    normalized_trigger: str,
+) -> bool:
+
+    if not normalized_trigger:
+        return False
+
+    start = 0
+
+    while True:
+        index = normalized_text.find(
+            normalized_trigger,
+            start,
+        )
+
+        if index < 0:
+            return False
+
+        before_index = index - 1
+        after_index = index + len(
+            normalized_trigger
+        )
+
+        before_ok = (
+            before_index < 0
+            or not normalized_text[before_index].isalnum()
+        )
+        after_ok = (
+            after_index >= len(normalized_text)
+            or not normalized_text[after_index].isalnum()
+        )
+
+        if before_ok and after_ok:
+            return True
+
+        start = index + 1
+
+
 def should_execute_action_guard(
     name: str,
     user_text: str,
@@ -125,9 +164,12 @@ def should_execute_action_guard(
         return False
 
     has_blocker = any(
-        _normalize_guard_text(
-            blocker
-        ) in normalized_text
+        _has_guard_trigger(
+            normalized_text,
+            _normalize_guard_text(
+                blocker
+            ),
+        )
         for blocker in get_action_guard_blockers(
             name
         )
@@ -137,9 +179,12 @@ def should_execute_action_guard(
         return False
 
     return any(
-        _normalize_guard_text(
-            trigger
-        ) in normalized_text
+        _has_guard_trigger(
+            normalized_text,
+            _normalize_guard_text(
+                trigger
+            ),
+        )
         for trigger in get_action_guard_triggers(
             name
         )
