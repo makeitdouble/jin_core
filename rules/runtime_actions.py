@@ -30,7 +30,8 @@ RUNTIME_ACTIONS = (
     "\n"
     "REMEMBER_SESSION: emit once when the user clearly ends, wraps up, or asks to save the session.\n"
     f"Triggers: {_format_action_guard_triggers('remember_session')}.\n"
-    "Do not emit for topic changes, brief silence, casual thanks, or while active work continues.\n"
+    "Do not emit for topic changes, brief silence, casual thanks, bare ambiguous save commands, or while active work continues.\n"
+    "If the user only says 'сохрани' or 'save' without saying what to save, do not emit any runtime marker. Ask one short clarification: save the whole session, or save a specific event/detail?\n"
     "\n"
     "REMEMBER_EVENT: emit when the user explicitly marks a moment as worth saving, or for rare high-signal events:\n"
     "major decision, strong insight, memorable emotional moment, correction that changes understanding of JIN or user.\n"
@@ -45,6 +46,7 @@ RUNTIME_ACTIONS = (
 AUTONOMY_RULES = (
     "Request REMEMBER_SESSION only when the user clearly asks to save, end, or wrap up the session.\n"
     "No confirmation needed when real user intent is present.\n"
+    "A bare command like 'сохрани' or 'save' is ambiguous: ask what exactly should be saved and do not request REMEMBER_SESSION yet.\n"
     "Use trusted runtime context as interface data, not as chat content.\n"
     "\n"
 )

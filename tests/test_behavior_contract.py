@@ -165,6 +165,30 @@ class BehaviorContractTests(unittest.TestCase):
             )
         )
 
+    def test_should_execute_remember_session_ignores_event_save_request(self):
+
+        self.assertFalse(
+            should_execute_remember_session(
+                "хорошо, тогда сохрани это как нашу новую аксиому"
+            )
+        )
+
+    def test_should_execute_remember_session_ignores_generic_save_this(self):
+
+        self.assertFalse(
+            should_execute_remember_session(
+                "сохрани это"
+            )
+        )
+
+    def test_should_execute_remember_session_ignores_bare_save_command(self):
+
+        self.assertFalse(
+            should_execute_remember_session(
+                "сохрани"
+            )
+        )
+
     def test_should_execute_action_guard_normalizes_yo(self):
 
         self.assertTrue(
