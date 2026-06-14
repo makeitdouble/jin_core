@@ -1,10 +1,15 @@
+(function () {
+  "use strict";
+
+  window.JinRuntime = window.JinRuntime || {};
+
 const storage =
   window.JinRuntime
   && window.JinRuntime.storage;
 
 if (!storage) {
   throw new Error(
-    "JinRuntime.storage must be loaded before telemetry.js"
+    "JinRuntime.storage must be loaded before runtime.js"
   );
 }
 
@@ -14,7 +19,7 @@ const memoryModel =
 
 if (!memoryModel) {
   throw new Error(
-    "JinRuntime.memoryModel must be loaded before telemetry.js"
+    "JinRuntime.memoryModel must be loaded before runtime.js"
   );
 }
 
@@ -24,7 +29,7 @@ const idle =
 
 if (!idle) {
   throw new Error(
-    "JinRuntime.idle must be loaded before telemetry.js"
+    "JinRuntime.idle must be loaded before runtime.js"
   );
 }
 
@@ -35,7 +40,7 @@ const feedback =
 
 if (!feedback) {
   throw new Error(
-    "JinRuntime.feedback must be loaded before telemetry.js"
+    "JinRuntime.feedback must be loaded before runtime.js"
   );
 }
 
@@ -45,7 +50,7 @@ const session =
 
 if (!session) {
   throw new Error(
-    "JinRuntime.session must be loaded before telemetry.js"
+    "JinRuntime.session must be loaded before runtime.js"
   );
 }
 
@@ -55,7 +60,7 @@ const panel =
 
 if (!panel) {
   throw new Error(
-    "JinRuntime.panel must be loaded before telemetry.js"
+    "JinRuntime.panel must be loaded before runtime.js"
   );
 }
 
@@ -65,7 +70,7 @@ const memoryView =
 
 if (!memoryView) {
   throw new Error(
-    "JinRuntime.memoryView must be loaded before telemetry.js"
+    "JinRuntime.memoryView must be loaded before runtime.js"
   );
 }
 
@@ -314,7 +319,7 @@ function renderRuntimeDiffs() {
   memoryView.renderDiffs();
 }
 
-window.handleRuntimeMemoryMessage = function (data) {
+function handleRuntimeMemoryMessage(data) {
 
   if (!data) {
     return;
@@ -462,6 +467,24 @@ window.handleRuntimeMemoryMessage = function (data) {
 
   renderRuntimeMemorySnapshot();
 
+}
+
+window.JinRuntime.runtime = {
+  init() {
+    return true;
+  },
+  handleRuntimeMemoryMessage,
+  renderRuntimeMemorySnapshot,
+  renderDiffs: renderRuntimeDiffs,
+  persistRuntimeMemorySnapshot,
 };
 
+window.JinRuntime.init = function () {
+  return true;
+};
 
+window.handleRuntimeMemoryMessage = function (data) {
+  return handleRuntimeMemoryMessage(data);
+};
+
+}());
