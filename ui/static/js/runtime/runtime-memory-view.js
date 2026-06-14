@@ -1,0 +1,733 @@
+(function () {
+  window.JinRuntime = window.JinRuntime || {};
+
+  let runtimeMemoryHistory = null;
+  let idle = null;
+  let memoryModel = null;
+  let initialized = false;
+  let userIdleValueNode = null;
+
+  const pinnedRuntimeMemorySnapshotIndexes = new Set();
+
+  const runtimeDiffHistory = {
+    diffs: [],
+    stats: {},
+    expanded: false,
+  };
+
+  const runtimeMemoryText =
+      document.getElementById("runtime-memory-text");
+
+  const runtimeMemoryTitle =
+      document.getElementById("runtime-memory-title");
+
+  const runtimeMemoryPosition =
+      document.getElementById("runtime-memory-position");
+
+  const runtimeMemoryPrev =
+      document.getElementById("runtime-memory-prev");
+
+  const runtimeMemoryNext =
+      document.getElementById("runtime-memory-next");
+
+  const runtimeDiffToggle =
+      document.getElementById("runtime-diff-toggle");
+
+  const runtimeDiffText =
+      document.getElementById("runtime-diff-text");
+
+  const runtimeDiffCount =
+      document.getElementById("runtime-diff-count");
+
+  const runtimeDiffAverage =
+      document.getElementById("runtime-diff-average");
+
+  const runtimeDiffRange =
+      document.getElementById("runtime-diff-range");
+
+  const runtimeDiffMax =
+      document.getElementById("runtime-diff-max");
+
+  function requireRuntimeMemoryHistory() {
+    if (!runtimeMemoryHistory) {
+      throw new Error(
+        "JinRuntime.memoryView.init() must be called before use"
+      );
+    }
+  }
+
+  function getUserIdleText() {
+    return idle ? idle.getText() : "0s";
+  }
+
+  function updateUserIdleTimerText(
+    text = getUserIdleText()
+  ) {
+    requireRuntimeMemoryHistory();
+
+    if (!userIdleValueNode) {
+      return;
+    }
+
+    userIdleValueNode.textContent =
+        ` ${text}`;
+
+    updateRuntimeMemoryTitleMetrics(
+        runtimeMemoryHistory.snapshots[
+            runtimeMemoryHistory.index
+        ]
+    );
+  }
+
+  function freezeLatestRuntimeMemoryUserIdle(userIdleText) {
+    requireRuntimeMemoryHistory();
+
+    const latestSnapshot =
+        runtimeMemoryHistory.snapshots[
+          runtimeMemoryHistory.snapshots.length - 1
+        ];
+
+    memoryModel.setRuntimeMemorySnapshotUserIdle(
+      latestSnapshot,
+      userIdleText
+    );
+  }
+
+  function formatRuntimeDiffNumber(value) {
+    const number =
+        Number(value || 0);
+
+    return String(
+        Number.isInteger(number)
+          ? number
+          : Number(number.toFixed(2))
+    );
+  }
+
+  function setRuntimeDiffUpdate(data) {
+    runtimeDiffHistory.diffs =
+        data && data.diffs || [];
+
+    runtimeDiffHistory.stats =
+        data && data.stats || {};
+
+    renderRuntimeDiffs();
+  }
+
+  function renderRuntimeDiffs() {
+    const stats =
+        runtimeDiffHistory.stats || {};
+
+    if (runtimeDiffCount) {
+      runtimeDiffCount.textContent =
+          formatRuntimeDiffNumber(stats.count);
+    }
+
+    if (runtimeDiffAverage) {
+      runtimeDiffAverage.textContent =
+          formatRuntimeDiffNumber(stats.average);
+    }
+
+    if (runtimeDiffRange) {
+      runtimeDiffRange.textContent =
+          formatRuntimeDiffNumber(stats.range);
+    }
+
+    if (runtimeDiffMax) {
+      runtimeDiffMax.textContent =
+          formatRuntimeDiffNumber(stats.max);
+    }
+
+    if (runtimeDiffToggle) {
+      runtimeDiffToggle.textContent =
+          runtimeDiffHistory.expanded
+            ? "hide diffs"
+            : "show diffs";
+    }
+
+    if (!runtimeDiffText) {
+      return;
+    }
+
+    runtimeDiffText.classList.toggle(
+        "hidden",
+        !runtimeDiffHistory.expanded
+    );
+
+    runtimeDiffText.textContent =
+        runtimeDiffHistory.diffs.length
+          ? JSON.stringify(
+              runtimeDiffHistory.diffs,
+              null,
+              2
+            )
+          : "[]";
+  }
+
+  function isCurrentRuntimeMemorySnapshotPinned() {
+    requireRuntimeMemoryHistory();
+
+    return pinnedRuntimeMemorySnapshotIndexes.has(
+        runtimeMemoryHistory.index
+    );
+  }
+
+  function updateRuntimeMemoryPinGlow() {
+    if (!runtimeMemoryPosition) {
+      return;
+    }
+
+    runtimeMemoryPosition.classList.toggle(
+        "runtime-memory-position-pinned",
+        isCurrentRuntimeMemorySnapshotPinned()
+    );
+  }
+
+  function estimateRuntimeMemoryTokens(text) {
+    if (!text) {
+      return 0;
+    }
+
+    return Math.max(
+        1,
+        Math.ceil(
+            Array.from(text).length / 4
+        )
+    );
+  }
+
+  function getRuntimeMemorySnapshotMetricText(snapshot) {
+    if (!snapshot || typeof snapshot !== "object") {
+      return "";
+    }
+
+    const includeLiveUserIdle =
+        isLatestRuntimeMemorySnapshot();
+
+    const rawMemory =
+        String(snapshot.raw_memory || "");
+
+    if (rawMemory.trim()) {
+      const stableMemory =
+          includeLiveUserIdle
+            ? memoryModel.stripUserIdleRuntimeMemoryText(rawMemory)
+            : rawMemory;
+
+      return [
+        stableMemory.trim(),
+        includeLiveUserIdle
+          ? `user_idle: ${getUserIdleText()}`
+          : "",
+      ].filter(Boolean).join("\n");
+    }
+
+    if (!Array.isArray(snapshot.lines)) {
+      return "";
+    }
+
+    const lines =
+        snapshot.lines
+        .filter((line) => (
+            !includeLiveUserIdle
+            || !memoryModel.isUserIdleRuntimeMemoryLine(line)
+        ))
+        .map((line) => {
+          const key =
+              line && line.key
+                ? String(line.key)
+                : "note";
+
+          const value =
+              line && line.value
+                ? String(line.value)
+                : "";
+
+          return `${key}: ${value}`;
+        })
+        .filter(Boolean);
+
+    if (includeLiveUserIdle) {
+      lines.push(
+          `user_idle: ${getUserIdleText()}`
+      );
+    }
+
+    return lines.join("\n").trim();
+  }
+
+  function updateRuntimeMemoryTitleMetrics(snapshot) {
+    if (!runtimeMemoryTitle) {
+      return;
+    }
+
+    const metricText =
+        getRuntimeMemorySnapshotMetricText(snapshot);
+
+    const charCount =
+        Array.from(metricText).length;
+
+    const tokenCount =
+        estimateRuntimeMemoryTokens(metricText);
+
+    runtimeMemoryTitle.title =
+        `${charCount} chars / ~${tokenCount} tokens`;
+  }
+
+  function renderRuntimeMemorySnapshot() {
+    requireRuntimeMemoryHistory();
+
+    const snapshot =
+        runtimeMemoryHistory.snapshots[
+            runtimeMemoryHistory.index
+            ];
+
+    if (!snapshot) {
+      if (runtimeMemoryText) {
+        runtimeMemoryText.textContent = "";
+      }
+
+      if (runtimeMemoryPosition) {
+        runtimeMemoryPosition.textContent =
+            "0";
+      }
+
+      updateRuntimeMemoryTitleMetrics(null);
+      updateRuntimeMemoryArrows();
+      updateRuntimeMemoryPinGlow();
+      return;
+    }
+
+    renderRuntimeMemoryLines(
+        snapshot,
+        isCurrentRuntimeMemorySnapshotPinned()
+    );
+
+    if (runtimeMemoryPosition) {
+      runtimeMemoryPosition.textContent =
+          String(
+              typeof snapshot.index === "number"
+                ? snapshot.index
+                : runtimeMemoryHistory.index + 1
+          );
+    }
+
+    updateRuntimeMemoryTitleMetrics(snapshot);
+    updateRuntimeMemoryArrows();
+    updateRuntimeMemoryPinGlow();
+  }
+
+  function isLatestRuntimeMemorySnapshot() {
+    requireRuntimeMemoryHistory();
+
+    return (
+        runtimeMemoryHistory.index >=
+        runtimeMemoryHistory.snapshots.length - 1
+    );
+  }
+
+  function clampMemoryRatio(value) {
+    const number =
+        Number(value || 0);
+
+    return Math.max(
+        0,
+        Math.min(1, number)
+    );
+  }
+
+  function applyRuntimeMemoryFlash(
+      element,
+      status,
+      kind,
+      ratio,
+      persist = false
+  ) {
+    if (!element) {
+      return;
+    }
+
+    if (status === "new") {
+      element.classList.add("flash-new");
+    }
+
+    if (status === "changed") {
+      element.classList.add("flash-changed");
+
+      if (kind === "value") {
+        const normalized =
+            clampMemoryRatio(ratio);
+
+        element.style.setProperty(
+            "--memory-change-alpha",
+            String(
+                0.55 + normalized * 0.41
+            )
+        );
+
+        element.style.setProperty(
+            "--memory-change-glow",
+            String(
+                0.10 + normalized * 0.28
+            )
+        );
+      }
+    }
+
+    if (
+        status !== "new"
+        && status !== "changed"
+    ) {
+      return;
+    }
+
+    if (persist) {
+      return;
+    }
+
+    setTimeout(() => {
+      element.classList.remove(
+          "flash-new",
+          "flash-changed"
+      );
+
+      element.style.removeProperty(
+          "--memory-change-alpha"
+      );
+
+      element.style.removeProperty(
+          "--memory-change-glow"
+      );
+    }, 1500);
+  }
+
+  function renderRuntimeMemoryLines(snapshot, persistGlow = false) {
+    if (!runtimeMemoryText) {
+      return;
+    }
+
+    runtimeMemoryText.innerHTML = "";
+    runtimeMemoryText.classList.toggle(
+        "runtime-memory-text-pinned",
+        persistGlow
+    );
+    runtimeMemoryText.removeAttribute(
+        "title"
+    );
+
+    const showLiveUserIdle =
+        isLatestRuntimeMemorySnapshot();
+
+    const lines =
+        showLiveUserIdle
+          ? (snapshot.lines || [])
+            .filter(line => !memoryModel.isUserIdleRuntimeMemoryLine(line))
+          : snapshot.lines || [];
+
+    if (!lines.length) {
+      const rawMemory =
+          showLiveUserIdle
+            ? memoryModel.stripUserIdleRuntimeMemoryText(snapshot.raw_memory || "")
+            : snapshot.raw_memory || "";
+
+      runtimeMemoryText.textContent =
+          `${memoryModel.stripMemoryTextMetaForDisplay(rawMemory).trim()}\n`;
+
+      if (rawMemory.trim()) {
+        runtimeMemoryText.title =
+            rawMemory.trim();
+      }
+
+      if (showLiveUserIdle) {
+        appendUserIdleRuntimeMemoryLine();
+      } else {
+        userIdleValueNode = null;
+      }
+
+      idle.start();
+
+      return;
+    }
+
+    lines.forEach((line) => {
+      const row =
+          document.createElement("div");
+
+      row.className =
+          "runtime-memory-line";
+
+      const key =
+          line.key || "note";
+
+      const valuePresentation =
+          memoryModel.buildRuntimeMemoryValuePresentation(line);
+
+      const fullRawLine =
+          `${key}: ${valuePresentation.raw}`;
+
+      const keyStatus =
+          line.key_status || line.status || "same";
+
+      const valueStatus =
+          line.value_status || line.status || "same";
+
+      const keySpan =
+          document.createElement("span");
+
+      keySpan.className =
+          "runtime-memory-key";
+
+      keySpan.textContent =
+          `${key}:`;
+
+      const valueSpan =
+          document.createElement("span");
+
+      valueSpan.className =
+          "runtime-memory-value";
+
+      valueSpan.textContent =
+          ` ${valuePresentation.text}`;
+
+      row.title =
+          fullRawLine;
+      valueSpan.title =
+          fullRawLine;
+
+      row.appendChild(keySpan);
+      row.appendChild(valueSpan);
+
+      runtimeMemoryText.appendChild(row);
+
+      applyRuntimeMemoryFlash(
+          keySpan,
+          keyStatus,
+          "key",
+          line.key_change_ratio,
+          persistGlow
+      );
+
+      applyRuntimeMemoryFlash(
+          valueSpan,
+          valueStatus,
+          "value",
+          line.value_change_ratio,
+          persistGlow
+      );
+    });
+
+    if (showLiveUserIdle) {
+      appendUserIdleRuntimeMemoryLine();
+    } else {
+      userIdleValueNode = null;
+    }
+
+    idle.start();
+  }
+
+  function appendUserIdleRuntimeMemoryLine() {
+    if (!runtimeMemoryText) {
+      return;
+    }
+
+    const row =
+        document.createElement("div");
+
+    row.className =
+        "runtime-memory-line runtime-memory-user-idle";
+
+    const keySpan =
+        document.createElement("span");
+
+    keySpan.className =
+        "runtime-memory-key";
+
+    keySpan.textContent =
+        "user_idle:";
+
+    const valueSpan =
+        document.createElement("span");
+
+    valueSpan.className =
+        "runtime-memory-value";
+
+    userIdleValueNode =
+        valueSpan;
+
+    row.appendChild(keySpan);
+    row.appendChild(valueSpan);
+
+    runtimeMemoryText.appendChild(row);
+    idle.onSnapshotChanged();
+    idle.start();
+  }
+
+  function updateRuntimeMemoryArrows() {
+    requireRuntimeMemoryHistory();
+
+    if (!runtimeMemoryPrev || !runtimeMemoryNext) {
+      return;
+    }
+
+    const canGoPrev =
+        runtimeMemoryHistory.index > 0;
+
+    const canGoNext =
+        runtimeMemoryHistory.index <
+        runtimeMemoryHistory.snapshots.length - 1;
+
+    runtimeMemoryPrev.disabled = !canGoPrev;
+    runtimeMemoryNext.disabled = !canGoNext;
+
+    runtimeMemoryPrev.classList.toggle("opacity-30", !canGoPrev);
+    runtimeMemoryNext.classList.toggle("opacity-30", !canGoNext);
+
+    runtimeMemoryPrev.classList.toggle("cursor-default", !canGoPrev);
+    runtimeMemoryNext.classList.toggle("cursor-default", !canGoNext);
+    runtimeMemoryPrev.classList.toggle("text-emerald-300", canGoPrev);
+    runtimeMemoryNext.classList.toggle("text-emerald-300", canGoNext);
+
+    runtimeMemoryPrev.classList.toggle("text-slate-600", !canGoPrev);
+    runtimeMemoryNext.classList.toggle("text-slate-600", !canGoNext);
+  }
+
+  function bindRuntimeMemoryNavigation() {
+    if (initialized) {
+      return;
+    }
+
+    runtimeMemoryPrev?.addEventListener("click", () => {
+      requireRuntimeMemoryHistory();
+
+      if (runtimeMemoryHistory.index <= 0) return;
+
+      runtimeMemoryHistory.index -= 1;
+      renderRuntimeMemorySnapshot();
+    });
+
+    runtimeMemoryNext?.addEventListener("click", () => {
+      requireRuntimeMemoryHistory();
+
+      if (
+          runtimeMemoryHistory.index >=
+          runtimeMemoryHistory.snapshots.length - 1
+      ) return;
+
+      runtimeMemoryHistory.index += 1;
+      renderRuntimeMemorySnapshot();
+    });
+
+    runtimeMemoryPosition?.addEventListener("click", () => {
+      requireRuntimeMemoryHistory();
+
+      if (runtimeMemoryHistory.index < 0) {
+        return;
+      }
+
+      const wasPinned =
+          isCurrentRuntimeMemorySnapshotPinned();
+
+      if (wasPinned) {
+        pinnedRuntimeMemorySnapshotIndexes.delete(
+            runtimeMemoryHistory.index
+        );
+      } else {
+        pinnedRuntimeMemorySnapshotIndexes.add(
+            runtimeMemoryHistory.index
+        );
+      }
+
+      renderRuntimeMemorySnapshot();
+
+      if (wasPinned && runtimeMemoryText) {
+        runtimeMemoryText
+            .querySelectorAll(
+                ".flash-new, .flash-changed"
+            )
+            .forEach((element) => {
+              element.classList.add(
+                  "runtime-memory-flash-off"
+              );
+              element.classList.remove(
+                  "flash-new",
+                  "flash-changed"
+              );
+
+              requestAnimationFrame(() => {
+                element.classList.remove(
+                    "runtime-memory-flash-off"
+                );
+              });
+            });
+      }
+    });
+
+    runtimeMemoryPosition?.addEventListener("keydown", (event) => {
+      if (
+          event.key !== "Enter"
+          && event.key !== " "
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      runtimeMemoryPosition.click();
+    });
+
+    runtimeDiffToggle?.addEventListener("click", () => {
+      runtimeDiffHistory.expanded =
+          !runtimeDiffHistory.expanded;
+
+      renderRuntimeDiffs();
+    });
+
+    initialized = true;
+  }
+
+  function init(options = {}) {
+    runtimeMemoryHistory = options.history;
+    idle = options.idle;
+    memoryModel = options.memoryModel;
+
+    if (!runtimeMemoryHistory) {
+      throw new Error(
+        "JinRuntime.memoryView.init() requires history"
+      );
+    }
+
+    if (!idle) {
+      throw new Error(
+        "JinRuntime.memoryView.init() requires idle"
+      );
+    }
+
+    if (!memoryModel) {
+      throw new Error(
+        "JinRuntime.memoryView.init() requires memoryModel"
+      );
+    }
+
+    idle.configure({
+      onIdleTextChanged(text) {
+        updateUserIdleTimerText(
+          text
+        );
+      },
+    });
+
+    bindRuntimeMemoryNavigation();
+    renderRuntimeMemorySnapshot();
+    renderRuntimeDiffs();
+  }
+
+  window.JinRuntime.memoryView = {
+    init,
+    render: renderRuntimeMemorySnapshot,
+    renderRuntimeMemorySnapshot,
+    renderDiffs: renderRuntimeDiffs,
+    setRuntimeDiffUpdate,
+    updateUserIdleTimerText,
+    freezeLatestRuntimeMemoryUserIdle,
+    isLatestRuntimeMemorySnapshot,
+    updateTitleMetrics: updateRuntimeMemoryTitleMetrics,
+  };
+})();
