@@ -612,6 +612,11 @@ class RuntimeActionTests(unittest.TestCase):
                 "\u0437\u0430\u0431\u0443\u0434\u044c \u043f\u0440\u043e\u0448\u043b\u043e\u0435, \u0441\u043c\u0435\u043d\u0438\u043c \u0442\u0435\u043c\u0443"
             )
         )
+        self.assertFalse(
+            should_execute_remember_session(
+                "\u0445\u043e\u0440\u043e\u0448\u043e, \u044f \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u043b, \u0441\u043f\u0430\u0441\u0438\u0431\u043e"
+            )
+        )
 
     def test_apply_runtime_action_calls_saves_session_event_snapshot(self):
 
@@ -658,6 +663,10 @@ class RuntimeActionTests(unittest.TestCase):
             context.runtime_session_event_snapshots[0]["source"],
             "runtime_action",
         )
+        self.assertEqual(
+            context.runtime_session_event_snapshots[0]["initiated_by"],
+            "user",
+        )
         self.assertIn(
             "A memorable answer.",
             context.runtime_session_event_snapshots[0]["assistant_response"],
@@ -665,6 +674,36 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             context.emitter.events[-1]["type"],
             "runtime_session_memory_update",
+        )
+
+    def test_apply_runtime_action_calls_marks_auto_session_event_as_jin_initiated(self):
+
+        class Context:
+            pass
+
+        context = Context()
+        context.runtime_session_event_snapshots = []
+        context.runtime_turn_user_message = "let's keep implementing this"
+        context.runtime_turn_assistant_response = "A high-signal correction."
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="REMEMBER_EVENT",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertEqual(
+            context.runtime_session_event_snapshots[0]["initiated_by"],
+            "jin",
         )
 
     def test_extract_search_query_unnests_json_string(self):

@@ -26,6 +26,9 @@ from clients import (
     build_brain_payload,
     build_brain_system_prompt,
 )
+from clients.brain_client import (
+    should_execute_remember_session,
+)
 
 from utils.brain import (
     get_brain_runtime_config,
@@ -61,21 +64,19 @@ from runtime import (
     RuntimeEmitter,
     apply_runtime_response_feedback,
     build_runtime_memory_snapshot,
-    cancel_idle_fact_check,
     emit_runtime_l1_diff_update,
     emit_runtime_session_memory_update,
     refresh_runtime_state,
     run_fact_check_once,
-    schedule_idle_fact_check,
     schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
     send_telemetry,
 )
-from runtime.memory_rules import (
+from runtime.L1_memory_utils import (
     build_runtime_memory_context_text,
     remove_runtime_user_idle_lines,
 )
-from runtime.memory import (
+from runtime.L1_memory import (
     parse_runtime_memory_lines,
 )
 
@@ -1092,6 +1093,63 @@ async def receive_message(
 # PROCESS MESSAGE
 # ---------------------------------------------------------
 
+async def arm_remember_session_from_user_text(
+    context,
+    user_text: str,
+) -> bool:
+
+    if getattr(
+        context,
+        "runtime_remember_session_requested",
+        False,
+    ):
+        return False
+
+    if not should_execute_remember_session(
+        user_text,
+    ):
+        return False
+
+    context.runtime_remember_session_requested = True
+    context.runtime_remember_session_action_emitted = True
+
+    logger = getattr(
+        context,
+        "logger",
+        None,
+    )
+    log_runtime = getattr(
+        logger,
+        "log_runtime",
+        None,
+    )
+
+    if log_runtime is not None:
+        await log_runtime(
+            "[RUNTIME ACTION] remember_session requested"
+        )
+
+    emitter = getattr(
+        context,
+        "emitter",
+        None,
+    )
+    emit = getattr(
+        emitter,
+        "emit",
+        None,
+    )
+
+    if emit is not None:
+        await emit({
+            "type": "runtime_action",
+            "action": "remember_session",
+            "text": "Remembering this session",
+        })
+
+    return True
+
+
 async def refresh_pending_brain_usage(
     context,
     user_text: str,
@@ -1314,6 +1372,10 @@ async def process_message(
         context.runtime_turn_user_message = user_text
         context.runtime_turn_assistant_response = ""
         context.runtime_turn_interrupted = False
+        await arm_remember_session_from_user_text(
+            context,
+            user_text,
+        )
         apply_user_idle_context(
             context,
             message_data,
@@ -1365,21 +1427,29 @@ async def process_message(
                 or context.runtime_turn_assistant_response
         )
 
-        schedule_runtime_memory_update(
+        memory_update_task = schedule_runtime_memory_update(
             context=context,
             user_message=user_text,
             assistant_message=assistant_message,
         )
 
+        if (
+            memory_update_task is not None
+            and getattr(
+                context,
+                "runtime_remember_session_requested",
+                False,
+            )
+        ):
+            await wait_for_runtime_memory_update(
+                context
+            )
+
         context.assistant_message_count += 1
         context.turn_number += 1
 
-        # Arm the background fact-check only after the turn is fully finalized.
-        # The idle worker waits for the pending memory update, then checks one
-        # remaining (confirmed: none) fact and stops.
-        schedule_idle_fact_check(
-            context
-        )
+        # Background fact-checking is intentionally not armed here.
+        # Fact-checking runs only from the explicit UI request path.
 
     except asyncio.CancelledError:
 
@@ -1683,10 +1753,6 @@ async def websocket_endpoint(
                     )
                     continue
 
-                cancel_idle_fact_check(
-                    context
-                )
-
                 await logger.log(
                     "[MEMORY:FACT_CHECK]",
                     "[FACT_CHECK] manual web check requested",
@@ -1731,10 +1797,6 @@ async def websocket_endpoint(
                 )
 
                 continue
-
-            cancel_idle_fact_check(
-                context
-            )
 
             if await reject_when_all_models_offline(
                 context
@@ -1806,9 +1868,6 @@ async def websocket_endpoint(
         )
 
     finally:
-        cancel_idle_fact_check(
-            context
-        )
         pending_processor.cancel()
 
         with contextlib.suppress(

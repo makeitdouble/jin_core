@@ -335,6 +335,55 @@ function moveLogToBottomWithFlip(
   );
 }
 
+function dismissLogAfterClear(
+  logDiv,
+) {
+
+  window.setTimeout(
+    function () {
+      const height =
+        logDiv.offsetHeight;
+
+      logDiv.style.maxHeight =
+        `${height}px`;
+
+      logDiv.style.overflow =
+        "hidden";
+
+      logDiv.style.transition =
+        "opacity 160ms ease, transform 160ms ease, max-height 180ms ease, margin 180ms ease, padding 180ms ease";
+
+      requestAnimationFrame(
+        function () {
+          logDiv.style.opacity =
+            "0";
+          logDiv.style.transform =
+            "translateY(-4px)";
+          logDiv.style.maxHeight =
+            "0";
+          logDiv.style.marginTop =
+            "0";
+          logDiv.style.marginBottom =
+            "0";
+          logDiv.style.paddingTop =
+            "0";
+          logDiv.style.paddingBottom =
+            "0";
+        }
+      );
+
+      window.setTimeout(
+        function () {
+          logDiv.remove();
+        },
+        190
+      );
+    },
+    450
+  );
+
+}
+
 function appendLog(
   tag,
   message,
@@ -425,6 +474,21 @@ function appendLog(
   }
 
   if (tag.includes("SESSION")) {
+    tagClass =
+      "text-cyan-300 font-bold";
+
+    logDiv.classList.add(
+      "font-mono",
+      "text-[12px]",
+      "bg-cyan-500/5",
+      "p-2",
+      "rounded",
+      "border",
+      "border-cyan-500/10",
+    );
+  }
+
+  if (tag.includes("LATEST SNAPSHOTS")) {
     tagClass =
       "text-cyan-300 font-bold";
 
@@ -536,6 +600,9 @@ function appendLog(
     const isSession =
       tag.includes("SESSION");
 
+    const isLatestSnapshots =
+      tag.includes("LATEST SNAPSHOTS");
+
     const isUser =
       tag.includes("USER");
 
@@ -580,14 +647,14 @@ function appendLog(
     traceButton.className =
       isSummarizer
         ? "mt-2 inline-flex items-center rounded border border-blue-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-blue-300 hover:bg-blue-500/10 transition"
-        : isSession
+        : isSession || isLatestSnapshots
         ? "inline-flex items-center rounded border border-cyan-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/10 transition"
         : "mt-2 inline-flex items-center rounded border border-red-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-red-300 hover:bg-red-500/10 transition";
 
     traceButton.textContent =
       isPatternResult
         ? "patterns"
-        : isSession
+        : isSession || isLatestSnapshots
         ? "show"
         : isSummarizer
         ? "payload"
@@ -602,6 +669,8 @@ function appendLog(
           normalized.details,
           isPatternResult
             ? "L2 pattern memory"
+            : isLatestSnapshots
+            ? "Latest snapshots"
             : isSession
             ? "Session bootstrap"
             : isSummarizer
@@ -616,7 +685,10 @@ function appendLog(
       traceButton
     );
 
-    if (isSession) {
+    if (
+        isSession
+        || isLatestSnapshots
+    ) {
       const clearButton =
         document.createElement("button");
 
@@ -632,7 +704,12 @@ function appendLog(
       clearButton.addEventListener(
         "click",
         function () {
-          if (window.clearPersistedSessionBootstrap) {
+          if (
+              isLatestSnapshots
+              && window.clearOtherLatestRuntimeMemorySnapshots
+          ) {
+            window.clearOtherLatestRuntimeMemorySnapshots();
+          } else if (window.clearPersistedSessionBootstrap) {
             window.clearPersistedSessionBootstrap();
           }
 
@@ -641,6 +718,9 @@ function appendLog(
           clearButton.textContent = "cleared";
           traceButton.disabled = true;
           traceButton.classList.add("opacity-40");
+          dismissLogAfterClear(
+            logDiv
+          );
         }
       );
 
@@ -678,11 +758,57 @@ window.showTrace =
 const consolePanel = document.getElementById("console-panel");
     const consoleDragHandle = document.getElementById("console-drag-handle");
 
+    function syncSceneShadeToPanelCollapse() {
+        const root =
+            document.querySelector("main");
+
+        if (!root) {
+            return;
+        }
+
+        const collapsedCount =
+            [
+                consolePanel,
+                memoryPanel,
+            ].filter((panel) => (
+                panel
+                && panel.classList.contains("panel-collapsed")
+            )).length;
+
+        root.classList.remove(
+            "panels-collapsed-1",
+            "panels-collapsed-2"
+        );
+
+        if (collapsedCount > 0) {
+            root.classList.add(
+                `panels-collapsed-${collapsedCount}`
+            );
+        }
+    }
+
+    function togglePanelCollapseFromHeader(event, panel, handle) {
+        if (
+            event.target !== handle
+            || !panel
+        ) {
+            return;
+        }
+
+        event.preventDefault();
+        panel.classList.toggle("panel-collapsed");
+        syncSceneShadeToPanelCollapse();
+    }
+
     let isConsoleDragging = false;
     let consoleOffsetX = 0;
     let consoleOffsetY = 0;
 
     consoleDragHandle.addEventListener("mousedown", (event) => {
+        if (event.detail > 1) {
+            return;
+        }
+
         isConsoleDragging = true;
 
         const rect = consolePanel.getBoundingClientRect();
@@ -720,6 +846,14 @@ const consolePanel = document.getElementById("console-panel");
         document.body.style.userSelect = "";
     });
 
+    consoleDragHandle.addEventListener("dblclick", (event) => {
+        togglePanelCollapseFromHeader(
+            event,
+            consolePanel,
+            consoleDragHandle
+        );
+    });
+
 
 
 
@@ -733,6 +867,10 @@ let memoryOffsetX = 0;
 let memoryOffsetY = 0;
 
 memoryDragHandle.addEventListener("mousedown", (event) => {
+    if (event.detail > 1) {
+        return;
+    }
+
     isMemoryDragging = true;
 
     const rect = memoryPanel.getBoundingClientRect();
@@ -779,4 +917,12 @@ window.addEventListener("mousemove", (event) => {
 window.addEventListener("mouseup", () => {
     isMemoryDragging = false;
     document.body.style.userSelect = "";
+});
+
+memoryDragHandle.addEventListener("dblclick", (event) => {
+    togglePanelCollapseFromHeader(
+        event,
+        memoryPanel,
+        memoryDragHandle
+    );
 });

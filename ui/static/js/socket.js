@@ -18,9 +18,10 @@ const factCheckTrigger =
   );
 
 const websocketClientId =
-  (window.crypto && window.crypto.randomUUID)
+  window.jinRuntimeSessionId
+  || ((window.crypto && window.crypto.randomUUID)
     ? window.crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
 
 let websocketHasOpened = false;
 
@@ -50,6 +51,7 @@ let websocketReconnectTimer = null;
 let websocketReconnectAttempts = 0;
 let websocketDisconnectedLogged = false;
 let persistedSessionBootstrapSent = false;
+let latestRuntimeSnapshotsLogged = false;
 
 const MEMORY_GLOW_CLASSES = [
   "memory-updating",
@@ -80,6 +82,99 @@ const MEMORY_GLOW_STAGES = {
     fading: "memory-l3-fading",
   },
 };
+
+function buildLatestRuntimeSnapshotsDetails(
+  snapshots
+) {
+
+  const lines = [
+    "current_runtime_session_id: "
+      + String(window.jinRuntimeSessionId || websocketClientId),
+    "",
+    "current_key: "
+      + String(
+        window.getCurrentLatestRuntimeMemoryStorageKey
+          ? window.getCurrentLatestRuntimeMemoryStorageKey()
+          : ""
+      ),
+  ];
+
+  snapshots.forEach(
+    function (
+      snapshot,
+      index,
+    ) {
+      const runtimeMemory =
+        String(snapshot.runtime_memory || "")
+          .replace(/\\n/g, "\n")
+          .replace(
+            /;\s+(?=[a-z][a-z0-9_]*\s*:)/g,
+            "\n"
+          )
+          .split(/\r?\n+/)
+          .map(function (line) {
+            return line.trim();
+          })
+          .filter(Boolean);
+
+      lines.push(
+        "",
+        `[ snapshot ${index + 1} ]`,
+        "",
+        `key: ${snapshot.key || ""}`,
+        "",
+        `key_session_id: ${snapshot.key_session_id || ""}`,
+        "",
+        `session_id: ${snapshot.session_id || ""}`,
+        "",
+        `saved_at: ${snapshot.saved_at || ""}`,
+        "",
+        `runtime_memory_updates: ${snapshot.runtime_memory_updates || 0}`
+      );
+
+      if (runtimeMemory.length) {
+        lines.push(
+          "",
+          "runtime_memory:",
+          "",
+          runtimeMemory.join("\n\n")
+        );
+      }
+    }
+  );
+
+  return lines.join("\n");
+
+}
+
+function logOtherLatestRuntimeMemorySnapshots() {
+
+  if (
+      latestRuntimeSnapshotsLogged
+      || !window.getOtherLatestRuntimeMemorySnapshots
+  ) {
+    return;
+  }
+
+  const snapshots =
+    window.getOtherLatestRuntimeMemorySnapshots();
+
+  if (!snapshots.length) {
+    return;
+  }
+
+  latestRuntimeSnapshotsLogged = true;
+
+  appendLog(
+    "[LATEST SNAPSHOTS]",
+    `${snapshots.length} stale latest runtime snapshot`
+      + `${snapshots.length === 1 ? "" : "s"} found.`,
+    buildLatestRuntimeSnapshotsDetails(
+      snapshots
+    )
+  );
+
+}
 
 function isMemoryLog(data) {
   return Boolean(
@@ -941,6 +1036,18 @@ function handleSocketMessage(event) {
       return;
     }
 
+    if (
+      action === "remember_session"
+      && window.queueRuntimeActionAfterNextResponse
+    ) {
+      window.queueRuntimeActionAfterNextResponse(
+        action,
+        text
+      );
+
+      return;
+    }
+
     appendRuntimeAction(
       action,
       text
@@ -1243,6 +1350,12 @@ chatForm.addEventListener(
         userIdleContext.user_idle_seconds;
       payload.user_idle_paused =
         userIdleContext.user_idle_paused;
+
+      if (window.freezeLatestRuntimeMemoryUserIdle) {
+        window.freezeLatestRuntimeMemoryUserIdle(
+          userIdleContext.user_idle
+        );
+      }
     }
 
     window.jinActiveTurnUserIdleSeconds =
@@ -1411,4 +1524,5 @@ function connectWebSocket() {
 }
 
 
+logOtherLatestRuntimeMemorySnapshots();
 connectWebSocket();

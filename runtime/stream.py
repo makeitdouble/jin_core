@@ -34,6 +34,7 @@ class RuntimeStream:
             log_method,
             enable_validator: bool = True,
             emit_to_chat: bool = True,
+            emit_content_to_chat: bool | None = None,
             context_snapshot: dict | None = None,
     ):
 
@@ -50,6 +51,11 @@ class RuntimeStream:
 
         self.log_method = log_method
         self.emit_to_chat = emit_to_chat
+        self.emit_content_to_chat = (
+            emit_to_chat
+            if emit_content_to_chat is None
+            else emit_content_to_chat
+        )
         self.context_snapshot = context_snapshot or {}
 
         self.stream = StreamHandler(
@@ -373,7 +379,10 @@ class RuntimeStream:
                                 "content",
                                 "",
                             ),
-                            emit=self.emit_to_chat,
+                            emit=(
+                                self.emit_to_chat
+                                and self.emit_content_to_chat
+                            ),
                         )
                     )
 

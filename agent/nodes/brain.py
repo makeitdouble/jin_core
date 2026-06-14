@@ -49,9 +49,20 @@ class BrainNode(BaseNode):
             system_prompt: str,
             brain_payload: str,
             runtime_actions: dict,
+            emit_content_to_chat: bool = True,
     ) -> tuple[str, str]:
 
         logger = context.logger
+
+        context_snapshot = {
+            "context_role": "brain",
+            "system_prompt": system_prompt,
+            "user_prompt": brain_payload,
+        }
+
+        state.visible_response_context = (
+            context_snapshot
+        )
 
         runtime = RuntimeStream(
             context=context,
@@ -75,11 +86,9 @@ class BrainNode(BaseNode):
                 ],
             ),
             enable_validator=True,
-            context_snapshot={
-                "context_role": "brain",
-                "system_prompt": system_prompt,
-                "user_prompt": brain_payload,
-            },
+            emit_to_chat=True,
+            emit_content_to_chat=emit_content_to_chat,
+            context_snapshot=context_snapshot,
         )
 
         generator = ask_brain_stream(
@@ -110,6 +119,10 @@ class BrainNode(BaseNode):
 
         brain_runtime = (
             get_brain_runtime_config()
+        )
+
+        state.visible_response_role = (
+            brain_runtime["label"]
         )
 
         brain_client = (
@@ -158,6 +171,9 @@ class BrainNode(BaseNode):
             system_prompt=system_prompt,
             brain_payload=brain_payload,
             runtime_actions=runtime_actions,
+            emit_content_to_chat=(
+                not state.translate_response
+            ),
         )
 
         record_deep_thought_calls(
@@ -243,6 +259,9 @@ class BrainNode(BaseNode):
                 system_prompt=followup_system_prompt,
                 brain_payload=followup_payload,
                 runtime_actions=followup_runtime_actions,
+                emit_content_to_chat=(
+                    not state.translate_response
+                ),
             )
 
             record_deep_thought_calls(

@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from agent import (
     AgentState,
@@ -19,10 +20,17 @@ class AgentRoutingTests(
             user_input="привет"
         )
 
-        await PlannerNode().run(
-            state,
-            context=None,
-        )
+        with patch(
+                "agent.nodes.planner.config.TRANSLATION_ENABLED",
+                False,
+        ), patch(
+                "agent.nodes.planner.config.TRANSLATE_RESPONSE",
+                False,
+        ):
+            await PlannerNode().run(
+                state,
+                context=None,
+            )
 
         self.assertFalse(
             state.translate_input
@@ -47,10 +55,17 @@ class AgentRoutingTests(
             user_input="hello"
         )
 
-        await PlannerNode().run(
-            state,
-            context=None,
-        )
+        with patch(
+                "agent.nodes.planner.config.TRANSLATION_ENABLED",
+                True,
+        ), patch(
+                "agent.nodes.planner.config.TRANSLATE_RESPONSE",
+                True,
+        ):
+            await PlannerNode().run(
+                state,
+                context=None,
+            )
 
         self.assertFalse(
             state.translate_input

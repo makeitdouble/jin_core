@@ -249,17 +249,27 @@ def extract_recall_word_from_first_answer(answer: str) -> str:
     )
     fallback_separator_pattern = re.compile(r"[:：\-—–]")
 
-    for raw_line in render_text(answer).splitlines():
-        marker_match = word_marker_pattern.search(raw_line)
-        if marker_match:
-            candidate_text = marker_match.group(1)
-        else:
-            fallback_match = fallback_separator_pattern.search(raw_line)
-            if not fallback_match:
-                continue
-            candidate_text = raw_line[fallback_match.end():]
+    # Prefer explicit word markers anywhere in the answer. Do not let an
+    # earlier decorative dash, for example "... слова — это ...", win over
+    # a later direct marker like "я загадал слово: **Облако**".
+    lines = render_text(answer).splitlines()
 
-        cleaned = strip_markdown_and_emoji(candidate_text)
+    for raw_line in lines:
+        marker_match = word_marker_pattern.search(raw_line)
+        if not marker_match:
+            continue
+
+        cleaned = strip_markdown_and_emoji(marker_match.group(1))
+        tokens = re.findall(r"[0-9A-Za-zА-Яа-яЁё-]+", cleaned)
+        if tokens:
+            return tokens[0].strip("-")
+
+    for raw_line in lines:
+        fallback_match = fallback_separator_pattern.search(raw_line)
+        if not fallback_match:
+            continue
+
+        cleaned = strip_markdown_and_emoji(raw_line[fallback_match.end():])
         tokens = re.findall(r"[0-9A-Za-zА-Яа-яЁё-]+", cleaned)
         if tokens:
             return tokens[0].strip("-")
@@ -294,6 +304,19 @@ def answer_has_recall_question(
     if "?" not in text or "слово" not in text:
         return False
 
+    # Some valid recall prompts are split across two short questions, e.g.:
+    # "Помнишь, мы запоминали секретное слово? Какое оно было?"
+    # A plain split("?") loses the connection between "слово" and the
+    # anaphoric follow-up "какое оно". Detect that shape before checking
+    # single-question fragments.
+    anaphoric_recall_patterns = (
+        r"\bслово\b[^?]{0,80}\?\s*(?:а\s+теперь[, ]*)?(?:како[ей]|как|что)\b[^?]{0,80}\b(?:оно|это|было|наш|секретн\w*)\b",
+        r"\bсекретн\w+\s+слово\b[^?]{0,80}\?\s*(?:како[ей]|как|что)\b[^?]{0,80}\b(?:оно|это|было|наш|секретн\w*)\b",
+    )
+
+    if any(re.search(pattern, text) for pattern in anaphoric_recall_patterns):
+        return True
+
     question_parts = [
         part.strip()
         for part in text.split("?")
@@ -301,22 +324,30 @@ def answer_has_recall_question(
     ]
 
     direct_recall_patterns = (
-        r"\bкакое\s+(?:же\s+)?слово\b",
-        r"\bкакое\s+.*?\bслово\b",
+        r"\bкако[ей]\s+(?:же\s+)?слово\b",
+        r"\bкако[ей]\s+.*?\bслово\b",
         r"\bчто\s+за\s+слово\b",
         r"\bназови\s+(?:мне\s+)?(?:то\s+)?слово\b",
-        r"\bвспомни\s+(?:то\s+)?слово\b",
+        r"\bвспомни\w*\s+(?:мне\s+)?(?:то\s+)?(?:секретн\w+\s+)?слово\b",
         r"\bугадай\s+(?:то\s+)?слово\b",
-        r"\bнапомни\s+(?:мне\s+)?(?:то\s+)?слово\b",
-        r"\bпомнишь\s*,?\s*какое\s+.*?\bслово\b",
+        r"\bнапомни\s+(?:мне\s*,?\s*)?(?:пожалуйста\s*,?\s*)?(?:то\s+)?слово\b",
+        r"\bпомнишь\s*,?\s*како[ей]\s+.*?\bслово\b",
         r"(?:^|[.!?]\s*|\bкстати,\s*)помнишь\s+(?:то\s+)?слово\b",
         r"\bпришло\s*,?\s*время\s+.*?\bслово\b",
         r"\bпора\s*,?\s*назвать\s+.*?\bслово\b",
-        r"\bкакое\s*,?\s*было\s+.*?\bслово\b",
+        r"\bкако[ей]\s*,?\s*было\s+.*?\bслово\b",
+    )
+
+    conditional_recall_trigger_pattern = (
+        r"\b(?:како[ей]|что\s+за|назови|вспомни|угадай|напомни|пришло|пора)\b"
     )
 
     for part in question_parts:
-        if "если ты помнишь" in part:
+        # Reject passive conditional mentions like
+        # "... если ты помнишь слово ...", but allow the common shape
+        # "если ты помнишь... какой же ... слово?" where the condition is
+        # only a lead-in to a direct recall question.
+        if "если ты помнишь" in part and not re.search(conditional_recall_trigger_pattern, part):
             continue
 
         if any(re.search(pattern, part) for pattern in direct_recall_patterns):
@@ -708,6 +739,13 @@ class BehaviorProbeShapeTests(unittest.TestCase):
                     "Солнце",
                 )
 
+    def test_extract_recall_word_prefers_explicit_marker_over_earlier_dash(self):
+        answer = (
+            "Привет! Отличная идея для игры. Загадывать слова — это всегда интересно.\n\n"
+            "Итак, я загадал слово: **Облако**. ☁️"
+        )
+        self.assertEqual(extract_recall_word_from_first_answer(answer), "Облако")
+
     def test_answer_has_recall_question_requires_direct_recall_trigger(self):
         self.assertTrue(
             answer_has_recall_question("А теперь вопрос: какое слово я загадал?")
@@ -722,7 +760,22 @@ class BehaviorProbeShapeTests(unittest.TestCase):
             answer_has_recall_question("Помнишь, какое было слово?")
         )
         self.assertTrue(
+            answer_has_recall_question("Помнишь, мы запоминали секретное слово? Какое оно было?")
+        )
+        self.assertTrue(
+            answer_has_recall_question("Помнишь слово, которое мы запомнили? Как оно?")
+        )
+        self.assertTrue(
+            answer_has_recall_question("А теперь, если ты помнишь... какой же наш секретный слово?")
+        )
+        self.assertTrue(
             answer_has_recall_question("Помнишь то слово, которое ты хотел(а) вспомнить?")
+        )
+        self.assertTrue(
+            answer_has_recall_question("Кстати, напомни мне, пожалуйста, то слово, которое мы запоминали?")
+        )
+        self.assertTrue(
+            answer_has_recall_question("Не мог бы ты вспомнить то секретное слово, которое мы запоминали?")
         )
         self.assertTrue(
             answer_has_recall_question("Кстати, наше слово было Книга.", "Книга")

@@ -1967,26 +1967,6 @@ def apply_fact_check_result_to_memory(
     return "\n".join(lines).strip()
 
 
-def cancel_idle_fact_check(context) -> None:
-    """Compatibility no-op.
-
-    Background/idle fact-checking was removed: fact-checks must be
-    started explicitly by the UI click path. Keep this function so old
-    callers/imports do not crash while no task can remain scheduled.
-    """
-    context.fact_check_idle_task = None
-
-
-def schedule_idle_fact_check(
-        context,
-        *,
-        delay_seconds: float | None = None,
-):
-    """Compatibility no-op for the removed idle fact-check scheduler."""
-    cancel_idle_fact_check(context)
-    return None
-
-
 async def emit_fact_check_state(
         context,
         *,
@@ -2143,7 +2123,7 @@ async def run_fact_check_once(
                 # Emit a real runtime snapshot, not a snapshot=None event.
                 # The frontend renders the right memory panel from snapshot history;
                 # a raw memory payload alone is intentionally ignored by the panel.
-                from runtime.memory import emit_runtime_memory_update
+                from runtime.memory_events import emit_runtime_memory_update
 
                 await emit_runtime_memory_update(
                     context

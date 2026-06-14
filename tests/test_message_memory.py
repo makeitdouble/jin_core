@@ -24,16 +24,26 @@ from runtime import (
     schedule_runtime_memory_update,
     summarize_runtime_memory,
 )
-from runtime.memory import (
+from runtime.L1_memory import (
     ask_runtime_memory_model,
     build_runtime_memory_snapshot,
-    build_l3_session_memory_max_tokens,
     collapse_duplicate_runtime_memory_keys,
-    L3_OUTPUT_MAX_TOKENS,
+    get_strength_zones,
     parse_runtime_memory_lines,
     summarize_runtime_memory_pending_turns,
 )
-from runtime.memory_rules import (
+from runtime.L3_memory import (
+    build_l3_session_memory_max_tokens,
+)
+from runtime.L3_memory_rules import (
+    L3_OUTPUT_MAX_TOKENS,
+)
+from runtime.L2_memory_utils import (
+    merge_runtime_l2_pattern_evidence_memory,
+    normalize_l2_pattern_evidence_example,
+    remove_runtime_l2_pattern_evidence_lines,
+)
+from runtime.L1_memory_rules import (
     RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES,
 )
 from runtime.registry import (
@@ -190,21 +200,57 @@ class MessageMemoryTests(
             current_memory="",
             user_message="hello",
             assistant_message="hi",
-            current_l2_memory=(
-                "possible pattern: repeated greeting loop; Occurrences: 2"
-            ),
         )
 
         self.assertIn(
             DEFAULT_RUNTIME_MEMORY,
             prompt,
         )
-        self.assertIn(
-            "Current L2 pattern memory for occurrence tracking only",
+        self.assertNotIn(
+            "Current L2 pattern memory",
             prompt,
         )
-        self.assertIn(
+        self.assertNotIn(
             "Occurrences: 2",
+            prompt,
+        )
+
+    def test_runtime_memory_user_prompt_uses_filtered_hot_traces(self):
+
+        prompt = build_runtime_memory_user_prompt(
+            current_memory="user_message: hello",
+            user_message="hello",
+            assistant_message="hi",
+            strength_zones=get_strength_zones([
+                {
+                    "key": "user_message",
+                    "strength": 0.9,
+                },
+                {
+                    "key": "user_idle",
+                    "strength": 0.9,
+                },
+            ]),
+        )
+
+        self.assertIn(
+            "hot_traces: user_message",
+            prompt,
+        )
+        self.assertNotIn(
+            "user_idle",
+            prompt,
+        )
+        self.assertNotIn(
+            "Memory traces (pheromone strength)",
+            prompt,
+        )
+        self.assertNotIn(
+            "Crystallized (stable facts)",
+            prompt,
+        )
+        self.assertNotIn(
+            "Fading (deprioritize)",
             prompt,
         )
 
@@ -469,6 +515,30 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertIn(
+            "Do not write the current turn, turn_number, or user_message_count into ordinary L1 memory lines such as session status",
+            prompt,
+        )
+        self.assertIn(
+            "Trusted runtime context already carries those counters",
+            prompt,
+        )
+        self.assertIn(
+            "L2_pattern_evidence_N lines are owned by L2 and are immutable for L1",
+            prompt,
+        )
+        self.assertIn(
+            "L1 MUST create or update a separate companion key using this exact shape",
+            prompt,
+        )
+        self.assertIn(
+            "L2_pattern_evidence_N_status: status: <resolved|cancelled|corrected|test>; reason: <short reason>",
+            prompt,
+        )
+        self.assertIn(
+            "L2_pattern_evidence_1_status: status: resolved; reason: identified as a test",
+            prompt,
+        )
+        self.assertIn(
             "include the user's label/synonym",
             prompt,
         )
@@ -629,7 +699,19 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertIn(
+            "first_seen_snapshot",
+            prompt,
+        )
+        self.assertIn(
             "last_seen_snapshot",
+            prompt,
+        )
+        self.assertIn(
+            "L2_pattern_evidence_N",
+            prompt,
+        )
+        self.assertIn(
+            "first_seen_turn_snapshot",
             prompt,
         )
         self.assertIn(
@@ -712,6 +794,81 @@ class MessageMemoryTests(
             "Occurrences must be derived only from actual conversation evidence",
             prompt,
         )
+        self.assertIn(
+            "Count occurrences by unique patch snapshot values",
+            prompt,
+        )
+        self.assertIn(
+            "Do not create a brand-new pattern when all matching evidence is confined to one unique patch snapshot",
+            prompt,
+        )
+        self.assertIn(
+            "final token on the line MUST be the closing bracket of [ occurrences: N ]",
+            prompt,
+        )
+        self.assertIn(
+            "Never append status, notes, explanations, conclusions, punctuation, or any other text after the final [ occurrences: N ] bracket",
+            prompt,
+        )
+
+    def test_l2_pattern_evidence_merge_preserves_first_seen_and_deduplicates(self):
+
+        merged = merge_runtime_l2_pattern_evidence_memory(
+            previous_memory=(
+                "possible pattern: old line. Occurrences: 1; "
+                "first_seen_snapshot: 5; last_seen_snapshot: 5; "
+                "evidence summary: banana question; confidence: medium\n"
+                'L2_pattern_evidence_1: user repeatedly sending message - "что такое бананы" '
+                "[ first_seen_turn_snapshot: 5 ] [ last_seen_turn_snapshot: 5 ] [ occurrences: 1 ]"
+            ),
+            candidate_memory=(
+                "possible pattern: updated line. Occurrences: 2; "
+                "first_seen_snapshot: 5; last_seen_snapshot: 10; "
+                "evidence summary: banana question; confidence: medium\n"
+                'L2_pattern_evidence_2: user repeatedly sending message - "что такое бананы" '
+                "[ last_seen_turn_snapshot: 10 ] [ occurrences: 2 ]"
+            ),
+        )
+
+        self.assertIn(
+            "possible pattern: updated line",
+            merged,
+        )
+        self.assertEqual(
+            1,
+            merged.count(
+                "L2_pattern_evidence_"
+            ),
+        )
+        self.assertIn(
+            'L2_pattern_evidence_1: user repeatedly sending message - "что такое бананы" '
+            "[ first_seen_turn_snapshot: 5 ] [ last_seen_turn_snapshot: 10 ] [ occurrences: 2 ]",
+            merged,
+        )
+
+    def test_l2_candidate_evidence_lines_are_removed_before_deterministic_merge(self):
+
+        cleaned = remove_runtime_l2_pattern_evidence_lines(
+            "possible pattern: repeated message. Occurrences: 4\n"
+            'L2_pattern_evidence_1: user repeatedly sending one message [ quote: "ping" ] '
+            "[ first_seen_turn_snapshot: 9 ] [ last_seen_turn_snapshot: 10 ] [ occurrences: 4 ]\n"
+            "scope: current session"
+        )
+
+        self.assertEqual(
+            "possible pattern: repeated message. Occurrences: 4\n"
+            "scope: current session",
+            cleaned,
+        )
+
+    def test_l2_pattern_evidence_example_normalizer_strips_spaces_commas_and_dots(self):
+
+        self.assertEqual(
+            "чтотакоебананы",
+            normalize_l2_pattern_evidence_example(
+                " Что, такое. бананы "
+            ),
+        )
 
     def test_interrupted_assistant_message_marks_incomplete(self):
 
@@ -766,6 +923,72 @@ class MessageMemoryTests(
         )
         self.assertIn(
             "Lamborghini pricing",
+            prompt,
+        )
+
+    def test_brain_prompt_includes_countdown_contract_rules_while_active(self):
+
+        context = SimpleNamespace(
+            runtime_memory=(
+                'stored_memory: "Sky" (purpose: recall test; status: pending)\n'
+                'countdown_contract: Recall the secret word "Sky"; '
+                "created_user_message_count: 1; count_from: 1; count_to: 4; "
+                "due_user_message_count: 4; current: 2; remaining: 2; "
+                "status: active; trigger: Ask the user to recall the secret word."
+            ),
+            runtime_turn_user_message="thanks",
+            deep_thought_count=0,
+            runtime_search_result="",
+            runtime_search_result_id="",
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_WEB_SEARCH": False,
+                "CAN_DEEP_THOUGHT": False,
+            },
+        )
+
+        self.assertIn(
+            "Runtime countdown_contract is active.",
+            prompt,
+        )
+        self.assertIn(
+            "do not execute the trigger early",
+            prompt,
+        )
+        self.assertIn(
+            "If countdown_contract status is due or remaining is 0",
+            prompt,
+        )
+        self.assertNotIn(
+            "stored_memory is a high-priority active recall contract",
+            prompt,
+        )
+
+    def test_brain_prompt_omits_countdown_contract_rules_without_contract(self):
+
+        context = SimpleNamespace(
+            runtime_memory=(
+                "last_jin_response: Answered a casual thanks."
+            ),
+            runtime_turn_user_message="thanks",
+            deep_thought_count=0,
+            runtime_search_result="",
+            runtime_search_result_id="",
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_WEB_SEARCH": False,
+                "CAN_DEEP_THOUGHT": False,
+            },
+        )
+
+        self.assertNotIn(
+            "Runtime countdown_contract is active.",
             prompt,
         )
 
@@ -1338,10 +1561,6 @@ class MessageMemoryTests(
             service_client.calls[0]["system_prompt"],
             build_runtime_memory_system_prompt(),
         )
-        self.assertIn(
-            "[MEMORY:L1] L1 runtime memory updated",
-            logger.service_logs,
-        )
         self.assertEqual(
             logger.summarizer_logs[0][0],
             "[MEMORY:L1] L1 summarizer request",
@@ -1680,6 +1899,89 @@ class MessageMemoryTests(
         self.assertEqual(
             context.runtime_l2_memory,
             "",
+        )
+
+    async def test_l2_memory_drops_model_evidence_from_one_unique_snapshot(self):
+
+        service_client = FakeServiceClient(
+            "possible pattern: user may be repeating one message. "
+            "Occurrences: 4; first_seen_snapshot: 9; last_seen_snapshot: 10; "
+            "evidence summary: duplicate rows for one snapshot; confidence: medium\n"
+            'L2_pattern_evidence_1: user repeatedly sending one message [ quote: "ping" ] '
+            "[ first_seen_turn_snapshot: 9 ] [ last_seen_turn_snapshot: 10 ] [ occurrences: 4 ]"
+        )
+        logger = FakeLogger()
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            logger=logger,
+            runtime_memory="",
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
+            runtime_l2_memory="",
+            runtime_l2_pending_patches=[
+                {
+                    "turn_number": index + 1,
+                    "snapshot_index": index + 1,
+                    "total_diff": 120,
+                    "changes": {
+                        "added": [
+                            {
+                                "key": "topic",
+                                "value": f"value {index}",
+                            },
+                        ],
+                    },
+                }
+                for index in range(L2_PATCH_WINDOW - 1)
+            ] + [
+                {
+                    "turn_number": 10,
+                    "snapshot_index": 10,
+                    "total_diff": 140,
+                    "user_message": "ping",
+                    "user_messages": [
+                        "ping",
+                    ],
+                    "changes": {
+                        "added": [
+                            {
+                                "key": "topic",
+                                "value": "value final",
+                            },
+                            {
+                                "key": "user_message",
+                                "value": "ping",
+                            },
+                        ],
+                    },
+                },
+            ],
+            runtime_l1_diff_history=[],
+            runtime_l2_last_turn=0,
+            user_message_count=L2_PATCH_WINDOW,
+        )
+
+        updated_memory = await maybe_summarize_runtime_l2_memory(
+            context=context,
+        )
+
+        self.assertNotIn(
+            "possible pattern",
+            updated_memory,
+        )
+        self.assertNotIn(
+            "L2_pattern_evidence_",
+            updated_memory,
+        )
+        self.assertEqual(
+            "",
+            updated_memory,
+        )
+        self.assertNotIn(
+            "[ occurrences: 4 ]",
+            updated_memory,
         )
 
     async def test_l2_memory_runs_after_repeated_patch_keys_even_with_noisy_diff(self):

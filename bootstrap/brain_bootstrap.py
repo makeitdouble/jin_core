@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 from runtime.context_contract import (
-    DEEP_THOUGHT_REQUEST,
     REMEMBER_EVENT_REQUEST,
     REMEMBER_SESSION_REQUEST,
-    RUNTIME_ACTION_DEEP_THOUGHT,
     RUNTIME_ACTION_REMEMBER_EVENT,
     RUNTIME_ACTION_REMEMBER_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
@@ -113,22 +111,13 @@ def build_runtime_action_instructions(enabled_actions: tuple[str, ...]) -> str:
         "When requesting a runtime action, output exactly one private marker on its own line. "
         "Do not wrap it in markdown. Do not put it inside a bullet list. Do not bold it. "
         "Do not describe it in prose. "
-        f"Allowed private markers are exactly: {DEEP_THOUGHT_REQUEST}, "
-        f"{REMEMBER_SESSION_REQUEST}, {REMEMBER_EVENT_REQUEST}, "
-        f"and {WEB_SEARCH_REQUEST_TEMPLATE}. "
+        f"Allowed private markers are exactly: {REMEMBER_SESSION_REQUEST}, "
+        f"{REMEMBER_EVENT_REQUEST}, and {WEB_SEARCH_REQUEST_TEMPLATE}. "
         "The runtime removes private markers before rendering visible answers. "
         "Do not write INTERNAL_ACTION: WEB_SEARCH query: ..., INTERNAL ACTION: ..., "
         "WEB_SEARCH query: ..., JSON, or runtime XML markers."
     ]
 
-    if RUNTIME_ACTION_DEEP_THOUGHT in enabled_actions:
-        instructions.append(
-            "Before answering, request DEEP_THOUGHT once when the current request asks you to "
-            "think carefully/deeply, compare designs, make a multi-step judgment, "
-            "debug architecture, reflect on your own state, or handle high uncertainty. "
-            "Do not emit it for simple greetings, direct factual answers, or casual small talk. "
-            f"Use this private marker on its own line: {DEEP_THOUGHT_REQUEST}. Do not explain it."
-        )
 
     if RUNTIME_ACTION_WEB_SEARCH in enabled_actions:
         instructions.append(
@@ -155,7 +144,9 @@ def build_runtime_action_instructions(enabled_actions: tuple[str, ...]) -> str:
             f"request REMEMBER_SESSION once with this private marker: {REMEMBER_SESSION_REQUEST}. "
             f"Natural trigger examples: {remember_session_examples}. "
             "Do not emit it for ordinary topic changes, brief silence, casual thanks, "
-            "or while active implementation work is still clearly continuing. "
+            "bare ambiguous save commands, or while active implementation work is still clearly continuing. "
+            "If the whole user message is only 'сохрани' or 'save', ask one short clarification: "
+            "whether to save the whole session or a specific event/detail. Do not emit a runtime marker yet. "
             "Do not request it when the user asks to show, write, quote, or explain an internal tag. "
             "For tag/meta requests, answer naturally: internal tags are not shown; "
             "to save, the user can use a natural save/end request. "
@@ -163,9 +154,17 @@ def build_runtime_action_instructions(enabled_actions: tuple[str, ...]) -> str:
         )
 
     if RUNTIME_ACTION_REMEMBER_EVENT in enabled_actions:
+        remember_event_examples = ", ".join(
+            f"'{trigger}'"
+            for trigger in get_action_guard_triggers(
+                "remember_event"
+            )
+        )
+
         instructions.append(
             "When the user explicitly marks the current moment/event as worth saving, "
             f"request REMEMBER_EVENT once with this private marker: {REMEMBER_EVENT_REQUEST}. "
+            f"Natural trigger examples: {remember_event_examples}. "
             "JIN may also emit it on its own only for rare high-signal events: "
             "major decision, strong insight, memorable emotional moment, "
             "or a correction that changes understanding of JIN, user, or system. "
@@ -186,11 +185,6 @@ def build_runtime_state_instructions(enabled_actions: tuple[str, ...]) -> str:
         "only trust the values provided in trusted runtime context."
     ]
 
-    if RUNTIME_ACTION_DEEP_THOUGHT in enabled_actions:
-        instructions.append(
-            "DEEP_THOUGHT_COUNTER is telemetry from earlier runtime actions; "
-            "it must not by itself trigger or forbid a new runtime action."
-        )
 
     return " ".join(instructions)
 
@@ -258,7 +252,7 @@ def build_zero_diff_stall_instruction() -> str:
 
 
 # ─────────────────────────────────────────────
-# Compatibility wrappers for old call sites
+# Rule accessors used by brain clients
 # ─────────────────────────────────────────────
 
 def build_brain_soft_success_rules() -> str:

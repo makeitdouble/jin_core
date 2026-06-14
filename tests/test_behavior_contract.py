@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from app import app
 from clients.brain_client import (
+    is_user_initiated_remember_event,
     should_execute_remember_session,
 )
 from runtime.behavior_contract import (
@@ -82,6 +83,56 @@ class BehaviorContractTests(unittest.TestCase):
                 blockers,
             )
 
+    def test_remember_event_guard_exists(self):
+
+        guard = get_action_guard(
+            "remember_event"
+        )
+
+        self.assertEqual(
+            guard["runtime_action"],
+            "REMEMBER_EVENT",
+        )
+        self.assertEqual(
+            guard["private_marker"],
+            "<INTERNAL_ACTION_REMEMBER_EVENT>",
+        )
+        self.assertTrue(
+            guard["effects"]["save_event"],
+        )
+
+    def test_remember_event_triggers_include_known_phrases(self):
+
+        triggers = get_action_guard_triggers(
+            "remember_event"
+        )
+
+        for phrase in (
+            "хочу это запомнить",
+            "запомни это",
+            "важный момент",
+        ):
+            self.assertIn(
+                phrase,
+                triggers,
+            )
+
+    def test_is_user_initiated_remember_event_matches_save_request(self):
+
+        self.assertTrue(
+            is_user_initiated_remember_event(
+                "это важный момент, запомни это"
+            )
+        )
+
+    def test_is_user_initiated_remember_event_ignores_normal_message(self):
+
+        self.assertFalse(
+            is_user_initiated_remember_event(
+                "интересное решение, продолжаем"
+            )
+        )
+
     def test_should_execute_remember_session_matches_bedtime(self):
 
         self.assertTrue(
@@ -111,6 +162,30 @@ class BehaviorContractTests(unittest.TestCase):
         self.assertFalse(
             should_execute_remember_session(
                 "обсудим статью дальше"
+            )
+        )
+
+    def test_should_execute_remember_session_ignores_event_save_request(self):
+
+        self.assertFalse(
+            should_execute_remember_session(
+                "хорошо, тогда сохрани это как нашу новую аксиому"
+            )
+        )
+
+    def test_should_execute_remember_session_ignores_generic_save_this(self):
+
+        self.assertFalse(
+            should_execute_remember_session(
+                "сохрани это"
+            )
+        )
+
+    def test_should_execute_remember_session_ignores_bare_save_command(self):
+
+        self.assertFalse(
+            should_execute_remember_session(
+                "сохрани"
             )
         )
 

@@ -15,7 +15,6 @@
         "до завтра",
         "спокойной ночи",
         "заканчиваем",
-        "сохрани",
         "сохрани сессию",
         "сохрани текущий разговор",
         "запомни где остановились",
@@ -43,13 +42,57 @@
         "exact tag",
         "full tag",
         "tag example",
-        "quote tag"
+        "quote tag",
+        "сохрани это",
+        "сохранить это",
+        "сохрани как",
+        "сохрани это как",
+        "запомни это",
+        "запомни как",
+        "save this",
+        "save it",
+        "remember this",
+        "remember it"
       ],
       "effects": {
         "save_session": true,
         "suppress_followup": true,
         "suppress_offer": true,
         "final_reply_mode": "short_closure"
+      }
+    },
+    "remember_event": {
+      "description": "Classifies a REMEMBER_EVENT request as user-initiated when the user explicitly marks the current moment or detail as worth saving.",
+      "runtime_action": "REMEMBER_EVENT",
+      "private_marker": "<INTERNAL_ACTION_REMEMBER_EVENT>",
+      "triggers": [
+        "хочу это запомнить",
+        "хочу запомнить",
+        "сохрани это",
+        "сохранить это",
+        "это надо сохранить",
+        "это надо запомнить",
+        "запомни это",
+        "важный момент",
+        "надо сохранить"
+      ],
+      "blockers": [
+        "покажи тег",
+        "напиши тег",
+        "полный тег",
+        "точный тег",
+        "пример тега",
+        "как выглядит тег",
+        "процитируй тег",
+        "show tag",
+        "write tag",
+        "exact tag",
+        "full tag",
+        "tag example",
+        "quote tag"
+      ],
+      "effects": {
+        "save_event": true
       }
     }
   }

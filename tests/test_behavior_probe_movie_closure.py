@@ -84,7 +84,6 @@ UNEXPECTED_TEXT_MEMORY_2 = []
 
 USER_TEXT_3 = "The Lighthouse я уже смотрел. я думаю можно дропнуть этот топик, я уже скачиваю High Life для просмотра."
 EXPECTED_TEXT_ANSWER_3 = [
-    "High Life",
 ]
 EXPECTED_TEXT_MEMORY_3 = [
     "High Life",

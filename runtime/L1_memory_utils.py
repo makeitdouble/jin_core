@@ -1,122 +1,11 @@
-import json
-
-
-MAX_SESSION_PROMPT_SNAPSHOTS = 6
-MAX_SESSION_PROMPT_DIFFS = 8
-MAX_SESSION_PROMPT_EVENTS = 3
-MAX_SESSION_EVENT_TEXT_CHARS = 300
-MAX_SESSION_MEMORY_TEXT_CHARS = 1800
-MAX_SESSION_LATEST_MEMORY_TEXT_CHARS = 2200
-MAX_SESSION_OLD_SNAPSHOT_TEXT_CHARS = 500
-MAX_SESSION_LINE_CHARS = 220
-MAX_SESSION_L2_LINES = 3
-
-SESSION_MEMORY_PRIORITY_KEYWORDS = (
-    "decision",
-    "constraint",
-    "unresolved",
-    "pending",
-    "next step",
-    "current",
-    "topic",
-    "direction",
-    "milestone",
-    "blocked",
-    "todo",
-    "task",
-    "fact",
-    "user",
-    "jin",
-    "stored_memory",
-    "open_contract",
-    "countdown_contract",
-    "count_from",
-    "count_to",
-    "current",
-    "remaining",
-    "created_at",
-    "created_user_message_count",
-    "due_user_message_count",
-    "last_jin_response",
-    "решение",
-    "огранич",
-    "важно",
-    "следующ",
-    "текущ",
-    "задач",
-    "факт",
+from runtime.L1_memory_rules import (
+    DEFAULT_RUNTIME_MEMORY,
+    RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES,
+    RUNTIME_USER_IDLE_KEY,
 )
-
-SESSION_EVENT_IMPORTANCE_MARKERS = (
-    "запомни",
-    "важно",
-    "надо сохранить",
-    "ключевой момент",
-    "это надо зафиксировать",
-    "сохрани",
-    "зафиксируй",
+from runtime.L2_memory_utils import (
+    extract_runtime_l2_pattern_evidence_lines,
 )
-
-SESSION_EVENT_MILESTONE_MARKERS = (
-    "decision",
-    "decided",
-    "milestone",
-    "shipped",
-    "completed",
-    "resolved",
-    "fixed",
-    "session-level",
-    "решение",
-    "решили",
-    "веха",
-    "готово",
-    "закрыли",
-    "починили",
-)
-
-
-DEFAULT_RUNTIME_MEMORY = (
-    "This session has just begun. "
-    "You have no history with the user yet."
-)
-
-RUNTIME_USER_IDLE_KEY = "user_idle"
-
-
-RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES = (
-    "[CONTEXT PRESSURE OVERRIDE]\n"
-    "Context usage is critically high.\n"
-    "L1 must switch from normal summarization to survival compression.\n"
-
-    "Rules:\n"
-    "- Compress harder than usual.\n"
-    "- Keep only information needed to continue the session after context loss.\n"
-    "- Prefer durable state: decisions, active task, bugs, next steps, user preferences, project changes, unresolved risks, and active recall contracts.\n"
-    "- Drop examples, jokes, emotional texture, repeated explanations, and wording that does not change future behavior.\n"
-    "- Do not restate memory that already exists unless it changed.\n"
-    "- Context pressure may shorten temporary state, but must not remove stored_memory, open_contract, countdown_contract, durable facts, pending contracts, unresolved implementation tasks, or explicit user decisions.\n"
-    "- Merge related temporary details into fewer atomic key:value lines.\n"
-    "- If a durable line is long, shorten its value without changing its meaning.\n"
-    "- Use short values. No markdown. No commentary.\n"
-)
-
-
-RUNTIME_MEMORY_DURABLE_CARRY_FORWARD_RULES_OLD = (
-    "Topic/task changes, shallow summarization, memory pressure, or a new current request are never enough to remove or rename durable JIN/user fact keys.\n"
-)
-
-
-RUNTIME_MEMORY_SUMMARY_DEPTH_RULES_OLD = (
-    "Decide the summary depth from the signal in the latest turn.\n"
-    "Use shallow summarization for simple factual, isolated, or low-signal turns: "
-    "keep one or two bullet lines with only the dry fact, topic, or unresolved "
-    "reference that could help the next answer.\n"
-    "Use deep summarization for turns that reveal user intent, project direction, "
-    "decisions, constraints, pending choices, open references, implementation direction, "
-    "or a meaningful shift in the immediate conversation state; use three to six bullet lines when "
-    "the turn carries that much signal.\n"
-)
-
 
 def canonicalize_runtime_memory_entry(
         key: str,
@@ -316,7 +205,6 @@ def remove_runtime_user_idle_lines(
         lines
     )
 
-
 def build_runtime_memory_context_text(
         memory: str,
         context=None,
@@ -345,6 +233,19 @@ def build_runtime_memory_context_text(
             line
         )
 
+    if context is not None:
+        for evidence_line in extract_runtime_l2_pattern_evidence_lines(
+                getattr(
+                    context,
+                    "runtime_l2_memory",
+                    "",
+                )
+        ):
+            if evidence_line not in lines:
+                lines.append(
+                    evidence_line
+                )
+
     user_idle_text = get_user_idle_context_text(
         context
     )
@@ -357,728 +258,6 @@ def build_runtime_memory_context_text(
     return "\n".join(
         lines
     )
-
-
-def detect_session_event_initiator(
-        user_message: str,
-) -> str:
-
-    normalized = (
-        user_message
-        or ""
-    ).casefold()
-
-    user_markers = (
-        "хочу это запомнить",
-        "хочу запомнить",
-        "сохрани это",
-        "сохранить это",
-        "это надо сохранить",
-        "это надо запомнить",
-        "запомни это",
-        "важный момент",
-        "надо сохранить",
-    )
-
-    if any(
-        marker in normalized
-        for marker in user_markers
-    ):
-        return "user"
-
-    return "jin"
-
-
-def build_runtime_session_event_snapshot(
-        context,
-        *,
-        source: str = "runtime_action",
-) -> dict:
-
-    existing_snapshots = list(
-        getattr(
-            context,
-            "runtime_session_event_snapshots",
-            [],
-        )
-        or []
-    )
-    runtime_snapshots = list(
-        getattr(
-            context,
-            "runtime_memory_snapshots",
-            [],
-        )
-        or []
-    )
-    diff_history = list(
-        getattr(
-            context,
-            "runtime_l1_diff_history",
-            [],
-        )
-        or []
-    )
-    user_message = getattr(
-        context,
-        "runtime_turn_user_message",
-        "",
-    )
-    assistant_response = getattr(
-        context,
-        "runtime_turn_assistant_response",
-        "",
-    )
-
-    return {
-        "index": len(existing_snapshots),
-        "memory_type": "session_event_snapshot",
-        "source": source,
-        "initiated_by": detect_session_event_initiator(
-            user_message
-        ),
-        "turn_number": getattr(
-            context,
-            "turn_number",
-            0,
-        ),
-        "user_message_count": getattr(
-            context,
-            "user_message_count",
-            0,
-        ),
-        "assistant_message_count": getattr(
-            context,
-            "assistant_message_count",
-            0,
-        ),
-        "runtime_snapshot_count": len(
-            runtime_snapshots
-        ),
-        "diff_count": len(
-            diff_history
-        ),
-        "user_message": user_message,
-        "assistant_response": assistant_response,
-    }
-
-
-def compact_session_prompt_text(
-        value,
-        *,
-        limit: int = MAX_SESSION_EVENT_TEXT_CHARS,
-) -> str:
-
-    text = str(
-        value
-        or ""
-    ).strip()
-
-    if len(text) <= limit:
-        return text
-
-    return (
-        text[:limit].rstrip()
-        + " ... <truncated>"
-    )
-
-
-def compact_l3_text_block(
-        memory: str,
-        *,
-        max_chars: int,
-        max_lines: int = 10,
-) -> str:
-
-    lines = [
-        line.strip()
-        for line in (
-            memory
-            or ""
-        ).splitlines()
-        if line.strip()
-    ]
-
-    if not lines:
-        return "<empty>"
-
-    if max_lines <= 0:
-        return "<empty>"
-
-    selected = lines[-max_lines:]
-    omitted = max(0, len(lines) - len(selected))
-    text = "\n".join(
-        compact_session_prompt_text(
-            line,
-            limit=MAX_SESSION_LINE_CHARS,
-        )
-        for line in selected
-    )
-
-    if len(text) > max_chars:
-        text = compact_session_prompt_text(
-            text,
-            limit=max_chars,
-        )
-
-    if omitted:
-        text = (
-            f"omitted_memory_lines: {omitted}\n"
-            f"{text}"
-        )
-
-    return text.strip() or "<empty>"
-
-
-def compact_l3_event(
-        entry: dict,
-) -> dict:
-
-    if not isinstance(
-        entry,
-        dict,
-    ):
-        return {}
-
-    keep_keys = (
-        "index",
-        "memory_type",
-        "source",
-        "initiated_by",
-        "turn_number",
-        "title",
-        "memory",
-        "user_message",
-        "assistant_response",
-    )
-
-    return {
-        key: (
-            compact_session_prompt_text(
-                value,
-                limit=MAX_SESSION_EVENT_TEXT_CHARS,
-            )
-            if isinstance(value, str)
-            else value
-        )
-        for key in keep_keys
-        if (value := entry.get(key)) is not None
-    }
-
-
-def select_l3_snapshots(
-        snapshots: list[dict],
-        *,
-        snapshot_count: int,
-) -> tuple[list[dict], int]:
-
-    valid_snapshots = [
-        snapshot
-        for snapshot in (
-            snapshots
-            or []
-        )
-        if isinstance(
-            snapshot,
-            dict,
-        )
-    ]
-
-    if not valid_snapshots:
-        return [], 0
-
-    ranked = sorted(
-        valid_snapshots,
-        key=lambda snapshot: snapshot.get(
-            "total_diff",
-            0,
-        )
-        or 0,
-        reverse=True,
-    )
-
-    selected = []
-    seen_indexes = set()
-
-    for snapshot in (
-            [valid_snapshots[0], valid_snapshots[-1]]
-            + ranked
-    ):
-        index = snapshot.get(
-            "index",
-            id(snapshot),
-        )
-
-        if index in seen_indexes:
-            continue
-
-        seen_indexes.add(
-            index
-        )
-        selected.append(
-            snapshot
-        )
-
-        if len(selected) >= snapshot_count:
-            break
-
-    selected.sort(
-        key=lambda snapshot: snapshot.get(
-            "index",
-            0,
-        )
-        or 0
-    )
-
-    return (
-        selected,
-        max(
-            0,
-            len(valid_snapshots) - len(selected),
-        ),
-    )
-
-
-def compact_l3_diff_entry(entry: dict) -> dict:
-
-    changes = entry.get("changes", {}) if isinstance(entry, dict) else {}
-    changes = changes if isinstance(changes, dict) else {}
-
-    def keys(items, name):
-        return [
-            str(item.get(name, ""))
-            for item in (items or [])[:8]
-            if isinstance(item, dict) and item.get(name)
-        ]
-
-    return {
-        "turn_number": entry.get("turn_number", 0),
-        "snapshot_index": entry.get("snapshot_index", 0),
-        "total_diff": entry.get("total_diff", 0),
-        "added_keys": keys(changes.get("added", []), "key"),
-        "changed_keys": keys(changes.get("changed", []), "current_key"),
-        "removed_keys": keys(changes.get("removed", []), "key"),
-    }
-
-
-def build_l3_session_digest(
-        *,
-        current_session_memory: str,
-        runtime_memory_snapshots: list[dict],
-        diff_history: list[dict],
-        runtime_l2_memory: str = "",
-        session_event_snapshots: list[dict] | None = None,
-        minimal: bool = False,
-) -> dict:
-
-    snapshot_count = (
-        1
-        if minimal
-        else MAX_SESSION_PROMPT_SNAPSHOTS
-    )
-    diff_count = (
-        1
-        if minimal
-        else MAX_SESSION_PROMPT_DIFFS
-    )
-    event_count = (
-        1
-        if minimal
-        else MAX_SESSION_PROMPT_EVENTS
-    )
-    current_memory_chars = (
-        1000
-        if minimal
-        else MAX_SESSION_MEMORY_TEXT_CHARS
-    )
-
-    selected_snapshots, omitted_snapshot_count = (
-        select_l3_snapshots(
-            runtime_memory_snapshots,
-            snapshot_count=snapshot_count,
-        )
-    )
-
-    latest_index = (
-        selected_snapshots[-1].get(
-            "index",
-            0,
-        )
-        if selected_snapshots
-        else None
-    )
-
-    compact_snapshots = []
-
-    for snapshot in selected_snapshots:
-        is_latest = snapshot.get("index", 0) == latest_index
-        max_chars = (
-            1000
-            if minimal
-            else (
-                MAX_SESSION_LATEST_MEMORY_TEXT_CHARS
-                if is_latest
-                else MAX_SESSION_OLD_SNAPSHOT_TEXT_CHARS
-            )
-        )
-        compact_snapshots.append({
-            "index": snapshot.get("index", 0),
-            "total_diff": snapshot.get("total_diff", 0),
-            "role": "latest" if is_latest else "selected",
-            "memory": compact_l3_text_block(
-                snapshot.get("raw_memory", ""),
-                max_chars=max_chars,
-            ),
-        })
-
-    valid_events = [
-        event
-        for event in (session_event_snapshots or [])
-        if isinstance(event, dict)
-    ]
-    compact_events = [
-        compact_l3_event(event)
-        for event in valid_events[-event_count:]
-    ]
-
-    selected_diffs = [
-        entry
-        for entry in (diff_history or [])
-        if isinstance(entry, dict)
-    ][-diff_count:]
-    compact_diffs = [
-        compact_l3_diff_entry(entry)
-        for entry in selected_diffs
-    ]
-
-    omitted_event_count = max(0, len(valid_events) - len(compact_events))
-    omitted_diff_count = max(
-        0,
-        len(diff_history or []) - len(selected_diffs),
-    )
-
-    return {
-        "minimal": minimal,
-        "current_session_memory": compact_l3_text_block(
-            current_session_memory,
-            max_chars=current_memory_chars,
-            max_lines=8,
-        ),
-        "l2_context": compact_l3_text_block(
-            runtime_l2_memory,
-            max_chars=600,
-            max_lines=0 if minimal else MAX_SESSION_L2_LINES,
-        ),
-        "session_events": compact_events,
-        "omitted_events_count": omitted_event_count,
-        "snapshots": compact_snapshots,
-        "omitted_middle_snapshots": omitted_snapshot_count,
-        "diff_history": compact_diffs,
-        "omitted_older_diffs": omitted_diff_count,
-    }
-
-
-def build_runtime_l2_memory_system_prompt() -> str:
-
-    return (
-        "You are JIN's L2 memory summarizer for patterns.\n"
-        "Return only the new L2 pattern memory as plain text.\n"
-        "Do not output JSON.\n"
-        "Do not use Markdown headings.\n"
-        "Do not explain your reasoning or the summarization process.\n"
-        "Track what the user does, but respond to what the user is trying to achieve.\n"
-        "Separate observed behavior from inferred intent.\n"
-        "Do not store temporary interaction patterns as permanent user traits.\n"
-        "Do not use 'likes', 'prefers', or 'wants' unless the user explicitly says so.\n"
-        "When storing a pattern, prefer fields like observed_behavior, likely_intent, evidence, and scope over broad personality labels, for example:\n"
-        "observed_behavior: User rapidly switched across unrelated topics during context-arbitration testing. Occurrences: 8; evidence: cooking, finance, files, travel, car washing.\n"
-        "likely_intent: User may be stress-testing whether JIN checks context relevance before answering.\n"
-        "scope: Current session/test sequence, not a stable user preference.\n"
-        "Write memory as atomic bullet lines, one semantic entity per line.\n"
-        "Every memory entry MUST use the format:\n "
-        "<key>: <value>\n"
-        "Runtime memory may be displayed to the user with a suffix like `(trace: 0.50)`. "
-        "This is session-local pheromone/attention trace strength: higher means hotter or reinforced, lower means fading. "
-        "Use trace silently for context priority, and explain it only when the user explicitly asks about memory mechanics. "
-        "Never copy `(trace: N)` into the generated memory text; trace is runtime metadata, not memory content.\n"
-        "L2 works above L1 factual runtime memory.\n"
-        "Use only the recent L1 patch window supplied by the runtime.\n"
-        "Patch entries may include `[trace: N]`; treat it as session-local pheromone/attention trace strength, not as user content. "
-        "Higher trace means the L1 item is hotter or recently reinforced; lower trace means it is fading.\n"
-        "This window is selected because normalized L1 keys or topics repeated across patches.\n"
-        "Pattern memory should not learn from itself.\n"
-        "Do not treat existing possible pattern, observed tendency, emerging signal, or other pattern-memory entries as evidence.\n"
-        "Pattern entries may be displayed as context, but they must never contribute to occurrence counts or create new pattern entries.\n"
-        "Occurrences must be derived only from actual conversation evidence in the supplied L1 patches, not from previously generated pattern summaries.\n"
-        "L2 is a hypothesis generator, not a source of settled memory.\n"
-        "If L2 writes one of these confirmable keys, it MUST include a marker: "
-        "user_fact, jin_fact, pending_fact, jin_recommendation, user_recommendation. "
-        "Use (confirmed: none) unless the supplied patch already contains explicit user, jin, or web confirmation.\n"
-        "Allowed outputs: possible pattern, emerging signal, observed tendency, may indicate, contradiction, corrected assumption.\n"
-        "Prefer 'possible pattern' over 'pattern'.\n"
-        "Every possible pattern, emerging signal, or observed tendency MUST include an occurrence counter in the value: Occurrences: N.\n"
-        "Every possible pattern, emerging signal, or observed tendency SHOULD include accounting metadata in the value: "
-        "Occurrences: N; last_seen_snapshot: S; evidence summary: <short evidence>; confidence: low|medium|high.\n"
-        "For a brand-new pattern with no prior L2 entry, set Occurrences to the number of matching evidence lines in the supplied L1 patch window, not to 1 by default.\n"
-        "For a brand-new pattern, if the same-intent behavior repeated before L2 named it, count those earlier L1 evidence lines immediately when creating the counter.\n"
-        "For an existing pattern, preserve its old Occurrences count; do not recompute Occurrences from the supplied patch window alone.\n"
-        "For an existing pattern, new_occurrences = old_occurrences + count(new matching L1 evidence after last_seen_snapshot).\n"
-        "Only increment Occurrences when patch snapshot > last_seen_snapshot and the L1 evidence actually matches this pattern.\n"
-        "If last_seen_snapshot is missing for an existing pattern, initialize it as a baseline without incrementing Occurrences for old visible evidence.\n"
-        "Use the newest matching patch snapshot as the updated last_seen_snapshot after counting new evidence.\n"
-        "Never reduce an existing Occurrences count just because the current patch window contains fewer matching examples.\n"
-        "Never write Occurrences: 1 for a brand-new pattern when the supplied window shows two or more manifestations of that same pattern.\n"
-        "When the user explicitly cancels the pattern, stops doing it, or clearly changes topic, reset that pattern to Occurrences: 0.\n"
-        "Do not keep Occurrences: 0 entries unless they are still useful as immediate context; obsolete zero-count entries may be dropped.\n"
-        "Do not repeat factual L1 memory unless it is needed to explain an L2 signal.\n"
-        "Do not claim certainty from weak evidence. Prefer 'may', 'possible', 'observed', and 'emerging'.\n"
-        "Do not write categorical statements like '<signal> serves as a strong signal' or 'the user exhibits <trait>'.\n"
-        "Do not use these words in the generated memory: stable, established, strong signal, user exhibits, personality, identity, core preference.\n"
-        "If there is not enough signal for L2, return the current L2 memory unchanged.\n"
-    )
-
-
-def build_runtime_l2_memory_user_prompt(
-        *,
-        current_l2_memory: str,
-        patches: list[dict],
-) -> str:
-
-    def format_l2_strength_suffix(
-            entry: dict,
-            *,
-            changed: bool = False,
-    ) -> str:
-
-        if changed:
-            previous_strength = entry.get(
-                "previous_strength",
-            )
-            current_strength = entry.get(
-                "current_strength",
-            )
-
-            if (
-                    previous_strength is None
-                    and current_strength is None
-            ):
-                return ""
-
-            return (
-                " "
-                f"[trace: {previous_strength if previous_strength is not None else '?'}"
-                " -> "
-                f"{current_strength if current_strength is not None else '?'}]"
-            )
-
-        strength = entry.get(
-            "strength",
-        )
-
-        return f" [trace: {strength}]" if strength is not None else ""
-
-    lines = [
-        "Current L2 pattern memory:",
-        current_l2_memory.strip() or "<empty>",
-        "",
-        "Recent L1 patches since the last L2 update:",
-    ]
-
-    for index, patch in enumerate(
-            patches,
-            start=1,
-    ):
-        lines.extend([
-            "",
-            f"Patch {index}",
-            f"turn: {patch.get('turn_number', 0)}",
-            f"snapshot: {patch.get('snapshot_index', 0)}",
-            f"total_diff: {patch.get('total_diff', 0)}",
-        ])
-
-        changes = patch.get(
-            "changes",
-            {},
-        )
-
-        for section in (
-                "added",
-                "changed",
-                "removed",
-        ):
-            entries = (
-                changes.get(
-                    section,
-                    [],
-                )
-                or []
-            )
-
-            if not entries:
-                continue
-
-            lines.append(
-                f"{section}:"
-            )
-
-            for entry in entries:
-                if section == "changed":
-                    lines.append(
-                        "- "
-                        f"{entry.get('previous_key', '')}: {entry.get('previous_value', '')} "
-                        "=> "
-                        f"{entry.get('current_key', '')}: {entry.get('current_value', '')}"
-                        + format_l2_strength_suffix(
-                            entry,
-                            changed=True,
-                        )
-                    )
-                else:
-                    lines.append(
-                        "- "
-                        f"{entry.get('key', '')}: {entry.get('value', '')}"
-                        + format_l2_strength_suffix(
-                            entry,
-                        )
-                    )
-
-    lines.extend([
-        "",
-        "Rewrite the L2 pattern memory now.",
-    ])
-
-    return "\n".join(
-        lines
-    )
-
-
-def build_runtime_session_memory_system_prompt() -> str:
-
-    return (
-        "You are JIN's L3 session memory summarizer.\n"
-        "This is the layer above L1 runtime memory and L2 pattern memory.\n"
-        "Return only the new compressed L3 session snapshot as plain text.\n"
-        "Do not output JSON.\n"
-        "Do not use Markdown headings.\n"
-        "Do not explain your reasoning or the summarization process.\n"
-        "Write memory as atomic lines using the format:\n"
-        "<key>: <value>\n"
-        "Summarize the whole session from all L1 runtime memory snapshots, "
-        "not only the latest snapshot.\n"
-        "Session event snapshots are stored by the runtime as an array and are always available at session-context level.\n"
-        "Treat that array as persistent event history for the session: use it to preserve causal sequence, important moments, and prior session-level decisions.\n"
-        "Do not ask the user to fill snapshot fields manually; infer event snapshot meaning from natural conversation and explicit user markings.\n"
-        "Preserve what should survive a browser reload or a new tab: active project direction, "
-        "explicit decisions, durable facts, unresolved tasks, constraints, and next step.\n"
-        "Treat TRUSTED_RUNTIME_CONTEXT timestamp as the source of truth for current time.\n"
-        "L3 must convert relative temporal phrases from L1 snapshots into absolute or session-relative phrases before preserving them.\n"
-        "Session handoff memory must not contain ambiguous standalone words like today, now, or recently unless paired with a timestamp/date.\n"
-        "If a preference expires at end of day, encode that explicitly, such as temporary_preference: User requested X for 2026-06-05 only; expires after that date unless renewed.\n"
-        "If the exact date cannot be inferred, write relative to current session rather than pretending it is durable calendar time.\n"
-        "Session memory may include rare episodic_key_moment records for events that need richer sequence memory.\n"
-        "Use episodic_key_moment only when the moment changed understanding of the project, user, or system; "
-        "has a clear cause -> event -> outcome chain; was explicitly marked important by the user; "
-        "or carries high emotional or narrative weight.\n"
-        "Do not create episodic_key_moment entries for ordinary progress updates, routine feature work, "
-        "minor bugs, casual jokes, or low-signal chat.\n"
-        "When writing an episodic_key_moment, preserve the exact chain rather than only the conclusion.\n"
-        "Use this plain-text block format:\n"
-        "memory_type: episodic_key_moment\n"
-        "title: <short event title>\n"
-        "emotional_weight: low|medium|high\n"
-        "why_it_matters: <why this should survive the session>\n"
-        "sequence:\n"
-        "1. <first causal step>\n"
-        "2. <next causal step>\n"
-        "preserve_detail: <which exact details matter and why>\n"
-        "Use the diff history to identify which topics or constraints actually changed during the session.\n"
-        "Do not copy every L1 line. Compress repeated or superseded states.\n"
-        "Do not infer durable user personality traits, relationship claims, or preferences from weak signal.\n"
-        "Preserve durable JIN/user fact lines from L1 snapshots as stable session facts; keep their keys stable and change only values that were explicitly corrected or superseded.\n"
-        "Keep user-requested stored values with explicit purpose and explicit facts in their own retrieval-friendly lines.\n"
-        "Drop transient last_jin_response details unless they contain an unresolved question or next step.\n"
-        "The final L3 snapshot should feel like a session handoff note for fluent continuation."
-    )
-
-
-def build_runtime_session_memory_user_prompt(
-        *,
-        current_session_memory: str,
-        runtime_memory_snapshots: list[dict],
-        diff_history: list[dict],
-        runtime_l2_memory: str = "",
-        session_event_snapshots: list[dict] | None = None,
-        minimal: bool = False,
-) -> str:
-
-    digest = build_l3_session_digest(
-        current_session_memory=current_session_memory,
-        runtime_memory_snapshots=runtime_memory_snapshots,
-        diff_history=diff_history,
-        runtime_l2_memory=runtime_l2_memory,
-        session_event_snapshots=session_event_snapshots,
-        minimal=minimal,
-    )
-
-    snapshot_blocks = []
-
-    for snapshot in digest["snapshots"]:
-        snapshot_blocks.append(
-            "\n".join([
-                f"snapshot: {snapshot.get('index', 0)}",
-                f"role: {snapshot.get('role', '')}",
-                f"total_diff: {snapshot.get('total_diff', 0)}",
-                "memory:",
-                snapshot.get(
-                    "memory",
-                    "<empty>",
-                ),
-                "patch_summary:",
-                json.dumps(
-                    snapshot.get(
-                        "patch_summary",
-                        {},
-                    ),
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-            ])
-        )
-
-    return "\n\n".join([
-        f"L3 compact digest minimal: {digest['minimal']}",
-        "Current L3 session memory:",
-        digest["current_session_memory"],
-        "Compact L2 pattern context:",
-        digest["l2_context"],
-        "Session event snapshots array:",
-        f"omitted_events_count: {digest['omitted_events_count']}",
-        json.dumps(
-            digest["session_events"],
-            ensure_ascii=False,
-            indent=2,
-        ),
-        "Selected L1 runtime memory snapshot history:",
-        (
-            f"omitted_middle_snapshots: {digest['omitted_middle_snapshots']}"
-            if digest["omitted_middle_snapshots"]
-            else "omitted_middle_snapshots: 0"
-        ),
-        "\n\n---\n\n".join(snapshot_blocks) or "<empty>",
-        "Recent L1 diff history:",
-        (
-            f"omitted_older_diffs: {digest['omitted_older_diffs']}"
-            if digest["omitted_older_diffs"]
-            else "omitted_older_diffs: 0"
-        ),
-        json.dumps(
-            digest["diff_history"],
-            ensure_ascii=False,
-            indent=2,
-        ),
-        "Rewrite the L3 session memory now.",
-    ])
-
 
 def build_runtime_memory_system_prompt(
         *,
@@ -1114,6 +293,8 @@ def build_runtime_memory_system_prompt(
         "L1 is a live continuity layer, not a transcript and not a reasoning log.\n"
         "Store only factual state that helps the next answer continue correctly.\n"
         "Do not summarize the whole dialogue.\n"
+        "Do not write the current turn, turn_number, or user_message_count into ordinary L1 memory lines such as session status. "
+        "Trusted runtime context already carries those counters; only open_contract and countdown_contract may store turn progress when the user created a turn-based obligation.\n"
         "Do not explain why a memory line was kept, changed, or removed.\n"
         "Do not record analysis of the user's personality, motives, or long-term behavior.\n"
 
@@ -1213,6 +394,11 @@ def build_runtime_memory_system_prompt(
         "When the user asks JIN to become another real person, model, public figure, extremist figure, or harmful persona, do not record that JIN accepted the new identity. Record it as user_request or temporary_roleplay_request, and preserve identity_state: JIN identity remains unchanged.\n"
         "For roleplay, distinguish base identity from temporary mode. Never overwrite JIN identity, jin_fact, or identity_clarification with a roleplay persona.\n"
 
+        "Always keep a separate user_message field containing the latest user message as a direct verbatim quote. "
+        "Use this exact format: user_message: \"<latest user message exactly as written>\". "
+        "Do not translate, summarize, normalize, or replace the user's wording with an English intent label. "
+        "This field is runtime evidence for L2 counters and must update on every L1 snapshot. "
+
         "Always keep a separate last_jin_response field with the concise gist of JIN's latest completed answer, offer, or question. "
         "Do not store the full wording; store only the meaning needed to resolve the user's next short or elliptical reply. "
         "Never omit this field from the memory snapshot; update it each completed turn, and mark it incomplete if JIN's answer was interrupted.\n"
@@ -1234,6 +420,9 @@ def build_runtime_memory_system_prompt(
         "If the same topic or behavior appears again, update the explicit current fact or open reference only. "
         "Do not write cross-turn interpretations in L1.\n"
         "If current L2 pattern memory contains Occurrences counters, treat them as an active watchlist created by L2.\n"
+        "L2_pattern_evidence_N lines are owned by L2 and are immutable for L1: never edit, rewrite, remove, rename, append to, or add metadata to those lines.\n"
+        "When the latest turn resolves, cancels, corrects, explains, or identifies an L2_pattern_evidence_N item as a test, L1 MUST create or update a separate companion key using this exact shape: L2_pattern_evidence_N_status: status: <resolved|cancelled|corrected|test>; reason: <short reason>. "
+        "For example: L2_pattern_evidence_1_status: status: resolved; reason: identified as a test. Leave the original L2_pattern_evidence_N line unchanged.\n"
         "Do not invent new pattern counters in L1, but if the latest turn clearly manifests an existing counted L2 pattern, "
         "record factual occurrence evidence in L1, such as occurrence evidence: <pattern> +1; reason: matches active L2 Occurrences counter.\n"
         "L2 will reconcile those L1 occurrence evidence lines during its next check.\n"
@@ -1320,28 +509,20 @@ def build_runtime_memory_user_prompt(
         current_memory: str,
         user_message: str,
         assistant_message: str,
-        current_l2_memory: str = "",
         strength_zones: dict | None = None,
 ) -> str:
 
-    zones_hint = ""
+    hot_traces = ""
     if strength_zones:
         hot = ", ".join(strength_zones.get("hot", [])) or "none"
-        crystallized = ", ".join(strength_zones.get("crystallized", [])) or "none"
-        fading = ", ".join(strength_zones.get("fading", [])) or "none"
-        zones_hint = (
-            "Memory traces (pheromone strength):\n"
-            f"Hot (active): {hot}\n"
-            f"Crystallized (stable facts): {crystallized}\n"
-            f"Fading (deprioritize): {fading}\n\n"
+        hot_traces = (
+            f"hot_traces: {hot}\n\n"
         )
 
     return (
         "Current runtime memory:\n"
         f"{current_memory.strip() or DEFAULT_RUNTIME_MEMORY}\n\n"
-        f"{zones_hint}"
-        "Current L2 pattern memory for occurrence tracking only:\n"
-        f"{current_l2_memory.strip() or '<empty>'}\n\n"
+        f"{hot_traces}"
         "Latest user message:\n"
         f"{user_message.strip()}\n\n"
         "Latest JIN answer:\n"
@@ -1354,7 +535,6 @@ def build_runtime_memory_batch_user_prompt(
         *,
         current_memory: str,
         turns: list[dict],
-        current_l2_memory: str = "",
         strength_zones: dict | None = None,
 ) -> str:
 
@@ -1366,20 +546,12 @@ def build_runtime_memory_batch_user_prompt(
 
     if strength_zones:
         hot = ", ".join(strength_zones.get("hot", [])) or "none"
-        crystallized = ", ".join(strength_zones.get("crystallized", [])) or "none"
-        fading = ", ".join(strength_zones.get("fading", [])) or "none"
         lines.extend([
-            "Memory traces (pheromone strength):",
-            f"Hot (active): {hot}",
-            f"Crystallized (stable facts): {crystallized}",
-            f"Fading (deprioritize): {fading}",
+            f"hot_traces: {hot}",
             "",
         ])
 
     lines.extend([
-        "Current L2 pattern memory for occurrence tracking only:",
-        current_l2_memory.strip() or "<empty>",
-        "",
         "New completed turns since that memory snapshot:",
     ])
 

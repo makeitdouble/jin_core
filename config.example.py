@@ -2,6 +2,7 @@
 
 USE_SERVICE_AS_BRAIN = True
 TRANSLATION_ENABLED = False
+TRANSLATE_RESPONSE = False
 
 CHAT_ENDPOINT = "/v1/chat/completions"
 MODELS_ENDPOINT = "/v1/models"
