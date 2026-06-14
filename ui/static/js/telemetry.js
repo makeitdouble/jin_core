@@ -97,6 +97,17 @@ if (!idle) {
   );
 }
 
+
+const feedback =
+  window.JinRuntime
+  && window.JinRuntime.feedback;
+
+if (!feedback) {
+  throw new Error(
+    "JinRuntime.feedback must be loaded before telemetry.js"
+  );
+}
+
 const {
   splitMemoryTextLines,
   stripMemoryTextMetaForDisplay,
@@ -219,6 +230,34 @@ idle.configure({
     updateUserIdleTimerText(
       text
     );
+  },
+});
+
+
+feedback.init({
+  memoryModel,
+  getSnapshots() {
+    return runtimeMemoryHistory.snapshots;
+  },
+  getCurrentIndex() {
+    return runtimeMemoryHistory.index;
+  },
+  setCurrentIndex(index) {
+    runtimeMemoryHistory.index = index;
+  },
+  getDisplayMode() {
+    return runtimeMemoryDisplayMode;
+  },
+  setDisplayMode(mode) {
+    runtimeMemoryDisplayMode = mode;
+  },
+  getRuntimeMemoryCountText() {
+    return runtimeMemoryCount
+      ? runtimeMemoryCount.textContent
+      : "0";
+  },
+  renderRuntimeMemorySnapshot() {
+    renderRuntimeMemorySnapshot();
   },
 });
 
@@ -487,7 +526,7 @@ function runtimeMemoryObjectFromPersistedRuntime(
 
   runtimeMemory = removeRuntimeMemoryLineByKey(
     runtimeMemory,
-    runtimeResponseFeedbackKey
+    feedback.key
   );
 
   if (!runtimeMemory) {
@@ -1426,589 +1465,6 @@ function attachFirstUserIdleToInitialRuntimeSnapshot(sourceSnapshot) {
 }
 
 
-const runtimeResponseFeedbackKey =
-  "JIN_LAST_RESPONSE_USER_FEEDBACK";
-
-const runtimeResponseFeedbackDislikedValue =
-  "User disliked your last response. "
-  + "Before answering, find and understand why it failed using context or memory, then start the next reply with a brief acknowledgement of that miss, then continue with a concrete corrected answer.";
-
-const runtimeResponseFeedbackNeutralValue =
-  "User gave neutral feedback to your last response. "
-  + "Continue carefully without changing course too much.";
-
-const runtimeResponseFeedbackLikedValue =
-  "User liked your last response. "
-  + "Keep the current direction.";
-
-const runtimeResponseFeedbackRatings = {
-  disliked: "disliked",
-  neutral: "neutral",
-  liked: "liked",
-};
-
-// UI buttons can still use visual button names. Convert them only at the
-// browser event boundary. Runtime memory and server payloads stay canonical:
-// disliked / neutral / liked.
-const runtimeResponseFeedbackButtonRatings = {
-  minus: "disliked",
-  zero: "neutral",
-  plus: "liked",
-};
-
-let pendingRuntimeResponseFeedback = null;
-let runtimeResponseFeedbackCommitted = false;
-
-
-const jinAnswerRatingL1Gate = {
-  generation: 0,
-  waiting: false,
-  waitingGeneration: 0,
-  readyGeneration: 0,
-  baselineUpdates: 0,
-  // All gate generations strictly below this value are permanently locked:
-  // the user has already submitted a subsequent message, so retroactive
-  // ratings for those turns must be silently dropped.
-  lockedBelowGeneration: 0,
-};
-
-function getLatestRuntimeMemoryUpdatesForRatingGate() {
-
-  const latestSnapshot =
-    runtimeMemoryHistory.snapshots.length
-      ? runtimeMemoryHistory.snapshots[
-        runtimeMemoryHistory.snapshots.length - 1
-      ]
-      : null;
-
-  if (latestSnapshot && latestSnapshot.restored_from_session_save) {
-    return 0;
-  }
-
-  return Number(
-    (
-      latestSnapshot
-      && latestSnapshot.runtime_memory_updates
-    )
-    || (
-      runtimeMemoryCount
-      && runtimeMemoryCount.textContent
-    )
-    || 0
-  );
-
-}
-
-function markJinAnswerRatingL1ReadyFromRuntimeUpdate(
-  data,
-  snapshotIndex = null
-) {
-
-  if (!jinAnswerRatingL1Gate.waiting) {
-    return;
-  }
-
-  const incomingUpdates = Number(
-    data && data.updates || 0
-  );
-
-  if (incomingUpdates <= jinAnswerRatingL1Gate.baselineUpdates) {
-    return;
-  }
-
-  jinAnswerRatingL1Gate.waiting = false;
-  jinAnswerRatingL1Gate.readyGeneration =
-    jinAnswerRatingL1Gate.waitingGeneration;
-  runtimeResponseFeedbackCommitted = false;
-
-  const rawSnapshotIndex =
-    snapshotIndex === undefined
-      ? null
-      : snapshotIndex;
-
-  const numericSnapshotIndex = Number(
-    rawSnapshotIndex
-  );
-
-  const resolvedSnapshotIndex = (
-    rawSnapshotIndex !== null
-    && rawSnapshotIndex !== ""
-    && Number.isInteger(numericSnapshotIndex)
-  )
-    ? numericSnapshotIndex
-    : null;
-
-  document
-    .querySelectorAll(
-      ".jin-chat-bubble-service[data-rating-gate-generation]"
-    )
-    .forEach((bubble) => {
-      if (
-          Number(bubble.dataset.ratingGateGeneration || 0)
-          === jinAnswerRatingL1Gate.readyGeneration
-      ) {
-        bubble.dataset.ratingL1Ready = "true";
-
-        if (resolvedSnapshotIndex !== null) {
-          bubble.dataset.runtimeSnapshotIndex =
-            String(resolvedSnapshotIndex);
-        }
-
-        bubble.classList.remove(
-          "jin-rating-l1-waiting"
-        );
-      }
-    });
-
-  window.dispatchEvent(
-    new CustomEvent(
-      "jin:l1-rating-gate-ready",
-      {
-        detail: {
-          generation: jinAnswerRatingL1Gate.readyGeneration,
-          updates: incomingUpdates,
-          snapshotIndex: resolvedSnapshotIndex,
-        },
-      }
-    )
-  );
-
-}
-
-window.startJinAnswerRatingL1GateForTurn = function () {
-
-  jinAnswerRatingL1Gate.generation += 1;
-  jinAnswerRatingL1Gate.waiting = true;
-  jinAnswerRatingL1Gate.waitingGeneration =
-    jinAnswerRatingL1Gate.generation;
-  jinAnswerRatingL1Gate.baselineUpdates =
-    getLatestRuntimeMemoryUpdatesForRatingGate();
-
-  // Hard-lock every bubble that belongs to a generation older than the one
-  // we are about to start.  This is the authoritative guard: the user has
-  // just sent a new message, so rating any previous assistant turn is no
-  // longer valid regardless of the committed/waiting state of the feedback
-  // flags.
-  jinAnswerRatingL1Gate.lockedBelowGeneration =
-    jinAnswerRatingL1Gate.generation;
-
-  if (typeof document !== "undefined") {
-    document
-      .querySelectorAll(
-        ".jin-chat-bubble-service[data-rating-gate-generation]"
-      )
-      .forEach((bubble) => {
-        const bubbleGen = Number(bubble.dataset.ratingGateGeneration || 0);
-        if (bubbleGen < jinAnswerRatingL1Gate.lockedBelowGeneration) {
-          bubble.classList.remove("jin-rating-selected-active");
-          bubble.classList.add("jin-rating-committed");
-          bubble.dataset.ratingCommitted = "true";
-          bubble.dataset.ratingPastTurn = "true";
-        }
-      });
-  }
-
-  return {
-    generation: jinAnswerRatingL1Gate.waitingGeneration,
-    baselineUpdates: jinAnswerRatingL1Gate.baselineUpdates,
-  };
-
-};
-
-window.getJinAnswerRatingL1GateState = function () {
-
-  return {
-    ...jinAnswerRatingL1Gate,
-  };
-
-};
-
-window.isJinAnswerRatingReadyForGateGeneration = function (
-  generation
-) {
-
-  const gateGeneration = Number(generation || 0);
-
-  if (!gateGeneration) {
-    return !jinAnswerRatingL1Gate.waiting;
-  }
-
-  return gateGeneration === jinAnswerRatingL1Gate.readyGeneration;
-
-};
-
-function normalizeRuntimeResponseFeedbackRating(
-  rating
-) {
-
-  const rawRating =
-    String(rating || "").trim().toLowerCase();
-
-  return (
-    runtimeResponseFeedbackRatings[rawRating]
-    || runtimeResponseFeedbackButtonRatings[rawRating]
-    || null
-  );
-
-}
-
-
-function buildRuntimeResponseFeedbackValue(
-  feedback
-) {
-
-  if (feedback.rating === "disliked") {
-    return runtimeResponseFeedbackDislikedValue;
-  }
-
-  if (feedback.rating === "liked") {
-    return runtimeResponseFeedbackLikedValue;
-  }
-
-  return runtimeResponseFeedbackNeutralValue;
-
-}
-
-
-// In-place rating mutation: rating clicks are part of the current L1 page,
-// not a new runtime memory page.
-function getCurrentRuntimeSnapshotForFeedbackMutation(
-  feedback = null
-) {
-
-  if (!runtimeMemoryHistory.snapshots.length) {
-    return null;
-  }
-
-  const rawSnapshotIndex = feedback
-    ? (
-      feedback.runtimeSnapshotIndex
-      ?? feedback.snapshotIndex
-      ?? null
-    )
-    : null;
-
-  const explicitSnapshotIndex = Number(
-    rawSnapshotIndex
-  );
-
-  if (
-      rawSnapshotIndex !== null
-      && rawSnapshotIndex !== ""
-      && Number.isInteger(explicitSnapshotIndex)
-  ) {
-    const explicitSnapshot =
-      runtimeMemoryHistory.snapshots[explicitSnapshotIndex];
-
-    if (explicitSnapshot) {
-      return explicitSnapshot;
-    }
-  }
-
-  const current =
-    runtimeMemoryHistory.snapshots[runtimeMemoryHistory.index];
-
-  if (current && runtimeMemoryDisplayMode === "runtime") {
-    return current;
-  }
-
-  return runtimeMemoryHistory.snapshots[
-    runtimeMemoryHistory.snapshots.length - 1
-  ];
-
-}
-
-
-function getRuntimeFeedbackLineIdentity(line) {
-
-  const key =
-    String(line && line.key || "")
-      .trim()
-      .toLowerCase();
-
-  const value =
-    String(line && line.value || "")
-      .trim();
-
-  return `${key}\u0000${value}`;
-
-}
-
-
-function buildPreviousRuntimeFeedbackLineMaps(snapshot) {
-
-  const byIdentity = new Map();
-  const byKey = new Map();
-
-  (snapshot && snapshot.lines || [])
-    .forEach((line) => {
-      if (!line || !line.key) {
-        return;
-      }
-
-      const key =
-        String(line.key || "")
-          .trim()
-          .toLowerCase();
-
-      if (!key) {
-        return;
-      }
-
-      byKey.set(key, line);
-      byIdentity.set(
-        getRuntimeFeedbackLineIdentity(line),
-        line
-      );
-    });
-
-  return {
-    byIdentity,
-    byKey,
-  };
-
-}
-
-
-function preserveRuntimeFeedbackLineDiff(
-  parsed,
-  previousMaps
-) {
-
-  if (!parsed || !parsed.key) {
-    return parsed;
-  }
-
-  const key =
-    String(parsed.key || "")
-      .trim()
-      .toLowerCase();
-
-  if (key === runtimeResponseFeedbackKey.toLowerCase()) {
-    return {
-      ...parsed,
-      status: "changed",
-      key_status: "same",
-      value_status: "changed",
-      value_change_ratio: 1,
-      strength: 1,
-    };
-  }
-
-  const previousExact = previousMaps.byIdentity.get(
-    getRuntimeFeedbackLineIdentity(parsed)
-  );
-
-  if (previousExact) {
-    return {
-      ...previousExact,
-      key: parsed.key,
-      value: parsed.value,
-    };
-  }
-
-  const previousByKey = previousMaps.byKey.get(key);
-
-  if (previousByKey) {
-    return {
-      ...parsed,
-      status: previousByKey.status || parsed.status,
-      key_status: previousByKey.key_status || parsed.key_status,
-      value_status: previousByKey.value_status || parsed.value_status,
-      key_change_ratio:
-        previousByKey.key_change_ratio
-        ?? parsed.key_change_ratio,
-      value_change_ratio:
-        previousByKey.value_change_ratio
-        ?? parsed.value_change_ratio,
-      strength:
-        previousByKey.strength
-        ?? parsed.strength,
-    };
-  }
-
-  return parsed;
-
-}
-
-
-function rebuildRuntimeFeedbackSnapshotLines(
-  snapshot,
-  runtimeMemory
-) {
-
-  const previousMaps =
-    buildPreviousRuntimeFeedbackLineMaps(snapshot);
-
-  return splitMemoryTextLines(runtimeMemory)
-    .map((line) => (
-      preserveRuntimeFeedbackLineDiff(
-        parseRuntimeMemoryLine(line),
-        previousMaps
-      )
-    ));
-
-}
-
-
-function applyRuntimeResponseFeedbackToCurrentSnapshot(
-  feedback
-) {
-
-  const snapshot =
-    getCurrentRuntimeSnapshotForFeedbackMutation(
-      feedback
-    );
-
-  if (!snapshot) {
-    return null;
-  }
-
-  const currentMemory =
-    String(snapshot.raw_memory || "").trim();
-
-  if (!currentMemory) {
-    return null;
-  }
-
-  let cleanedMemory =
-    removeRuntimeMemoryLineByKey(
-      currentMemory,
-      runtimeResponseFeedbackKey
-    );
-
-  const nextMemory =
-    feedback && feedback.rating
-      ? upsertRuntimeMemoryLine(
-        cleanedMemory,
-        runtimeResponseFeedbackKey,
-        buildRuntimeResponseFeedbackValue(feedback)
-      )
-      : cleanedMemory;
-
-  snapshot.raw_memory = nextMemory;
-  snapshot.lines = rebuildRuntimeFeedbackSnapshotLines(
-    snapshot,
-    nextMemory
-  );
-  snapshot.client_feedback = (
-    feedback && feedback.rating
-  )
-    ? feedback
-    : null;
-  snapshot.local_feedback_mutation = Boolean(
-    feedback && feedback.rating
-  );
-
-  runtimeMemoryDisplayMode = "runtime";
-  runtimeMemoryHistory.index =
-    runtimeMemoryHistory.snapshots.indexOf(snapshot);
-
-  if (runtimeMemoryHistory.index < 0) {
-    runtimeMemoryHistory.index =
-      runtimeMemoryHistory.snapshots.length - 1;
-  }
-
-  // Feedback is a transient one-turn alert for the next JIN response.
-  // Keep it visible in the current UI snapshot, but do not save it as
-  // stable runtime memory and do not persist it to localStorage.
-  renderRuntimeMemorySnapshot();
-
-  return snapshot;
-
-}
-
-
-window.recordJinAnswerRating = function (
-  detail
-) {
-
-  if (runtimeResponseFeedbackCommitted) {
-    return null;
-  }
-
-  // Generation guard: reject ratings for bubbles that belong to a turn
-  // older than the one currently awaiting a response.  The user already
-  // submitted a newer message, so mutating an earlier snapshot would
-  // inject stale feedback into the wrong memory slice.
-  const incomingGeneration = Number(
-    detail && detail.ratingGateGeneration || 0
-  );
-  if (
-    incomingGeneration > 0
-    && incomingGeneration < jinAnswerRatingL1Gate.lockedBelowGeneration
-  ) {
-    return null;
-  }
-
-  const rating =
-    normalizeRuntimeResponseFeedbackRating(
-      detail && detail.rating
-    );
-
-  if (!rating) {
-    return null;
-  }
-
-  pendingRuntimeResponseFeedback = {
-    rating,
-    runtimeSnapshotIndex:
-      detail && detail.runtimeSnapshotIndex !== undefined
-        ? detail.runtimeSnapshotIndex
-        : null,
-  };
-
-  return applyRuntimeResponseFeedbackToCurrentSnapshot(
-    pendingRuntimeResponseFeedback
-  );
-
-};
-
-
-window.clearJinAnswerRating = function (
-  detail = null
-) {
-
-  if (runtimeResponseFeedbackCommitted) {
-    return null;
-  }
-
-  pendingRuntimeResponseFeedback = null;
-
-  return applyRuntimeResponseFeedbackToCurrentSnapshot({
-    runtimeSnapshotIndex:
-      detail && detail.runtimeSnapshotIndex !== undefined
-        ? detail.runtimeSnapshotIndex
-        : null,
-  });
-
-};
-
-
-window.getJinAnswerRatingForRuntime = function () {
-
-  return pendingRuntimeResponseFeedback
-    ? { ...pendingRuntimeResponseFeedback }
-    : null;
-
-};
-
-
-window.consumePendingLastResponseRating = function () {
-
-  const value = pendingRuntimeResponseFeedback
-    ? { ...pendingRuntimeResponseFeedback }
-    : null;
-
-  pendingRuntimeResponseFeedback = null;
-
-  if (value) {
-    runtimeResponseFeedbackCommitted = true;
-  }
-
-  return value;
-
-};
 
 
 function buildRuntimeMemoryDisplaySnapshot(
@@ -3296,13 +2752,13 @@ window.handleRuntimeMemoryMessage = function (data) {
         clientSnapshot
       );
 
-      markJinAnswerRatingL1ReadyFromRuntimeUpdate(
+      feedback.markL1ReadyFromRuntimeUpdate(
         data,
         clientIndex
       );
     }
   } else {
-    markJinAnswerRatingL1ReadyFromRuntimeUpdate(
+    feedback.markL1ReadyFromRuntimeUpdate(
       data
     );
   }
