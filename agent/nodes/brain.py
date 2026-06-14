@@ -86,7 +86,7 @@ class BrainNode(BaseNode):
                 ],
             ),
             enable_validator=True,
-            emit_to_chat=emit_content_to_chat,
+            emit_to_chat=True,
             emit_content_to_chat=emit_content_to_chat,
             context_snapshot=context_snapshot,
         )

@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 
 from agent.nodes.base import BaseNode
@@ -80,6 +81,38 @@ class TranslationNode(BaseNode):
 
 
     @staticmethod
+    def _split_visible_chunks(
+            text: str,
+            *,
+            max_chars: int = 64,
+    ):
+
+        buffer = ""
+
+        for part in text.split(
+                " ",
+        ):
+
+            next_part = (
+                part
+                if not buffer
+                else f" {part}"
+            )
+
+            if (
+                    buffer
+                    and len(buffer) + len(next_part) > max_chars
+            ):
+                yield buffer
+                buffer = part
+                continue
+
+            buffer += next_part
+
+        if buffer:
+            yield buffer
+
+    @staticmethod
     async def _emit_final_answer(
             state,
             context,
@@ -116,11 +149,17 @@ class TranslationNode(BaseNode):
             payload
         )
 
-        await context.websocket.send_json({
-            "type": "message_chunk",
-            "message_id": message_id,
-            "chunk": message,
-        })
+        for chunk in TranslationNode._split_visible_chunks(
+                message,
+        ):
+            await context.websocket.send_json({
+                "type": "message_chunk",
+                "message_id": message_id,
+                "chunk": chunk,
+            })
+            await asyncio.sleep(
+                0.01
+            )
 
         await context.websocket.send_json({
             "type": "message_end",
