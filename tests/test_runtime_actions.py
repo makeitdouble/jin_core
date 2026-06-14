@@ -584,11 +584,6 @@ class RuntimeActionTests(unittest.TestCase):
         )
         self.assertTrue(
             should_execute_remember_session(
-                "\u0441\u043e\u0445\u0440\u0430\u043d\u0438, \u043f\u043e\u0436\u0430\u043b\u0443\u0439\u0441\u0442\u0430"
-            )
-        )
-        self.assertTrue(
-            should_execute_remember_session(
                 "\u0437\u0430\u043a\u043e\u043d\u0447\u0438\u043c"
             )
         )

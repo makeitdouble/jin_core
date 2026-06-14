@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 from runtime.context_contract import (
-    DEEP_THOUGHT_REQUEST,
     REMEMBER_EVENT_REQUEST,
     REMEMBER_SESSION_REQUEST,
-    RUNTIME_ACTION_DEEP_THOUGHT,
     RUNTIME_ACTION_REMEMBER_EVENT,
     RUNTIME_ACTION_REMEMBER_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
@@ -113,22 +111,13 @@ def build_runtime_action_instructions(enabled_actions: tuple[str, ...]) -> str:
         "When requesting a runtime action, output exactly one private marker on its own line. "
         "Do not wrap it in markdown. Do not put it inside a bullet list. Do not bold it. "
         "Do not describe it in prose. "
-        f"Allowed private markers are exactly: {DEEP_THOUGHT_REQUEST}, "
-        f"{REMEMBER_SESSION_REQUEST}, {REMEMBER_EVENT_REQUEST}, "
-        f"and {WEB_SEARCH_REQUEST_TEMPLATE}. "
+        f"Allowed private markers are exactly: {REMEMBER_SESSION_REQUEST}, "
+        f"{REMEMBER_EVENT_REQUEST}, and {WEB_SEARCH_REQUEST_TEMPLATE}. "
         "The runtime removes private markers before rendering visible answers. "
         "Do not write INTERNAL_ACTION: WEB_SEARCH query: ..., INTERNAL ACTION: ..., "
         "WEB_SEARCH query: ..., JSON, or runtime XML markers."
     ]
 
-    if RUNTIME_ACTION_DEEP_THOUGHT in enabled_actions:
-        instructions.append(
-            "Before answering, request DEEP_THOUGHT once when the current request asks you to "
-            "think carefully/deeply, compare designs, make a multi-step judgment, "
-            "debug architecture, reflect on your own state, or handle high uncertainty. "
-            "Do not emit it for simple greetings, direct factual answers, or casual small talk. "
-            f"Use this private marker on its own line: {DEEP_THOUGHT_REQUEST}. Do not explain it."
-        )
 
     if RUNTIME_ACTION_WEB_SEARCH in enabled_actions:
         instructions.append(
@@ -196,11 +185,6 @@ def build_runtime_state_instructions(enabled_actions: tuple[str, ...]) -> str:
         "only trust the values provided in trusted runtime context."
     ]
 
-    if RUNTIME_ACTION_DEEP_THOUGHT in enabled_actions:
-        instructions.append(
-            "DEEP_THOUGHT_COUNTER is telemetry from earlier runtime actions; "
-            "it must not by itself trigger or forbid a new runtime action."
-        )
 
     return " ".join(instructions)
 

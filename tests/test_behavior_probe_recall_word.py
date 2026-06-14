@@ -310,8 +310,8 @@ def answer_has_recall_question(
     # anaphoric follow-up "какое оно". Detect that shape before checking
     # single-question fragments.
     anaphoric_recall_patterns = (
-        r"\bслово\b[^?]{0,80}\?\s*(?:а\s+теперь[, ]*)?(?:како[ей]|что)\b[^?]{0,80}\b(?:оно|это|было|наш|секретн\w*)\b",
-        r"\bсекретн\w+\s+слово\b[^?]{0,80}\?\s*(?:како[ей]|что)\b[^?]{0,80}\b(?:оно|это|было|наш|секретн\w*)\b",
+        r"\bслово\b[^?]{0,80}\?\s*(?:а\s+теперь[, ]*)?(?:како[ей]|как|что)\b[^?]{0,80}\b(?:оно|это|было|наш|секретн\w*)\b",
+        r"\bсекретн\w+\s+слово\b[^?]{0,80}\?\s*(?:како[ей]|как|что)\b[^?]{0,80}\b(?:оно|это|было|наш|секретн\w*)\b",
     )
 
     if any(re.search(pattern, text) for pattern in anaphoric_recall_patterns):
@@ -761,6 +761,9 @@ class BehaviorProbeShapeTests(unittest.TestCase):
         )
         self.assertTrue(
             answer_has_recall_question("Помнишь, мы запоминали секретное слово? Какое оно было?")
+        )
+        self.assertTrue(
+            answer_has_recall_question("Помнишь слово, которое мы запомнили? Как оно?")
         )
         self.assertTrue(
             answer_has_recall_question("А теперь, если ты помнишь... какой же наш секретный слово?")

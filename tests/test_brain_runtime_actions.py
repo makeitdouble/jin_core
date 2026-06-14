@@ -331,7 +331,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
     def test_prompt_and_runtime_context_expose_only_private_action_markers(self):
 
         runtime_actions = {
-            "CAN_DEEP_THOUGHT": True,
             "CAN_WEB_SEARCH": True,
             "CAN_REMEMBER_SESSION": True,
             "CAN_REMEMBER_EVENT": True,
@@ -363,7 +362,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
             )
 
         for private_marker in (
-            "<INTERNAL_ACTION_DEEP_THOUGHT>",
             "<INTERNAL_ACTION_REMEMBER_SESSION>",
             "<INTERNAL_ACTION_REMEMBER_EVENT>",
             "<INTERNAL_ACTION_WEB_SEARCH:plain text query>",
@@ -484,12 +482,13 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
 
-        self.assertIn(
-            (
-                '<ACTION name="DEEP_THOUGHT">'
-                "<INTERNAL_ACTION_DEEP_THOUGHT>"
-                "</ACTION>"
-            ),
+        self.assertNotIn(
+            "<INTERNAL_ACTION_DEEP_THOUGHT>",
+            prompt,
+        )
+
+        self.assertNotIn(
+            '<ACTION name="DEEP_THOUGHT">',
             prompt,
         )
 
