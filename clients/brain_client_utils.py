@@ -2,11 +2,9 @@ import re
 from xml.etree import ElementTree
 
 from bootstrap.brain_bootstrap import (
-    get_image_input_rules,
     get_last_jin_response_rules,
     get_loop_rules,
     get_memory_rules,
-    get_philosophy_mode,
     MEDIA_CONTEXT_ATTRS,
     MEMORY_REQUEST_MARKERS,
     PHILOSOPHY_MARKERS,
@@ -1264,7 +1262,7 @@ def build_conditional_prompt_rules(
 ) -> str:
 
     rules = [
-        get_last_jin_response_rules(),
+        ""
     ]
 
     if has_countdown_contract(
@@ -1274,32 +1272,11 @@ def build_conditional_prompt_rules(
             COUNTDOWN_CONTRACT_RULES
         )
 
-    if has_memory_rule_request(
-        context
-    ):
-        rules.append(
-            get_memory_rules()
-        )
-
     if has_loop_rule_signal(
         context
     ):
         rules.append(
             get_loop_rules()
-        )
-
-    if has_media_context(
-        context
-    ):
-        rules.append(
-            get_image_input_rules()
-        )
-
-    if is_philosophy_mode_active(
-        context
-    ):
-        rules.append(
-            get_philosophy_mode()
         )
 
     return "".join(

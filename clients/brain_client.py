@@ -7,11 +7,8 @@ from runtime.context_contract import (
     RUNTIME_ACTION_WEB_SEARCH,
 )
 from bootstrap.brain_bootstrap import (
-    ZERO_DIFF_STALL_ACTIVE_RULE,
     build_brain_runtime_interface_rules,
-    build_brain_soft_success_rules,
     build_identity_context,
-    get_image_input_rules,
 )
 
 from clients.errors import (
@@ -69,18 +66,8 @@ def build_brain_system_prompt(
         context
     )
 
-    soft_rules = ""
-
-    if zero_diff_stall_active:
-        soft_rules = (
-            ZERO_DIFF_STALL_ACTIVE_RULE
-        )
-    else:
-        soft_rules = build_brain_soft_success_rules()
-
     return (
         f"{build_identity_context(context)}"
-        f"{soft_rules}"
         f"{build_conditional_prompt_rules(context)}"
         f"{build_brain_runtime_interface_rules(enabled_actions)}"
         "\n"

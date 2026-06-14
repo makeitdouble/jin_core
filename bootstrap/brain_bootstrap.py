@@ -13,18 +13,9 @@ from runtime.behavior_contract import (
 )
 
 from rules import (
-    AUTONOMY_RULES,
     IDENTITY,
-    IMAGE_INPUT_RULES,
-    LAST_JIN_RESPONSE_RULES,
     LOOP_RULES,
-    MEMORY_RULES,
-    PHILOSOPHY_MODE,
-    REQUEST_RULES,
 )
-
-
-ZERO_DIFF_STALL_ACTIVE_RULE = "ZERO_DIFF_STALL_ALERT is active.\n"
 
 MEMORY_REQUEST_MARKERS = (
     "помнишь",
@@ -255,10 +246,6 @@ def build_zero_diff_stall_instruction() -> str:
 # Rule accessors used by brain clients
 # ─────────────────────────────────────────────
 
-def build_brain_soft_success_rules() -> str:
-    return REQUEST_RULES
-
-
 def get_last_jin_response_rules() -> str:
     return LAST_JIN_RESPONSE_RULES
 
@@ -269,15 +256,3 @@ def get_memory_rules() -> str:
 
 def get_loop_rules() -> str:
     return LOOP_RULES
-
-
-def get_image_input_rules() -> str:
-    return IMAGE_INPUT_RULES
-
-
-def get_philosophy_mode() -> str:
-    return PHILOSOPHY_MODE
-
-
-def get_autonomy_rules() -> str:
-    return AUTONOMY_RULES
