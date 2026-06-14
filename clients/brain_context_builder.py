@@ -16,7 +16,6 @@ from clients.brain_client_utils import (
 )
 from runtime.context_contract import (
     ContextContract,
-    RUNTIME_ACTION_DEEP_THOUGHT,
     RUNTIME_ACTION_REMEMBER_EVENT,
     RUNTIME_ACTION_REMEMBER_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
@@ -35,16 +34,6 @@ def build_runtime_xml(
     enabled_actions = get_enabled_runtime_actions(
         runtime_actions
     )
-    deep_thought_count = (
-        getattr(
-            context,
-            "deep_thought_count",
-            0,
-        )
-        if context is not None
-        else 0
-    )
-
     now = datetime.now()
 
     return (
@@ -52,11 +41,8 @@ def build_runtime_xml(
             user_input="",
             compressed_history="",
             system_state="ACTIVE",
-            deep_thought_count=deep_thought_count,
-            can_deep_thought=(
-                RUNTIME_ACTION_DEEP_THOUGHT
-                in enabled_actions
-            ),
+            deep_thought_count=0,
+            can_deep_thought=False,
             can_web_search=(
                 RUNTIME_ACTION_WEB_SEARCH
                 in enabled_actions

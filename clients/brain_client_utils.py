@@ -15,7 +15,6 @@ from runtime.behavior_contract import (
     should_execute_action_guard,
 )
 from runtime.context_contract import (
-    RUNTIME_ACTION_DEEP_THOUGHT,
     RUNTIME_ACTION_REMEMBER_EVENT,
     RUNTIME_ACTION_REMEMBER_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
@@ -455,10 +454,6 @@ def get_enabled_runtime_actions(
 
     for action_name, config_key in (
         (
-            RUNTIME_ACTION_DEEP_THOUGHT,
-            "CAN_DEEP_THOUGHT",
-        ),
-        (
             RUNTIME_ACTION_WEB_SEARCH,
             "CAN_WEB_SEARCH",
         ),
@@ -487,74 +482,20 @@ def get_enabled_runtime_actions(
     )
 
 
-def get_enabled_thinking_runtime_actions(
-    runtime_actions=None,
-) -> tuple[str, ...]:
-
-    return get_enabled_runtime_actions(
-        runtime_actions
-    )
-
-
 def count_deep_thought_calls(
     text: str,
     runtime_actions=None,
 ) -> int:
 
-    return (
-        extract_runtime_actions(
-            text,
-            enabled_actions=(
-                get_enabled_runtime_actions(
-                    runtime_actions
-                )
-            ),
-        )
-        .deep_thought_count
-    )
+    return 0
 
 
-async def apply_deep_thought_calls(
+def record_deep_thought_calls(
     context,
-    call_count: int,
+    reasoning: str,
 ) -> int:
 
-    if (
-        context is None
-        or not call_count
-    ):
-        return 0
-
-    current_count = getattr(
-        context,
-        "deep_thought_count",
-        0,
-    )
-
-    context.deep_thought_count = (
-        current_count
-        + call_count
-    )
-
-    logger = getattr(
-        context,
-        "logger",
-        None,
-    )
-    log_runtime = getattr(
-        logger,
-        "log_runtime",
-        None,
-    )
-
-    if log_runtime is not None:
-        await log_runtime(
-            "[RUNTIME ACTION] "
-            f"deep_thought x{call_count}; "
-            f"counter={context.deep_thought_count}"
-        )
-
-    return call_count
+    return 0
 
 
 def should_execute_remember_session(
@@ -652,23 +593,12 @@ async def apply_runtime_action_calls(
         )
     )
     remember_event_seen = False
-    deep_thought_seen = False
     resolved_user_message = resolve_runtime_action_user_message(
         context,
         user_message,
     )
 
     for action in actions:
-
-        if action.name == RUNTIME_ACTION_DEEP_THOUGHT:
-            if deep_thought_seen:
-                continue
-
-            deep_thought_seen = True
-            filtered_actions.append(
-                action
-            )
-            continue
 
         if action.name == RUNTIME_ACTION_REMEMBER_SESSION:
             if not should_execute_remember_session(
@@ -762,12 +692,6 @@ async def apply_runtime_action_calls(
             action_event
         )
 
-    deep_thought_count = sum(
-        1
-        for action in filtered_actions
-        if action.name == RUNTIME_ACTION_DEEP_THOUGHT
-    )
-
     remember_session_count = sum(
         1
         for action in filtered_actions
@@ -778,14 +702,6 @@ async def apply_runtime_action_calls(
         1
         for action in filtered_actions
         if action.name == RUNTIME_ACTION_REMEMBER_EVENT
-    )
-
-    applied_count = await apply_deep_thought_calls(
-        context,
-        min(
-            deep_thought_count,
-            1,
-        ),
     )
 
     search_queries = [
@@ -938,7 +854,7 @@ async def apply_runtime_action_calls(
                 "persist": True,
             })
 
-    return applied_count + len(
+    return len(
         search_queries
     ) + min(
         remember_session_count,
@@ -948,36 +864,6 @@ async def apply_runtime_action_calls(
         1,
     )
 
-
-def record_deep_thought_calls(
-    context,
-    reasoning: str,
-) -> int:
-
-    call_count = count_deep_thought_calls(
-        reasoning
-    )
-
-    if not call_count:
-        return 0
-
-    call_count = min(
-        call_count,
-        1,
-    )
-
-    current_count = getattr(
-        context,
-        "deep_thought_count",
-        0,
-    )
-
-    context.deep_thought_count = (
-        current_count
-        + call_count
-    )
-
-    return call_count
 
 
 def indent_xml(

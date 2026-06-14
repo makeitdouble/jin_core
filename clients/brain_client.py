@@ -4,7 +4,6 @@ from config_loader import (
     config,
 )
 from runtime.context_contract import (
-    RUNTIME_ACTION_DEEP_THOUGHT,
     RUNTIME_ACTION_WEB_SEARCH,
 )
 from bootstrap.brain_bootstrap import (
@@ -29,10 +28,8 @@ from clients.brain_client_utils import (
     apply_runtime_action_calls,
     build_conditional_prompt_rules,
     build_previous_think_block,
-    count_deep_thought_calls,
     extract_previous_think_tail,
     get_enabled_runtime_actions,
-    get_enabled_thinking_runtime_actions,
     get_previous_think_context_block,
     has_zero_diff_stall_alert,
     is_user_initiated_remember_event,
@@ -169,14 +166,11 @@ async def ask_brain(
             enabled_actions = get_enabled_runtime_actions(
                 runtime_actions
             )
-            thinking_actions = get_enabled_thinking_runtime_actions(
-                runtime_actions
-            )
 
             reasoning_actions = (
                 extract_runtime_actions(
                     reasoning,
-                    enabled_actions=thinking_actions,
+                    enabled_actions=enabled_actions,
                     preserve_action_text=True,
                 )
             )
@@ -275,13 +269,10 @@ async def ask_brain(
         enabled_actions = get_enabled_runtime_actions(
             runtime_actions
         )
-        thinking_actions = get_enabled_thinking_runtime_actions(
-            runtime_actions
-        )
 
         reasoning_actions = extract_runtime_actions(
             reasoning,
-            enabled_actions=thinking_actions,
+            enabled_actions=enabled_actions,
             preserve_action_text=True,
         )
 
@@ -309,7 +300,7 @@ async def ask_brain(
 
         return extract_runtime_actions(
             reasoning,
-            enabled_actions=thinking_actions,
+            enabled_actions=enabled_actions,
         ).text
 
     except Exception as error:
@@ -361,25 +352,20 @@ async def ask_brain_stream(
     enabled_actions = get_enabled_runtime_actions(
         runtime_actions
     )
-    thinking_actions = get_enabled_thinking_runtime_actions(
-        runtime_actions
-    )
 
     thinking_filter = RuntimeActionStreamFilter(
-        enabled_actions=thinking_actions,
+        enabled_actions=enabled_actions,
         preserve_action_text=True,
     )
     content_filter = RuntimeActionStreamFilter(
         enabled_actions=enabled_actions
     )
-    deep_thought_action_executed = False
     stop_for_runtime_action = False
 
     async def filter_runtime_action_chunk(
         action_chunk,
     ):
 
-        nonlocal deep_thought_action_executed
         nonlocal stop_for_runtime_action
 
         chunk_type = action_chunk.get(
@@ -405,34 +391,20 @@ async def ask_brain_stream(
             )
         )
 
-        if (
-            result.deep_thought_count
-            and not deep_thought_action_executed
-        ):
-
-            deep_thought_action_executed = True
-
-            await apply_deep_thought_calls(
-                context,
-                1,
-            )
-
-        non_deep_actions = tuple(
-            action
-            for action in result.actions
-            if action.name != RUNTIME_ACTION_DEEP_THOUGHT
+        runtime_action_calls = tuple(
+            result.actions
         )
 
-        if non_deep_actions:
+        if runtime_action_calls:
             await apply_runtime_action_calls(
                 context,
-                non_deep_actions,
+                runtime_action_calls,
                 user_message=text,
             )
 
             stop_for_runtime_action = any(
                 action.name == RUNTIME_ACTION_WEB_SEARCH
-                for action in non_deep_actions
+                for action in runtime_action_calls
             )
 
             if not stop_for_runtime_action:
