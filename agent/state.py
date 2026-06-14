@@ -34,3 +34,7 @@ class AgentState:
     metadata: dict = field(default_factory=dict)
 
     final_answer: str = ""
+
+    visible_response_role: str = ""
+
+    visible_response_context: dict = field(default_factory=dict)
