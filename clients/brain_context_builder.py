@@ -20,7 +20,7 @@ from runtime.context_contract import (
     RUNTIME_ACTION_REMEMBER_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
 )
-from runtime.memory_utils import (
+from runtime.L1_memory_utils import (
     build_runtime_memory_context_text,
     canonicalize_runtime_memory_text,
 )

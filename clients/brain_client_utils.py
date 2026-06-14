@@ -19,7 +19,7 @@ from runtime.context_contract import (
     RUNTIME_ACTION_REMEMBER_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
 )
-from runtime.memory_utils import (
+from runtime.L3_memory_utils import (
     build_runtime_session_event_snapshot,
 )
 from utils.runtime_actions import (

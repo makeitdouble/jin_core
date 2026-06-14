@@ -38,7 +38,7 @@ from runtime.L3_memory import (
 from runtime.L3_memory_rules import (
     L3_OUTPUT_MAX_TOKENS,
 )
-from runtime.memory_utils import (
+from runtime.L2_memory_utils import (
     merge_runtime_l2_pattern_evidence_memory,
     normalize_l2_pattern_evidence_example,
     remove_runtime_l2_pattern_evidence_lines,

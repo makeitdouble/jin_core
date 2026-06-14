@@ -16,7 +16,7 @@ from runtime.L2_memory_rules import (
 from runtime.fact_check import (
     ensure_confirmable_memory_markers,
 )
-from runtime.memory_utils import (
+from runtime.L2_memory_utils import (
     build_runtime_l2_memory_system_prompt,
     build_runtime_l2_memory_user_prompt,
     build_runtime_l2_repeated_user_message_evidence_memory,

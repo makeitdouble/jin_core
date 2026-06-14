@@ -28,11 +28,15 @@ from .memory_events import (
     emit_runtime_l1_diff_update,
     emit_runtime_session_memory_update,
 )
-from .memory_utils import (
+from .L1_memory_utils import (
     build_interrupted_assistant_message,
-    build_runtime_l2_memory_system_prompt,
     build_runtime_memory_system_prompt,
     build_runtime_memory_user_prompt,
+)
+from .L2_memory_utils import (
+    build_runtime_l2_memory_system_prompt,
+)
+from .L3_memory_utils import (
     build_runtime_session_memory_system_prompt,
     build_runtime_session_memory_user_prompt,
 )

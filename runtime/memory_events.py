@@ -1,7 +1,7 @@
 from runtime.memory_common import (
     safe_call,
 )
-from runtime.memory_utils import (
+from runtime.L1_memory_utils import (
     build_runtime_memory_context_text,
 )
 
