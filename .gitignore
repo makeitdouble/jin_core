@@ -17,3 +17,4 @@ repomix-output.xml
 .codegraph/
 init.py
 saved_runtime.txt
+*.patch
