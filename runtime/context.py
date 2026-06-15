@@ -79,11 +79,19 @@ class RuntimeContext:
 
     runtime_session_memory_updates: int = 0
 
+    runtime_l3_session_first_turn: int | None = None
+
+    runtime_l3_session_last_turn: int | None = None
+
+    runtime_l3_saved_runtime_snapshot_index: int | None = None
+
     runtime_session_memory_update_task: object | None = None
 
     runtime_session_event_snapshots: list[dict] = field(
         default_factory=list
     )
+
+    runtime_remember_session_armed: bool = False
 
     runtime_remember_session_requested: bool = False
 

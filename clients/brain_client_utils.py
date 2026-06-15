@@ -750,6 +750,7 @@ async def apply_runtime_action_calls(
         )
 
     if remember_session_count:
+        context.runtime_remember_session_armed = False
         context.runtime_remember_session_requested = True
         context.runtime_remember_session_action_emitted = True
 
