@@ -5,7 +5,7 @@
 
 from .identity    import IDENTITY
 from .runtime  import RUNTIME_ACTIONS
-from .loop_rules       import LOOP_RULES         # load if: pattern_counter > 0
+from .loop_rules       import LOOP_RULES         # load if: pattern_counter > 1
 
 def build_system_prompt(
     has_memory_request: bool = False,
@@ -17,7 +17,7 @@ def build_system_prompt(
         RUNTIME_ACTIONS,
     ]
 
-    if pattern_counter > 0:
+    if pattern_counter > 1:
         blocks.append(LOOP_RULES)
 
     return "\n".join(blocks)

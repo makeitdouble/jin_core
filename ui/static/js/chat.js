@@ -12,6 +12,70 @@ const STREAM_NEAR_BOTTOM_PX = 72;
 let streamFrameScheduled = false;
 const deferredRuntimeActionsAfterResponse = [];
 
+const jinInputLoopState = {
+  previousInput: "",
+  repeatCount: 0,
+};
+
+function normalizeJinLoopInput(text) {
+
+  const raw = String(
+    text
+    || ""
+  ).toLowerCase();
+
+  const normalized = raw.normalize
+    ? raw.normalize("NFKC")
+    : raw;
+
+  try {
+    return normalized.replace(
+      /[\p{P}\p{S}\s]+/gu,
+      ""
+    );
+  } catch (error) {
+    return normalized.replace(
+      /[^a-zа-яёіїєґ0-9]+/gi,
+      ""
+    );
+  }
+
+}
+
+function updateJinInputLoopCounter(text) {
+
+  const normalizedInput =
+    normalizeJinLoopInput(
+      text
+    );
+
+  if (!normalizedInput) {
+    jinInputLoopState.previousInput = "";
+    jinInputLoopState.repeatCount = 0;
+
+    return {
+      repeatCount: 0,
+      normalizedInput: "",
+    };
+  }
+
+  if (
+    normalizedInput
+    === jinInputLoopState.previousInput
+  ) {
+    jinInputLoopState.repeatCount += 1;
+  } else {
+    jinInputLoopState.previousInput = normalizedInput;
+    jinInputLoopState.repeatCount = 0;
+  }
+
+  return {
+    repeatCount: jinInputLoopState.repeatCount,
+    normalizedInput,
+  };
+
+}
+
 /**
  * @typedef {Object} ContextSnapshot
  * @property {string=} system_prompt
@@ -1043,6 +1107,12 @@ function finishStreamMessage(
 
 }
 
+
+window.normalizeJinLoopInput =
+  normalizeJinLoopInput;
+
+window.updateJinInputLoopCounter =
+  updateJinInputLoopCounter;
 
 window.appendChatMessage =
   appendChatMessage;

@@ -1171,32 +1171,18 @@ def has_loop_rule_signal(
     pattern_counter = getattr(
         context,
         "runtime_pattern_counter",
-        None,
+        0,
     )
 
-    if pattern_counter is not None:
-        try:
-            return int(
-                pattern_counter
-            ) > 0
-        except (
-            TypeError,
-            ValueError,
-        ):
-            return False
-
-    runtime_l2_memory = getattr(
-        context,
-        "runtime_l2_memory",
-        "",
-    )
-
-    return bool(
-        str(
-            runtime_l2_memory
-            or ""
-        ).strip()
-    )
+    try:
+        return int(
+            pattern_counter
+        ) > 1
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return False
 
 
 def has_media_context(

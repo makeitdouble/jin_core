@@ -1326,6 +1326,18 @@ chatForm.addEventListener(
       text: text,
     };
 
+    const inputLoopContext =
+      window.updateJinInputLoopCounter
+        ? window.updateJinInputLoopCounter(
+            text
+          )
+        : null;
+
+    if (inputLoopContext) {
+      payload.runtime_pattern_counter =
+        inputLoopContext.repeatCount;
+    }
+
     const userIdleContext =
       window.getJinUserIdleContext
         ? window.getJinUserIdleContext()

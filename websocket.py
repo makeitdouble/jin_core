@@ -1364,6 +1364,43 @@ def apply_user_idle_context(
     )
 
 
+def parse_runtime_pattern_counter(
+    value,
+) -> int:
+
+    try:
+        counter = int(
+            value
+            or 0
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return 0
+
+    return max(
+        0,
+        min(
+            counter,
+            100,
+        ),
+    )
+
+
+def apply_runtime_pattern_context(
+    context,
+    message_data: dict,
+):
+
+    context.runtime_pattern_counter = parse_runtime_pattern_counter(
+        message_data.get(
+            "runtime_pattern_counter",
+            0,
+        )
+    )
+
+
 async def process_message(
     context,
     message_data: dict,
@@ -1388,6 +1425,10 @@ async def process_message(
             user_text,
         )
         apply_user_idle_context(
+            context,
+            message_data,
+        )
+        apply_runtime_pattern_context(
             context,
             message_data,
         )

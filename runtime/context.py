@@ -71,6 +71,8 @@ class RuntimeContext:
 
     runtime_l2_memory: str = ""
 
+    runtime_pattern_counter: int = 0
+
     session_memory: str = ""
 
     session_memory_source: str = ""
