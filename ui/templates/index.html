@@ -54,6 +54,32 @@
             background-position: center;
         }
 
+        #scene-clutter-overlay,
+        #scene-search-overlay {
+            opacity: 0;
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+        }
+
+        #scene-clutter-overlay {
+            z-index: 1;
+            transition: opacity 2s ease;
+        }
+
+        #scene-search-overlay {
+            z-index: 2;
+            transition: opacity 0.22s ease;
+
+            background-image: url('static/images/states/searching.png');
+        }
+
+        main.scene-clutter-middle #scene-clutter-overlay,
+        main.scene-cluttered #scene-clutter-overlay,
+        main.scene-searching #scene-search-overlay {
+            opacity: 1;
+        }
+
         #scene-shade {
             background: rgba(0, 0, 0, var(--scene-shade-alpha));
             transition: background 0.22s ease;
@@ -1305,11 +1331,19 @@
 <main class="flex flex-1 overflow-hidden relative">
     <div id="scene-bg"
          class="absolute inset-0 bg-cover bg-center opacity-80 pointer-events-none"
-         style="background-image:url('static/images/states/default.png')">
+         style="background-image:url('static/images/states/default.jpg')">
+    </div>
+    <div id="scene-clutter-overlay"
+         class="absolute inset-0 pointer-events-none"
+         aria-hidden="true">
+    </div>
+    <div id="scene-search-overlay"
+         class="absolute inset-0 pointer-events-none"
+         aria-hidden="true">
     </div>
 
     <div id="scene-shade"
-            class="absolute inset-0 pointer-events-none">
+         class="absolute inset-0 pointer-events-none">
     </div>
 
     <!-- LEFT CONSOLE -->

@@ -6,6 +6,34 @@
   const TELEMETRY_FRAME_WARNING_MS = 12;
   const CONTEXT_PANEL_RENDER_THROTTLE_MS = 300;
 
+  const SCENE_CONTEXT_PRESSURE_THRESHOLD = 50;
+  const SCENE_CONTEXT_PRESSURE_MIDDLE_TURNS = 3;
+  const SCENE_CONTEXT_PRESSURE_CLUTTERED_TURNS = 6;
+  const SCENE_CONTEXT_PRESSURE_CLEAR_TURNS = 2;
+  const SCENE_CONTEXT_PRESSURE_COMMIT_DELAY_MS = 420;
+
+  const sceneContextPressureState = {
+    promt_context_presure: 0,
+    L1_memory_context_presure: 0,
+    highTurns: 0,
+    lowTurns: 0,
+    desiredStage: null,
+    visibleStage: null,
+    pendingKey: "",
+    pendingSample: null,
+    committedKey: "",
+    commitTimer: null,
+    imageState: {
+      middle: "unknown",
+      cluttered: "unknown",
+    },
+  };
+
+  const SCENE_CONTEXT_PRESSURE_IMAGES = {
+    middle: "static/images/states/middle.png",
+    cluttered: "static/images/states/cluttered.png",
+  };
+
   let initialized = false;
   let telemetryFrameScheduled = false;
   let contextPanelRenderTimer = null;
@@ -242,6 +270,374 @@
     return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
 
   }
+
+  function getSceneRoot() {
+
+    return document.querySelector(
+      "main"
+    );
+
+  }
+
+
+  function clearSceneContextPressureTimer() {
+
+    if (!sceneContextPressureState.commitTimer) {
+      return;
+    }
+
+    clearTimeout(
+      sceneContextPressureState.commitTimer
+    );
+
+    sceneContextPressureState.commitTimer = null;
+
+  }
+
+
+  function clampContextPressure(value) {
+
+    const number = Number(value);
+
+    if (!Number.isFinite(number)) {
+      return 0;
+    }
+
+    return Math.max(
+      0,
+      Math.min(
+        100,
+        Math.round(number)
+      )
+    );
+
+  }
+
+
+  function getContextLinePressure(contextLine) {
+
+    if (!contextLine) {
+      return 0;
+    }
+
+    return clampContextPressure(
+      Math.max(
+        Number(contextLine.percent || 0),
+        Number(contextLine.totalPercent || 0)
+      )
+    );
+
+  }
+
+
+  function clearSceneContextPressureStage() {
+
+    const sceneRoot =
+      getSceneRoot();
+
+    if (!sceneRoot) {
+      return;
+    }
+
+    sceneContextPressureState.desiredStage = null;
+    sceneContextPressureState.visibleStage = null;
+
+    sceneRoot.classList.remove(
+      "scene-clutter-middle",
+      "scene-cluttered"
+    );
+
+  }
+
+
+  function applyLoadedSceneContextPressureStage(stage) {
+
+    const sceneRoot =
+      getSceneRoot();
+
+    const overlay =
+      document.getElementById(
+        "scene-clutter-overlay"
+      );
+
+    const imageUrl =
+      SCENE_CONTEXT_PRESSURE_IMAGES[stage];
+
+    if (
+      !sceneRoot
+      || !overlay
+      || !imageUrl
+    ) {
+      return;
+    }
+
+    overlay.style.backgroundImage =
+      `url('${imageUrl}')`;
+
+    sceneRoot.classList.toggle(
+      "scene-clutter-middle",
+      stage === "middle"
+    );
+
+    sceneRoot.classList.toggle(
+      "scene-cluttered",
+      stage === "cluttered"
+    );
+
+    sceneContextPressureState.visibleStage =
+      stage;
+
+  }
+
+
+  function ensureSceneContextPressureImage(
+    stage,
+    callback
+  ) {
+
+    const imageUrl =
+      SCENE_CONTEXT_PRESSURE_IMAGES[stage];
+
+    if (!imageUrl) {
+      callback(false);
+      return;
+    }
+
+    const currentState =
+      sceneContextPressureState.imageState[stage];
+
+    if (currentState === "loaded") {
+      callback(true);
+      return;
+    }
+
+    if (currentState === "missing") {
+      callback(false);
+      return;
+    }
+
+    sceneContextPressureState.imageState[stage] =
+      "loading";
+
+    const image =
+      new Image();
+
+    image.onload = function () {
+      sceneContextPressureState.imageState[stage] =
+        "loaded";
+
+      callback(true);
+    };
+
+    image.onerror = function () {
+      sceneContextPressureState.imageState[stage] =
+        "missing";
+
+      callback(false);
+    };
+
+    image.src = imageUrl;
+
+  }
+
+
+  function setSceneContextPressureStage(stage) {
+
+    if (!stage) {
+      clearSceneContextPressureStage();
+      return;
+    }
+
+    sceneContextPressureState.desiredStage =
+      stage;
+
+    ensureSceneContextPressureImage(
+      stage,
+      function (loaded) {
+        if (
+          sceneContextPressureState.desiredStage
+          !== stage
+        ) {
+          return;
+        }
+
+        if (loaded) {
+          applyLoadedSceneContextPressureStage(
+            stage
+          );
+          return;
+        }
+
+        if (stage === "cluttered") {
+          setSceneContextPressureStage(
+            "middle"
+          );
+          return;
+        }
+
+        clearSceneContextPressureStage();
+      }
+    );
+
+  }
+
+
+  function publishSceneContextPressureState() {
+
+    window.jinSceneContextPressure = {
+      promt_context_presure:
+        sceneContextPressureState.promt_context_presure,
+      L1_memory_context_presure:
+        sceneContextPressureState.L1_memory_context_presure,
+      highTurns:
+        sceneContextPressureState.highTurns,
+      lowTurns:
+        sceneContextPressureState.lowTurns,
+      stage:
+        sceneContextPressureState.visibleStage,
+    };
+
+  }
+
+
+  function commitSceneContextPressureSample(sample) {
+
+    if (!sample) {
+      return;
+    }
+
+    const key =
+      `${sample.promptPressure}:${sample.l1Pressure}`;
+
+    if (
+      key
+      && key === sceneContextPressureState.committedKey
+    ) {
+      return;
+    }
+
+    sceneContextPressureState.committedKey =
+      key;
+
+    sceneContextPressureState.promt_context_presure =
+      sample.promptPressure;
+
+    sceneContextPressureState.L1_memory_context_presure =
+      sample.l1Pressure;
+
+    const bothHigh =
+      sample.promptPressure > SCENE_CONTEXT_PRESSURE_THRESHOLD
+      && sample.l1Pressure > SCENE_CONTEXT_PRESSURE_THRESHOLD;
+
+    const bothLow =
+      sample.promptPressure < SCENE_CONTEXT_PRESSURE_THRESHOLD
+      && sample.l1Pressure < SCENE_CONTEXT_PRESSURE_THRESHOLD;
+
+    if (bothHigh) {
+      sceneContextPressureState.highTurns += 1;
+      sceneContextPressureState.lowTurns = 0;
+    } else if (bothLow) {
+      sceneContextPressureState.lowTurns += 1;
+      sceneContextPressureState.highTurns = 0;
+    } else {
+      sceneContextPressureState.highTurns = 0;
+      sceneContextPressureState.lowTurns = 0;
+    }
+
+    if (
+      sceneContextPressureState.lowTurns
+      >= SCENE_CONTEXT_PRESSURE_CLEAR_TURNS
+    ) {
+      setSceneContextPressureStage(null);
+    } else if (
+      sceneContextPressureState.highTurns
+      >= SCENE_CONTEXT_PRESSURE_CLUTTERED_TURNS
+    ) {
+      setSceneContextPressureStage(
+        "cluttered"
+      );
+    } else if (
+      sceneContextPressureState.highTurns
+      >= SCENE_CONTEXT_PRESSURE_MIDDLE_TURNS
+    ) {
+      setSceneContextPressureStage(
+        "middle"
+      );
+    }
+
+    publishSceneContextPressureState();
+
+  }
+
+
+  function scheduleSceneContextPressureSample(
+    promptPressure,
+    l1Pressure
+  ) {
+
+    const sample = {
+      promptPressure:
+        clampContextPressure(promptPressure),
+      l1Pressure:
+        clampContextPressure(l1Pressure),
+    };
+
+    if (
+      sample.promptPressure <= 0
+      && sample.l1Pressure <= 0
+    ) {
+      return;
+    }
+
+    const key =
+      `${sample.promptPressure}:${sample.l1Pressure}`;
+
+    if (
+      key === sceneContextPressureState.pendingKey
+      || key === sceneContextPressureState.committedKey
+    ) {
+      return;
+    }
+
+    sceneContextPressureState.pendingKey =
+      key;
+
+    sceneContextPressureState.pendingSample =
+      sample;
+
+    clearSceneContextPressureTimer();
+
+    sceneContextPressureState.commitTimer =
+      setTimeout(
+        function () {
+          sceneContextPressureState.commitTimer = null;
+
+          commitSceneContextPressureSample(
+            sceneContextPressureState.pendingSample
+          );
+        },
+        SCENE_CONTEXT_PRESSURE_COMMIT_DELAY_MS
+      );
+
+  }
+
+
+  function updateSceneContextPressureFromLines(
+    promptContextLine,
+    l1ContextLine
+  ) {
+
+    scheduleSceneContextPressureSample(
+      getContextLinePressure(
+        promptContextLine
+      ),
+      getContextLinePressure(
+        l1ContextLine
+      )
+    );
+
+  }
+
 
   function buildContextLine(
     runtime,
@@ -648,6 +1044,11 @@
       summarizerPercentElement.style.color =
           summarizerPressureColor;
     }
+
+    updateSceneContextPressureFromLines(
+      contextLine,
+      summarizerLine
+    );
 
     void summarizerTokenText;
 

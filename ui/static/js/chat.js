@@ -17,6 +17,53 @@ const jinInputLoopState = {
   repeatCount: 0,
 };
 
+const SCENE_SEARCH_RUNTIME_ACTION = "web_search";
+let sceneSearchFadeTimer = null;
+
+function getSceneRoot() {
+  return document.querySelector("main");
+}
+
+function setSceneSearchScreenActive(active) {
+  const sceneRoot = getSceneRoot();
+
+  if (!sceneRoot) {
+    return;
+  }
+
+  if (sceneSearchFadeTimer) {
+    clearTimeout(sceneSearchFadeTimer);
+    sceneSearchFadeTimer = null;
+  }
+
+  if (active) {
+    sceneRoot.classList.add(
+      "scene-searching"
+    );
+    return;
+  }
+
+  sceneRoot.classList.remove(
+    "scene-searching"
+  );
+}
+
+function syncSceneSearchScreenForRuntimeAction(
+  action,
+  active
+) {
+  if (
+    String(action || "").toLowerCase()
+    !== SCENE_SEARCH_RUNTIME_ACTION
+  ) {
+    return;
+  }
+
+  setSceneSearchScreenActive(
+    active
+  );
+}
+
 function normalizeJinLoopInput(text) {
 
   const raw = String(
@@ -565,7 +612,8 @@ function appendChatMessage(
 
 function appendRuntimeAction(
   action,
-  text
+  text,
+  options = {}
 ) {
 
   const actionText =
@@ -575,6 +623,13 @@ function appendRuntimeAction(
 
   if (!actionText.trim()) {
     return;
+  }
+
+  if (options.activateScene !== false) {
+    syncSceneSearchScreenForRuntimeAction(
+      action,
+      true
+    );
   }
 
   const row =
@@ -679,7 +734,10 @@ function flushRuntimeActionsAfterResponse(
   actions.forEach((entry) => {
     appendRuntimeAction(
       entry.action,
-      entry.text
+      entry.text,
+      {
+        activateScene: !entry.completed,
+      }
     );
 
     if (entry.completed) {
@@ -701,6 +759,11 @@ function fadeRuntimeAction(
       entry.completed = true;
     }
   });
+
+  syncSceneSearchScreenForRuntimeAction(
+    action,
+    false
+  );
 
   const rows =
     chatHistory.querySelectorAll(
@@ -1113,6 +1176,9 @@ window.normalizeJinLoopInput =
 
 window.updateJinInputLoopCounter =
   updateJinInputLoopCounter;
+
+window.setSceneSearchScreenActive =
+  setSceneSearchScreenActive;
 
 window.appendChatMessage =
   appendChatMessage;
