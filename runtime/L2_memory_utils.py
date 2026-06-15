@@ -134,6 +134,37 @@ L2_EVIDENCE_QUOTE_META_RE = re.compile(
     r"\[\s*quote\s*:\s*\"(?P<quote>[^\"]*)\"\s*\]",
     re.IGNORECASE,
 )
+RUNTIME_REPEATED_SUFFIX_RE = re.compile(
+    r"\s*\[\s*repeated\s*:\s*\d+\s*\]\s*$",
+    re.IGNORECASE,
+)
+USER_MESSAGE_QUOTED_VALUE_RE = re.compile(
+    r'^\s*\"(?P<quote>.*)\"\s*(?:\[\s*repeated\s*:\s*\d+\s*\])?\s*$',
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def strip_runtime_repeated_suffix(
+        value: str,
+) -> str:
+
+    text = str(
+        value
+        or ""
+    ).strip()
+    match = USER_MESSAGE_QUOTED_VALUE_RE.match(
+        text
+    )
+
+    if match:
+        text = match.group(
+            "quote"
+        )
+
+    return RUNTIME_REPEATED_SUFFIX_RE.sub(
+        "",
+        text,
+    ).strip()
 
 
 def normalize_l2_pattern_evidence_example(
@@ -142,9 +173,8 @@ def normalize_l2_pattern_evidence_example(
         limit: int = 100,
 ) -> str:
 
-    text = str(
+    text = strip_runtime_repeated_suffix(
         value
-        or ""
     ).casefold()
     text = re.sub(
         r"[\s,.]+",
@@ -161,10 +191,9 @@ def compact_l2_pattern_evidence_example(
         limit: int = 100,
 ) -> str:
 
-    text = str(
+    text = strip_runtime_repeated_suffix(
         value
-        or ""
-    ).strip()
+    )
     text = re.sub(
         r"[\s,.]+",
         " ",
@@ -287,10 +316,9 @@ def format_l2_pattern_evidence_value(
             f"[ last_seen_turn_snapshot: {last_seen} ]"
         )
 
-    if occurrences is not None:
-        metadata.append(
-            f"[ occurrences: {occurrences} ]"
-        )
+    # Occurrence counters now live on the current user_message suffix
+    # (`[ repeated: N ]`). L2 evidence keeps only the historical span
+    # so old pattern lines do not pretend to be an always-current count.
 
     return " ".join(
         [cleaned]
@@ -562,8 +590,7 @@ def build_runtime_l2_repeated_user_message_evidence_memory(
             "user repeatedly sending one message in a row "
             f"[ quote: \"{escape_l2_pattern_evidence_quote(observation.get('quote', ''))}\" ] "
             f"[ first_seen_turn_snapshot: {first_seen} ] "
-            f"[ last_seen_turn_snapshot: {last_seen} ] "
-            f"[ occurrences: {occurrences} ]"
+            f"[ last_seen_turn_snapshot: {last_seen} ]"
         )
 
     return "\n".join(
@@ -793,32 +820,27 @@ def build_runtime_l2_memory_system_prompt() -> str:
         "Use (confirmed: none) unless the supplied patch already contains explicit user, jin, or web confirmation.\n"
         "Allowed outputs: possible pattern, emerging signal, observed tendency, may indicate, contradiction, corrected assumption.\n"
         "Prefer 'possible pattern' over 'pattern'.\n"
-        "Every possible pattern, emerging signal, or observed tendency MUST include an occurrence counter in the value: Occurrences: N.\n"
-        "Every possible pattern, emerging signal, or observed tendency SHOULD include accounting metadata in the value: "
-        "Occurrences: N; first_seen_snapshot: S1; last_seen_snapshot: S2; evidence summary: <short evidence>; confidence: low|medium|high.\n"
+        "Every possible pattern, emerging signal, or observed tendency SHOULD include span metadata in the value: "
+        "first_seen_snapshot: S1; last_seen_snapshot: S2; evidence summary: <short evidence>; confidence: low|medium|high.\n"
+        "Do not put Occurrences counters into L2 pattern memory. Current exact-repeat counts are supplied by runtime on user_message as [ repeated: N ].\n"
         "When L2 names or updates a concrete repeated pattern, also write a companion evidence line named L2_pattern_evidence_N. "
-        "Use this exact shape: L2_pattern_evidence_N: <short pattern description> [ quote: \"<literal user_message value>\" ] [ first_seen_turn_snapshot: S1 ] [ last_seen_turn_snapshot: S2 ] [ occurrences: N ]\n"
-        "For L2_pattern_evidence_N lines, the final token on the line MUST be the closing bracket of [ occurrences: N ]. "
-        "Never append status, notes, explanations, conclusions, punctuation, or any other text after the final [ occurrences: N ] bracket.\n"
+        "Use this exact shape: L2_pattern_evidence_N: <short pattern description> [ quote: \"<literal user_message value>\" ] [ first_seen_turn_snapshot: S1 ] [ last_seen_turn_snapshot: S2 ]\n"
+        "For L2_pattern_evidence_N lines, the final token on the line MUST be the closing bracket of [ last_seen_turn_snapshot: S2 ]. "
+        "Never append status, notes, explanations, conclusions, punctuation, occurrence counters, or any other text after the final [ last_seen_turn_snapshot: S2 ] bracket.\n"
         "For repeated-message patterns, the quoted literal MUST be copied from the supplied user_message field exactly in the user's original language. "
         "Do not translate it, do not paraphrase it, and do not replace it with an English command or description.\n"
         "The quoted literal may only be stripped of leading/trailing whitespace and cleaned of repeated spaces; keep it at maximum 100 characters. "
         "If no matching user_message is available, omit the L2_pattern_evidence_N line instead of inventing a quote.\n"
         "L2_pattern_evidence_N is runtime accounting evidence, not a personality trait and not a durable user fact.\n"
-        "If an existing L2_pattern_evidence_N line matches the same normalized literal example or the same pattern, preserve first_seen_turn_snapshot and Occurrences, then update only last_seen_turn_snapshot and Occurrences when new matching L1 evidence appears.\n"
+        "If an existing L2_pattern_evidence_N line matches the same normalized literal example or the same pattern, preserve first_seen_turn_snapshot, then update only last_seen_turn_snapshot when new matching L1 evidence appears.\n"
         "Do not duplicate an existing pattern under a new L2_pattern_evidence_N key; update the existing evidence line instead.\n"
-        "For a brand-new pattern with no prior L2 entry, set Occurrences to the number of unique patch snapshots with matching evidence in the supplied L1 patch window, not to 1 by default.\n"
-        "For a brand-new pattern, if the same-intent behavior repeated before L2 named it, count those earlier unique matching L1 patch snapshots immediately when creating the counter.\n"
+        "For a brand-new pattern with no prior L2 entry, set first_seen_turn_snapshot and last_seen_turn_snapshot from the matching unique patch snapshots in the supplied L1 patch window.\n"
         "Do not create a brand-new pattern when all matching evidence is confined to one unique patch snapshot, even if that snapshot contains multiple rows for the same message.\n"
-        "For an existing pattern, preserve its old Occurrences count and first_seen_snapshot; do not recompute Occurrences from the supplied patch window alone.\n"
-        "For an existing pattern, new_occurrences = old_occurrences + count(new matching L1 evidence after last_seen_snapshot).\n"
-        "Only increment Occurrences when patch snapshot > last_seen_snapshot and the L1 evidence actually matches this pattern.\n"
-        "If last_seen_snapshot is missing for an existing pattern, initialize it as a baseline without incrementing Occurrences for old visible evidence.\n"
-        "Use the newest matching patch snapshot as the updated last_seen_snapshot after counting new evidence.\n"
-        "Never reduce an existing Occurrences count just because the current patch window contains fewer matching examples.\n"
-        "Never write Occurrences: 1 for a brand-new pattern when the supplied window shows two or more manifestations of that same pattern.\n"
-        "When the user explicitly cancels the pattern, stops doing it, or clearly changes topic, reset that pattern to Occurrences: 0.\n"
-        "Do not keep Occurrences: 0 entries unless they are still useful as immediate context; obsolete zero-count entries may be dropped.\n"
+        "For an existing pattern, preserve its first_seen_snapshot; do not recompute it from the supplied patch window alone.\n"
+        "Only update last_seen_snapshot when patch snapshot > old last_seen_snapshot and the L1 evidence actually matches this pattern.\n"
+        "If last_seen_snapshot is missing for an existing pattern, initialize it from the newest matching visible evidence.\n"
+        "Never add or preserve Occurrences counters on L2_pattern_evidence_N lines.\n"
+        "When the user explicitly cancels the pattern, stops doing it, or clearly changes topic, the pattern may be dropped instead of zero-counted.\n"
         "Do not repeat factual L1 memory unless it is needed to explain an L2 signal.\n"
         "Do not claim certainty from weak evidence. Prefer 'may', 'possible', 'observed', and 'emerging'.\n"
         "Do not write categorical statements like '<signal> serves as a strong signal' or 'the user exhibits <trait>'.\n"

@@ -106,6 +106,7 @@ function updateJinInputLoopCounter(text) {
 
     return {
       repeatCount: 0,
+      repeated: 0,
       normalizedInput: "",
     };
   }
@@ -120,8 +121,14 @@ function updateJinInputLoopCounter(text) {
     jinInputLoopState.repeatCount = 0;
   }
 
+  const repeated =
+    jinInputLoopState.repeatCount > 0
+      ? jinInputLoopState.repeatCount + 1
+      : 0;
+
   return {
     repeatCount: jinInputLoopState.repeatCount,
+    repeated,
     normalizedInput,
   };
 

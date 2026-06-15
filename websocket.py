@@ -1399,6 +1399,31 @@ def apply_runtime_pattern_context(
             0,
         )
     )
+    context.runtime_repeated_input_count = parse_runtime_pattern_counter(
+        message_data.get(
+            "runtime_repeated_input_count",
+            0,
+        )
+    )
+
+
+def format_runtime_memory_user_message(
+    context,
+    user_text: str,
+) -> str:
+
+    repeated = parse_runtime_pattern_counter(
+        getattr(
+            context,
+            "runtime_repeated_input_count",
+            0,
+        )
+    )
+
+    if repeated < 2:
+        return user_text
+
+    return f"{json.dumps(user_text, ensure_ascii=False)} [ repeated: {repeated} ]"
 
 
 async def process_message(
@@ -1481,7 +1506,10 @@ async def process_message(
 
         memory_update_task = schedule_runtime_memory_update(
             context=context,
-            user_message=user_text,
+            user_message=format_runtime_memory_user_message(
+                context,
+                user_text,
+            ),
             assistant_message=assistant_message,
         )
 

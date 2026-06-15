@@ -396,6 +396,8 @@ def build_runtime_memory_system_prompt(
 
         "Always keep a separate user_message field containing the latest user message as a direct verbatim quote. "
         "Use this exact format: user_message: \"<latest user message exactly as written>\". "
+        "If the latest user message includes runtime repetition metadata, keep it outside the quote as an exact suffix: user_message: \"<latest user message exactly as written>\" [ repeated: N ]. "
+        "Do not put [ repeated: N ] inside the quote. Do not invent the suffix; preserve it only when supplied by runtime. "
         "Do not translate, summarize, normalize, or replace the user's wording with an English intent label. "
         "This field is runtime evidence for L2 counters and must update on every L1 snapshot. "
 

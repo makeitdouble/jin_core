@@ -1336,6 +1336,8 @@ chatForm.addEventListener(
     if (inputLoopContext) {
       payload.runtime_pattern_counter =
         inputLoopContext.repeatCount;
+      payload.runtime_repeated_input_count =
+        inputLoopContext.repeated || 0;
     }
 
     const userIdleContext =

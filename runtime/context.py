@@ -73,6 +73,8 @@ class RuntimeContext:
 
     runtime_pattern_counter: int = 0
 
+    runtime_repeated_input_count: int = 0
+
     session_memory: str = ""
 
     session_memory_source: str = ""
