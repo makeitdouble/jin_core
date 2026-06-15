@@ -50,6 +50,7 @@
         }
 
         #scene-bg {
+            z-index: 0;
             background-size: cover;
             background-position: center;
         }
@@ -92,6 +93,7 @@
         }
 
         #scene-shade {
+            z-index: 3;
             background: rgba(0, 0, 0, var(--scene-shade-alpha));
             transition: background 0.22s ease;
         }
@@ -1339,7 +1341,7 @@
 
 <!-- MAIN -->
 
-<main class="flex flex-1 overflow-hidden relative">
+<main class="flex flex-1 overflow-hidden relative isolate">
     <div id="scene-bg"
          class="absolute inset-0 bg-cover bg-center opacity-80 pointer-events-none"
          style="background-image:url('static/images/states/default.jpg')">
