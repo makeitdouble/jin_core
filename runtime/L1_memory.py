@@ -62,6 +62,7 @@ from runtime.L1_memory_utils import (
     build_runtime_memory_system_prompt,
     build_runtime_memory_user_prompt,
     canonicalize_runtime_memory_entry,
+    remove_runtime_memory_placeholder_lines,
     remove_runtime_user_idle_lines,
 )
 
@@ -196,19 +197,23 @@ def clear_runtime_response_feedback(
     if context is None:
         return
 
-    context.runtime_memory = remove_runtime_response_feedback_text(
-        getattr(
-            context,
-            "runtime_memory",
-            "",
+    context.runtime_memory = remove_runtime_memory_placeholder_lines(
+        remove_runtime_response_feedback_text(
+            getattr(
+                context,
+                "runtime_memory",
+                "",
+            )
         )
     )
 
-    context.runtime_memory_stable = remove_runtime_response_feedback_text(
-        getattr(
-            context,
-            "runtime_memory_stable",
-            "",
+    context.runtime_memory_stable = remove_runtime_memory_placeholder_lines(
+        remove_runtime_response_feedback_text(
+            getattr(
+                context,
+                "runtime_memory_stable",
+                "",
+            )
         )
     )
 
@@ -505,13 +510,18 @@ async def summarize_runtime_memory(
             "",
         )
     )
+    current_memory = remove_runtime_memory_placeholder_lines(
+        current_memory
+    )
 
     context.runtime_memory = current_memory
-    context.runtime_memory_stable = remove_runtime_response_feedback_text(
-        getattr(
-            context,
-            "runtime_memory_stable",
-            "",
+    context.runtime_memory_stable = remove_runtime_memory_placeholder_lines(
+        remove_runtime_response_feedback_text(
+            getattr(
+                context,
+                "runtime_memory_stable",
+                "",
+            )
         )
     )
     context.runtime_last_response_feedback = None
@@ -529,6 +539,9 @@ async def summarize_runtime_memory(
             response
         )
         updated_memory = remove_runtime_response_feedback_text(
+            updated_memory
+        )
+        updated_memory = remove_runtime_memory_placeholder_lines(
             updated_memory
         )
 
@@ -561,12 +574,18 @@ async def summarize_runtime_memory(
         updated_memory = remove_runtime_response_feedback_text(
             updated_memory
         )
+        updated_memory = remove_runtime_memory_placeholder_lines(
+            updated_memory
+        )
         updated_memory = ensure_confirmable_memory_markers(
             updated_memory,
             user_message=user_message,
             assistant_message=assistant_message,
         )
         updated_memory = remove_runtime_response_feedback_text(
+            updated_memory
+        )
+        updated_memory = remove_runtime_memory_placeholder_lines(
             updated_memory
         )
         updated_memory = remove_runtime_user_idle_lines(
@@ -679,12 +698,17 @@ async def summarize_runtime_memory_pending_turns(
             "",
         )
     )
+    initial_memory = remove_runtime_memory_placeholder_lines(
+        initial_memory
+    )
 
-    context.runtime_memory = remove_runtime_response_feedback_text(
-        getattr(
-            context,
-            "runtime_memory",
-            "",
+    context.runtime_memory = remove_runtime_memory_placeholder_lines(
+        remove_runtime_response_feedback_text(
+            getattr(
+                context,
+                "runtime_memory",
+                "",
+            )
         )
     )
     context.runtime_memory_stable = initial_memory
@@ -702,6 +726,9 @@ async def summarize_runtime_memory_pending_turns(
             response
         )
         updated_memory = remove_runtime_response_feedback_text(
+            updated_memory
+        )
+        updated_memory = remove_runtime_memory_placeholder_lines(
             updated_memory
         )
 
@@ -735,6 +762,9 @@ async def summarize_runtime_memory_pending_turns(
         updated_memory = remove_runtime_response_feedback_text(
             updated_memory
         )
+        updated_memory = remove_runtime_memory_placeholder_lines(
+            updated_memory
+        )
 
         latest_turn = turns[-1] if turns else {}
         updated_memory = ensure_confirmable_memory_markers(
@@ -749,6 +779,9 @@ async def summarize_runtime_memory_pending_turns(
             ),
         )
         updated_memory = remove_runtime_response_feedback_text(
+            updated_memory
+        )
+        updated_memory = remove_runtime_memory_placeholder_lines(
             updated_memory
         )
         updated_memory = remove_runtime_user_idle_lines(

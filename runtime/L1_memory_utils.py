@@ -1,3 +1,5 @@
+import re
+
 from runtime.L1_memory_rules import (
     DEFAULT_RUNTIME_MEMORY,
     RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES,
@@ -6,6 +8,89 @@ from runtime.L1_memory_rules import (
 from runtime.L2_memory_utils import (
     extract_runtime_l2_pattern_evidence_lines,
 )
+
+
+
+PLACEHOLDER_MEMORY_VALUES = {
+    "",
+    "n/a",
+    "na",
+    "none",
+    "null",
+    "nil",
+    "unknown",
+    "not applicable",
+    "not_applicable",
+    "no",
+    "нет",
+    "неизвестно",
+    "не применимо",
+}
+
+CONFIRMATION_SUFFIX_RE = re.compile(
+    r"\s*\(confirmed:\s*[^)]*\)\s*$",
+    re.IGNORECASE,
+)
+
+
+def strip_runtime_memory_confirmation_suffix(
+        value: str,
+) -> str:
+
+    return CONFIRMATION_SUFFIX_RE.sub(
+        "",
+        value or "",
+    ).strip()
+
+
+def is_runtime_memory_placeholder_value(
+        value: str,
+) -> bool:
+
+    cleaned = strip_runtime_memory_confirmation_suffix(
+        value
+    )
+
+    cleaned = cleaned.strip().strip(".。;；")
+
+    return cleaned.lower() in PLACEHOLDER_MEMORY_VALUES
+
+
+def remove_runtime_memory_placeholder_lines(
+        memory: str,
+) -> str:
+
+    lines = []
+
+    for raw_line in (memory or "").splitlines():
+        line = raw_line.strip()
+
+        if not line:
+            continue
+
+        if ":" not in line:
+            lines.append(
+                raw_line
+            )
+            continue
+
+        _, value = line.split(
+            ":",
+            1,
+        )
+
+        if is_runtime_memory_placeholder_value(
+            value
+        ):
+            continue
+
+        lines.append(
+            raw_line
+        )
+
+    return "\n".join(
+        lines
+    ).strip()
 
 def canonicalize_runtime_memory_entry(
         key: str,
@@ -303,6 +388,7 @@ def build_runtime_memory_system_prompt(
         "One line must contain one semantic entity.\n"
         "Do not use nested bullets, numbered lists, JSON, markdown tables, or headings.\n"
         "Do not output empty keys or bare values.\n"
+        "Do not create placeholder memory fields. Never write values like N/A, none, unknown, null, not applicable, or empty just to satisfy a key. If there is no concrete value for a key, omit that line entirely.\n"
         "Do not end a line with an unfinished phrase.\n"
 
         # Defines how keys should behave: flexible, but stable.
@@ -457,8 +543,10 @@ def build_runtime_memory_system_prompt(
         "Topic/task changes, shallow summarization, memory pressure, or a new current request are never enough to remove or rename durable JIN/user fact keys.\n"
         "DURABLE LINES THAT MUST ALWAYS CARRY FORWARD VERBATIM unless explicitly corrected by the user in the current turn: "
         "user_fact, jin_fact, jin_core_definition, stored_memory, open_contract, countdown_contract, shared_axiom_established, primary_goal, known fact about JIN. "
-        "These lines are immune to shallow summarization, topic switches, memory pressure, and low-signal turns. "
-        "If you are about to produce output that does not contain all of these lines from the current memory, stop and add them back.\n"
+        "This list names protected key types, not a required schema. Preserve only durable lines that already exist with concrete values. "
+        "Never invent missing durable keys and never fill absent durable keys with N/A, none, unknown, null, or not applicable placeholders. "
+        "These existing concrete lines are immune to shallow summarization, topic switches, memory pressure, and low-signal turns. "
+        "If you are about to produce output that does not contain all concrete durable lines from the current memory, stop and add them back.\n"
         "Do not update a value when JIN merely paraphrased, reordered, or reworded the same offer, "
         "open reference, pending choice, or conversational state without adding a new explicit fact.\n"
         "Treat semantic rephrasing as no-op memory: keep the previous value unchanged unless the actual meaning changed.\n"
