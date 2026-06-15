@@ -17,6 +17,11 @@ from runtime.L3_memory_rules import (
 from runtime.L3_memory_utils import (
     build_runtime_session_memory_system_prompt,
     build_runtime_session_memory_user_prompt,
+    parse_l3_session_snapshot_metadata,
+    prepend_l3_session_snapshot_metadata,
+    select_l3_unsaved_diff_history,
+    select_l3_unsaved_runtime_snapshots,
+    select_l3_unsaved_session_events,
 )
 from runtime.memory_common import (
     build_memory_failure_details,
@@ -163,6 +168,7 @@ async def ask_runtime_session_memory_model(
         current_session_memory: str,
         runtime_memory_snapshots: list[dict],
         diff_history: list[dict],
+        session_event_snapshots: list[dict] | None = None,
 ) -> dict:
 
     system_prompt = (
@@ -192,12 +198,16 @@ async def ask_runtime_session_memory_model(
                 "",
             ),
             session_event_snapshots=list(
-                getattr(
-                    context,
-                    "runtime_session_event_snapshots",
-                    [],
+                session_event_snapshots
+                if session_event_snapshots is not None
+                else (
+                    getattr(
+                        context,
+                        "runtime_session_event_snapshots",
+                        [],
+                    )
+                    or []
                 )
-                or []
             ),
             context_window=detected_context_window,
         )
@@ -343,20 +353,65 @@ async def maybe_summarize_runtime_session_memory(
         "",
     )
 
+    saved_runtime_snapshot_index = getattr(
+        context,
+        "runtime_l3_saved_runtime_snapshot_index",
+        None,
+    )
+    unsaved_snapshots = select_l3_unsaved_runtime_snapshots(
+        snapshots,
+        saved_runtime_snapshot_index=saved_runtime_snapshot_index,
+    )
+
+    if not unsaved_snapshots:
+        await log_memory_event(
+            context,
+            level="L3",
+            message="L3 session save skipped: no new snapshots",
+            fallback_channel="runtime",
+        )
+
+        context.runtime_remember_session_armed = False
+        context.runtime_remember_session_requested = False
+
+        await emit_runtime_action_completed(
+            context,
+            action="remember_session",
+        )
+
+        return current_session_memory
+
+    unsaved_diff_history = select_l3_unsaved_diff_history(
+        list(
+            getattr(
+                context,
+                "runtime_l1_diff_history",
+                [],
+            )
+            or []
+        ),
+        saved_runtime_snapshot_index=saved_runtime_snapshot_index,
+    )
+    unsaved_session_event_snapshots = select_l3_unsaved_session_events(
+        list(
+            getattr(
+                context,
+                "runtime_session_event_snapshots",
+                [],
+            )
+            or []
+        ),
+        saved_runtime_snapshot_index=saved_runtime_snapshot_index,
+    )
+
     try:
         response = await ask_runtime_session_memory_model(
             context=context,
             service_client=service_client,
             current_session_memory=current_session_memory,
-            runtime_memory_snapshots=snapshots,
-            diff_history=list(
-                getattr(
-                    context,
-                    "runtime_l1_diff_history",
-                    [],
-                )
-                or []
-            ),
+            runtime_memory_snapshots=unsaved_snapshots,
+            diff_history=unsaved_diff_history,
+            session_event_snapshots=unsaved_session_event_snapshots,
         )
 
         updated_session_memory = extract_runtime_memory_text(
@@ -404,9 +459,31 @@ async def maybe_summarize_runtime_session_memory(
             return current_session_memory
 
         if updated_session_memory.strip():
+            updated_session_memory = prepend_l3_session_snapshot_metadata(
+                updated_session_memory,
+                previous_session_memory=current_session_memory,
+                runtime_memory_snapshots=unsaved_snapshots,
+            )
+            session_metadata = parse_l3_session_snapshot_metadata(
+                updated_session_memory
+            )
+
             context.runtime_l3_session_memory = updated_session_memory
             context.session_memory = updated_session_memory
             context.session_memory_source = "L3"
+            context.runtime_l3_session_first_turn = session_metadata.get(
+                "session_snapshot_first_turn"
+            )
+            context.runtime_l3_session_last_turn = session_metadata.get(
+                "session_snapshot_last_turn"
+            )
+            context.runtime_l3_saved_runtime_snapshot_index = max(
+                snapshot.get(
+                    "index",
+                    0,
+                )
+                for snapshot in unsaved_snapshots
+            )
             context.runtime_session_memory_updates = (
                 getattr(
                     context,
@@ -415,6 +492,7 @@ async def maybe_summarize_runtime_session_memory(
                 )
                 + 1
             )
+            context.runtime_remember_session_armed = False
             context.runtime_remember_session_requested = False
 
             runtime_snapshots = getattr(

@@ -14,6 +14,233 @@ from runtime.L3_memory_rules import (
     MAX_SESSION_PROMPT_SNAPSHOTS,
 )
 
+
+L3_SESSION_META_KEYS = (
+    "session_snapshot_first_turn",
+    "session_snapshot_last_turn",
+    "session_snapshot_previous_last_turn",
+    "session_snapshot_runtime_first_turn",
+    "session_snapshot_runtime_last_turn",
+)
+
+
+def _parse_int(value, default=None):
+
+    try:
+        return int(str(value).strip())
+    except (
+            TypeError,
+            ValueError,
+    ):
+        return default
+
+
+def parse_l3_session_snapshot_metadata(
+        memory: str,
+) -> dict:
+
+    metadata = {}
+
+    for line in str(memory or "").splitlines():
+        if ":" not in line:
+            continue
+
+        key, value = line.split(
+            ":",
+            1,
+        )
+        key = key.strip()
+
+        if key not in L3_SESSION_META_KEYS:
+            continue
+
+        metadata[key] = _parse_int(
+            value,
+        )
+
+    return metadata
+
+
+def get_l3_session_previous_last_turn(
+        memory: str,
+) -> int | None:
+
+    return parse_l3_session_snapshot_metadata(
+        memory
+    ).get(
+        "session_snapshot_last_turn"
+    )
+
+
+def prepend_l3_session_snapshot_metadata(
+        memory: str,
+        *,
+        previous_session_memory: str,
+        runtime_memory_snapshots: list[dict],
+) -> str:
+
+    # Session snapshots are local chunks, not a global turn timeline.
+    # After browser restore, runtime snapshot indexes restart from 0.
+    # session_snapshot_first_turn / last_turn describe the current saved chunk only.
+
+    valid_snapshots = [
+        snapshot
+        for snapshot in (runtime_memory_snapshots or [])
+        if isinstance(snapshot, dict)
+    ]
+
+    if not valid_snapshots:
+        return str(memory or "").strip()
+
+    previous_metadata = parse_l3_session_snapshot_metadata(
+        previous_session_memory
+    )
+    previous_first_turn = previous_metadata.get(
+        "session_snapshot_first_turn"
+    )
+    previous_last_turn = previous_metadata.get(
+        "session_snapshot_last_turn"
+    )
+
+    runtime_indexes = [
+        _parse_int(
+            snapshot.get(
+                "index",
+            ),
+        )
+        for snapshot in valid_snapshots
+    ]
+    runtime_indexes = [
+        index
+        for index in runtime_indexes
+        if index is not None
+    ]
+
+    if not runtime_indexes:
+        return str(memory or "").strip()
+
+    runtime_first_turn = min(runtime_indexes)
+    runtime_last_turn = max(runtime_indexes)
+    session_first_turn = (
+        previous_first_turn
+        if previous_first_turn is not None
+        else runtime_first_turn
+    )
+
+    lines = [
+        f"session_snapshot_first_turn: {session_first_turn}",
+        f"session_snapshot_last_turn: {runtime_last_turn}",
+        f"session_snapshot_previous_last_turn: {previous_last_turn if previous_last_turn is not None else -1}",
+        f"session_snapshot_runtime_first_turn: {runtime_first_turn}",
+        f"session_snapshot_runtime_last_turn: {runtime_last_turn}",
+    ]
+
+    clean_memory_lines = [
+        line
+        for line in str(memory or "").splitlines()
+        if line.split(
+            ":",
+            1,
+        )[0].strip() not in L3_SESSION_META_KEYS
+    ]
+    clean_memory = "\n".join(clean_memory_lines).strip()
+
+    if clean_memory:
+        lines.append(clean_memory)
+
+    return "\n".join(lines).strip()
+
+
+def select_l3_unsaved_runtime_snapshots(
+        runtime_memory_snapshots: list[dict],
+        *,
+        saved_runtime_snapshot_index: int | None,
+) -> list[dict]:
+
+    valid_snapshots = [
+        snapshot
+        for snapshot in (runtime_memory_snapshots or [])
+        if isinstance(snapshot, dict)
+    ]
+
+    if saved_runtime_snapshot_index is None:
+        return valid_snapshots
+
+    return [
+        snapshot
+        for snapshot in valid_snapshots
+        if (
+            _parse_int(
+                snapshot.get(
+                    "index",
+                ),
+                -1,
+            )
+            > saved_runtime_snapshot_index
+        )
+    ]
+
+
+def select_l3_unsaved_diff_history(
+        diff_history: list[dict],
+        *,
+        saved_runtime_snapshot_index: int | None,
+) -> list[dict]:
+
+    valid_entries = [
+        entry
+        for entry in (diff_history or [])
+        if isinstance(entry, dict)
+    ]
+
+    if saved_runtime_snapshot_index is None:
+        return valid_entries
+
+    return [
+        entry
+        for entry in valid_entries
+        if (
+            _parse_int(
+                entry.get(
+                    "snapshot_index",
+                ),
+                -1,
+            )
+            > saved_runtime_snapshot_index
+        )
+    ]
+
+
+def select_l3_unsaved_session_events(
+        session_event_snapshots: list[dict],
+        *,
+        saved_runtime_snapshot_index: int | None,
+) -> list[dict]:
+
+    valid_events = [
+        event
+        for event in (session_event_snapshots or [])
+        if isinstance(event, dict)
+    ]
+
+    if saved_runtime_snapshot_index is None:
+        return valid_events
+
+    return [
+        event
+        for event in valid_events
+        if (
+            _parse_int(
+                event.get(
+                    "runtime_snapshot_count",
+                ),
+                -1,
+            )
+            - 1
+            > saved_runtime_snapshot_index
+        )
+    ]
+
 def build_runtime_session_event_snapshot(
         context,
         *,
@@ -412,8 +639,9 @@ def build_runtime_session_memory_system_prompt() -> str:
         "Do not explain your reasoning or the summarization process.\n"
         "Write memory as atomic lines using the format:\n"
         "<key>: <value>\n"
-        "Summarize the whole session from all L1 runtime memory snapshots, "
-        "not only the latest snapshot.\n"
+        "Rewrite the whole L3 session snapshot by merging Current L3 session memory with only the provided unsaved L1 runtime snapshots.\n"
+        "Current L3 session memory is already the consolidated previous saved state; do not require older L1 snapshots again.\n"
+        "The provided L1 snapshots are the fresh runtime tail since the previous successful session save.\n"
         "Session event snapshots are stored by the runtime as an array and are always available at session-context level.\n"
         "Treat that array as persistent event history for the session: use it to preserve causal sequence, important moments, and prior session-level decisions.\n"
         "Do not ask the user to fill snapshot fields manually; infer event snapshot meaning from natural conversation and explicit user markings.\n"
@@ -525,5 +753,5 @@ def build_runtime_session_memory_user_prompt(
             ensure_ascii=False,
             indent=2,
         ),
-        "Rewrite the L3 session memory now.",
+        "Rewrite the consolidated L3 session memory now by merging the current L3 memory with the unsaved runtime tail.",
     ])

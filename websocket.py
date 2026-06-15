@@ -79,6 +79,9 @@ from runtime.L1_memory_utils import (
 from runtime.L1_memory import (
     parse_runtime_memory_lines,
 )
+from runtime.L3_memory_utils import (
+    parse_l3_session_snapshot_metadata,
+)
 
 
 websocket_router = APIRouter()
@@ -926,8 +929,22 @@ def apply_session_bootstrap(
         runtime_memory_updates = 0
 
     if session_memory:
+        session_metadata = parse_l3_session_snapshot_metadata(
+            session_memory
+        )
+
         context.session_memory = session_memory
         context.runtime_l3_session_memory = session_memory
+        context.runtime_l3_session_first_turn = session_metadata.get(
+            "session_snapshot_first_turn"
+        )
+        context.runtime_l3_session_last_turn = session_metadata.get(
+            "session_snapshot_last_turn"
+        )
+        # Do not restore runtime_l3_saved_runtime_snapshot_index from browser L3.
+        # Runtime snapshot indexes are window-local and may restart after reload;
+        # only same-process saves use that marker to avoid re-feeding old UI pages.
+        context.runtime_l3_saved_runtime_snapshot_index = None
         context.runtime_session_memory_updates = max(
             session_memory_updates,
             getattr(
@@ -1098,10 +1115,17 @@ async def arm_remember_session_from_user_text(
     user_text: str,
 ) -> bool:
 
-    if getattr(
-        context,
-        "runtime_remember_session_requested",
-        False,
+    if (
+        getattr(
+            context,
+            "runtime_remember_session_armed",
+            False,
+        )
+        or getattr(
+            context,
+            "runtime_remember_session_requested",
+            False,
+        )
     ):
         return False
 
@@ -1110,8 +1134,13 @@ async def arm_remember_session_from_user_text(
     ):
         return False
 
-    context.runtime_remember_session_requested = True
-    context.runtime_remember_session_action_emitted = True
+    context.runtime_remember_session_armed = True
+    context.runtime_remember_session_requested = False
+    # This path is only a deterministic early trigger. It lets the brain see
+    # the user's explicit save intent, but it does not confirm the save and
+    # must not show the UI banner. The save becomes real only when JIN emits
+    # the private REMEMBER_SESSION marker handled by apply_runtime_action_calls().
+    context.runtime_remember_session_action_emitted = False
 
     logger = getattr(
         context,
@@ -1126,26 +1155,8 @@ async def arm_remember_session_from_user_text(
 
     if log_runtime is not None:
         await log_runtime(
-            "[RUNTIME ACTION] remember_session requested"
+            "[RUNTIME ACTION] remember_session armed"
         )
-
-    emitter = getattr(
-        context,
-        "emitter",
-        None,
-    )
-    emit = getattr(
-        emitter,
-        "emit",
-        None,
-    )
-
-    if emit is not None:
-        await emit({
-            "type": "runtime_action",
-            "action": "remember_session",
-            "text": "Remembering this session",
-        })
 
     return True
 
@@ -1433,13 +1444,10 @@ async def process_message(
             assistant_message=assistant_message,
         )
 
-        if (
-            memory_update_task is not None
-            and getattr(
-                context,
-                "runtime_remember_session_requested",
-                False,
-            )
+        if getattr(
+            context,
+            "runtime_remember_session_requested",
+            False,
         ):
             await wait_for_runtime_memory_update(
                 context

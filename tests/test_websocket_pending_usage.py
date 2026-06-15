@@ -141,11 +141,12 @@ class FakeWebSocket:
 
 class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
 
-    async def test_arm_remember_session_emits_runtime_action(self):
+    async def test_arm_remember_session_prearms_without_banner(self):
 
         context = SimpleNamespace(
             emitter=FakeEmitter(),
             logger=FakeLogger(),
+            runtime_remember_session_armed=False,
             runtime_remember_session_requested=False,
         )
 
@@ -158,20 +159,17 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             armed,
         )
         self.assertTrue(
+            context.runtime_remember_session_armed,
+        )
+        self.assertFalse(
             context.runtime_remember_session_requested,
         )
-        self.assertTrue(
+        self.assertFalse(
             context.runtime_remember_session_action_emitted,
         )
         self.assertEqual(
             context.emitter.events,
-            [
-                {
-                    "type": "runtime_action",
-                    "action": "remember_session",
-                    "text": "Remembering this session",
-                },
-            ],
+            [],
         )
 
     async def test_rejects_user_request_when_all_models_are_offline(self):

@@ -2705,6 +2705,144 @@ class MessageMemoryTests(
             },
         )
 
+    async def test_l3_session_memory_merges_previous_snapshot_with_unsaved_tail_only(self):
+
+        service_client = FakeServiceClient(
+            "decision: merged handoff after new tail"
+        )
+        logger = FakeLogger()
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            emitter=SimpleNamespace(
+                events=[],
+                emit=None,
+            ),
+            logger=logger,
+            runtime_remember_session_requested=True,
+            runtime_l3_session_memory=(
+                "session_snapshot_first_turn: 0\n"
+                "session_snapshot_last_turn: 15\n"
+                "session_snapshot_previous_last_turn: -1\n"
+                "session_snapshot_runtime_first_turn: 0\n"
+                "session_snapshot_runtime_last_turn: 15\n"
+                "decision: old consolidated handoff"
+            ),
+            session_memory="",
+            session_memory_source="",
+            runtime_session_memory_updates=1,
+            runtime_l3_saved_runtime_snapshot_index=15,
+            runtime_l3_session_first_turn=0,
+            runtime_l3_session_last_turn=15,
+            runtime_session_event_snapshots=[],
+            runtime_l2_memory="",
+            timestamp="2026-06-05T13:38:50",
+            current_date="2026-06-05",
+            current_time="13:38:50",
+            weekday="Friday",
+            year=2026,
+            runtime_l1_diff_history=[
+                {
+                    "snapshot_index": 15,
+                    "total_diff": 80,
+                },
+                {
+                    "snapshot_index": 16,
+                    "total_diff": 20,
+                },
+                {
+                    "snapshot_index": 20,
+                    "total_diff": 70,
+                },
+            ],
+            runtime_memory_snapshot_index=20,
+            runtime_memory_snapshots=[
+                {
+                    "index": 14,
+                    "raw_memory": "topic: old stale page",
+                    "total_diff": 30,
+                },
+                {
+                    "index": 15,
+                    "raw_memory": "decision: old saved boundary",
+                    "total_diff": 80,
+                },
+                {
+                    "index": 16,
+                    "raw_memory": "topic: fresh tail starts",
+                    "total_diff": 20,
+                },
+                {
+                    "index": 20,
+                    "raw_memory": "decision: fresh tail ends",
+                    "total_diff": 70,
+                },
+            ],
+        )
+
+        async def emit(event):
+            context.emitter.events.append(
+                event
+            )
+
+        context.emitter.emit = emit
+
+        updated_memory = await maybe_summarize_runtime_session_memory(
+            context=context,
+        )
+
+        prompt = service_client.calls[0]["user_prompt"]
+
+        self.assertIn(
+            "decision: old consolidated handoff",
+            prompt,
+        )
+        self.assertIn(
+            "topic: fresh tail starts",
+            prompt,
+        )
+        self.assertIn(
+            "decision: fresh tail ends",
+            prompt,
+        )
+        self.assertNotIn(
+            "topic: old stale page",
+            prompt,
+        )
+        self.assertNotIn(
+            "decision: old saved boundary",
+            prompt,
+        )
+        self.assertIn(
+            "session_snapshot_first_turn: 0",
+            updated_memory,
+        )
+        self.assertIn(
+            "session_snapshot_last_turn: 20",
+            updated_memory,
+        )
+        self.assertIn(
+            "session_snapshot_previous_last_turn: 15",
+            updated_memory,
+        )
+        self.assertIn(
+            "session_snapshot_runtime_first_turn: 16",
+            updated_memory,
+        )
+        self.assertIn(
+            "session_snapshot_runtime_last_turn: 20",
+            updated_memory,
+        )
+        self.assertEqual(
+            context.runtime_l3_saved_runtime_snapshot_index,
+            20,
+        )
+        self.assertEqual(
+            context.runtime_l3_session_last_turn,
+            20,
+        )
+
     async def test_l3_session_memory_logs_when_response_reaches_max_tokens(self):
 
         service_client = FakeServiceClient(

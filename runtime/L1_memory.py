@@ -839,7 +839,20 @@ def schedule_runtime_memory_update(
         assistant_message: str,
 ) -> asyncio.Task | None:
 
-    if not assistant_message.strip():
+    # Normal turns without a visible assistant answer do not produce
+    # enough signal for L1 and can be skipped. A confirmed session-save
+    # action is different: the visible answer may be intentionally empty
+    # because the brain emitted only the private remember-session marker.
+    # In that case still enqueue the turn so the standard L1 -> optional
+    # L2 -> L3 save pipeline remains intact.
+    if (
+            not assistant_message.strip()
+            and not getattr(
+                context,
+                "runtime_remember_session_requested",
+                False,
+            )
+    ):
         return None
 
     context.runtime_memory_pending_turns.append({

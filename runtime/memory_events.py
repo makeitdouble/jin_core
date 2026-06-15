@@ -387,6 +387,16 @@ async def emit_runtime_session_memory_update(
                 "session_memory_source",
                 "",
             ),
+            "session_first_turn": getattr(
+                context,
+                "runtime_l3_session_first_turn",
+                None,
+            ),
+            "session_last_turn": getattr(
+                context,
+                "runtime_l3_session_last_turn",
+                None,
+            ),
             "persist": persist_browser,
         },
     )

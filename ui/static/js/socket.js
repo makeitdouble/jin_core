@@ -1036,18 +1036,6 @@ function handleSocketMessage(event) {
       return;
     }
 
-    if (
-      action === "remember_session"
-      && window.queueRuntimeActionAfterNextResponse
-    ) {
-      window.queueRuntimeActionAfterNextResponse(
-        action,
-        text
-      );
-
-      return;
-    }
-
     appendRuntimeAction(
       action,
       text
