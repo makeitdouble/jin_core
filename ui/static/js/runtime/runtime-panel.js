@@ -6,22 +6,27 @@
   const TELEMETRY_FRAME_WARNING_MS = 12;
   const CONTEXT_PANEL_RENDER_THROTTLE_MS = 300;
 
-  const SCENE_CONTEXT_PRESSURE_THRESHOLD = 50;
+  const SCENE_CONTEXT_PRESSURE_MIDDLE_THRESHOLD = 50;
+  const SCENE_CONTEXT_PRESSURE_CLUTTERED_THRESHOLD = 100;
+  const SCENE_CONTEXT_PRESSURE_CLEAR_THRESHOLD = 100;
   const SCENE_CONTEXT_PRESSURE_MIDDLE_TURNS = 3;
-  const SCENE_CONTEXT_PRESSURE_CLUTTERED_TURNS = 6;
+  const SCENE_CONTEXT_PRESSURE_CLUTTERED_TURNS = 3;
   const SCENE_CONTEXT_PRESSURE_CLEAR_TURNS = 2;
   const SCENE_CONTEXT_PRESSURE_COMMIT_DELAY_MS = 420;
 
   const sceneContextPressureState = {
     promt_context_presure: 0,
     L1_memory_context_presure: 0,
+    middleTurns: 0,
     highTurns: 0,
     lowTurns: 0,
     desiredStage: null,
     visibleStage: null,
     pendingKey: "",
+    pendingTurnKey: "",
     pendingSample: null,
     committedKey: "",
+    committedTurnKey: "",
     commitTimer: null,
     imageState: {
       middle: "unknown",
@@ -305,11 +310,23 @@
 
     return Math.max(
       0,
-      Math.min(
-        100,
-        Math.round(number)
-      )
+      Math.round(number)
     );
+
+  }
+
+
+  function getSceneContextPressureTurnKey() {
+
+    const counter = Number(
+      window.jinConversationTurnCounter || 0
+    );
+
+    if (Number.isFinite(counter) && counter > 0) {
+      return `turn:${counter}`;
+    }
+
+    return "turn:0";
 
   }
 
@@ -355,24 +372,15 @@
     const sceneRoot =
       getSceneRoot();
 
-    const overlay =
-      document.getElementById(
-        "scene-clutter-overlay"
-      );
-
     const imageUrl =
       SCENE_CONTEXT_PRESSURE_IMAGES[stage];
 
     if (
       !sceneRoot
-      || !overlay
       || !imageUrl
     ) {
       return;
     }
-
-    overlay.style.backgroundImage =
-      `url('${imageUrl}')`;
 
     sceneRoot.classList.toggle(
       "scene-clutter-middle",
@@ -489,6 +497,8 @@
         sceneContextPressureState.promt_context_presure,
       L1_memory_context_presure:
         sceneContextPressureState.L1_memory_context_presure,
+      middleTurns:
+        sceneContextPressureState.middleTurns,
       highTurns:
         sceneContextPressureState.highTurns,
       lowTurns:
@@ -509,8 +519,12 @@
     const key =
       `${sample.promptPressure}:${sample.l1Pressure}`;
 
+    const turnKey =
+      sample.turnKey || "turn:0";
+
     if (
-      key
+      turnKey
+      && turnKey === sceneContextPressureState.committedTurnKey
       && key === sceneContextPressureState.committedKey
     ) {
       return;
@@ -519,29 +533,44 @@
     sceneContextPressureState.committedKey =
       key;
 
+    sceneContextPressureState.committedTurnKey =
+      turnKey;
+
     sceneContextPressureState.promt_context_presure =
       sample.promptPressure;
 
     sceneContextPressureState.L1_memory_context_presure =
       sample.l1Pressure;
 
-    const bothHigh =
-      sample.promptPressure > SCENE_CONTEXT_PRESSURE_THRESHOLD
-      && sample.l1Pressure > SCENE_CONTEXT_PRESSURE_THRESHOLD;
+    const bothMiddleHigh =
+      sample.promptPressure > SCENE_CONTEXT_PRESSURE_MIDDLE_THRESHOLD
+      && sample.l1Pressure > SCENE_CONTEXT_PRESSURE_MIDDLE_THRESHOLD;
 
-    const bothLow =
-      sample.promptPressure < SCENE_CONTEXT_PRESSURE_THRESHOLD
-      && sample.l1Pressure < SCENE_CONTEXT_PRESSURE_THRESHOLD;
+    const bothClutteredHigh =
+      sample.promptPressure > SCENE_CONTEXT_PRESSURE_CLUTTERED_THRESHOLD
+      && sample.l1Pressure > SCENE_CONTEXT_PRESSURE_CLUTTERED_THRESHOLD;
 
-    if (bothHigh) {
+    const bothClearLow =
+      sample.promptPressure < SCENE_CONTEXT_PRESSURE_CLEAR_THRESHOLD
+      && sample.l1Pressure < SCENE_CONTEXT_PRESSURE_CLEAR_THRESHOLD;
+
+    if (bothMiddleHigh) {
+      sceneContextPressureState.middleTurns += 1;
+    } else {
+      sceneContextPressureState.middleTurns = 0;
+    }
+
+    if (bothClutteredHigh) {
       sceneContextPressureState.highTurns += 1;
       sceneContextPressureState.lowTurns = 0;
-    } else if (bothLow) {
-      sceneContextPressureState.lowTurns += 1;
-      sceneContextPressureState.highTurns = 0;
     } else {
       sceneContextPressureState.highTurns = 0;
-      sceneContextPressureState.lowTurns = 0;
+
+      if (bothClearLow) {
+        sceneContextPressureState.lowTurns += 1;
+      } else {
+        sceneContextPressureState.lowTurns = 0;
+      }
     }
 
     if (
@@ -557,7 +586,7 @@
         "cluttered"
       );
     } else if (
-      sceneContextPressureState.highTurns
+      sceneContextPressureState.middleTurns
       >= SCENE_CONTEXT_PRESSURE_MIDDLE_TURNS
     ) {
       setSceneContextPressureStage(
@@ -580,6 +609,8 @@
         clampContextPressure(promptPressure),
       l1Pressure:
         clampContextPressure(l1Pressure),
+      turnKey:
+        getSceneContextPressureTurnKey(),
     };
 
     if (
@@ -592,15 +623,28 @@
     const key =
       `${sample.promptPressure}:${sample.l1Pressure}`;
 
+    const turnKey =
+      sample.turnKey || "turn:0";
+
     if (
       key === sceneContextPressureState.pendingKey
-      || key === sceneContextPressureState.committedKey
+      && turnKey === sceneContextPressureState.pendingTurnKey
+    ) {
+      return;
+    }
+
+    if (
+      key === sceneContextPressureState.committedKey
+      && turnKey === sceneContextPressureState.committedTurnKey
     ) {
       return;
     }
 
     sceneContextPressureState.pendingKey =
       key;
+
+    sceneContextPressureState.pendingTurnKey =
+      turnKey;
 
     sceneContextPressureState.pendingSample =
       sample;
@@ -680,11 +724,14 @@
 
     const rawPercent =
       max > 0
-        ? Math.min(
-            100,
-            (used / max) * 100
-          )
+        ? (used / max) * 100
         : 0;
+
+    const visiblePercent =
+      Math.min(
+        100,
+        rawPercent
+      );
 
     const percent =
       Math.round(rawPercent);
@@ -697,30 +744,36 @@
 
     const filled =
       Math.round(
-        (rawPercent / 100) * cells
+        (visiblePercent / 100) * cells
       );
 
     const contextPercent =
       max > 0
-        ? Math.min(
-            100,
-            (contextUsed / max) * 100
-          )
+        ? (contextUsed / max) * 100
         : 0;
 
     const totalPercent =
       max > 0
-        ? Math.min(
-            100,
-            (totalUsed / max) * 100
-          )
+        ? (totalUsed / max) * 100
         : 0;
+
+    const visibleContextPercent =
+      Math.min(
+        100,
+        contextPercent
+      );
+
+    const visibleTotalPercent =
+      Math.min(
+        100,
+        totalPercent
+      );
 
     const contextFilled =
       Math.min(
         cells,
         Math.round(
-          (contextPercent / 100) * cells
+          (visibleContextPercent / 100) * cells
         )
       );
 
@@ -728,7 +781,7 @@
       Math.min(
         cells,
         Math.round(
-          (totalPercent / 100) * cells
+          (visibleTotalPercent / 100) * cells
         )
       );
 

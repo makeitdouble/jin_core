@@ -17,6 +17,10 @@ const jinInputLoopState = {
   repeatCount: 0,
 };
 
+let jinConversationTurnCounter = 0;
+window.jinConversationTurnCounter =
+  jinConversationTurnCounter;
+
 const SCENE_SEARCH_RUNTIME_ACTION = "web_search";
 let sceneSearchFadeTimer = null;
 
@@ -547,6 +551,9 @@ function createMessageElement(
   msgDiv.className =
     "jin-message-row jin-message-shell mx-auto w-full max-w-4xl";
 
+  msgDiv.dataset.role =
+    role;
+
   const pre =
     document.createElement("pre");
 
@@ -600,6 +607,12 @@ function appendChatMessage(
 
   pre.innerHTML =
     escapeHtml(text);
+
+  if (role === "user") {
+    jinConversationTurnCounter += 1;
+    window.jinConversationTurnCounter =
+      jinConversationTurnCounter;
+  }
 
   flushRuntimeActionsAfterResponse(
     role

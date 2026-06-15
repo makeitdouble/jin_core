@@ -55,6 +55,7 @@
         }
 
         #scene-clutter-overlay,
+        #scene-cluttered-overlay,
         #scene-search-overlay {
             opacity: 0;
             background-size: cover;
@@ -62,9 +63,18 @@
             background-repeat: no-repeat;
         }
 
-        #scene-clutter-overlay {
+        #scene-clutter-overlay,
+        #scene-cluttered-overlay {
             z-index: 1;
-            transition: opacity 2s ease;
+            transition: opacity 3s ease;
+        }
+
+        #scene-clutter-overlay {
+            background-image: url('static/images/states/middle.png');
+        }
+
+        #scene-cluttered-overlay {
+            background-image: url('static/images/states/cluttered.png');
         }
 
         #scene-search-overlay {
@@ -76,6 +86,7 @@
 
         main.scene-clutter-middle #scene-clutter-overlay,
         main.scene-cluttered #scene-clutter-overlay,
+        main.scene-cluttered #scene-cluttered-overlay,
         main.scene-searching #scene-search-overlay {
             opacity: 1;
         }
@@ -1334,6 +1345,10 @@
          style="background-image:url('static/images/states/default.jpg')">
     </div>
     <div id="scene-clutter-overlay"
+         class="absolute inset-0 pointer-events-none"
+         aria-hidden="true">
+    </div>
+    <div id="scene-cluttered-overlay"
          class="absolute inset-0 pointer-events-none"
          aria-hidden="true">
     </div>
