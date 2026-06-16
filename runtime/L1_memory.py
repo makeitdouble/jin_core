@@ -29,6 +29,7 @@ from runtime.L1_memory_rules import (
     STRENGTH_DECAY,
     STRENGTH_NEW_KEY,
     STRENGTH_PRESENCE_BOOST,
+    build_runtime_memory_system_prompt,
 )
 from runtime.L2_memory import (
     maybe_summarize_runtime_l2_memory,
@@ -59,9 +60,12 @@ from runtime.L1_memory_utils import (
     build_interrupted_assistant_message,
     build_runtime_memory_batch_user_prompt,
     build_runtime_memory_context_text,
-    build_runtime_memory_system_prompt,
     build_runtime_memory_user_prompt,
     canonicalize_runtime_memory_entry,
+    is_runtime_memory_repeatable_key_family,
+    normalize_runtime_memory_key_family,
+    normalize_runtime_memory_slot_text,
+    runtime_memory_slot_similarity,
     remove_runtime_memory_placeholder_lines,
     remove_runtime_user_idle_lines,
 )
@@ -767,16 +771,19 @@ async def summarize_runtime_memory_pending_turns(
         )
 
         latest_turn = turns[-1] if turns else {}
+        latest_user_message = latest_turn.get(
+            "user_message",
+            "",
+        )
+        latest_assistant_message = latest_turn.get(
+            "assistant_message",
+            "",
+        )
+
         updated_memory = ensure_confirmable_memory_markers(
             updated_memory,
-            user_message=latest_turn.get(
-                "user_message",
-                "",
-            ),
-            assistant_message=latest_turn.get(
-                "assistant_message",
-                "",
-            ),
+            user_message=latest_user_message,
+            assistant_message=latest_assistant_message,
         )
         updated_memory = remove_runtime_response_feedback_text(
             updated_memory
@@ -1163,12 +1170,100 @@ def split_memory_value_parts(
     ]
 
 
+def strip_runtime_memory_key_ordinal(
+        key: str,
+) -> str:
+
+    clean_key = (
+        key
+        or ""
+    ).strip()
+
+    prefix, separator, suffix = clean_key.rpartition(
+        "_"
+    )
+
+    if (
+            separator
+            and suffix.isdigit()
+            and prefix
+    ):
+        return prefix
+
+    return clean_key
+
+
+def repeatable_runtime_memory_values_are_same_slot(
+        left: str,
+        right: str,
+) -> bool:
+
+    left_text = normalize_runtime_memory_slot_text(
+        left
+    )
+    right_text = normalize_runtime_memory_slot_text(
+        right
+    )
+
+    if not left_text or not right_text:
+        return False
+
+    left_tokens = {
+        token
+        for token in left_text.split()
+        if len(token) >= 3
+    }
+    right_tokens = {
+        token
+        for token in right_text.split()
+        if len(token) >= 3
+    }
+
+    if left_tokens and right_tokens:
+        overlap = len(
+            left_tokens & right_tokens
+        )
+        coverage = overlap / max(
+            1,
+            max(
+                len(left_tokens),
+                len(right_tokens),
+            ),
+        )
+
+        if coverage >= 0.75:
+            return True
+
+    shorter = min(
+        len(left_text),
+        len(right_text),
+    )
+    longer = max(
+        len(left_text),
+        len(right_text),
+    )
+
+    if not longer:
+        return False
+
+    length_ratio = shorter / longer
+
+    return (
+        length_ratio >= 0.75
+        and runtime_memory_slot_similarity(
+            left,
+            right,
+        ) >= 0.90
+    )
+
+
 def collapse_duplicate_runtime_memory_keys(
         memory: str,
 ) -> str:
 
     output_entries = []
     grouped_by_key = {}
+    grouped_repeatable_by_family = {}
     duplicate_found = False
 
     for raw_line in (
@@ -1217,6 +1312,60 @@ def collapse_duplicate_runtime_memory_keys(
             )
             continue
 
+        if is_runtime_memory_repeatable_key_family(
+                key
+        ):
+            family = normalize_runtime_memory_key_family(
+                key
+            )
+            existing = grouped_repeatable_by_family.get(
+                family
+            )
+
+            if existing is None:
+                existing = {
+                    "repeatable": True,
+                    "base_key": strip_runtime_memory_key_ordinal(
+                        key
+                    ),
+                    "items": [],
+                }
+                grouped_repeatable_by_family[family] = existing
+                output_entries.append(
+                    existing
+                )
+            else:
+                duplicate_found = True
+
+            clean_value = normalize_runtime_memory_slot_text(
+                value
+            )
+
+            matched_item = None
+
+            for item in existing["items"]:
+                if repeatable_runtime_memory_values_are_same_slot(
+                        value,
+                        item["value"],
+                ):
+                    matched_item = item
+                    break
+
+            if matched_item is None:
+                existing["items"].append({
+                    "key": key,
+                    "value": value.strip(),
+                    "clean_value": clean_value,
+                })
+                continue
+
+            duplicate_found = True
+
+            # Keep the first wording for a repeatable semantic slot.
+            # The deterministic repeated suffix pass decides whether the
+            # latest turn actually reactivated it and increments [ repeated: N ].
+            continue
+
         existing = grouped_by_key.get(
             normalized_key
         )
@@ -1252,22 +1401,62 @@ def collapse_duplicate_runtime_memory_keys(
     if not duplicate_found:
         return memory
 
-    return "\n".join(
-        (
+    rendered_lines = []
+
+    for entry in output_entries:
+        if not isinstance(
+                entry,
+                dict,
+        ):
+            rendered_lines.append(
+                entry
+            )
+            continue
+
+        if entry.get(
+                "repeatable"
+        ):
+            items = entry.get(
+                "items",
+                [],
+            )
+
+            if not items:
+                continue
+
+            if len(items) == 1:
+                item = items[0]
+                rendered_lines.append(
+                    f'{item["key"]}: {item["value"]}'
+                )
+                continue
+
+            base_key = entry.get(
+                "base_key",
+                "",
+            )
+
+            for index, item in enumerate(
+                    items,
+                    start=1,
+            ):
+                rendered_lines.append(
+                    f'{base_key}_{index}: {item["value"]}'
+                )
+
+            continue
+
+        rendered_lines.append(
             (
                 f'{entry["key"]}: {", ".join(entry["values"])}'
                 if entry["key"]
                 else ", ".join(entry["values"])
             )
-            if isinstance(
-                entry,
-                dict,
-            )
-            else entry
         )
-        for entry in output_entries
-    )
 
+    return "\n".join(
+        rendered_lines
+    )
 
 def merge_durable_memory_facts(
         previous_memory: str,
@@ -1313,6 +1502,69 @@ def merge_durable_memory_facts(
         if not is_durable_memory_key(
             previous_key
         ):
+            continue
+
+        previous_value = previous_line.get(
+            "value",
+            "",
+        )
+
+        if is_runtime_memory_repeatable_key_family(
+                previous_key
+        ):
+            previous_family = normalize_runtime_memory_key_family(
+                previous_key
+            )
+            candidate_semantic_match = False
+
+            for candidate_line in candidate_lines:
+                candidate_key = (
+                    candidate_line.get(
+                        "key",
+                        "",
+                    )
+                    or ""
+                ).strip()
+
+                if not is_runtime_memory_repeatable_key_family(
+                        candidate_key
+                ):
+                    continue
+
+                if (
+                        normalize_runtime_memory_key_family(
+                            candidate_key
+                        )
+                        != previous_family
+                ):
+                    continue
+
+                candidate_value = candidate_line.get(
+                    "value",
+                    "",
+                )
+
+                if has_durable_fact_negation(
+                    candidate_value
+                ):
+                    candidate_semantic_match = True
+                    break
+
+                if repeatable_runtime_memory_values_are_same_slot(
+                        previous_value,
+                        candidate_value,
+                ):
+                    candidate_semantic_match = True
+                    break
+
+            if candidate_semantic_match:
+                continue
+
+            preserved_lines.append(
+                durable_memory_line_text(
+                    previous_line
+                )
+            )
             continue
 
         normalized_key = normalize_memory_key(
@@ -1361,11 +1613,11 @@ def merge_durable_memory_facts(
 
     return collapse_duplicate_runtime_memory_keys(
         (
-            candidate_text
-            + "\n"
-            + "\n".join(
+            "\n".join(
                 preserved_lines
             )
+            + "\n"
+            + candidate_text
         )
     )
 

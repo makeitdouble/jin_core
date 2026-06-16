@@ -13,6 +13,7 @@ from .L1_memory import (
 )
 from .L1_memory_rules import (
     DEFAULT_RUNTIME_MEMORY,
+    build_runtime_memory_system_prompt,
 )
 from .L2_memory import (
     maybe_summarize_runtime_l2_memory,
@@ -30,7 +31,6 @@ from .memory_events import (
 )
 from .L1_memory_utils import (
     build_interrupted_assistant_message,
-    build_runtime_memory_system_prompt,
     build_runtime_memory_user_prompt,
 )
 from .L2_memory_utils import (
