@@ -1260,6 +1260,10 @@ def repeatable_runtime_memory_values_are_same_slot(
 def collapse_duplicate_runtime_memory_keys(
         memory: str,
 ) -> str:
+    # TEMP DEBUG:
+    # Disable deterministic duplicate collapsing to inspect raw L1 output
+    # and see whether useful runtime fields are being removed/merged here.
+    return memory
 
     output_entries = []
     grouped_by_key = {}

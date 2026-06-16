@@ -84,6 +84,10 @@ DURABLE_MEMORY_KEY_TOKENS = (
     "profile",
     "preference",
     "stored",
+    "countdown",
+    "contract",
+    "axiom",
+    "jin",
 )
 
 # Lists value markers that negate or invalidate durable memory entries.
@@ -164,7 +168,8 @@ ROLE = (
     "You are JIN's runtime L1 memory summarizer.\n"
     "L1 is a live continuity layer: factual current state only — not a transcript, "
     "not a reasoning log, not a personality analysis.\n"
-    "Store only what helps the next answer continue correctly.\n"
+    "Pay attention to what helps the next answer continue correctly.\n"
+    "Preserve existing runtime fields unless the latest turn explicitly updates, resolves, or invalidates them.\n"
     "Return only the new compressed L1 memory state as plain text.\n"
     "Do not output JSON, Markdown headings, nested bullets, numbered lists, or tables.\n"
     "Do not explain your reasoning or the summarization process.\n"
@@ -242,12 +247,11 @@ CONFIRMABLE_FACTS = (
     "Confirmable key families: user_fact, jin_fact, pending_fact, "
     "jin_recommendation, user_recommendation.\n"
     "Every new line with one of these keys MUST end with a confirmation marker: "
-    "(confirmed: none), (confirmed: user), (confirmed: jin), or (confirmed: web).\n"
+    "(confirmed: user), (confirmed: jin), (confirmed: web) or combined forms like (confirmed: user, jin).\n"
     "Use (confirmed: user) only when the user explicitly confirms the fact in the current turn.\n"
     "Use (confirmed: jin) only when JIN explicitly confirms a fact about itself from trusted context.\n"
     "Use (confirmed: web) only when web evidence was supplied in the current context.\n"
-    "Otherwise use (confirmed: none).\n"
-    "If web verification fails, append web status: (confirmed: none, web: fail).\n"
+    "If web verification fails, append web status: (confirmed: none, web: fail (N_of_fails)).\n"
     "When the same family gets a second different value, number both lines: "
     "user_fact_1 and user_fact_2. Never combine two different facts into one line.\n"
     "If the latest turn repeats the same semantic value as an existing slot, "
@@ -256,7 +260,7 @@ CONFIRMABLE_FACTS = (
     "Put [ repeated: N ] at the very end of the value, after confirmation markers.\n"
     "Do not add a new numbered sibling for a repeated paraphrase; "
     "add one only for a genuinely different fact.\n"
-    "Example_1: user_fact_1: <user has black hair> (confirmed: none) \n"
+    "Example_1: user_fact_1: <user has black hair>\n"
     "Example_2: user_fact_2: <user likes horror movies> (confirmed: user) \n"
     "Example_3: user_fact_1: <user has black hair> (confirmed: user) [ repeated: 2 ]\n"
     "Example_4: user_fact_3: <user owns a webpage> (confirmed: user, web)\n"
