@@ -455,14 +455,19 @@ class MessageMemoryTests(
             user_message="запомни слово банан через 3 хода",
         )
 
-        self.assertIn(
-            "The user asked JIN to remember a specific value",
-            prompt,
-        )
-        self.assertIn(
-            "The user specified a recall window",
-            prompt,
-        )
+        # Keep this test focused on the durable create-block contracts,
+        # not on exact prompt prose.
+        for required_text in (
+                "Store it as stored_memory",
+                "stored_memory:",
+                "<exact value>",
+                "stored_memory_N",
+                "The user specified a recall window",
+        ):
+            self.assertIn(
+                required_text,
+                prompt,
+            )
 
     def test_runtime_memory_prompt_can_include_context_overload_rules(self):
 
