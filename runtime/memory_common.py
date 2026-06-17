@@ -81,6 +81,33 @@ def build_runtime_summarizer_trusted_context(
         if context is not None
         else None
     )
+    turn_number = (
+        getattr(
+            context,
+            "turn_number",
+            None,
+        )
+        if context is not None
+        else None
+    )
+    user_message_count = (
+        getattr(
+            context,
+            "user_message_count",
+            None,
+        )
+        if context is not None
+        else None
+    )
+    assistant_message_count = (
+        getattr(
+            context,
+            "assistant_message_count",
+            None,
+        )
+        if context is not None
+        else None
+    )
 
     now = None
 
@@ -118,6 +145,9 @@ def build_runtime_summarizer_trusted_context(
             year
             or now.year
         ),
+        turn_number=turn_number,
+        user_message_count=user_message_count,
+        assistant_message_count=assistant_message_count,
     )
 
     return contract.to_runtime_xml()

@@ -101,6 +101,54 @@ def build_runtime_response_feedback_value(feedback: dict) -> str:
 
 
 
+
+
+def build_runtime_memory_system_prompt_for_turn(
+        *,
+        current_memory: str,
+        user_message: str,
+        last_turn_context_overloaded: bool = False,
+) -> str:
+
+    return build_runtime_memory_system_prompt(
+        current_memory=current_memory,
+        user_message=user_message,
+        last_turn_context_overloaded=last_turn_context_overloaded,
+    )
+
+
+def build_runtime_memory_system_prompt_for_turns(
+        *,
+        current_memory: str,
+        turns: list[dict],
+        last_turn_context_overloaded: bool = False,
+) -> str:
+
+    user_messages = [
+        str(
+            turn.get(
+                "user_message",
+                "",
+            )
+            or ""
+        ).strip()
+        for turn in (
+            turns
+            or []
+        )
+    ]
+
+    return build_runtime_memory_system_prompt_for_turn(
+        current_memory=current_memory,
+        user_message="\n".join(
+            message
+            for message in user_messages
+            if message
+        ),
+        last_turn_context_overloaded=last_turn_context_overloaded,
+    )
+
+
 def clear_runtime_response_feedback(
         context,
 ) -> None:
@@ -202,8 +250,9 @@ async def ask_runtime_memory_model(
             await resolve_request_context_window()
         )
 
-    system_prompt = (
-        build_runtime_memory_system_prompt()
+    system_prompt = build_runtime_memory_system_prompt_for_turn(
+        current_memory=current_memory,
+        user_message=user_message,
     )
     _snapshots = list(
         getattr(
@@ -244,10 +293,10 @@ async def ask_runtime_memory_model(
     )
 
     if last_turn_context_overloaded:
-        system_prompt = (
-            build_runtime_memory_system_prompt(
-                last_turn_context_overloaded=True,
-            )
+        system_prompt = build_runtime_memory_system_prompt_for_turn(
+            current_memory=current_memory,
+            user_message=user_message,
+            last_turn_context_overloaded=True,
         )
 
     await refresh_runtime_memory_summarizer_usage(
@@ -304,8 +353,9 @@ async def ask_runtime_memory_batch_model(
         turns: list[dict],
 ) -> dict:
 
-    system_prompt = (
-        build_runtime_memory_system_prompt()
+    system_prompt = build_runtime_memory_system_prompt_for_turns(
+        current_memory=current_memory,
+        turns=turns,
     )
     _snapshots = list(
         getattr(

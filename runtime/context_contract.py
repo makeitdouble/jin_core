@@ -74,12 +74,31 @@ class ContextContract:
     weekday: str = field(default_factory=lambda: datetime.now().strftime("%A"))
     year: int = field(default_factory=lambda: datetime.now().year)
 
+    turn_number: int | None = None
+    user_message_count: int | None = None
+    assistant_message_count: int | None = None
+
     def build_runtime_fields(self) -> str:
 
         fields = {
             "TIMESTAMP": self.timestamp,
             "WEEKDAY": self.weekday,
         }
+
+        if self.turn_number is not None:
+            fields["TURN_NUMBER"] = str(
+                self.turn_number
+            )
+
+        if self.user_message_count is not None:
+            fields["USER_MESSAGE_COUNT"] = str(
+                self.user_message_count
+            )
+
+        if self.assistant_message_count is not None:
+            fields["ASSISTANT_MESSAGE_COUNT"] = str(
+                self.assistant_message_count
+            )
 
         available_actions = []
 

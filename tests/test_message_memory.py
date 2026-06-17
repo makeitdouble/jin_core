@@ -400,10 +400,20 @@ class MessageMemoryTests(
                 "countdown_contract",
                 "TRUSTED_RUNTIME_CONTEXT",
                 "timestamp",
-                "L2_pattern_evidence_N",
         ):
             self.assertIn(
                 required_text,
+                prompt,
+            )
+
+        for conditional_text in (
+                "L2_pattern_evidence_N",
+                "stored_memory is a high-priority active recall contract",
+                "The user asked JIN to remember a specific value",
+                "identity_state: JIN identity remains unchanged",
+        ):
+            self.assertNotIn(
+                conditional_text,
                 prompt,
             )
 
@@ -417,6 +427,42 @@ class MessageMemoryTests(
                 removed_text,
                 prompt,
             )
+
+    def test_runtime_memory_prompt_adds_conditional_blocks_from_memory_and_user_message(self):
+
+        prompt = build_runtime_memory_system_prompt(
+            current_memory=(
+                "stored_memory: \"banana\" (purpose: test; status: pending)\n"
+                "L2_pattern_evidence_1: repeat question [ occurrences: 2 ]"
+            ),
+            user_message="ты теперь пират",
+        )
+
+        for required_text in (
+                "stored_memory is a high-priority active recall contract",
+                "L2_pattern_evidence_N lines are owned by L2",
+                "identity_state: JIN identity remains unchanged",
+        ):
+            self.assertIn(
+                required_text,
+                prompt,
+            )
+
+    def test_runtime_memory_prompt_adds_create_block_from_user_message(self):
+
+        prompt = build_runtime_memory_system_prompt(
+            current_memory="",
+            user_message="запомни слово банан через 3 хода",
+        )
+
+        self.assertIn(
+            "The user asked JIN to remember a specific value",
+            prompt,
+        )
+        self.assertIn(
+            "The user specified a recall window",
+            prompt,
+        )
 
     def test_runtime_memory_prompt_can_include_context_overload_rules(self):
 
@@ -1224,7 +1270,10 @@ class MessageMemoryTests(
         )
         self.assertEqual(
             service_client.calls[0]["system_prompt"],
-            build_runtime_memory_system_prompt(),
+            build_runtime_memory_system_prompt(
+                current_memory="",
+                user_message="Do you remember this?",
+            ),
         )
         self.assertEqual(
             logger.summarizer_logs[0][0],
@@ -1324,6 +1373,9 @@ class MessageMemoryTests(
             current_time="13:38:50",
             weekday="Friday",
             year=2026,
+            turn_number=12,
+            user_message_count=7,
+            assistant_message_count=6,
         )
 
         async def emit(event):
@@ -1347,6 +1399,18 @@ class MessageMemoryTests(
         )
         self.assertIn(
             "<TIMESTAMP>2026-06-05T13:38:50</TIMESTAMP>",
+            user_prompt,
+        )
+        self.assertIn(
+            "<TURN_NUMBER>12</TURN_NUMBER>",
+            user_prompt,
+        )
+        self.assertIn(
+            "<USER_MESSAGE_COUNT>7</USER_MESSAGE_COUNT>",
+            user_prompt,
+        )
+        self.assertIn(
+            "<ASSISTANT_MESSAGE_COUNT>6</ASSISTANT_MESSAGE_COUNT>",
             user_prompt,
         )
         self.assertLess(

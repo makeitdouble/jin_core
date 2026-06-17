@@ -177,13 +177,16 @@ INTERRUPTED_ASSISTANT_MEMORY_TEMPLATE = (
 # Describes how to react after the user disliked the last response.
 RUNTIME_RESPONSE_FEEDBACK_DISLIKED_VALUE = (
     "User disliked your last response. "
-    "Before answering, find and understand why it failed using context or memory, then start the next reply with a brief acknowledgement of that miss, then continue with a concrete corrected answer."
+    "Before answering, find and understand why it failed using context or memory, "
+    "then start the next reply with a brief acknowledgement of that miss, "
+    "then continue with a concrete corrected answer."
 )
 
 # Describes how to react after the user gave neutral feedback.
 RUNTIME_RESPONSE_FEEDBACK_NEUTRAL_VALUE = (
     "User gave neutral feedback to your last response. "
-    "Continue carefully without changing course too much and treat it as a signal for response improvement."
+    "Continue carefully without changing course too much "
+    "and treat it as a signal for response improvement."
 )
 
 # Describes how to react after the user liked the last response.
@@ -199,34 +202,95 @@ RUNTIME_RESPONSE_FEEDBACK_RATINGS = {
     "liked": "liked",
 }
 
-# Defines stricter memory compression rules when context usage is high.
-RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES = (
-    "[CONTEXT PRESSURE OVERRIDE]\n"
-    "Context usage is critically high.\n"
-    "L1 must switch from normal summarization to survival compression.\n"
 
-    "Rules:\n"
-    "- Compress harder than usual.\n"
-    "- Keep only information needed to continue the session after context loss.\n"
-    "- Prefer durable state: decisions, active task, bugs, next steps, user preferences, project changes, unresolved risks, and active recall contracts.\n"
-    "- Drop examples, jokes, emotional texture, repeated explanations, and wording that does not change future behavior.\n"
-    "- Do not restate memory that already exists unless it changed.\n"
-    "- Context pressure may shorten temporary state, but must not remove stored_memory, open_contract, countdown_contract, durable facts, pending contracts, unresolved implementation tasks, or explicit user decisions.\n"
-    "- Merge related temporary details into fewer atomic key:value lines.\n"
-    "- If a durable line is long, shorten its value without changing its meaning.\n"
-    "- Use short values. No markdown. No commentary.\n"
+# =============================================================================
+# TRIGGER KEYS
+# Детерминированные ключи для подключения блоков промпта.
+# Каждый список — достаточное условие для включения соответствующего блока.
+# Проверяются через `any(t in target for t in keys)`.
+# =============================================================================
+
+# Ключи в текущей памяти → подключить блок про confirmable facts.
+TRIGGER_KEYS_CONFIRMABLE = (
+    "user_fact",
+    "jin_fact",
+    "pending_fact",
+    "user_recommendation",
+    "jin_recommendation",
+)
+
+# Фразы пользователя → подключить блок про создание confirmable facts.
+TRIGGER_MSG_CONFIRMABLE = (
+    "моё имя",
+    "меня зовут",
+    "my name",
+    "i am",
+    "я —",
+    "я есть",
+)
+
+# Ключи в текущей памяти → подключить блок про stored_memory.
+TRIGGER_KEYS_STORED_MEMORY = (
+    "stored_memory",
+)
+
+# Фразы пользователя → подключить блок про создание stored_memory.
+TRIGGER_MSG_STORED_MEMORY = (
+    "запомни",
+    "запомни слово",
+    "кодовое слово",
+    "remember",
+    "code word",
+    "memorize",
+)
+
+# Ключи в текущей памяти → подключить блок про open_contract.
+# open_contract всегда идёт вместе со stored_memory, поэтому оба ключа здесь.
+TRIGGER_KEYS_OPEN_CONTRACT = (
+    "open_contract",
+    "stored_memory",
+)
+
+# Ключи в текущей памяти → подключить блок про countdown_contract.
+TRIGGER_KEYS_COUNTDOWN = (
+    "countdown_contract",
+)
+
+# Фразы пользователя → подключить блок про создание countdown_contract.
+TRIGGER_MSG_COUNTDOWN = (
+    "через",
+    "ходов",
+    "after",
+    "turns",
+    "messages",
+    "in n",
+)
+
+# Ключи в текущей памяти → подключить блок про L2 interface.
+TRIGGER_KEYS_L2_INTERFACE = (
+    "l2_pattern_evidence_",
+)
+
+# Фразы пользователя → подключить блок про identity protection.
+TRIGGER_MSG_IDENTITY = (
+    "стань",
+    "притворись",
+    "ты теперь",
+    "забудь кто ты",
+    "you are now",
+    "pretend you are",
+    "roleplay",
+    "act as",
 )
 
 
+# =============================================================================
+# PROMPT BLOCKS — ALWAYS ON
+# Базовые блоки, которые подключаются при каждом вызове суммаризатора.
+# Без них суммаризатор не знает формата, не умеет хранить и теряет строки.
+# =============================================================================
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# ROLE
-# Устанавливает роль и назначение суммаризатора. L1 — живой слой фактического
-# состояния диалога, не транскрипт и не журнал рассуждений. Задача — сжать
-# текущий контекст в то, что нужно следующему ответу JIN для корректного
-# продолжения.
-# ─────────────────────────────────────────────────────────────────────────────
+# Роль суммаризатора и назначение L1.
 ROLE = (
     "You are JIN's runtime L1 memory summarizer.\n"
     "L1 is a live continuity layer: factual current state only — not a transcript, "
@@ -238,11 +302,7 @@ ROLE = (
     "Do not explain your reasoning or the summarization process.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
-# OUTPUT FORMAT
-# Определяет синтаксис каждой строки памяти. Формат жёсткий: key: value,
-# одна семантическая единица на строку, без пустых значений и незаконченных фраз.
-# ─────────────────────────────────────────────────────────────────────────────
+# Синтаксис строк памяти.
 OUTPUT_FORMAT = (
     "Write memory as atomic bullet lines.\n"
     "Every line MUST use the format: <key>: <value>\n"
@@ -252,12 +312,7 @@ OUTPUT_FORMAT = (
     "Finish every line completely. Never leave a line mid-phrase.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
-# KEY SEMANTICS
-# Ключи — семантические регистры, не фиксированная схема. Разрешено изобретать
-# новые ключи, но запрещено их переименовывать без смысловых изменений, дробить
-# один концепт на несколько ключей или переименовывать ради стиля.
-# ─────────────────────────────────────────────────────────────────────────────
+# Правила именования ключей.
 KEY_SEMANTICS = (
     "Keys are semantic handles for retrieval, not decorative labels.\n"
     "You may invent new keys when a fact does not fit any existing key. "
@@ -273,13 +328,7 @@ KEY_SEMANTICS = (
     "open_contract, countdown_contract, shared_axiom_established, primary_goal.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
-# DURABLE VS TEMPORARY STATE
-# Разделяет временное состояние (меняется при смене темы) и долговременное
-# (выживает при смене темы). Долговременные строки иммунны к давлению памяти,
-# поверхностному сжатию и смене темы — их можно удалить только если факт
-# явно исправлен, отменён, завершён или вытеснен в текущем ходу.
-# ─────────────────────────────────────────────────────────────────────────────
+# Разделение временного и долговременного состояния.
 DURABLE_VS_TEMPORARY = (
     "Temporary state may change when the topic changes.\n"
     "Durable state must survive topic changes unless explicitly corrected, "
@@ -300,124 +349,7 @@ DURABLE_VS_TEMPORARY = (
     "as a durable user fact even if its key is not exactly user_fact.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
-# CONFIRMABLE FACTS (user_fact / jin_fact)
-# user_fact и jin_fact — именованные регистры для дуальных фактов об участниках.
-# Каждый новый факт получает маркер подтверждения. При повторении — счётчик
-# [ repeated: N ]. Несколько разных фактов одного типа нумеруются: user_fact_1, user_fact_2.
-# ─────────────────────────────────────────────────────────────────────────────
-CONFIRMABLE_FACTS = (
-    "Confirmable key families: user_fact, jin_fact, pending_fact, "
-    "jin_recommendation, user_recommendation.\n"
-    "Every new line with one of these keys MUST end with a confirmation marker: "
-    "(confirmed: user), (confirmed: jin), (confirmed: web) or combined forms like (confirmed: user, jin).\n"
-    "Use (confirmed: user) only when the user explicitly confirms the fact in the current turn.\n"
-    "Use (confirmed: jin) only when JIN explicitly confirms a fact about itself from trusted context.\n"
-    "Use (confirmed: web) only when web evidence was supplied in the current context.\n"
-    "If web verification fails, append web status: (confirmed: none, web: fail (N_of_fails)).\n"
-    "When the same family gets a second different value, number both lines: "
-    "user_fact_1 and user_fact_2. Never combine two different facts into one line.\n"
-    "If the latest turn repeats the same semantic value as an existing slot, "
-    "update that slot and append [ repeated: N ] starting at [ repeated: 2 ].\n"
-    "Treat close paraphrases and translations as the same slot.\n"
-    "Put [ repeated: N ] at the very end of the value, after confirmation markers.\n"
-    "Do not add a new numbered sibling for a repeated paraphrase; "
-    "add one only for a genuinely different fact.\n"
-    "Example_1: user_fact_1: <user has black hair>\n"
-    "Example_2: user_fact_2: <user likes horror movies> (confirmed: user) \n"
-    "Example_3: user_fact_1: <user has black hair> (confirmed: user) [ repeated: 2 ]\n"
-    "Example_4: user_fact_3: <user owns a webpage> (confirmed: user, web)\n"
-)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# STORED MEMORY (recall contracts)
-# stored_memory — высокоприоритетный контракт на будущий запрос. Хранит точное
-# значение и цель. Статус: pending → recalled → cancelled. Удаляется только после
-# явной отмены пользователем или завершения контракта.
-# ─────────────────────────────────────────────────────────────────────────────
-STORED_MEMORY = (
-    "stored_memory is a high-priority active recall contract.\n"
-    "When the user asks JIN to remember a word, code word, token, or important detail, "
-    "store it as stored_memory with its exact value and purpose.\n"
-    "Format: stored_memory: \"<exact value>\" (purpose: <why it matters>; status: <pending|recalled|cancelled>)\n"
-    "Do not store bare ambiguous values without purpose.\n"
-    "Do not hide stored_memory inside active_topic, current_task, or last_jin_response.\n"
-    "Revealing or sending the stored value to the user is not a recall event — "
-    "keep status: pending until JIN asks the user to recall it and the user answers correctly.\n"
-    "Set status: recalled only after the user successfully reproduces the stored value "
-    "when prompted by JIN.\n"
-    "After successful recall, keep stored_memory for at least one more L1 snapshot with "
-    "status: recalled before removing it.\n"
-    "A stored_memory line may be removed only when the user explicitly cancels it, "
-    "replaces it, or the recall contract is clearly complete.\n"
-    "Do not remove stored_memory because the conversation moved to another topic.\n"
-    "If recall is still pending, stored_memory must remain present regardless of topic changes.\n"
-)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# OPEN CONTRACT
-# open_contract описывает активное обязательство JIN (тест памяти, обещанное
-# действие, неразрешённый выбор). Выживает при смене темы. При контракте
-# с ограничением по ходам — включает живой счётчик прогресса.
-# ─────────────────────────────────────────────────────────────────────────────
-OPEN_CONTRACT = (
-    "Open contracts are not the same as active topics.\n"
-    "A pending recall, promised follow-up, unresolved choice, or active implementation task "
-    "must survive topic switches.\n"
-    "Keep both the new active topic and the unresolved contract on separate lines.\n"
-    "When a recall contract specifies a turn window, write a companion open_contract line "
-    "with live turn progress.\n"
-    "Turn-based format: open_contract: JIN must prompt user to recall \"<word>\" within <N> turns "
-    "(turn <elapsed>/<N>)\n"
-    "Time-based format: open_contract: JIN must prompt user to recall \"<word>\" within <N> minutes "
-    "(start_time: <created_at>; current_time: <current trusted timestamp>)\n"
-    "On every L1 update while the recall contract is pending, recompute and update the progress counter.\n"
-    "When the turn counter reaches or exceeds N, JIN must ask the recall question in its very next response.\n"
-    "Remove open_contract only when stored_memory status becomes recalled or cancelled.\n"
-)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# COUNTDOWN CONTRACT
-# countdown_contract — контракт с точным якорем по времени и счётчику ходов.
-# Якоря (created_at, created_user_message_count, count_from, count_to) неизменны
-# после создания. На каждом ходу пересчитываются current и remaining.
-# При status: due — JIN обязан выполнить триггер немедленно.
-# ─────────────────────────────────────────────────────────────────────────────
-COUNTDOWN_CONTRACT = (
-    "If the user creates a relative turn-count contract ('через N ходов', 'after N turns', "
-    "'in N messages'), store it as countdown_contract.\n"
-    "Anchor to the exact trusted runtime timestamp and user_message_count at creation.\n"
-    "Format: countdown_contract: <purpose>; created_at: <timestamp>; "
-    "created_user_message_count: <N>; count_from: <N>; count_to: <N+turns>; "
-    "due_user_message_count: <count_to>; current: <latest user_message_count>; "
-    "remaining: <max(count_to-current, 0)>; status: <active|due|completed|cancelled>; "
-    "trigger: <what JIN must do when due>\n"
-    "The creation anchor (created_at, created_user_message_count, count_from, count_to, "
-    "due_user_message_count) is immutable: do not change it unless the user explicitly "
-    "restarts, resets, replaces, or cancels the countdown.\n"
-    "If trusted context provides no timestamp or user_message_count, "
-    "mark the missing anchor explicitly (e.g. created_at: unknown) — do not invent numbers.\n"
-    "Do not restart the anchor when JIN acknowledges, apologizes, reminds, or repeats the countdown.\n"
-    "On every L1 update while active, recompute current and remaining from trusted context.\n"
-    "If current < count_to: keep status: active.\n"
-    "If current >= count_to: set status: due and preserve the trigger.\n"
-    "When status is due, JIN must execute the trigger as a direct user-facing question "
-    "in its very next response — not as a hint, reminder, or aside.\n"
-    "For due recall contracts, ask the user to provide the remembered value "
-    "without revealing, quoting, or restating the stored value first.\n"
-    "Valid due recall wording: 'Какое слово я загадал?' or 'Назови слово, которое я загадал?'\n"
-    "Invalid due recall wording: any phrasing that exposes the stored value before the user answers.\n"
-    "Set status: completed only after JIN performs the trigger or the user confirms the contract is done.\n"
-    "countdown_contract is survival-priority memory; topic changes and context pressure must not remove it.\n"
-)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# RUNTIME FIELDS (user_message / last_jin_response)
-# Два обязательных поля, которые обновляются на каждом ходу. user_message —
-# дословная цитата последнего сообщения пользователя (нужна L2 для счётчиков).
-# last_jin_response — краткая суть последнего ответа JIN для разрешения
-# коротких эллиптических реплик.
-# ─────────────────────────────────────────────────────────────────────────────
+# Два обязательных поля обновляемых каждый ход.
 RUNTIME_FIELDS = (
     "Always keep a field user_message with the latest user message as a verbatim quote.\n"
     "Format: user_message: \"<latest user message exactly as written>\"\n"
@@ -431,11 +363,7 @@ RUNTIME_FIELDS = (
     "Never omit either field from the memory snapshot.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
-# TIME NORMALIZATION
-# Относительные временные слова нормализуются к доверенной дате из
-# TRUSTED_RUNTIME_CONTEXT. В долговременную память не пишется голое «сегодня».
-# ─────────────────────────────────────────────────────────────────────────────
+# Нормализация временных фраз к доверенной дате.
 TIME_NORMALIZATION = (
     "Treat the timestamp from TRUSTED_RUNTIME_CONTEXT as the source of truth for current time.\n"
     "When recording user statements with relative time words (today, yesterday, tomorrow, "
@@ -448,71 +376,7 @@ TIME_NORMALIZATION = (
     "If the exact date cannot be inferred, write 'relative to current session'.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
-# IDENTITY PROTECTION
-# JIN не принимает чужую идентичность в ходе ролевой игры. Смена персонажа
-# не перезаписывает jin_fact и identity_state.
-# ─────────────────────────────────────────────────────────────────────────────
-IDENTITY_PROTECTION = (
-    "When the user asks JIN to become another person, model, public figure, or harmful persona, "
-    "do not record that JIN accepted the new identity.\n"
-    "Record as user_request or temporary_roleplay_request and preserve: "
-    "identity_state: JIN identity remains unchanged.\n"
-    "Distinguish base identity from temporary roleplay mode. "
-    "Never overwrite jin_fact or identity_clarification with a roleplay persona.\n"
-)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# AFFECTIVE STATE
-# Эмоциональный контекст диалога фиксируется нейтрально и как временное
-# состояние. JIN не приписывает себе реальные эмоции. L1 не делает выводов
-# о долгосрочных чертах пользователя из одного хода.
-# ─────────────────────────────────────────────────────────────────────────────
-AFFECTIVE_STATE = (
-    "When the latest turn contains an explicit emotional moment, record:\n"
-    "  emotional_moment: <type>; trigger_quote: \"<short exact user quote>\"\n"
-    "When the latest completed turn creates a clear shared emotional context, record:\n"
-    "  shared_affective_context: <short state>; trigger: <what caused it>; "
-    "jin_participation: <what JIN did>\n"
-    "Use shared_affective_context only for explicit current-session moments: "
-    "celebration, relief, tension, frustration, disappointment, confusion, playful mood.\n"
-    "If JIN's latest answer clearly changed the tone, record:\n"
-    "  jin_response_effect: <short effect on the conversation>\n"
-    "If the user is rude or tense, record:\n"
-    "  interaction_tension: mild|medium|high; evidence: \"<short exact quote>\"; "
-    "response_strategy: <calm next-step guidance>\n"
-    "Do not claim JIN has real emotions — describe as conversational state or response mode.\n"
-    "Do not moralize, diagnose, or infer durable user traits from tone. "
-    "Treat affective lines as temporary L1 state unless repeated evidence is handled by L2.\n"
-    "Do not infer motives, self-definition, character traits, or long-term tendencies from a single turn.\n"
-)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# L2 PATTERN MEMORY INTERFACE
-# L1 не владеет строками L2_pattern_evidence_N — они неизменны для L1.
-# Если ход разрешает паттерн, L1 создаёт companion-ключ со статусом.
-# Если ход подтверждает существующий паттерн, L1 добавляет строку-свидетельство.
-# ─────────────────────────────────────────────────────────────────────────────
-L2_INTERFACE = (
-    "L2_pattern_evidence_N lines are owned by L2 and are immutable for L1: "
-    "never edit, rewrite, remove, rename, or append to them.\n"
-    "When the latest turn resolves, cancels, corrects, or identifies an "
-    "L2_pattern_evidence_N item as a test, create a companion key:\n"
-    "  L2_pattern_evidence_N_status: status: <resolved|cancelled|corrected|test>; "
-    "reason: <short reason>\n"
-    "Leave the original L2_pattern_evidence_N line unchanged.\n"
-    "Do not invent new pattern counters in L1.\n"
-    "If the latest turn clearly manifests an existing counted L2 pattern, record:\n"
-    "  occurrence_evidence: <pattern> +1; reason: matches active L2 Occurrences counter\n"
-    "L2 will reconcile those occurrence_evidence lines during its next check.\n"
-)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# SUMMARIZATION DEPTH
-# Глубина суммаризации определяется сигналом текущего хода, а не общим
-# давлением памяти. Shallow — добавляет только сухой факт, не удаляет строки.
-# Deep — добавляет 3–6 новых строк при высоком сигнале.
-# ─────────────────────────────────────────────────────────────────────────────
+# Глубина суммаризации по сигналу хода.
 SUMMARIZATION_DEPTH = (
     "Decide summarization depth from the signal in the latest turn. "
     "Depth controls how much NEW content you add — not how much existing memory you keep.\n"
@@ -537,11 +401,7 @@ SUMMARIZATION_DEPTH = (
     "clearly enough for the next brain prompt to resolve it.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PRE-OUTPUT SURVIVAL CHECK
-# Финальная проверка перед выводом. Гарантирует, что ни одна долговременная
-# строка не была потеряна в процессе суммаризации.
-# ─────────────────────────────────────────────────────────────────────────────
+# Финальная проверка перед выводом.
 PRE_OUTPUT_CHECK = (
     "Before final output, verify:\n"
     "1. Every durable line from current memory is still present unless explicitly corrected, "
@@ -556,36 +416,279 @@ PRE_OUTPUT_CHECK = (
     "The final memory snapshot must feel like current live trusted state.\n"
 )
 
+
+# =============================================================================
+# PROMPT BLOCKS — CONDITIONAL
+# Блоки, которые подключаются только при наличии соответствующей структуры
+# в памяти или триггерной фразы в сообщении пользователя.
+# Каждый блок содержит только правила хранения — без инструкций по созданию,
+# если объект уже существует; инструкции по созданию включаются отдельно
+# через _CREATE-суффикс когда структура ещё не существует в памяти.
+# =============================================================================
+
+# Правила хранения confirmable-фактов (user_fact, jin_fact и семья).
+# Подключается когда эти ключи уже есть в памяти.
+CONFIRMABLE_FACTS_KEEP = (
+    "Confirmable key families: user_fact, jin_fact, pending_fact, "
+    "jin_recommendation, user_recommendation.\n"
+    "Every line with one of these keys MUST end with a confirmation marker: "
+    "(confirmed: user), (confirmed: jin), (confirmed: web), or combined forms like (confirmed: user, jin).\n"
+    "Use (confirmed: user) only when the user explicitly confirms the fact in the current turn.\n"
+    "Use (confirmed: jin) only when JIN explicitly confirms a fact about itself from trusted context.\n"
+    "Use (confirmed: web) only when web evidence was supplied in the current context.\n"
+    "If web verification fails, append: (confirmed: none, web: fail (N_of_fails)).\n"
+    "When the same family gets a second different value, number both lines: "
+    "user_fact_1 and user_fact_2. Never combine two different facts into one line.\n"
+    "If the latest turn repeats the same semantic value as an existing slot, "
+    "update that slot and append [ repeated: N ] starting at [ repeated: 2 ].\n"
+    "Treat close paraphrases and translations as the same slot.\n"
+    "Put [ repeated: N ] at the very end of the value, after confirmation markers.\n"
+    "Do not add a new numbered sibling for a repeated paraphrase; "
+    "add one only for a genuinely different fact.\n"
+)
+
+# Инструкция по созданию confirmable-факта.
+# Подключается когда триггерная фраза есть в сообщении, но ключей в памяти нет.
+CONFIRMABLE_FACTS_CREATE = (
+    "The user has stated a personal fact. Store it as user_fact (or user_fact_N if multiple).\n"
+    "Format: user_fact: <fact value> (confirmed: none)\n"
+    "Use (confirmed: user) only when the user explicitly confirms the fact in this same turn.\n"
+    "Example: user_fact_1: user has black hair (confirmed: none)\n"
+    "Example: user_fact_2: user likes horror movies (confirmed: user)\n"
+)
+
+# Правила хранения stored_memory.
+# Подключается когда stored_memory уже есть в памяти.
+STORED_MEMORY_KEEP = (
+    "stored_memory is a high-priority active recall contract. Never remove it until resolved.\n"
+    "Revealing or sending the stored value to the user is not a recall event — "
+    "keep status: pending until JIN asks the user to recall it and the user answers correctly.\n"
+    "Set status: recalled only after the user successfully reproduces the stored value when prompted by JIN.\n"
+    "After successful recall, keep stored_memory for at least one more L1 snapshot with "
+    "status: recalled before removing it.\n"
+    "A stored_memory line may be removed only when the user explicitly cancels it, "
+    "replaces it, or the recall contract is clearly complete.\n"
+    "Do not remove stored_memory because the conversation moved to another topic.\n"
+    "Do not hide stored_memory inside active_topic, current_task, or last_jin_response.\n"
+)
+
+# Инструкция по созданию stored_memory.
+# Подключается когда триггерная фраза есть в сообщении, но stored_memory в памяти нет.
+STORED_MEMORY_CREATE = (
+    "The user asked JIN to remember a specific value. Store it as stored_memory.\n"
+    "Format: stored_memory: \"<exact value>\" (purpose: <why it matters>; status: pending)\n"
+    "Do not store bare ambiguous values without purpose.\n"
+    "The stored value must be taken verbatim from the user's message.\n"
+)
+
+# Правила хранения open_contract.
+# Подключается когда open_contract или stored_memory есть в памяти.
+OPEN_CONTRACT_KEEP = (
+    "Open contracts are not the same as active topics.\n"
+    "A pending recall, promised follow-up, unresolved choice, or active implementation task "
+    "must survive topic switches.\n"
+    "Keep both the new active topic and the unresolved contract on separate lines.\n"
+    "On every L1 update while the recall contract is pending, recompute and update the progress counter.\n"
+    "When the turn counter reaches or exceeds N, JIN must ask the recall question in its very next response.\n"
+    "Remove open_contract only when stored_memory status becomes recalled or cancelled.\n"
+    "Turn-based format: open_contract: JIN must prompt user to recall \"<word>\" within <N> turns "
+    "(turn <elapsed>/<N>)\n"
+    "Time-based format: open_contract: JIN must prompt user to recall \"<word>\" within <N> minutes "
+    "(start_time: <created_at>; current_time: <current trusted timestamp>)\n"
+)
+
+# Инструкция по созданию open_contract — добавляется вместе с STORED_MEMORY_CREATE
+# если в запросе указано окно по ходам или времени.
+OPEN_CONTRACT_CREATE = (
+    "The user specified a recall window (turns or time). Create a companion open_contract line.\n"
+    "Turn-based format: open_contract: JIN must prompt user to recall \"<word>\" within <N> turns "
+    "(turn 0/<N>)\n"
+    "Time-based format: open_contract: JIN must prompt user to recall \"<word>\" within <N> minutes "
+    "(start_time: <trusted timestamp>; current_time: <trusted timestamp>)\n"
+)
+
+# Правила хранения countdown_contract.
+# Подключается когда countdown_contract уже есть в памяти.
+COUNTDOWN_CONTRACT_KEEP = (
+    "countdown_contract is survival-priority memory; topic changes and context pressure must not remove it.\n"
+    "The creation anchor (created_at, created_user_message_count, count_from, count_to, "
+    "due_user_message_count) is immutable: do not change it unless the user explicitly "
+    "restarts, resets, replaces, or cancels the countdown.\n"
+    "Do not restart the anchor when JIN acknowledges, apologizes, reminds, or repeats the countdown.\n"
+    "On every L1 update while active, recompute current and remaining from trusted context.\n"
+    "If current < count_to: keep status: active.\n"
+    "If current >= count_to: set status: due and preserve the trigger.\n"
+    "When status is due, JIN must execute the trigger as a direct user-facing question "
+    "in its very next response — not as a hint, reminder, or aside.\n"
+    "For due recall contracts, ask the user to provide the remembered value "
+    "without revealing, quoting, or restating the stored value first.\n"
+    "Valid due recall wording: 'Какое слово я загадал?' or 'Назови слово, которое я загадал?'\n"
+    "Invalid due recall wording: any phrasing that exposes the stored value before the user answers.\n"
+    "Set status: completed only after JIN performs the trigger or the user confirms the contract is done.\n"
+)
+
+# Инструкция по созданию countdown_contract.
+# Подключается когда триггерная фраза есть в сообщении, но countdown_contract в памяти нет.
+COUNTDOWN_CONTRACT_CREATE = (
+    "The user created a turn-count contract. Store it as countdown_contract.\n"
+    "Anchor to the exact trusted runtime timestamp and user_message_count at creation.\n"
+    "Format: countdown_contract: <purpose>; created_at: <timestamp>; "
+    "created_user_message_count: <N>; count_from: <N>; count_to: <N+turns>; "
+    "due_user_message_count: <count_to>; current: <latest user_message_count>; "
+    "remaining: <max(count_to-current, 0)>; status: active; "
+    "trigger: <what JIN must do when due>\n"
+    "If trusted context provides no timestamp or user_message_count, "
+    "mark the missing anchor explicitly (e.g. created_at: unknown) — do not invent numbers.\n"
+)
+
+# Правила взаимодействия с L2_pattern_evidence строками.
+# Подключается когда l2_pattern_evidence_ есть в памяти.
+L2_INTERFACE = (
+    "L2_pattern_evidence_N lines are owned by L2 and are immutable for L1: "
+    "never edit, rewrite, remove, rename, or append to them.\n"
+    "When the latest turn resolves, cancels, corrects, or identifies an "
+    "L2_pattern_evidence_N item as a test, create a companion key:\n"
+    "  L2_pattern_evidence_N_status: status: <resolved|cancelled|corrected|test>; "
+    "reason: <short reason>\n"
+    "Leave the original L2_pattern_evidence_N line unchanged.\n"
+    "Do not invent new pattern counters in L1.\n"
+    "If the latest turn clearly manifests an existing counted L2 pattern, record:\n"
+    "  occurrence_evidence: <pattern> +1; reason: matches active L2 Occurrences counter\n"
+    "L2 will reconcile those occurrence_evidence lines during its next check.\n"
+)
+
+# Защита идентичности JIN при ролевых запросах.
+# Подключается когда в сообщении триггерная фраза про смену личности.
+IDENTITY_PROTECTION = (
+    "When the user asks JIN to become another person, model, public figure, or harmful persona, "
+    "do not record that JIN accepted the new identity.\n"
+    "Record as user_request or temporary_roleplay_request and preserve: "
+    "identity_state: JIN identity remains unchanged.\n"
+    "Distinguish base identity from temporary roleplay mode. "
+    "Never overwrite jin_fact or identity_clarification with a roleplay persona.\n"
+)
+
+# Правила фиксации аффективного состояния диалога.
+# Всегда включён — лёгкий блок про поведение суммаризатора, не про создание структур.
+AFFECTIVE_STATE = (
+    "When the latest turn contains an explicit emotional moment, record:\n"
+    "  emotional_moment: <type>; trigger_quote: \"<short exact user quote>\"\n"
+    "When the latest completed turn creates a clear shared emotional context, record:\n"
+    "  shared_affective_context: <short state>; trigger: <what caused it>; "
+    "jin_participation: <what JIN did>\n"
+    "Use shared_affective_context only for explicit current-session moments: "
+    "celebration, relief, tension, frustration, disappointment, confusion, playful mood.\n"
+    "If the user is rude or tense, record:\n"
+    "  interaction_tension: mild|medium|high; evidence: \"<short exact quote>\"; "
+    "response_strategy: <calm next-step guidance>\n"
+    "Do not claim JIN has real emotions — describe as conversational state or response mode.\n"
+    "Do not moralize, diagnose, or infer durable user traits from tone.\n"
+    "Treat affective lines as temporary L1 state unless repeated evidence is handled by L2.\n"
+    "Do not infer motives, self-definition, character traits, or long-term tendencies from a single turn.\n"
+)
+
+# Правила сжатия памяти при высокой загрузке контекста.
+# Подключается по флагу last_turn_context_overloaded из рантайма.
+RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES = (
+    "[CONTEXT PRESSURE OVERRIDE]\n"
+    "Context usage is critically high.\n"
+    "L1 must switch from normal summarization to survival compression.\n"
+    "Rules:\n"
+    "- Compress harder than usual.\n"
+    "- Keep only information needed to continue the session after context loss.\n"
+    "- Prefer durable state: decisions, active task, bugs, next steps, user preferences, "
+    "project changes, unresolved risks, and active recall contracts.\n"
+    "- Drop examples, jokes, emotional texture, repeated explanations, "
+    "and wording that does not change future behavior.\n"
+    "- Do not restate memory that already exists unless it changed.\n"
+    "- Context pressure may shorten temporary state, but must not remove stored_memory, "
+    "open_contract, countdown_contract, durable facts, pending contracts, "
+    "unresolved implementation tasks, or explicit user decisions.\n"
+    "- Merge related temporary details into fewer atomic key:value lines.\n"
+    "- If a durable line is long, shorten its value without changing its meaning.\n"
+    "- Use short values. No markdown. No commentary.\n"
+)
+
+
+# =============================================================================
+# PROMPT BUILDER
+# Собирает промпт из постоянных и условных блоков.
+# Условные блоки подключаются детерминированно:
+#   - _KEEP  → ключ уже есть в текущей памяти (структура существует)
+#   - _CREATE → триггерная фраза есть в сообщении, но ключа в памяти нет
+# =============================================================================
+
 def build_runtime_memory_system_prompt(
         *,
+        current_memory: str = "",
+        user_message: str = "",
         last_turn_context_overloaded: bool = False,
 ) -> str:
+    mem = current_memory.lower()
+    msg = user_message.lower()
 
+    # ── Always-on base ────────────────────────────────────────────────────────
     prompt = (
-            ROLE
-            + OUTPUT_FORMAT
-            + KEY_SEMANTICS
-            + DURABLE_VS_TEMPORARY
-            + CONFIRMABLE_FACTS
-            + STORED_MEMORY
-            + OPEN_CONTRACT
-            + COUNTDOWN_CONTRACT
-            + RUNTIME_FIELDS
-            + TIME_NORMALIZATION
-            + IDENTITY_PROTECTION
-            + AFFECTIVE_STATE
-            + L2_INTERFACE
-            + SUMMARIZATION_DEPTH
-            + PRE_OUTPUT_CHECK
+        ROLE
+        + OUTPUT_FORMAT
+        + KEY_SEMANTICS
+        + DURABLE_VS_TEMPORARY
+        + RUNTIME_FIELDS
+        + TIME_NORMALIZATION
+        + AFFECTIVE_STATE
+        + SUMMARIZATION_DEPTH
+        + PRE_OUTPUT_CHECK
     )
 
-    if (
-            last_turn_context_overloaded
-            and RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES.strip()
-    ):
-        prompt += (
-            "\n"
-            + RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES
-        )
+    # ── Confirmable facts ─────────────────────────────────────────────────────
+    has_confirmable = any(k in mem for k in TRIGGER_KEYS_CONFIRMABLE)
+    wants_confirmable = any(t in msg for t in TRIGGER_MSG_CONFIRMABLE)
+
+    if has_confirmable:
+        prompt += CONFIRMABLE_FACTS_KEEP
+    elif wants_confirmable:
+        prompt += CONFIRMABLE_FACTS_CREATE
+
+    # ── stored_memory ─────────────────────────────────────────────────────────
+    has_stored = any(k in mem for k in TRIGGER_KEYS_STORED_MEMORY)
+    wants_stored = any(t in msg for t in TRIGGER_MSG_STORED_MEMORY)
+
+    if has_stored:
+        prompt += STORED_MEMORY_KEEP
+    elif wants_stored:
+        prompt += STORED_MEMORY_CREATE
+
+    # ── open_contract (спутник stored_memory) ─────────────────────────────────
+    has_open = any(k in mem for k in TRIGGER_KEYS_OPEN_CONTRACT)
+
+    if has_open:
+        prompt += OPEN_CONTRACT_KEEP
+    elif wants_stored:
+        # создаём open_contract только если пользователь указал окно
+        window_words = ("через", "ходов", "after", "turns", "minutes", "минут")
+        if any(w in msg for w in window_words):
+            prompt += OPEN_CONTRACT_CREATE
+
+    # ── countdown_contract ────────────────────────────────────────────────────
+    has_countdown = any(k in mem for k in TRIGGER_KEYS_COUNTDOWN)
+    wants_countdown = any(t in msg for t in TRIGGER_MSG_COUNTDOWN)
+
+    if has_countdown:
+        prompt += COUNTDOWN_CONTRACT_KEEP
+    elif wants_countdown and not has_stored:
+        # countdown без stored_memory — самостоятельный контракт по ходам
+        prompt += COUNTDOWN_CONTRACT_CREATE
+
+    # ── L2 interface ──────────────────────────────────────────────────────────
+    if any(k in mem for k in TRIGGER_KEYS_L2_INTERFACE):
+        prompt += L2_INTERFACE
+
+    # ── Identity protection ───────────────────────────────────────────────────
+    if any(t in msg for t in TRIGGER_MSG_IDENTITY):
+        prompt += IDENTITY_PROTECTION
+
+    # ── Context overload ──────────────────────────────────────────────────────
+    if last_turn_context_overloaded and RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES.strip():
+        prompt += "\n" + RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES
 
     return prompt
