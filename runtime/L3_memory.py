@@ -10,13 +10,29 @@ from config_loader import (
 )
 from runtime.L3_memory_rules import (
     DEFAULT_RUNTIME_L3_SESSION_MEMORY,
-    L3_INPUT_TOKEN_RESERVE,
-    L3_INPUT_TOKEN_TARGET_MAX,
+    L3_ACTION_REMEMBER_SESSION,
+    L3_BUDGET_EXCEEDED_DETAILS_TEMPLATE,
+    L3_LOG_LABEL_SESSION,
+    L3_LOG_LABEL_SESSION_MEMORY,
+    L3_LOG_LEVEL,
     L3_OUTPUT_MAX_TOKENS,
+    L3_OUTPUT_TOKEN_BUDGET_CAPPED_TEMPLATE,
+    L3_RESPONSE_TRUNCATED_REASON,
+    L3_SESSION_MEMORY_SOURCE,
+    L3_SKIP_NO_NEW_SNAPSHOTS_MESSAGE,
+    L3_SKIP_NO_SNAPSHOTS_MESSAGE,
+    L3_STRUCTURALLY_INCOMPLETE_REASON,
+    L3_SUMMARIZER_REACHED_MAX_TOKENS_MESSAGE,
+    L3_SUMMARIZER_STAGE,
+    L3_UPDATE_FAILED_MESSAGE,
+    L3_UPDATE_SKIPPED_MESSAGE,
+    L3_UPDATED_MESSAGE,
 )
 from runtime.L3_memory_utils import (
+    L3PromptBudgetExceeded,
+    build_budgeted_l3_session_user_prompt,
+    build_l3_session_memory_max_tokens,
     build_runtime_session_memory_system_prompt,
-    build_runtime_session_memory_user_prompt,
     parse_l3_session_snapshot_metadata,
     prepend_l3_session_snapshot_metadata,
     select_l3_unsaved_diff_history,
@@ -27,7 +43,6 @@ from runtime.memory_common import (
     build_memory_failure_details,
     build_memory_update_skip_details,
     build_runtime_summarizer_payload,
-    build_runtime_summarizer_user_prompt,
     extract_runtime_memory_text,
     is_runtime_memory_response_truncated,
     log_memory_event,
@@ -40,127 +55,6 @@ from runtime.memory_events import (
     emit_runtime_action_completed,
     emit_runtime_session_memory_update,
 )
-from utils.tokens import (
-    estimate_runtime_tokens,
-)
-
-def build_l3_session_memory_max_tokens(
-        *,
-        system_prompt: str,
-        user_prompt: str,
-        context_window: int | None = None,
-) -> int:
-
-    prompt_tokens = estimate_runtime_tokens(
-        system_prompt=system_prompt,
-        user_input=user_prompt,
-    )
-    effective_context_window = (
-        context_window
-        or config.SERVICE_CONTEXT_WINDOW
-    )
-    response_budget = (
-        effective_context_window
-        - prompt_tokens
-        - 128
-    )
-
-    return max(
-        128,
-        min(
-            config.SERVICE_MAX_TOKENS,
-            response_budget,
-        ),
-    )
-
-
-class L3PromptBudgetExceeded(
-    RuntimeError,
-):
-
-    def __init__(
-            self,
-            diagnostic: dict,
-    ):
-
-        super().__init__(
-            "L3 session digest exceeds safe input budget"
-        )
-        self.diagnostic = diagnostic
-
-
-def get_l3_input_token_budget(
-        context_window: int | None,
-) -> int:
-
-    effective_context_window = (
-        context_window
-        or config.SERVICE_CONTEXT_WINDOW
-    )
-
-    return max(
-        1,
-        min(
-            L3_INPUT_TOKEN_TARGET_MAX,
-            effective_context_window
-            - L3_INPUT_TOKEN_RESERVE,
-        ),
-    )
-
-
-async def build_budgeted_l3_session_user_prompt(
-        *,
-        context,
-        system_prompt: str,
-        current_session_memory: str,
-        runtime_memory_snapshots: list[dict],
-        diff_history: list[dict],
-        runtime_l2_memory: str,
-        session_event_snapshots: list[dict],
-        context_window: int | None,
-) -> tuple[str, dict]:
-
-    target_budget = get_l3_input_token_budget(
-        context_window
-    )
-
-    for minimal in (
-            False,
-            True,
-    ):
-        raw_user_prompt = build_runtime_session_memory_user_prompt(
-            current_session_memory=current_session_memory,
-            runtime_memory_snapshots=runtime_memory_snapshots,
-            diff_history=diff_history,
-            runtime_l2_memory=runtime_l2_memory,
-            session_event_snapshots=session_event_snapshots,
-            minimal=minimal,
-        )
-        user_prompt = build_runtime_summarizer_user_prompt(
-            context=context,
-            prompt=raw_user_prompt,
-        )
-        input_tokens = estimate_runtime_tokens(
-            system_prompt=system_prompt,
-            user_input=user_prompt,
-        )
-        diagnostic = {
-            "minimal": minimal,
-            "context_window": context_window,
-            "input_tokens": input_tokens,
-            "target_budget": target_budget,
-            "prompt_chars": len(user_prompt),
-            "system_prompt_chars": len(system_prompt),
-        }
-
-        if input_tokens <= target_budget:
-            return user_prompt, diagnostic
-
-    raise L3PromptBudgetExceeded(
-        diagnostic
-    )
-
-
 async def ask_runtime_session_memory_model(
         *,
         context=None,
@@ -237,17 +131,16 @@ async def ask_runtime_session_memory_model(
     if max_tokens < calculated_max_tokens:
         await log_memory_event(
             context,
-            level="L3",
-            message=(
-                "L3 session output token budget capped at "
-                f"{L3_OUTPUT_MAX_TOKENS}"
+            level=L3_LOG_LEVEL,
+            message=L3_OUTPUT_TOKEN_BUDGET_CAPPED_TEMPLATE.format(
+                max_tokens=L3_OUTPUT_MAX_TOKENS,
             ),
             fallback_channel="runtime",
         )
 
     await log_runtime_summarizer_payload(
         context,
-        label="L3 session",
+        label=L3_LOG_LABEL_SESSION,
         payload=build_runtime_summarizer_payload(
             service_client=service_client,
             system_prompt=system_prompt,
@@ -306,7 +199,7 @@ async def maybe_summarize_runtime_session_memory(
     if service_client is None:
         await emit_runtime_action_completed(
             context,
-            action="remember_session",
+            action=L3_ACTION_REMEMBER_SESSION,
         )
 
         return getattr(
@@ -327,14 +220,14 @@ async def maybe_summarize_runtime_session_memory(
     if not snapshots:
         await log_memory_event(
             context,
-            level="L3",
-            message="L3 session save skipped: no snapshots",
+            level=L3_LOG_LEVEL,
+            message=L3_SKIP_NO_SNAPSHOTS_MESSAGE,
             fallback_channel="runtime",
         )
 
         await emit_runtime_action_completed(
             context,
-            action="remember_session",
+            action=L3_ACTION_REMEMBER_SESSION,
         )
 
         return getattr(
@@ -366,8 +259,8 @@ async def maybe_summarize_runtime_session_memory(
     if not unsaved_snapshots:
         await log_memory_event(
             context,
-            level="L3",
-            message="L3 session save skipped: no new snapshots",
+            level=L3_LOG_LEVEL,
+            message=L3_SKIP_NO_NEW_SNAPSHOTS_MESSAGE,
             fallback_channel="runtime",
         )
 
@@ -376,7 +269,7 @@ async def maybe_summarize_runtime_session_memory(
 
         await emit_runtime_action_completed(
             context,
-            action="remember_session",
+            action=L3_ACTION_REMEMBER_SESSION,
         )
 
         return current_session_memory
@@ -423,12 +316,12 @@ async def maybe_summarize_runtime_session_memory(
         if is_runtime_memory_response_truncated(response):
             await log_memory_event(
                 context,
-                level="L3",
-                message="L3 session summarizer reached max_tokens",
+                level=L3_LOG_LEVEL,
+                message=L3_SUMMARIZER_REACHED_MAX_TOKENS_MESSAGE,
                 fallback_channel="runtime",
             )
 
-            skip_reason = "L3 session summarizer response was truncated by max_tokens."
+            skip_reason = L3_RESPONSE_TRUNCATED_REASON
 
         elif (
                 updated_session_memory.strip()
@@ -436,13 +329,13 @@ async def maybe_summarize_runtime_session_memory(
             updated_session_memory
         )
         ):
-            skip_reason = "L3 session summarizer returned text that looks structurally incomplete."
+            skip_reason = L3_STRUCTURALLY_INCOMPLETE_REASON
 
         if skip_reason:
             await log_memory_event(
                 context,
-                level="L3",
-                message="L3 session memory update skipped",
+                level=L3_LOG_LEVEL,
+                message=L3_UPDATE_SKIPPED_MESSAGE,
                 details=build_memory_update_skip_details(
                     reason=skip_reason,
                     previous_memory=current_session_memory,
@@ -453,7 +346,7 @@ async def maybe_summarize_runtime_session_memory(
 
             await emit_runtime_action_completed(
                 context,
-                action="remember_session",
+                action=L3_ACTION_REMEMBER_SESSION,
             )
 
             return current_session_memory
@@ -470,7 +363,7 @@ async def maybe_summarize_runtime_session_memory(
 
             context.runtime_l3_session_memory = updated_session_memory
             context.session_memory = updated_session_memory
-            context.session_memory_source = "L3"
+            context.session_memory_source = L3_SESSION_MEMORY_SOURCE
             context.runtime_l3_session_first_turn = session_metadata.get(
                 "session_snapshot_first_turn"
             )
@@ -507,14 +400,14 @@ async def maybe_summarize_runtime_session_memory(
 
             await log_memory_event(
                 context,
-                level="L3",
-                message="L3 session memory updated",
+                level=L3_LOG_LEVEL,
+                message=L3_UPDATED_MESSAGE,
                 fallback_channel="service",
             )
 
             await log_runtime_summarizer_result(
                 context,
-                label="L3 session memory",
+                label=L3_LOG_LABEL_SESSION_MEMORY,
                 result=updated_session_memory,
             )
 
@@ -525,7 +418,7 @@ async def maybe_summarize_runtime_session_memory(
 
         await emit_runtime_action_completed(
             context,
-            action="remember_session",
+            action=L3_ACTION_REMEMBER_SESSION,
         )
 
         return getattr(
@@ -540,22 +433,21 @@ async def maybe_summarize_runtime_session_memory(
     except L3PromptBudgetExceeded as error:
         await log_memory_event(
             context,
-            level="L3",
-            message="L3 session memory update skipped",
-            details=(
-                "Reason: compact digest still exceeds safe input budget.\n\n"
-                + json.dumps(
+            level=L3_LOG_LEVEL,
+            message=L3_UPDATE_SKIPPED_MESSAGE,
+            details=L3_BUDGET_EXCEEDED_DETAILS_TEMPLATE.format(
+                diagnostic=json.dumps(
                     error.diagnostic,
                     ensure_ascii=False,
                     indent=2,
-                )
+                ),
             ),
             fallback_channel="error",
         )
 
         await emit_runtime_action_completed(
             context,
-            action="remember_session",
+            action=L3_ACTION_REMEMBER_SESSION,
         )
 
         return current_session_memory
@@ -567,10 +459,10 @@ async def maybe_summarize_runtime_session_memory(
 
         await log_memory_event(
             context,
-            level="L3",
-            message="L3 session memory update failed",
+            level=L3_LOG_LEVEL,
+            message=L3_UPDATE_FAILED_MESSAGE,
             details=build_memory_failure_details(
-                stage="L3 session memory summarizer",
+                stage=L3_SUMMARIZER_STAGE,
                 error=error,
                 traceback_text=formatted_traceback,
             ),
@@ -579,7 +471,7 @@ async def maybe_summarize_runtime_session_memory(
 
         await emit_runtime_action_completed(
             context,
-            action="remember_session",
+            action=L3_ACTION_REMEMBER_SESSION,
         )
 
         return current_session_memory
