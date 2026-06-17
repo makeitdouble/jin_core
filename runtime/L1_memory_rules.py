@@ -111,6 +111,69 @@ RUNTIME_RESPONSE_FEEDBACK_KEY = "JIN_LAST_RESPONSE_USER_FEEDBACK"
 # Stores the runtime state key used for user idle markers.
 RUNTIME_USER_IDLE_KEY = "user_idle"
 
+# Lists memory values that should be treated as placeholders and removed.
+RUNTIME_MEMORY_PLACEHOLDER_VALUES = {
+    "",
+    "n/a",
+    "na",
+    "none",
+    "null",
+    "nil",
+    "unknown",
+    "not applicable",
+    "not_applicable",
+    "no",
+    "нет",
+    "неизвестно",
+    "не применимо",
+}
+
+# Matches the confirmation marker suffix used by confirmable memory facts.
+RUNTIME_MEMORY_CONFIRMATION_SUFFIX_PATTERN = r"\s*\(confirmed:\s*[^)]*\)\s*$"
+
+# Matches the repeated-slot marker suffix used by repeatable memory slots.
+RUNTIME_MEMORY_REPEATED_SLOT_SUFFIX_PATTERN = r"\s*\[ repeated:\s*(\d+)\s*\]\s*"
+
+# Matches a memory key with an optional trailing numeric ordinal.
+RUNTIME_MEMORY_NUMBERED_KEY_PATTERN = r"^(?P<family>.+?)(?:_(?P<index>\d+))?$"
+
+# Lists memory key families that may have numbered sibling slots.
+REPEATABLE_RUNTIME_MEMORY_KEY_FAMILIES = {
+    "offered_choices",
+    "offered choice",
+    "offered choices",
+    "offered_option",
+    "offered option",
+    "offered_options",
+    "offered options",
+    "pending_choice",
+    "pending choice",
+    "pending_choices",
+    "pending choices",
+    "open_reference",
+    "open reference",
+    "open_references",
+    "open references",
+    "user_fact",
+    "user fact",
+    "jin_fact",
+    "jin fact",
+    "decision",
+    "constraint",
+    "current_task",
+    "current task",
+}
+
+# Template used to pass interrupted assistant turns into L1 memory.
+INTERRUPTED_ASSISTANT_MEMORY_TEMPLATE = (
+    "JIN response was interrupted by the user and is incomplete. "
+    "Do not treat this turn as resolved.\n\n"
+    "Interrupted user topic/request:\n"
+    "{user_message}\n\n"
+    "Partial JIN text before interruption:\n"
+    "{assistant_message}"
+)
+
 # Describes how to react after the user disliked the last response.
 RUNTIME_RESPONSE_FEEDBACK_DISLIKED_VALUE = (
     "User disliked your last response. "
