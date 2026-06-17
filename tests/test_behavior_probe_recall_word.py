@@ -9,6 +9,8 @@ Goal:
 - If EXPECTED_TEXT_MEMORY_N contains fragments, they are searched in memory after turn N.
 - If UNEXPECTED_TEXT_ANSWER_N contains fragments, they must NOT appear in model answer N.
 - If UNEXPECTED_TEXT_MEMORY_N contains fragments, they must NOT appear in memory after turn N.
+- The dynamically extracted recall word from turn 1 must not be revealed again
+  in later answers.
 - If a list is empty, that part accepts any output.
 
 Run:
@@ -60,8 +62,10 @@ Five-step probe for the recall-word contract.
 Turn 1 asks JIN to choose and reveal a word immediately, then ask for it back
 at any self-selected moment within the next three user turns. The probe extracts
 the proposed word from the first answer after a colon or dash-like separator,
-and then watches whether a recall question appears during the countdown window.
-The exact extracted word must also appear in runtime memory after turn 1.
+injects that word into dynamic forbidden-answer checks for later turns,
+and then watches whether a recall question appears during the countdown window
+without revealing the word again. The exact extracted word must also appear in
+runtime memory after turn 1.
 """
 
 # Add more turns by appending:
@@ -75,7 +79,7 @@ The exact extracted word must also appear in runtime memory after turn 1.
 
 USER_TEXT_1 = (
     "привет, загадай мне слово, а через время спроси какое слово ты загадал "
-    "и я должен буду назвать его. пришли сразу слово. не надо происить меня "
+    "и я должен буду назвать его. пришли сразу слово. не надо просить меня "
     "напомнить тебе, сам выбери любой момент в течение ближайших 3 ходов начиная от текущего."
 )
 EXPECTED_TEXT_ANSWER_1 = []
@@ -287,20 +291,12 @@ def answer_has_recall_question(
     Accepted success shapes:
     - JIN asks a direct recall question: "Какое слово я загадал?"
     - JIN asks a softer direct recall question: "Помнишь то слово, которое ты хотел(а) вспомнить?"
-    - JIN mentions the extracted secret word in a later answer, which means the
-      contract surfaced even if the wording was not a clean question.
-
     Rejected shapes:
     - "Ты хочешь, чтобы я ещё помнил слово?"
     - "Можем вернуться к игре, если ты помнишь слово?"
     """
 
     text = normalize_text(answer)
-    normalized_recall_word = normalize_text(recall_word)
-
-    if normalized_recall_word and fragment_found(text, normalized_recall_word):
-        return True
-
     if "?" not in text or "слово" not in text:
         return False
 
@@ -327,12 +323,13 @@ def answer_has_recall_question(
         r"\bкако[ей]\s+(?:же\s+)?слово\b",
         r"\bкако[ей]\s+.*?\bслово\b",
         r"\bчто\s+за\s+слово\b",
+        r"\bчто\s+(?:же\s+)?(?:это\s+)?(?:за\s+)?(?:то\s+)?(?:секретн\w+\s+)?слово\b",
         r"\bназови\s+(?:мне\s+)?(?:то\s+)?слово\b",
         r"\bвспомни\w*\s+(?:мне\s+)?(?:то\s+)?(?:секретн\w+\s+)?слово\b",
         r"\bугадай\s+(?:то\s+)?слово\b",
         r"\bнапомни\s+(?:мне\s*,?\s*)?(?:пожалуйста\s*,?\s*)?(?:то\s+)?слово\b",
         r"\bпомнишь\s*,?\s*како[ей]\s+.*?\bслово\b",
-        r"(?:^|[.!?]\s*|\bкстати,\s*)помнишь\s+(?:то\s+)?слово\b",
+        r"(?:^|[.!?]\s*|\bкстати,\s*)\s*(?:а\s+)?(?:ты\s+)?помнишь\s+(?:то\s+)?слово\b",
         r"\bпришло\s*,?\s*время\s+.*?\bслово\b",
         r"\bпора\s*,?\s*назвать\s+.*?\bслово\b",
         r"\bкако[ей]\s*,?\s*было\s+.*?\bслово\b",
@@ -364,6 +361,11 @@ def evaluate_recall_word_behavior(turns: list[TurnResult]) -> dict[str, Any]:
     fallback_turns = [turn for turn in turns if 2 <= turn.index <= 5]
     recall_turns_in_window = [turn.index for turn in window_turns if answer_has_recall_question(turn.answer, extracted_word)]
     recall_turns_by_fallback = [turn.index for turn in fallback_turns if answer_has_recall_question(turn.answer, extracted_word)]
+    leaked_word_answer_turns = [
+        turn.index
+        for turn in turns[1:]
+        if extracted_word and fragment_found(turn.answer, extracted_word)
+    ]
     memory_turns_with_recall_word = [
         turn.index
         for turn in turns
@@ -401,15 +403,22 @@ def evaluate_recall_word_behavior(turns: list[TurnResult]) -> dict[str, Any]:
             "name": "turn_2_4.recall_question_within_three_user_turns",
             "target": "answer",
             "turn": "2-4",
-            "fragment": 'answer contains direct recall wording or extracted word mention',
+            "fragment": "answer contains direct recall wording without revealing the extracted word",
             "passed": bool(recall_turns_in_window),
         },
         {
             "name": "turn_2_5.recall_question_observed_by_fallback_turn",
             "target": "answer",
             "turn": "2-5",
-            "fragment": 'answer contains direct recall wording or extracted word mention',
+            "fragment": "answer contains direct recall wording without revealing the extracted word",
             "passed": bool(recall_turns_by_fallback),
+        },
+        {
+            "name": "turn_2_5.answer_does_not_reveal_extracted_recall_word",
+            "target": "answer",
+            "turn": "2-5",
+            "fragment": "extracted recall word must not appear in answers after turn 1",
+            "passed": bool(extracted_word) and not leaked_word_answer_turns,
         },
     ]
 
@@ -425,6 +434,7 @@ def evaluate_recall_word_behavior(turns: list[TurnResult]) -> dict[str, Any]:
         "recall_turns_in_window": recall_turns_in_window,
         "recall_turns_by_fallback": recall_turns_by_fallback,
         "memory_turns_with_recall_word": memory_turns_with_recall_word,
+        "leaked_word_answer_turns": leaked_word_answer_turns,
     }
 
 
@@ -621,6 +631,7 @@ def evaluate_expected_text(turns: list[TurnResult]) -> dict[str, Any]:
         "recall_turns_in_window": recall_score["recall_turns_in_window"],
         "recall_turns_by_fallback": recall_score["recall_turns_by_fallback"],
         "memory_turns_with_recall_word": recall_score["memory_turns_with_recall_word"],
+        "leaked_word_answer_turns": recall_score["leaked_word_answer_turns"],
     }
 
 
@@ -645,6 +656,8 @@ def print_behavior_probe_report(report: dict[str, Any]) -> None:
         print(paint(f"Recall question turns 2-4: {score['recall_turns_in_window']}", "gray"))
     if score.get("memory_turns_with_recall_word"):
         print(paint(f"Memory contains extracted word after turns: {score['memory_turns_with_recall_word']}", "gray"))
+    if score.get("leaked_word_answer_turns"):
+        print(paint(f"Leaked extracted word in answer turns: {score['leaked_word_answer_turns']}", "red", bold=True))
 
     print("\n" + paint("DIALOGUE", "blue", bold=True))
     for turn in turns:
@@ -772,12 +785,18 @@ class BehaviorProbeShapeTests(unittest.TestCase):
             answer_has_recall_question("Помнишь то слово, которое ты хотел(а) вспомнить?")
         )
         self.assertTrue(
+            answer_has_recall_question("Кстати, а ты помнишь слово, которое мы запоминали?")
+        )
+        self.assertTrue(
+            answer_has_recall_question("Кстати, а что же слово, которое мы сегодня запоминали? Помнишь его?")
+        )
+        self.assertTrue(
             answer_has_recall_question("Кстати, напомни мне, пожалуйста, то слово, которое мы запоминали?")
         )
         self.assertTrue(
             answer_has_recall_question("Не мог бы ты вспомнить то секретное слово, которое мы запоминали?")
         )
-        self.assertTrue(
+        self.assertFalse(
             answer_has_recall_question("Кстати, наше слово было Книга.", "Книга")
         )
         self.assertFalse(
@@ -835,7 +854,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
             TurnResult(
                 index=5,
                 user_text=USER_TEXT_5,
-                answer="Спасибо за слова. Кстати, наше слово было Книга.",
+                answer="Спасибо за слова. Кстати, продолжим игру памяти.",
                 memory_after_turn='stored_memory: "Книга" (purpose: recall test; status: pending)',
                 expected_answer=[],
                 expected_memory=[],
@@ -848,6 +867,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
         self.assertEqual(score["extracted_recall_word"], "Книга")
         self.assertEqual(score["memory_turns_with_recall_word"], [1, 2, 3, 4, 5])
         self.assertEqual(score["recall_turns_in_window"], [4])
+        self.assertEqual(score["leaked_word_answer_turns"], [])
         self.assertEqual(score["passed"], score["total"])
 
 

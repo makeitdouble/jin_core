@@ -1,9 +1,30 @@
 import json
 
+from config_loader import (
+    config,
+)
 from runtime.L2_memory_rules import (
     MAX_SESSION_L2_LINES,
 )
+from runtime.memory_common import (
+    build_runtime_summarizer_user_prompt,
+)
+from utils.tokens import (
+    estimate_runtime_tokens,
+)
 from runtime.L3_memory_rules import (
+    L3_EMPTY_PROMPT_PLACEHOLDER,
+    L3_INPUT_TOKEN_RESERVE,
+    L3_INPUT_TOKEN_TARGET_MAX,
+    L3_OMITTED_MEMORY_LINES_TEMPLATE,
+    L3_PROMPT_BUDGET_EXCEEDED_MESSAGE,
+    L3_SESSION_EVENT_DEFAULT_INITIATED_BY,
+    L3_SESSION_EVENT_DEFAULT_SOURCE,
+    L3_SESSION_EVENT_MEMORY_TYPE,
+    L3_SESSION_META_KEYS,
+    L3_SNAPSHOT_ROLE_LATEST,
+    L3_SNAPSHOT_ROLE_SELECTED,
+    L3_TEXT_TRUNCATED_SUFFIX,
     MAX_SESSION_EVENT_TEXT_CHARS,
     MAX_SESSION_LATEST_MEMORY_TEXT_CHARS,
     MAX_SESSION_LINE_CHARS,
@@ -12,16 +33,142 @@ from runtime.L3_memory_rules import (
     MAX_SESSION_PROMPT_DIFFS,
     MAX_SESSION_PROMPT_EVENTS,
     MAX_SESSION_PROMPT_SNAPSHOTS,
+    RUNTIME_L3_SESSION_MEMORY_SYSTEM_PROMPT,
+    RUNTIME_L3_SNAPSHOT_INDEX_TEMPLATE,
+    RUNTIME_L3_SNAPSHOT_MEMORY_LABEL,
+    RUNTIME_L3_SNAPSHOT_PATCH_SUMMARY_LABEL,
+    RUNTIME_L3_SNAPSHOT_ROLE_TEMPLATE,
+    RUNTIME_L3_USER_PROMPT_SNAPSHOT_SEPARATOR,
+    RUNTIME_L3_SNAPSHOT_TOTAL_DIFF_TEMPLATE,
+    RUNTIME_L3_USER_PROMPT_COMPACT_DIGEST_TEMPLATE,
+    RUNTIME_L3_USER_PROMPT_CURRENT_MEMORY_LABEL,
+    RUNTIME_L3_USER_PROMPT_L2_CONTEXT_LABEL,
+    RUNTIME_L3_USER_PROMPT_OMITTED_DIFFS_TEMPLATE,
+    RUNTIME_L3_USER_PROMPT_OMITTED_EVENTS_TEMPLATE,
+    RUNTIME_L3_USER_PROMPT_OMITTED_SNAPSHOTS_TEMPLATE,
+    RUNTIME_L3_USER_PROMPT_RECENT_DIFFS_LABEL,
+    RUNTIME_L3_USER_PROMPT_REWRITE_INSTRUCTION,
+    RUNTIME_L3_USER_PROMPT_SELECTED_SNAPSHOTS_LABEL,
+    RUNTIME_L3_USER_PROMPT_SESSION_EVENTS_LABEL,
 )
 
 
-L3_SESSION_META_KEYS = (
-    "session_snapshot_first_turn",
-    "session_snapshot_last_turn",
-    "session_snapshot_previous_last_turn",
-    "session_snapshot_runtime_first_turn",
-    "session_snapshot_runtime_last_turn",
-)
+
+def build_l3_session_memory_max_tokens(
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        context_window: int | None = None,
+) -> int:
+
+    prompt_tokens = estimate_runtime_tokens(
+        system_prompt=system_prompt,
+        user_input=user_prompt,
+    )
+    effective_context_window = (
+        context_window
+        or config.SERVICE_CONTEXT_WINDOW
+    )
+    response_budget = (
+        effective_context_window
+        - prompt_tokens
+        - 128
+    )
+
+    return max(
+        128,
+        min(
+            config.SERVICE_MAX_TOKENS,
+            response_budget,
+        ),
+    )
+
+
+class L3PromptBudgetExceeded(
+    RuntimeError,
+):
+
+    def __init__(
+            self,
+            diagnostic: dict,
+    ):
+
+        super().__init__(
+            L3_PROMPT_BUDGET_EXCEEDED_MESSAGE
+        )
+        self.diagnostic = diagnostic
+
+
+def get_l3_input_token_budget(
+        context_window: int | None,
+) -> int:
+
+    effective_context_window = (
+        context_window
+        or config.SERVICE_CONTEXT_WINDOW
+    )
+
+    return max(
+        1,
+        min(
+            L3_INPUT_TOKEN_TARGET_MAX,
+            effective_context_window
+            - L3_INPUT_TOKEN_RESERVE,
+        ),
+    )
+
+
+async def build_budgeted_l3_session_user_prompt(
+        *,
+        context,
+        system_prompt: str,
+        current_session_memory: str,
+        runtime_memory_snapshots: list[dict],
+        diff_history: list[dict],
+        runtime_l2_memory: str,
+        session_event_snapshots: list[dict],
+        context_window: int | None,
+) -> tuple[str, dict]:
+
+    target_budget = get_l3_input_token_budget(
+        context_window
+    )
+
+    for minimal in (
+            False,
+            True,
+    ):
+        raw_user_prompt = build_runtime_session_memory_user_prompt(
+            current_session_memory=current_session_memory,
+            runtime_memory_snapshots=runtime_memory_snapshots,
+            diff_history=diff_history,
+            runtime_l2_memory=runtime_l2_memory,
+            session_event_snapshots=session_event_snapshots,
+            minimal=minimal,
+        )
+        user_prompt = build_runtime_summarizer_user_prompt(
+            context=context,
+            prompt=raw_user_prompt,
+        )
+        input_tokens = estimate_runtime_tokens(
+            system_prompt=system_prompt,
+            user_input=user_prompt,
+        )
+        diagnostic = {
+            "minimal": minimal,
+            "context_window": context_window,
+            "input_tokens": input_tokens,
+            "target_budget": target_budget,
+            "prompt_chars": len(user_prompt),
+            "system_prompt_chars": len(system_prompt),
+        }
+
+        if input_tokens <= target_budget:
+            return user_prompt, diagnostic
+
+    raise L3PromptBudgetExceeded(
+        diagnostic
+    )
 
 
 def _parse_int(value, default=None):
@@ -244,8 +391,8 @@ def select_l3_unsaved_session_events(
 def build_runtime_session_event_snapshot(
         context,
         *,
-        source: str = "runtime_action",
-        initiated_by: str = "jin",
+        source: str = L3_SESSION_EVENT_DEFAULT_SOURCE,
+        initiated_by: str = L3_SESSION_EVENT_DEFAULT_INITIATED_BY,
 ) -> dict:
 
     existing_snapshots = list(
@@ -285,7 +432,7 @@ def build_runtime_session_event_snapshot(
 
     return {
         "index": len(existing_snapshots),
-        "memory_type": "session_event_snapshot",
+        "memory_type": L3_SESSION_EVENT_MEMORY_TYPE,
         "source": source,
         "initiated_by": initiated_by,
         "turn_number": getattr(
@@ -330,7 +477,7 @@ def compact_session_prompt_text(
 
     return (
         text[:limit].rstrip()
-        + " ... <truncated>"
+        + L3_TEXT_TRUNCATED_SUFFIX
     )
 
 
@@ -351,10 +498,10 @@ def compact_l3_text_block(
     ]
 
     if not lines:
-        return "<empty>"
+        return L3_EMPTY_PROMPT_PLACEHOLDER
 
     if max_lines <= 0:
-        return "<empty>"
+        return L3_EMPTY_PROMPT_PLACEHOLDER
 
     selected = lines[-max_lines:]
     omitted = max(0, len(lines) - len(selected))
@@ -374,11 +521,13 @@ def compact_l3_text_block(
 
     if omitted:
         text = (
-            f"omitted_memory_lines: {omitted}\n"
-            f"{text}"
+            L3_OMITTED_MEMORY_LINES_TEMPLATE.format(
+                count=omitted,
+                text=text,
+            )
         )
 
-    return text.strip() or "<empty>"
+    return text.strip() or L3_EMPTY_PROMPT_PLACEHOLDER
 
 
 def compact_l3_event(
@@ -575,7 +724,11 @@ def build_l3_session_digest(
         compact_snapshots.append({
             "index": snapshot.get("index", 0),
             "total_diff": snapshot.get("total_diff", 0),
-            "role": "latest" if is_latest else "selected",
+            "role": (
+                L3_SNAPSHOT_ROLE_LATEST
+                if is_latest
+                else L3_SNAPSHOT_ROLE_SELECTED
+            ),
             "memory": compact_l3_text_block(
                 snapshot.get("raw_memory", ""),
                 max_chars=max_chars,
@@ -630,53 +783,7 @@ def build_l3_session_digest(
 
 def build_runtime_session_memory_system_prompt() -> str:
 
-    return (
-        "You are JIN's L3 session memory summarizer.\n"
-        "This is the layer above L1 runtime memory and L2 pattern memory.\n"
-        "Return only the new compressed L3 session snapshot as plain text.\n"
-        "Do not output JSON.\n"
-        "Do not use Markdown headings.\n"
-        "Do not explain your reasoning or the summarization process.\n"
-        "Write memory as atomic lines using the format:\n"
-        "<key>: <value>\n"
-        "Rewrite the whole L3 session snapshot by merging Current L3 session memory with only the provided unsaved L1 runtime snapshots.\n"
-        "Current L3 session memory is already the consolidated previous saved state; do not require older L1 snapshots again.\n"
-        "The provided L1 snapshots are the fresh runtime tail since the previous successful session save.\n"
-        "Session event snapshots are stored by the runtime as an array and are always available at session-context level.\n"
-        "Treat that array as persistent event history for the session: use it to preserve causal sequence, important moments, and prior session-level decisions.\n"
-        "Do not ask the user to fill snapshot fields manually; infer event snapshot meaning from natural conversation and explicit user markings.\n"
-        "Preserve what should survive a browser reload or a new tab: active project direction, "
-        "explicit decisions, durable facts, unresolved tasks, constraints, and next step.\n"
-        "Treat TRUSTED_RUNTIME_CONTEXT timestamp as the source of truth for current time.\n"
-        "L3 must convert relative temporal phrases from L1 snapshots into absolute or session-relative phrases before preserving them.\n"
-        "Session handoff memory must not contain ambiguous standalone words like today, now, or recently unless paired with a timestamp/date.\n"
-        "If a preference expires at end of day, encode that explicitly, such as temporary_preference: User requested X for 2026-06-05 only; expires after that date unless renewed.\n"
-        "If the exact date cannot be inferred, write relative to current session rather than pretending it is durable calendar time.\n"
-        "Session memory may include rare episodic_key_moment records for events that need richer sequence memory.\n"
-        "Use episodic_key_moment only when the moment changed understanding of the project, user, or system; "
-        "has a clear cause -> event -> outcome chain; was explicitly marked important by the user; "
-        "or carries high emotional or narrative weight.\n"
-        "Do not create episodic_key_moment entries for ordinary progress updates, routine feature work, "
-        "minor bugs, casual jokes, or low-signal chat.\n"
-        "When writing an episodic_key_moment, preserve the exact chain rather than only the conclusion.\n"
-        "Use this plain-text block format:\n"
-        "memory_type: episodic_key_moment\n"
-        "title: <short event title>\n"
-        "emotional_weight: low|medium|high\n"
-        "why_it_matters: <why this should survive the session>\n"
-        "sequence:\n"
-        "1. <first causal step>\n"
-        "2. <next causal step>\n"
-        "preserve_detail: <which exact details matter and why>\n"
-        "Use the diff history to identify which topics or constraints actually changed during the session.\n"
-        "Do not copy every L1 line. Compress repeated or superseded states.\n"
-        "Do not infer durable user personality traits, relationship claims, or preferences from weak signal.\n"
-        "Preserve durable JIN/user fact lines from L1 snapshots as stable session facts; keep their keys stable and change only values that were explicitly corrected or superseded.\n"
-        "Keep user-requested stored values with explicit purpose and explicit facts in their own retrieval-friendly lines.\n"
-        "Drop transient last_jin_response details unless they contain an unresolved question or next step.\n"
-        "The final L3 snapshot should feel like a session handoff note for fluent continuation."
-    )
-
+    return RUNTIME_L3_SESSION_MEMORY_SYSTEM_PROMPT
 
 def build_runtime_session_memory_user_prompt(
         *,
@@ -702,15 +809,30 @@ def build_runtime_session_memory_user_prompt(
     for snapshot in digest["snapshots"]:
         snapshot_blocks.append(
             "\n".join([
-                f"snapshot: {snapshot.get('index', 0)}",
-                f"role: {snapshot.get('role', '')}",
-                f"total_diff: {snapshot.get('total_diff', 0)}",
-                "memory:",
+                RUNTIME_L3_SNAPSHOT_INDEX_TEMPLATE.format(
+                    index=snapshot.get(
+                        "index",
+                        0,
+                    ),
+                ),
+                RUNTIME_L3_SNAPSHOT_ROLE_TEMPLATE.format(
+                    role=snapshot.get(
+                        "role",
+                        "",
+                    ),
+                ),
+                RUNTIME_L3_SNAPSHOT_TOTAL_DIFF_TEMPLATE.format(
+                    total_diff=snapshot.get(
+                        "total_diff",
+                        0,
+                    ),
+                ),
+                RUNTIME_L3_SNAPSHOT_MEMORY_LABEL,
                 snapshot.get(
                     "memory",
-                    "<empty>",
+                    L3_EMPTY_PROMPT_PLACEHOLDER,
                 ),
-                "patch_summary:",
+                RUNTIME_L3_SNAPSHOT_PATCH_SUMMARY_LABEL,
                 json.dumps(
                     snapshot.get(
                         "patch_summary",
@@ -723,35 +845,35 @@ def build_runtime_session_memory_user_prompt(
         )
 
     return "\n\n".join([
-        f"L3 compact digest minimal: {digest['minimal']}",
-        "Current L3 session memory:",
+        RUNTIME_L3_USER_PROMPT_COMPACT_DIGEST_TEMPLATE.format(
+            minimal=digest["minimal"],
+        ),
+        RUNTIME_L3_USER_PROMPT_CURRENT_MEMORY_LABEL,
         digest["current_session_memory"],
-        "Compact L2 pattern context:",
+        RUNTIME_L3_USER_PROMPT_L2_CONTEXT_LABEL,
         digest["l2_context"],
-        "Session event snapshots array:",
-        f"omitted_events_count: {digest['omitted_events_count']}",
+        RUNTIME_L3_USER_PROMPT_SESSION_EVENTS_LABEL,
+        RUNTIME_L3_USER_PROMPT_OMITTED_EVENTS_TEMPLATE.format(
+            count=digest["omitted_events_count"],
+        ),
         json.dumps(
             digest["session_events"],
             ensure_ascii=False,
             indent=2,
         ),
-        "Selected L1 runtime memory snapshot history:",
-        (
-            f"omitted_middle_snapshots: {digest['omitted_middle_snapshots']}"
-            if digest["omitted_middle_snapshots"]
-            else "omitted_middle_snapshots: 0"
+        RUNTIME_L3_USER_PROMPT_SELECTED_SNAPSHOTS_LABEL,
+        RUNTIME_L3_USER_PROMPT_OMITTED_SNAPSHOTS_TEMPLATE.format(
+            count=digest["omitted_middle_snapshots"],
         ),
-        "\n\n---\n\n".join(snapshot_blocks) or "<empty>",
-        "Recent L1 diff history:",
-        (
-            f"omitted_older_diffs: {digest['omitted_older_diffs']}"
-            if digest["omitted_older_diffs"]
-            else "omitted_older_diffs: 0"
+        RUNTIME_L3_USER_PROMPT_SNAPSHOT_SEPARATOR.join(snapshot_blocks) or L3_EMPTY_PROMPT_PLACEHOLDER,
+        RUNTIME_L3_USER_PROMPT_RECENT_DIFFS_LABEL,
+        RUNTIME_L3_USER_PROMPT_OMITTED_DIFFS_TEMPLATE.format(
+            count=digest["omitted_older_diffs"],
         ),
         json.dumps(
             digest["diff_history"],
             ensure_ascii=False,
             indent=2,
         ),
-        "Rewrite the consolidated L3 session memory now by merging the current L3 memory with the unsaved runtime tail.",
+        RUNTIME_L3_USER_PROMPT_REWRITE_INSTRUCTION,
     ])

@@ -18,7 +18,7 @@ JIN doesn't just store logs. It uses short-term continuity to dynamically guide 
 *Every memory update is captured as a versioned snapshot with diff highlights, fully inspectable in the right-side timeline panel.*
 
 
-![JIN Core Engine runtime UI](ui/static/images/jin-core-redesign.png)
+![JIN Core Engine runtime UI](ui/static/images/jin-core-redesign.jpg)
 
 ![highlight](ui/static/images/highlight.png)
 
@@ -40,7 +40,7 @@ JIN doesn't just store logs. It uses short-term continuity to dynamically guide 
 
 ## Architecture
 
-![highlight](ui/static/images/shema.png)
+![shema](ui/static/images/shema.jpg)
 
 ## Runtime Flow
 

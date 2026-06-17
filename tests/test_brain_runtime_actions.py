@@ -604,7 +604,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
 
-    def test_prompt_handles_vague_memory_recall_before_topic_redirect(self):
+    def test_prompt_does_not_render_legacy_memory_recall_block(self):
 
         context = SimpleNamespace(
             runtime_turn_user_message="помнишь кодовое слово?",
@@ -619,31 +619,16 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
+            "<TRUSTED_RUNTIME_CONTEXT>",
+            prompt,
+        )
+
+        self.assertNotIn(
             "Memory recall: scan strong memory fields before denying recall",
             prompt,
         )
 
-        self.assertIn(
-            "remembered word, code word, or saved item",
-            prompt,
-        )
-
-        self.assertIn(
-            "match by meaning against stored_memory entries",
-            prompt,
-        )
-
-        self.assertIn(
-            "purpose: future recall test",
-            prompt,
-        )
-
-        self.assertIn(
-            "strongest recall candidate",
-            prompt,
-        )
-
-        self.assertIn(
+        self.assertNotIn(
             "temporarily overrides active topic continuation",
             prompt,
         )

@@ -2,77 +2,14 @@ from runtime.memory_common import (
     safe_call,
 )
 from runtime.L1_memory_utils import (
+    apply_runtime_memory_diff,
     build_runtime_memory_context_text,
+    build_runtime_memory_patch,
+    build_runtime_memory_snapshot,
+    build_strength_map,
+    get_strength_zones,
+    parse_runtime_memory_lines,
 )
-
-
-def _build_runtime_memory_snapshot(context, memory: str) -> dict:
-    from runtime.L1_memory import (
-        build_runtime_memory_snapshot,
-    )
-
-    return build_runtime_memory_snapshot(
-        context,
-        memory,
-    )
-
-
-def _parse_runtime_memory_lines(memory: str) -> list[dict]:
-    from runtime.L1_memory import (
-        parse_runtime_memory_lines,
-    )
-
-    return parse_runtime_memory_lines(
-        memory
-    )
-
-
-def _apply_runtime_memory_diff(
-        lines: list[dict],
-        previous_snapshot: dict | None,
-) -> list[dict]:
-    from runtime.L1_memory import (
-        apply_runtime_memory_diff,
-    )
-
-    return apply_runtime_memory_diff(
-        lines,
-        previous_snapshot,
-    )
-
-
-def _build_runtime_memory_patch(
-        lines: list[dict],
-        previous_snapshot: dict | None,
-) -> dict:
-    from runtime.L1_memory import (
-        build_runtime_memory_patch,
-    )
-
-    return build_runtime_memory_patch(
-        lines,
-        previous_snapshot,
-    )
-
-
-def _build_strength_map(lines: list[dict]) -> dict[str, float]:
-    from runtime.L1_memory import (
-        build_strength_map,
-    )
-
-    return build_strength_map(
-        lines
-    )
-
-
-def _get_strength_zones(lines: list[dict]) -> dict:
-    from runtime.L1_memory import (
-        get_strength_zones,
-    )
-
-    return get_strength_zones(
-        lines
-    )
 
 
 def _average_diff(values: list[float]) -> float:
@@ -117,7 +54,7 @@ async def emit_runtime_memory_update(
     ):
         context.runtime_memory_snapshots = []
 
-    snapshot = _build_runtime_memory_snapshot(context, memory)
+    snapshot = build_runtime_memory_snapshot(context, memory)
 
     context.runtime_memory_snapshots.append(snapshot)
     context.runtime_memory_snapshot_index = snapshot["index"]
@@ -195,16 +132,16 @@ def rebuild_latest_runtime_memory_snapshot(
         context,
     )
 
-    lines = _parse_runtime_memory_lines(
+    lines = parse_runtime_memory_lines(
         display_memory
     )
 
-    lines = _apply_runtime_memory_diff(
+    lines = apply_runtime_memory_diff(
         lines,
         previous_snapshot,
     )
 
-    patch_details = _build_runtime_memory_patch(
+    patch_details = build_runtime_memory_patch(
         lines,
         previous_snapshot,
     )
@@ -325,10 +262,10 @@ async def emit_runtime_l1_diff_update(
             "stats": build_runtime_l1_diff_stats(
                 history
             ),
-            "strength_map": _build_strength_map(
+            "strength_map": build_strength_map(
                 latest_lines
             ),
-            "strength_zones": _get_strength_zones(
+            "strength_zones": get_strength_zones(
                 latest_lines
             ),
         },

@@ -1,8 +1,6 @@
 import asyncio
 import contextlib
 import traceback
-from difflib import SequenceMatcher
-
 from clients.service_client import (
     ask_service_model,
 )
@@ -13,22 +11,12 @@ from runtime.fact_check import (
     ensure_confirmable_memory_markers,
 )
 from runtime.L1_memory_rules import (
-    DURABLE_FLOOR,
-    DURABLE_MEMORY_KEY_TOKENS,
-    DURABLE_MEMORY_NEGATION_MARKERS,
-    GENERIC_MEMORY_MATCH_KEYS,
-    GENERIC_MEMORY_VALUE_SIMILARITY_MIN,
-    HOT_THRESHOLD,
-    HOT_TRACE_EXCLUDED_KEYS,
     RUNTIME_RESPONSE_FEEDBACK_DISLIKED_VALUE,
     RUNTIME_RESPONSE_FEEDBACK_KEY,
     RUNTIME_RESPONSE_FEEDBACK_LIKED_VALUE,
     RUNTIME_RESPONSE_FEEDBACK_NEUTRAL_VALUE,
     RUNTIME_RESPONSE_FEEDBACK_RATINGS,
-    STRENGTH_BOOST,
-    STRENGTH_DECAY,
-    STRENGTH_NEW_KEY,
-    STRENGTH_PRESENCE_BOOST,
+    build_runtime_memory_system_prompt,
 )
 from runtime.L2_memory import (
     maybe_summarize_runtime_l2_memory,
@@ -42,7 +30,6 @@ from runtime.memory_common import (
     build_memory_update_skip_details,
     build_runtime_summarizer_payload,
     build_runtime_summarizer_user_prompt,
-    change_ratio,
     extract_runtime_memory_text,
     is_runtime_memory_response_truncated,
     latest_turn_context_is_overloaded,
@@ -58,11 +45,21 @@ from runtime.memory_events import (
 from runtime.L1_memory_utils import (
     build_interrupted_assistant_message,
     build_runtime_memory_batch_user_prompt,
-    build_runtime_memory_context_text,
-    build_runtime_memory_system_prompt,
+    build_runtime_memory_snapshot,
     build_runtime_memory_user_prompt,
-    canonicalize_runtime_memory_entry,
+    durable_memory_line_text,
+    get_strength_zones,
+    has_durable_fact_negation,
+    is_durable_memory_key,
+    is_runtime_memory_repeatable_key_family,
+    normalize_memory_key,
+    normalize_runtime_memory_key_family,
+    parse_runtime_memory_lines,
+    repeatable_runtime_memory_values_are_same_slot,
+    remove_runtime_memory_placeholder_lines,
+    remove_runtime_response_feedback_text,
     remove_runtime_user_idle_lines,
+    upsert_runtime_memory_entry_text,
 )
 
 def normalize_runtime_response_feedback(feedback) -> dict | None:
@@ -104,91 +101,6 @@ def build_runtime_response_feedback_value(feedback: dict) -> str:
 
 
 
-def remove_runtime_memory_entry_text(
-        memory: str,
-        key: str,
-) -> str:
-
-    target_key = str(key or "").strip()
-    if not target_key:
-        return memory or ""
-
-    target_key_normalized = target_key.casefold()
-
-    lines = [
-        line.rstrip()
-        for line in str(memory or "").splitlines()
-    ]
-
-    kept_lines = []
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            continue
-
-        current_key = stripped.split(":", 1)[0].strip().casefold()
-
-        if current_key == target_key_normalized:
-            continue
-
-        kept_lines.append(stripped)
-
-    return "\n".join(kept_lines).strip()
-
-
-def upsert_runtime_memory_entry_text(
-        memory: str,
-        key: str,
-        value: str,
-) -> str:
-
-    target_key = str(key or "").strip()
-    if not target_key:
-        return memory or ""
-
-    target_key_normalized = target_key.casefold()
-    replacement = f"{target_key}: {str(value or '').strip()}"
-
-    lines = [
-        line.rstrip()
-        for line in str(memory or "").splitlines()
-    ]
-
-    updated_lines = []
-    replaced = False
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            continue
-
-        current_key = stripped.split(":", 1)[0].strip().casefold()
-
-        if current_key == target_key_normalized:
-            if not replaced:
-                updated_lines.append(replacement)
-                replaced = True
-            continue
-
-        updated_lines.append(stripped)
-
-    if not replaced:
-        updated_lines.append(replacement)
-
-    return "\n".join(updated_lines).strip()
-
-
-def remove_runtime_response_feedback_text(
-        memory: str,
-) -> str:
-
-    return remove_runtime_memory_entry_text(
-        memory or "",
-        RUNTIME_RESPONSE_FEEDBACK_KEY,
-    ).strip()
-
-
 def clear_runtime_response_feedback(
         context,
 ) -> None:
@@ -196,19 +108,23 @@ def clear_runtime_response_feedback(
     if context is None:
         return
 
-    context.runtime_memory = remove_runtime_response_feedback_text(
-        getattr(
-            context,
-            "runtime_memory",
-            "",
+    context.runtime_memory = remove_runtime_memory_placeholder_lines(
+        remove_runtime_response_feedback_text(
+            getattr(
+                context,
+                "runtime_memory",
+                "",
+            )
         )
     )
 
-    context.runtime_memory_stable = remove_runtime_response_feedback_text(
-        getattr(
-            context,
-            "runtime_memory_stable",
-            "",
+    context.runtime_memory_stable = remove_runtime_memory_placeholder_lines(
+        remove_runtime_response_feedback_text(
+            getattr(
+                context,
+                "runtime_memory_stable",
+                "",
+            )
         )
     )
 
@@ -505,13 +421,18 @@ async def summarize_runtime_memory(
             "",
         )
     )
+    current_memory = remove_runtime_memory_placeholder_lines(
+        current_memory
+    )
 
     context.runtime_memory = current_memory
-    context.runtime_memory_stable = remove_runtime_response_feedback_text(
-        getattr(
-            context,
-            "runtime_memory_stable",
-            "",
+    context.runtime_memory_stable = remove_runtime_memory_placeholder_lines(
+        remove_runtime_response_feedback_text(
+            getattr(
+                context,
+                "runtime_memory_stable",
+                "",
+            )
         )
     )
     context.runtime_last_response_feedback = None
@@ -529,6 +450,9 @@ async def summarize_runtime_memory(
             response
         )
         updated_memory = remove_runtime_response_feedback_text(
+            updated_memory
+        )
+        updated_memory = remove_runtime_memory_placeholder_lines(
             updated_memory
         )
 
@@ -561,12 +485,18 @@ async def summarize_runtime_memory(
         updated_memory = remove_runtime_response_feedback_text(
             updated_memory
         )
+        updated_memory = remove_runtime_memory_placeholder_lines(
+            updated_memory
+        )
         updated_memory = ensure_confirmable_memory_markers(
             updated_memory,
             user_message=user_message,
             assistant_message=assistant_message,
         )
         updated_memory = remove_runtime_response_feedback_text(
+            updated_memory
+        )
+        updated_memory = remove_runtime_memory_placeholder_lines(
             updated_memory
         )
         updated_memory = remove_runtime_user_idle_lines(
@@ -679,12 +609,17 @@ async def summarize_runtime_memory_pending_turns(
             "",
         )
     )
+    initial_memory = remove_runtime_memory_placeholder_lines(
+        initial_memory
+    )
 
-    context.runtime_memory = remove_runtime_response_feedback_text(
-        getattr(
-            context,
-            "runtime_memory",
-            "",
+    context.runtime_memory = remove_runtime_memory_placeholder_lines(
+        remove_runtime_response_feedback_text(
+            getattr(
+                context,
+                "runtime_memory",
+                "",
+            )
         )
     )
     context.runtime_memory_stable = initial_memory
@@ -702,6 +637,9 @@ async def summarize_runtime_memory_pending_turns(
             response
         )
         updated_memory = remove_runtime_response_feedback_text(
+            updated_memory
+        )
+        updated_memory = remove_runtime_memory_placeholder_lines(
             updated_memory
         )
 
@@ -735,20 +673,29 @@ async def summarize_runtime_memory_pending_turns(
         updated_memory = remove_runtime_response_feedback_text(
             updated_memory
         )
+        updated_memory = remove_runtime_memory_placeholder_lines(
+            updated_memory
+        )
 
         latest_turn = turns[-1] if turns else {}
+        latest_user_message = latest_turn.get(
+            "user_message",
+            "",
+        )
+        latest_assistant_message = latest_turn.get(
+            "assistant_message",
+            "",
+        )
+
         updated_memory = ensure_confirmable_memory_markers(
             updated_memory,
-            user_message=latest_turn.get(
-                "user_message",
-                "",
-            ),
-            assistant_message=latest_turn.get(
-                "assistant_message",
-                "",
-            ),
+            user_message=latest_user_message,
+            assistant_message=latest_assistant_message,
         )
         updated_memory = remove_runtime_response_feedback_text(
+            updated_memory
+        )
+        updated_memory = remove_runtime_memory_placeholder_lines(
             updated_memory
         )
         updated_memory = remove_runtime_user_idle_lines(
@@ -958,284 +905,6 @@ async def cancel_runtime_memory_update(
 
     context.runtime_memory_update_task = None
 
-def parse_runtime_memory_lines(memory: str) -> list[dict]:
-    lines = []
-
-    for raw_line in (memory or "").splitlines():
-        line = raw_line.strip().lstrip("-").strip()
-
-        if not line:
-            continue
-
-        if ":" in line:
-            key, value = line.split(":", 1)
-        else:
-            key, value = "note", line
-
-        key, value = canonicalize_runtime_memory_entry(
-            key,
-            value,
-        )
-
-        lines.append({
-            "key": key,
-            "value": value,
-            "status": "same",
-        })
-
-    return lines
-
-def normalize_memory_key(
-        key: str,
-) -> str:
-
-    return (
-        key
-        .strip()
-        .lower()
-    )
-
-
-def is_durable_memory_key(
-        key: str,
-) -> bool:
-
-    normalized_key = normalize_memory_key(
-        key
-    )
-
-    return any(
-        token in normalized_key
-        for token in DURABLE_MEMORY_KEY_TOKENS
-    )
-
-
-def compute_line_strength(
-        prev_strength: float | None,
-        change_ratio_val: float,
-        is_durable: bool,
-        is_new: bool,
-) -> float:
-    if is_new:
-        raw = STRENGTH_NEW_KEY
-    else:
-        raw = (
-            (prev_strength or 0.0) * STRENGTH_DECAY
-            + STRENGTH_PRESENCE_BOOST
-            + change_ratio_val * STRENGTH_BOOST
-        )
-
-    floor = DURABLE_FLOOR if is_durable else 0.0
-
-    return round(
-        min(
-            1.0,
-            max(
-                floor,
-                raw,
-            ),
-        ),
-        4,
-    )
-
-
-def get_strength_zones(
-        lines: list[dict],
-) -> dict:
-    hot = []
-    excluded_hot_trace_keys = {
-        normalize_memory_key(
-            key
-        )
-        for key in HOT_TRACE_EXCLUDED_KEYS
-    }
-
-    for line in lines:
-        key = line.get("key", "")
-        strength = line.get("strength", 0.0)
-        if strength >= HOT_THRESHOLD:
-            if normalize_memory_key(
-                key
-            ) in excluded_hot_trace_keys:
-                continue
-            hot.append(key)
-
-    return {
-        "hot": hot,
-    }
-
-
-def build_strength_map(
-        lines: list[dict],
-) -> dict[str, float]:
-    return {
-        line.get("key", ""): line.get("strength", 0.0)
-        for line in lines
-        if line.get("key")
-    }
-
-
-def has_durable_fact_negation(
-        value: str,
-) -> bool:
-
-    normalized_value = (
-        value
-        or ""
-    ).strip().lower()
-
-    return any(
-        marker in normalized_value
-        for marker in DURABLE_MEMORY_NEGATION_MARKERS
-    )
-
-
-def durable_memory_line_text(
-        line: dict,
-) -> str:
-
-    key = (
-        line.get(
-            "key",
-            "",
-        )
-        or ""
-    ).strip()
-
-    value = (
-        line.get(
-            "value",
-            "",
-        )
-        or ""
-    ).strip()
-
-    if not key:
-        return value
-
-    return f"{key}: {value}"
-
-
-def split_memory_value_parts(
-        value: str,
-) -> list[str]:
-
-    return [
-        part.strip()
-        for part in (
-            value
-            or ""
-        ).split(",")
-        if part.strip()
-    ]
-
-
-def collapse_duplicate_runtime_memory_keys(
-        memory: str,
-) -> str:
-
-    output_entries = []
-    grouped_by_key = {}
-    duplicate_found = False
-
-    for raw_line in (
-        memory
-        or ""
-    ).splitlines():
-
-        stripped_line = raw_line.strip()
-
-        if not stripped_line:
-            output_entries.append(
-                raw_line
-            )
-            continue
-
-        line = stripped_line.lstrip("-").strip()
-
-        if ":" not in line:
-            output_entries.append(
-                raw_line
-            )
-            continue
-
-        key, value = line.split(
-            ":",
-            1,
-        )
-
-        key, value = canonicalize_runtime_memory_entry(
-            key,
-            value,
-        )
-
-        normalized_key = normalize_memory_key(
-            key
-        )
-
-        if (
-            not normalized_key
-            or not is_durable_memory_key(
-                key
-            )
-        ):
-            output_entries.append(
-                raw_line
-            )
-            continue
-
-        existing = grouped_by_key.get(
-            normalized_key
-        )
-
-        if existing is None:
-            existing = {
-                "key": key,
-                "values": [],
-                "seen_values": set(),
-            }
-            grouped_by_key[normalized_key] = existing
-            output_entries.append(
-                existing
-            )
-        else:
-            duplicate_found = True
-
-        for part in split_memory_value_parts(
-            value
-        ):
-            normalized_value = part.casefold()
-
-            if normalized_value in existing["seen_values"]:
-                continue
-
-            existing["seen_values"].add(
-                normalized_value
-            )
-            existing["values"].append(
-                part
-            )
-
-    if not duplicate_found:
-        return memory
-
-    return "\n".join(
-        (
-            (
-                f'{entry["key"]}: {", ".join(entry["values"])}'
-                if entry["key"]
-                else ", ".join(entry["values"])
-            )
-            if isinstance(
-                entry,
-                dict,
-            )
-            else entry
-        )
-        for entry in output_entries
-    )
-
-
 def merge_durable_memory_facts(
         previous_memory: str,
         candidate_memory: str,
@@ -1282,6 +951,69 @@ def merge_durable_memory_facts(
         ):
             continue
 
+        previous_value = previous_line.get(
+            "value",
+            "",
+        )
+
+        if is_runtime_memory_repeatable_key_family(
+                previous_key
+        ):
+            previous_family = normalize_runtime_memory_key_family(
+                previous_key
+            )
+            candidate_semantic_match = False
+
+            for candidate_line in candidate_lines:
+                candidate_key = (
+                    candidate_line.get(
+                        "key",
+                        "",
+                    )
+                    or ""
+                ).strip()
+
+                if not is_runtime_memory_repeatable_key_family(
+                        candidate_key
+                ):
+                    continue
+
+                if (
+                        normalize_runtime_memory_key_family(
+                            candidate_key
+                        )
+                        != previous_family
+                ):
+                    continue
+
+                candidate_value = candidate_line.get(
+                    "value",
+                    "",
+                )
+
+                if has_durable_fact_negation(
+                    candidate_value
+                ):
+                    candidate_semantic_match = True
+                    break
+
+                if repeatable_runtime_memory_values_are_same_slot(
+                        previous_value,
+                        candidate_value,
+                ):
+                    candidate_semantic_match = True
+                    break
+
+            if candidate_semantic_match:
+                continue
+
+            preserved_lines.append(
+                durable_memory_line_text(
+                    previous_line
+                )
+            )
+            continue
+
         normalized_key = normalize_memory_key(
             previous_key
         )
@@ -1310,9 +1042,7 @@ def merge_durable_memory_facts(
         )
 
     if not preserved_lines:
-        return collapse_duplicate_runtime_memory_keys(
-            candidate_memory
-        )
+        return candidate_memory
 
     candidate_text = (
         candidate_memory
@@ -1320,555 +1050,14 @@ def merge_durable_memory_facts(
     ).strip()
 
     if not candidate_text:
-        return collapse_duplicate_runtime_memory_keys(
-            "\n".join(
-                preserved_lines
-            )
+        return "\n".join(
+            preserved_lines
         )
-
-    return collapse_duplicate_runtime_memory_keys(
-        (
-            candidate_text
-            + "\n"
-            + "\n".join(
-                preserved_lines
-            )
-        )
-    )
-
-
-def normalize_generic_memory_key(
-        key: str,
-) -> str:
 
     return (
-        normalize_memory_key(
-            key
+        "\n".join(
+            preserved_lines
         )
-        .replace(
-            "_",
-            " ",
-        )
-        .replace(
-            "-",
-            " ",
-        )
+        + "\n"
+        + candidate_text
     )
-
-
-def is_generic_memory_match_key(
-        key: str,
-) -> bool:
-
-    return normalize_generic_memory_key(
-        key
-    ) in GENERIC_MEMORY_MATCH_KEYS
-
-
-def memory_value_similarity(
-        previous: str,
-        current: str,
-) -> float:
-
-    previous = (
-        previous
-        or ""
-    ).strip()
-    current = (
-        current
-        or ""
-    ).strip()
-
-    if not previous and not current:
-        return 1.0
-
-    if not previous or not current:
-        return 0.0
-
-    return round(
-        SequenceMatcher(
-            None,
-            previous.lower(),
-            current.lower(),
-        ).ratio(),
-        3,
-    )
-
-
-def should_match_previous_memory_line(
-        *,
-        key: str,
-        value: str,
-        previous_line: dict | None,
-) -> bool:
-
-    if previous_line is None:
-        return False
-
-    previous_key = previous_line.get(
-        "key",
-        "",
-    )
-
-    if not (
-            is_generic_memory_match_key(
-                key
-            )
-            or is_generic_memory_match_key(
-                previous_key
-            )
-    ):
-        return True
-
-    similarity = memory_value_similarity(
-        previous_line.get(
-            "value",
-            "",
-        ),
-        value,
-    )
-
-    return similarity >= GENERIC_MEMORY_VALUE_SIMILARITY_MIN
-
-
-def find_best_previous_line(
-        key: str,
-        previous_lines: list[dict],
-        value: str = "",
-) -> dict | None:
-
-    normalized_key = normalize_memory_key(
-        key
-    )
-
-    best_line = None
-    best_score = 0.0
-
-    for previous_line in previous_lines:
-
-        previous_key = normalize_memory_key(
-            previous_line.get(
-                "key",
-                ""
-            )
-        )
-
-        if not previous_key:
-            continue
-
-        score = SequenceMatcher(
-            None,
-            previous_key,
-            normalized_key,
-        ).ratio()
-
-        if score > best_score:
-            best_score = score
-            best_line = previous_line
-
-    if (
-            best_score >= 0.58
-            and should_match_previous_memory_line(
-                key=key,
-                value=value,
-                previous_line=best_line,
-            )
-    ):
-        return best_line
-
-    return None
-
-def apply_runtime_memory_diff(
-        current_lines: list[dict],
-        previous_snapshot: dict | None,
-) -> list[dict]:
-
-    if not previous_snapshot:
-        for line in current_lines:
-            line["key_status"] = "new"
-            line["value_status"] = "new"
-            line["key_change_ratio"] = 1.0
-            line["value_change_ratio"] = 1.0
-            line["status"] = "new"
-            line["strength"] = compute_line_strength(
-                prev_strength=None,
-                change_ratio_val=1.0,
-                is_durable=is_durable_memory_key(
-                    line.get("key", "")
-                ),
-                is_new=True,
-            )
-
-        return current_lines
-
-    previous_lines = (
-            previous_snapshot.get(
-                "lines",
-                []
-            )
-            or []
-    )
-
-    previous_by_normalized_key = {}
-
-    for previous_line in previous_lines:
-        normalized_key = normalize_memory_key(
-            previous_line.get(
-                "key",
-                ""
-            )
-        )
-
-        if normalized_key:
-            previous_by_normalized_key[normalized_key] = previous_line
-
-    for line in current_lines:
-
-        key = (
-                line.get(
-                    "key",
-                    ""
-                )
-                or ""
-        ).strip()
-
-        value = (
-                line.get(
-                    "value",
-                    ""
-                )
-                or ""
-        ).strip()
-
-        normalized_key = normalize_memory_key(
-            key
-        )
-
-        previous_line = previous_by_normalized_key.get(
-            normalized_key
-        )
-
-        if not should_match_previous_memory_line(
-                key=key,
-                value=value,
-                previous_line=previous_line,
-        ):
-            previous_line = None
-
-        if previous_line is None:
-            previous_line = find_best_previous_line(
-                key,
-                previous_lines,
-                value=value,
-            )
-
-        # -----------------------------------------
-        # EXACT KEY NOT FOUND
-        # -----------------------------------------
-
-        if previous_line is None:
-            line["key_status"] = "new"
-            line["value_status"] = "new"
-            line["key_change_ratio"] = 1.0
-            line["value_change_ratio"] = 1.0
-            line["status"] = "new"
-            line["strength"] = compute_line_strength(
-                prev_strength=None,
-                change_ratio_val=1.0,
-                is_durable=is_durable_memory_key(key),
-                is_new=True,
-            )
-
-            continue
-
-        previous_key = (
-                previous_line.get(
-                    "key",
-                    ""
-                )
-                or ""
-        ).strip()
-
-        previous_value = (
-                previous_line.get(
-                    "value",
-                    ""
-                )
-                or ""
-        ).strip()
-
-        key_delta = change_ratio(
-            previous_key,
-            key,
-        )
-
-        value_delta = change_ratio(
-            previous_value,
-            value,
-        )
-
-        line["key_change_ratio"] = key_delta
-        line["value_change_ratio"] = value_delta
-
-        line["key_status"] = (
-            "changed"
-            if key_delta > 0
-            else "same"
-        )
-
-        line["value_status"] = (
-            "changed"
-            if value_delta > 0
-            else "same"
-        )
-
-        if (
-                line["key_status"] == "changed"
-                or line["value_status"] == "changed"
-        ):
-            line["status"] = "changed"
-
-        else:
-            line["status"] = "same"
-
-        line["strength"] = compute_line_strength(
-            prev_strength=previous_line.get("strength"),
-            change_ratio_val=max(key_delta, value_delta),
-            is_durable=is_durable_memory_key(key),
-            is_new=False,
-        )
-
-    return current_lines
-
-
-def build_runtime_memory_patch(
-        current_lines: list[dict],
-        previous_snapshot: dict | None,
-) -> dict:
-
-    patch = {
-        "added": [],
-        "changed": [],
-        "removed": [],
-    }
-    total_diff = 0
-
-    if not previous_snapshot:
-        for line in current_lines:
-            patch["added"].append({
-                "key": line.get(
-                    "key",
-                    "",
-                ),
-                "value": line.get(
-                    "value",
-                    "",
-                ),
-                "strength": line.get(
-                    "strength",
-                    0.0,
-                ),
-            })
-            total_diff += 30
-
-        return {
-            "patch": patch,
-            "total_diff": total_diff,
-        }
-
-    previous_lines = (
-            previous_snapshot.get(
-                "lines",
-                [],
-            )
-            or []
-    )
-
-    previous_by_normalized_key = {}
-
-    for previous_line in previous_lines:
-        normalized_key = normalize_memory_key(
-            previous_line.get(
-                "key",
-                "",
-            )
-        )
-
-        if normalized_key:
-            previous_by_normalized_key[normalized_key] = previous_line
-
-    matched_previous_ids = set()
-
-    for line in current_lines:
-
-        key = (
-                line.get(
-                    "key",
-                    "",
-                )
-                or ""
-        ).strip()
-
-        value = (
-                line.get(
-                    "value",
-                    "",
-                )
-                or ""
-        ).strip()
-
-        normalized_key = normalize_memory_key(
-            key
-        )
-
-        previous_line = previous_by_normalized_key.get(
-            normalized_key
-        )
-
-        if not should_match_previous_memory_line(
-                key=key,
-                value=value,
-                previous_line=previous_line,
-        ):
-            previous_line = None
-
-        if previous_line is None:
-            previous_line = find_best_previous_line(
-                key,
-                previous_lines,
-                value=value,
-            )
-
-        if previous_line is None:
-            patch["added"].append({
-                "key": key,
-                "value": line.get(
-                    "value",
-                    "",
-                ),
-                "strength": line.get(
-                    "strength",
-                    0.0,
-                ),
-            })
-            total_diff += 30
-            continue
-
-        matched_previous_ids.add(
-            id(previous_line)
-        )
-
-        key_delta = line.get(
-            "key_change_ratio",
-            0,
-        )
-        value_delta = line.get(
-            "value_change_ratio",
-            0,
-        )
-
-        if key_delta or value_delta:
-            patch["changed"].append({
-                "previous_key": previous_line.get(
-                    "key",
-                    "",
-                ),
-                "previous_value": previous_line.get(
-                    "value",
-                    "",
-                ),
-                "current_key": key,
-                "current_value": line.get(
-                    "value",
-                    "",
-                ),
-                "key_change_ratio": key_delta,
-                "value_change_ratio": value_delta,
-                "previous_strength": previous_line.get(
-                    "strength",
-                    0.0,
-                ),
-                "current_strength": line.get(
-                    "strength",
-                    0.0,
-                ),
-            })
-            total_diff += round(
-                (
-                    key_delta
-                    + value_delta
-                )
-                * 50,
-                2,
-            )
-
-    for previous_line in previous_lines:
-        if id(previous_line) in matched_previous_ids:
-            continue
-
-        patch["removed"].append({
-            "key": previous_line.get(
-                "key",
-                "",
-            ),
-            "value": previous_line.get(
-                "value",
-                "",
-            ),
-            "strength": previous_line.get(
-                "strength",
-                0.0,
-            ),
-        })
-        total_diff += 20
-
-    return {
-        "patch": patch,
-        "total_diff": total_diff,
-    }
-
-
-def build_runtime_memory_snapshot(
-        context,
-        memory: str,
-) -> dict:
-
-    snapshots = getattr(
-        context,
-        "runtime_memory_snapshots",
-        [],
-    )
-
-    previous_snapshot = (
-        snapshots[-1]
-        if snapshots
-        else None
-    )
-
-    display_memory = build_runtime_memory_context_text(
-        memory,
-        context,
-    )
-
-    lines = parse_runtime_memory_lines(
-        display_memory
-    )
-
-    lines = apply_runtime_memory_diff(
-        lines,
-        previous_snapshot,
-    )
-
-    patch_details = build_runtime_memory_patch(
-        lines,
-        previous_snapshot,
-    )
-
-    return {
-        "session_id": getattr(context, "session_id", ""),
-        "index": len(snapshots),
-        "raw_memory": display_memory,
-        "lines": lines,
-        "patch": patch_details["patch"],
-        "total_diff": patch_details["total_diff"],
-    }

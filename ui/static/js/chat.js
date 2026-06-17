@@ -12,6 +12,128 @@ const STREAM_NEAR_BOTTOM_PX = 72;
 let streamFrameScheduled = false;
 const deferredRuntimeActionsAfterResponse = [];
 
+const jinInputLoopState = {
+  previousInput: "",
+  repeatCount: 0,
+};
+
+let jinConversationTurnCounter = 0;
+window.jinConversationTurnCounter =
+  jinConversationTurnCounter;
+
+const SCENE_SEARCH_RUNTIME_ACTION = "web_search";
+let sceneSearchFadeTimer = null;
+
+function getSceneRoot() {
+  return document.querySelector("main");
+}
+
+function setSceneSearchScreenActive(active) {
+  const sceneRoot = getSceneRoot();
+
+  if (!sceneRoot) {
+    return;
+  }
+
+  if (sceneSearchFadeTimer) {
+    clearTimeout(sceneSearchFadeTimer);
+    sceneSearchFadeTimer = null;
+  }
+
+  if (active) {
+    sceneRoot.classList.add(
+      "scene-searching"
+    );
+    return;
+  }
+
+  sceneRoot.classList.remove(
+    "scene-searching"
+  );
+}
+
+function syncSceneSearchScreenForRuntimeAction(
+  action,
+  active
+) {
+  if (
+    String(action || "").toLowerCase()
+    !== SCENE_SEARCH_RUNTIME_ACTION
+  ) {
+    return;
+  }
+
+  setSceneSearchScreenActive(
+    active
+  );
+}
+
+function normalizeJinLoopInput(text) {
+
+  const raw = String(
+    text
+    || ""
+  ).toLowerCase();
+
+  const normalized = raw.normalize
+    ? raw.normalize("NFKC")
+    : raw;
+
+  try {
+    return normalized.replace(
+      /[\p{P}\p{S}\s]+/gu,
+      ""
+    );
+  } catch (error) {
+    return normalized.replace(
+      /[^a-zа-яёіїєґ0-9]+/gi,
+      ""
+    );
+  }
+
+}
+
+function updateJinInputLoopCounter(text) {
+
+  const normalizedInput =
+    normalizeJinLoopInput(
+      text
+    );
+
+  if (!normalizedInput) {
+    jinInputLoopState.previousInput = "";
+    jinInputLoopState.repeatCount = 0;
+
+    return {
+      repeatCount: 0,
+      repeated: 0,
+      normalizedInput: "",
+    };
+  }
+
+  if (
+    normalizedInput
+    === jinInputLoopState.previousInput
+  ) {
+    jinInputLoopState.repeatCount += 1;
+  } else {
+    jinInputLoopState.previousInput = normalizedInput;
+    jinInputLoopState.repeatCount = 0;
+  }
+
+  const repeated =
+    jinInputLoopState.repeatCount > 0
+      ? jinInputLoopState.repeatCount + 1
+      : 0;
+
+  return {
+    repeatCount: jinInputLoopState.repeatCount,
+    repeated,
+    normalizedInput,
+  };
+
+}
+
 /**
  * @typedef {Object} ContextSnapshot
  * @property {string=} system_prompt
@@ -436,6 +558,9 @@ function createMessageElement(
   msgDiv.className =
     "jin-message-row jin-message-shell mx-auto w-full max-w-4xl";
 
+  msgDiv.dataset.role =
+    role;
+
   const pre =
     document.createElement("pre");
 
@@ -490,6 +615,12 @@ function appendChatMessage(
   pre.innerHTML =
     escapeHtml(text);
 
+  if (role === "user") {
+    jinConversationTurnCounter += 1;
+    window.jinConversationTurnCounter =
+      jinConversationTurnCounter;
+  }
+
   flushRuntimeActionsAfterResponse(
     role
   );
@@ -501,7 +632,8 @@ function appendChatMessage(
 
 function appendRuntimeAction(
   action,
-  text
+  text,
+  options = {}
 ) {
 
   const actionText =
@@ -511,6 +643,13 @@ function appendRuntimeAction(
 
   if (!actionText.trim()) {
     return;
+  }
+
+  if (options.activateScene !== false) {
+    syncSceneSearchScreenForRuntimeAction(
+      action,
+      true
+    );
   }
 
   const row =
@@ -615,7 +754,10 @@ function flushRuntimeActionsAfterResponse(
   actions.forEach((entry) => {
     appendRuntimeAction(
       entry.action,
-      entry.text
+      entry.text,
+      {
+        activateScene: !entry.completed,
+      }
     );
 
     if (entry.completed) {
@@ -637,6 +779,11 @@ function fadeRuntimeAction(
       entry.completed = true;
     }
   });
+
+  syncSceneSearchScreenForRuntimeAction(
+    action,
+    false
+  );
 
   const rows =
     chatHistory.querySelectorAll(
@@ -1043,6 +1190,15 @@ function finishStreamMessage(
 
 }
 
+
+window.normalizeJinLoopInput =
+  normalizeJinLoopInput;
+
+window.updateJinInputLoopCounter =
+  updateJinInputLoopCounter;
+
+window.setSceneSearchScreenActive =
+  setSceneSearchScreenActive;
 
 window.appendChatMessage =
   appendChatMessage;
