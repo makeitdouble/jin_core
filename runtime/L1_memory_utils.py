@@ -1395,6 +1395,244 @@ def build_runtime_memory_patch(
     }
 
 
+
+COUNTDOWN_MEMORY_KEY_RE = re.compile(
+    r"^countdown_contract(?:_\d+)?$",
+    re.IGNORECASE,
+)
+
+COUNTDOWN_SUFFIX_RE = re.compile(
+    r"\[\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*([^\]]*)\]"
+)
+
+COUNTDOWN_LEGACY_FIELD_RE = re.compile(
+    r"\s*;\s*(?:current|remaining|current_time|status)\s*:\s*[^;\[]*",
+    re.IGNORECASE,
+)
+
+COUNTDOWN_LEGACY_ANCHOR_RE = re.compile(
+    r"\s*;\s*(created_at|created_user_message_count|count_from|count_to|due_user_message_count|due_at|trigger)\s*:\s*([^;\[]*)",
+    re.IGNORECASE,
+)
+
+
+def is_countdown_memory_key(key: str) -> bool:
+
+    return bool(
+        COUNTDOWN_MEMORY_KEY_RE.match(
+            str(key or "").strip()
+        )
+    )
+
+
+def parse_countdown_suffixes(value: str) -> dict[str, str]:
+
+    return {
+        match.group(1).strip().casefold(): match.group(2).strip()
+        for match in COUNTDOWN_SUFFIX_RE.finditer(value or "")
+    }
+
+
+def strip_countdown_suffixes(value: str) -> str:
+
+    without_suffixes = COUNTDOWN_SUFFIX_RE.sub(
+        "",
+        value or "",
+    )
+
+    without_legacy_runtime = COUNTDOWN_LEGACY_FIELD_RE.sub(
+        "",
+        without_suffixes,
+    )
+
+    return re.sub(
+        r"\s+",
+        " ",
+        without_legacy_runtime,
+    ).strip().strip(";").strip()
+
+
+def _parse_int(value) -> int | None:
+
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_legacy_countdown_fields(value: str) -> dict[str, str]:
+
+    fields = {}
+
+    for match in COUNTDOWN_LEGACY_ANCHOR_RE.finditer(value or ""):
+        key = match.group(1).strip().casefold()
+        fields[key] = match.group(2).strip()
+
+    return fields
+
+
+def _countdown_suffix_text(suffixes: dict[str, str]) -> str:
+
+    ordered_keys = (
+        "created_at",
+        "created_user_message_count",
+        "count_from",
+        "count_to",
+        "due_user_message_count",
+        "current",
+        "remaining",
+        "due_at",
+        "current_time",
+        "trigger",
+        "completed",
+        "cancelled",
+    )
+
+    parts = []
+    emitted = set()
+
+    for key in ordered_keys:
+        value = suffixes.get(key)
+        if value is None or str(value).strip() == "":
+            continue
+        parts.append(f"[{key}: {str(value).strip()}]")
+        emitted.add(key)
+
+    for key, value in suffixes.items():
+        if key in emitted or key == "status":
+            continue
+        if str(value).strip() == "":
+            continue
+        parts.append(f"[{key}: {str(value).strip()}]")
+
+    return " ".join(parts)
+
+
+def update_countdown_contract_line(
+        *,
+        key: str,
+        value: str,
+        current_user_message_count=None,
+        current_timestamp: str = "",
+) -> str | None:
+
+    if not is_countdown_memory_key(key):
+        return f"{key}: {value}".strip()
+
+    suffixes = parse_countdown_suffixes(value)
+    legacy_fields = _extract_legacy_countdown_fields(value)
+
+    for legacy_key, legacy_value in legacy_fields.items():
+        suffixes.setdefault(
+            legacy_key,
+            legacy_value,
+        )
+
+    suffixes.pop(
+        "status",
+        None,
+    )
+
+    if (
+            "completed" in suffixes
+            or "cancelled" in suffixes
+    ):
+        return None
+
+    body = strip_countdown_suffixes(value)
+
+    current_count = _parse_int(
+        current_user_message_count
+    )
+
+    count_to = _parse_int(
+        suffixes.get("count_to")
+        or suffixes.get("due_user_message_count")
+    )
+
+    if count_to is not None:
+        if current_count is not None:
+            suffixes["current"] = str(current_count)
+            suffixes["remaining"] = str(
+                max(
+                    count_to - current_count,
+                    0,
+                )
+            )
+        suffixes.setdefault(
+            "due_user_message_count",
+            str(count_to),
+        )
+
+    due_at = suffixes.get(
+        "due_at"
+    )
+
+    if due_at and current_timestamp:
+        suffixes["current_time"] = str(current_timestamp)
+
+    rendered_suffixes = _countdown_suffix_text(
+        suffixes
+    )
+
+    if rendered_suffixes:
+        return f"{key}: {body} {rendered_suffixes}".strip()
+
+    return f"{key}: {body}".strip()
+
+
+def refresh_countdown_contracts(
+        memory: str,
+        context=None,
+) -> str:
+
+    current_user_message_count = getattr(
+        context,
+        "user_message_count",
+        None,
+    ) if context is not None else None
+
+    current_timestamp = str(
+        getattr(
+            context,
+            "timestamp",
+            "",
+        )
+        or ""
+    )
+
+    updated_lines = []
+
+    for raw_line in str(memory or "").splitlines():
+        line = raw_line.strip().lstrip("-").strip()
+
+        if not line:
+            continue
+
+        if ":" not in line:
+            updated_lines.append(line)
+            continue
+
+        key, value = line.split(":", 1)
+        key = key.strip()
+        value = value.strip()
+
+        if not is_countdown_memory_key(key):
+            updated_lines.append(line)
+            continue
+
+        updated_line = update_countdown_contract_line(
+            key=key,
+            value=value,
+            current_user_message_count=current_user_message_count,
+            current_timestamp=current_timestamp,
+        )
+
+        if updated_line:
+            updated_lines.append(updated_line)
+
+    return "\n".join(updated_lines).strip()
+
 def build_runtime_memory_snapshot(
         context,
         memory: str,

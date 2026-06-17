@@ -162,6 +162,12 @@ REPEATABLE_RUNTIME_MEMORY_KEY_FAMILIES = {
     "constraint",
     "current_task",
     "current task",
+    "stored_memory",
+    "stored memory",
+    "open_contract",
+    "open contract",
+    "countdown_contract",
+    "countdown contract",
 }
 
 # Template used to pass interrupted assistant turns into L1 memory.
@@ -257,13 +263,71 @@ TRIGGER_KEYS_COUNTDOWN = (
 )
 
 # Фразы пользователя → подключить блок про создание countdown_contract.
+# Общий входной детектор: конкретный формат выбирается ниже детерминированно.
 TRIGGER_MSG_COUNTDOWN = (
+    "напомни",
+    "напомнить",
+    "remind",
     "через",
     "ходов",
+    "ход",
+    "сообщений",
+    "сообщения",
     "after",
     "turns",
+    "turn",
     "messages",
+    "message",
+    "minutes",
+    "minute",
+    "минут",
+    "минуту",
+    "секунд",
+    "секунду",
+    "час",
+    "часов",
+    "tomorrow",
+    "завтра",
     "in n",
+)
+
+COUNTDOWN_TIME_TRIGGER_WORDS = (
+    "секунд",
+    "секунду",
+    "сек",
+    "минут",
+    "минуту",
+    "мин",
+    "час",
+    "часов",
+    "часа",
+    "день",
+    "дня",
+    "дней",
+    "завтра",
+    "сегодня",
+    "tomorrow",
+    "today",
+    "second",
+    "seconds",
+    "minute",
+    "minutes",
+    "hour",
+    "hours",
+    "day",
+    "days",
+)
+
+COUNTDOWN_TURN_TRIGGER_WORDS = (
+    "ход",
+    "ходов",
+    "сообщение",
+    "сообщения",
+    "сообщений",
+    "turn",
+    "turns",
+    "message",
+    "messages",
 )
 
 # Ключи в текущей памяти → подключить блок про L2 interface.
@@ -325,7 +389,7 @@ KEY_SEMANTICS = (
     "Typical temporary keys: active_topic, current_task, current_request, pending_choice, "
     "last_jin_response, interaction_state.\n"
     "Typical durable keys: user_fact, jin_fact, jin_core_definition, stored_memory, "
-    "open_contract, countdown_contract, shared_axiom_established, primary_goal.\n"
+    "open_contract, countdown_contract, countdown_contract_N, shared_axiom_established, primary_goal.\n"
 )
 
 # Разделение временного и долговременного состояния.
@@ -341,7 +405,7 @@ DURABLE_VS_TEMPORARY = (
     "Only the value may change, and only when the current turn explicitly overrides it.\n"
     "Durable key families that must always carry forward: "
     "user_fact, jin_fact, jin_core_definition, stored_memory, open_contract, "
-    "countdown_contract, shared_axiom_established, primary_goal.\n"
+    "countdown_contract, countdown_contract_N, shared_axiom_established, primary_goal.\n"
     "Never invent missing durable keys and never fill absent durable keys with placeholders.\n"
     "Treat any existing line about JIN's identity, nature, origin, role, or capabilities "
     "as a durable JIN fact even if its key is not exactly jin_fact.\n"
@@ -408,8 +472,13 @@ PRE_OUTPUT_CHECK = (
     "cancelled, completed, or superseded in the latest turn.\n"
     "2. Every active stored_memory line is still present until its recall contract is resolved.\n"
     "3. Every active open_contract line is still present with its turn progress updated.\n"
-    "4. Every active countdown_contract line still contains all required fields: "
-    "created_at, created_user_message_count, count_from, count_to, current, remaining, status, trigger.\n"
+    "4. Every active countdown_contract or countdown_contract_N line still contains the required anchor suffixes. "
+    "Turn-based contracts require [created_at: timestamp], [created_user_message_count: N], "
+    "[count_from: N], [count_to: N], [current: N], [remaining: N], and [trigger: ...]. "
+    "Time-based contracts require [created_at: timestamp], [due_at: timestamp], "
+    "[current_time: timestamp], and [trigger: ...]. Do not use a status field for countdowns.\n"
+    "Completed, cancelled, or numerically expired countdown contracts are not active contracts; "
+    "do not re-add them after they have been resolved and cleaned up.\n"
     "If a required durable or active contract line is missing, add it back before output.\n"
     "If nothing durable changed, preserve durable lines unchanged and update only temporary state "
     "and last_jin_response.\n"
@@ -510,36 +579,65 @@ OPEN_CONTRACT_CREATE = (
 # Правила хранения countdown_contract.
 # Подключается когда countdown_contract уже есть в памяти.
 COUNTDOWN_CONTRACT_KEEP = (
-    "countdown_contract is survival-priority memory; topic changes and context pressure must not remove it.\n"
-    "The creation anchor (created_at, created_user_message_count, count_from, count_to, "
-    "due_user_message_count) is immutable: do not change it unless the user explicitly "
-    "restarts, resets, replaces, or cancels the countdown.\n"
-    "Do not restart the anchor when JIN acknowledges, apologizes, reminds, or repeats the countdown.\n"
-    "On every L1 update while active, recompute current and remaining from trusted context.\n"
-    "If current < count_to: keep status: active.\n"
-    "If current >= count_to: set status: due and preserve the trigger.\n"
-    "When status is due, JIN must execute the trigger as a direct user-facing question "
-    "in its very next response — not as a hint, reminder, or aside.\n"
-    "For due recall contracts, ask the user to provide the remembered value "
-    "without revealing, quoting, or restating the stored value first.\n"
-    "Valid due recall wording: 'Какое слово я загадал?' or 'Назови слово, которое я загадал?'\n"
-    "Invalid due recall wording: any phrasing that exposes the stored value before the user answers.\n"
-    "Set status: completed only after JIN performs the trigger or the user confirms the contract is done.\n"
+    "countdown_contract and countdown_contract_N are survival-priority memory while unresolved; "
+    "topic changes and context pressure must not remove unresolved countdowns.\n"
+    "Treat countdown_contract, countdown_contract_1, countdown_contract_2, etc. as one numbered family.\n"
+    "L1 owns the semantic contract only: purpose and trigger. Deterministic post-processing owns "
+    "[current], [remaining], [current_time], and cleanup.\n"
+    "Do not write or preserve a status field on countdown_contract lines. Numeric suffixes are the source of truth.\n"
+    "Keep countdown metadata as bracket suffixes at the end of the line, for example "
+    "[created_at: ...] [count_from: ...] [remaining: ...].\n"
+    "Creation anchors are immutable: [created_at], [created_user_message_count], [count_from], "
+    "[count_to], and [due_at] must not change unless the user explicitly restarts, resets, replaces, "
+    "or cancels that specific countdown.\n"
+    "When a turn-based countdown is due, JIN must execute [trigger] as a direct user-facing action "
+    "in its very next response. When a time-based countdown is due, JIN must execute [trigger] "
+    "as soon as runtime brings it into context.\n"
+    "If JIN's latest response fulfilled the reminder/trigger in the countdown line, append "
+    "[completed: jin] to that same countdown_contract line.\n"
+    "If the user explicitly says the reminder is done/cancelled/no longer needed, append [completed: user] "
+    "or [cancelled: user] to the matching countdown line.\n"
+    "For due recall contracts, ask the user to provide the remembered value without revealing, quoting, "
+    "or restating the stored value first. Valid wording: 'Какое слово я загадал?' or "
+    "'Назови слово, которое я загадал?'\n"
+    "If multiple countdown contracts exist, update/complete/remove only the matching numbered contract; "
+    "do not merge unrelated reminders into one line.\n"
 )
 
 # Инструкция по созданию countdown_contract.
 # Подключается когда триггерная фраза есть в сообщении, но countdown_contract в памяти нет.
-COUNTDOWN_CONTRACT_CREATE = (
-    "The user created a turn-count contract. Store it as countdown_contract.\n"
-    "Anchor to the exact trusted runtime timestamp and user_message_count at creation.\n"
-    "Format: countdown_contract: <purpose>; created_at: <timestamp>; "
-    "created_user_message_count: <N>; count_from: <N>; count_to: <N+turns>; "
-    "due_user_message_count: <count_to>; current: <latest user_message_count>; "
-    "remaining: <max(count_to-current, 0)>; status: active; "
-    "trigger: <what JIN must do when due>\n"
-    "If trusted context provides no timestamp or user_message_count, "
-    "mark the missing anchor explicitly (e.g. created_at: unknown) — do not invent numbers.\n"
+COUNTDOWN_CONTRACT_CREATE_BASE = (
+    "The user created a countdown/reminder contract. Store it as countdown_contract.\n"
+    "If there is already an unrelated unresolved countdown_contract, create the next numbered sibling "
+    "instead: countdown_contract_2, countdown_contract_3, etc.\n"
+    "If the existing countdown is the same semantic task, update that slot instead of creating a duplicate.\n"
+    "If an old countdown is completed, cancelled, or already acknowledged, clean it up first; "
+    "then the new contract may reuse countdown_contract.\n"
+    "Keep countdown metadata as separate bracket suffixes at the very end of the line. "
+    "Do not use semicolon metadata for countdown counters. Do not write a status field.\n"
+    "Use trusted runtime timestamp and USER_MESSAGE_COUNT as the only source for anchors. "
+    "If a required trusted value is missing, write unknown instead of inventing it.\n"
 )
+
+COUNTDOWN_CONTRACT_CREATE_TURN = COUNTDOWN_CONTRACT_CREATE_BASE + (
+    "This is a turn/message-based countdown. Use this exact shape:\n"
+    "countdown_contract_N: <purpose> [created_at: <trusted timestamp>] "
+    "[created_user_message_count: <trusted USER_MESSAGE_COUNT>] "
+    "[count_from: <trusted USER_MESSAGE_COUNT>] [count_to: <count_from + requested turns/messages>] "
+    "[due_user_message_count: <count_to>] [current: <trusted USER_MESSAGE_COUNT>] "
+    "[remaining: <max(count_to - current, 0)>] [trigger: <what JIN must do when due>]\n"
+)
+
+COUNTDOWN_CONTRACT_CREATE_TIME = COUNTDOWN_CONTRACT_CREATE_BASE + (
+    "This is a time-based countdown/reminder. Use this exact shape:\n"
+    "countdown_contract_N: <purpose> [created_at: <trusted timestamp>] "
+    "[due_at: <trusted timestamp + requested delay, or explicit requested datetime>] "
+    "[current_time: <trusted timestamp>] [trigger: <what JIN must do when due>]\n"
+    "Do not convert seconds/minutes/hours/days into turns/messages. Time words always create a time-based contract.\n"
+)
+
+# Backward-compatible alias for external imports; prompt builder chooses the precise template.
+COUNTDOWN_CONTRACT_CREATE = COUNTDOWN_CONTRACT_CREATE_TURN
 
 # Правила взаимодействия с L2_pattern_evidence строками.
 # Подключается когда l2_pattern_evidence_ есть в памяти.
@@ -618,6 +716,47 @@ RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES = (
 #   - _CREATE → триггерная фраза есть в сообщении, но ключа в памяти нет
 # =============================================================================
 
+def classify_countdown_contract_trigger(user_message: str) -> str | None:
+    msg = (user_message or "").casefold().replace("ё", "е")
+
+    wants_countdown = any(
+        token.casefold().replace("ё", "е") in msg
+        for token in TRIGGER_MSG_COUNTDOWN
+    )
+
+    if not wants_countdown:
+        return None
+
+    has_time_trigger = any(
+        token.casefold().replace("ё", "е") in msg
+        for token in COUNTDOWN_TIME_TRIGGER_WORDS
+    )
+    has_turn_trigger = any(
+        token.casefold().replace("ё", "е") in msg
+        for token in COUNTDOWN_TURN_TRIGGER_WORDS
+    )
+
+    if has_time_trigger and not has_turn_trigger:
+        return "time"
+
+    if has_turn_trigger:
+        return "turn"
+
+    return "turn"
+
+
+def build_countdown_contract_create_prompt(user_message: str) -> str:
+    countdown_kind = classify_countdown_contract_trigger(user_message)
+
+    if countdown_kind == "time":
+        return COUNTDOWN_CONTRACT_CREATE_TIME
+
+    if countdown_kind == "turn":
+        return COUNTDOWN_CONTRACT_CREATE_TURN
+
+    return ""
+
+
 def build_runtime_memory_system_prompt(
         *,
         current_memory: str = "",
@@ -671,13 +810,18 @@ def build_runtime_memory_system_prompt(
 
     # ── countdown_contract ────────────────────────────────────────────────────
     has_countdown = any(k in mem for k in TRIGGER_KEYS_COUNTDOWN)
-    wants_countdown = any(t in msg for t in TRIGGER_MSG_COUNTDOWN)
+    countdown_create_prompt = build_countdown_contract_create_prompt(
+        user_message
+    )
+    wants_countdown = bool(countdown_create_prompt)
 
     if has_countdown:
         prompt += COUNTDOWN_CONTRACT_KEEP
+        if wants_countdown and not has_stored:
+            # новый countdown может существовать параллельно старому numbered-контрактом
+            prompt += countdown_create_prompt
     elif wants_countdown and not has_stored:
-        # countdown без stored_memory — самостоятельный контракт по ходам
-        prompt += COUNTDOWN_CONTRACT_CREATE
+        prompt += countdown_create_prompt
 
     # ── L2 interface ──────────────────────────────────────────────────────────
     if any(k in mem for k in TRIGGER_KEYS_L2_INTERFACE):

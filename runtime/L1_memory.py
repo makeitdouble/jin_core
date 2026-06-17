@@ -59,6 +59,7 @@ from runtime.L1_memory_utils import (
     remove_runtime_memory_placeholder_lines,
     remove_runtime_response_feedback_text,
     remove_runtime_user_idle_lines,
+    refresh_countdown_contracts,
     upsert_runtime_memory_entry_text,
 )
 
@@ -549,6 +550,10 @@ async def summarize_runtime_memory(
         updated_memory = remove_runtime_memory_placeholder_lines(
             updated_memory
         )
+        updated_memory = refresh_countdown_contracts(
+            updated_memory,
+            context=context,
+        )
         updated_memory = remove_runtime_user_idle_lines(
             updated_memory
         )
@@ -747,6 +752,10 @@ async def summarize_runtime_memory_pending_turns(
         )
         updated_memory = remove_runtime_memory_placeholder_lines(
             updated_memory
+        )
+        updated_memory = refresh_countdown_contracts(
+            updated_memory,
+            context=context,
         )
         updated_memory = remove_runtime_user_idle_lines(
             updated_memory

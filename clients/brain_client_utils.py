@@ -94,18 +94,21 @@ PREVIOUS_THINK_SECTION_RE = re.compile(
 
 COUNTDOWN_CONTRACT_RULES = (
     "Runtime countdown_contract is active.\n"
-    "Treat every countdown_contract line in RUNTIME_MEMORY as an active "
-    "user-facing obligation from creation until it is completed or cancelled.\n"
-    "Countdown contracts are turn-based or time-based obligations; use the "
-    "contract fields in RUNTIME_MEMORY as trusted state.\n"
-    "If countdown_contract status is active and remaining is greater than 0, "
-    "do not execute the trigger early, but preserve the obligation in your "
-    "response planning.\n"
-    "If countdown_contract status is due or remaining is 0, execute its trigger "
-    "in this answer as an actual direct user-facing action or question.\n"
+    "Treat countdown_contract and countdown_contract_N lines in RUNTIME_MEMORY "
+    "as active user-facing obligations from creation until completed or cancelled.\n"
+    "Countdown contracts are turn-based or time-based obligations; use bracket "
+    "suffixes in RUNTIME_MEMORY as trusted state. Do not require or trust status text.\n"
+    "For turn-based contracts, if [remaining: N] is greater than 0, do not execute "
+    "the trigger early; if [remaining: 0], execute [trigger] in this answer as an "
+    "actual direct user-facing action or question.\n"
+    "For time-based contracts, if runtime brought the contract into context and "
+    "[current_time] has reached or passed [due_at], execute [trigger] in this answer.\n"
+    "After executing the trigger, make the fulfillment explicit in your answer so L1 "
+    "can append [completed: jin] and deterministic cleanup can remove the contract.\n"
     "For due recall triggers, ask the user for the remembered value without "
     "revealing, quoting, paraphrasing, or restating the stored value first.\n"
 )
+
 
 
 def normalize_previous_think_section_title(
@@ -1127,7 +1130,7 @@ def has_countdown_contract(
             1,
         )[0].strip().casefold()
 
-        if key == "countdown_contract":
+        if re.fullmatch(r"countdown_contract(?:_\\d+)?", key):
             return True
 
     return False
