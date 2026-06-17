@@ -245,13 +245,20 @@ TRIGGER_MSG_STORED_MEMORY = (
     "запомни",
     "запомни слово",
     "кодовое слово",
+    "загадай",
+    "загадай мне слово",
+    "какое слово ты загадал",
+    "назвать его",
     "remember",
     "code word",
     "memorize",
+    "choose a word",
+    "secret word",
+    "recall word",
 )
 
 # Ключи в текущей памяти → подключить блок про open_contract.
-# open_contract всегда идёт вместе со stored_memory, поэтому оба ключа здесь.
+# open_contract всегда идёт вместе со stored_memory/stored_memory_N, поэтому оба ключа здесь.
 TRIGGER_KEYS_OPEN_CONTRACT = (
     "open_contract",
     "stored_memory",
@@ -388,7 +395,7 @@ KEY_SEMANTICS = (
     "Prefer keeping an existing key when it still fits.\n"
     "Typical temporary keys: active_topic, current_task, current_request, pending_choice, "
     "last_jin_response, interaction_state.\n"
-    "Typical durable keys: user_fact, jin_fact, jin_core_definition, stored_memory, "
+    "Typical durable keys: user_fact, jin_fact, jin_core_definition, stored_memory, stored_memory_N, "
     "open_contract, countdown_contract, countdown_contract_N, shared_axiom_established, primary_goal.\n"
 )
 
@@ -404,7 +411,7 @@ DURABLE_VS_TEMPORARY = (
     "Once a durable key exists with a concrete value, preserve it verbatim across snapshots. "
     "Only the value may change, and only when the current turn explicitly overrides it.\n"
     "Durable key families that must always carry forward: "
-    "user_fact, jin_fact, jin_core_definition, stored_memory, open_contract, "
+    "user_fact, jin_fact, jin_core_definition, stored_memory, stored_memory_N, open_contract, "
     "countdown_contract, countdown_contract_N, shared_axiom_established, primary_goal.\n"
     "Never invent missing durable keys and never fill absent durable keys with placeholders.\n"
     "Treat any existing line about JIN's identity, nature, origin, role, or capabilities "
@@ -533,9 +540,9 @@ STORED_MEMORY_KEEP = (
     "Revealing or sending the stored value to the user is not a recall event — "
     "keep status: pending until JIN asks the user to recall it and the user answers correctly.\n"
     "Set status: recalled only after the user successfully reproduces the stored value when prompted by JIN.\n"
-    "After successful recall, keep stored_memory for at least one more L1 snapshot with "
+    "After successful recall, keep the matching stored_memory line for at least one more L1 snapshot with "
     "status: recalled before removing it.\n"
-    "A stored_memory line may be removed only when the user explicitly cancels it, "
+    "A stored_memory or stored_memory_N line may be removed only when the user explicitly cancels it, "
     "replaces it, or the recall contract is clearly complete.\n"
     "Do not remove stored_memory because the conversation moved to another topic.\n"
     "Do not hide stored_memory inside active_topic, current_task, or last_jin_response.\n"
@@ -544,10 +551,12 @@ STORED_MEMORY_KEEP = (
 # Инструкция по созданию stored_memory.
 # Подключается когда триггерная фраза есть в сообщении, но stored_memory в памяти нет.
 STORED_MEMORY_CREATE = (
-    "The user asked JIN to remember a specific value. Store it as stored_memory.\n"
+    "The user asked JIN to remember or later ask about a specific value. Store it as stored_memory.\n"
     "Format: stored_memory: \"<exact value>\" (purpose: <why it matters>; status: pending)\n"
     "Do not store bare ambiguous values without purpose.\n"
-    "The stored value must be taken verbatim from the user's message.\n"
+    "If the user supplied the value, take it verbatim from the user's message.\n"
+    "If the user asked JIN to choose/reveal a word and recall it later, take the chosen value "
+    "verbatim from Latest JIN answer.\n"
 )
 
 # Правила хранения open_contract.
@@ -699,7 +708,7 @@ RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES = (
     "- Drop examples, jokes, emotional texture, repeated explanations, "
     "and wording that does not change future behavior.\n"
     "- Do not restate memory that already exists unless it changed.\n"
-    "- Context pressure may shorten temporary state, but must not remove stored_memory, "
+    "- Context pressure may shorten temporary state, but must not remove stored_memory, stored_memory_N, "
     "open_contract, countdown_contract, durable facts, pending contracts, "
     "unresolved implementation tasks, or explicit user decisions.\n"
     "- Merge related temporary details into fewer atomic key:value lines.\n"
