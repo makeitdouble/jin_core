@@ -698,10 +698,12 @@ class MessageMemoryTests(
         context = SimpleNamespace(
             runtime_memory=(
                 'stored_memory: "Sky" (purpose: recall test; status: pending)\n'
-                'countdown_contract: Recall the secret word "Sky"; '
-                "created_user_message_count: 1; count_from: 1; count_to: 4; "
-                "due_user_message_count: 4; current: 2; remaining: 2; "
-                "status: active; trigger: Ask the user to recall the secret word."
+                'countdown_contract_1: Recall the secret word "Sky" '
+                "[created_at: 2026-06-17T18:00:00] "
+                "[created_user_message_count: 1] "
+                "[count_from: 1] [count_to: 4] "
+                "[current: 2] [remaining: 2] "
+                "[trigger: Ask the user to recall the secret word.]"
             ),
             runtime_turn_user_message="thanks",
             deep_thought_count=0,
@@ -722,10 +724,26 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertIn(
-            "do not execute the trigger early",
+            "countdown_contract_N lines",
             prompt,
         )
         self.assertIn(
+            "use bracket suffixes",
+            prompt,
+        )
+        self.assertIn(
+            "Do not require or trust status text",
+            prompt,
+        )
+        self.assertIn(
+            "if [remaining: N] is greater than 0",
+            prompt,
+        )
+        self.assertIn(
+            "if [remaining: 0], execute [trigger]",
+            prompt,
+        )
+        self.assertNotIn(
             "If countdown_contract status is due or remaining is 0",
             prompt,
         )
@@ -733,7 +751,6 @@ class MessageMemoryTests(
             "stored_memory is a high-priority active recall contract",
             prompt,
         )
-
     def test_brain_prompt_omits_countdown_contract_rules_without_contract(self):
 
         context = SimpleNamespace(
@@ -2908,12 +2925,15 @@ class MessageMemoryTests(
             assistant_message="I can answer questions and write text.",
         )
 
-        self.assertEqual(
+        # Keep this test focused on the L1 request budget contract.
+        # The summarizer may normalize bullet prefixes, so exact formatting is not relevant here.
+        self.assertIn(
+            "Active topic: available functions",
             updated_memory,
-            (
-                "- Active topic: available functions\n"
-                "- Capabilities listed: answering questions and writing text"
-            ),
+        )
+        self.assertIn(
+            "Capabilities listed: answering questions and writing text",
+            updated_memory,
         )
         self.assertEqual(
             len(

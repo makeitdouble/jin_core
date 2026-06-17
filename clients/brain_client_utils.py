@@ -1130,7 +1130,7 @@ def has_countdown_contract(
             1,
         )[0].strip().casefold()
 
-        if re.fullmatch(r"countdown_contract(?:_\\d+)?", key):
+        if re.fullmatch(r"countdown_contract(?:_\d+)?", key):
             return True
 
     return False
