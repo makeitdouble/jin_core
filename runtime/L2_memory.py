@@ -10,20 +10,31 @@ from config_loader import (
 from runtime.L2_memory_rules import (
     DEFAULT_RUNTIME_L2_MEMORY,
     L2_PATCH_WINDOW,
-    L2_REPEATED_KEY_THRESHOLD,
-    MIN_L2_TURNS,
 )
 from runtime.fact_check import (
     ensure_confirmable_memory_markers,
 )
 from runtime.L2_memory_utils import (
+    average_diff,
     build_runtime_l2_memory_system_prompt,
     build_runtime_l2_memory_user_prompt,
     build_runtime_l2_repeated_user_message_evidence_memory,
+    compact_runtime_l2_user_message_evidence,
+    diff_value_range,
+    ensure_runtime_l2_state,
     extract_runtime_l2_pattern_evidence_lines,
+    filter_runtime_l2_context_lines_from_patch,
+    format_diff_value,
+    format_diff_values,
+    get_recent_l2_diff_values,
+    get_recent_l2_patches,
+    get_repeated_l2_patch_keys,
+    get_runtime_l2_user_turn_count,
     merge_runtime_l2_pattern_evidence_memory,
     remove_runtime_l2_occurrence_pattern_lines,
     remove_runtime_l2_pattern_evidence_lines,
+    runtime_l1_patch_total_diff,
+    should_run_runtime_l2_memory,
 )
 from runtime.memory_common import (
     build_memory_failure_details,
@@ -42,17 +53,6 @@ from runtime.memory_events import (
     emit_runtime_memory_snapshot_refresh,
     rebuild_latest_runtime_memory_snapshot,
 )
-
-def normalize_memory_key(*args, **kwargs):
-    from runtime.L1_memory import (
-        normalize_memory_key as _normalize_memory_key,
-    )
-
-    return _normalize_memory_key(
-        *args,
-        **kwargs,
-    )
-
 
 async def ask_runtime_l2_memory_model(
         *,
@@ -115,202 +115,6 @@ async def ask_runtime_l2_memory_model(
 
     return response
 
-
-def get_runtime_l2_user_turn_count(
-        context,
-) -> int:
-
-    return int(
-        getattr(
-            context,
-            "user_message_count",
-            getattr(
-                context,
-                "turn_number",
-                0,
-            ),
-        )
-        or 0
-    )
-
-
-def ensure_runtime_l2_state(
-        context,
-) -> None:
-
-    if not hasattr(
-        context,
-        "runtime_l2_memory",
-    ):
-        context.runtime_l2_memory = DEFAULT_RUNTIME_L2_MEMORY
-
-    if not hasattr(
-        context,
-        "runtime_l2_pending_patches",
-    ):
-        context.runtime_l2_pending_patches = []
-
-    if not hasattr(
-        context,
-        "runtime_l2_last_turn",
-    ):
-        context.runtime_l2_last_turn = 0
-
-
-def is_runtime_l2_context_line_key(
-        key: str,
-) -> bool:
-
-    return (
-        str(
-            key
-            or ""
-        )
-        .strip()
-        .casefold()
-        .startswith(
-            "l2_pattern_evidence_"
-        )
-    )
-
-
-def filter_runtime_l2_context_lines_from_patch(
-        patch: dict,
-) -> dict:
-
-    if not isinstance(
-        patch,
-        dict,
-    ):
-        return {}
-
-    filtered_patch = {
-        "added": [],
-        "changed": [],
-        "removed": [],
-    }
-
-    for entry in patch.get(
-            "added",
-            [],
-    ) or []:
-        if is_runtime_l2_context_line_key(
-                entry.get(
-                    "key",
-                    "",
-                )
-        ):
-            continue
-
-        filtered_patch["added"].append(
-            entry
-        )
-
-    for entry in patch.get(
-            "changed",
-            [],
-    ) or []:
-        if (
-                is_runtime_l2_context_line_key(
-                    entry.get(
-                        "previous_key",
-                        "",
-                    )
-                )
-                or is_runtime_l2_context_line_key(
-                    entry.get(
-                        "current_key",
-                        "",
-                    )
-                )
-        ):
-            continue
-
-        filtered_patch["changed"].append(
-            entry
-        )
-
-    for entry in patch.get(
-            "removed",
-            [],
-    ) or []:
-        if is_runtime_l2_context_line_key(
-                entry.get(
-                    "key",
-                    "",
-                )
-        ):
-            continue
-
-        filtered_patch["removed"].append(
-            entry
-        )
-
-    return filtered_patch
-
-
-def compact_runtime_l2_user_message_evidence(
-        value,
-        *,
-        limit: int = 160,
-) -> str:
-
-    text = str(
-        value
-        or ""
-    ).strip()
-
-    text = " ".join(
-        text.split()
-    )
-
-    if len(text) <= limit:
-        return text
-
-    return text[:limit].rstrip()
-
-
-def runtime_l1_patch_total_diff(
-        patch: dict,
-) -> float:
-
-    total_diff = 0
-
-    total_diff += 30 * len(
-        patch.get(
-            "added",
-            [],
-        )
-        or []
-    )
-    total_diff += 20 * len(
-        patch.get(
-            "removed",
-            [],
-        )
-        or []
-    )
-
-    for entry in patch.get(
-            "changed",
-            [],
-    ) or []:
-        total_diff += round(
-            (
-                entry.get(
-                    "key_change_ratio",
-                    0,
-                )
-                + entry.get(
-                    "value_change_ratio",
-                    0,
-                )
-            )
-            * 50,
-            2,
-        )
-
-    return total_diff
 
 
 async def record_runtime_l1_diff(
@@ -474,241 +278,6 @@ async def record_runtime_l1_diff(
         context
     )
 
-
-def get_recent_l2_patches(
-        context,
-) -> list[dict]:
-
-    return list(
-        getattr(
-            context,
-            "runtime_l2_pending_patches",
-            [],
-        )
-        or []
-    )[-L2_PATCH_WINDOW:]
-
-
-def get_recent_l2_diff_values(
-        context,
-) -> list[float]:
-
-    return [
-        patch.get(
-            "total_diff",
-            0,
-        )
-        for patch in get_recent_l2_patches(
-            context
-        )
-    ]
-
-
-def average_diff(
-        diffs: list[float],
-) -> float:
-
-    if not diffs:
-        return 0
-
-    return round(
-        sum(diffs) / len(diffs),
-        2,
-    )
-
-
-def format_diff_value(
-        value: float,
-) -> str:
-
-    return (
-        f"{value:.2f}"
-        .rstrip(
-            "0"
-        )
-        .rstrip(
-            "."
-        )
-    )
-
-
-def format_diff_values(
-        values: list[float],
-) -> str:
-
-    return (
-        "["
-        + ", ".join(
-            format_diff_value(
-                value
-            )
-            for value in values
-        )
-        + "]"
-    )
-
-
-def diff_value_range(
-        diffs: list[float],
-) -> float:
-
-    if not diffs:
-        return 0
-
-    return round(
-        max(diffs) - min(diffs),
-        2,
-    )
-
-
-def extract_l2_patch_keys(
-        patch: dict,
-) -> set[str]:
-
-    changes = patch.get(
-        "changes",
-        {},
-    )
-
-    keys = set()
-
-    for entry in (
-            changes.get(
-                "added",
-                [],
-            )
-            or []
-    ):
-        key = normalize_memory_key(
-            entry.get(
-                "key",
-                "",
-            )
-        )
-
-        if key:
-            keys.add(
-                key
-            )
-
-    for entry in (
-            changes.get(
-                "changed",
-                [],
-            )
-            or []
-    ):
-        for key_name in (
-                "current_key",
-                "previous_key",
-        ):
-            key = normalize_memory_key(
-                entry.get(
-                    key_name,
-                    "",
-                )
-            )
-
-            if key:
-                keys.add(
-                    key
-                )
-
-    for entry in (
-            changes.get(
-                "removed",
-                [],
-            )
-            or []
-    ):
-        key = normalize_memory_key(
-            entry.get(
-                "key",
-                "",
-            )
-        )
-
-        if key:
-            keys.add(
-                key
-            )
-
-    return keys
-
-
-def count_l2_patch_keys(
-        patches: list[dict],
-) -> dict[str, int]:
-
-    counts = {}
-
-    for patch in patches:
-        for key in extract_l2_patch_keys(
-                patch
-        ):
-            counts[key] = (
-                counts.get(
-                    key,
-                    0,
-                )
-                + 1
-            )
-
-    return counts
-
-
-def get_repeated_l2_patch_keys(
-        context,
-) -> dict[str, int]:
-
-    counts = count_l2_patch_keys(
-        get_recent_l2_patches(
-            context
-        )
-    )
-
-    return {
-        key: count
-        for key, count in counts.items()
-        if count >= L2_REPEATED_KEY_THRESHOLD
-    }
-
-
-def should_run_runtime_l2_memory(
-        context,
-) -> bool:
-
-    ensure_runtime_l2_state(
-        context
-    )
-
-    user_turn_count = get_runtime_l2_user_turn_count(
-        context
-    )
-    turns_since_l2 = (
-        user_turn_count
-        - getattr(
-            context,
-            "runtime_l2_last_turn",
-            0,
-        )
-    )
-
-    recent_patches = get_recent_l2_patches(
-        context
-    )
-    repeated_keys = count_l2_patch_keys(
-        recent_patches
-    )
-
-    return (
-        turns_since_l2 >= MIN_L2_TURNS
-        and len(recent_patches) >= L2_PATCH_WINDOW
-        and any(
-            count >= L2_REPEATED_KEY_THRESHOLD
-            for count in repeated_keys.values()
-        )
-    )
 
 
 async def maybe_summarize_runtime_l2_memory(

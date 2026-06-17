@@ -1,5 +1,30 @@
 import re
 
+from runtime.L2_memory_rules import (
+    DEFAULT_RUNTIME_L2_MEMORY,
+    L2_EVIDENCE_FIRST_SEEN_PATTERN,
+    L2_EVIDENCE_LAST_SEEN_PATTERN,
+    L2_EVIDENCE_OCCURRENCES_PATTERN,
+    L2_EVIDENCE_QUOTE_META_PATTERN,
+    L2_EVIDENCE_QUOTE_PATTERN,
+    L2_OCCURRENCE_PATTERN_KEYS,
+    L2_PATCH_WINDOW,
+    L2_PATTERN_EVIDENCE_EXAMPLE_LIMIT,
+    L2_PATTERN_EVIDENCE_KEY_PATTERN,
+    L2_REPEATED_KEY_THRESHOLD,
+    L2_USER_MESSAGE_EVIDENCE_LIMIT,
+    L2_USER_MESSAGE_QUOTED_VALUE_PATTERN,
+    MIN_L2_TURNS,
+    RUNTIME_L2_CHANGED_TRACE_SUFFIX_TEMPLATE,
+    RUNTIME_L2_MEMORY_SYSTEM_PROMPT,
+    RUNTIME_L2_REPEATED_SUFFIX_PATTERN,
+    RUNTIME_L2_TRACE_SUFFIX_TEMPLATE,
+)
+
+
+def normalize_memory_key(key: str) -> str:
+    return str(key or "").strip().lower()
+
 
 def extract_runtime_l2_pattern_evidence_lines(
         runtime_l2_memory: str,
@@ -65,14 +90,6 @@ def remove_runtime_l2_pattern_evidence_lines(
     )
 
 
-L2_OCCURRENCE_PATTERN_KEYS = {
-    "possible pattern",
-    "emerging signal",
-    "observed tendency",
-    "may indicate",
-}
-
-
 def remove_runtime_l2_occurrence_pattern_lines(
         runtime_l2_memory: str,
 ) -> str:
@@ -112,34 +129,34 @@ def remove_runtime_l2_occurrence_pattern_lines(
     )
 
 L2_PATTERN_EVIDENCE_KEY_RE = re.compile(
-    r"^L2_pattern_evidence_(?P<index>\d+)$",
+    L2_PATTERN_EVIDENCE_KEY_PATTERN,
     re.IGNORECASE,
 )
 L2_EVIDENCE_QUOTE_RE = re.compile(
-    r'"(?P<quote>[^"]+)"',
+    L2_EVIDENCE_QUOTE_PATTERN,
 )
 L2_EVIDENCE_FIRST_SEEN_RE = re.compile(
-    r"\[\s*first_seen_turn_snapshot\s*:\s*(?P<value>\d+)\s*\]",
+    L2_EVIDENCE_FIRST_SEEN_PATTERN,
     re.IGNORECASE,
 )
 L2_EVIDENCE_LAST_SEEN_RE = re.compile(
-    r"\[\s*last_seen_turn_snapshot\s*:\s*(?P<value>\d+)\s*\]",
+    L2_EVIDENCE_LAST_SEEN_PATTERN,
     re.IGNORECASE,
 )
 L2_EVIDENCE_OCCURRENCES_RE = re.compile(
-    r"\[\s*occurrences\s*:\s*(?P<value>\d+)\s*\]",
+    L2_EVIDENCE_OCCURRENCES_PATTERN,
     re.IGNORECASE,
 )
 L2_EVIDENCE_QUOTE_META_RE = re.compile(
-    r"\[\s*quote\s*:\s*\"(?P<quote>[^\"]*)\"\s*\]",
+    L2_EVIDENCE_QUOTE_META_PATTERN,
     re.IGNORECASE,
 )
 RUNTIME_REPEATED_SUFFIX_RE = re.compile(
-    r"\s*\[\s*repeated\s*:\s*\d+\s*\]\s*$",
+    RUNTIME_L2_REPEATED_SUFFIX_PATTERN,
     re.IGNORECASE,
 )
 USER_MESSAGE_QUOTED_VALUE_RE = re.compile(
-    r'^\s*\"(?P<quote>.*)\"\s*(?:\[\s*repeated\s*:\s*\d+\s*\])?\s*$',
+    L2_USER_MESSAGE_QUOTED_VALUE_PATTERN,
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -170,7 +187,7 @@ def strip_runtime_repeated_suffix(
 def normalize_l2_pattern_evidence_example(
         value: str,
         *,
-        limit: int = 100,
+        limit: int = L2_PATTERN_EVIDENCE_EXAMPLE_LIMIT,
 ) -> str:
 
     text = strip_runtime_repeated_suffix(
@@ -188,7 +205,7 @@ def normalize_l2_pattern_evidence_example(
 def compact_l2_pattern_evidence_example(
         value: str,
         *,
-        limit: int = 100,
+        limit: int = L2_PATTERN_EVIDENCE_EXAMPLE_LIMIT,
 ) -> str:
 
     text = strip_runtime_repeated_suffix(
@@ -780,74 +797,443 @@ def merge_runtime_l2_pattern_evidence_memory(
         if str(line).strip()
     )
 
-def build_runtime_l2_memory_system_prompt() -> str:
+def get_runtime_l2_user_turn_count(
+        context,
+) -> int:
 
-    return (
-        "You are JIN's L2 memory summarizer for patterns.\n"
-        "Return only the new L2 pattern memory as plain text.\n"
-        "Do not output JSON.\n"
-        "Do not use Markdown headings.\n"
-        "Do not explain your reasoning or the summarization process.\n"
-        "Track what the user does, but respond to what the user is trying to achieve.\n"
-        "Separate observed behavior from inferred intent.\n"
-        "Do not store temporary interaction patterns as permanent user traits.\n"
-        "Do not use 'likes', 'prefers', or 'wants' unless the user explicitly says so.\n"
-        "When storing a pattern, prefer fields like observed_behavior, likely_intent, evidence, and scope over broad personality labels, for example:\n"
-        "observed_behavior: User rapidly switched across unrelated topics during context-arbitration testing. Occurrences: 8; evidence: cooking, finance, files, travel, car washing.\n"
-        "likely_intent: User may be stress-testing whether JIN checks context relevance before answering.\n"
-        "scope: Current session/test sequence, not a stable user preference.\n"
-        "Write memory as atomic bullet lines, one semantic entity per line.\n"
-        "Every memory entry MUST use the format:\n "
-        "<key>: <value>\n"
-        "Runtime memory may be displayed to the user with a suffix like `(trace: 0.50)`. "
-        "This is session-local pheromone/attention trace strength: higher means hotter or reinforced, lower means fading. "
-        "Use trace silently for context priority, and explain it only when the user explicitly asks about memory mechanics. "
-        "Never copy `(trace: N)` into the generated memory text; trace is runtime metadata, not memory content.\n"
-        "L2 works above L1 factual runtime memory.\n"
-        "Use only the recent L1 patch window supplied by the runtime.\n"
-        "Patch entries may include `[trace: N]`; treat it as session-local pheromone/attention trace strength, not as user content. "
-        "Higher trace means the L1 item is hotter or recently reinforced; lower trace means it is fading.\n"
-        "This window is selected because normalized L1 keys or topics repeated across patches.\n"
-        "Pattern memory should not learn from itself.\n"
-        "Do not treat existing possible pattern, observed tendency, emerging signal, or other pattern-memory entries as evidence.\n"
-        "Pattern entries may be displayed as context, but they must never contribute to occurrence counts or create new pattern entries.\n"
-        "Occurrences must be derived only from actual conversation evidence in the supplied L1 patches, not from previously generated pattern summaries.\n"
-        "Count occurrences by unique patch snapshot values, not by how many rows mention the same behavior inside one patch.\n"
-        "If the same user_message appears in both user_messages and changes for one snapshot, it still counts as one occurrence.\n"
-        "L2 is a hypothesis generator, not a source of settled memory.\n"
-        "If L2 writes one of these confirmable keys, it MUST include a marker: "
-        "user_fact, jin_fact, pending_fact, jin_recommendation, user_recommendation. "
-        "Use (confirmed: none) unless the supplied patch already contains explicit user, jin, or web confirmation.\n"
-        "Allowed outputs: possible pattern, emerging signal, observed tendency, may indicate, contradiction, corrected assumption.\n"
-        "Prefer 'possible pattern' over 'pattern'.\n"
-        "Every possible pattern, emerging signal, or observed tendency SHOULD include span metadata in the value: "
-        "first_seen_snapshot: S1; last_seen_snapshot: S2; evidence summary: <short evidence>; confidence: low|medium|high.\n"
-        "Do not put Occurrences counters into L2 pattern memory. Current exact-repeat counts are supplied by runtime on user_message as [ repeated: N ].\n"
-        "When L2 names or updates a concrete repeated pattern, also write a companion evidence line named L2_pattern_evidence_N. "
-        "Use this exact shape: L2_pattern_evidence_N: <short pattern description> [ quote: \"<literal user_message value>\" ] [ first_seen_turn_snapshot: S1 ] [ last_seen_turn_snapshot: S2 ]\n"
-        "For L2_pattern_evidence_N lines, the final token on the line MUST be the closing bracket of [ last_seen_turn_snapshot: S2 ]. "
-        "Never append status, notes, explanations, conclusions, punctuation, occurrence counters, or any other text after the final [ last_seen_turn_snapshot: S2 ] bracket.\n"
-        "For repeated-message patterns, the quoted literal MUST be copied from the supplied user_message field exactly in the user's original language. "
-        "Do not translate it, do not paraphrase it, and do not replace it with an English command or description.\n"
-        "The quoted literal may only be stripped of leading/trailing whitespace and cleaned of repeated spaces; keep it at maximum 100 characters. "
-        "If no matching user_message is available, omit the L2_pattern_evidence_N line instead of inventing a quote.\n"
-        "L2_pattern_evidence_N is runtime accounting evidence, not a personality trait and not a durable user fact.\n"
-        "If an existing L2_pattern_evidence_N line matches the same normalized literal example or the same pattern, preserve first_seen_turn_snapshot, then update only last_seen_turn_snapshot when new matching L1 evidence appears.\n"
-        "Do not duplicate an existing pattern under a new L2_pattern_evidence_N key; update the existing evidence line instead.\n"
-        "For a brand-new pattern with no prior L2 entry, set first_seen_turn_snapshot and last_seen_turn_snapshot from the matching unique patch snapshots in the supplied L1 patch window.\n"
-        "Do not create a brand-new pattern when all matching evidence is confined to one unique patch snapshot, even if that snapshot contains multiple rows for the same message.\n"
-        "For an existing pattern, preserve its first_seen_snapshot; do not recompute it from the supplied patch window alone.\n"
-        "Only update last_seen_snapshot when patch snapshot > old last_seen_snapshot and the L1 evidence actually matches this pattern.\n"
-        "If last_seen_snapshot is missing for an existing pattern, initialize it from the newest matching visible evidence.\n"
-        "Never add or preserve Occurrences counters on L2_pattern_evidence_N lines.\n"
-        "When the user explicitly cancels the pattern, stops doing it, or clearly changes topic, the pattern may be dropped instead of zero-counted.\n"
-        "Do not repeat factual L1 memory unless it is needed to explain an L2 signal.\n"
-        "Do not claim certainty from weak evidence. Prefer 'may', 'possible', 'observed', and 'emerging'.\n"
-        "Do not write categorical statements like '<signal> serves as a strong signal' or 'the user exhibits <trait>'.\n"
-        "Do not use these words in the generated memory: stable, established, strong signal, user exhibits, personality, identity, core preference.\n"
-        "If there is not enough signal for L2, return the current L2 memory unchanged.\n"
+    return int(
+        getattr(
+            context,
+            "user_message_count",
+            getattr(
+                context,
+                "turn_number",
+                0,
+            ),
+        )
+        or 0
     )
 
+
+def ensure_runtime_l2_state(
+        context,
+) -> None:
+
+    if not hasattr(
+        context,
+        "runtime_l2_memory",
+    ):
+        context.runtime_l2_memory = DEFAULT_RUNTIME_L2_MEMORY
+
+    if not hasattr(
+        context,
+        "runtime_l2_pending_patches",
+    ):
+        context.runtime_l2_pending_patches = []
+
+    if not hasattr(
+        context,
+        "runtime_l2_last_turn",
+    ):
+        context.runtime_l2_last_turn = 0
+
+
+def is_runtime_l2_context_line_key(
+        key: str,
+) -> bool:
+
+    return (
+        str(
+            key
+            or ""
+        )
+        .strip()
+        .casefold()
+        .startswith(
+            "l2_pattern_evidence_"
+        )
+    )
+
+
+def filter_runtime_l2_context_lines_from_patch(
+        patch: dict,
+) -> dict:
+
+    if not isinstance(
+        patch,
+        dict,
+    ):
+        return {}
+
+    filtered_patch = {
+        "added": [],
+        "changed": [],
+        "removed": [],
+    }
+
+    for entry in patch.get(
+            "added",
+            [],
+    ) or []:
+        if is_runtime_l2_context_line_key(
+                entry.get(
+                    "key",
+                    "",
+                )
+        ):
+            continue
+
+        filtered_patch["added"].append(
+            entry
+        )
+
+    for entry in patch.get(
+            "changed",
+            [],
+    ) or []:
+        if (
+                is_runtime_l2_context_line_key(
+                    entry.get(
+                        "previous_key",
+                        "",
+                    )
+                )
+                or is_runtime_l2_context_line_key(
+                    entry.get(
+                        "current_key",
+                        "",
+                    )
+                )
+        ):
+            continue
+
+        filtered_patch["changed"].append(
+            entry
+        )
+
+    for entry in patch.get(
+            "removed",
+            [],
+    ) or []:
+        if is_runtime_l2_context_line_key(
+                entry.get(
+                    "key",
+                    "",
+                )
+        ):
+            continue
+
+        filtered_patch["removed"].append(
+            entry
+        )
+
+    return filtered_patch
+
+
+def compact_runtime_l2_user_message_evidence(
+        value,
+        *,
+        limit: int = L2_USER_MESSAGE_EVIDENCE_LIMIT,
+) -> str:
+
+    text = str(
+        value
+        or ""
+    ).strip()
+
+    text = " ".join(
+        text.split()
+    )
+
+    if len(text) <= limit:
+        return text
+
+    return text[:limit].rstrip()
+
+
+def runtime_l1_patch_total_diff(
+        patch: dict,
+) -> float:
+
+    total_diff = 0
+
+    total_diff += 30 * len(
+        patch.get(
+            "added",
+            [],
+        )
+        or []
+    )
+    total_diff += 20 * len(
+        patch.get(
+            "removed",
+            [],
+        )
+        or []
+    )
+
+    for entry in patch.get(
+            "changed",
+            [],
+    ) or []:
+        total_diff += round(
+            (
+                entry.get(
+                    "key_change_ratio",
+                    0,
+                )
+                + entry.get(
+                    "value_change_ratio",
+                    0,
+                )
+            )
+            * 50,
+            2,
+        )
+
+    return total_diff
+
+
+def get_recent_l2_patches(
+        context,
+) -> list[dict]:
+
+    return list(
+        getattr(
+            context,
+            "runtime_l2_pending_patches",
+            [],
+        )
+        or []
+    )[-L2_PATCH_WINDOW:]
+
+
+def get_recent_l2_diff_values(
+        context,
+) -> list[float]:
+
+    return [
+        patch.get(
+            "total_diff",
+            0,
+        )
+        for patch in get_recent_l2_patches(
+            context
+        )
+    ]
+
+
+def average_diff(
+        diffs: list[float],
+) -> float:
+
+    if not diffs:
+        return 0
+
+    return round(
+        sum(diffs) / len(diffs),
+        2,
+    )
+
+
+def format_diff_value(
+        value: float,
+) -> str:
+
+    return (
+        f"{value:.2f}"
+        .rstrip(
+            "0"
+        )
+        .rstrip(
+            "."
+        )
+    )
+
+
+def format_diff_values(
+        values: list[float],
+) -> str:
+
+    return (
+        "["
+        + ", ".join(
+            format_diff_value(
+                value
+            )
+            for value in values
+        )
+        + "]"
+    )
+
+
+def diff_value_range(
+        diffs: list[float],
+) -> float:
+
+    if not diffs:
+        return 0
+
+    return round(
+        max(diffs) - min(diffs),
+        2,
+    )
+
+
+def extract_l2_patch_keys(
+        patch: dict,
+) -> set[str]:
+
+    changes = patch.get(
+        "changes",
+        {},
+    )
+
+    keys = set()
+
+    for entry in (
+            changes.get(
+                "added",
+                [],
+            )
+            or []
+    ):
+        key = normalize_memory_key(
+            entry.get(
+                "key",
+                "",
+            )
+        )
+
+        if key:
+            keys.add(
+                key
+            )
+
+    for entry in (
+            changes.get(
+                "changed",
+                [],
+            )
+            or []
+    ):
+        for key_name in (
+                "current_key",
+                "previous_key",
+        ):
+            key = normalize_memory_key(
+                entry.get(
+                    key_name,
+                    "",
+                )
+            )
+
+            if key:
+                keys.add(
+                    key
+                )
+
+    for entry in (
+            changes.get(
+                "removed",
+                [],
+            )
+            or []
+    ):
+        key = normalize_memory_key(
+            entry.get(
+                "key",
+                "",
+            )
+        )
+
+        if key:
+            keys.add(
+                key
+            )
+
+    return keys
+
+
+def count_l2_patch_keys(
+        patches: list[dict],
+) -> dict[str, int]:
+
+    counts = {}
+
+    for patch in patches:
+        for key in extract_l2_patch_keys(
+                patch
+        ):
+            counts[key] = (
+                counts.get(
+                    key,
+                    0,
+                )
+                + 1
+            )
+
+    return counts
+
+
+def get_repeated_l2_patch_keys(
+        context,
+) -> dict[str, int]:
+
+    counts = count_l2_patch_keys(
+        get_recent_l2_patches(
+            context
+        )
+    )
+
+    return {
+        key: count
+        for key, count in counts.items()
+        if count >= L2_REPEATED_KEY_THRESHOLD
+    }
+
+
+def should_run_runtime_l2_memory(
+        context,
+) -> bool:
+
+    ensure_runtime_l2_state(
+        context
+    )
+
+    user_turn_count = get_runtime_l2_user_turn_count(
+        context
+    )
+    turns_since_l2 = (
+        user_turn_count
+        - getattr(
+            context,
+            "runtime_l2_last_turn",
+            0,
+        )
+    )
+
+    recent_patches = get_recent_l2_patches(
+        context
+    )
+    repeated_keys = count_l2_patch_keys(
+        recent_patches
+    )
+
+    return (
+        turns_since_l2 >= MIN_L2_TURNS
+        and len(recent_patches) >= L2_PATCH_WINDOW
+        and any(
+            count >= L2_REPEATED_KEY_THRESHOLD
+            for count in repeated_keys.values()
+        )
+    )
+
+
+
+def build_runtime_l2_memory_system_prompt() -> str:
+
+    return RUNTIME_L2_MEMORY_SYSTEM_PROMPT
 
 def build_runtime_l2_memory_user_prompt(
         *,
@@ -876,17 +1262,30 @@ def build_runtime_l2_memory_user_prompt(
                 return ""
 
             return (
-                " "
-                f"[trace: {previous_strength if previous_strength is not None else '?'}"
-                " -> "
-                f"{current_strength if current_strength is not None else '?'}]"
+                RUNTIME_L2_CHANGED_TRACE_SUFFIX_TEMPLATE.format(
+                    previous_strength=(
+                        previous_strength
+                        if previous_strength is not None
+                        else "?"
+                    ),
+                    current_strength=(
+                        current_strength
+                        if current_strength is not None
+                        else "?"
+                    ),
+                )
             )
 
         strength = entry.get(
             "strength",
         )
 
-        return f" [trace: {strength}]" if strength is not None else ""
+        if strength is None:
+            return ""
+
+        return RUNTIME_L2_TRACE_SUFFIX_TEMPLATE.format(
+            strength=strength,
+        )
 
     lines = [
         "Current L2 pattern memory:",
@@ -901,7 +1300,9 @@ def build_runtime_l2_memory_user_prompt(
     ):
         lines.extend([
             "",
-            f"Patch {index}",
+            "Patch {index}".format(
+                index=index,
+            ),
             f"turn: {patch.get('turn_number', 0)}",
             f"snapshot: {patch.get('snapshot_index', 0)}",
             f"total_diff: {patch.get('total_diff', 0)}",
