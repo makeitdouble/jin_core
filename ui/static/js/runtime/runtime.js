@@ -473,6 +473,22 @@ window.JinRuntime.runtime = {
   init() {
     return true;
   },
+  getRuntimeMemorySnapshots() {
+    return runtimeMemoryHistory.snapshots;
+  },
+  getRuntimeMemorySnapshot(index) {
+    const numericIndex =
+      Number(index);
+
+    if (
+      !Number.isInteger(numericIndex)
+      || numericIndex < 0
+    ) {
+      return null;
+    }
+
+    return runtimeMemoryHistory.snapshots[numericIndex] || null;
+  },
   handleRuntimeMemoryMessage,
   renderRuntimeMemorySnapshot,
   renderDiffs: renderRuntimeDiffs,

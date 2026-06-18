@@ -11,11 +11,12 @@ const STREAM_NEAR_BOTTOM_PX = 72;
 const THINK_RULE_CITATIONS_ENDPOINT =
   "/api/debug/rule-citations";
 const THINK_RULE_WORKER_URL =
-  "/static/js/think-rule-worker.js?v=rule-citations-1";
+  "/static/js/think-rule-worker.js?v=rule-citations-2";
 
 let streamFrameScheduled = false;
 let thinkRuleCitationWorker = null;
 let thinkRuleCitationRegistryPromise = null;
+let nextThinkRuntimeCitationIndex = 0;
 const deferredRuntimeActionsAfterResponse = [];
 const activeThinkRuleCitationJobs = new Map();
 
@@ -283,6 +284,26 @@ function thinkRuleLevelRank(level) {
 
 }
 
+function thinkCitationSourcePriority(match) {
+
+  if (
+    match
+    && match.sourceType === "rule"
+  ) {
+    return 2;
+  }
+
+  if (
+    match
+    && match.sourceType === "runtime"
+  ) {
+    return 1;
+  }
+
+  return 0;
+
+}
+
 function resolveThinkRuleOverlaps(matches) {
 
   const seen = new Set();
@@ -311,6 +332,18 @@ function resolveThinkRuleOverlaps(matches) {
       return true;
     })
     .sort((left, right) => {
+      const priorityDelta =
+        thinkCitationSourcePriority(
+          right
+        )
+        - thinkCitationSourcePriority(
+          left
+        );
+
+      if (priorityDelta) {
+        return priorityDelta;
+      }
+
       const levelDelta =
         thinkRuleLevelRank(
           right.level
@@ -369,13 +402,216 @@ function buildThinkRuleTitle(
       ) * 100
     );
 
+  const label =
+    match.sourceType === "runtime"
+      ? "RUNTIME"
+      : "RULE";
+
   return [
-    `RULE - ${match.constantName || "unknown"} - ${match.level || "match"} - ${score}%`,
+    `${label} - ${match.constantName || "unknown"} - ${match.level || "match"} - ${score}%`,
     `source: ${match.source || "rules"}`,
     `layer: ${match.layer || "base"}`,
     `matched: "${matchedText}"`,
-    `rule: "${match.sourceText || ""}"`,
+    `${match.sourceType === "runtime" ? "memory" : "rule"}: "${match.titleText || match.sourceText || ""}"`,
   ].join("\n");
+
+}
+
+function getThinkCitationClassName(match) {
+
+  const sourceClass =
+    match.sourceType === "runtime"
+      ? "runtime"
+      : "rule";
+
+  return [
+    "think-rule-hit",
+    `think-citation-${sourceClass}`,
+    match.level || "near",
+  ].join(" ");
+
+}
+
+function splitThinkCitationTextFragments(text) {
+
+  const runtimeModel =
+    window.JinRuntime
+    && window.JinRuntime.memoryModel;
+
+  const lines =
+    runtimeModel
+    && typeof runtimeModel.splitMemoryTextLines === "function"
+      ? runtimeModel.splitMemoryTextLines(
+        text
+      )
+      : String(text || "")
+        .replace(/\\n/g, "\n")
+        .split(/\r?\n+/)
+        .map(line => line.trim())
+        .filter(Boolean);
+
+  return lines
+    .map((line) => {
+      const cleanedLine =
+        runtimeModel
+        && typeof runtimeModel.stripRuntimeMemoryMeta === "function"
+          ? runtimeModel.stripRuntimeMemoryMeta(
+            line
+          )
+          : line;
+
+      return String(cleanedLine || "").trim();
+    })
+    .filter(Boolean);
+
+}
+
+function getRuntimeCitationSnapshot(
+  snapshotIndex
+) {
+
+  const runtimeApi =
+    window.JinRuntime
+    && window.JinRuntime.runtime;
+
+  if (
+    runtimeApi
+    && typeof runtimeApi.getRuntimeMemorySnapshot === "function"
+  ) {
+    return (
+      runtimeApi.getRuntimeMemorySnapshot(
+        snapshotIndex
+      )
+      || null
+    );
+  }
+
+  const storage =
+    window.JinRuntime
+    && window.JinRuntime.storage;
+
+  if (
+    storage
+    && typeof storage.readLatestRuntimeMemory === "function"
+  ) {
+    const latestRuntime =
+      storage.readLatestRuntimeMemory();
+
+    if (
+      latestRuntime
+      && latestRuntime.runtime_snapshot
+    ) {
+      return latestRuntime.runtime_snapshot;
+    }
+
+    return latestRuntime || null;
+  }
+
+  return null;
+
+}
+
+function getRuntimeCitationTextFromSnapshot(
+  snapshot
+) {
+
+  return String(
+    (
+      snapshot
+      && (
+        snapshot.raw_memory
+        || snapshot.runtime_memory
+        || (
+          snapshot.runtime_snapshot
+          && snapshot.runtime_snapshot.raw_memory
+        )
+      )
+    )
+    || ""
+  ).trim();
+
+}
+
+function buildRuntimeCitationFragments(
+  snapshotIndex
+) {
+
+  const snapshot =
+    getRuntimeCitationSnapshot(
+      snapshotIndex
+    );
+  const runtimeMemory =
+    getRuntimeCitationTextFromSnapshot(
+      snapshot
+    );
+
+  if (!runtimeMemory) {
+    return [];
+  }
+
+  const fragments = [];
+  const seen = new Set();
+
+  splitThinkCitationTextFragments(
+    runtimeMemory
+  ).forEach((line, index) => {
+    const separatorIndex =
+      line.indexOf(":");
+    const key =
+      separatorIndex > 0
+        ? line.slice(
+          0,
+          separatorIndex
+        ).trim()
+        : "runtime_memory";
+    const value =
+      separatorIndex > 0
+        ? line.slice(
+          separatorIndex + 1
+        ).trim()
+        : line;
+
+    [
+      line,
+      value,
+    ].forEach((sourceText, variantIndex) => {
+      const normalized =
+        sourceText
+          .toLowerCase()
+          .replace(/\s+/g, " ")
+          .trim();
+
+      if (
+        !normalized
+        || normalized.length < 24
+        || seen.has(
+          normalized
+        )
+      ) {
+        return;
+      }
+
+      seen.add(
+        normalized
+      );
+
+      fragments.push(
+        {
+          id: `runtime:${index}:${variantIndex}`,
+          source: `runtimeSnapshot[${snapshotIndex}]`,
+          sourceType: "runtime",
+          citationType: "runtime_citation",
+          layer: "runtime",
+          constantName: key || "runtime_memory",
+          sourceText,
+          titleText: line,
+          minScore: 0.72,
+        }
+      );
+    });
+  });
+
+  return fragments;
 
 }
 
@@ -442,7 +678,9 @@ function renderThinkRuleHighlights(job) {
       document.createElement("span");
 
     span.className =
-      `think-rule-hit ${match.level || "near"}`;
+      getThinkCitationClassName(
+        match
+      );
     span.textContent =
       matchedText;
     span.title =
@@ -616,9 +854,22 @@ function startThinkRuleCitationAnalysis(
     );
   const text =
     stream.thinking;
+  const runtimeCitationIndex =
+    Number.isInteger(
+      stream.runtimeCitationIndex
+    )
+      ? stream.runtimeCitationIndex
+      : nextThinkRuntimeCitationIndex++;
+
+  stream.runtimeCitationIndex =
+    runtimeCitationIndex;
 
   thinkContent.dataset.thinkId =
     thinkId;
+  thinkContent.dataset.runtimeCitationIndex =
+    String(
+      runtimeCitationIndex
+    );
   thinkContent.__jinThinkRawText =
     text;
 
@@ -628,6 +879,7 @@ function startThinkRuleCitationAnalysis(
       thinkId,
       element: thinkContent,
       text,
+      runtimeCitationIndex,
       matches: [],
       done: false,
     }
@@ -646,9 +898,22 @@ function startThinkRuleCitationAnalysis(
         || !Array.isArray(
           registry.fragments
         )
-        || !registry.fragments.length
         || thinkContent.dataset.thinkId !== thinkId
       ) {
+        activeThinkRuleCitationJobs.delete(
+          thinkId
+        );
+        return;
+      }
+
+      const fragments = [
+        ...registry.fragments,
+        ...buildRuntimeCitationFragments(
+          currentJob.runtimeCitationIndex
+        ),
+      ];
+
+      if (!fragments.length) {
         activeThinkRuleCitationJobs.delete(
           thinkId
         );
@@ -670,7 +935,7 @@ function startThinkRuleCitationAnalysis(
           type: "analyzeThinkRules",
           thinkId,
           text,
-          fragments: registry.fragments,
+          fragments,
         }
       );
     });

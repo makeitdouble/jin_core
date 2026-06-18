@@ -313,9 +313,31 @@ function buildMatch(
     constantName: fragment.constantName,
     source: fragment.source,
     sourceType: fragment.sourceType,
+    citationType: fragment.citationType,
     layer: fragment.layer,
     sourceText: fragment.sourceText,
+    titleText: fragment.titleText || fragment.sourceText,
   };
+}
+
+function sourcePriority(
+  match
+) {
+  if (
+    match
+    && match.sourceType === "rule"
+  ) {
+    return 2;
+  }
+
+  if (
+    match
+    && match.sourceType === "runtime"
+  ) {
+    return 1;
+  }
+
+  return 0;
 }
 
 function findExactMatches(
@@ -678,6 +700,18 @@ function levelRank(level) {
 function resolveOverlaps(matches) {
   const sorted = [...matches].sort(
     (left, right) => {
+      const priorityDelta =
+        sourcePriority(
+          right
+        )
+        - sourcePriority(
+          left
+        );
+
+      if (priorityDelta) {
+        return priorityDelta;
+      }
+
       const levelDelta =
         levelRank(
           right.level
