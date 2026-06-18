@@ -32,7 +32,6 @@ from runtime.L2_memory_utils import (
     get_runtime_l2_user_turn_count,
     merge_runtime_l2_pattern_evidence_memory,
     remove_runtime_l2_occurrence_pattern_lines,
-    remove_runtime_l2_pattern_evidence_lines,
     runtime_l1_patch_total_diff,
     should_run_runtime_l2_memory,
 )
@@ -393,9 +392,6 @@ async def maybe_summarize_runtime_l2_memory(
                 updated_l2_memory,
             )
 
-        updated_l2_memory = remove_runtime_l2_pattern_evidence_lines(
-            updated_l2_memory,
-        )
         updated_l2_memory = merge_runtime_l2_pattern_evidence_memory(
             previous_memory=current_l2_memory,
             candidate_memory=updated_l2_memory,
