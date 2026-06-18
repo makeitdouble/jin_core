@@ -1652,7 +1652,7 @@ class MessageMemoryTests(
             "",
         )
 
-    async def test_l2_memory_drops_model_evidence_from_one_unique_snapshot(self):
+    async def test_l2_memory_keeps_evidence_but_drops_unconfirmed_pattern(self):
 
         service_client = FakeServiceClient(
             "possible pattern: user may be repeating one message. "
@@ -1722,16 +1722,20 @@ class MessageMemoryTests(
             "possible pattern",
             updated_memory,
         )
-        self.assertNotIn(
-            "L2_pattern_evidence_",
+        self.assertIn(
+            "L2_pattern_evidence_1:",
             updated_memory,
         )
-        self.assertEqual(
-            "",
+        self.assertIn(
+            'quote: "ping"',
             updated_memory,
         )
-        self.assertNotIn(
-            "[ occurrences: 4 ]",
+        self.assertIn(
+            "[ first_seen_turn_snapshot: 9 ]",
+            updated_memory,
+        )
+        self.assertIn(
+            "[ last_seen_turn_snapshot: 10 ]",
             updated_memory,
         )
 
