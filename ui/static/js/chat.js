@@ -310,6 +310,10 @@ function flushStreamFrame() {
         stream.pendingThinking
       );
 
+      updateThinkExpandedHeight(
+        stream.group.thinkContent
+      );
+
       stream.pendingThinking =
         "";
 
@@ -811,6 +815,50 @@ function fadeRuntimeAction(
 
 // CREATE STREAM GROUP
 
+function updateThinkExpandedHeight(
+  thinkContent
+) {
+
+  if (!thinkContent) {
+    return;
+  }
+
+  thinkContent.style.setProperty(
+    "--jin-think-expanded-height",
+    `${thinkContent.scrollHeight}px`
+  );
+
+}
+
+let thinkResizeFrame = null;
+
+window.addEventListener(
+  "resize",
+  () => {
+
+    if (thinkResizeFrame) {
+      return;
+    }
+
+    thinkResizeFrame = requestAnimationFrame(
+      () => {
+
+        thinkResizeFrame = null;
+
+        document
+          .querySelectorAll(
+            ".jin-think-content"
+          )
+          .forEach(
+            updateThinkExpandedHeight
+          );
+
+      }
+    );
+
+  }
+);
+
 function createStreamGroup(
   role,
   contextSnapshot = null
@@ -833,42 +881,80 @@ function createStreamGroup(
   thinkWrapper.className =
     "jin-think-wrapper";
 
-  const thinkHeader =
-    document.createElement("button");
-
-  thinkHeader.className =
-    "jin-think-header";
-
-  thinkHeader.innerHTML =
-    `▼ &lt;think&gt;`;
-
   const thinkContent =
     document.createElement("div");
 
   thinkContent.className =
     "jin-think-content";
 
+  thinkContent.setAttribute(
+    "role",
+    "button"
+  );
+
+  thinkContent.setAttribute(
+    "tabindex",
+    "0"
+  );
+
+  thinkContent.setAttribute(
+    "aria-expanded",
+    "true"
+  );
+
+  thinkContent.setAttribute(
+    "aria-label",
+    "Toggle thinking block"
+  );
+
   let collapsed = false;
 
-  thinkHeader.onclick = () => {
+  const setCollapsed = (nextCollapsed) => {
 
     collapsed =
-      !collapsed;
+      nextCollapsed;
 
-    thinkContent.style.display =
+    thinkContent.classList.toggle(
+      "is-collapsed",
       collapsed
-        ? "none"
-        : "block";
+    );
 
-    thinkHeader.innerHTML =
+    thinkContent.setAttribute(
+      "aria-expanded",
       collapsed
-        ? `▶ &lt;think&gt;`
-        : `▼ &lt;think&gt;`;
+        ? "false"
+        : "true"
+    );
 
   };
 
-  thinkWrapper.appendChild(
-    thinkHeader
+  thinkContent.addEventListener(
+    "click",
+    () => {
+      setCollapsed(
+        !collapsed
+      );
+    }
+  );
+
+  thinkContent.addEventListener(
+    "keydown",
+    (event) => {
+
+      if (
+        event.key !== "Enter"
+        && event.key !== " "
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+
+      setCollapsed(
+        !collapsed
+      );
+
+    }
   );
 
   thinkWrapper.appendChild(

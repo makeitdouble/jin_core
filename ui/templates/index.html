@@ -730,31 +730,7 @@
             opacity: 0.92;
         }
 
-        .jin-think-header {
-            /* Строка заголовка <think>. */
-            display: flex;
-            align-items: center;
-            gap: 8px;
-
-            /* Приглушённый цвет заголовка think. */
-            color: rgba(203, 213, 225, 0.72);
-
-            /* Размер подписи think. */
-            font-size: 11px;
-
-            /* Плавность подсветки при hover. */
-            transition: color 0.2s ease;
-        }
-
-        .jin-think-header:hover {
-            /* Заголовок think становится читабельнее при наведении. */
-            color: rgba(226, 232, 240, 0.96);
-        }
-
         .jin-think-content {
-            /* Отступ между заголовком <think> и телом мысли. */
-            margin-top: 8px;
-
             /* Внутренние отступы think-плашки. */
             padding: 14px 18px;
 
@@ -770,6 +746,11 @@
 
             /* Сохраняет переносы текста think. */
             white-space: pre-wrap;
+
+            /* Блок сам является переключателем сворачивания. */
+            cursor: pointer;
+            overflow: hidden;
+            max-height: var(--jin-think-expanded-height, 65vh);
 
             /* Масса think-плашки. Регулируется --jin-chat-panel-think. */
             background: var(--jin-chat-panel-think);
@@ -787,6 +768,32 @@
             box-shadow:
                     0 8px 26px rgba(0, 0, 0, 0.28),
                     inset 0 0 18px rgba(255, 255, 255, 0.025);
+
+            /* Плавное сворачивание без исчезновения из ленты. */
+            transition:
+                    max-height 0.24s ease,
+                    border-color 0.2s ease,
+                    background-color 0.2s ease,
+                    box-shadow 0.2s ease;
+            will-change: max-height;
+        }
+
+        .jin-think-content:hover {
+            border-color: rgba(148, 163, 184, 0.24);
+            background: rgba(12, 12, 14, 0.52);
+        }
+
+        .jin-think-content:focus-visible {
+            outline: 1px solid rgba(94, 234, 212, 0.42);
+            outline-offset: 3px;
+        }
+
+        .jin-think-content.is-collapsed {
+            max-height: calc(1lh + 28px);
+            border-color: rgba(148, 163, 184, 0.11);
+            box-shadow:
+                    0 6px 20px rgba(0, 0, 0, 0.22),
+                    inset 0 -18px 18px rgba(12, 12, 14, 0.42);
         }
 
         #chat-history .border-l.border-slate-500.pl-4.text-xs.text-zinc-300.italic.leading-relaxed.whitespace-pre-wrap {
@@ -1404,10 +1411,6 @@
                         bg-transparent">
             <!--
                             <div class="space-y-2">
-
-                                <div class="text-xs text-zinc-300">
-                                    &lt;think&gt;
-                                </div>
 
                                 <div
                                     class="border-l border-slate-500 pl-4 text-xs text-zinc-300 italic leading-relaxed">
