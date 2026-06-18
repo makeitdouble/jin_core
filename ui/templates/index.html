@@ -796,6 +796,34 @@
                     inset 0 -18px 18px rgba(12, 12, 14, 0.42);
         }
 
+        .think-rule-hit {
+            color: inherit;
+            text-shadow: none;
+            transition:
+                    color 1s ease,
+                    text-shadow 1s ease;
+        }
+
+        .jin-think-content.is-rule-highlight-revealing .think-rule-hit.exact,
+        .jin-think-content.has-rule-highlights:hover .think-rule-hit.exact {
+            color: #fff7df;
+            text-shadow:
+                    0 0 8px rgba(255, 245, 220, 0.55),
+                    0 0 18px rgba(255, 200, 130, 0.28);
+        }
+
+        .jin-think-content.is-rule-highlight-revealing .think-rule-hit.near,
+        .jin-think-content.has-rule-highlights:hover .think-rule-hit.near {
+            color: #efe2c8;
+            text-shadow: 0 0 8px rgba(255, 235, 200, 0.28);
+        }
+
+        .jin-think-content.is-rule-highlight-revealing .think-rule-hit.compressed,
+        .jin-think-content.has-rule-highlights:hover .think-rule-hit.compressed {
+            color: #d8cdb9;
+            text-shadow: 0 0 6px rgba(255, 235, 200, 0.16);
+        }
+
         #chat-history .border-l.border-slate-500.pl-4.text-xs.text-zinc-300.italic.leading-relaxed.whitespace-pre-wrap {
             /* Сброс старого tailwind-стиля think: убирает левую линию. */
             border-left: 0 !important;

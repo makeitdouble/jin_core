@@ -3,6 +3,7 @@
 USE_SERVICE_AS_BRAIN = True
 TRANSLATION_ENABLED = False
 TRANSLATE_RESPONSE = False
+DEBUG_RULE_CITATIONS = True
 
 CHAT_ENDPOINT = "/v1/chat/completions"
 MODELS_ENDPOINT = "/v1/models"
@@ -77,7 +78,6 @@ SEARCH_SERPER_API_KEY = "mock-serper-api-key"
 SEARCH_MAX_RESULTS = 5
 
 SEARCH_TIMEOUT = 100.0
-
 
 # ---------------------------------------------------------
 # TRANSLATOR MODEL

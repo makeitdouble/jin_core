@@ -8,9 +8,16 @@ const streamMessages =
 
 const STREAM_FRAME_WARNING_MS = 12;
 const STREAM_NEAR_BOTTOM_PX = 72;
+const THINK_RULE_CITATIONS_ENDPOINT =
+  "/api/debug/rule-citations";
+const THINK_RULE_WORKER_URL =
+  "/static/js/think-rule-worker.js?v=rule-citations-1";
 
 let streamFrameScheduled = false;
+let thinkRuleCitationWorker = null;
+let thinkRuleCitationRegistryPromise = null;
 const deferredRuntimeActionsAfterResponse = [];
+const activeThinkRuleCitationJobs = new Map();
 
 const jinInputLoopState = {
   previousInput: "",
@@ -189,6 +196,484 @@ function requestStreamFrame(callback) {
     callback,
     16
   );
+
+}
+
+function loadThinkRuleCitationRegistry() {
+
+  if (thinkRuleCitationRegistryPromise) {
+    return thinkRuleCitationRegistryPromise;
+  }
+
+  thinkRuleCitationRegistryPromise = fetch(
+    THINK_RULE_CITATIONS_ENDPOINT,
+    {
+      cache: "no-store",
+    }
+  )
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(
+          `Rule citation registry failed: ${response.status}`
+        );
+      }
+
+      return response.json();
+    })
+    .catch((error) => {
+      if (isStreamDebugEnabled()) {
+        console.warn(
+          "[think-rules] disabled",
+          error
+        );
+      }
+
+      return {
+        enabled: false,
+        fragments: [],
+      };
+    });
+
+  return thinkRuleCitationRegistryPromise;
+
+}
+
+function getThinkRuleCitationWorker() {
+
+  if (thinkRuleCitationWorker) {
+    return thinkRuleCitationWorker;
+  }
+
+  if (!window.Worker) {
+    return null;
+  }
+
+  thinkRuleCitationWorker =
+    new Worker(
+      THINK_RULE_WORKER_URL
+    );
+
+  thinkRuleCitationWorker.onmessage =
+    handleThinkRuleWorkerMessage;
+
+  thinkRuleCitationWorker.onerror = (event) => {
+    if (isStreamDebugEnabled()) {
+      console.warn(
+        "[think-rules] worker error",
+        event.message
+      );
+    }
+  };
+
+  return thinkRuleCitationWorker;
+
+}
+
+function thinkRuleLevelRank(level) {
+
+  if (level === "exact") {
+    return 3;
+  }
+
+  if (level === "near") {
+    return 2;
+  }
+
+  return 1;
+
+}
+
+function resolveThinkRuleOverlaps(matches) {
+
+  const seen = new Set();
+  const sorted = [...matches]
+    .filter((match) => {
+      if (
+        !match
+        || match.end <= match.start
+      ) {
+        return false;
+      }
+
+      const key = [
+        match.start,
+        match.end,
+        match.level,
+        match.constantName,
+        match.sourceText,
+      ].join("|");
+
+      if (seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    })
+    .sort((left, right) => {
+      const levelDelta =
+        thinkRuleLevelRank(
+          right.level
+        )
+        - thinkRuleLevelRank(
+          left.level
+        );
+
+      if (levelDelta) {
+        return levelDelta;
+      }
+
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+
+      return (
+        (right.end - right.start)
+        - (left.end - left.start)
+      );
+    });
+
+  const selected = [];
+
+  sorted.forEach((match) => {
+    const overlaps =
+      selected.some(
+        (selectedMatch) => (
+          match.start < selectedMatch.end
+          && match.end > selectedMatch.start
+        )
+      );
+
+    if (!overlaps) {
+      selected.push(
+        match
+      );
+    }
+  });
+
+  return selected.sort(
+    (left, right) => left.start - right.start
+  );
+
+}
+
+function buildThinkRuleTitle(
+  match,
+  matchedText
+) {
+
+  const score =
+    Math.round(
+      Number(
+        match.score || 0
+      ) * 100
+    );
+
+  return [
+    `RULE - ${match.constantName || "unknown"} - ${match.level || "match"} - ${score}%`,
+    `source: ${match.source || "rules"}`,
+    `layer: ${match.layer || "base"}`,
+    `matched: "${matchedText}"`,
+    `rule: "${match.sourceText || ""}"`,
+  ].join("\n");
+
+}
+
+function renderThinkRuleHighlights(job) {
+
+  const element =
+    job.element;
+
+  if (
+    !element
+    || element.dataset.thinkId !== job.thinkId
+  ) {
+    return;
+  }
+
+  const text =
+    job.text;
+  const matches =
+    resolveThinkRuleOverlaps(
+      job.matches
+    );
+
+  if (!matches.length) {
+    return;
+  }
+
+  const fragment =
+    document.createDocumentFragment();
+  let cursor = 0;
+
+  matches.forEach((match) => {
+    const start = Math.max(
+      0,
+      Math.min(
+        text.length,
+        match.start
+      )
+    );
+    const end = Math.max(
+      start,
+      Math.min(
+        text.length,
+        match.end
+      )
+    );
+
+    if (start > cursor) {
+      fragment.appendChild(
+        document.createTextNode(
+          text.slice(
+            cursor,
+            start
+          )
+        )
+      );
+    }
+
+    const matchedText =
+      text.slice(
+        start,
+        end
+      );
+    const span =
+      document.createElement("span");
+
+    span.className =
+      `think-rule-hit ${match.level || "near"}`;
+    span.textContent =
+      matchedText;
+    span.title =
+      buildThinkRuleTitle(
+        match,
+        matchedText
+      );
+    span.setAttribute(
+      "aria-label",
+      span.title
+    );
+    span.style.setProperty(
+      "--think-match-score",
+      String(
+        Math.max(
+          0,
+          Math.min(
+            1,
+            Number(
+              match.score || 0
+            )
+          )
+        )
+      )
+    );
+
+    fragment.appendChild(
+      span
+    );
+
+    cursor = end;
+  });
+
+  if (cursor < text.length) {
+    fragment.appendChild(
+      document.createTextNode(
+        text.slice(
+          cursor
+        )
+      )
+    );
+  }
+
+  element.replaceChildren(
+    fragment
+  );
+  element.classList.add(
+    "has-rule-highlights"
+  );
+  element.__jinThinkTextNode = null;
+
+  updateThinkExpandedHeight(
+    element
+  );
+
+  job.matches =
+    matches;
+
+}
+
+function pulseThinkRuleHighlights(job) {
+
+  const element =
+    job.element;
+
+  if (
+    !element
+    || element.dataset.thinkId !== job.thinkId
+  ) {
+    return;
+  }
+
+  if (element.__jinThinkRulePulseTimer) {
+    clearTimeout(
+      element.__jinThinkRulePulseTimer
+    );
+  }
+
+  element.classList.remove(
+    "is-rule-highlight-revealing"
+  );
+
+  void element.offsetWidth;
+
+  element.classList.add(
+    "is-rule-highlight-revealing"
+  );
+
+  element.__jinThinkRulePulseTimer = setTimeout(
+    () => {
+      element.classList.remove(
+        "is-rule-highlight-revealing"
+      );
+      element.__jinThinkRulePulseTimer = null;
+    },
+      5000
+    );
+
+}
+
+function handleThinkRuleWorkerMessage(event) {
+
+  const data =
+    event.data
+    || {};
+  const thinkId =
+    data.thinkId;
+  const job =
+    activeThinkRuleCitationJobs.get(
+      thinkId
+    );
+
+  if (
+    !job
+    || !job.element
+    || job.element.dataset.thinkId !== thinkId
+  ) {
+    return;
+  }
+
+  if (
+    data.type === "ruleMatchesChunk"
+  ) {
+    job.matches = resolveThinkRuleOverlaps(
+      [
+        ...job.matches,
+        ...(data.matches || []),
+      ]
+    );
+
+    renderThinkRuleHighlights(
+      job
+    );
+    return;
+  }
+
+  if (
+    data.type === "ruleMatchesDone"
+  ) {
+    job.done = true;
+    pulseThinkRuleHighlights(
+      job
+    );
+    activeThinkRuleCitationJobs.delete(
+      thinkId
+    );
+  }
+
+}
+
+function startThinkRuleCitationAnalysis(
+  messageId,
+  stream
+) {
+
+  if (
+    !stream
+    || !stream.group
+    || !stream.group.createdThinking
+    || !stream.group.thinkContent
+    || !stream.thinking.trim()
+  ) {
+    return;
+  }
+
+  const thinkContent =
+    stream.group.thinkContent;
+  const thinkId =
+    String(
+      messageId
+    );
+  const text =
+    stream.thinking;
+
+  thinkContent.dataset.thinkId =
+    thinkId;
+  thinkContent.__jinThinkRawText =
+    text;
+
+  activeThinkRuleCitationJobs.set(
+    thinkId,
+    {
+      thinkId,
+      element: thinkContent,
+      text,
+      matches: [],
+      done: false,
+    }
+  );
+
+  loadThinkRuleCitationRegistry()
+    .then((registry) => {
+      const currentJob =
+        activeThinkRuleCitationJobs.get(
+          thinkId
+        );
+
+      if (
+        !currentJob
+        || !registry.enabled
+        || !Array.isArray(
+          registry.fragments
+        )
+        || !registry.fragments.length
+        || thinkContent.dataset.thinkId !== thinkId
+      ) {
+        activeThinkRuleCitationJobs.delete(
+          thinkId
+        );
+        return;
+      }
+
+      const worker =
+        getThinkRuleCitationWorker();
+
+      if (!worker) {
+        activeThinkRuleCitationJobs.delete(
+          thinkId
+        );
+        return;
+      }
+
+      worker.postMessage(
+        {
+          type: "analyzeThinkRules",
+          thinkId,
+          text,
+          fragments: registry.fragments,
+        }
+      );
+    });
 
 }
 
@@ -1045,6 +1530,9 @@ function ensureStreamGroup(
   stream.group.thinkContent =
     realGroup.thinkContent;
 
+  stream.group.thinkContent.dataset.thinkId =
+    stream.messageId;
+
   stream.group.messageRow =
     realGroup.messageRow;
 
@@ -1082,6 +1570,7 @@ function startStreamMessage(
     messageId,
     {
       role,
+      messageId,
       context: contextSnapshot,
       group,
       thinking: "",
@@ -1267,6 +1756,11 @@ function finishStreamMessage(
         stream.role
       );
     }
+
+    startThinkRuleCitationAnalysis(
+      messageId,
+      stream
+    );
 
   }
 
