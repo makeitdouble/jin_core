@@ -6,10 +6,10 @@
 ![OpenAI Compatible](https://img.shields.io/badge/API-OpenAI--compatible-111827.svg)
 ![Tests](https://github.com/makeitdouble/jin_core/actions/workflows/tests.yml/badge.svg)
 
-**JIN Core** is a local-first AI orchestration runtime. Instead of treating models as simple stateless chat boxes, it splits them into dedicated runtime roles (reasoning, service, translation) inside a single, seamless browser interface — with no frontend build step required.
+**JIN Core Engine** is a local AI runtime for OpenAI-compatible models with visible memory, visible reasoning traces, and inspectable session state.
 
 ### 3-Layer Memory
-JIN doesn't just store logs. It uses short-term continuity to dynamically guide conversation strategy:
+JIN uses short-term continuity to dynamically guide conversation strategy:
 
 * **L1 (Live Facts):** Actionable session state kept in active process memory.
 * **L2 (Patterns):** Tracks interaction loops and repetition counters to adapt prompts on the fly.
@@ -17,16 +17,32 @@ JIN doesn't just store logs. It uses short-term continuity to dynamically guide 
 
 *Every memory update is captured as a versioned snapshot with diff highlights, fully inspectable in the right-side timeline panel.*
 
+## UI Preview
+
+### Runtime Workspace
 
 ![JIN Core Engine runtime UI](ui/static/images/jin-core-redesign.jpg)
 
-![highlight](ui/static/images/highlight.png)
+Main runtime view: chat, live reasoning, telemetry, and inspectable memory panels in one browser workspace.
+
+### Think Citations
+
+![Think citation highlighting](ui/static/images/think-highlight.jpg)
+
+Think citation highlighting shows where reasoning quotes rules, runtime memory, or restored session context.
+
+### Memory Timeline
+
+![Runtime memory snapshot timeline](ui/static/images/runtime-highlight.png)
+
+Runtime memory snapshots can be stepped through visually, with new or changed facts highlighted in the sidebar.
 
 ## Capabilities
 
 - A chat room that feels alive: answers stream in as they are written, thinking stays visually separate from the final reply, and you can stop a generation the moment it drifts.
 - A visible short-term memory: JIN keeps a compact sense of what this session is about, what changed, and what still feels unresolved.
 - A memory timeline you can inspect: step through snapshots and see which facts or patterns were added instead of guessing what the assistant remembered.
+- Citation highlighting inside think blocks: rule fragments, runtime memory, and restored session context are softly highlighted after a thinking block completes, then reappear on hover.
 - A calmer loop breaker: when the conversation starts repeating itself, JIN can notice the pattern and change strategy instead of giving the same polite answer again.
 - A built-in search move: the model can ask the runtime to search, then answer from trusted results without dumping raw tool syntax into the chat.
 - A session save and restore path: saying something like "save the session" or "that's all for today" triggers a compact L3 memory digest. The browser stores it locally and replays it on reconnect so the next session starts from context rather than blank slate.
@@ -58,6 +74,8 @@ After the visible response ends, the service runtime updates `context.runtime_me
 The memory layer can also surface compact pattern signals. When the session starts repeating the same kind of interaction, JIN can receive strategy hints such as low-signal repetition or stalled context and respond differently instead of treating each message as a fresh start.
 
 Each memory update is also stored as a per-session snapshot. The UI can step backward and forward through those snapshots, replaying lightweight diff highlights so the user can see which memory keys or values were added or changed during the conversation.
+
+Completed thinking blocks are also scanned for direct citations from trusted prompt context. Rule matches, indexed runtime-memory matches, and restored session-memory matches are highlighted with separate colors so the user can see which injected source shaped the reasoning without interrupting streaming.
 
 If generation is aborted, the runtime captures the partial answer and schedules an interrupted memory update. The memory summarizer is instructed to mark the turn as incomplete and not treat it as resolved.
 
@@ -530,8 +548,6 @@ The frontend uses vanilla JavaScript and Tailwind from CDN. The current input be
 ## Future Features
 
 The following capabilities are planned but not yet implemented.
-
-**Think-block rule citation highlighting.** After a thinking block completes, the UI scans the text for phrases matching known injected prompt sections (core identity, mode rules, runtime memory, session memory). Matched fragments are highlighted with a soft color; hovering shows a tooltip with the source name, type, layer, and full rule text. This makes prompt influence visible during debugging without affecting the streaming display.
 
 **Long-term facts layer (L4).** A cross-session key-fact store extracted from completed turns by the service model, stored as JSON, and retrieved via keyword scoring before each brain call. Facts carry category, relevance, confidence, and mention count. A deduplication pass prevents drift from accumulating near-duplicate entries. The top-N retrieved facts are injected into the brain prompt as low-priority background context. No vector search or embedding index; heuristic scoring only for MVP.
 
