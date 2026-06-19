@@ -400,8 +400,8 @@ class MessageMemoryTests(
                 "jin_fact",
                 "stored_memory",
                 "countdown_contract",
-                "TRUSTED_RUNTIME_CONTEXT",
-                "timestamp",
+                "CURRENT_TRUSTED_RUNTIME_VARIABLES",
+                "USER_DATETIME",
         ):
             self.assertIn(
                 required_text,
@@ -1604,12 +1604,24 @@ class MessageMemoryTests(
         user_prompt = service_client.calls[0]["user_prompt"]
 
         self.assertIn(
-            "<TRUSTED_RUNTIME_CONTEXT>",
+            "<CURRENT_TRUSTED_RUNTIME_VARIABLES>",
             user_prompt,
         )
         self.assertIn(
-            "<TIMESTAMP>2026-06-05T13:38:50</TIMESTAMP>",
+            "<USER_DATETIME>2026-06-05T13:38:50</USER_DATETIME>",
             user_prompt,
+        )
+        self.assertIn(
+            "<MODE>SERVICE</MODE>",
+            user_prompt,
+        )
+        self.assertIn(
+            f"<SERVICE_MODEL_UID>{config.SERVICE_MODEL_UID}</SERVICE_MODEL_UID>",
+            user_prompt,
+        )
+        self.assertRegex(
+            user_prompt,
+            rf"<CONTEXT>\d+/{config.SERVICE_CONTEXT_WINDOW}</CONTEXT>",
         )
         self.assertIn(
             "<TURN_NUMBER>12</TURN_NUMBER>",
@@ -1624,7 +1636,7 @@ class MessageMemoryTests(
             user_prompt,
         )
         self.assertLess(
-            user_prompt.index("<TRUSTED_RUNTIME_CONTEXT>"),
+            user_prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
             user_prompt.index("Current runtime memory:"),
         )
         self.assertNotIn(
@@ -2376,8 +2388,8 @@ class MessageMemoryTests(
                 "emotional_weight:",
                 "preserve_detail:",
                 "durable JIN/user fact",
-                "TRUSTED_RUNTIME_CONTEXT",
-                "timestamp",
+                "CURRENT_TRUSTED_RUNTIME_VARIABLES",
+                "USER_DATETIME",
                 "relative temporal phrases",
                 "today, now, or recently",
                 "temporary_preference:",
@@ -2554,12 +2566,12 @@ class MessageMemoryTests(
             service_client.calls[0]["user_prompt"],
         )
         self.assertIn(
-            "<TIMESTAMP>2026-06-05T13:38:50</TIMESTAMP>",
+            "<USER_DATETIME>2026-06-05T13:38:50</USER_DATETIME>",
             service_client.calls[0]["user_prompt"],
         )
         self.assertLess(
             service_client.calls[0]["user_prompt"].index(
-                "<TRUSTED_RUNTIME_CONTEXT>"
+                "<CURRENT_TRUSTED_RUNTIME_VARIABLES>"
             ),
             service_client.calls[0]["user_prompt"].index(
                 "Current L3 session memory:"

@@ -436,7 +436,7 @@ RUNTIME_FIELDS = (
 
 # Нормализация временных фраз к доверенной дате.
 TIME_NORMALIZATION = (
-    "Treat the timestamp from TRUSTED_RUNTIME_CONTEXT as the source of truth for current time.\n"
+    "Treat USER_DATETIME from CURRENT_TRUSTED_RUNTIME_VARIABLES as the source of truth for current time.\n"
     "When recording user statements with relative time words (today, yesterday, tomorrow, "
     "recently, now, this morning, this week, last time), normalize them with the trusted date.\n"
     "Do not write bare 'today' into durable or restored memory.\n"
@@ -466,7 +466,7 @@ SUMMARIZATION_DEPTH = (
     "Do not record analysis of the user's personality, motives, or long-term behavior.\n"
     "Do not over-interpret jokes, tests, or casual topic changes.\n"
     "Do not write the current turn number or user_message_count into ordinary memory lines — "
-    "trusted runtime context already carries those counters.\n"
+    "CURRENT_TRUSTED_RUNTIME_VARIABLES already carries those counters.\n"
     "If JIN's response was aborted or incomplete, mark it as incomplete and do not treat it as resolved.\n"
     "If the user asks a follow-up that depends on prior context, preserve the referent "
     "clearly enough for the next brain prompt to resolve it.\n"

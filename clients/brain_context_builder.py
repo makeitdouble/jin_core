@@ -2,6 +2,9 @@ import json
 from datetime import datetime
 from xml.sax.saxutils import escape
 
+from app_settings import (
+    settings,
+)
 from bootstrap.brain_bootstrap import (
     build_conversation_activity_instruction,
     build_zero_diff_stall_instruction,
@@ -24,11 +27,31 @@ from runtime.L1_memory_utils import (
     build_runtime_memory_context_text,
     canonicalize_runtime_memory_text,
 )
+from utils.tokens import (
+    estimate_runtime_tokens,
+)
+
+
+def get_brain_runtime_mode() -> str:
+
+    if settings.USE_SERVICE_AS_BRAIN:
+        return "SERVICE as BRAIN"
+
+    return "BRAIN"
+
+
+def get_brain_context_window() -> int:
+
+    if settings.USE_SERVICE_AS_BRAIN:
+        return settings.SERVICE_CONTEXT_WINDOW
+
+    return settings.BRAIN_CONTEXT_WINDOW
 
 
 def build_runtime_xml(
     context=None,
     runtime_actions=None,
+    context_tokens: int | None = None,
 ) -> str:
 
     enabled_actions = get_enabled_runtime_actions(
@@ -41,6 +64,10 @@ def build_runtime_xml(
             user_input="",
             compressed_history="",
             system_state="ACTIVE",
+            runtime_mode=get_brain_runtime_mode(),
+            service_model_uid=settings.SERVICE_MODEL_UID,
+            context_tokens=context_tokens,
+            context_window=get_brain_context_window(),
             deep_thought_count=0,
             can_deep_thought=False,
             can_web_search=(
@@ -344,12 +371,14 @@ def append_tool_results(
 def build_brain_runtime_context(
     context=None,
     runtime_actions=None,
+    context_tokens: int | None = None,
 ) -> str:
 
     parts = [
         build_runtime_xml(
             context,
             runtime_actions,
+            context_tokens=context_tokens,
         )
     ]
 
@@ -392,4 +421,39 @@ def build_brain_runtime_context(
 
     return "\n".join(
         parts
+    )
+
+
+def build_brain_runtime_context_with_current_tokens(
+    *,
+    prompt_prefix: str,
+    user_input: str = "",
+    context=None,
+    runtime_actions=None,
+) -> str:
+
+    context_tokens = 0
+
+    for _ in range(3):
+        runtime_context = build_brain_runtime_context(
+            context,
+            runtime_actions,
+            context_tokens=context_tokens,
+        )
+        next_context_tokens = estimate_runtime_tokens(
+            system_prompt=(
+                f"{prompt_prefix}{runtime_context}"
+            ),
+            user_input=user_input,
+        )
+
+        if next_context_tokens == context_tokens:
+            break
+
+        context_tokens = next_context_tokens
+
+    return build_brain_runtime_context(
+        context,
+        runtime_actions,
+        context_tokens=context_tokens,
     )
