@@ -1791,7 +1791,9 @@
         }
 
         body.theme-win95 #user-input {
-            min-height: 26px;
+            box-sizing: border-box;
+            min-height: 30px;
+            max-height: 112px;
             padding: 3px 6px;
             background: #eeeeee;
             border-top: 2px solid #8a8a8a;
@@ -1804,7 +1806,15 @@
             font-size: 14px;
             font-weight: 500;
             line-height: 20px;
+            overflow: hidden;
+            scrollbar-width: none;
             caret-color: var(--win95-text);
+        }
+
+        body.theme-win95 #user-input::-webkit-scrollbar {
+            width: 0;
+            height: 0;
+            display: none;
         }
 
         body.theme-win95 #user-input::placeholder {
@@ -1838,6 +1848,112 @@
             border: 1px solid #6f0000;
             border-radius: 1px;
             box-shadow: none;
+        }
+
+        body.theme-win95 .jin-message-row {
+            gap: 8px;
+        }
+
+        body.theme-win95 .jin-chat-avatar {
+            width: 28px;
+            height: 28px;
+            flex: 0 0 28px;
+            background: var(--win95-face);
+            border-top: 2px solid var(--win95-light);
+            border-left: 2px solid var(--win95-light);
+            border-right: 2px solid var(--win95-shadow);
+            border-bottom: 2px solid var(--win95-shadow);
+            border-radius: 2px;
+            color: var(--win95-text);
+            font-family: Arial, sans-serif;
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: 0;
+            text-shadow: none;
+            box-shadow: none;
+        }
+
+        body.theme-win95 .jin-chat-avatar.cursor-help:hover {
+            background: #c7c6c7;
+            border-top-color: var(--win95-light);
+            border-left-color: var(--win95-light);
+            border-right-color: var(--win95-shadow);
+            border-bottom-color: var(--win95-shadow);
+            color: var(--win95-text);
+        }
+
+        body.theme-win95 .jin-chat-avatar.cursor-help:active,
+        body.theme-win95 .jin-chat-avatar.cursor-help:focus-visible {
+            background: var(--win95-face-dark);
+            border-top-color: var(--win95-shadow);
+            border-left-color: var(--win95-shadow);
+            border-right-color: var(--win95-light);
+            border-bottom-color: var(--win95-light);
+            outline: 0;
+        }
+
+        body.theme-win95 .jin-chat-bubble {
+            padding: 12px 18px;
+            background: var(--win95-face);
+            border-top: 2px solid var(--win95-light);
+            border-left: 2px solid var(--win95-light);
+            border-right: 2px solid var(--win95-shadow);
+            border-bottom: 2px solid var(--win95-shadow);
+            border-radius: 2px;
+            color: var(--win95-text);
+            backdrop-filter: none;
+            box-shadow: none;
+            clip-path: none;
+        }
+
+        body.theme-win95 .jin-chat-bubble:not(.jin-chat-bubble-service),
+        body.theme-win95 .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-press-minus):not(.jin-rating-press-neutral):not(.jin-rating-press-plus):not(:has(.jin-rating-zone:hover)) {
+            box-shadow:
+                    1px 1px 0 var(--win95-text),
+                    0 8px 18px rgba(0, 0, 0, 0.16);
+        }
+
+        body.theme-win95 .jin-chat-bubble::before,
+        body.theme-win95 .jin-chat-bubble::after {
+            border-radius: inherit;
+        }
+
+        body.theme-win95 .jin-chat-bubble .jin-chat-pre {
+            color: var(--win95-text);
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            line-height: 1.45;
+            text-shadow: none;
+        }
+
+        body.theme-win95 .jin-chat-bubble-service {
+            background: var(--win95-face);
+            color: var(--win95-text);
+        }
+
+        body.theme-win95 .jin-chat-bubble-service .jin-chat-pre {
+            color: var(--win95-text);
+            text-shadow: none;
+        }
+
+        body.theme-win95 .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-minus:hover),
+        body.theme-win95 .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-neutral:hover),
+        body.theme-win95 .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-plus:hover),
+        body.theme-win95 .jin-chat-bubble-service.jin-rating-press-minus,
+        body.theme-win95 .jin-chat-bubble-service.jin-rating-press-neutral,
+        body.theme-win95 .jin-chat-bubble-service.jin-rating-press-plus,
+        body.theme-win95 .jin-chat-bubble-service.jin-rating-selected-minus,
+        body.theme-win95 .jin-chat-bubble-service.jin-rating-selected-neutral,
+        body.theme-win95 .jin-chat-bubble-service.jin-rating-selected-plus {
+            box-shadow: none;
+        }
+
+        body.theme-win95 .jin-chat-bubble-service.jin-rating-l1-waiting,
+        body.theme-win95 .jin-chat-bubble-service.jin-rating-l1-waiting .jin-rating-zone,
+        body.theme-win95 .jin-chat-bubble-service.jin-rating-committed,
+        body.theme-win95 .jin-chat-bubble-service.jin-rating-committed .jin-rating-zone {
+            cursor: default;
         }
     </style>
 </head>
