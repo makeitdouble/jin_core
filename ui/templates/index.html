@@ -1763,6 +1763,82 @@
             ) !important;
             font-weight: 500;
         }
+
+        body.theme-win95 #chat-input-shell {
+            padding-top: 12px;
+            padding-bottom: 12px;
+        }
+
+        body.theme-win95 #chat-form {
+            min-height: 44px;
+            padding: 5px 7px;
+            background: var(--win95-face);
+            border-top: 3px solid var(--win95-light);
+            border-left: 3px solid var(--win95-light);
+            border-right: 2px solid var(--win95-shadow);
+            border-bottom: 2px solid var(--win95-shadow);
+            border-radius: 2px;
+            box-shadow: none;
+            backdrop-filter: none;
+        }
+
+        body.theme-win95 #chat-form:focus-within {
+            box-shadow: none;
+        }
+
+        body.theme-win95 #chat-form label[for="file-input"] {
+            display: none !important;
+        }
+
+        body.theme-win95 #user-input {
+            min-height: 26px;
+            padding: 3px 6px;
+            background: #eeeeee;
+            border-top: 2px solid #8a8a8a;
+            border-left: 2px solid #8a8a8a;
+            border-right: 2px solid #f4f4f4;
+            border-bottom: 2px solid #f4f4f4;
+            border-radius: 1px;
+            color: var(--win95-text);
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            line-height: 20px;
+            caret-color: var(--win95-text);
+        }
+
+        body.theme-win95 #user-input::placeholder {
+            color: #5f5f5f;
+            opacity: 1;
+        }
+
+        body.theme-win95 #user-input:focus {
+            border-top: 2px solid #8a8a8a;
+            border-left: 2px solid #8a8a8a;
+            border-right: 2px solid #f4f4f4;
+            border-bottom: 2px solid #f4f4f4;
+            outline: 0;
+            box-shadow: none;
+        }
+
+        body.theme-win95 #stop-indicator {
+            inset: 5px 7px;
+            z-index: 3;
+            background: rgba(128, 0, 0, 0.14);
+            border: 1px solid rgba(128, 0, 0, 0.32);
+            border-radius: 1px;
+            color: #b00000;
+            pointer-events: auto;
+        }
+
+        body.theme-win95 #stop-indicator span {
+            width: 9px;
+            height: 9px;
+            background: #b00000;
+            border: 1px solid #6f0000;
+            border-radius: 1px;
+            box-shadow: none;
+        }
     </style>
 </head>
 <body class="h-screen overflow-hidden flex flex-col font-mono antialiased bg-zinc-950 text-zinc-100">
