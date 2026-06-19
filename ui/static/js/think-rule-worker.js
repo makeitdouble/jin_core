@@ -337,7 +337,14 @@ function sourcePriority(
     return 1;
   }
 
-  return 0;
+  if (
+    match
+    && match.sourceType === "session"
+  ) {
+    return 0;
+  }
+
+  return -1;
 }
 
 function findExactMatches(

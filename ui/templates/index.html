@@ -842,6 +842,24 @@
             text-shadow: 0 0 6px rgba(34,197,94,0.18);
         }
 
+        .jin-think-content.is-rule-highlight-revealing .think-citation-session.exact,
+        .jin-think-content.has-rule-highlights:hover .think-citation-session.exact {
+            color: rgba(216,180,254,0.94);
+            text-shadow: 0 0 10px rgba(168,85,247,0.32);
+        }
+
+        .jin-think-content.is-rule-highlight-revealing .think-citation-session.near,
+        .jin-think-content.has-rule-highlights:hover .think-citation-session.near {
+            color: rgba(216,180,254,0.84);
+            text-shadow: 0 0 8px rgba(168,85,247,0.24);
+        }
+
+        .jin-think-content.is-rule-highlight-revealing .think-citation-session.compressed,
+        .jin-think-content.has-rule-highlights:hover .think-citation-session.compressed {
+            color: rgba(216,180,254,0.74);
+            text-shadow: 0 0 6px rgba(168,85,247,0.16);
+        }
+
         #chat-history .border-l.border-slate-500.pl-4.text-xs.text-zinc-300.italic.leading-relaxed.whitespace-pre-wrap {
             /* Сброс старого tailwind-стиля think: убирает левую линию. */
             border-left: 0 !important;
@@ -2128,7 +2146,7 @@
 <script src="/static/js/status.js?v=status-check-4"></script>
 <script src="/static/js/dragdrop.js?v=context-panel-5"></script>
 <script src="/static/js/logger.js?v=session-card-1"></script>
-<script src="/static/js/chat.js?v=runtime-citations-2"></script>
+<script src="/static/js/chat.js?v=session-citations-2"></script>
 <script src="/static/js/socket.js?v=runtime-session-unified-1"></script>
 </body>
 

@@ -11,7 +11,7 @@ const STREAM_NEAR_BOTTOM_PX = 72;
 const THINK_RULE_CITATIONS_ENDPOINT =
   "/api/debug/rule-citations";
 const THINK_RULE_WORKER_URL =
-  "/static/js/think-rule-worker.js?v=rule-citations-2";
+  "/static/js/think-rule-worker.js?v=rule-citations-3";
 
 let streamFrameScheduled = false;
 let thinkRuleCitationWorker = null;
@@ -300,7 +300,14 @@ function thinkCitationSourcePriority(match) {
     return 1;
   }
 
-  return 0;
+  if (
+    match
+    && match.sourceType === "session"
+  ) {
+    return 0;
+  }
+
+  return -1;
 
 }
 
@@ -405,14 +412,16 @@ function buildThinkRuleTitle(
   const label =
     match.sourceType === "runtime"
       ? "RUNTIME"
-      : "RULE";
+      : match.sourceType === "session"
+        ? "SESSION"
+        : "RULE";
 
   return [
     `${label} - ${match.constantName || "unknown"} - ${match.level || "match"} - ${score}%`,
     `source: ${match.source || "rules"}`,
     `layer: ${match.layer || "base"}`,
     `matched: "${matchedText}"`,
-    `${match.sourceType === "runtime" ? "memory" : "rule"}: "${match.titleText || match.sourceText || ""}"`,
+    `${match.sourceType === "rule" ? "rule" : "memory"}: "${match.titleText || match.sourceText || ""}"`,
   ].join("\n");
 
 }
@@ -422,7 +431,9 @@ function getThinkCitationClassName(match) {
   const sourceClass =
     match.sourceType === "runtime"
       ? "runtime"
-      : "rule";
+      : match.sourceType === "session"
+        ? "session"
+        : "rule";
 
   return [
     "think-rule-hit",
@@ -463,6 +474,86 @@ function splitThinkCitationTextFragments(text) {
       return String(cleanedLine || "").trim();
     })
     .filter(Boolean);
+
+}
+
+function buildMemoryCitationFragments(
+  memoryText,
+  options
+) {
+
+  const {
+    source,
+    sourceType,
+    citationType,
+    layer,
+    idPrefix,
+    defaultConstantName,
+  } = options;
+
+  const fragments = [];
+  const seen = new Set();
+
+  splitThinkCitationTextFragments(
+    memoryText
+  ).forEach((line, index) => {
+    const separatorIndex =
+      line.indexOf(":");
+    const key =
+      separatorIndex > 0
+        ? line.slice(
+          0,
+          separatorIndex
+        ).trim()
+        : defaultConstantName;
+    const value =
+      separatorIndex > 0
+        ? line.slice(
+          separatorIndex + 1
+        ).trim()
+        : line;
+
+    [
+      line,
+      value,
+    ].forEach((sourceText, variantIndex) => {
+      const normalized =
+        sourceText
+          .toLowerCase()
+          .replace(/\s+/g, " ")
+          .trim();
+
+      if (
+        !normalized
+        || normalized.length < 24
+        || seen.has(
+          normalized
+        )
+      ) {
+        return;
+      }
+
+      seen.add(
+        normalized
+      );
+
+      fragments.push(
+        {
+          id: `${idPrefix}:${index}:${variantIndex}`,
+          source,
+          sourceType,
+          citationType,
+          layer,
+          constantName: key || defaultConstantName,
+          sourceText,
+          titleText: line,
+          minScore: 0.72,
+        }
+      );
+    });
+  });
+
+  return fragments;
 
 }
 
@@ -549,69 +640,63 @@ function buildRuntimeCitationFragments(
     return [];
   }
 
-  const fragments = [];
-  const seen = new Set();
+  return buildMemoryCitationFragments(
+    runtimeMemory,
+    {
+      source: `runtimeSnapshot[${snapshotIndex}]`,
+      sourceType: "runtime",
+      citationType: "runtime_citation",
+      layer: "runtime",
+      idPrefix: `runtime:${snapshotIndex}`,
+      defaultConstantName: "runtime_memory",
+    }
+  );
 
-  splitThinkCitationTextFragments(
-    runtimeMemory
-  ).forEach((line, index) => {
-    const separatorIndex =
-      line.indexOf(":");
-    const key =
-      separatorIndex > 0
-        ? line.slice(
-          0,
-          separatorIndex
-        ).trim()
-        : "runtime_memory";
-    const value =
-      separatorIndex > 0
-        ? line.slice(
-          separatorIndex + 1
-        ).trim()
-        : line;
+}
 
-    [
-      line,
-      value,
-    ].forEach((sourceText, variantIndex) => {
-      const normalized =
-        sourceText
-          .toLowerCase()
-          .replace(/\s+/g, " ")
-          .trim();
+function buildSessionCitationFragments() {
 
-      if (
-        !normalized
-        || normalized.length < 24
-        || seen.has(
-          normalized
-        )
-      ) {
-        return;
-      }
+  const storage =
+    window.JinRuntime
+    && window.JinRuntime.storage;
 
-      seen.add(
-        normalized
-      );
+  if (
+    !storage
+    || typeof storage.readLatestSavedSessionMemory !== "function"
+  ) {
+    return [];
+  }
 
-      fragments.push(
-        {
-          id: `runtime:${index}:${variantIndex}`,
-          source: `runtimeSnapshot[${snapshotIndex}]`,
-          sourceType: "runtime",
-          citationType: "runtime_citation",
-          layer: "runtime",
-          constantName: key || "runtime_memory",
-          sourceText,
-          titleText: line,
-          minScore: 0.72,
-        }
-      );
-    });
-  });
+  const savedSession =
+    storage.readLatestSavedSessionMemory();
 
-  return fragments;
+  if (
+    !savedSession
+    || savedSession.explicit_save !== true
+  ) {
+    return [];
+  }
+
+  const sessionMemory =
+    String(
+      savedSession.session_memory || ""
+    ).trim();
+
+  if (!sessionMemory) {
+    return [];
+  }
+
+  return buildMemoryCitationFragments(
+    sessionMemory,
+    {
+      source: "latestSavedSessionMemory",
+      sourceType: "session",
+      citationType: "session_citation",
+      layer: "session",
+      idPrefix: "session",
+      defaultConstantName: "session_memory",
+    }
+  );
 
 }
 
@@ -635,7 +720,7 @@ function renderThinkRuleHighlights(job) {
     );
 
   if (!matches.length) {
-    return;
+    return false;
   }
 
   const fragment =
@@ -739,6 +824,8 @@ function renderThinkRuleHighlights(job) {
   job.matches =
     matches;
 
+  return true;
+
 }
 
 function pulseThinkRuleHighlights(job) {
@@ -810,10 +897,6 @@ function handleThinkRuleWorkerMessage(event) {
         ...(data.matches || []),
       ]
     );
-
-    renderThinkRuleHighlights(
-      job
-    );
     return;
   }
 
@@ -821,9 +904,17 @@ function handleThinkRuleWorkerMessage(event) {
     data.type === "ruleMatchesDone"
   ) {
     job.done = true;
-    pulseThinkRuleHighlights(
-      job
-    );
+    if (
+      renderThinkRuleHighlights(
+        job
+      )
+    ) {
+      requestAnimationFrame(
+        () => pulseThinkRuleHighlights(
+          job
+        )
+      );
+    }
     activeThinkRuleCitationJobs.delete(
       thinkId
     );
@@ -911,6 +1002,7 @@ function startThinkRuleCitationAnalysis(
         ...buildRuntimeCitationFragments(
           currentJob.runtimeCitationIndex
         ),
+        ...buildSessionCitationFragments(),
       ];
 
       if (!fragments.length) {
