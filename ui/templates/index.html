@@ -182,6 +182,7 @@
             min-height: 32px;
             font-size: 11px;
             line-height: 1;
+            margin-top: -7px;
         }
 
         #chat-drop-zone {
@@ -1308,6 +1309,16 @@
 
         .runtime-memory-user-idle {
             opacity: 0.72;
+            margin-bottom: 0px;
+        }
+
+        .runtime-memory-key {
+            font-weight: 600!important;
+        }
+
+
+        .runtime-memory-user-idle .runtime-memory-key {
+            font-weight: 500!important;
         }
 
         .runtime-memory-user-idle .runtime-memory-key,
@@ -1411,7 +1422,7 @@
                     1px 1px 0 var(--win95-text),
                     0 12px 24px rgba(0, 0, 0, 0.30);
             backdrop-filter: none;
-            font-family: Arial, sans-serif;
+            font-family: Calibri, Arial, sans-serif;
             font-weight: 500;
         }
 
@@ -1502,7 +1513,7 @@
             padding: 10px 10px 12px;
             background: var(--win95-face);
             color: var(--win95-text);
-            font-family: Arial, sans-serif;
+            font-family: Calibri, Arial, sans-serif;
             font-size: 11px;
             font-weight: 500;
             line-height: 1.45;
@@ -1522,8 +1533,8 @@
             border: 1px solid var(--win95-shadow);
             border-radius: 1px;
             color: var(--win95-text);
-            font-family: Arial, sans-serif;
-            font-size: 13px;
+            font-family: Calibri, Arial, sans-serif;
+            font-size: 15px;
             font-weight: 500;
             letter-spacing: 0;
             text-transform: uppercase;
@@ -1568,7 +1579,7 @@
         body.theme-win95 #settings-panel button {
             color: var(--win95-text) !important;
             text-shadow: none;
-            font-family: Arial, sans-serif;
+            font-family: Calibri, Arial, sans-serif;
             font-weight: 500;
         }
 
@@ -1578,7 +1589,7 @@
         }
 
         body.theme-win95 #context-panel-model {
-            font-size: 12px;
+            font-size: 14px;
             font-weight: 500;
             padding-bottom: 8px;
             border-bottom: 1px solid var(--win95-mid);
@@ -1586,7 +1597,7 @@
 
         body.theme-win95 .runtime-memory-header {
             border-bottom: 1px solid var(--win95-mid);
-            font-size: 12px;
+            font-size: 14px;
             font-weight: 500;
             letter-spacing: 0;
             padding-bottom: 8px;
@@ -1599,6 +1610,8 @@
             color: var(--win95-text);
         }
 
+        body.theme-win95 #runtime-memory-prev,
+        body.theme-win95 #runtime-memory-next,
         body.theme-win95 #runtime-memory-position {
             display: inline-grid;
             min-width: 16px;
@@ -1606,9 +1619,19 @@
             place-items: center;
             background: transparent;
             border: 2px solid transparent;
+            border-radius: 0;
             box-shadow: none;
+            padding: 0 3px;
         }
 
+        body.theme-win95 #runtime-memory-prev,
+        body.theme-win95 #runtime-memory-next {
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        body.theme-win95 #runtime-memory-prev:hover,
+        body.theme-win95 #runtime-memory-next:hover,
         body.theme-win95 #runtime-memory-position:hover {
             background: var(--win95-face);
             border-top-color: var(--win95-light);
@@ -1626,8 +1649,8 @@
         body.theme-win95 #runtime-memory-text {
             min-height: 148px;
             padding-top: 2px;
-            font-family: Arial, sans-serif;
-            font-size: 12px;
+            font-family: Calibri, Arial, sans-serif;
+            font-size: 13px;
             font-weight: 500;
             line-height: 1.45;
             text-shadow: none;
@@ -1639,7 +1662,7 @@
         body.theme-win95 #runtime-memory-text .runtime-memory-key,
         body.theme-win95 #runtime-memory-text .runtime-memory-value {
             color: var(--win95-text) !important;
-            font-family: Arial, sans-serif;
+            font-family: Calibri, Arial, sans-serif;
             font-weight: 500;
             text-shadow: none;
         }
@@ -1648,7 +1671,7 @@
             border-top: 0;
             border-bottom: 1px solid var(--win95-mid);
             color: var(--win95-text);
-            font-size: 12px;
+            font-size: 14px;
             font-weight: 500;
             letter-spacing: 0;
             padding: 8px 0;
@@ -1662,7 +1685,7 @@
             flex-direction: column;
             justify-content: flex-end;
             gap: 2px;
-            font-size: 12px;
+            font-size: 14px;
             line-height: 1.05;
         }
 
@@ -1683,8 +1706,8 @@
         body.theme-win95 #summarizer-window-percent {
             color: var(--win95-text) !important;
             width: 4ch;
-            font-family: Arial, sans-serif;
-            font-size: 12px;
+            font-family: Calibri, Arial, sans-serif;
+            font-size: 14px;
         }
 
         body.theme-win95 #context-window-bar,
@@ -1805,7 +1828,7 @@
             border-bottom: 2px solid #f4f4f4;
             border-radius: 1px;
             color: var(--win95-text);
-            font-family: Arial, sans-serif;
+            font-family: Calibri, Arial, sans-serif;
             font-size: 14px;
             font-weight: 500;
             line-height: 20px;
@@ -1868,7 +1891,7 @@
             border-bottom: 2px solid var(--win95-shadow);
             border-radius: 2px;
             color: var(--win95-text);
-            font-family: Arial, sans-serif;
+            font-family: Calibri, Arial, sans-serif;
             font-size: 11px;
             font-weight: 500;
             letter-spacing: 0;
@@ -1902,6 +1925,7 @@
         }
 
         body.theme-win95 .jin-chat-avatar-user {
+            font-size: 12px;
             background:
                     linear-gradient(180deg, rgba(72, 96, 130, 0.16), rgba(72, 96, 130, 0.045)),
                     var(--win95-face);
@@ -1942,7 +1966,7 @@
 
         body.theme-win95 .jin-chat-bubble .jin-chat-pre {
             color: var(--win95-text);
-            font-family: Arial, sans-serif;
+            font-family: Calibri, Arial, sans-serif;
             font-size: 14px;
             font-weight: 500;
             line-height: 1.45;
@@ -1980,6 +2004,7 @@
 
         body.theme-win95 .jin-think-wrapper {
             opacity: 1;
+            max-width: 728px;
         }
 
         body.theme-win95 .jin-think-content {
@@ -1990,8 +2015,8 @@
             border-bottom: 2px solid var(--win95-shadow);
             border-radius: 2px;
             color: var(--win95-text);
-            font-family: Arial, sans-serif;
-            font-size: 12px;
+            font-family: Calibri, Arial, sans-serif;
+            font-size: 14px;
             font-weight: 500;
             line-height: 1.55;
             text-shadow: none;
