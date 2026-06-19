@@ -1361,6 +1361,408 @@
             text-shadow:
                     0 0 10px rgba(96, 165, 250, 0.030);
         }
+
+        #app-title {
+            padding: 0;
+            border: 0;
+            background: transparent;
+            color: inherit;
+            cursor: pointer;
+            font: inherit;
+        }
+
+        .win95-window-controls {
+            display: none;
+        }
+
+        body.theme-win95 {
+            --win95-face: #bbbabb;
+            --win95-face-dark: #b8b8b8;
+            --win95-face-soft: #d2d2d2;
+            --win95-title: #00006f;
+            --win95-title-text: #ffffff;
+            --win95-text: #000000;
+            --win95-shadow: #404040;
+            --win95-mid: #808080;
+            --win95-light: #d0cfd0;
+            --win95-radius: 3px;
+            --win95-bar-blue: #06067f;
+            --win95-bar-track: var(--win95-face);
+            --win95-blue-shadow: #000040;
+        }
+
+        body.theme-win95 #app-title {
+            color: var(--win95-title-text);
+            text-shadow: 1px 1px 0 var(--win95-blue-shadow);
+        }
+
+        body.theme-win95 #settings-panel {
+            background: var(--win95-face);
+            color: var(--win95-text);
+            border-top: 2px solid var(--win95-light);
+            border-left: 2px solid var(--win95-light);
+            border-right: 2px solid var(--win95-shadow);
+            border-bottom: 2px solid var(--win95-shadow);
+            border-radius: var(--win95-radius);
+            box-shadow:
+                    1px 1px 0 var(--win95-text),
+                    0 12px 24px rgba(0, 0, 0, 0.30);
+            backdrop-filter: none;
+            font-family: Arial, sans-serif;
+            font-weight: 500;
+        }
+
+        body.theme-win95 #memory-drag-handle {
+            flex: 0 0 28px;
+            height: 28px;
+            min-height: 28px;
+            padding: 3px 5px 4px 7px;
+            background: var(--win95-title);
+            border: 0;
+            border-bottom: 1px solid var(--win95-shadow);
+            color: var(--win95-title-text);
+            cursor: grab;
+        }
+
+        body.theme-win95 #fact-check-trigger {
+            color: var(--win95-title-text);
+            font-family: Tahoma, sans-serif;
+            font-size: 14px!important;
+            font-weight: 600!important;
+            letter-spacing: 0.1em;
+            line-height: 1;
+            text-shadow:
+                    1px 1px 0 var(--win95-blue-shadow),
+                    0 0 1px rgba(255, 255, 255, 0.55);
+            filter: none;
+            padding-top: 1px;
+        }
+
+        body.theme-win95 .win95-window-controls {
+            display: flex;
+            gap: 4px;
+            margin-left: auto;
+            align-items: center;
+        }
+
+        body.theme-win95 .win95-window-button {
+            display: grid;
+            width: 19px;
+            height: 19px;
+            place-items: center;
+            background: var(--win95-face);
+            border: 1px solid var(--win95-shadow);
+            border-radius: 1px;
+            color: var(--win95-text);
+            font-family: Arial, sans-serif;
+            font-size: 13px;
+            font-weight: 500;
+            line-height: 1;
+            box-shadow:
+                    inset 1px 1px 0 var(--win95-light),
+                    inset -1px -1px 0 #8a8a8a;
+            user-select: none;
+        }
+
+        body.theme-win95 .win95-window-button-min {
+            align-items: end;
+            padding-bottom: 4px;
+            font-size: 13px;
+            font-weight: 1000 !important;
+            font-weight: bolder !important;
+            font-family: Tahoma !important;
+        }
+
+        body.theme-win95 .win95-window-button-max {
+            font-size: 0;
+        }
+
+        body.theme-win95 .win95-window-button-max::before {
+            content: "";
+            width: 10px;
+            height: 10px;
+            border: 2px solid var(--win95-text);
+            box-sizing: border-box;
+            box-shadow: inset 0 1px 0;
+        }
+
+        body.theme-win95 .win95-window-button-close {
+            line-height: 0.6;
+            padding-bottom: 2px;
+            font-size: 17px;
+            font-weight: 1000 !important;
+            font-weight: bolder !important;
+            font-family: Tahoma !important;
+        }
+
+        body.theme-win95 #settings-panel .settings-scroll {
+            padding: 10px 10px 12px;
+            background: var(--win95-face);
+            color: var(--win95-text);
+            font-family: Arial, sans-serif;
+            font-size: 11px;
+            font-weight: 500;
+            line-height: 1.45;
+        }
+
+        body.theme-win95 #settings-panel .settings-scroll > .grid:first-child {
+            border: 0;
+            border-radius: 0;
+            background: transparent;
+            gap: 0;
+            padding: 0 2px;
+        }
+
+        body.theme-win95 #settings-panel [data-context-tab] {
+            height: 32px;
+            background: var(--win95-face);
+            border: 1px solid var(--win95-shadow);
+            border-radius: 1px;
+            color: var(--win95-text);
+            font-family: Arial, sans-serif;
+            font-size: 13px;
+            font-weight: 500;
+            letter-spacing: 0;
+            text-transform: uppercase;
+            text-shadow: none;
+            box-shadow:
+                    inset 1px 1px 0 var(--win95-light),
+                    inset -1px -1px 0 #8a8a8a;
+        }
+
+        body.theme-win95 #settings-panel [data-context-tab][aria-selected="true"] {
+            background: var(--win95-face-dark);
+            border-color: var(--win95-shadow);
+            box-shadow:
+                    inset 1px 1px 0 #8a8a8a,
+                    inset -1px -1px 0 #d6d6d6;
+            transform: none;
+        }
+
+        body.theme-win95 #context-runtime-panel,
+        body.theme-win95 #runtime-memory-panel {
+            background: var(--win95-face);
+            border: 1px solid var(--win95-shadow);
+            border-radius: var(--win95-radius);
+            color: var(--win95-text);
+        }
+
+        body.theme-win95 #context-runtime-panel > div,
+        body.theme-win95 #runtime-memory-panel > div {
+            padding: 12px;
+        }
+
+        body.theme-win95 #context-runtime-panel .space-y-3 > :not([hidden]) ~ :not([hidden]) {
+            margin-top: 0 !important;
+        }
+
+        body.theme-win95 #context-panel-model,
+        body.theme-win95 #runtime-memory-text,
+        body.theme-win95 #context-summary-tokens,
+        body.theme-win95 .runtime-memory-header,
+        body.theme-win95 #settings-panel pre,
+        body.theme-win95 #settings-panel span,
+        body.theme-win95 #settings-panel button {
+            color: var(--win95-text) !important;
+            text-shadow: none;
+            font-family: Arial, sans-serif;
+            font-weight: 500;
+        }
+
+        body.theme-win95 #settings-panel #fact-check-trigger {
+            color: var(--win95-title-text) !important;
+            text-shadow: 1px 1px 0 var(--win95-blue-shadow);
+        }
+
+        body.theme-win95 #context-panel-model {
+            font-size: 12px;
+            font-weight: 500;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--win95-mid);
+        }
+
+        body.theme-win95 .runtime-memory-header {
+            border-bottom: 1px solid var(--win95-mid);
+            font-size: 12px;
+            font-weight: 500;
+            letter-spacing: 0;
+            padding-bottom: 8px;
+            text-transform: uppercase;
+        }
+
+        body.theme-win95 #runtime-memory-prev,
+        body.theme-win95 #runtime-memory-next,
+        body.theme-win95 #runtime-memory-position {
+            color: var(--win95-text);
+        }
+
+        body.theme-win95 #runtime-memory-position {
+            display: inline-grid;
+            min-width: 16px;
+            height: 16px;
+            place-items: center;
+            background: transparent;
+            border: 2px solid transparent;
+            box-shadow: none;
+        }
+
+        body.theme-win95 #runtime-memory-position:hover {
+            background: var(--win95-face);
+            border-top-color: var(--win95-light);
+            border-left-color: var(--win95-light);
+            border-right-color: var(--win95-shadow);
+            border-bottom-color: var(--win95-shadow);
+            box-shadow: none;
+        }
+
+        body.theme-win95 #runtime-memory-position.runtime-memory-position-pinned {
+            color: #00824a !important;
+            font-weight: 500;
+        }
+
+        body.theme-win95 #runtime-memory-text {
+            min-height: 148px;
+            padding-top: 2px;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            font-weight: 500;
+            line-height: 1.45;
+            text-shadow: none;
+        }
+
+        body.theme-win95 #runtime-memory-panel,
+        body.theme-win95 #runtime-memory-panel *,
+        body.theme-win95 #runtime-memory-text,
+        body.theme-win95 #runtime-memory-text .runtime-memory-key,
+        body.theme-win95 #runtime-memory-text .runtime-memory-value {
+            color: var(--win95-text) !important;
+            font-family: Arial, sans-serif;
+            font-weight: 500;
+            text-shadow: none;
+        }
+
+        body.theme-win95 #context-accordion > div:first-child {
+            border-top: 0;
+            border-bottom: 1px solid var(--win95-mid);
+            color: var(--win95-text);
+            font-size: 12px;
+            font-weight: 500;
+            letter-spacing: 0;
+            padding: 8px 0;
+            text-transform: uppercase;
+        }
+
+        body.theme-win95 #context-summary-tokens {
+            display: inline-flex;
+            width: auto;
+            min-width: 74px;
+            flex-direction: column;
+            justify-content: flex-end;
+            gap: 2px;
+            font-size: 12px;
+            line-height: 1.05;
+        }
+
+        body.theme-win95 #context-summary-used,
+        body.theme-win95 #context-summary-max {
+            white-space: nowrap;
+        }
+
+        body.theme-win95 #context-window-line,
+        body.theme-win95 #summarizer-window-line {
+            align-items: center;
+            gap: 10px;
+            color: var(--win95-text) !important;
+            font-size: 12px;
+        }
+
+        body.theme-win95 #context-window-percent,
+        body.theme-win95 #summarizer-window-percent {
+            color: var(--win95-text) !important;
+            width: 4ch;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+        }
+
+        body.theme-win95 #context-window-bar,
+        body.theme-win95 #summarizer-window-bar {
+            position: relative;
+            height: 15px;
+            min-width: 0;
+            flex: 1 1 auto;
+            overflow: hidden;
+            color: transparent !important;
+            font-size: 0;
+            line-height: 0;
+            background: var(--win95-bar-track);
+            border: 1px solid #8a8a8a;
+            border-radius: 1px;
+            box-shadow: none;
+        }
+
+        body.theme-win95 #context-window-bar *,
+        body.theme-win95 #summarizer-window-bar * {
+            color: transparent !important;
+        }
+
+        body.theme-win95 #context-window-bar::before,
+        body.theme-win95 #summarizer-window-bar::before {
+            content: "";
+            position: absolute;
+            top: 2px;
+            bottom: 2px;
+            left: 2px;
+            width: var(--win95-context-total-fill, 0%);
+            max-width: calc(100% - 4px);
+            background:
+                    repeating-linear-gradient(
+                            90deg,
+                            rgba(6, 6, 127, 0.42) 0,
+                            rgba(6, 6, 127, 0.42) 5px,
+                            transparent 5px,
+                            transparent 8px
+                    );
+        }
+
+        body.theme-win95 #context-window-bar::after,
+        body.theme-win95 #summarizer-window-bar::after {
+            content: "";
+            position: absolute;
+            top: 2px;
+            bottom: 2px;
+            left: 2px;
+            width: var(--win95-context-fill, 0%);
+            max-width: calc(100% - 4px);
+            background:
+                    repeating-linear-gradient(
+                            90deg,
+                            var(--win95-bar-blue) 0,
+                            var(--win95-bar-blue) 5px,
+                            transparent 5px,
+                            transparent 8px
+                    );
+        }
+
+        body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-key.flash-new,
+        body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-value.flash-new {
+            color: #007f48 !important;
+            font-weight: 500;
+        }
+
+        body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-key.flash-changed {
+            color: #6b3fb0 !important;
+            font-weight: 500;
+        }
+
+        body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-value.flash-changed {
+            color: rgba(
+                    0,
+                    112,
+                    64,
+                    var(--memory-change-alpha, 0.82)
+            ) !important;
+            font-weight: 500;
+        }
     </style>
 </head>
 <body class="h-screen overflow-hidden flex flex-col font-mono antialiased bg-zinc-950 text-zinc-100">
@@ -1370,7 +1772,12 @@
 <header
         class="h-10 border-b border-zinc-800 bg-zinc-900 flex items-center justify-between px-4 text-xs tracking-wider text-zinc-400 shrink-0">
 
-    <div>[JIN CORE ENGINE]</div>
+    <button
+            id="app-title"
+            type="button"
+            class="text-left uppercase">
+        [JIN CORE ENGINE]
+    </button>
 
     <div class="grid w-72 grid-cols-2 items-center">
 
@@ -1647,6 +2054,12 @@
                 JIN
             </button>
 
+            <div class="win95-window-controls" aria-hidden="true">
+                <span class="win95-window-button win95-window-button-min">_</span>
+                <span class="win95-window-button win95-window-button-max"></span>
+                <span class="win95-window-button win95-window-button-close">x</span>
+            </div>
+
         </div>
 
         <div
@@ -1796,6 +2209,28 @@
     </section>
 
 </main>
+
+
+<script>
+    (function () {
+        const themeKey = "jin_theme_win95";
+        const themeClass = "theme-win95";
+        const titleButton = document.getElementById("app-title");
+
+        function applyWin95Theme(enabled) {
+            document.body.classList.toggle(themeClass, enabled);
+            localStorage.setItem(themeKey, enabled ? "1" : "0");
+        }
+
+        applyWin95Theme(localStorage.getItem(themeKey) === "1");
+
+        if (titleButton) {
+            titleButton.addEventListener("click", function () {
+                applyWin95Theme(!document.body.classList.contains(themeClass));
+            });
+        }
+    })();
+</script>
 
 
 <script>
