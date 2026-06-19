@@ -1458,7 +1458,13 @@
         body.theme-win95 #service-label,
         body.theme-win95 #brain-label {
             color: var(--win95-title-text);
+            font-family: Calibri, Arial, sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            line-height: 1;
             text-shadow: 1px 1px 0 var(--win95-blue-shadow);
+            margin-top: 1px;
         }
 
         body.theme-win95 #service-dot,
@@ -1531,7 +1537,7 @@
             border-radius: 1px;
             color: var(--win95-text);
             font-family: Arial, sans-serif;
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 500;
             line-height: 1;
             box-shadow:
@@ -1541,12 +1547,20 @@
         }
 
         body.theme-win95 .win95-window-button-min {
-            align-items: end;
-            padding-bottom: 4px;
-            font-size: 13px;
-            font-weight: 1000 !important;
-            font-weight: bolder !important;
-            font-family: Tahoma !important;
+            position: relative;
+            padding: 0;
+            font-size: 0;
+        }
+
+        body.theme-win95 .win95-window-button-min::before {
+            content: "";
+            position: absolute;
+            left: 50%;
+            bottom: 3px;
+            width: 10px;
+            height: 3px;
+            background: var(--win95-text);
+            transform: translateX(-50%);
         }
 
         body.theme-win95 .win95-window-button-max {
@@ -1601,6 +1615,10 @@
             text-shadow: none;
         }
 
+        body.theme-win95 #console-stream > div:last-child {
+            margin-bottom: 0;
+        }
+
         body.theme-win95 #console-stream > div.rounded {
             padding: 10px;
             background: var(--win95-face);
@@ -1626,35 +1644,35 @@
         }
 
         body.theme-win95 #console-stream [data-log-kind="system"] > .logger-tag {
-            color: #2d6557 !important;
+            color: #007a4d !important;
         }
 
         body.theme-win95 #console-stream [data-log-kind="session"] > .logger-tag,
         body.theme-win95 #console-stream [data-log-kind="memory"] > .logger-tag {
-            color: #234f7a !important;
+            color: #0057a8 !important;
         }
 
         body.theme-win95 #console-stream [data-log-kind="flow"] > .logger-tag,
         body.theme-win95 #console-stream [data-log-kind="before"] > .logger-tag,
         body.theme-win95 #console-stream [data-log-kind="after"] > .logger-tag {
-            color: #5a4d75 !important;
+            color: #5a2aa0 !important;
         }
 
         body.theme-win95 #console-stream [data-log-kind="user"] > .logger-tag,
         body.theme-win95 #console-stream [data-log-kind="service"] > .logger-tag {
-            color: #2f5573 !important;
+            color: #0067a8 !important;
         }
 
         body.theme-win95 #console-stream [data-log-kind="brain"] > .logger-tag {
-            color: #6a4d64 !important;
+            color: #8a2a68 !important;
         }
 
         body.theme-win95 #console-stream [data-log-kind="usage"] > .logger-tag {
-            color: #565656 !important;
+            color: #303030 !important;
         }
 
         body.theme-win95 #console-stream [data-log-kind="error"] > .logger-tag {
-            color: #8a3434 !important;
+            color: #b00000 !important;
         }
 
         body.theme-win95 #console-stream button {
