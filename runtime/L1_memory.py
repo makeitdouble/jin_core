@@ -48,6 +48,7 @@ from runtime.L1_memory_utils import (
     build_runtime_memory_snapshot,
     build_runtime_memory_user_prompt,
     durable_memory_line_text,
+    enforce_runtime_turn_fields,
     get_strength_zones,
     has_durable_fact_negation,
     is_durable_memory_key,
@@ -554,6 +555,12 @@ async def summarize_runtime_memory(
             updated_memory,
             context=context,
         )
+        updated_memory = enforce_runtime_turn_fields(
+            updated_memory,
+            user_message=user_message,
+            assistant_message=assistant_message,
+            previous_memory=current_memory,
+        )
         updated_memory = remove_runtime_user_idle_lines(
             updated_memory
         )
@@ -756,6 +763,12 @@ async def summarize_runtime_memory_pending_turns(
         updated_memory = refresh_countdown_contracts(
             updated_memory,
             context=context,
+        )
+        updated_memory = enforce_runtime_turn_fields(
+            updated_memory,
+            user_message=latest_user_message,
+            assistant_message=latest_assistant_message,
+            previous_memory=initial_memory,
         )
         updated_memory = remove_runtime_user_idle_lines(
             updated_memory

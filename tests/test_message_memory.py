@@ -30,8 +30,10 @@ from runtime.L1_memory import (
 )
 from runtime.L1_memory_utils import (
     build_runtime_memory_snapshot,
+    enforce_runtime_turn_fields,
     get_strength_zones,
     parse_runtime_memory_lines,
+    quote_runtime_user_message_value,
 )
 from runtime.L3_memory_utils import (
     build_l3_session_memory_max_tokens,
@@ -1270,13 +1272,17 @@ class MessageMemoryTests(
             assistant_message="Yes, I can keep the live context updated.",
         )
 
-        self.assertEqual(
+        self.assertIn(
+            "The user is testing live runtime memory.",
             updated_memory,
-            "The user is testing live runtime memory.",
         )
-        self.assertEqual(
+        self.assertIn(
+            'user_message: "Do you remember this?"',
             context.runtime_memory,
-            "The user is testing live runtime memory.",
+        )
+        self.assertIn(
+            "last_jin_response: Yes, I can keep the live context updated.",
+            context.runtime_memory,
         )
         self.assertEqual(
             context.runtime_memory_updates,
@@ -1341,9 +1347,9 @@ class MessageMemoryTests(
             "runtime_l1_diff_update",
         )
 
-        self.assertEqual(
-            event["memory"],
+        self.assertIn(
             "The user is testing live runtime memory.",
+            event["memory"],
         )
 
         self.assertEqual(
@@ -1361,9 +1367,191 @@ class MessageMemoryTests(
             0,
         )
 
-        self.assertEqual(
+        self.assertIn(
+            'user_message: "Do you remember this?"',
             event["snapshot"]["raw_memory"],
-            "The user is testing live runtime memory.",
+        )
+
+    def test_enforce_runtime_turn_fields_keeps_repetition_metadata_outside_quote(self):
+
+        memory = enforce_runtime_turn_fields(
+            "active_topic: loop check",
+            user_message='"hello" [ repeated: 3 ]',
+            assistant_message="I noticed the repeat.",
+        )
+
+        self.assertIn(
+            'user_message: "hello" [ repeated: 3 ]',
+            memory,
+        )
+
+    def test_quote_runtime_user_message_preserves_verbatim_quotes(self):
+
+        self.assertEqual(
+            quote_runtime_user_message_value(
+                '"hello"'
+            ),
+            '"\\"hello\\""',
+        )
+
+    async def test_summarizer_enforces_latest_user_message_when_model_is_stale(self):
+
+        service_client = FakeServiceClient(
+            (
+                'user_message: "old message"\n'
+                "last_jin_response: Fresh answer summary."
+            )
+        )
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            emitter=SimpleNamespace(
+                events=[],
+                emit=None,
+            ),
+            logger=FakeLogger(),
+            runtime_memory=(
+                'user_message: "old message"\n'
+                "last_jin_response: Previous answer."
+            ),
+            runtime_memory_updates=1,
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
+            session_id="test-session",
+        )
+
+        async def emit(event):
+            context.emitter.events.append(
+                event
+            )
+
+        context.emitter.emit = emit
+
+        updated_memory = await summarize_runtime_memory(
+            context=context,
+            user_message="latest message",
+            assistant_message="Fresh assistant answer.",
+        )
+
+        self.assertIn(
+            'user_message: "latest message"',
+            updated_memory,
+        )
+        self.assertNotIn(
+            'user_message: "old message"',
+            updated_memory,
+        )
+
+    async def test_summarizer_replaces_stale_last_jin_response(self):
+
+        service_client = FakeServiceClient(
+            (
+                'user_message: "latest message"\n'
+                "last_jin_response: Previous answer summary."
+            )
+        )
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            emitter=SimpleNamespace(
+                events=[],
+                emit=None,
+            ),
+            logger=FakeLogger(),
+            runtime_memory=(
+                'user_message: "old message"\n'
+                "last_jin_response: Previous answer summary."
+            ),
+            runtime_memory_updates=1,
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
+            session_id="test-session",
+        )
+
+        async def emit(event):
+            context.emitter.events.append(
+                event
+            )
+
+        context.emitter.emit = emit
+
+        updated_memory = await summarize_runtime_memory(
+            context=context,
+            user_message="latest message",
+            assistant_message="Latest assistant answer replaces the stale summary.",
+        )
+
+        self.assertIn(
+            "last_jin_response: Latest assistant answer replaces the stale summary.",
+            updated_memory,
+        )
+        self.assertNotIn(
+            "last_jin_response: Previous answer summary.",
+            updated_memory,
+        )
+
+    async def test_pending_turns_enforces_latest_turn_fields(self):
+
+        service_client = FakeServiceClient(
+            (
+                'user_message: "first message"\n'
+                "last_jin_response: Previous answer summary."
+            )
+        )
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            emitter=SimpleNamespace(
+                events=[],
+                emit=None,
+            ),
+            logger=FakeLogger(),
+            runtime_memory=(
+                'user_message: "first message"\n'
+                "last_jin_response: Previous answer summary."
+            ),
+            runtime_memory_stable=(
+                'user_message: "first message"\n'
+                "last_jin_response: Previous answer summary."
+            ),
+            runtime_memory_updates=1,
+            runtime_memory_pending_turns=[
+                {
+                    "user_message": "first message",
+                    "assistant_message": "First answer.",
+                },
+                {
+                    "user_message": '"hello" [ repeated: 3 ]',
+                    "assistant_message": "Latest repeated answer.",
+                },
+            ],
+            runtime_memory_update_task=None,
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
+            session_id="test-session",
+        )
+
+        async def emit(event):
+            context.emitter.events.append(
+                event
+            )
+
+        context.emitter.emit = emit
+
+        updated_memory = await summarize_runtime_memory_pending_turns(
+            context=context,
+        )
+
+        self.assertIn(
+            'user_message: "hello" [ repeated: 3 ]',
+            updated_memory,
+        )
+        self.assertIn(
+            "last_jin_response: Latest repeated answer.",
+            updated_memory,
         )
 
     async def test_l1_summarizer_receives_trusted_timestamp_for_relative_time(self):
@@ -3139,9 +3327,17 @@ class MessageMemoryTests(
 
         await task
 
-        self.assertEqual(
-            context.runtime_memory,
+        self.assertIn(
             "Updated background memory.",
+            context.runtime_memory,
+        )
+        self.assertIn(
+            'user_message: "First message"',
+            context.runtime_memory,
+        )
+        self.assertIn(
+            "last_jin_response: First answer",
+            context.runtime_memory,
         )
         self.assertEqual(
             context.logger.summarizer_logs[0][0],

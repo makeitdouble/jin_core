@@ -367,7 +367,120 @@
           strengthProperties
         );
 
-    return splitMemoryMeta(rawValue);
+    const presentation =
+        splitMemoryMeta(rawValue);
+
+    if (
+        normalizeRuntimeMemoryKey(line && line.key) === "user_message"
+    ) {
+      presentation.text =
+          formatUserMessageValueForDisplay(
+              value
+          );
+    }
+
+    return presentation;
+
+  }
+
+
+  function splitUserMessageRepeatedMetadata(value) {
+
+    const raw =
+        String(value || "");
+
+    if (!raw.trimStart().startsWith("\"")) {
+      return {
+        quote: raw,
+        metadata: "",
+      };
+    }
+
+    const match =
+        raw.match(/\s*(\[\s*repeated\s*:\s*\d+\s*\])\s*$/i);
+
+    if (!match) {
+      return {
+        quote: raw,
+        metadata: "",
+      };
+    }
+
+    return {
+      quote: raw.slice(0, match.index).trimEnd(),
+      metadata: match[1],
+    };
+
+  }
+
+
+  function parseQuotedUserMessage(value) {
+
+    const trimmed =
+        String(value || "").trim();
+
+    if (!trimmed.startsWith("\"")) {
+      return null;
+    }
+
+    try {
+      const parsed =
+          JSON.parse(trimmed);
+
+      return typeof parsed === "string"
+        ? parsed
+        : null;
+    } catch (_error) {
+      return null;
+    }
+
+  }
+
+
+  function quoteUserMessageForDisplay(value) {
+
+    return JSON.stringify(
+        value
+    );
+
+  }
+
+
+  function truncateUserMessageQuote(value) {
+
+    const chars =
+        Array.from(String(value || ""));
+
+    if (chars.length <= 50) {
+      return String(value || "");
+    }
+
+    return `${chars.slice(0, 50).join("")}...`;
+
+  }
+
+
+  function formatUserMessageValueForDisplay(value) {
+
+    const parts =
+        splitUserMessageRepeatedMetadata(value);
+
+    const parsedQuote =
+        parseQuotedUserMessage(
+            parts.quote
+        );
+
+    const quoteText =
+        parsedQuote === null
+          ? truncateUserMessageQuote(parts.quote)
+          : quoteUserMessageForDisplay(
+              truncateUserMessageQuote(parsedQuote)
+          );
+
+    return [
+      quoteText,
+      parts.metadata,
+    ].filter(Boolean).join(" ");
 
   }
 
@@ -391,6 +504,7 @@
     upsertRuntimeMemoryLine,
     formatRuntimeMemoryStrengthProperties,
     buildRuntimeMemoryValuePresentation,
+    formatUserMessageValueForDisplay,
   };
 
 }());

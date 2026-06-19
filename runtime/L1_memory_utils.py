@@ -1,3 +1,4 @@
+import json
 import re
 from difflib import SequenceMatcher
 
@@ -46,6 +47,169 @@ REPEATED_SLOT_SUFFIX_RE = re.compile(
 NUMBERED_MEMORY_KEY_RE = re.compile(
     RUNTIME_MEMORY_NUMBERED_KEY_PATTERN,
 )
+
+RUNTIME_USER_MESSAGE_KEY = "user_message"
+RUNTIME_LAST_JIN_RESPONSE_KEY = "last_jin_response"
+RUNTIME_LAST_JIN_RESPONSE_FALLBACK_LIMIT = 180
+
+
+def _split_repeated_user_message_metadata(
+        value: str,
+) -> tuple[str, str]:
+
+    text = str(value or "")
+    stripped = text.strip()
+
+    if not stripped.startswith('"'):
+        return text, ""
+
+    match = REPEATED_SLOT_SUFFIX_RE.search(
+        stripped
+    )
+
+    if (
+            not match
+            or match.end() != len(stripped)
+    ):
+        return text, ""
+
+    body = stripped[:match.start()].strip()
+    metadata = stripped[match.start():match.end()].strip()
+
+    return body, metadata
+
+
+def quote_runtime_user_message_value(
+        user_message: str,
+) -> str:
+
+    body, metadata = _split_repeated_user_message_metadata(
+        user_message
+    )
+
+    quote_value = body
+
+    if metadata and body.startswith('"'):
+        try:
+            parsed_body = json.loads(
+                body
+            )
+        except (TypeError, ValueError, json.JSONDecodeError):
+            parsed_body = None
+
+        if isinstance(
+                parsed_body,
+                str,
+        ):
+            quote_value = parsed_body
+
+    quoted = json.dumps(
+        str(quote_value),
+        ensure_ascii=False,
+    )
+
+    if metadata:
+        return f"{quoted} {metadata}"
+
+    return quoted
+
+
+def find_runtime_memory_entry_value(
+        memory: str,
+        key: str,
+) -> str:
+
+    target_key = normalize_memory_key(
+        key
+    )
+
+    for line in parse_runtime_memory_lines(
+            memory
+    ):
+        if (
+                normalize_memory_key(
+                    line.get(
+                        "key",
+                        "",
+                    )
+                )
+                == target_key
+        ):
+            return (
+                line.get(
+                    "value",
+                    "",
+                )
+                or ""
+            ).strip()
+
+    return ""
+
+
+def build_last_jin_response_fallback(
+        assistant_message: str,
+) -> str:
+
+    compact = re.sub(
+        r"\s+",
+        " ",
+        str(assistant_message or ""),
+    ).strip()
+
+    if not compact:
+        compact = "No complete assistant answer was delivered."
+
+    if len(compact) <= RUNTIME_LAST_JIN_RESPONSE_FALLBACK_LIMIT:
+        return compact
+
+    return (
+        compact[:RUNTIME_LAST_JIN_RESPONSE_FALLBACK_LIMIT - 3]
+        .rstrip()
+        + "..."
+    )
+
+
+def enforce_runtime_turn_fields(
+        memory: str,
+        *,
+        user_message: str,
+        assistant_message: str,
+        previous_memory: str = "",
+) -> str:
+
+    updated_memory = upsert_runtime_memory_entry_text(
+        memory,
+        RUNTIME_USER_MESSAGE_KEY,
+        quote_runtime_user_message_value(
+            user_message
+        ),
+    )
+
+    previous_last_jin_response = find_runtime_memory_entry_value(
+        previous_memory,
+        RUNTIME_LAST_JIN_RESPONSE_KEY,
+    )
+    candidate_last_jin_response = find_runtime_memory_entry_value(
+        updated_memory,
+        RUNTIME_LAST_JIN_RESPONSE_KEY,
+    )
+
+    if (
+            not candidate_last_jin_response
+            or (
+                previous_last_jin_response
+                and candidate_last_jin_response == previous_last_jin_response
+            )
+    ):
+        updated_memory = upsert_runtime_memory_entry_text(
+            updated_memory,
+            RUNTIME_LAST_JIN_RESPONSE_KEY,
+            build_last_jin_response_fallback(
+                assistant_message
+            ),
+        )
+
+    return updated_memory
 
 def strip_runtime_memory_repeated_suffix(
         value: str,
@@ -1677,4 +1841,3 @@ def build_runtime_memory_snapshot(
         "patch": patch_details["patch"],
         "total_diff": patch_details["total_diff"],
     }
-
