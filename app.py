@@ -45,6 +45,9 @@ from runtime import (
 from runtime.behavior_contract import (
     get_behavior_contract,
 )
+from utils.rule_citations import (
+    get_rule_citation_registry,
+)
 
 STATUS_CHECK_TIMEOUT = getattr(
     config,
@@ -295,6 +298,33 @@ async def api_status():
 async def api_behavior_contract():
 
     return get_behavior_contract()
+
+
+@app.get("/api/debug/rule-citations")
+async def api_debug_rule_citations():
+
+    enabled = bool(
+        getattr(
+            config,
+            "DEBUG_RULE_CITATIONS",
+            True,
+        )
+    )
+
+    if not enabled:
+        return {
+            "enabled": False,
+            "version": "disabled",
+            "fragmentCount": 0,
+            "fragments": [],
+        }
+
+    registry = get_rule_citation_registry()
+
+    return {
+        "enabled": True,
+        **registry,
+    }
 
 
 # ---------------------------------------------------------

@@ -730,31 +730,7 @@
             opacity: 0.92;
         }
 
-        .jin-think-header {
-            /* Строка заголовка <think>. */
-            display: flex;
-            align-items: center;
-            gap: 8px;
-
-            /* Приглушённый цвет заголовка think. */
-            color: rgba(203, 213, 225, 0.72);
-
-            /* Размер подписи think. */
-            font-size: 11px;
-
-            /* Плавность подсветки при hover. */
-            transition: color 0.2s ease;
-        }
-
-        .jin-think-header:hover {
-            /* Заголовок think становится читабельнее при наведении. */
-            color: rgba(226, 232, 240, 0.96);
-        }
-
         .jin-think-content {
-            /* Отступ между заголовком <think> и телом мысли. */
-            margin-top: 8px;
-
             /* Внутренние отступы think-плашки. */
             padding: 14px 18px;
 
@@ -770,6 +746,11 @@
 
             /* Сохраняет переносы текста think. */
             white-space: pre-wrap;
+
+            /* Блок сам является переключателем сворачивания. */
+            cursor: pointer;
+            overflow: hidden;
+            max-height: var(--jin-think-expanded-height, 65vh);
 
             /* Масса think-плашки. Регулируется --jin-chat-panel-think. */
             background: var(--jin-chat-panel-think);
@@ -787,6 +768,96 @@
             box-shadow:
                     0 8px 26px rgba(0, 0, 0, 0.28),
                     inset 0 0 18px rgba(255, 255, 255, 0.025);
+
+            /* Плавное сворачивание без исчезновения из ленты. */
+            transition:
+                    max-height 0.24s ease,
+                    border-color 0.2s ease,
+                    background-color 0.2s ease,
+                    box-shadow 0.2s ease;
+            will-change: max-height;
+        }
+
+        .jin-think-content:hover {
+            border-color: rgba(148, 163, 184, 0.24);
+            background: rgba(12, 12, 14, 0.52);
+        }
+
+        .jin-think-content:focus-visible {
+            outline: 1px solid rgba(94, 234, 212, 0.42);
+            outline-offset: 3px;
+        }
+
+        .jin-think-content.is-collapsed {
+            max-height: calc(1lh + 28px);
+            border-color: rgba(148, 163, 184, 0.11);
+            box-shadow:
+                    0 6px 20px rgba(0, 0, 0, 0.22),
+                    inset 0 -18px 18px rgba(12, 12, 14, 0.42);
+        }
+
+        .think-rule-hit {
+            color: inherit;
+            text-shadow: none;
+            transition:
+                    color 1s ease,
+                    text-shadow 1s ease;
+        }
+
+        .jin-think-content.is-rule-highlight-revealing .think-citation-rule.exact,
+        .jin-think-content.has-rule-highlights:hover .think-citation-rule.exact {
+            color: #fff7df;
+            text-shadow:
+                    0 0 8px rgba(255, 245, 220, 0.55),
+                    0 0 18px rgba(255, 200, 130, 0.28);
+        }
+
+        .jin-think-content.is-rule-highlight-revealing .think-citation-rule.near,
+        .jin-think-content.has-rule-highlights:hover .think-citation-rule.near {
+            color: #efe2c8;
+            text-shadow: 0 0 8px rgba(255, 235, 200, 0.28);
+        }
+
+        .jin-think-content.is-rule-highlight-revealing .think-citation-rule.compressed,
+        .jin-think-content.has-rule-highlights:hover .think-citation-rule.compressed {
+            color: #d8cdb9;
+            text-shadow: 0 0 6px rgba(255, 235, 200, 0.16);
+        }
+
+        .jin-think-content.is-rule-highlight-revealing .think-citation-runtime.exact,
+        .jin-think-content.has-rule-highlights:hover .think-citation-runtime.exact {
+            color: rgba(134,239,172,0.96);
+            text-shadow: 0 0 10px rgba(34,197,94,0.35);
+        }
+
+        .jin-think-content.is-rule-highlight-revealing .think-citation-runtime.near,
+        .jin-think-content.has-rule-highlights:hover .think-citation-runtime.near {
+            color: rgba(134,239,172,0.86);
+            text-shadow: 0 0 8px rgba(34,197,94,0.26);
+        }
+
+        .jin-think-content.is-rule-highlight-revealing .think-citation-runtime.compressed,
+        .jin-think-content.has-rule-highlights:hover .think-citation-runtime.compressed {
+            color: rgba(134,239,172,0.76);
+            text-shadow: 0 0 6px rgba(34,197,94,0.18);
+        }
+
+        .jin-think-content.is-rule-highlight-revealing .think-citation-session.exact,
+        .jin-think-content.has-rule-highlights:hover .think-citation-session.exact {
+            color: rgba(216,180,254,0.94);
+            text-shadow: 0 0 10px rgba(168,85,247,0.32);
+        }
+
+        .jin-think-content.is-rule-highlight-revealing .think-citation-session.near,
+        .jin-think-content.has-rule-highlights:hover .think-citation-session.near {
+            color: rgba(216,180,254,0.84);
+            text-shadow: 0 0 8px rgba(168,85,247,0.24);
+        }
+
+        .jin-think-content.is-rule-highlight-revealing .think-citation-session.compressed,
+        .jin-think-content.has-rule-highlights:hover .think-citation-session.compressed {
+            color: rgba(216,180,254,0.74);
+            text-shadow: 0 0 6px rgba(168,85,247,0.16);
         }
 
         #chat-history .border-l.border-slate-500.pl-4.text-xs.text-zinc-300.italic.leading-relaxed.whitespace-pre-wrap {
@@ -1404,10 +1475,6 @@
                         bg-transparent">
             <!--
                             <div class="space-y-2">
-
-                                <div class="text-xs text-zinc-300">
-                                    &lt;think&gt;
-                                </div>
 
                                 <div
                                     class="border-l border-slate-500 pl-4 text-xs text-zinc-300 italic leading-relaxed">
@@ -2075,11 +2142,11 @@
 <script src="/static/js/runtime/runtime-session.js?v=runtime-session-1"></script>
 <script src="/static/js/runtime/runtime-panel.js?v=runtime-panel-1"></script>
 <script src="/static/js/runtime/runtime-memory-view.js?v=runtime-memory-view-1"></script>
-<script src="/static/js/runtime/runtime.js?v=runtime-facade-2"></script>
+<script src="/static/js/runtime/runtime.js?v=runtime-facade-3"></script>
 <script src="/static/js/status.js?v=status-check-4"></script>
 <script src="/static/js/dragdrop.js?v=context-panel-5"></script>
 <script src="/static/js/logger.js?v=session-card-1"></script>
-<script src="/static/js/chat.js?v=context-popup-1"></script>
+<script src="/static/js/chat.js?v=session-citations-2"></script>
 <script src="/static/js/socket.js?v=runtime-session-unified-1"></script>
 </body>
 
