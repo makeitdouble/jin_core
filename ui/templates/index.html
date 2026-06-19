@@ -798,6 +798,9 @@
 
         .think-rule-hit {
             color: inherit;
+            font-weight: inherit;
+            -webkit-text-stroke: 0.18px currentColor;
+            paint-order: stroke fill;
             text-shadow: none;
             transition:
                     color 1s ease,
@@ -1892,6 +1895,25 @@
             outline: 0;
         }
 
+        body.theme-win95 .jin-chat-avatar-service {
+            background:
+                    linear-gradient(180deg, rgba(46, 139, 118, 0.16), rgba(46, 139, 118, 0.045)),
+                    var(--win95-face);
+        }
+
+        body.theme-win95 .jin-chat-avatar-user {
+            background:
+                    linear-gradient(180deg, rgba(72, 96, 130, 0.16), rgba(72, 96, 130, 0.045)),
+                    var(--win95-face);
+        }
+
+        body.theme-win95 .jin-chat-avatar-service.cursor-help:active,
+        body.theme-win95 .jin-chat-avatar-service.cursor-help:focus-visible,
+        body.theme-win95 .jin-chat-avatar-user.cursor-help:active,
+        body.theme-win95 .jin-chat-avatar-user.cursor-help:focus-visible {
+            background: var(--win95-face-dark);
+        }
+
         body.theme-win95 .jin-chat-bubble {
             padding: 12px 18px;
             background: var(--win95-face);
@@ -1954,6 +1976,90 @@
         body.theme-win95 .jin-chat-bubble-service.jin-rating-committed,
         body.theme-win95 .jin-chat-bubble-service.jin-rating-committed .jin-rating-zone {
             cursor: default;
+        }
+
+        body.theme-win95 .jin-think-wrapper {
+            opacity: 1;
+        }
+
+        body.theme-win95 .jin-think-content {
+            background: rgba(187, 186, 187, 0.75);
+            border-top: 2px solid var(--win95-light);
+            border-left: 2px solid var(--win95-light);
+            border-right: 2px solid var(--win95-shadow);
+            border-bottom: 2px solid var(--win95-shadow);
+            border-radius: 2px;
+            color: var(--win95-text);
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            font-weight: 500;
+            line-height: 1.55;
+            text-shadow: none;
+            backdrop-filter: none;
+            box-shadow: none;
+            transition:
+                    max-height 0.24s ease,
+                    border-color 0.2s ease,
+                    background-color 0.2s ease;
+        }
+
+        body.theme-win95 .jin-think-content:hover {
+            background: rgba(187, 186, 187, 0.75);
+            border-top-color: var(--win95-light);
+            border-left-color: var(--win95-light);
+            border-right-color: var(--win95-shadow);
+            border-bottom-color: var(--win95-shadow);
+            box-shadow: none;
+        }
+
+        body.theme-win95 .jin-think-content:focus-visible {
+            outline: 1px dotted var(--win95-text);
+            outline-offset: -4px;
+        }
+
+        body.theme-win95 .jin-think-content.is-collapsed {
+            background: rgba(187, 186, 187, 0.75);
+            border-top-color: var(--win95-light);
+            border-left-color: var(--win95-light);
+            border-right-color: var(--win95-shadow);
+            border-bottom-color: var(--win95-shadow);
+            box-shadow: none;
+        }
+
+        body.theme-win95 .jin-think-content .think-rule-hit,
+        body.theme-win95 .jin-think-content.is-rule-highlight-revealing .think-rule-hit,
+        body.theme-win95 .jin-think-content.has-rule-highlights:hover .think-rule-hit {
+            text-shadow: none;
+        }
+
+        body.theme-win95 .jin-think-content.is-rule-highlight-revealing .think-citation-runtime.exact,
+        body.theme-win95 .jin-think-content.has-rule-highlights:hover .think-citation-runtime.exact {
+            color: #006f2f;
+        }
+
+        body.theme-win95 .jin-think-content.is-rule-highlight-revealing .think-citation-runtime.near,
+        body.theme-win95 .jin-think-content.has-rule-highlights:hover .think-citation-runtime.near {
+            color: #007a35;
+        }
+
+        body.theme-win95 .jin-think-content.is-rule-highlight-revealing .think-citation-runtime.compressed,
+        body.theme-win95 .jin-think-content.has-rule-highlights:hover .think-citation-runtime.compressed {
+            color: #168041;
+        }
+
+        body.theme-win95 .jin-think-content.is-rule-highlight-revealing .think-citation-session.exact,
+        body.theme-win95 .jin-think-content.has-rule-highlights:hover .think-citation-session.exact {
+            color: #5f22b3;
+        }
+
+        body.theme-win95 .jin-think-content.is-rule-highlight-revealing .think-citation-session.near,
+        body.theme-win95 .jin-think-content.has-rule-highlights:hover .think-citation-session.near {
+            color: #6f35bd;
+        }
+
+        body.theme-win95 .jin-think-content.is-rule-highlight-revealing .think-citation-session.compressed,
+        body.theme-win95 .jin-think-content.has-rule-highlights:hover .think-citation-session.compressed {
+            color: #7950b8;
         }
     </style>
 </head>
