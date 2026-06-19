@@ -39,20 +39,24 @@ Runtime memory snapshots can be stepped through visually, with new or changed fa
 
 ## Capabilities
 
-- A chat room that feels alive: answers stream in as they are written, thinking stays visually separate from the final reply, and you can stop a generation the moment it drifts.
-- A visible short-term memory: JIN keeps a compact sense of what this session is about, what changed, and what still feels unresolved.
-- A memory timeline you can inspect: step through snapshots and see which facts or patterns were added instead of guessing what the assistant remembered.
-- Citation highlighting inside think blocks: rule fragments, runtime memory, and restored session context are softly highlighted after a thinking block completes, then reappear on hover.
-- A calmer loop breaker: when the conversation starts repeating itself, JIN can notice the pattern and change strategy instead of giving the same polite answer again.
-- A built-in search move: the model can ask the runtime to search, then answer from trusted results without dumping raw tool syntax into the chat.
-- A session save and restore path: saying something like "save the session" or "that's all for today" triggers a compact L3 memory digest. The browser stores it locally and replays it on reconnect so the next session starts from context rather than blank slate.
-- A philosophy reasoning mode: questions touching consciousness, meaning, subjectivity, or qualia activate a stricter set of reasoning rules that resist premature structure and push for causal coherence.
-- A multilingual path that stays out of your way: Cyrillic input can be translated internally while the visible conversation remains natural.
-- A file and image attachment surface: files and images can be dragged into the chat column or selected via the attachment button and queued before sending.
-- A right sidebar that shows what is happening under the hood: model status, context pressure, token usage, runtime memory, and live logs are there when you want them.
-- A keyboard-first writing flow: Enter sends, Ctrl/Shift+Enter adds a newline, and the input box turns into the stop control while JIN is working.
-- A local-first setup for people who run their own models: use separate brain, service, and translator runtimes, or collapse to one service model when you want a simpler setup.
-- A deploy-friendly configuration story: use a local `config.py` while experimenting, then switch to environment variables when you are ready to run it somewhere more serious.
+### Core Features
+
+- Visible runtime memory: JIN keeps a compact sense of what this session is about, what changed, and what still feels unresolved.
+- Inspectable memory timeline: step through snapshots and see which facts or patterns were added instead of guessing what the assistant remembered.
+- Think citation highlighting: rule fragments, runtime memory, and restored session context are softly highlighted after a thinking block completes, then reappear on hover.
+- Session save and restore: natural closing phrases trigger a compact L3 memory digest, stored locally and replayed on reconnect.
+- Pattern and loop detection: repeated exchanges can change strategy instead of producing the same polite answer again.
+- Context pressure telemetry: model status, token usage, context pressure, runtime memory, and live logs stay visible in the right sidebar.
+- Local OpenAI-compatible routing: use separate brain, service, and translator runtimes, or collapse to one service model for a simpler setup.
+
+### Workspace Features
+
+- Streaming chat: answers appear as they are written, with thinking visually separated from the final reply.
+- Stop generation control: the input turns into a stop control while JIN is working, so a drifting answer can be interrupted immediately.
+- Built-in web-search action: the model can ask the runtime to search in web, then answer from trusted results without rendering raw tool syntax.
+- Multilingual input path: Cyrillic input can be translated internally while the visible conversation remains natural.
+- Keyboard-first writing flow: Enter sends, Ctrl/Shift+Enter inserts a newline.
+- Deploy-friendly configuration: use a local `config.py` while experimenting, then switch to environment variables when running elsewhere.
 
 ## Architecture
 
@@ -80,8 +84,6 @@ Completed thinking blocks are also scanned for direct citations from trusted pro
 If generation is aborted, the runtime captures the partial answer and schedules an interrupted memory update. The memory summarizer is instructed to mark the turn as incomplete and not treat it as resolved.
 
 When the user signals the end of a session — explicitly or through natural closing phrases — the brain emits a `REMEMBER_SESSION` action. The runtime builds a compact L3 digest from the current snapshot history and sends it to the browser for local storage. On the next connection, the browser sends the digest back as part of the bootstrap payload and the runtime injects it as trusted session context before the first turn.
-
-Certain topics activate a stricter reasoning mode automatically. Questions about consciousness, subjectivity, qualia, or meaning cause the brain prompt to include a philosophy rule block that resists premature categorization, demands causal coherence in scene reasoning, and treats obvious answers as the first thing worth questioning.
 
 ## Runtime Memory
 
@@ -214,7 +216,7 @@ preserve_detail: The callback mattered because it felt like continuity inside th
 |-- agent/                  # Agent runtime, state, router, and nodes
 |-- clients/                # Runtime client builders and provider helpers
 |-- runtime/                # Runtime client, context, contracts, memory, stream, registry
-|-- rules/                  # Brain prompt rule blocks: identity, loop, philosophy, vision, runtime actions
+|-- rules/                  # Brain prompt rule blocks: identity, loop, runtime actions
 |-- ui/                     # HTML templates, browser JavaScript, and README assets
 |-- tests/                  # Unit and optional model integration tests
 `-- utils/                  # Stream, telemetry, language, token, error helpers
@@ -541,7 +543,7 @@ The UI is served directly by FastAPI:
 - `ui/static/js/status.js` updates provider online/offline indicators.
 - `ui/static/js/telemetry.js` updates runtime status, context usage, runtime memory snapshots, memory diff highlighting, L3 session save and restore, and localStorage persistence.
 - `ui/static/js/logger.js` renders the runtime console.
-- `ui/static/js/dragdrop.js` handles file and image attachment UI: drag-and-drop onto the chat column, manual file picker via the attachment button, multi-file queuing, and per-file removal before send.
+- `ui/static/js/dragdrop.js` handles file and image attachment UI (future feature): drag-and-drop onto the chat column, manual file picker via the attachment button, multi-file queuing, and per-file removal before send.
 
 The frontend uses vanilla JavaScript and Tailwind from CDN. The current input behavior is keyboard-first: Enter sends, Ctrl/Shift+Enter inserts a newline, and the whole input field becomes a red stop control while a generation is active.
 
