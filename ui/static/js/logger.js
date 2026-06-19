@@ -425,6 +425,56 @@ function appendLog(
     logDiv.replaceChildren();
   }
 
+  const normalizedTag =
+    String(tag || "").toUpperCase();
+
+  let logKind =
+    "default";
+
+  if (normalizedTag.includes("ERROR")) {
+    logKind =
+      "error";
+  } else if (normalizedTag.includes("USER")) {
+    logKind =
+      "user";
+  } else if (normalizedTag.includes("SYSTEM")) {
+    logKind =
+      "system";
+  } else if (normalizedTag.includes("SESSION")) {
+    logKind =
+      "session";
+  } else if (normalizedTag.includes("LATEST SNAPSHOTS")) {
+    logKind =
+      "session";
+  } else if (normalizedTag.includes("MEMORY:")) {
+    logKind =
+      "memory";
+  } else if (normalizedTag.includes("SUMMARIZER")) {
+    logKind =
+      "memory";
+  } else if (normalizedTag.includes("FLOW")) {
+    logKind =
+      "flow";
+  } else if (normalizedTag.includes("SERVICE")) {
+    logKind =
+      "service";
+  } else if (normalizedTag.includes("BRAIN")) {
+    logKind =
+      "brain";
+  } else if (normalizedTag.includes("BEFORE")) {
+    logKind =
+      "before";
+  } else if (normalizedTag.includes("AFTER")) {
+    logKind =
+      "after";
+  } else if (normalizedTag.includes("USAGE")) {
+    logKind =
+      "usage";
+  }
+
+  logDiv.dataset.logKind =
+    logKind;
+
   let tagClass =
     "text-zinc-500";
 
@@ -567,7 +617,7 @@ function appendLog(
     document.createElement("span");
 
   tagSpan.className =
-    `${tagClass} block`;
+    `${tagClass} logger-tag block`;
 
   tagSpan.textContent =
     tag;
