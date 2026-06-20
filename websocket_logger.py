@@ -89,6 +89,20 @@ class WebSocketLogger:
             memory_event=event,
         )
 
+    async def log_active_memory(
+            self,
+            message: str,
+            details: str | None = None,
+            event: str | None = None,
+    ):
+        await self.log(
+            "[ACTIVE_MEMORY]",
+            message,
+            details=details,
+            channel="active_memory",
+            active_memory_event=event,
+        )
+
     async def log_service_as_brain(self, message: str):
         await self.log("[SERVICE as BRAIN]", message)
 

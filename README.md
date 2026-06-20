@@ -121,8 +121,7 @@ session status: Session shifted from an ASCII art request to a poetry/haiku side
 user_message: "у тебя хорошо получается"
 current request: Acknowledge the compliment while preserving the active recall contract.
 active topic: Word Recall Test (Secret word).
-stored_memory: "Небо" (purpose: secret word for future recall test; status: pending)
-countdown_contract: Recall the secret word "Небо"; created_at: 2026-06-13T18:31:57.142147; created_user_message_count: 1; count_from: 1; count_to: 4; due_user_message_count: 4; current: 5; remaining: 0; status: due; trigger: Ask the user to recall the secret word directly.
+active_memory: "Небо" (purpose: secret word for future recall test; conditions: ask user to recall without revealing value; status: pending)
 last_jin_response: Acknowledged the compliment and prompted the user to recall the stored word without revealing it.
 ```
 
@@ -135,7 +134,7 @@ A rendered runtime snapshot also carries metadata used by the right-side timelin
   "raw_memory": "session status: ...\nuser_message: ...",
   "lines": [
     {
-      "key": "stored_memory",
+      "key": "active_memory",
       "value": "\"Небо\" (purpose: secret word for future recall test; status: pending)",
       "key_status": "same",
       "value_status": "same",
@@ -144,7 +143,7 @@ A rendered runtime snapshot also carries metadata used by the right-side timelin
     }
   ],
   "patch": {
-    "stored_memory": {
+    "active_memory": {
       "status": "same",
       "value": "\"Небо\" (purpose: secret word for future recall test; status: pending)"
     }

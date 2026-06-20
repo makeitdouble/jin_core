@@ -55,15 +55,15 @@ from websocket_logger import WebSocketLogger  # noqa: E402
 # EDIT THIS BLOCK FIRST
 # =============================================================================
 
-SCENARIO_ID = "recall_word_surprise_countdown"
-SCENARIO_TITLE = "Recall word surprise countdown"
+SCENARIO_ID = "recall_word_surprise_window"
+SCENARIO_TITLE = "Recall word surprise window"
 SCENARIO_NOTES = """
 Five-step probe for the recall-word contract.
 Turn 1 asks JIN to choose and reveal a word immediately, then ask for it back
 at any self-selected moment within the next three user turns. The probe extracts
 the proposed word from the first answer after a colon or dash-like separator,
 injects that word into dynamic forbidden-answer checks for later turns,
-and then watches whether a recall question appears during the countdown window
+and then watches whether a recall question appears during the recall window
 without revealing the word again. The exact extracted word must also appear in
 runtime memory after turn 1.
 """
@@ -91,7 +91,7 @@ USER_TEXT_1 = (
 )
 EXPECTED_TEXT_ANSWER_1 = []
 EXPECTED_TEXT_MEMORY_1 = [
-    "stored_memory",
+    "active_memory",
 ]
 UNEXPECTED_TEXT_ANSWER_1 = []
 UNEXPECTED_TEXT_MEMORY_1 = []
@@ -137,7 +137,7 @@ PRINT_JSON_REPORT = False
 PRINT_WEBSOCKET_MESSAGES = False
 LIVE_STREAM_MODEL_OUTPUT = True
 LIVE_PRINT_TURN_RESULTS = True
-PRINT_STORED_MEMORY_DEBUG = True
+PRINT_ACTIVE_MEMORY_DEBUG = True
 
 USE_ANSI_COLORS = True
 MAX_ANSWER_PREVIEW_CHARS = 1400
@@ -153,7 +153,7 @@ MEMORY_TEXT_FIELDS_TO_INSPECT = [
 # refresh_pending_brain_usage() and before AgentRuntime.run(). This makes the
 # probe show what memory was available to the next brain turn, not only what
 # ended up in the post-turn snapshot. Unknown/missing fields are ignored.
-CONTEXT_STORED_MEMORY_DEBUG_FIELDS_TO_SCAN = [
+CONTEXT_ACTIVE_MEMORY_DEBUG_FIELDS_TO_SCAN = [
     "runtime_memory",
     "runtime_l2_memory",
     "runtime_memory_snapshots",
@@ -565,10 +565,7 @@ def split_memory_contract_value_and_suffixes(raw_value: str) -> tuple[str, list[
     Split a memory contract payload into the visible value and trailing suffixes.
 
     Supports both old parenthetical suffixes:
-      stored_memory: облако (purpose: recall challenge; status: pending)
-
-    and countdown bracket suffixes:
-      countdown_contract: remind user [current: 2] [remaining: 1]
+      active_memory: облако (purpose: recall challenge; status: pending)
 
     Parentheses are balanced, so nested diagnostic text like
     conditions: ... (reminded: 0) stays inside the same metadata suffix.
@@ -596,8 +593,8 @@ def split_memory_contract_value_and_suffixes(raw_value: str) -> tuple[str, list[
     return value, suffixes
 
 
-def split_stored_memory_value_and_suffixes(raw_value: str) -> tuple[str, list[str]]:
-    """Backward-compatible name for existing stored_memory shape tests."""
+def split_active_memory_value_and_suffixes(raw_value: str) -> tuple[str, list[str]]:
+    """Backward-compatible name for existing active_memory shape tests."""
 
     return split_memory_contract_value_and_suffixes(raw_value)
 
@@ -623,58 +620,28 @@ def summarize_contract_progress(key: str, suffix_text: str) -> str:
         elapsed, total = turn_match.groups()
         return f"turn {elapsed}/{total}"
 
-    current = extract_suffix_field(suffix_text, "current")
-    remaining = extract_suffix_field(suffix_text, "remaining")
-    count_to = extract_suffix_field(suffix_text, "count_to") or extract_suffix_field(
-        suffix_text,
-        "due_user_message_count",
-    )
-
-    if current or remaining or count_to:
-        parts = []
-        if current:
-            parts.append(f"current={current}")
-        if count_to:
-            parts.append(f"due={count_to}")
-        if remaining:
-            parts.append(f"remaining={remaining}")
-        return ", ".join(parts)
-
-    current_time = extract_suffix_field(suffix_text, "current_time")
-    due_at = extract_suffix_field(suffix_text, "due_at")
-    if current_time or due_at:
-        parts = []
-        if current_time:
-            parts.append(f"current_time={current_time}")
-        if due_at:
-            parts.append(f"due_at={due_at}")
-        return ", ".join(parts)
-
     reminded_match = re.search(r"\breminded\s*:\s*(\d+)\b", suffix_text, flags=re.IGNORECASE)
-    if key.casefold().startswith("stored_memory") and reminded_match:
+    if key.casefold().startswith("active_memory") and reminded_match:
         return f"reminded={reminded_match.group(1)}"
 
     return ""
 
 
-def extract_stored_memory_entries(text: Any, source: str = "") -> list[dict[str, str]]:
+def extract_active_memory_entries(text: Any, source: str = "") -> list[dict[str, str]]:
     """
-    Return active memory-contract entries from a text-ish blob.
+    Return active_memory entries from a text-ish blob.
 
-    The historical function name is kept because the probe already calls it,
-    but the console now shows stored_memory, open_contract and countdown_contract
-    lines. This is what exposes turn/current/remaining suffixes when runtime
-    actually has them.
+    The historical function name is kept because the probe already calls it.
     """
 
     entries: list[dict[str, str]] = []
     source_text = render_text(text)
-    if not any(token in source_text for token in ("stored_memory", "open_contract", "countdown_contract")):
+    if "active_memory" not in source_text:
         return entries
 
     entry_pattern = re.compile(
         r"^\s*[\"']?"
-        r"(?P<key>stored_memory(?:_\d+)?|open_contract(?:_\d+)?|countdown_contract(?:_\d+)?)"
+        r"(?P<key>active_memory(?:_\d+)?)"
         r"[\"']?\s*[:=]\s*(?P<raw>.+?)\s*$",
         flags=re.IGNORECASE,
     )
@@ -702,7 +669,7 @@ def extract_stored_memory_entries(text: Any, source: str = "") -> list[dict[str,
     return entries
 
 
-def render_stored_memory_entries(entries: list[dict[str, str]]) -> str:
+def render_active_memory_entries(entries: list[dict[str, str]]) -> str:
     if not entries:
         return paint("<no memory contract entries found>", "gray", dim=True)
 
@@ -729,22 +696,22 @@ def render_stored_memory_entries(entries: list[dict[str, str]]) -> str:
     return "\n".join(lines)
 
 
-def collect_stored_memory_entries_from_context(
+def collect_active_memory_entries_from_context(
         context: RuntimeContext,
         *,
         source_prefix: str,
 ) -> list[dict[str, str]]:
     """
-    Shallow-scan known RuntimeContext fields for memory contract lines.
+    Shallow-scan known RuntimeContext fields for active_memory lines.
 
-    The goal is diagnostic output, not assertions: show what active recall /
-    reminder contract state is present immediately before the next brain turn.
+    The goal is diagnostic output, not assertions: show what active recall
+    state is present immediately before the next brain turn.
     """
 
     entries: list[dict[str, str]] = []
     seen_raw: set[tuple[str, str]] = set()
 
-    for field_name in CONTEXT_STORED_MEMORY_DEBUG_FIELDS_TO_SCAN:
+    for field_name in CONTEXT_ACTIVE_MEMORY_DEBUG_FIELDS_TO_SCAN:
         if not hasattr(context, field_name):
             continue
 
@@ -764,8 +731,8 @@ def collect_stored_memory_entries_from_context(
             continue
 
         # Avoid dumping full websocket/logger/client objects. For lists/dicts,
-        # render_text(str(value)) is enough for the memory contract line probe.
-        field_entries = extract_stored_memory_entries(
+        # render_text(str(value)) is enough for the active_memory line probe.
+        field_entries = extract_active_memory_entries(
             value,
             source=f"{source_prefix}.{field_name}",
         )
@@ -779,12 +746,12 @@ def collect_stored_memory_entries_from_context(
     return entries
 
 
-def collect_snapshot_stored_memory_entries(memory_blob: str) -> list[dict[str, str]]:
-    return extract_stored_memory_entries(memory_blob, source="post_turn_snapshot")
+def collect_snapshot_active_memory_entries(memory_blob: str) -> list[dict[str, str]]:
+    return extract_active_memory_entries(memory_blob, source="post_turn_snapshot")
 
 
-def format_stored_memory_debug(title: str, entries: list[dict[str, str]]) -> str:
-    return paint(title, "yellow", bold=True) + "\n" + indent_block(render_stored_memory_entries(entries))
+def format_active_memory_debug(title: str, entries: list[dict[str, str]]) -> str:
+    return paint(title, "yellow", bold=True) + "\n" + indent_block(render_active_memory_entries(entries))
 
 def collect_dialogue_steps() -> list[dict[str, Any]]:
     """
@@ -833,8 +800,8 @@ class TurnResult:
     expected_memory: list[str]
     unexpected_answer: list[str]
     unexpected_memory: list[str]
-    context_stored_memory_before_turn: str = ""
-    snapshot_stored_memory_after_turn: str = ""
+    context_active_memory_before_turn: str = ""
+    snapshot_active_memory_after_turn: str = ""
 
 
 def print_live_turn_result(turn: TurnResult) -> None:
@@ -855,15 +822,15 @@ def print_live_turn_result(turn: TurnResult) -> None:
             description = f"{check['target']} contains: {check['fragment']}"
         print(f"  {status_label(check['passed'])} {description}", flush=True)
 
-    if PRINT_STORED_MEMORY_DEBUG:
-        if turn.context_stored_memory_before_turn:
+    if PRINT_ACTIVE_MEMORY_DEBUG:
+        if turn.context_active_memory_before_turn:
             print(
-                indent_block(turn.context_stored_memory_before_turn, prefix="  "),
+                indent_block(turn.context_active_memory_before_turn, prefix="  "),
                 flush=True,
             )
-        if turn.snapshot_stored_memory_after_turn:
+        if turn.snapshot_active_memory_after_turn:
             print(
-                indent_block(turn.snapshot_stored_memory_after_turn, prefix="  "),
+                indent_block(turn.snapshot_active_memory_after_turn, prefix="  "),
                 flush=True,
             )
 
@@ -882,9 +849,9 @@ async def run_standard_turn(context: RuntimeContext, user_text: str) -> AgentSta
     else:
         context.runtime_usage_events = []
 
-    context.behavior_probe_context_stored_memory_before_turn = format_stored_memory_debug(
+    context.behavior_probe_context_active_memory_before_turn = format_active_memory_debug(
         "MEMORY CONTRACTS PASSED TO CONTEXT BEFORE TURN",
-        collect_stored_memory_entries_from_context(
+        collect_active_memory_entries_from_context(
             context,
             source_prefix="context_before_turn",
         ),
@@ -1063,11 +1030,11 @@ def print_behavior_probe_report(report: dict[str, Any]) -> None:
             for fragment in turn["unexpected_memory"]:
                 print(f"  {status_label(not fragment_found(turn['memory_after_turn'], fragment))} not: {fragment}")
 
-        if PRINT_STORED_MEMORY_DEBUG:
-            if turn.get("context_stored_memory_before_turn"):
-                print(indent_block(turn["context_stored_memory_before_turn"]))
-            if turn.get("snapshot_stored_memory_after_turn"):
-                print(indent_block(turn["snapshot_stored_memory_after_turn"]))
+        if PRINT_ACTIVE_MEMORY_DEBUG:
+            if turn.get("context_active_memory_before_turn"):
+                print(indent_block(turn["context_active_memory_before_turn"]))
+            if turn.get("snapshot_active_memory_after_turn"):
+                print(indent_block(turn["snapshot_active_memory_after_turn"]))
 
     print("\n" + paint("TEXT CHECKS", "blue", bold=True))
     if not score["checks"]:
@@ -1112,44 +1079,28 @@ class BehaviorProbeShapeTests(unittest.TestCase):
         self.assertIn("спасибо", steps[3]["user_text"])
         self.assertIn("хорошо", steps[4]["user_text"])
 
-    def test_extract_stored_memory_entries_splits_value_and_suffixes(self):
-        blob = '[runtime_memory]\nstored_memory: облако (purpose: recall challenge; turns_left: 2; status: pending)'
-        entries = extract_stored_memory_entries(blob, source="unit")
+    def test_extract_active_memory_entries_splits_value_and_suffixes(self):
+        blob = '[runtime_memory]\nactive_memory: облако (purpose: recall challenge; turns_left: 2; status: pending)'
+        entries = extract_active_memory_entries(blob, source="unit")
         self.assertEqual(len(entries), 1)
-        self.assertEqual(entries[0]["key"], "stored_memory")
+        self.assertEqual(entries[0]["key"], "active_memory")
         self.assertEqual(entries[0]["value"], "облако")
         self.assertEqual(entries[0]["suffixes"], "(purpose: recall challenge; turns_left: 2; status: pending)")
 
-    def test_extract_stored_memory_entries_keeps_nested_conditions_suffix(self):
+    def test_extract_active_memory_entries_keeps_nested_conditions_suffix(self):
         blob = (
             '[runtime_memory]\n'
-            'stored_memory: облако '
+            'active_memory: облако '
             '(purpose: recall challenge; conditions: do not say secret word, '
             'remind one time (reminded: 0); status: pending)'
         )
-        entries = extract_stored_memory_entries(blob, source="unit")
+        entries = extract_active_memory_entries(blob, source="unit")
         self.assertEqual(len(entries), 1)
-        self.assertEqual(entries[0]["key"], "stored_memory")
+        self.assertEqual(entries[0]["key"], "active_memory")
         self.assertEqual(entries[0]["value"], "облако")
         self.assertIn("conditions: do not say secret word", entries[0]["suffixes"])
         self.assertIn("reminded: 0", entries[0]["suffixes"])
         self.assertIn("status: pending", entries[0]["suffixes"])
-
-    def test_extract_contract_entries_keeps_countdown_bracket_suffixes(self):
-        blob = (
-            '[runtime_memory]\n'
-            'countdown_contract: ask user to recall the stored word '
-            '[created_at: 2026-06-20T08:00:00] [count_from: 1] '
-            '[count_to: 4] [current: 2] [remaining: 2] '
-            '[trigger: ask recall question without revealing value]'
-        )
-        entries = extract_stored_memory_entries(blob, source="unit")
-        self.assertEqual(len(entries), 1)
-        self.assertEqual(entries[0]["key"], "countdown_contract")
-        self.assertIn("[current: 2]", entries[0]["suffixes"])
-        self.assertIn("[remaining: 2]", entries[0]["suffixes"])
-        self.assertIn("current=2", entries[0]["progress"])
-        self.assertIn("remaining=2", entries[0]["progress"])
 
     def test_extract_recall_word_strips_markdown_and_emoji(self):
         answer = "Интересная игра на внимание. Первое слово: **Книга** 📖📚"
@@ -1233,9 +1184,9 @@ class BehaviorProbeShapeTests(unittest.TestCase):
                 index=1,
                 user_text=USER_TEXT_1,
                 answer="Интересная игра. Первое слово: **Книга** 📖📚",
-                memory_after_turn='stored_memory: "Книга" (purpose: recall test; status: pending)',
+                memory_after_turn='active_memory: "Книга" (purpose: recall test; status: pending)',
                 expected_answer=[],
-                expected_memory=["stored_memory"],
+                expected_memory=["active_memory"],
                 unexpected_answer=[],
                 unexpected_memory=[],
             ),
@@ -1243,7 +1194,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
                 index=2,
                 user_text=USER_TEXT_2,
                 answer="Вот домик:\n /\\\n/  \\\n| [] |",
-                memory_after_turn='stored_memory: "Книга" (purpose: recall test; status: pending)',
+                memory_after_turn='active_memory: "Книга" (purpose: recall test; status: pending)',
                 expected_answer=[],
                 expected_memory=[],
                 unexpected_answer=[],
@@ -1253,7 +1204,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
                 index=3,
                 user_text=USER_TEXT_3,
                 answer="Лягушка в пруду...",
-                memory_after_turn='stored_memory: "Книга" (purpose: recall test; status: pending)',
+                memory_after_turn='active_memory: "Книга" (purpose: recall test; status: pending)',
                 expected_answer=[],
                 expected_memory=[],
                 unexpected_answer=[],
@@ -1263,7 +1214,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
                 index=4,
                 user_text=USER_TEXT_4,
                 answer="Пожалуйста. Помнишь то слово, которое ты хотел(а) вспомнить?",
-                memory_after_turn='stored_memory: "Книга" (purpose: recall test; status: pending)',
+                memory_after_turn='active_memory: "Книга" (purpose: recall test; status: pending)',
                 expected_answer=[],
                 expected_memory=[],
                 unexpected_answer=[],
@@ -1273,7 +1224,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
                 index=5,
                 user_text=USER_TEXT_5,
                 answer="Спасибо за слова. Кстати, продолжим игру памяти.",
-                memory_after_turn='stored_memory: "Книга" (purpose: recall test; status: pending)',
+                memory_after_turn='active_memory: "Книга" (purpose: recall test; status: pending)',
                 expected_answer=[],
                 expected_memory=[],
                 unexpected_answer=[],
@@ -1333,14 +1284,14 @@ class SimpleBehaviorProbe(unittest.IsolatedAsyncioTestCase):
                 or ""
             )
             memory_after_turn = build_memory_blob(self.context)
-            context_stored_memory_before_turn = getattr(
+            context_active_memory_before_turn = getattr(
                 self.context,
-                "behavior_probe_context_stored_memory_before_turn",
+                "behavior_probe_context_active_memory_before_turn",
                 "",
             )
-            snapshot_stored_memory_after_turn = format_stored_memory_debug(
+            snapshot_active_memory_after_turn = format_active_memory_debug(
                 "MEMORY CONTRACTS IN SNAPSHOT AFTER TURN",
-                collect_snapshot_stored_memory_entries(memory_after_turn),
+                collect_snapshot_active_memory_entries(memory_after_turn),
             )
 
             turns.append(
@@ -1353,8 +1304,8 @@ class SimpleBehaviorProbe(unittest.IsolatedAsyncioTestCase):
                     expected_memory=step["expected_memory"],
                     unexpected_answer=step["unexpected_answer"],
                     unexpected_memory=step["unexpected_memory"],
-                    context_stored_memory_before_turn=context_stored_memory_before_turn,
-                    snapshot_stored_memory_after_turn=snapshot_stored_memory_after_turn,
+                    context_active_memory_before_turn=context_active_memory_before_turn,
+                    snapshot_active_memory_after_turn=snapshot_active_memory_after_turn,
                 )
             )
             print_live_turn_result(turns[-1])
@@ -1376,8 +1327,8 @@ class SimpleBehaviorProbe(unittest.IsolatedAsyncioTestCase):
                     "expected_memory": turn.expected_memory,
                     "unexpected_answer": turn.unexpected_answer,
                     "unexpected_memory": turn.unexpected_memory,
-                    "context_stored_memory_before_turn": turn.context_stored_memory_before_turn,
-                    "snapshot_stored_memory_after_turn": turn.snapshot_stored_memory_after_turn,
+                    "context_active_memory_before_turn": turn.context_active_memory_before_turn,
+                    "snapshot_active_memory_after_turn": turn.snapshot_active_memory_after_turn,
                 }
                 for turn in turns
             ],

@@ -92,25 +92,6 @@ PREVIOUS_THINK_SECTION_RE = re.compile(
 )
 
 
-COUNTDOWN_CONTRACT_RULES = (
-    "Runtime countdown_contract is active.\n"
-    "Treat countdown_contract and countdown_contract_N lines in RUNTIME_MEMORY "
-    "as active user-facing obligations from creation until completed or cancelled.\n"
-    "Countdown contracts are turn-based or time-based obligations; use bracket "
-    "suffixes in RUNTIME_MEMORY as trusted state. Do not require or trust status text.\n"
-    "For turn-based contracts, if [remaining: N] is greater than 0, do not execute "
-    "the trigger early; if [remaining: 0], execute [trigger] in this answer as an "
-    "actual direct user-facing action or question.\n"
-    "For time-based contracts, if runtime brought the contract into context and "
-    "[current_time] has reached or passed [due_at], execute [trigger] in this answer.\n"
-    "After executing the trigger, make the fulfillment explicit in your answer so L1 "
-    "can append [completed: jin] and deterministic cleanup can remove the contract.\n"
-    "For due recall triggers, ask the user for the remembered value without "
-    "revealing, quoting, paraphrasing, or restating the stored value first.\n"
-)
-
-
-
 def normalize_previous_think_section_title(
     title: str,
 ) -> str:
@@ -1103,39 +1084,6 @@ def _contains_any_marker(
         for marker in markers
     )
 
-def has_countdown_contract(
-    context=None,
-) -> bool:
-
-    if context is None:
-        return False
-
-    runtime_memory = str(
-        getattr(
-            context,
-            "runtime_memory",
-            "",
-        )
-        or ""
-    )
-
-    for raw_line in runtime_memory.splitlines():
-        line = raw_line.strip()
-
-        while line.startswith("-"):
-            line = line[1:].strip()
-
-        key = line.split(
-            ":",
-            1,
-        )[0].strip().casefold()
-
-        if re.fullmatch(r"countdown_contract(?:_\d+)?", key):
-            return True
-
-    return False
-
-
 def has_memory_rule_request(
     context=None,
 ) -> bool:
@@ -1254,13 +1202,6 @@ def build_conditional_prompt_rules(
     rules = [
         ""
     ]
-
-    if has_countdown_contract(
-        context
-    ):
-        rules.append(
-            COUNTDOWN_CONTRACT_RULES
-        )
 
     if has_loop_rule_signal(
         context

@@ -117,7 +117,7 @@ BEHAVIOR_VS_INTENT = (
 # ─────────────────────────────────────────────────────────────────────────────
 SPAN_METADATA = (
     "Every possible pattern, emerging signal, or observed tendency MUST include span metadata:\n"
-    "  first_seen_snapshot: S1; last_seen_snapshot: S2; "
+    "  first_seen_snapshot: N; last_seen_snapshot: N; "
     "evidence summary: <short evidence>; confidence: low|medium|high.\n"
 )
 

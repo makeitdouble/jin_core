@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import json
 import traceback
 from clients.service_client import (
     ask_service_model,
@@ -33,6 +34,7 @@ from runtime.memory_common import (
     extract_runtime_memory_text,
     is_runtime_memory_response_truncated,
     latest_turn_context_is_overloaded,
+    log_active_memory_event,
     log_memory_event,
     log_runtime_summarizer_payload,
     looks_like_incomplete_runtime_memory,
@@ -49,18 +51,22 @@ from runtime.L1_memory_utils import (
     build_runtime_memory_user_prompt,
     durable_memory_line_text,
     enforce_runtime_turn_fields,
+    enrich_active_memory_recall_conditions,
     get_strength_zones,
     has_durable_fact_negation,
+    ensure_active_memory_status_suffixes,
     is_durable_memory_key,
     is_runtime_memory_repeatable_key_family,
+    normalize_managed_runtime_memory_slots,
     normalize_memory_key,
     normalize_runtime_memory_key_family,
     parse_runtime_memory_lines,
+    refresh_active_memory_runtime_metadata,
     repeatable_runtime_memory_values_are_same_slot,
     remove_runtime_memory_placeholder_lines,
     remove_runtime_response_feedback_text,
     remove_runtime_user_idle_lines,
-    refresh_countdown_contracts,
+    strip_active_memory_runtime_metadata,
     upsert_runtime_memory_entry_text,
 )
 
@@ -149,6 +155,46 @@ def build_runtime_memory_system_prompt_for_turns(
         ),
         last_turn_context_overloaded=last_turn_context_overloaded,
     )
+
+
+async def normalize_active_memory_slots_with_logging(
+        context,
+        *,
+        previous_memory: str,
+        candidate_memory: str,
+        stage: str,
+) -> str:
+
+    collapse_events = []
+    result_memory = normalize_managed_runtime_memory_slots(
+        previous_memory,
+        candidate_memory,
+        collapse_events=collapse_events,
+    )
+
+    if collapse_events:
+        await log_active_memory_event(
+            context,
+            message=(
+                "active_memory duplicate collapsed"
+                if len(collapse_events) == 1
+                else f"active_memory duplicates collapsed ({len(collapse_events)})"
+            ),
+            details=json.dumps(
+                {
+                    "stage": stage,
+                    "events": collapse_events,
+                    "previous_memory": previous_memory,
+                    "candidate_memory": candidate_memory,
+                    "result_memory": result_memory,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            event="collapse",
+        )
+
+    return result_memory
 
 
 def clear_runtime_response_feedback(
@@ -442,11 +488,26 @@ async def summarize_runtime_memory(
 ) -> str:
 
     if not assistant_message.strip():
-        return getattr(
-            context,
-            "runtime_memory",
-            "",
+        stored_memory = remove_runtime_memory_placeholder_lines(
+            remove_runtime_response_feedback_text(
+                getattr(
+                    context,
+                    "runtime_memory",
+                    "",
+                )
+            )
         )
+        updated_memory = refresh_active_memory_runtime_metadata(
+            stored_memory,
+            previous_memory=stored_memory,
+            context=context,
+        )
+        updated_memory = ensure_active_memory_status_suffixes(
+            updated_memory
+        )
+        context.runtime_memory = updated_memory
+        context.runtime_memory_stable = updated_memory
+        return updated_memory
 
     service_client = (
         getattr(
@@ -460,24 +521,50 @@ async def summarize_runtime_memory(
     )
 
     if service_client is None:
-        return getattr(
-            context,
-            "runtime_memory",
-            "",
+        stored_memory = remove_runtime_memory_placeholder_lines(
+            remove_runtime_response_feedback_text(
+                getattr(
+                    context,
+                    "runtime_memory",
+                    "",
+                )
+            )
         )
+        updated_memory = refresh_active_memory_runtime_metadata(
+            stored_memory,
+            previous_memory=stored_memory,
+            context=context,
+        )
+        updated_memory = ensure_active_memory_status_suffixes(
+            updated_memory
+        )
+        context.runtime_memory = updated_memory
+        context.runtime_memory_stable = updated_memory
+        return updated_memory
 
-    current_memory = remove_runtime_response_feedback_text(
+    stored_memory = remove_runtime_response_feedback_text(
         getattr(
             context,
             "runtime_memory",
             "",
         )
     )
-    current_memory = remove_runtime_memory_placeholder_lines(
+    stored_memory = remove_runtime_memory_placeholder_lines(
+        stored_memory
+    )
+    stored_memory = refresh_active_memory_runtime_metadata(
+        stored_memory,
+        previous_memory=stored_memory,
+        context=context,
+    )
+    current_memory = strip_active_memory_runtime_metadata(
+        stored_memory
+    )
+    current_memory = ensure_active_memory_status_suffixes(
         current_memory
     )
 
-    context.runtime_memory = current_memory
+    context.runtime_memory = stored_memory
     context.runtime_memory_stable = remove_runtime_memory_placeholder_lines(
         remove_runtime_response_feedback_text(
             getattr(
@@ -507,6 +594,9 @@ async def summarize_runtime_memory(
         updated_memory = remove_runtime_memory_placeholder_lines(
             updated_memory
         )
+        updated_memory = ensure_active_memory_status_suffixes(
+            updated_memory
+        )
 
         if (
                 is_runtime_memory_response_truncated(
@@ -528,7 +618,7 @@ async def summarize_runtime_memory(
                 fallback_channel="error",
             )
 
-            return current_memory
+            return stored_memory
 
         updated_memory = merge_durable_memory_facts(
             current_memory,
@@ -540,10 +630,27 @@ async def summarize_runtime_memory(
         updated_memory = remove_runtime_memory_placeholder_lines(
             updated_memory
         )
+        updated_memory = await normalize_active_memory_slots_with_logging(
+            context,
+            previous_memory=current_memory,
+            candidate_memory=updated_memory,
+            stage="after durable merge",
+        )
         updated_memory = ensure_confirmable_memory_markers(
             updated_memory,
             user_message=user_message,
             assistant_message=assistant_message,
+        )
+        updated_memory = enrich_active_memory_recall_conditions(
+            updated_memory,
+            user_message=user_message,
+            assistant_message=assistant_message,
+        )
+        updated_memory = await normalize_active_memory_slots_with_logging(
+            context,
+            previous_memory=current_memory,
+            candidate_memory=updated_memory,
+            stage="after confirmable markers",
         )
         updated_memory = remove_runtime_response_feedback_text(
             updated_memory
@@ -551,18 +658,22 @@ async def summarize_runtime_memory(
         updated_memory = remove_runtime_memory_placeholder_lines(
             updated_memory
         )
-        updated_memory = refresh_countdown_contracts(
-            updated_memory,
-            context=context,
-        )
         updated_memory = enforce_runtime_turn_fields(
             updated_memory,
             user_message=user_message,
             assistant_message=assistant_message,
             previous_memory=current_memory,
         )
+        updated_memory = ensure_active_memory_status_suffixes(
+            updated_memory
+        )
         updated_memory = remove_runtime_user_idle_lines(
             updated_memory
+        )
+        updated_memory = refresh_active_memory_runtime_metadata(
+            updated_memory,
+            previous_memory=stored_memory,
+            context=context,
         )
 
         updates_counter = getattr(
@@ -664,14 +775,25 @@ async def summarize_runtime_memory_pending_turns(
             "",
         )
 
-    initial_memory = remove_runtime_response_feedback_text(
+    stored_initial_memory = remove_runtime_response_feedback_text(
         getattr(
             context,
             "runtime_memory_stable",
             "",
         )
     )
-    initial_memory = remove_runtime_memory_placeholder_lines(
+    stored_initial_memory = remove_runtime_memory_placeholder_lines(
+        stored_initial_memory
+    )
+    stored_initial_memory = refresh_active_memory_runtime_metadata(
+        stored_initial_memory,
+        previous_memory=stored_initial_memory,
+        context=context,
+    )
+    initial_memory = strip_active_memory_runtime_metadata(
+        stored_initial_memory
+    )
+    initial_memory = ensure_active_memory_status_suffixes(
         initial_memory
     )
 
@@ -684,7 +806,7 @@ async def summarize_runtime_memory_pending_turns(
             )
         )
     )
-    context.runtime_memory_stable = initial_memory
+    context.runtime_memory_stable = stored_initial_memory
     context.runtime_last_response_feedback = None
 
     try:
@@ -702,6 +824,9 @@ async def summarize_runtime_memory_pending_turns(
             updated_memory
         )
         updated_memory = remove_runtime_memory_placeholder_lines(
+            updated_memory
+        )
+        updated_memory = ensure_active_memory_status_suffixes(
             updated_memory
         )
 
@@ -726,7 +851,7 @@ async def summarize_runtime_memory_pending_turns(
                 fallback_channel="error",
             )
 
-            return initial_memory
+            return stored_initial_memory
 
         updated_memory = merge_durable_memory_facts(
             initial_memory,
@@ -737,6 +862,12 @@ async def summarize_runtime_memory_pending_turns(
         )
         updated_memory = remove_runtime_memory_placeholder_lines(
             updated_memory
+        )
+        updated_memory = await normalize_active_memory_slots_with_logging(
+            context,
+            previous_memory=initial_memory,
+            candidate_memory=updated_memory,
+            stage="batch after durable merge",
         )
 
         latest_turn = turns[-1] if turns else {}
@@ -754,15 +885,22 @@ async def summarize_runtime_memory_pending_turns(
             user_message=latest_user_message,
             assistant_message=latest_assistant_message,
         )
+        updated_memory = enrich_active_memory_recall_conditions(
+            updated_memory,
+            user_message=latest_user_message,
+            assistant_message=latest_assistant_message,
+        )
+        updated_memory = await normalize_active_memory_slots_with_logging(
+            context,
+            previous_memory=initial_memory,
+            candidate_memory=updated_memory,
+            stage="batch after confirmable markers",
+        )
         updated_memory = remove_runtime_response_feedback_text(
             updated_memory
         )
         updated_memory = remove_runtime_memory_placeholder_lines(
             updated_memory
-        )
-        updated_memory = refresh_countdown_contracts(
-            updated_memory,
-            context=context,
         )
         updated_memory = enforce_runtime_turn_fields(
             updated_memory,
@@ -770,8 +908,16 @@ async def summarize_runtime_memory_pending_turns(
             assistant_message=latest_assistant_message,
             previous_memory=initial_memory,
         )
+        updated_memory = ensure_active_memory_status_suffixes(
+            updated_memory
+        )
         updated_memory = remove_runtime_user_idle_lines(
             updated_memory
+        )
+        updated_memory = refresh_active_memory_runtime_metadata(
+            updated_memory,
+            previous_memory=stored_initial_memory,
+            context=context,
         )
 
         updates_counter = getattr(
