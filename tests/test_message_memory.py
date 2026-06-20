@@ -32,6 +32,7 @@ from runtime.L1_memory_utils import (
     build_runtime_memory_snapshot,
     enforce_runtime_turn_fields,
     get_strength_zones,
+    normalize_managed_runtime_memory_slots,
     parse_runtime_memory_lines,
     quote_runtime_user_message_value,
 )
@@ -196,6 +197,103 @@ class FakeLogger:
 class MessageMemoryTests(
     unittest.IsolatedAsyncioTestCase
 ):
+
+    def test_managed_memory_slots_renumber_stored_memory_new(self):
+
+        normalized = normalize_managed_runtime_memory_slots(
+            previous_memory=(
+                'stored_memory: "alpha" (purpose: first; status: pending)'
+            ),
+            candidate_memory=(
+                'stored_memory_new: "beta" (purpose: second; status: pending)'
+            ),
+        )
+
+        self.assertIn(
+            'stored_memory: "alpha" (purpose: first; status: pending)',
+            normalized,
+        )
+        self.assertIn(
+            'stored_memory_2: "beta" (purpose: second; status: pending)',
+            normalized,
+        )
+        self.assertNotIn(
+            "stored_memory_new",
+            normalized,
+        )
+
+    def test_managed_memory_slots_do_not_mutate_existing_stored_memory(self):
+
+        normalized = normalize_managed_runtime_memory_slots(
+            previous_memory=(
+                'stored_memory_1: "alpha" (purpose: first; status: pending)\n'
+                'stored_memory_2: "beta" (purpose: second; status: pending)\n'
+                'stored_memory_3: "gamma" (purpose: third; status: pending)'
+            ),
+            candidate_memory=(
+                'stored_memory_1: "delta" (purpose: fourth; status: pending)'
+            ),
+        )
+
+        self.assertIn(
+            'stored_memory_1: "alpha" (purpose: first; status: pending)',
+            normalized,
+        )
+        self.assertIn(
+            'stored_memory_4: "delta" (purpose: fourth; status: pending)',
+            normalized,
+        )
+        self.assertNotIn(
+            'stored_memory_1: "delta"',
+            normalized,
+        )
+
+    def test_managed_memory_slots_renumber_countdown_contract_collisions(self):
+
+        normalized = normalize_managed_runtime_memory_slots(
+            previous_memory=(
+                "countdown_contract_1: first [created_at: t1] [count_to: 3]"
+            ),
+            candidate_memory=(
+                "countdown_contract_1: second [created_at: t2] [count_to: 5]"
+            ),
+        )
+
+        self.assertIn(
+            "countdown_contract_1: first [created_at: t1] [count_to: 3]",
+            normalized,
+        )
+        self.assertIn(
+            "countdown_contract_2: second [created_at: t2] [count_to: 5]",
+            normalized,
+        )
+
+    def test_managed_memory_slots_strip_cross_family_links(self):
+
+        normalized = normalize_managed_runtime_memory_slots(
+            previous_memory="",
+            candidate_memory=(
+                'stored_memory: "countdown_contract" (purpose: first; contract: countdown_contract_1; status: pending)\n'
+                "countdown_contract: ask later [memory: stored_memory] [created_at: t1]"
+            ),
+        )
+
+        self.assertIn(
+            'stored_memory: "countdown_contract" (purpose: first; status: pending)',
+            normalized,
+        )
+        self.assertIn(
+            "countdown_contract: ask later [created_at: t1]",
+            normalized,
+        )
+        self.assertNotIn(
+            "contract: countdown_contract",
+            normalized,
+        )
+        self.assertNotIn(
+            "memory: stored_memory",
+            normalized,
+        )
 
     def test_runtime_memory_user_prompt_uses_session_fallback(self):
 
@@ -441,7 +539,7 @@ class MessageMemoryTests(
         )
 
         for required_text in (
-                "stored_memory is a high-priority active recall contract",
+                "stored_memory and stored_memory_N are high-priority active recall contracts",
                 "L2_pattern_evidence_N lines are owned by L2",
                 "identity_state: JIN identity remains unchanged",
         ):

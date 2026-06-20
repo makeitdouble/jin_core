@@ -109,7 +109,12 @@
         #console-panel,
         #settings-panel {
             width: var(--panel-width);
-            max-height: calc(100% - (var(--panel-gap) * 2));
+            max-height: 100%;
+        }
+
+        #console-panel:not(.panel-collapsed),
+        #settings-panel:not(.panel-collapsed) {
+            min-height: 49%;
         }
 
         #console-panel.panel-collapsed,
@@ -121,6 +126,36 @@
 
         #console-panel.panel-collapsed #console-stream,
         #settings-panel.panel-collapsed .settings-scroll {
+            display: none;
+        }
+
+        .panel-bottom-resize-handle {
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            left: 0;
+            z-index: 8;
+            height: 10px;
+            cursor: ns-resize;
+            touch-action: none;
+        }
+
+        .panel-bottom-resize-handle::after {
+            content: "";
+            position: absolute;
+            right: 12px;
+            bottom: 3px;
+            left: 12px;
+            height: 1px;
+            background: transparent;
+            transition: background 0.12s ease;
+        }
+
+        .panel-bottom-resize-handle:hover::after {
+            background: rgba(148, 163, 184, 0.42);
+        }
+
+        .panel-collapsed .panel-bottom-resize-handle {
             display: none;
         }
 
@@ -152,6 +187,7 @@
         #settings-panel {
             right: var(--panel-gap);
             top: var(--panel-gap);
+            height: calc(100% - (var(--panel-gap) * 2));
         }
 
         #memory-drag-handle {
@@ -3099,7 +3135,7 @@
 <script src="/static/js/runtime/runtime.js?v=runtime-facade-3"></script>
 <script src="/static/js/status.js?v=status-check-4"></script>
 <script src="/static/js/dragdrop.js?v=context-panel-5"></script>
-<script src="/static/js/logger.js?v=win95-logger-colors-1"></script>
+<script src="/static/js/logger.js?v=panel-geometry-clamp-1"></script>
 <script src="/static/js/chat.js?v=session-citations-2"></script>
 <script src="/static/js/socket.js?v=runtime-session-unified-1"></script>
 </body>

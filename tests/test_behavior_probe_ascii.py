@@ -108,6 +108,8 @@ STRICT_TEXT_ASSERTIONS = False
 PRINT_PRETTY_REPORT = True
 PRINT_JSON_REPORT = False
 PRINT_WEBSOCKET_MESSAGES = False
+LIVE_STREAM_MODEL_OUTPUT = True
+LIVE_PRINT_TURN_RESULTS = True
 
 USE_ANSI_COLORS = True
 MAX_ANSWER_PREVIEW_CHARS = 1400
@@ -140,9 +142,38 @@ ANSI = {
 class CapturingWebSocket:
     def __init__(self):
         self.messages = []
+        self.live_message_ids = set()
 
     async def send_json(self, payload: dict):
         self.messages.append(payload)
+        if not LIVE_STREAM_MODEL_OUTPUT:
+            return
+
+        payload_type = payload.get("type")
+
+        if payload_type == "message_start":
+            context = payload.get("context") or {}
+            if context.get("context_role") != "brain":
+                return
+
+            message_id = payload.get("message_id")
+            if not message_id:
+                return
+
+            self.live_message_ids.add(message_id)
+            role = payload.get("role") or "model"
+            print(paint(f"\nSTREAM {role}:", "green", bold=True), flush=True)
+            return
+
+        message_id = payload.get("message_id")
+        if message_id not in self.live_message_ids:
+            return
+
+        if payload_type == "message_chunk":
+            print(payload.get("chunk", ""), end="", flush=True)
+        elif payload_type == "message_end":
+            print("", flush=True)
+            self.live_message_ids.discard(message_id)
 
 
 def paint(text: str, color: str | None = None, *, bold: bool = False, dim: bool = False) -> str:
@@ -257,6 +288,25 @@ class TurnResult:
     expected_memory: list[str]
     unexpected_answer: list[str]
     unexpected_memory: list[str]
+
+
+def print_live_turn_result(turn: TurnResult) -> None:
+    if not LIVE_PRINT_TURN_RESULTS:
+        return
+
+    score = evaluate_expected_text([turn])
+    print(paint(f"\nLIVE TURN {turn.index} RESULT", "blue", bold=True), flush=True)
+
+    if not score["checks"]:
+        print(paint("  No text checks for this turn.", "gray", dim=True), flush=True)
+        return
+
+    for check in score["checks"]:
+        if check["name"].endswith("_not_contains"):
+            description = f"{check['target']} does not contain: {check['fragment']}"
+        else:
+            description = f"{check['target']} contains: {check['fragment']}"
+        print(f"  {status_label(check['passed'])} {description}", flush=True)
 
 
 async def run_standard_turn(context: RuntimeContext, user_text: str) -> AgentState:
@@ -578,6 +628,7 @@ class SimpleBehaviorProbe(unittest.IsolatedAsyncioTestCase):
                     unexpected_memory=step["unexpected_memory"],
                 )
             )
+            print_live_turn_result(turns[-1])
 
         score = evaluate_expected_text(turns)
 
