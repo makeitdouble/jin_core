@@ -101,7 +101,8 @@ Runtime memory is intentionally lightweight, but it is no longer passive storage
 - Memory is injected into the brain prompt as trusted runtime context.
 - It is mirrored in the right sidebar through `runtime_memory_update` and `runtime_session_memory_update` WebSocket events.
 - Each L1/L2 update is captured as a session snapshot with an index, raw memory text, parsed key/value lines, and diff metadata.
-- The UI can navigate previous snapshots and replay visual highlights for new or changed memory fields.
+- Runtime-owned `active_memory` suffixes track creation/elapsed time and turns; they are stored and displayed, but stripped before L1 receives memory again.
+- The UI can navigate previous snapshots, replay visual highlights for new or changed memory fields, and show full memory suffixes line-by-line on hover.
 - Conversation activity and no-signal alerts can suppress overly soft default behavior when the exchange is clearly stuck.
 - Truncated or obviously incomplete summarizer output is rejected so it does not overwrite the previous memory.
 
@@ -114,15 +115,13 @@ JIN memory is stored as plain `key: value` lines so it can be shown in the UI, i
 
 ### L1 memory snapshot (facts)
 
-L1 is the live factual layer. It keeps the current state needed for the next answer: user request, active topic, latest user message, unresolved contracts, stored recall values, and the latest response gist. It is not a transcript and it should not infer long-term personality traits.
+L1 is the live factual layer. It keeps the current state needed for the next answer: user request, active topic, latest user message, unresolved active contracts, recall values, and the latest response gist. It is not a transcript and it should not infer long-term personality traits.
 
 ```text
-session status: Session shifted from an ASCII art request to a poetry/haiku side task while a recall contract remains open.
-user_message: "у тебя хорошо получается"
-current request: Acknowledge the compliment while preserving the active recall contract.
-active topic: Word Recall Test (Secret word).
-active_memory: "Небо" (purpose: secret word for future recall test; conditions: ask user to recall without revealing value; status: pending)
-last_jin_response: Acknowledged the compliment and prompted the user to recall the stored word without revealing it.
+user_message: "thanks"
+last_jin_response: Acknowledged the user and kept the pending recall contract active.
+primary_goal: Play a memory test game where JIN prompts the user to guess the secret word.
+active_memory: Secret word: Sun [ purpose: Ask user to guess this exact word ] [ conditions: Do not reveal or change the word ] [ creation_time: 2026-06-20T10:00:00 ] [ creation_turn_number: 3 ] [ elapsed_time: 00:02:39 ] [ elapsed_turns: 2 ] [ status: pending ]
 ```
 
 A rendered runtime snapshot also carries metadata used by the right-side timeline panel:
@@ -135,7 +134,7 @@ A rendered runtime snapshot also carries metadata used by the right-side timelin
   "lines": [
     {
       "key": "active_memory",
-      "value": "\"Небо\" (purpose: secret word for future recall test; status: pending)",
+      "value": "Secret word: Sun [ purpose: Ask user to guess this exact word ] [ conditions: Do not reveal or change the word ] [ creation_time: 2026-06-20T10:00:00 ] [ creation_turn_number: 3 ] [ elapsed_time: 00:02:39 ] [ elapsed_turns: 2 ] [ status: pending ]",
       "key_status": "same",
       "value_status": "same",
       "key_change_ratio": 0.0,
@@ -145,14 +144,14 @@ A rendered runtime snapshot also carries metadata used by the right-side timelin
   "patch": {
     "active_memory": {
       "status": "same",
-      "value": "\"Небо\" (purpose: secret word for future recall test; status: pending)"
+      "value": "Secret word: Sun [ purpose: Ask user to guess this exact word ] [ status: pending ]"
     }
   },
   "total_diff": 87.3
 }
 ```
 
-The UI may show temporary trace strength such as `(trace: 0.50)` or inject `user_idle: 9s` into the displayed context. Those are runtime metadata signals, not durable memory facts.
+`active_memory` lifecycle suffixes are owned by runtime, not L1. L1 sees the contract value and `[ status: ... ]`; runtime reattaches `[ creation_time ]`, `[ creation_turn_number ]`, `[ elapsed_time ]`, and `[ elapsed_turns ]` after each update. Memory lines may also have temporary trace strength such as `[ trace: 0.50 ]` or inject `user_idle: 9s` into the displayed context. Those are runtime metadata signals, not durable memory facts.
 
 ### L2 memory snapshot (patterns)
 
@@ -507,6 +506,19 @@ Runtime memory update:
       }
     ]
   }
+}
+```
+
+Active memory collapse log:
+
+```json
+{
+  "type": "log",
+  "tag": "[ACTIVE_MEMORY]",
+  "message": "active_memory duplicate collapsed",
+  "details": "{\n  \"stage\": \"after durable merge\",\n  \"events\": [...],\n  \"result_memory\": \"active_memory: ... [ status: pending, Reminder given in Turn 1 ]\"\n}",
+  "channel": "active_memory",
+  "active_memory_event": "collapse"
 }
 ```
 
