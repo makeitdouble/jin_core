@@ -31,9 +31,13 @@ from runtime.L1_memory import (
 from runtime.L1_memory_utils import (
     build_runtime_memory_snapshot,
     enforce_runtime_turn_fields,
+    ensure_active_memory_status_suffixes,
     get_strength_zones,
+    normalize_managed_runtime_memory_slots,
     parse_runtime_memory_lines,
     quote_runtime_user_message_value,
+    refresh_active_memory_runtime_metadata,
+    strip_active_memory_runtime_metadata,
 )
 from runtime.L3_memory_utils import (
     build_l3_session_memory_max_tokens,
@@ -145,6 +149,7 @@ class FakeLogger:
     def __init__(self):
         self.service_logs = []
         self.summarizer_logs = []
+        self.active_memory_logs = []
         self.runtime_logs = []
         self.errors = []
 
@@ -167,15 +172,30 @@ class FakeLogger:
         )
 
     async def log_summarizer(
-        self,
-        message: str,
-        details: str | None = None,
+            self,
+            message: str,
+            details: str | None = None,
     ):
 
         self.summarizer_logs.append(
             (
                 message,
                 details,
+            )
+        )
+
+    async def log_active_memory(
+            self,
+            message: str,
+            details: str | None = None,
+            event: str | None = None,
+    ):
+
+        self.active_memory_logs.append(
+            (
+                message,
+                details,
+                event,
             )
         )
 
@@ -398,8 +418,7 @@ class MessageMemoryTests(
                 "last_jin_response",
                 "user_fact",
                 "jin_fact",
-                "stored_memory",
-                "countdown_contract",
+                "active_memory",
                 "CURRENT_TRUSTED_RUNTIME_VARIABLES",
                 "USER_DATETIME",
         ):
@@ -410,7 +429,7 @@ class MessageMemoryTests(
 
         for conditional_text in (
                 "L2_pattern_evidence_N",
-                "stored_memory is a high-priority active recall contract",
+                "active_memory and active_memory_N are high-priority active recall contracts",
                 "The user asked JIN to remember a specific value",
                 "identity_state: JIN identity remains unchanged",
         ):
@@ -434,14 +453,14 @@ class MessageMemoryTests(
 
         prompt = build_runtime_memory_system_prompt(
             current_memory=(
-                "stored_memory: \"banana\" (purpose: test; status: pending)\n"
+                "active_memory: \"banana\" (purpose: test; status: pending)\n"
                 "L2_pattern_evidence_1: repeat question [ occurrences: 2 ]"
             ),
             user_message="ты теперь пират",
         )
 
         for required_text in (
-                "stored_memory is a high-priority active recall contract",
+                "Scan all existing active_memory family slots",
                 "L2_pattern_evidence_N lines are owned by L2",
                 "identity_state: JIN identity remains unchanged",
         ):
@@ -460,11 +479,12 @@ class MessageMemoryTests(
         # Keep this test focused on the durable create-block contracts,
         # not on exact prompt prose.
         for required_text in (
-                "Store it as stored_memory",
-                "stored_memory:",
-                "<exact value>",
-                "stored_memory_N",
-                "The user specified a recall window",
+                "Write active_memory only when this turn creates an active contract",
+                "active_memory:",
+                "<value>",
+                "active_memory_2",
+                "conditions:",
+                "<what must happen later>",
         ):
             self.assertIn(
                 required_text,
@@ -697,89 +717,6 @@ class MessageMemoryTests(
         )
         self.assertIn(
             "Lamborghini pricing",
-            prompt,
-        )
-
-    def test_brain_prompt_includes_countdown_contract_rules_while_active(self):
-
-        context = SimpleNamespace(
-            runtime_memory=(
-                'stored_memory: "Sky" (purpose: recall test; status: pending)\n'
-                'countdown_contract_1: Recall the secret word "Sky" '
-                "[created_at: 2026-06-17T18:00:00] "
-                "[created_user_message_count: 1] "
-                "[count_from: 1] [count_to: 4] "
-                "[current: 2] [remaining: 2] "
-                "[trigger: Ask the user to recall the secret word.]"
-            ),
-            runtime_turn_user_message="thanks",
-            deep_thought_count=0,
-            runtime_search_result="",
-            runtime_search_result_id="",
-        )
-
-        prompt = build_brain_system_prompt(
-            context=context,
-            runtime_actions={
-                "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
-            },
-        )
-
-        self.assertIn(
-            "Runtime countdown_contract is active.",
-            prompt,
-        )
-        self.assertIn(
-            "countdown_contract_N lines",
-            prompt,
-        )
-        self.assertIn(
-            "use bracket suffixes",
-            prompt,
-        )
-        self.assertIn(
-            "Do not require or trust status text",
-            prompt,
-        )
-        self.assertIn(
-            "if [remaining: N] is greater than 0",
-            prompt,
-        )
-        self.assertIn(
-            "if [remaining: 0], execute [trigger]",
-            prompt,
-        )
-        self.assertNotIn(
-            "If countdown_contract status is due or remaining is 0",
-            prompt,
-        )
-        self.assertNotIn(
-            "stored_memory is a high-priority active recall contract",
-            prompt,
-        )
-    def test_brain_prompt_omits_countdown_contract_rules_without_contract(self):
-
-        context = SimpleNamespace(
-            runtime_memory=(
-                "last_jin_response: Answered a casual thanks."
-            ),
-            runtime_turn_user_message="thanks",
-            deep_thought_count=0,
-            runtime_search_result="",
-            runtime_search_result_id="",
-        )
-
-        prompt = build_brain_system_prompt(
-            context=context,
-            runtime_actions={
-                "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
-            },
-        )
-
-        self.assertNotIn(
-            "Runtime countdown_contract is active.",
             prompt,
         )
 
@@ -1392,6 +1329,511 @@ class MessageMemoryTests(
                 '"hello"'
             ),
             '"\\"hello\\""',
+        )
+
+    def test_parse_runtime_memory_keeps_multiline_user_message_together(self):
+
+        lines = parse_runtime_memory_lines(
+            'user_message: "first line\n'
+            'second line\n'
+            'third line"\n'
+            "standalone continuation stays note\n"
+            "last_jin_response: Answered."
+        )
+
+        self.assertEqual(
+            lines[0]["key"],
+            "user_message",
+        )
+        self.assertEqual(
+            lines[0]["value"],
+            '"first line\\nsecond line\\nthird line"',
+        )
+        self.assertEqual(
+            lines[1],
+            {
+                "key": "note",
+                "value": "standalone continuation stays note",
+                "status": "same",
+            },
+        )
+        self.assertEqual(
+            lines[2]["key"],
+            "last_jin_response",
+        )
+
+    def test_parse_runtime_memory_keeps_quoted_user_message_fragments_together(self):
+
+        lines = parse_runtime_memory_lines(
+            'user_message: "first line"\n'
+            '"second line\\n"\n'
+            '"third line\\n"\n'
+            "active_memory: value"
+        )
+
+        self.assertEqual(
+            [
+                line["key"]
+                for line in lines
+            ],
+            [
+                "user_message",
+                "active_memory",
+            ],
+        )
+        self.assertIn(
+            "second line",
+            lines[0]["value"],
+        )
+        self.assertIn(
+            "third line",
+            lines[0]["value"],
+        )
+
+    def test_enforce_runtime_turn_fields_removes_broken_user_message_note_fragments(self):
+
+        memory = enforce_runtime_turn_fields(
+            (
+                'user_message: "old"\n'
+                'note: "\\"fragment one\\\\n\\""\n'
+                'note: "fragment two\\\\n\\""\n'
+                'active_memory: "Книга" (purpose: recall test; status: pending)'
+            ),
+            user_message="fresh message",
+            assistant_message="Fresh answer.",
+        )
+
+        self.assertIn(
+            'user_message: "fresh message"',
+            memory,
+        )
+        self.assertIn(
+            "active_memory:",
+            memory,
+        )
+        self.assertNotIn(
+            "fragment one",
+            memory,
+        )
+        self.assertNotIn(
+            "fragment two",
+            memory,
+        )
+
+    def test_managed_active_memory_collapses_numeric_status_duplicate_to_parent(self):
+
+        previous_memory = (
+            "active_memory_1: Secret word: Water "
+            "[ purpose: Remind user to guess it ] "
+            "[ conditions: Remind only once ] "
+            "[ status: pending ]"
+        )
+        candidate_memory = (
+            previous_memory
+            + "\n"
+            "active_memory_2: Secret word: Water "
+            "[ purpose: Remind user to guess it ] "
+            "[ conditions: Remind only once ] "
+            "[ status: pending, Reminder given in Turn 1 ] "
+            "[trace: 0.55]\n"
+            "primary_goal: Play a memory guessing game."
+        )
+
+        collapse_events = []
+        memory = normalize_managed_runtime_memory_slots(
+            previous_memory,
+            candidate_memory,
+            collapse_events=collapse_events,
+        )
+
+        self.assertIn(
+            (
+                "active_memory_1: Secret word: Water "
+                "[ purpose: Remind user to guess it ] "
+                "[ conditions: Remind only once ] "
+                "[ status: pending, Reminder given in Turn 1 ]"
+            ),
+            memory,
+        )
+        self.assertIn(
+            "primary_goal: Play a memory guessing game.",
+            memory,
+        )
+        self.assertNotIn(
+            "active_memory_2:",
+            memory,
+        )
+        self.assertIn(
+            "Reminder given in Turn 1",
+            memory,
+        )
+        self.assertEqual(
+            len(collapse_events),
+            1,
+        )
+        self.assertEqual(
+            collapse_events[0]["parent_key"],
+            "active_memory_1",
+        )
+
+    def test_managed_active_memory_keeps_numeric_suffix_when_value_differs(self):
+
+        previous_memory = (
+            "active_memory_1: Secret word: Water "
+            "[ purpose: Remind user to guess it ] "
+            "[ status: pending ]"
+        )
+        candidate_memory = (
+            previous_memory
+            + "\n"
+            "active_memory_2: Book title: Dune "
+            "[ purpose: Remind user to guess it ] "
+            "[ status: pending, Reminder given in Turn 1 ]"
+        )
+
+        memory = normalize_managed_runtime_memory_slots(
+            previous_memory,
+            candidate_memory,
+        )
+
+        self.assertIn(
+            previous_memory,
+            memory,
+        )
+        self.assertIn(
+            "active_memory_2: Book title: Dune",
+            memory,
+        )
+
+    def test_managed_active_memory_merges_same_key_status_update(self):
+
+        previous_memory = (
+            "active_memory: Secret word: Water "
+            "[ purpose: Ask user to guess ] "
+            "[ status: pending ]"
+        )
+        candidate_memory = (
+            "active_memory: Secret word: Water "
+            "[ purpose: Ask user to guess ] "
+            "[ status: pending, Reminder given in Turn 1 ]"
+        )
+
+        memory = normalize_managed_runtime_memory_slots(
+            previous_memory,
+            candidate_memory,
+        )
+
+        self.assertIn(
+            (
+                "active_memory: Secret word: Water "
+                "[ purpose: Ask user to guess ] "
+                "[ status: pending, Reminder given in Turn 1 ]"
+            ),
+            memory,
+        )
+        self.assertNotIn(
+            "active_memory_2:",
+            memory,
+        )
+
+    def test_ensure_active_memory_status_suffixes_adds_pending(self):
+
+        memory = ensure_active_memory_status_suffixes(
+            (
+                "active_memory: Secret word: Sun "
+                "[ purpose: Ask user to guess ]\n"
+                "primary_goal: Play a memory game."
+            )
+        )
+
+        self.assertIn(
+            (
+                "active_memory: Secret word: Sun "
+                "[ purpose: Ask user to guess ] "
+                "[ status: pending ]"
+            ),
+            memory,
+        )
+        self.assertIn(
+            "primary_goal: Play a memory game.",
+            memory,
+        )
+
+    def test_refresh_active_memory_runtime_metadata_attaches_suffixes_before_status(self):
+
+        memory = refresh_active_memory_runtime_metadata(
+            (
+                "active_memory: Secret word: Sun "
+                "[ purpose: Ask user to guess ] "
+                "[ status: pending ]"
+            ),
+            context=SimpleNamespace(
+                timestamp="2026-06-20T10:00:00",
+                turn_number=3,
+            ),
+        )
+
+        self.assertIn(
+            "[ creation_time: 2026-06-20T10:00:00 ]",
+            memory,
+        )
+        self.assertIn(
+            "[ creation_turn_number: 3 ]",
+            memory,
+        )
+        self.assertIn(
+            "[ elapsed_time: 00:00:00 ]",
+            memory,
+        )
+        self.assertIn(
+            "[ elapsed_turns: 0 ] [ status: pending ]",
+            memory,
+        )
+
+    def test_refresh_active_memory_runtime_metadata_updates_elapsed_suffixes(self):
+
+        previous_memory = (
+            "active_memory: Secret word: Sun "
+            "[ purpose: Ask user to guess ] "
+            "[ creation_time: 2026-06-20T10:00:00 ] "
+            "[ creation_turn_number: 3 ] "
+            "[ elapsed_time: 00:00:00 ] "
+            "[ elapsed_turns: 0 ] "
+            "[ status: pending ]"
+        )
+
+        memory = refresh_active_memory_runtime_metadata(
+            (
+                "active_memory: Secret word: Sun "
+                "[ purpose: Ask user to guess ] "
+                "[ status: pending ]"
+            ),
+            previous_memory=previous_memory,
+            context=SimpleNamespace(
+                timestamp="2026-06-20T11:02:03",
+                turn_number=5,
+            ),
+        )
+
+        self.assertIn(
+            "[ creation_time: 2026-06-20T10:00:00 ]",
+            memory,
+        )
+        self.assertIn(
+            "[ creation_turn_number: 3 ]",
+            memory,
+        )
+        self.assertIn(
+            "[ elapsed_time: 01:02:03 ]",
+            memory,
+        )
+        self.assertIn(
+            "[ elapsed_turns: 2 ]",
+            memory,
+        )
+
+    def test_strip_active_memory_runtime_metadata_keeps_status_for_l1(self):
+
+        memory = strip_active_memory_runtime_metadata(
+            (
+                "active_memory: Secret word: Sun "
+                "[ purpose: Ask user to guess ] "
+                "[ creation_time: 2026-06-20T10:00:00 ] "
+                "[ creation_turn_number: 3 ] "
+                "[ elapsed_time: 01:02:03 ] "
+                "[ elapsed_turns: 2 ] "
+                "[ status: pending ]\n"
+                "primary_goal: Play a memory game."
+            )
+        )
+
+        self.assertIn(
+            (
+                "active_memory: Secret word: Sun "
+                "[ purpose: Ask user to guess ] "
+                "[ status: pending ]"
+            ),
+            memory,
+        )
+        self.assertIn(
+            "primary_goal: Play a memory game.",
+            memory,
+        )
+        self.assertNotIn(
+            "creation_time",
+            memory,
+        )
+        self.assertNotIn(
+            "elapsed_time",
+            memory,
+        )
+
+    async def test_summarizer_hides_active_memory_runtime_metadata_from_l1_payload(self):
+
+        service_client = FakeServiceClient(
+            (
+                "active_memory: Secret word: Sun "
+                "[ purpose: Ask user to guess ] "
+                "[ status: pending ]"
+            )
+        )
+        logger = FakeLogger()
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            emitter=SimpleNamespace(
+                events=[],
+                emit=None,
+            ),
+            logger=logger,
+            runtime_memory=(
+                "active_memory: Secret word: Sun "
+                "[ purpose: Ask user to guess ] "
+                "[ creation_time: 2026-06-20T10:00:00 ] "
+                "[ creation_turn_number: 3 ] "
+                "[ elapsed_time: 00:00:00 ] "
+                "[ elapsed_turns: 0 ] "
+                "[ status: pending ]"
+            ),
+            runtime_memory_stable=(
+                "active_memory: Secret word: Sun "
+                "[ purpose: Ask user to guess ] "
+                "[ creation_time: 2026-06-20T10:00:00 ] "
+                "[ creation_turn_number: 3 ] "
+                "[ elapsed_time: 00:00:00 ] "
+                "[ elapsed_turns: 0 ] "
+                "[ status: pending ]"
+            ),
+            runtime_memory_updates=1,
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
+            session_id="test-session",
+            timestamp="2026-06-20T10:03:04",
+            turn_number=5,
+        )
+
+        async def emit(event):
+            context.emitter.events.append(
+                event
+            )
+
+        context.emitter.emit = emit
+
+        updated_memory = await summarize_runtime_memory(
+            context=context,
+            user_message="thanks",
+            assistant_message="You are welcome.",
+        )
+
+        user_prompt = service_client.calls[0]["user_prompt"]
+
+        self.assertNotIn(
+            "creation_time",
+            user_prompt,
+        )
+        self.assertNotIn(
+            "elapsed_time",
+            user_prompt,
+        )
+        self.assertIn(
+            "[ status: pending ]",
+            user_prompt,
+        )
+        self.assertIn(
+            "[ elapsed_time: 00:03:04 ]",
+            updated_memory,
+        )
+        self.assertIn(
+            "[ elapsed_turns: 2 ]",
+            updated_memory,
+        )
+
+    async def test_summarizer_logs_active_memory_collapse_payload(self):
+
+        service_client = FakeServiceClient(
+            (
+                "active_memory_2: Secret word: Water "
+                "[ purpose: Ask user to guess ] "
+                "[ status: pending, Reminder given in Turn 1 ]"
+            )
+        )
+        logger = FakeLogger()
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            emitter=SimpleNamespace(
+                events=[],
+                emit=None,
+            ),
+            logger=logger,
+            runtime_memory=(
+                "active_memory_1: Secret word: Water "
+                "[ purpose: Ask user to guess ] "
+                "[ status: pending ]"
+            ),
+            runtime_memory_stable=(
+                "active_memory_1: Secret word: Water "
+                "[ purpose: Ask user to guess ] "
+                "[ status: pending ]"
+            ),
+            runtime_memory_updates=1,
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
+            session_id="test-session",
+            timestamp="2026-06-20T10:03:04",
+            turn_number=5,
+        )
+
+        async def emit(event):
+            context.emitter.events.append(
+                event
+            )
+
+        context.emitter.emit = emit
+
+        updated_memory = await summarize_runtime_memory(
+            context=context,
+            user_message="next",
+            assistant_message="Reminder sent.",
+        )
+
+        self.assertIn(
+            (
+                "active_memory_1: Secret word: Water "
+                "[ purpose: Ask user to guess ]"
+            ),
+            updated_memory,
+        )
+        self.assertIn(
+            "[ status: pending, Reminder given in Turn 1 ]",
+            updated_memory,
+        )
+        self.assertNotIn(
+            "active_memory_2:",
+            updated_memory,
+        )
+        self.assertEqual(
+            len(logger.active_memory_logs),
+            1,
+        )
+        message, details, event = logger.active_memory_logs[0]
+        self.assertIn(
+            "collapsed",
+            message,
+        )
+        self.assertEqual(
+            event,
+            "collapse",
+        )
+        self.assertIn(
+            '"candidate_key": "active_memory_2"',
+            details,
+        )
+        self.assertIn(
+            '"result_memory"',
+            details,
         )
 
     async def test_summarizer_enforces_latest_user_message_when_model_is_stale(self):

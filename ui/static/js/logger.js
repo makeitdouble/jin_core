@@ -168,6 +168,25 @@ function showTrace(
   );
 }
 
+function prettifyTraceDetails(details) {
+  const text =
+    String(details || "");
+
+  if (!text.trim()) {
+    return "";
+  }
+
+  try {
+    return JSON.stringify(
+      JSON.parse(text),
+      null,
+      2
+    );
+  } catch (_error) {
+    return text;
+  }
+}
+
 function extractTraceReason(
   message,
   details,
@@ -645,7 +664,8 @@ function appendLog(
   if (normalized.details) {
     const isSummarizer =
       tag.includes("SUMMARIZER")
-      || tag.includes("MEMORY:");
+      || tag.includes("MEMORY:")
+      || tag.includes("ACTIVE_MEMORY");
 
     const isSession =
       tag.includes("SESSION");
@@ -716,13 +736,15 @@ function appendLog(
       "click",
       function () {
         showTrace(
-          normalized.details,
+          prettifyTraceDetails(normalized.details),
           isPatternResult
             ? "L2 pattern memory"
             : isLatestSnapshots
             ? "Latest snapshots"
             : isSession
             ? "Session bootstrap"
+            : tag.includes("ACTIVE_MEMORY")
+            ? "Active memory payload"
             : isSummarizer
             ? "Summarizer payload"
             : "Trace",

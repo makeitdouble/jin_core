@@ -425,6 +425,59 @@ async def log_memory_event(
         formatted_message,
     )
 
+
+async def log_active_memory_event(
+        context,
+        *,
+        message: str,
+        details: str | None = None,
+        fallback_channel: str = "runtime",
+        event: str | None = None,
+) -> None:
+
+    logger = getattr(
+        context,
+        "logger",
+        None,
+    )
+
+    log_active_memory = getattr(
+        logger,
+        "log_active_memory",
+        None,
+    )
+
+    if log_active_memory is not None:
+        await safe_call(
+            log_active_memory,
+            message,
+            details=details,
+            event=event,
+        )
+        return
+
+    fallback = getattr(
+        logger,
+        f"log_{fallback_channel}",
+        None,
+    )
+    formatted_message = (
+        f"[ACTIVE_MEMORY] {message}"
+    )
+
+    if details is not None:
+        await safe_call(
+            fallback,
+            formatted_message,
+            details=details,
+        )
+        return
+
+    await safe_call(
+        fallback,
+        formatted_message,
+    )
+
 def extract_runtime_memory_text(
         response: dict,
 ) -> str:

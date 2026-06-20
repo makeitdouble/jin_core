@@ -84,7 +84,6 @@ DURABLE_MEMORY_KEY_TOKENS = (
     "profile",
     "preference",
     "stored",
-    "countdown",
     "contract",
     "axiom",
     "jin",
@@ -162,12 +161,8 @@ REPEATABLE_RUNTIME_MEMORY_KEY_FAMILIES = {
     "constraint",
     "current_task",
     "current task",
-    "stored_memory",
+    "active_memory",
     "stored memory",
-    "open_contract",
-    "open contract",
-    "countdown_contract",
-    "countdown contract",
 }
 
 # Template used to pass interrupted assistant turns into L1 memory.
@@ -235,108 +230,6 @@ TRIGGER_MSG_CONFIRMABLE = (
     "я есть",
 )
 
-# Ключи в текущей памяти → подключить блок про stored_memory.
-TRIGGER_KEYS_STORED_MEMORY = (
-    "stored_memory",
-)
-
-# Фразы пользователя → подключить блок про создание stored_memory.
-TRIGGER_MSG_STORED_MEMORY = (
-    "запомни",
-    "запомни слово",
-    "кодовое слово",
-    "загадай",
-    "загадай мне слово",
-    "какое слово ты загадал",
-    "назвать его",
-    "remember",
-    "code word",
-    "memorize",
-    "choose a word",
-    "secret word",
-    "recall word",
-)
-
-# Ключи в текущей памяти → подключить блок про open_contract.
-# open_contract всегда идёт вместе со stored_memory/stored_memory_N, поэтому оба ключа здесь.
-TRIGGER_KEYS_OPEN_CONTRACT = (
-    "open_contract",
-    "stored_memory",
-)
-
-# Ключи в текущей памяти → подключить блок про countdown_contract.
-TRIGGER_KEYS_COUNTDOWN = (
-    "countdown_contract",
-)
-
-# Фразы пользователя → подключить блок про создание countdown_contract.
-# Общий входной детектор: конкретный формат выбирается ниже детерминированно.
-TRIGGER_MSG_COUNTDOWN = (
-    "напомни",
-    "напомнить",
-    "remind",
-    "через",
-    "ходов",
-    "ход",
-    "сообщений",
-    "сообщения",
-    "after",
-    "turns",
-    "turn",
-    "messages",
-    "message",
-    "minutes",
-    "minute",
-    "минут",
-    "минуту",
-    "секунд",
-    "секунду",
-    "час",
-    "часов",
-    "tomorrow",
-    "завтра",
-    "in n",
-)
-
-COUNTDOWN_TIME_TRIGGER_WORDS = (
-    "секунд",
-    "секунду",
-    "сек",
-    "минут",
-    "минуту",
-    "мин",
-    "час",
-    "часов",
-    "часа",
-    "день",
-    "дня",
-    "дней",
-    "завтра",
-    "сегодня",
-    "tomorrow",
-    "today",
-    "second",
-    "seconds",
-    "minute",
-    "minutes",
-    "hour",
-    "hours",
-    "day",
-    "days",
-)
-
-COUNTDOWN_TURN_TRIGGER_WORDS = (
-    "ход",
-    "ходов",
-    "сообщение",
-    "сообщения",
-    "сообщений",
-    "turn",
-    "turns",
-    "message",
-    "messages",
-)
-
 # Ключи в текущей памяти → подключить блок про L2 interface.
 TRIGGER_KEYS_L2_INTERFACE = (
     "l2_pattern_evidence_",
@@ -393,10 +286,9 @@ KEY_SEMANTICS = (
     "Do not merge a durable key into a temporary key.\n"
     "Use a new key only when the current fact genuinely does not fit an existing key.\n"
     "Prefer keeping an existing key when it still fits.\n"
-    "Typical temporary keys: active_topic, current_task, current_request, pending_choice, "
+    "Typical temporary keys: user_message, active_topic, current_task, current_request, pending_choice, "
     "last_jin_response, interaction_state.\n"
-    "Typical durable keys: user_fact, jin_fact, jin_core_definition, stored_memory, stored_memory_N, "
-    "open_contract, countdown_contract, countdown_contract_N, shared_axiom_established, primary_goal.\n"
+    "Typical durable keys: active_memory, user_fact, jin_fact, shared_axiom"
 )
 
 # Разделение временного и долговременного состояния.
@@ -411,8 +303,8 @@ DURABLE_VS_TEMPORARY = (
     "Once a durable key exists with a concrete value, preserve it verbatim across snapshots. "
     "Only the value may change, and only when the current turn explicitly overrides it.\n"
     "Durable key families that must always carry forward: "
-    "user_fact, jin_fact, jin_core_definition, stored_memory, stored_memory_N, open_contract, "
-    "countdown_contract, countdown_contract_N, shared_axiom_established, primary_goal.\n"
+    "user_fact, jin_fact, jin_core_definition, active_memory, active_memory_N, "
+    "shared_axiom_established, primary_goal.\n"
     "Never invent missing durable keys and never fill absent durable keys with placeholders.\n"
     "Treat any existing line about JIN's identity, nature, origin, role, or capabilities "
     "as a durable JIN fact even if its key is not exactly jin_fact.\n"
@@ -477,15 +369,7 @@ PRE_OUTPUT_CHECK = (
     "Before final output, verify:\n"
     "1. Every durable line from current memory is still present unless explicitly corrected, "
     "cancelled, completed, or superseded in the latest turn.\n"
-    "2. Every active stored_memory line is still present until its recall contract is resolved.\n"
-    "3. Every active open_contract line is still present with its turn progress updated.\n"
-    "4. Every active countdown_contract or countdown_contract_N line still contains the required anchor suffixes. "
-    "Turn-based contracts require [created_at: timestamp], [created_user_message_count: N], "
-    "[count_from: N], [count_to: N], [current: N], [remaining: N], and [trigger: ...]. "
-    "Time-based contracts require [created_at: timestamp], [due_at: timestamp], "
-    "[current_time: timestamp], and [trigger: ...]. Do not use a status field for countdowns.\n"
-    "Completed, cancelled, or numerically expired countdown contracts are not active contracts; "
-    "do not re-add them after they have been resolved and cleaned up.\n"
+    "2. Every active_memory line is still present until its recall contract is resolved.\n"
     "If a required durable or active contract line is missing, add it back before output.\n"
     "If nothing durable changed, preserve durable lines unchanged and update only temporary state "
     "and last_jin_response.\n"
@@ -533,120 +417,40 @@ CONFIRMABLE_FACTS_CREATE = (
     "Example: user_fact_2: user likes horror movies (confirmed: user)\n"
 )
 
-# Правила хранения stored_memory.
-# Подключается когда stored_memory уже есть в памяти.
-STORED_MEMORY_KEEP = (
-    "stored_memory is a high-priority active recall contract. Never remove it until resolved.\n"
-    "Revealing or sending the stored value to the user is not a recall event — "
-    "keep status: pending until JIN asks the user to recall it and the user answers correctly.\n"
-    "Set status: recalled only after the user successfully reproduces the stored value when prompted by JIN.\n"
-    "After successful recall, keep the matching stored_memory line for at least one more L1 snapshot with "
-    "status: recalled before removing it.\n"
-    "A stored_memory or stored_memory_N line may be removed only when the user explicitly cancels it, "
-    "replaces it, or the recall contract is clearly complete.\n"
-    "Do not remove stored_memory because the conversation moved to another topic.\n"
-    "Do not hide stored_memory inside active_topic, current_task, or last_jin_response.\n"
-)
+# Правила создания и хранения active_memory.
+# Подключается всегда; L1 сама решает, создал ли текущий ход новый active contract.
+ACTIVE_MEMORY_CREATE = (
+    "Write active_memory only when this turn creates an active contract: "
+    "a promise to remember, remind, ask back, reveal, or recall a specific value later.\n"
 
-# Инструкция по созданию stored_memory.
-# Подключается когда триггерная фраза есть в сообщении, но stored_memory в памяти нет.
-STORED_MEMORY_CREATE = (
-    "The user asked JIN to remember or later ask about a specific value. Store it as stored_memory.\n"
-    "Format: stored_memory: \"<exact value>\" (purpose: <why it matters>; status: pending)\n"
-    "Do not store bare ambiguous values without purpose.\n"
-    "If the user supplied the value, take it verbatim from the user's message.\n"
-    "If the user asked JIN to choose/reveal a word and recall it later, take the chosen value "
-    "verbatim from Latest JIN answer.\n"
-)
+    "WHEN to write:\n"
+    "— User asks JIN to remember/remind/guess a value, OR\n"
+    "— Latest JIN answer accepts such a game, chooses a value, or promises a future action.\n"
+    "Do not write for completed one-off requests, facts, or casual conversation.\n"
 
-# Правила хранения open_contract.
-# Подключается когда open_contract или stored_memory есть в памяти.
-OPEN_CONTRACT_KEEP = (
-    "Open contracts are not the same as active topics.\n"
-    "A pending recall, promised follow-up, unresolved choice, or active implementation task "
-    "must survive topic switches.\n"
-    "Keep both the new active topic and the unresolved contract on separate lines.\n"
-    "On every L1 update while the recall contract is pending, recompute and update the progress counter.\n"
-    "When the turn counter reaches or exceeds N, JIN must ask the recall question in its very next response.\n"
-    "Remove open_contract only when stored_memory status becomes recalled or cancelled.\n"
-    "Turn-based format: open_contract: JIN must prompt user to recall \"<word>\" within <N> turns "
-    "(turn <elapsed>/<N>)\n"
-    "Time-based format: open_contract: JIN must prompt user to recall \"<word>\" within <N> minutes "
-    "(start_time: <created_at>; current_time: <current trusted timestamp>)\n"
-)
+    "KEY FORMAT: always write bare active_memory as the key (no numeric key suffix). "
+    "Numeric key suffixes like active_memory_2 are assigned externally — never write or modify them.\n"
 
-# Инструкция по созданию open_contract — добавляется вместе с STORED_MEMORY_CREATE
-# если в запросе указано окно по ходам или времени.
-OPEN_CONTRACT_CREATE = (
-    "The user specified a recall window (turns or time). Create a companion open_contract line.\n"
-    "Turn-based format: open_contract: JIN must prompt user to recall \"<word>\" within <N> turns "
-    "(turn 0/<N>)\n"
-    "Time-based format: open_contract: JIN must prompt user to recall \"<word>\" within <N> minutes "
-    "(start_time: <trusted timestamp>; current_time: <trusted timestamp>)\n"
-)
+    "LINE FORMAT:\n"
+    "active_memory: <value> "
+    "[ purpose: <what must happen later> ] "
+    "[ conditions: <constraints from this request only> ] "
+    "[ status: pending ]\n"
+    "The [ status: pending ] value suffix is mandatory on every new active_memory line.\n"
 
-# Правила хранения countdown_contract.
-# Подключается когда countdown_contract уже есть в памяти.
-COUNTDOWN_CONTRACT_KEEP = (
-    "countdown_contract and countdown_contract_N are survival-priority memory while unresolved; "
-    "topic changes and context pressure must not remove unresolved countdowns.\n"
-    "Treat countdown_contract, countdown_contract_1, countdown_contract_2, etc. as one numbered family.\n"
-    "L1 owns the semantic contract only: purpose and trigger. Deterministic post-processing owns "
-    "[current], [remaining], [current_time], and cleanup.\n"
-    "Do not write or preserve a status field on countdown_contract lines. Numeric suffixes are the source of truth.\n"
-    "Keep countdown metadata as bracket suffixes at the end of the line, for example "
-    "[created_at: ...] [count_from: ...] [remaining: ...].\n"
-    "Creation anchors are immutable: [created_at], [created_user_message_count], [count_from], "
-    "[count_to], and [due_at] must not change unless the user explicitly restarts, resets, replaces, "
-    "or cancels that specific countdown.\n"
-    "When a turn-based countdown is due, JIN must execute [trigger] as a direct user-facing action "
-    "in its very next response. When a time-based countdown is due, JIN must execute [trigger] "
-    "as soon as runtime brings it into context.\n"
-    "If JIN's latest response fulfilled the reminder/trigger in the countdown line, append "
-    "[completed: jin] to that same countdown_contract line.\n"
-    "If the user explicitly says the reminder is done/cancelled/no longer needed, append [completed: user] "
-    "or [cancelled: user] to the matching countdown line.\n"
-    "For due recall contracts, ask the user to provide the remembered value without revealing, quoting, "
-    "or restating the stored value first. Valid wording: 'Какое слово я загадал?' or "
-    "'Назови слово, которое я загадал?'\n"
-    "If multiple countdown contracts exist, update/complete/remove only the matching numbered contract; "
-    "do not merge unrelated reminders into one line.\n"
-)
+    "DUPLICATE RULE — before writing any new line:\n"
+    "Scan all existing active_memory family slots (active_memory, active_memory_2, …). "
+    "If any slot already holds the same value AND same purpose: do not create a new slot. "
+    "Copy that existing line unchanged, or update only its [ status: … ] suffix if this turn affects it.\n"
+    "One contract = one slot. Never split or merge contracts across slots.\n"
 
-# Инструкция по созданию countdown_contract.
-# Подключается когда триггерная фраза есть в сообщении, но countdown_contract в памяти нет.
-COUNTDOWN_CONTRACT_CREATE_BASE = (
-    "The user created a countdown/reminder contract. Store it as countdown_contract.\n"
-    "If there is already an unrelated unresolved countdown_contract, create the next numbered sibling "
-    "instead: countdown_contract_2, countdown_contract_3, etc.\n"
-    "If the existing countdown is the same semantic task, update that slot instead of creating a duplicate.\n"
-    "If an old countdown is completed, cancelled, or already acknowledged, clean it up first; "
-    "then the new contract may reuse countdown_contract.\n"
-    "Keep countdown metadata as separate bracket suffixes at the very end of the line. "
-    "Do not use semicolon metadata for countdown counters. Do not write a status field.\n"
-    "Use trusted runtime timestamp and USER_MESSAGE_COUNT as the only source for anchors. "
-    "If a required trusted value is missing, write unknown instead of inventing it.\n"
-)
+    "UPDATES:\n"
+    "Append inside the existing [ status: … ] suffix only: [ status: pending, <compact note> ]. "
+    "Never add a second status suffix. Never create a duplicate slot for a status update.\n"
+    "Preserve all earlier status contents — append only, never rewrite.\n"
 
-COUNTDOWN_CONTRACT_CREATE_TURN = COUNTDOWN_CONTRACT_CREATE_BASE + (
-    "This is a turn/message-based countdown. Use this exact shape:\n"
-    "countdown_contract_N: <purpose> [created_at: <trusted timestamp>] "
-    "[created_user_message_count: <trusted USER_MESSAGE_COUNT>] "
-    "[count_from: <trusted USER_MESSAGE_COUNT>] [count_to: <count_from + requested turns/messages>] "
-    "[due_user_message_count: <count_to>] [current: <trusted USER_MESSAGE_COUNT>] "
-    "[remaining: <max(count_to - current, 0)>] [trigger: <what JIN must do when due>]\n"
+    "REMOVAL: keep a completed slot for one more snapshot with status noting completion, then remove.\n"
 )
-
-COUNTDOWN_CONTRACT_CREATE_TIME = COUNTDOWN_CONTRACT_CREATE_BASE + (
-    "This is a time-based countdown/reminder. Use this exact shape:\n"
-    "countdown_contract_N: <purpose> [created_at: <trusted timestamp>] "
-    "[due_at: <trusted timestamp + requested delay, or explicit requested datetime>] "
-    "[current_time: <trusted timestamp>] [trigger: <what JIN must do when due>]\n"
-    "Do not convert seconds/minutes/hours/days into turns/messages. Time words always create a time-based contract.\n"
-)
-
-# Backward-compatible alias for external imports; prompt builder chooses the precise template.
-COUNTDOWN_CONTRACT_CREATE = COUNTDOWN_CONTRACT_CREATE_TURN
 
 # Правила взаимодействия с L2_pattern_evidence строками.
 # Подключается когда l2_pattern_evidence_ есть в памяти.
@@ -708,8 +512,8 @@ RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES = (
     "- Drop examples, jokes, emotional texture, repeated explanations, "
     "and wording that does not change future behavior.\n"
     "- Do not restate memory that already exists unless it changed.\n"
-    "- Context pressure may shorten temporary state, but must not remove stored_memory, stored_memory_N, "
-    "open_contract, countdown_contract, durable facts, pending contracts, "
+    "- Context pressure may shorten temporary state, but must not remove active_memory, active_memory_N, "
+    "durable facts, pending contracts, "
     "unresolved implementation tasks, or explicit user decisions.\n"
     "- Merge related temporary details into fewer atomic key:value lines.\n"
     "- If a durable line is long, shorten its value without changing its meaning.\n"
@@ -724,47 +528,6 @@ RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES = (
 #   - _KEEP  → ключ уже есть в текущей памяти (структура существует)
 #   - _CREATE → триггерная фраза есть в сообщении, но ключа в памяти нет
 # =============================================================================
-
-def classify_countdown_contract_trigger(user_message: str) -> str | None:
-    msg = (user_message or "").casefold().replace("ё", "е")
-
-    wants_countdown = any(
-        token.casefold().replace("ё", "е") in msg
-        for token in TRIGGER_MSG_COUNTDOWN
-    )
-
-    if not wants_countdown:
-        return None
-
-    has_time_trigger = any(
-        token.casefold().replace("ё", "е") in msg
-        for token in COUNTDOWN_TIME_TRIGGER_WORDS
-    )
-    has_turn_trigger = any(
-        token.casefold().replace("ё", "е") in msg
-        for token in COUNTDOWN_TURN_TRIGGER_WORDS
-    )
-
-    if has_time_trigger and not has_turn_trigger:
-        return "time"
-
-    if has_turn_trigger:
-        return "turn"
-
-    return "turn"
-
-
-def build_countdown_contract_create_prompt(user_message: str) -> str:
-    countdown_kind = classify_countdown_contract_trigger(user_message)
-
-    if countdown_kind == "time":
-        return COUNTDOWN_CONTRACT_CREATE_TIME
-
-    if countdown_kind == "turn":
-        return COUNTDOWN_CONTRACT_CREATE_TURN
-
-    return ""
-
 
 def build_runtime_memory_system_prompt(
         *,
@@ -797,40 +560,8 @@ def build_runtime_memory_system_prompt(
     elif wants_confirmable:
         prompt += CONFIRMABLE_FACTS_CREATE
 
-    # ── stored_memory ─────────────────────────────────────────────────────────
-    has_stored = any(k in mem for k in TRIGGER_KEYS_STORED_MEMORY)
-    wants_stored = any(t in msg for t in TRIGGER_MSG_STORED_MEMORY)
-
-    if has_stored:
-        prompt += STORED_MEMORY_KEEP
-    elif wants_stored:
-        prompt += STORED_MEMORY_CREATE
-
-    # ── open_contract (спутник stored_memory) ─────────────────────────────────
-    has_open = any(k in mem for k in TRIGGER_KEYS_OPEN_CONTRACT)
-
-    if has_open:
-        prompt += OPEN_CONTRACT_KEEP
-    elif wants_stored:
-        # создаём open_contract только если пользователь указал окно
-        window_words = ("через", "ходов", "after", "turns", "minutes", "минут")
-        if any(w in msg for w in window_words):
-            prompt += OPEN_CONTRACT_CREATE
-
-    # ── countdown_contract ────────────────────────────────────────────────────
-    has_countdown = any(k in mem for k in TRIGGER_KEYS_COUNTDOWN)
-    countdown_create_prompt = build_countdown_contract_create_prompt(
-        user_message
-    )
-    wants_countdown = bool(countdown_create_prompt)
-
-    if has_countdown:
-        prompt += COUNTDOWN_CONTRACT_KEEP
-        if wants_countdown and not has_stored:
-            # новый countdown может существовать параллельно старому numbered-контрактом
-            prompt += countdown_create_prompt
-    elif wants_countdown and not has_stored:
-        prompt += countdown_create_prompt
+    # ── active_memory ─────────────────────────────────────────────────────────
+    prompt += ACTIVE_MEMORY_CREATE
 
     # ── L2 interface ──────────────────────────────────────────────────────────
     if any(k in mem for k in TRIGGER_KEYS_L2_INTERFACE):

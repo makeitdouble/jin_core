@@ -100,8 +100,67 @@
     return String(
         Number.isInteger(number)
           ? number
-          : Number(number.toFixed(2))
+        : Number(number.toFixed(2))
     );
+  }
+
+  function formatRuntimeMemoryHoverTitle(text) {
+    const raw =
+        String(text || "").trim();
+
+    if (!raw) {
+      return "";
+    }
+
+    return raw
+        .split(/\r?\n/)
+        .map((line) => {
+          const trimmed =
+              String(line || "").trim();
+
+          if (!trimmed) {
+            return "";
+          }
+
+          const parts = [];
+          let lastIndex = 0;
+
+          trimmed.replace(
+            /\s*(\[[^\]]+\]|\(\s*trace\s*:[^)]+\))/gi,
+            (match, suffix, offset) => {
+              if (!parts.length) {
+                const body =
+                    trimmed.slice(0, offset).trim();
+
+                if (body) {
+                  parts.push(body);
+                }
+              }
+
+              parts.push(
+                  String(suffix || "").trim()
+              );
+              lastIndex =
+                  offset + match.length;
+
+              return match;
+            }
+          );
+
+          if (!parts.length) {
+            return trimmed;
+          }
+
+          const tail =
+              trimmed.slice(lastIndex).trim();
+
+          if (tail) {
+            parts.push(tail);
+          }
+
+          return parts.join("\n");
+        })
+        .join("\n");
   }
 
   function setRuntimeDiffUpdate(data) {
@@ -434,7 +493,7 @@
 
       if (rawMemory.trim()) {
         runtimeMemoryText.title =
-            rawMemory.trim();
+            formatRuntimeMemoryHoverTitle(rawMemory);
       }
 
       if (showLiveUserIdle) {
@@ -488,10 +547,13 @@
       valueSpan.textContent =
           ` ${valuePresentation.text}`;
 
+      const hoverTitle =
+          formatRuntimeMemoryHoverTitle(fullRawLine);
+
       row.title =
-          fullRawLine;
+          hoverTitle;
       valueSpan.title =
-          fullRawLine;
+          hoverTitle;
 
       row.appendChild(keySpan);
       row.appendChild(valueSpan);
