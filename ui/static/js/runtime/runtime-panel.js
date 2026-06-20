@@ -843,6 +843,60 @@
         contextLine.emptyFilled
       );
 
+    const displayPercent =
+      Math.max(
+        Number(contextLine.percent || 0),
+        Number(contextLine.totalPercent || 0)
+      );
+
+    const contextScale =
+      Math.max(
+        0,
+        Number(contextLine.contextPercent || 0) / 100
+      );
+
+    const totalScale =
+      Math.max(
+        contextScale,
+        Math.max(
+          0,
+          Number(contextLine.totalPercent || 0) / 100
+        )
+      );
+
+    const displayScale =
+      Math.max(
+        totalScale,
+        Math.max(
+          0,
+          displayPercent / 100
+        )
+      );
+
+    barElement.classList.add(
+      "context-window-bar-visual"
+    );
+
+    barElement.style.setProperty(
+      "--win95-context-scale",
+      String(contextScale)
+    );
+
+    barElement.style.setProperty(
+      "--win95-context-fill",
+      `${Math.min(100, contextScale * 100)}%`
+    );
+
+    barElement.style.setProperty(
+      "--win95-context-total-scale",
+      String(totalScale)
+    );
+
+    barElement.style.setProperty(
+      "--win95-context-total-fill",
+      `${Math.min(100, displayScale * 100)}%`
+    );
+
     barElement.innerHTML =
       "["
       + `<span style="color: ${pressureColor}; opacity: 1">${solid}</span>`

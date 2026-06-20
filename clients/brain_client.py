@@ -17,6 +17,7 @@ from clients.errors import (
 
 from clients.brain_context_builder import (
     build_brain_runtime_context,
+    build_brain_runtime_context_with_current_tokens,
 )
 
 from clients.brain_client_utils import (
@@ -56,6 +57,7 @@ from utils.runtime_actions import (
 def build_brain_system_prompt(
     context=None,
     runtime_actions=None,
+    user_input: str = "",
 ) -> str:
 
     enabled_actions = get_enabled_runtime_actions(
@@ -66,12 +68,23 @@ def build_brain_system_prompt(
         context
     )
 
-    return (
+    prompt_prefix = (
         f"{build_identity_context(context)}"
         f"{build_conditional_prompt_rules(context)}"
         f"{build_brain_runtime_interface_rules(enabled_actions)}"
         "\n"
-        f"{build_brain_runtime_context(context, runtime_actions)}"
+    )
+
+    runtime_context = build_brain_runtime_context_with_current_tokens(
+        prompt_prefix=prompt_prefix,
+        user_input=user_input,
+        context=context,
+        runtime_actions=runtime_actions,
+    )
+
+    return (
+        f"{prompt_prefix}"
+        f"{runtime_context}"
     )
 
 
@@ -110,6 +123,7 @@ async def ask_brain(
         build_brain_system_prompt(
             context,
             runtime_actions,
+            user_input=brain_payload,
         )
     )
 
@@ -333,6 +347,7 @@ async def ask_brain_stream(
         or build_brain_system_prompt(
             context,
             runtime_actions,
+            user_input=resolved_brain_payload,
         )
     )
 

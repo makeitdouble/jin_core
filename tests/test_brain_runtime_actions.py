@@ -429,8 +429,23 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "<TIMESTAMP>",
+            "<USER_DATETIME>",
             prompt,
+        )
+
+        self.assertIn(
+            "<MODE>SERVICE as BRAIN</MODE>",
+            prompt,
+        )
+
+        self.assertIn(
+            f"<SERVICE_MODEL_UID>{config.SERVICE_MODEL_UID}</SERVICE_MODEL_UID>",
+            prompt,
+        )
+
+        self.assertRegex(
+            prompt,
+            rf"<CONTEXT>\d+/{config.SERVICE_CONTEXT_WINDOW}</CONTEXT>",
         )
 
         self.assertNotIn(
@@ -619,7 +634,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "<TRUSTED_RUNTIME_CONTEXT>",
+            "<CURRENT_TRUSTED_RUNTIME_VARIABLES>",
             prompt,
         )
 

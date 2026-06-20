@@ -21,9 +21,12 @@ JIN uses short-term continuity to dynamically guide conversation strategy:
 
 ### Runtime Workspace
 
-![JIN Core Engine runtime UI](ui/static/images/jin-core-redesign.jpg)
+![JIN Core Engine runtime UI dark theme](ui/static/images/jin-core-dark-theme.jpg)
 
-Main runtime view: chat, live reasoning, telemetry, and inspectable memory panels in one browser workspace.
+Main runtime view: chat, live reasoning, telemetry, and inspectable memory panels in one browser workspace. 
+Also supports light theme:
+
+![JIN Core Engine runtime UI light theme](ui/static/images/jin-core-light-theme.jpg)
 
 ### Think Citations
 

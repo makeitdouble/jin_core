@@ -652,7 +652,7 @@ class SearchFlowTests(
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertIn(
-            "<TRUSTED_RUNTIME_CONTEXT>",
+            "<CURRENT_TRUSTED_RUNTIME_VARIABLES>",
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertIn(

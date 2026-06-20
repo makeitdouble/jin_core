@@ -60,6 +60,10 @@ class ContextContract:
     original_user_input: str = ""
     compressed_history: str = ""
     system_state: str = "ACTIVE"
+    runtime_mode: str = ""
+    service_model_uid: str = ""
+    context_tokens: int | None = None
+    context_window: int | None = None
     deep_thought_count: int = 0
     can_deep_thought: bool = False
     can_web_search: bool = True
@@ -80,10 +84,21 @@ class ContextContract:
 
     def build_runtime_fields(self) -> str:
 
-        fields = {
-            "TIMESTAMP": self.timestamp,
-            "WEEKDAY": self.weekday,
-        }
+        fields = {}
+
+        if self.runtime_mode:
+            fields["MODE"] = self.runtime_mode
+
+        if self.service_model_uid:
+            fields["SERVICE_MODEL_UID"] = self.service_model_uid
+
+        if self.context_window is not None:
+            fields["CONTEXT"] = (
+                f"{self.context_tokens or 0}/{self.context_window}"
+            )
+
+        fields["USER_DATETIME"] = self.timestamp
+        fields["USER_WEEKDAY"] = self.weekday
 
         if self.turn_number is not None:
             fields["TURN_NUMBER"] = str(
@@ -248,7 +263,7 @@ class ContextContract:
         )
 
         return (
-            "<TRUSTED_RUNTIME_CONTEXT>\n"
+            "<CURRENT_TRUSTED_RUNTIME_VARIABLES>\n"
             f"    {fields_xml}\n"
-            "</TRUSTED_RUNTIME_CONTEXT>"
+            "</CURRENT_TRUSTED_RUNTIME_VARIABLES>"
         )

@@ -130,11 +130,11 @@ WHAT_TO_PRESERVE = (
 # ─────────────────────────────────────────────────────────────────────────────
 # TIME NORMALIZATION
 # Относительные временные слова нормализуются к доверенной дате из
-# TRUSTED_RUNTIME_CONTEXT. В снимок сессии не должны попадать голые «сегодня»
+# CURRENT_TRUSTED_RUNTIME_VARIABLES. В снимок сессии не должны попадать голые «сегодня»
 # или «недавно». Временные предпочтения кодируются с явной датой истечения.
 # ─────────────────────────────────────────────────────────────────────────────
 TIME_NORMALIZATION = (
-    "Treat TRUSTED_RUNTIME_CONTEXT timestamp as the source of truth for current time.\n"
+    "Treat CURRENT_TRUSTED_RUNTIME_VARIABLES USER_DATETIME as the source of truth for current time.\n"
     "Convert relative temporal phrases from L1 snapshots into absolute or "
     "session-relative phrases before preserving them.\n"
     "Session handoff memory must not contain ambiguous standalone words like "

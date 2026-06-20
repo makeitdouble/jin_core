@@ -109,7 +109,12 @@
         #console-panel,
         #settings-panel {
             width: var(--panel-width);
-            max-height: calc(100% - (var(--panel-gap) * 2));
+            max-height: 100%;
+        }
+
+        #console-panel:not(.panel-collapsed),
+        #settings-panel:not(.panel-collapsed) {
+            min-height: 49%;
         }
 
         #console-panel.panel-collapsed,
@@ -121,6 +126,36 @@
 
         #console-panel.panel-collapsed #console-stream,
         #settings-panel.panel-collapsed .settings-scroll {
+            display: none;
+        }
+
+        .panel-bottom-resize-handle {
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            left: 0;
+            z-index: 8;
+            height: 10px;
+            cursor: ns-resize;
+            touch-action: none;
+        }
+
+        .panel-bottom-resize-handle::after {
+            content: "";
+            position: absolute;
+            right: 12px;
+            bottom: 3px;
+            left: 12px;
+            height: 1px;
+            background: transparent;
+            transition: background 0.12s ease;
+        }
+
+        .panel-bottom-resize-handle:hover::after {
+            background: rgba(148, 163, 184, 0.42);
+        }
+
+        .panel-collapsed .panel-bottom-resize-handle {
             display: none;
         }
 
@@ -152,6 +187,7 @@
         #settings-panel {
             right: var(--panel-gap);
             top: var(--panel-gap);
+            height: calc(100% - (var(--panel-gap) * 2));
         }
 
         #memory-drag-handle {
@@ -165,15 +201,54 @@
             line-height: 1;
         }
 
+        #console-stream,
         .settings-scroll {
             scrollbar-width: none;
             -ms-overflow-style: none;
         }
 
+        #console-stream::-webkit-scrollbar,
         .settings-scroll::-webkit-scrollbar {
             width: 0;
             height: 0;
             display: none;
+        }
+
+        #console-stream .logger-tag {
+            color: #9fb6c8 !important;
+            text-shadow: none;
+        }
+
+        #console-stream [data-log-kind="system"] > .logger-tag {
+            color: #75b8a5 !important;
+        }
+
+        #console-stream [data-log-kind="session"] > .logger-tag,
+        #console-stream [data-log-kind="memory"] > .logger-tag {
+            color: #8fb3d9 !important;
+        }
+
+        #console-stream [data-log-kind="flow"] > .logger-tag,
+        #console-stream [data-log-kind="before"] > .logger-tag,
+        #console-stream [data-log-kind="after"] > .logger-tag {
+            color: #a99bc4 !important;
+        }
+
+        #console-stream [data-log-kind="user"] > .logger-tag,
+        #console-stream [data-log-kind="service"] > .logger-tag {
+            color: #97b9d2 !important;
+        }
+
+        #console-stream [data-log-kind="brain"] > .logger-tag {
+            color: #b59ab4 !important;
+        }
+
+        #console-stream [data-log-kind="usage"] > .logger-tag {
+            color: #b8b8b8 !important;
+        }
+
+        #console-stream [data-log-kind="error"] > .logger-tag {
+            color: #d08a8a !important;
         }
 
         .runtime-memory-header {
@@ -182,6 +257,7 @@
             min-height: 32px;
             font-size: 11px;
             line-height: 1;
+            margin-top: -7px;
         }
 
         #chat-drop-zone {
@@ -798,6 +874,9 @@
 
         .think-rule-hit {
             color: inherit;
+            font-weight: inherit;
+            -webkit-text-stroke: 0.18px currentColor;
+            paint-order: stroke fill;
             text-shadow: none;
             transition:
                     color 1s ease,
@@ -1305,6 +1384,16 @@
 
         .runtime-memory-user-idle {
             opacity: 0.72;
+            margin-bottom: 0px;
+        }
+
+        .runtime-memory-key {
+            font-weight: 600!important;
+        }
+
+
+        .runtime-memory-user-idle .runtime-memory-key {
+            font-weight: 500!important;
         }
 
         .runtime-memory-user-idle .runtime-memory-key,
@@ -1361,6 +1450,867 @@
             text-shadow:
                     0 0 10px rgba(96, 165, 250, 0.030);
         }
+
+        #app-title {
+            padding: 0;
+            border: 0;
+            background: transparent;
+            color: inherit;
+            cursor: pointer;
+            font: inherit;
+        }
+
+        .win95-window-controls {
+            display: none;
+        }
+
+        body.theme-win95 {
+            --win95-face: #bbbabb;
+            --win95-face-dark: #b8b8b8;
+            --win95-face-soft: #d2d2d2;
+            --win95-title: #00006f;
+            --win95-title-text: #ffffff;
+            --win95-text: #000000;
+            --win95-shadow: #404040;
+            --win95-mid: #808080;
+            --win95-light: #d0cfd0;
+            --win95-radius: 3px;
+            --win95-bar-blue: #06067f;
+            --win95-bar-track: var(--win95-face);
+            --win95-blue-shadow: #000040;
+        }
+
+        body.theme-win95 > header {
+            background: var(--win95-title);
+            border-top: 2px solid var(--win95-light);
+            border-left: 2px solid var(--win95-light);
+            border-right: 2px solid var(--win95-shadow);
+            border-bottom: 2px solid var(--win95-shadow);
+            color: var(--win95-title-text);
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.28);
+        }
+
+        body.theme-win95 #app-title,
+        body.theme-win95 #service-label,
+        body.theme-win95 #brain-label {
+            color: var(--win95-title-text);
+            font-family: Calibri, Arial, sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            line-height: 1;
+            text-shadow: 1px 1px 0 var(--win95-blue-shadow);
+            margin-top: 1px;
+        }
+
+        body.theme-win95 #service-dot,
+        body.theme-win95 #brain-dot {
+            width: 11px;
+            height: 11px;
+            border-radius: 1px;
+            box-shadow:
+                    inset 1px 1px 0 rgba(255, 255, 255, 0.28),
+                    inset -1px -1px 0 rgba(0, 0, 0, 0.35);
+        }
+
+        body.theme-win95 #console-panel,
+        body.theme-win95 #settings-panel {
+            background: var(--win95-face);
+            color: var(--win95-text);
+            border-top: 2px solid var(--win95-light);
+            border-left: 2px solid var(--win95-light);
+            border-right: 2px solid var(--win95-shadow);
+            border-bottom: 2px solid var(--win95-shadow);
+            border-radius: var(--win95-radius);
+            box-shadow:
+                    1px 1px 0 var(--win95-text),
+                    0 12px 24px rgba(0, 0, 0, 0.30);
+            backdrop-filter: none;
+            font-family: Calibri, Arial, sans-serif;
+            font-weight: 500;
+        }
+
+        body.theme-win95 #console-drag-handle,
+        body.theme-win95 #memory-drag-handle {
+            flex: 0 0 28px;
+            height: 28px;
+            min-height: 28px;
+            padding: 3px 5px 4px 7px;
+            background: var(--win95-title);
+            border: 0;
+            border-bottom: 1px solid var(--win95-shadow);
+            color: var(--win95-title-text);
+            cursor: grab;
+        }
+
+        body.theme-win95 #console-title,
+        body.theme-win95 #fact-check-trigger {
+            color: var(--win95-title-text);
+            font-family: Calibri, Arial, sans-serif;
+            font-size: 14px!important;
+            font-weight: 600!important;
+            letter-spacing: 0.1em;
+            line-height: 1;
+            text-shadow: 1px 1px 0 var(--win95-blue-shadow);
+            filter: none;
+            padding-top: 1px;
+        }
+
+        body.theme-win95 .win95-window-controls {
+            display: flex;
+            gap: 4px;
+            margin-left: auto;
+            align-items: center;
+        }
+
+        body.theme-win95 .win95-window-button {
+            display: grid;
+            width: 19px;
+            height: 19px;
+            place-items: center;
+            background: var(--win95-face);
+            border: 1px solid var(--win95-shadow);
+            border-radius: 1px;
+            color: var(--win95-text);
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            font-weight: 500;
+            line-height: 1;
+            box-shadow:
+                    inset 1px 1px 0 var(--win95-light),
+                    inset -1px -1px 0 #8a8a8a;
+            user-select: none;
+        }
+
+        body.theme-win95 .win95-window-button-min {
+            position: relative;
+            padding: 0;
+            font-size: 0;
+        }
+
+        body.theme-win95 .win95-window-button-min::before {
+            content: "";
+            position: absolute;
+            left: 50%;
+            bottom: 3px;
+            width: 10px;
+            height: 3px;
+            background: var(--win95-text);
+            transform: translateX(-50%);
+        }
+
+        body.theme-win95 .win95-window-button-max {
+            font-size: 0;
+        }
+
+        body.theme-win95 .win95-window-button-max::before {
+            content: "";
+            width: 10px;
+            height: 10px;
+            border: 2px solid var(--win95-text);
+            box-sizing: border-box;
+            box-shadow: inset 0 1px 0;
+        }
+
+        body.theme-win95 .win95-window-button-close {
+            line-height: 0.6;
+            padding-bottom: 2px;
+            font-size: 17px;
+            font-weight: 1000 !important;
+            font-weight: bolder !important;
+            font-family: Tahoma !important;
+        }
+
+        body.theme-win95 #console-stream,
+        body.theme-win95 #settings-panel .settings-scroll {
+            padding: 10px 10px 12px;
+            background: var(--win95-face);
+            color: var(--win95-text);
+            font-family: Calibri, Arial, sans-serif;
+            font-size: 11px;
+            font-weight: 500;
+            line-height: 1.45;
+        }
+
+        body.theme-win95 #console-stream {
+            font-size: 13px;
+            gap: 0;
+        }
+
+        body.theme-win95 #console-stream > :not([hidden]) ~ :not([hidden]) {
+            margin-top: 0 !important;
+        }
+
+        body.theme-win95 #console-stream > div {
+            margin-bottom: 11px;
+            color: var(--win95-text);
+            font-family: Calibri, Arial, sans-serif;
+            font-size: 13px;
+            font-weight: 500;
+            line-height: 1.45;
+            text-shadow: none;
+        }
+
+        body.theme-win95 #console-stream > div:last-child {
+            margin-bottom: 0;
+        }
+
+        body.theme-win95 #console-stream > div.rounded {
+            padding: 10px;
+            background: var(--win95-face);
+            border: 1px solid var(--win95-shadow);
+            border-radius: var(--win95-radius);
+            box-shadow:
+                    inset 1px 1px 0 var(--win95-light),
+                    inset -1px -1px 0 #8a8a8a;
+        }
+
+        body.theme-win95 #console-stream span {
+            color: var(--win95-text) !important;
+            font-family: Calibri, Arial, sans-serif;
+            font-weight: 500;
+            text-shadow: none;
+        }
+
+        body.theme-win95 #console-stream span:first-child {
+            color: #1f3765 !important;
+            font-family: Tahoma, sans-serif;
+            font-size: 12px;
+            font-weight: 600 !important;
+        }
+
+        body.theme-win95 #console-stream [data-log-kind="system"] > .logger-tag {
+            color: #007a4d !important;
+        }
+
+        body.theme-win95 #console-stream [data-log-kind="session"] > .logger-tag,
+        body.theme-win95 #console-stream [data-log-kind="memory"] > .logger-tag {
+            color: #0057a8 !important;
+        }
+
+        body.theme-win95 #console-stream [data-log-kind="flow"] > .logger-tag,
+        body.theme-win95 #console-stream [data-log-kind="before"] > .logger-tag,
+        body.theme-win95 #console-stream [data-log-kind="after"] > .logger-tag {
+            color: #5a2aa0 !important;
+        }
+
+        body.theme-win95 #console-stream [data-log-kind="user"] > .logger-tag,
+        body.theme-win95 #console-stream [data-log-kind="service"] > .logger-tag {
+            color: #0067a8 !important;
+        }
+
+        body.theme-win95 #console-stream [data-log-kind="brain"] > .logger-tag {
+            color: #8a2a68 !important;
+        }
+
+        body.theme-win95 #console-stream [data-log-kind="usage"] > .logger-tag {
+            color: #303030 !important;
+        }
+
+        body.theme-win95 #console-stream [data-log-kind="error"] > .logger-tag {
+            color: #b00000 !important;
+        }
+
+        body.theme-win95 #console-stream button {
+            height: 24px;
+            padding: 2px 8px;
+            background: var(--win95-face);
+            border: 1px solid var(--win95-shadow);
+            border-radius: 1px;
+            color: var(--win95-text) !important;
+            font-family: Calibri, Arial, sans-serif;
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: 0;
+            text-transform: uppercase;
+            box-shadow:
+                    inset 1px 1px 0 var(--win95-light),
+                    inset -1px -1px 0 #8a8a8a;
+        }
+
+        body.theme-win95 #console-stream button:hover {
+            background: var(--win95-face-soft);
+        }
+
+        body.theme-win95 #console-stream button:active {
+            background: var(--win95-face-dark);
+            border-top-color: var(--win95-shadow);
+            border-left-color: var(--win95-shadow);
+            border-right-color: var(--win95-light);
+            border-bottom-color: var(--win95-light);
+            box-shadow:
+                    inset 1px 1px 0 #8a8a8a,
+                    inset -1px -1px 0 #d6d6d6;
+            transform: translate(1px, 1px);
+        }
+
+        body.theme-win95 #settings-panel .settings-scroll > .grid:first-child {
+            border: 0;
+            border-radius: 0;
+            background: transparent;
+            gap: 0;
+            padding: 0 2px;
+        }
+
+        body.theme-win95 #settings-panel [data-context-tab] {
+            height: 32px;
+            background: var(--win95-face);
+            border: 1px solid var(--win95-shadow);
+            border-radius: 1px;
+            color: var(--win95-text);
+            font-family: Calibri, Arial, sans-serif;
+            font-size: 15px;
+            font-weight: 500;
+            letter-spacing: 0;
+            text-transform: uppercase;
+            text-shadow: none;
+            box-shadow:
+                    inset 1px 1px 0 var(--win95-light),
+                    inset -1px -1px 0 #8a8a8a;
+        }
+
+        body.theme-win95 #settings-panel [data-context-tab][aria-selected="true"] {
+            background: var(--win95-face-dark);
+            border-color: var(--win95-shadow);
+            box-shadow:
+                    inset 1px 1px 0 #8a8a8a,
+                    inset -1px -1px 0 #d6d6d6;
+            transform: none;
+        }
+
+        body.theme-win95 #context-runtime-panel,
+        body.theme-win95 #runtime-memory-panel {
+            background: var(--win95-face);
+            border: 1px solid var(--win95-shadow);
+            border-radius: var(--win95-radius);
+            color: var(--win95-text);
+        }
+
+        body.theme-win95 #context-runtime-panel > div,
+        body.theme-win95 #runtime-memory-panel > div {
+            padding: 12px;
+        }
+
+        body.theme-win95 #context-runtime-panel .space-y-3 > :not([hidden]) ~ :not([hidden]) {
+            margin-top: 0 !important;
+        }
+
+        body.theme-win95 #context-panel-model,
+        body.theme-win95 #runtime-memory-text,
+        body.theme-win95 #context-summary-tokens,
+        body.theme-win95 .runtime-memory-header,
+        body.theme-win95 #settings-panel pre,
+        body.theme-win95 #settings-panel span,
+        body.theme-win95 #settings-panel button {
+            color: var(--win95-text) !important;
+            text-shadow: none;
+            font-family: Calibri, Arial, sans-serif;
+            font-weight: 500;
+        }
+
+        body.theme-win95 #settings-panel #fact-check-trigger {
+            color: var(--win95-title-text) !important;
+            text-shadow: 1px 1px 0 var(--win95-blue-shadow);
+        }
+
+        body.theme-win95 #context-panel-model {
+            font-size: 14px;
+            font-weight: 500;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--win95-mid);
+        }
+
+        body.theme-win95 .runtime-memory-header {
+            border-bottom: 1px solid var(--win95-mid);
+            font-size: 14px;
+            font-weight: 500;
+            letter-spacing: 0;
+            padding-bottom: 8px;
+            text-transform: uppercase;
+        }
+
+        body.theme-win95 #runtime-memory-prev,
+        body.theme-win95 #runtime-memory-next,
+        body.theme-win95 #runtime-memory-position {
+            color: var(--win95-text);
+        }
+
+        body.theme-win95 #runtime-memory-prev,
+        body.theme-win95 #runtime-memory-next,
+        body.theme-win95 #runtime-memory-position {
+            display: inline-grid;
+            min-width: 16px;
+            height: 16px;
+            place-items: center;
+            background: transparent;
+            border: 2px solid transparent;
+            border-radius: 0;
+            box-shadow: none;
+            padding: 0 3px;
+        }
+
+        body.theme-win95 #runtime-memory-prev,
+        body.theme-win95 #runtime-memory-next {
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        body.theme-win95 #runtime-memory-prev:hover,
+        body.theme-win95 #runtime-memory-next:hover,
+        body.theme-win95 #runtime-memory-position:hover {
+            background: var(--win95-face);
+            border-top-color: var(--win95-light);
+            border-left-color: var(--win95-light);
+            border-right-color: var(--win95-shadow);
+            border-bottom-color: var(--win95-shadow);
+            box-shadow: none;
+        }
+
+        body.theme-win95 #runtime-memory-position.runtime-memory-position-pinned {
+            color: #00824a !important;
+            font-weight: 500;
+        }
+
+        body.theme-win95 #runtime-memory-text {
+            min-height: 148px;
+            padding-top: 2px;
+            font-family: Calibri, Arial, sans-serif;
+            font-size: 13px;
+            font-weight: 500;
+            line-height: 1.45;
+            text-shadow: none;
+        }
+
+        body.theme-win95 #runtime-memory-panel,
+        body.theme-win95 #runtime-memory-panel *,
+        body.theme-win95 #runtime-memory-text,
+        body.theme-win95 #runtime-memory-text .runtime-memory-key,
+        body.theme-win95 #runtime-memory-text .runtime-memory-value {
+            color: var(--win95-text) !important;
+            font-family: Calibri, Arial, sans-serif;
+            font-weight: 500;
+            text-shadow: none;
+        }
+
+        body.theme-win95 #context-accordion > div:first-child {
+            border-top: 0;
+            border-bottom: 1px solid var(--win95-mid);
+            color: var(--win95-text);
+            font-size: 14px;
+            font-weight: 500;
+            letter-spacing: 0;
+            padding: 8px 0;
+            text-transform: uppercase;
+        }
+
+        body.theme-win95 #context-summary-tokens {
+            display: inline-flex;
+            width: auto;
+            min-width: 74px;
+            flex-direction: column;
+            justify-content: flex-end;
+            gap: 2px;
+            font-size: 14px;
+            line-height: 1.05;
+        }
+
+        body.theme-win95 #context-summary-used,
+        body.theme-win95 #context-summary-max {
+            white-space: nowrap;
+        }
+
+        body.theme-win95 #context-window-line,
+        body.theme-win95 #summarizer-window-line {
+            align-items: center;
+            gap: 10px;
+            color: var(--win95-text) !important;
+            font-size: 12px;
+        }
+
+        body.theme-win95 #context-window-percent,
+        body.theme-win95 #summarizer-window-percent {
+            color: var(--win95-text) !important;
+            width: 4ch;
+            font-family: Calibri, Arial, sans-serif;
+            font-size: 14px;
+        }
+
+        body.theme-win95 #context-window-bar,
+        body.theme-win95 #summarizer-window-bar {
+            position: relative;
+            height: 15px;
+            min-width: 0;
+            flex: 1 1 auto;
+            overflow: hidden;
+            color: transparent !important;
+            font-size: 0;
+            line-height: 0;
+            background: var(--win95-bar-track);
+            border: 1px solid #8a8a8a;
+            border-radius: 1px;
+            box-shadow: none;
+        }
+
+        body.theme-win95 #context-window-bar *,
+        body.theme-win95 #summarizer-window-bar * {
+            color: transparent !important;
+        }
+
+        body.theme-win95 #context-window-bar::before,
+        body.theme-win95 #summarizer-window-bar::before {
+            content: "";
+            position: absolute;
+            top: 2px;
+            bottom: 2px;
+            left: 2px;
+            width: var(--win95-context-total-fill, 0%);
+            max-width: calc(100% - 4px);
+            background:
+                    repeating-linear-gradient(
+                            90deg,
+                            rgba(6, 6, 127, 0.42) 0,
+                            rgba(6, 6, 127, 0.42) 5px,
+                            transparent 5px,
+                            transparent 8px
+                    );
+        }
+
+        body.theme-win95 #context-window-bar::after,
+        body.theme-win95 #summarizer-window-bar::after {
+            content: "";
+            position: absolute;
+            top: 2px;
+            bottom: 2px;
+            left: 2px;
+            width: var(--win95-context-fill, 0%);
+            max-width: calc(100% - 4px);
+            background:
+                    repeating-linear-gradient(
+                            90deg,
+                            var(--win95-bar-blue) 0,
+                            var(--win95-bar-blue) 5px,
+                            transparent 5px,
+                            transparent 8px
+                    );
+        }
+
+        body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-key.flash-new,
+        body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-value.flash-new {
+            color: #007f48 !important;
+            font-weight: 500;
+        }
+
+        body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-key.flash-changed {
+            color: #6b3fb0 !important;
+            font-weight: 500;
+        }
+
+        body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-value.flash-changed {
+            color: rgba(
+                    0,
+                    112,
+                    64,
+                    var(--memory-change-alpha, 0.82)
+            ) !important;
+            font-weight: 500;
+        }
+
+        body.theme-win95 #chat-input-shell {
+            padding-top: 12px;
+            padding-bottom: 12px;
+        }
+
+        body.theme-win95 #chat-form {
+            min-height: 44px;
+            padding: 5px 7px;
+            background: var(--win95-face);
+            border-top: 2px solid var(--win95-light);
+            border-left: 2px solid var(--win95-light);
+            border-right: 2px solid var(--win95-shadow);
+            border-bottom: 2px solid var(--win95-shadow);
+            border-radius: 2px;
+            box-shadow: none;
+            backdrop-filter: none;
+        }
+
+        body.theme-win95 #chat-form:focus-within {
+            box-shadow: none;
+        }
+
+        body.theme-win95 #chat-form label[for="file-input"] {
+            display: none !important;
+        }
+
+        body.theme-win95 #user-input {
+            box-sizing: border-box;
+            min-height: 30px;
+            max-height: 112px;
+            padding: 3px 6px;
+            background: #eeeeee;
+            border-top: 2px solid #8a8a8a;
+            border-left: 2px solid #8a8a8a;
+            border-right: 2px solid #f4f4f4;
+            border-bottom: 2px solid #f4f4f4;
+            border-radius: 1px;
+            color: var(--win95-text);
+            font-family: Calibri, Arial, sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            line-height: 20px;
+            overflow: hidden;
+            scrollbar-width: none;
+            caret-color: var(--win95-text);
+        }
+
+        body.theme-win95 #user-input::-webkit-scrollbar {
+            width: 0;
+            height: 0;
+            display: none;
+        }
+
+        body.theme-win95 #user-input::placeholder {
+            color: #5f5f5f;
+            opacity: 1;
+        }
+
+        body.theme-win95 #user-input:focus {
+            border-top: 2px solid #8a8a8a;
+            border-left: 2px solid #8a8a8a;
+            border-right: 2px solid #f4f4f4;
+            border-bottom: 2px solid #f4f4f4;
+            outline: 0;
+            box-shadow: none;
+        }
+
+        body.theme-win95 #stop-indicator {
+            inset: 5px 7px;
+            z-index: 3;
+            background: rgba(128, 0, 0, 0.14);
+            border: 1px solid rgba(128, 0, 0, 0.32);
+            border-radius: 1px;
+            color: #b00000;
+            pointer-events: auto;
+        }
+
+        body.theme-win95 #stop-indicator span {
+            width: 9px;
+            height: 9px;
+            background: #b00000;
+            border: 1px solid #6f0000;
+            border-radius: 1px;
+            box-shadow: none;
+        }
+
+        body.theme-win95 .jin-message-row {
+            gap: 8px;
+        }
+
+        body.theme-win95 .jin-chat-avatar {
+            width: 28px;
+            height: 28px;
+            flex: 0 0 28px;
+            background: var(--win95-face);
+            border-top: 2px solid var(--win95-light);
+            border-left: 2px solid var(--win95-light);
+            border-right: 2px solid var(--win95-shadow);
+            border-bottom: 2px solid var(--win95-shadow);
+            border-radius: 2px;
+            color: var(--win95-text);
+            font-family: Calibri, Arial, sans-serif;
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: 0;
+            text-shadow: none;
+            box-shadow: none;
+        }
+
+        body.theme-win95 .jin-chat-avatar.cursor-help:hover {
+            background: #c7c6c7;
+            border-top-color: var(--win95-light);
+            border-left-color: var(--win95-light);
+            border-right-color: var(--win95-shadow);
+            border-bottom-color: var(--win95-shadow);
+            color: var(--win95-text);
+        }
+
+        body.theme-win95 .jin-chat-avatar.cursor-help:active,
+        body.theme-win95 .jin-chat-avatar.cursor-help:focus-visible {
+            background: var(--win95-face-dark);
+            border-top-color: var(--win95-shadow);
+            border-left-color: var(--win95-shadow);
+            border-right-color: var(--win95-light);
+            border-bottom-color: var(--win95-light);
+            outline: 0;
+        }
+
+        body.theme-win95 .jin-chat-avatar-service {
+            background:
+                    linear-gradient(180deg, rgba(46, 139, 118, 0.16), rgba(46, 139, 118, 0.045)),
+                    var(--win95-face);
+        }
+
+        body.theme-win95 .jin-chat-avatar-user {
+            font-size: 12px;
+            background:
+                    linear-gradient(180deg, rgba(72, 96, 130, 0.16), rgba(72, 96, 130, 0.045)),
+                    var(--win95-face);
+        }
+
+        body.theme-win95 .jin-chat-avatar-service.cursor-help:active,
+        body.theme-win95 .jin-chat-avatar-service.cursor-help:focus-visible,
+        body.theme-win95 .jin-chat-avatar-user.cursor-help:active,
+        body.theme-win95 .jin-chat-avatar-user.cursor-help:focus-visible {
+            background: var(--win95-face-dark);
+        }
+
+        body.theme-win95 .jin-chat-bubble {
+            padding: 12px 18px;
+            background: var(--win95-face);
+            border-top: 2px solid var(--win95-light);
+            border-left: 2px solid var(--win95-light);
+            border-right: 2px solid var(--win95-shadow);
+            border-bottom: 2px solid var(--win95-shadow);
+            border-radius: 2px;
+            color: var(--win95-text);
+            backdrop-filter: none;
+            box-shadow: none;
+            clip-path: none;
+        }
+
+        body.theme-win95 .jin-chat-bubble:not(.jin-chat-bubble-service),
+        body.theme-win95 .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-press-minus):not(.jin-rating-press-neutral):not(.jin-rating-press-plus):not(:has(.jin-rating-zone:hover)) {
+            box-shadow:
+                    1px 1px 0 var(--win95-text),
+                    0 8px 18px rgba(0, 0, 0, 0.16);
+        }
+
+        body.theme-win95 .jin-chat-bubble::before,
+        body.theme-win95 .jin-chat-bubble::after {
+            border-radius: inherit;
+        }
+
+        body.theme-win95 .jin-chat-bubble .jin-chat-pre {
+            color: var(--win95-text);
+            font-family: Calibri, Arial, sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            line-height: 1.45;
+            text-shadow: none;
+        }
+
+        body.theme-win95 .jin-chat-bubble-service {
+            background: var(--win95-face);
+            color: var(--win95-text);
+        }
+
+        body.theme-win95 .jin-chat-bubble-service .jin-chat-pre {
+            color: var(--win95-text);
+            text-shadow: none;
+        }
+
+        body.theme-win95 .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-minus:hover),
+        body.theme-win95 .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-neutral:hover),
+        body.theme-win95 .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-plus:hover),
+        body.theme-win95 .jin-chat-bubble-service.jin-rating-press-minus,
+        body.theme-win95 .jin-chat-bubble-service.jin-rating-press-neutral,
+        body.theme-win95 .jin-chat-bubble-service.jin-rating-press-plus,
+        body.theme-win95 .jin-chat-bubble-service.jin-rating-selected-minus,
+        body.theme-win95 .jin-chat-bubble-service.jin-rating-selected-neutral,
+        body.theme-win95 .jin-chat-bubble-service.jin-rating-selected-plus {
+            box-shadow: none;
+        }
+
+        body.theme-win95 .jin-chat-bubble-service.jin-rating-l1-waiting,
+        body.theme-win95 .jin-chat-bubble-service.jin-rating-l1-waiting .jin-rating-zone,
+        body.theme-win95 .jin-chat-bubble-service.jin-rating-committed,
+        body.theme-win95 .jin-chat-bubble-service.jin-rating-committed .jin-rating-zone {
+            cursor: default;
+        }
+
+        body.theme-win95 .jin-think-wrapper {
+            opacity: 1;
+            max-width: 728px;
+        }
+
+        body.theme-win95 .jin-think-content {
+            background: rgba(187, 186, 187, 0.75);
+            border-top: 2px solid var(--win95-light);
+            border-left: 2px solid var(--win95-light);
+            border-right: 2px solid var(--win95-shadow);
+            border-bottom: 2px solid var(--win95-shadow);
+            border-radius: 2px;
+            color: var(--win95-text);
+            font-family: Calibri, Arial, sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            line-height: 1.55;
+            text-shadow: none;
+            backdrop-filter: none;
+            box-shadow: none;
+            transition:
+                    max-height 0.24s ease,
+                    border-color 0.2s ease,
+                    background-color 0.2s ease;
+        }
+
+        body.theme-win95 .jin-think-content:hover {
+            background: rgba(187, 186, 187, 0.75);
+            border-top-color: var(--win95-light);
+            border-left-color: var(--win95-light);
+            border-right-color: var(--win95-shadow);
+            border-bottom-color: var(--win95-shadow);
+            box-shadow: none;
+        }
+
+        body.theme-win95 .jin-think-content:focus-visible {
+            outline: 1px dotted var(--win95-text);
+            outline-offset: -4px;
+        }
+
+        body.theme-win95 .jin-think-content.is-collapsed {
+            background: rgba(187, 186, 187, 0.75);
+            border-top-color: var(--win95-light);
+            border-left-color: var(--win95-light);
+            border-right-color: var(--win95-shadow);
+            border-bottom-color: var(--win95-shadow);
+            box-shadow: none;
+        }
+
+        body.theme-win95 .jin-think-content .think-rule-hit,
+        body.theme-win95 .jin-think-content.is-rule-highlight-revealing .think-rule-hit,
+        body.theme-win95 .jin-think-content.has-rule-highlights:hover .think-rule-hit {
+            text-shadow: none;
+        }
+
+        body.theme-win95 .jin-think-content.is-rule-highlight-revealing .think-citation-runtime.exact,
+        body.theme-win95 .jin-think-content.has-rule-highlights:hover .think-citation-runtime.exact {
+            color: #006f2f;
+        }
+
+        body.theme-win95 .jin-think-content.is-rule-highlight-revealing .think-citation-runtime.near,
+        body.theme-win95 .jin-think-content.has-rule-highlights:hover .think-citation-runtime.near {
+            color: #007a35;
+        }
+
+        body.theme-win95 .jin-think-content.is-rule-highlight-revealing .think-citation-runtime.compressed,
+        body.theme-win95 .jin-think-content.has-rule-highlights:hover .think-citation-runtime.compressed {
+            color: #168041;
+        }
+
+        body.theme-win95 .jin-think-content.is-rule-highlight-revealing .think-citation-session.exact,
+        body.theme-win95 .jin-think-content.has-rule-highlights:hover .think-citation-session.exact {
+            color: #5f22b3;
+        }
+
+        body.theme-win95 .jin-think-content.is-rule-highlight-revealing .think-citation-session.near,
+        body.theme-win95 .jin-think-content.has-rule-highlights:hover .think-citation-session.near {
+            color: #6f35bd;
+        }
+
+        body.theme-win95 .jin-think-content.is-rule-highlight-revealing .think-citation-session.compressed,
+        body.theme-win95 .jin-think-content.has-rule-highlights:hover .think-citation-session.compressed {
+            color: #7950b8;
+        }
     </style>
 </head>
 <body class="h-screen overflow-hidden flex flex-col font-mono antialiased bg-zinc-950 text-zinc-100">
@@ -1370,7 +2320,12 @@
 <header
         class="h-10 border-b border-zinc-800 bg-zinc-900 flex items-center justify-between px-4 text-xs tracking-wider text-zinc-400 shrink-0">
 
-    <div>[JIN CORE ENGINE]</div>
+    <button
+            id="app-title"
+            type="button"
+            class="text-left uppercase">
+        [JIN CORE ENGINE]
+    </button>
 
     <div class="grid w-72 grid-cols-2 items-center">
 
@@ -1447,9 +2402,16 @@
              class="h-10 border-b border-zinc-800/80 flex items-center justify-between px-4
            bg-zinc-900/50 cursor-grab active:cursor-grabbing select-none">
 
-            <h3 class="text-xs font-bold uppercase tracking-widest text-zinc-300">
+            <h3 id="console-title"
+                class="text-xs font-bold uppercase tracking-widest text-zinc-300">
                 DATA STREAM CONSOLE
             </h3>
+
+            <div class="win95-window-controls" aria-hidden="true">
+                <span class="win95-window-button win95-window-button-min">_</span>
+                <span class="win95-window-button win95-window-button-max"></span>
+                <span class="win95-window-button win95-window-button-close">x</span>
+            </div>
 
         </div>
 
@@ -1647,6 +2609,12 @@
                 JIN
             </button>
 
+            <div class="win95-window-controls" aria-hidden="true">
+                <span class="win95-window-button win95-window-button-min">_</span>
+                <span class="win95-window-button win95-window-button-max"></span>
+                <span class="win95-window-button win95-window-button-close">x</span>
+            </div>
+
         </div>
 
         <div
@@ -1796,6 +2764,28 @@
     </section>
 
 </main>
+
+
+<script>
+    (function () {
+        const themeKey = "jin_theme_win95";
+        const themeClass = "theme-win95";
+        const titleButton = document.getElementById("app-title");
+
+        function applyWin95Theme(enabled) {
+            document.body.classList.toggle(themeClass, enabled);
+            localStorage.setItem(themeKey, enabled ? "1" : "0");
+        }
+
+        applyWin95Theme(localStorage.getItem(themeKey) === "1");
+
+        if (titleButton) {
+            titleButton.addEventListener("click", function () {
+                applyWin95Theme(!document.body.classList.contains(themeClass));
+            });
+        }
+    })();
+</script>
 
 
 <script>
@@ -2145,7 +3135,7 @@
 <script src="/static/js/runtime/runtime.js?v=runtime-facade-3"></script>
 <script src="/static/js/status.js?v=status-check-4"></script>
 <script src="/static/js/dragdrop.js?v=context-panel-5"></script>
-<script src="/static/js/logger.js?v=session-card-1"></script>
+<script src="/static/js/logger.js?v=panel-geometry-clamp-1"></script>
 <script src="/static/js/chat.js?v=session-citations-2"></script>
 <script src="/static/js/socket.js?v=runtime-session-unified-1"></script>
 </body>

@@ -425,6 +425,56 @@ function appendLog(
     logDiv.replaceChildren();
   }
 
+  const normalizedTag =
+    String(tag || "").toUpperCase();
+
+  let logKind =
+    "default";
+
+  if (normalizedTag.includes("ERROR")) {
+    logKind =
+      "error";
+  } else if (normalizedTag.includes("USER")) {
+    logKind =
+      "user";
+  } else if (normalizedTag.includes("SYSTEM")) {
+    logKind =
+      "system";
+  } else if (normalizedTag.includes("SESSION")) {
+    logKind =
+      "session";
+  } else if (normalizedTag.includes("LATEST SNAPSHOTS")) {
+    logKind =
+      "session";
+  } else if (normalizedTag.includes("MEMORY:")) {
+    logKind =
+      "memory";
+  } else if (normalizedTag.includes("SUMMARIZER")) {
+    logKind =
+      "memory";
+  } else if (normalizedTag.includes("FLOW")) {
+    logKind =
+      "flow";
+  } else if (normalizedTag.includes("SERVICE")) {
+    logKind =
+      "service";
+  } else if (normalizedTag.includes("BRAIN")) {
+    logKind =
+      "brain";
+  } else if (normalizedTag.includes("BEFORE")) {
+    logKind =
+      "before";
+  } else if (normalizedTag.includes("AFTER")) {
+    logKind =
+      "after";
+  } else if (normalizedTag.includes("USAGE")) {
+    logKind =
+      "usage";
+  }
+
+  logDiv.dataset.logKind =
+    logKind;
+
   let tagClass =
     "text-zinc-500";
 
@@ -567,7 +617,7 @@ function appendLog(
     document.createElement("span");
 
   tagSpan.className =
-    `${tagClass} block`;
+    `${tagClass} logger-tag block`;
 
   tagSpan.textContent =
     tag;
@@ -757,6 +807,7 @@ window.showTrace =
 
 const consolePanel = document.getElementById("console-panel");
     const consoleDragHandle = document.getElementById("console-drag-handle");
+    const PANEL_VIEWPORT_GAP = 8;
 
     function syncSceneShadeToPanelCollapse() {
         const root =
@@ -787,10 +838,18 @@ const consolePanel = document.getElementById("console-panel");
         }
     }
 
-    function togglePanelCollapseFromHeader(event, panel, handle) {
+    function togglePanelCollapseFromHeader(event, panel, handle, options = {}) {
+        const ignoredTarget =
+            options.ignoredTarget || null;
+
         if (
-            event.target !== handle
+            !handle
+            || !handle.contains(event.target)
             || !panel
+            || (
+                ignoredTarget
+                && ignoredTarget.contains(event.target)
+            )
         ) {
             return;
         }
@@ -798,6 +857,233 @@ const consolePanel = document.getElementById("console-panel");
         event.preventDefault();
         panel.classList.toggle("panel-collapsed");
         syncSceneShadeToPanelCollapse();
+    }
+
+    function getPanelResizeBounds(panel) {
+        const parentRect =
+            panel.parentElement.getBoundingClientRect();
+
+        const panelRect =
+            panel.getBoundingClientRect();
+
+        const panelTop =
+            panelRect.top - parentRect.top;
+
+        const minHeight =
+            Math.round(parentRect.height * 0.49);
+
+        const maxHeight =
+            Math.max(
+                minHeight,
+                parentRect.height - panelTop - PANEL_VIEWPORT_GAP
+            );
+
+        return {
+            minHeight,
+            maxHeight,
+        };
+    }
+
+    function clampPanelResizeHeight(panel, nextHeight) {
+        const bounds =
+            getPanelResizeBounds(panel);
+
+        return Math.max(
+            bounds.minHeight,
+            Math.min(
+                nextHeight,
+                bounds.maxHeight
+            )
+        );
+    }
+
+    function clampPanelGeometry(panel) {
+        if (
+            !panel
+            || panel.classList.contains("panel-collapsed")
+        ) {
+            return;
+        }
+
+        const parentRect =
+            panel.parentElement.getBoundingClientRect();
+
+        const panelRect =
+            panel.getBoundingClientRect();
+
+        const currentLeft =
+            panelRect.left - parentRect.left;
+
+        const currentTop =
+            panelRect.top - parentRect.top;
+
+        const maxWidth =
+            Math.max(
+                PANEL_VIEWPORT_GAP,
+                parentRect.width - (PANEL_VIEWPORT_GAP * 2)
+            );
+
+        const safeWidth =
+            Math.min(
+                panelRect.width,
+                maxWidth
+            );
+
+        const maxLeft =
+            Math.max(
+                PANEL_VIEWPORT_GAP,
+                parentRect.width - safeWidth - PANEL_VIEWPORT_GAP
+            );
+
+        const nextLeft =
+            Math.max(
+                PANEL_VIEWPORT_GAP,
+                Math.min(
+                    currentLeft,
+                    maxLeft
+                )
+            );
+
+        const minHeight =
+            Math.round(parentRect.height * 0.49);
+
+        const maxTop =
+            Math.max(
+                PANEL_VIEWPORT_GAP,
+                parentRect.height - minHeight - PANEL_VIEWPORT_GAP
+            );
+
+        const nextTop =
+            Math.max(
+                PANEL_VIEWPORT_GAP,
+                Math.min(
+                    currentTop,
+                    maxTop
+                )
+            );
+
+        const maxHeight =
+            Math.max(
+                minHeight,
+                parentRect.height - nextTop - PANEL_VIEWPORT_GAP
+            );
+
+        const nextHeight =
+            Math.max(
+                minHeight,
+                Math.min(
+                    panelRect.height,
+                    maxHeight
+                )
+            );
+
+        panel.style.left =
+            `${nextLeft}px`;
+
+        panel.style.top =
+            `${nextTop}px`;
+
+        panel.style.right =
+            "auto";
+
+        panel.style.height =
+            `${nextHeight}px`;
+    }
+
+    function clampAllPanelGeometry() {
+        clampPanelGeometry(
+            consolePanel
+        );
+
+        clampPanelGeometry(
+            memoryPanel
+        );
+    }
+
+    function attachBottomResize(panel) {
+        if (!panel) {
+            return;
+        }
+
+        const resizeHandle =
+            document.createElement("div");
+
+        resizeHandle.className =
+            "panel-bottom-resize-handle";
+
+        resizeHandle.setAttribute(
+            "aria-hidden",
+            "true"
+        );
+
+        panel.appendChild(
+            resizeHandle
+        );
+
+        let isResizing =
+            false;
+
+        let resizeStartY =
+            0;
+
+        let resizeStartHeight =
+            0;
+
+        resizeHandle.addEventListener("mousedown", (event) => {
+            if (
+                event.button !== 0
+                || panel.classList.contains("panel-collapsed")
+            ) {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+
+            isResizing =
+                true;
+
+            resizeStartY =
+                event.clientY;
+
+            resizeStartHeight =
+                panel.getBoundingClientRect().height;
+
+            document.body.style.cursor =
+                "ns-resize";
+
+            document.body.style.userSelect =
+                "none";
+        });
+
+        window.addEventListener("mousemove", (event) => {
+            if (!isResizing) {
+                return;
+            }
+
+            const nextHeight =
+                resizeStartHeight
+                + event.clientY
+                - resizeStartY;
+
+            panel.style.height =
+                `${clampPanelResizeHeight(panel, nextHeight)}px`;
+        });
+
+        window.addEventListener("mouseup", () => {
+            if (!isResizing) {
+                return;
+            }
+
+            isResizing =
+                false;
+
+            document.body.style.cursor =
+                "";
+
+            document.body.style.userSelect =
+                "";
+        });
     }
 
     let isConsoleDragging = false;
@@ -832,8 +1118,21 @@ const consolePanel = document.getElementById("console-panel");
         let nextLeft = event.clientX - parentRect.left - consoleOffsetX;
         let nextTop = event.clientY - parentRect.top - consoleOffsetY;
 
-        nextLeft = Math.max(8, Math.min(nextLeft, parentRect.width - panelRect.width - 8));
-        nextTop = Math.max(8, Math.min(nextTop, parentRect.height - panelRect.height - 8));
+        nextLeft = Math.max(
+            PANEL_VIEWPORT_GAP,
+            Math.min(
+                nextLeft,
+                parentRect.width - panelRect.width - PANEL_VIEWPORT_GAP
+            )
+        );
+
+        nextTop = Math.max(
+            PANEL_VIEWPORT_GAP,
+            Math.min(
+                nextTop,
+                parentRect.height - panelRect.height - PANEL_VIEWPORT_GAP
+            )
+        );
 
         consolePanel.style.left = `${nextLeft}px`;
         consolePanel.style.top = `${nextTop}px`;
@@ -894,18 +1193,18 @@ window.addEventListener("mousemove", (event) => {
         event.clientY - parentRect.top - memoryOffsetY;
 
     nextLeft = Math.max(
-        8,
+        PANEL_VIEWPORT_GAP,
         Math.min(
             nextLeft,
-            parentRect.width - panelRect.width - 8
+            parentRect.width - panelRect.width - PANEL_VIEWPORT_GAP
         )
     );
 
     nextTop = Math.max(
-        8,
+        PANEL_VIEWPORT_GAP,
         Math.min(
             nextTop,
-            parentRect.height - panelRect.height - 8
+            parentRect.height - panelRect.height - PANEL_VIEWPORT_GAP
         )
     );
 
@@ -923,6 +1222,27 @@ memoryDragHandle.addEventListener("dblclick", (event) => {
     togglePanelCollapseFromHeader(
         event,
         memoryPanel,
-        memoryDragHandle
+        memoryDragHandle,
+        {
+            ignoredTarget:
+                document.getElementById("fact-check-trigger"),
+        }
     );
 });
+
+attachBottomResize(
+    consolePanel
+);
+
+attachBottomResize(
+    memoryPanel
+);
+
+requestAnimationFrame(
+    clampAllPanelGeometry
+);
+
+window.addEventListener(
+    "resize",
+    clampAllPanelGeometry
+);
