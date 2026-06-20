@@ -286,10 +286,9 @@ KEY_SEMANTICS = (
     "Do not merge a durable key into a temporary key.\n"
     "Use a new key only when the current fact genuinely does not fit an existing key.\n"
     "Prefer keeping an existing key when it still fits.\n"
-    "Typical temporary keys: active_topic, current_task, current_request, pending_choice, "
+    "Typical temporary keys: user_message, active_topic, current_task, current_request, pending_choice, "
     "last_jin_response, interaction_state.\n"
-    "Typical durable keys: user_fact, jin_fact, jin_core_definition, active_memory, active_memory_N, "
-    "shared_axiom_established, primary_goal.\n"
+    "Typical durable keys: active_memory, user_fact, jin_fact, shared_axiom"
 )
 
 # Разделение временного и долговременного состояния.
