@@ -2261,10 +2261,11 @@ def build_runtime_memory_user_prompt(
 
     hot_traces = ""
     if strength_zones:
-        hot = ", ".join(strength_zones.get("hot", [])) or "none"
-        hot_traces = (
-            f"hot_traces: {hot}\n\n"
-        )
+        hot_items = strength_zones.get("hot", [])
+        if hot_items:
+            hot_traces = (
+                f"hot_traces: {', '.join(hot_items)}\n\n"
+            )
 
     return (
         "Current runtime memory:\n"
@@ -2274,7 +2275,6 @@ def build_runtime_memory_user_prompt(
         f"{user_message.strip()}\n\n"
         "Latest JIN answer:\n"
         f"{assistant_message.strip()}\n\n"
-        "Rewrite the runtime memory now as atomic bullet lines."
     )
 
 
@@ -2292,15 +2292,12 @@ def build_runtime_memory_batch_user_prompt(
     ]
 
     if strength_zones:
-        hot = ", ".join(strength_zones.get("hot", [])) or "none"
-        lines.extend([
-            f"hot_traces: {hot}",
-            "",
-        ])
-
-    lines.extend([
-        "New completed turns since that memory snapshot:",
-    ])
+        hot_items = strength_zones.get("hot", [])
+        if hot_items:
+            lines.extend([
+                f"hot_traces: {', '.join(hot_items)}",
+                "",
+            ])
 
     for index, turn in enumerate(
             turns,
@@ -2308,9 +2305,6 @@ def build_runtime_memory_batch_user_prompt(
     ):
         lines.extend([
             "",
-            "Turn {index}".format(
-                index=index,
-            ),
             "Latest user message:",
             (
                 turn.get(
@@ -2330,12 +2324,6 @@ def build_runtime_memory_batch_user_prompt(
             ),
         ])
 
-    lines.extend([
-        "",
-        "Rewrite the runtime memory now as atomic bullet lines.",
-        "Use the current memory as the last stable snapshot.",
-        "Integrate all new completed turns in order.",
-    ])
 
     return "\n".join(
         lines

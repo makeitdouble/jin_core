@@ -420,8 +420,6 @@ class MessageMemoryTests(
                 "user_fact",
                 "jin_fact",
                 "active_memory",
-                "CURRENT_TRUSTED_RUNTIME_VARIABLES",
-                "USER_DATETIME",
         ):
             self.assertIn(
                 required_text,
@@ -2114,7 +2112,7 @@ class MessageMemoryTests(
             updated_memory,
         )
 
-    async def test_l1_summarizer_receives_trusted_timestamp_for_relative_time(self):
+    async def test_l1_summarizer_user_prompt_stays_turn_only(self):
 
         service_client = FakeServiceClient(
             (
@@ -2163,45 +2161,25 @@ class MessageMemoryTests(
 
         user_prompt = service_client.calls[0]["user_prompt"]
 
-        self.assertIn(
+        self.assertNotIn(
             "<CURRENT_TRUSTED_RUNTIME_VARIABLES>",
             user_prompt,
         )
-        self.assertIn(
-            "<USER_DATETIME>2026-06-05 13:38, Friday</USER_DATETIME>",
-            user_prompt,
-        )
-        self.assertIn(
-            "<MODE>SERVICE</MODE>",
-            user_prompt,
-        )
-        self.assertIn(
-            f"<SERVICE_MODEL_UID>{config.SERVICE_MODEL_UID}</SERVICE_MODEL_UID>",
-            user_prompt,
-        )
         self.assertNotIn(
-            "<CONTEXT>",
-            user_prompt,
-        )
-        self.assertIn(
             "<CURRENT_SESSION_STATE>",
             user_prompt,
         )
-        self.assertRegex(
+        self.assertNotIn(
+            "Total turns count:",
             user_prompt,
-            r"Total turns count:\s+12",
         )
-        self.assertRegex(
+        self.assertIn(
+            "Latest user message:\nсегодня не хочу обсуждать прошлые темы",
             user_prompt,
-            r"User messages count:\s+7",
         )
-        self.assertRegex(
+        self.assertIn(
+            "Latest JIN answer:\nХорошо, выберем свежую тему.",
             user_prompt,
-            r"JIN messages count:\s+6",
-        )
-        self.assertLess(
-            user_prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
-            user_prompt.index("Current runtime memory:"),
         )
         self.assertNotIn(
             "today",
@@ -3887,6 +3865,17 @@ class MessageMemoryTests(
         )
 
         await task
+
+        user_prompt = service_client.calls[0]["user_prompt"]
+
+        self.assertNotIn(
+            "<CURRENT_TRUSTED_RUNTIME_VARIABLES>",
+            user_prompt,
+        )
+        self.assertNotIn(
+            "New completed turns since that memory snapshot:",
+            user_prompt,
+        )
 
         self.assertIn(
             "Updated background memory.",

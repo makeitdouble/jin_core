@@ -30,7 +30,6 @@ from runtime.memory_common import (
     build_memory_failure_details,
     build_memory_update_skip_details,
     build_runtime_summarizer_payload,
-    build_runtime_summarizer_user_prompt,
     extract_runtime_memory_text,
     is_runtime_memory_response_truncated,
     latest_turn_context_is_overloaded,
@@ -315,17 +314,12 @@ async def ask_runtime_memory_model(
         if _snapshots
         else []
     )
-    user_prompt = build_runtime_summarizer_user_prompt(
-        context=context,
-        prompt=(
-            build_runtime_memory_user_prompt(
-                current_memory=current_memory,
-                user_message=user_message,
-                assistant_message=assistant_message,
-                strength_zones=get_strength_zones(
-                    _latest_lines
-                ),
-            )
+    user_prompt = build_runtime_memory_user_prompt(
+        current_memory=current_memory,
+        user_message=user_message,
+        assistant_message=assistant_message,
+        strength_zones=get_strength_zones(
+            _latest_lines
         ),
     )
 
@@ -418,16 +412,11 @@ async def ask_runtime_memory_batch_model(
         if _snapshots
         else []
     )
-    user_prompt = build_runtime_summarizer_user_prompt(
-        context=context,
-        prompt=(
-            build_runtime_memory_batch_user_prompt(
-                current_memory=current_memory,
-                turns=turns,
-                strength_zones=get_strength_zones(
-                    _latest_lines
-                ),
-            )
+    user_prompt = build_runtime_memory_batch_user_prompt(
+        current_memory=current_memory,
+        turns=turns,
+        strength_zones=get_strength_zones(
+            _latest_lines
         ),
     )
 

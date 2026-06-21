@@ -264,69 +264,46 @@ ROLE = (
     "Return only the new compressed L1 memory state as plain text.\n"
     "Do not output JSON, Markdown headings, nested bullets, numbered lists, or tables.\n"
     "Do not explain your reasoning or the summarization process.\n"
+    "Do not merge unrelated facts into one line.\n"
 )
 
 # Синтаксис строк памяти.
 OUTPUT_FORMAT = (
-    "Write memory as atomic bullet lines.\n"
+    "Write memory summary as atomic bullet lines.\n"
     "Every line MUST use the format: <key>: <value>\n"
-    "One line = one semantic entity. Do not merge unrelated facts into one line.\n"
-    "Do not output empty keys, bare values, or placeholder values "
-    "(N/A, none, unknown, null, not applicable). If there is no concrete value, omit the line.\n"
+    "One line = one semantic entity.\n"
+    "Do not output empty keys or keys with empty values, or placeholder values "
+    "(N/A, none, unknown, null, not applicable).\n"
+    "If there is no concrete value, omit the line.\n"
     "Finish every line completely. Never leave a line mid-phrase.\n"
 )
 
 # Правила именования ключей.
 KEY_SEMANTICS = (
     "Keys are semantic handles for retrieval, not decorative labels.\n"
-    "You may invent new keys when a fact does not fit any existing key. "
+    "You may invent new keys when a fact does not fit any existing key.\n"
     "Treat the example keys below as illustrative, not as a closed schema.\n"
     "Avoid key churn: do not rename the same concept just for style.\n"
     "Do not split one stable concept across multiple competing keys.\n"
     "Do not merge a durable key into a temporary key.\n"
-    "Use a new key only when the current fact genuinely does not fit an existing key.\n"
-    "Prefer keeping an existing key when it still fits.\n"
     "Typical temporary keys: user_message, active_topic, current_task, current_request, pending_choice, "
     "last_jin_response, interaction_state.\n"
     "Typical durable keys: active_memory, user_fact, jin_fact, shared_axiom"
 )
 
-# Разделение временного и долговременного состояния.
-DURABLE_VS_TEMPORARY = (
-    "Temporary state may change when the topic changes.\n"
-    "Durable state must survive topic changes unless explicitly corrected, "
-    "cancelled, completed, or superseded in the current turn.\n"
-    "When memory competes for space, durable state outranks temporary state.\n"
-    "A new topic never automatically deletes durable state.\n"
-    "Topic switches, context pressure, shallow summarization, or a new current request "
-    "are never enough to remove or rename a durable key.\n"
-    "Once a durable key exists with a concrete value, preserve it verbatim across snapshots. "
-    "Only the value may change, and only when the current turn explicitly overrides it.\n"
-    "Durable key families that must always carry forward: "
-    "user_fact, jin_fact, jin_core_definition, active_memory, active_memory_N, "
-    "shared_axiom_established, primary_goal.\n"
-    "Never invent missing durable keys and never fill absent durable keys with placeholders.\n"
-    "Treat any existing line about JIN's identity, nature, origin, role, or capabilities "
-    "as a durable JIN fact even if its key is not exactly jin_fact.\n"
-    "Treat any existing line about the user's name, identity, role, or personal detail "
-    "as a durable user fact even if its key is not exactly user_fact.\n"
-)
-
 # Два обязательных поля обновляемых каждый ход.
 RUNTIME_FIELDS = (
     "Always keep a field user_message with the latest user message as a verbatim quote.\n"
-    "Format: user_message: \"<latest user message exactly as written>\"\n"
+    "Format: user_message: \"<verbatim latest user message exactly as written>\"\n"
     "If the runtime supplies repetition metadata, append it outside the quote: "
     "user_message: \"<message>\" [ repeated: N ]\n"
-    "Do not translate, summarize, or normalize the user's wording.\n"
-    "This field is runtime evidence for L2 counters; update it on every L1 snapshot.\n"
+    
     "Always keep a field last_jin_response with the concise gist of JIN's latest completed answer, "
     "offer, or question — only the meaning needed to resolve the user's next short or elliptical reply.\n"
-    "Update last_jin_response each completed turn. Do not copy a clipped preview. "
-    "Never end last_jin_response with '...' or '…' for a completed answer, because that makes JIN think the visible reply was interrupted. "
-    "If the answer was long, write a complete short gist instead of a partial quote. "
+    "Update last_jin_response each completed turn. Do not copy a clipped preview."
+    "Never end last_jin_response with '...' or '…' for a completed answer.\n"
+    "If the answer was long, write a complete short gist instead of a partial quote.\n"
     "If JIN's answer was actually interrupted, mark it incomplete explicitly.\n"
-    "Never omit either field from the memory snapshot.\n"
 )
 
 # Нормализация временных фраз к доверенной дате.
@@ -410,38 +387,48 @@ CONFIRMABLE_FACTS_CREATE = (
 # Правила создания и хранения active_memory.
 # Подключается всегда; L1 сама решает, создал ли текущий ход новый active contract.
 ACTIVE_MEMORY_CREATE = (
-    "Write active_memory only when this turn creates an active contract: "
+    "REMOVAL: remove all completed, resolved or cancelled active_memory lines.\n"
+
+    "Write new active_memory only when this turn creates an active contract: "
     "a promise to remember, remind, ask back, reveal, or recall a specific value later.\n"
 
-    "WHEN to write:\n"
-    "— User asks JIN to remember/remind/guess a value, OR\n"
-    "— Latest JIN answer accepts such a game, chooses a value, or promises a future action.\n"
-    "Do not write for completed one-off requests, facts, or casual conversation.\n"
-
-    "KEY FORMAT: always write bare active_memory as the key (no numeric key suffix). "
-    "Numeric key suffixes like active_memory_2 are assigned externally — never write or modify them.\n"
-
-    "LINE FORMAT:\n"
-    "active_memory: <value> "
-    "[ purpose: <what must happen later> ] "
-    "[ conditions: <constraints from this request only> ] "
+    "HOW to write:\n"
+    "active_memory: <descriptive value why this active memory line exist> 'User asks JIN to remind user to drink coffee after a five minutes passed' "
+    "[ purpose: <describe what must happen later> After a five minutes from memory creation JIN must remind user to drink coffee ] "
+    "[ conditions: <list of clear constraints from request> remind to drink coffee, 5 minutes passed after creation time ] "
     "[ status: pending ]\n"
-    "The [ status: pending ] value suffix is mandatory on every new active_memory line.\n"
 
-    "DUPLICATE RULE — before writing any new line:\n"
-    "Scan all existing active_memory family slots (active_memory, active_memory_2, …). "
-    "If any slot already holds the same value AND same purpose: do not create a new slot. "
-    "Copy that existing line unchanged, or update only its [ status: … ] suffix if this turn affects it.\n"
-    "One contract = one slot. Never split or merge contracts across slots.\n"
+
+
+    "WHEN to write:\n"
+    "— User asks JIN to remember a hidden/chosen value for later guessing or reveal.\n"
+    "— JIN commits to a concrete future action tied to a specific condition not yet met.\n"
+    "— User sets a reminder or follow-up that requires JIN to initiate in a later turn.\n"
+    "— Latest JIN answer accepts such a game, chooses a value, or promises a future action.\n"
+
+    "WHEN NOT to write:\n"
+    "— Casual conversation.\n"
+    "— One shot request.\n"
+    "— Simple question answer dialog.\n"
+    "— Simple facts or statements.\n"
+    "— Tone shifts, mode changes, role adoptions (e.g. companion, assistant, tutor).\n"
+    "— Completed single-turn requests or factual answers.\n"
+    
+    "Do not write for completed one-off requests, facts, or casual conversation.\n"
+    "Before writing any new line:\n"
+    "Scan all existing active_memory slots (active_memory, active_memory_2, …). "
+    "If any slot already holds the same value AND same purpose: do not create a new slot.\n"
+    "Copy existing line unchanged or update only its [ status: … ] suffix if this turn affects it.\n"
+    "Never split or merge contracts across slots.\n"
+
+    "KEY FORMAT: always write bare active_memory as the key. "
 
     "UPDATES:\n"
     "Update active_memory status only when this turn creates a logical update."
-    "WHEN to write: JIN recalls a value or reminds user about completed conditions, or makes appropriate action to resolve conditions.\n"
-    "Append inside the existing [ status: … ] suffix only: [ status: pending -> <compact note> ]. "
-    "Never add a second status suffix. Never create a duplicate slot for a status update.\n"
-    "Preserve all earlier status contents — append only, never rewrite.\n"
+    "Example when to update status: JIN recalls a value or reminds user about completed conditions upon a timer.\n"
+    "Append inside the existing [ status: … ] suffix only: [ status: pending -> <compact note> ]. Append only, never rewrite.\n"
+    "Never create a duplicate slot for a status update.\n"
 
-    "REMOVAL: keep a completed slot for one more snapshot with status noting completion, then remove.\n"
 )
 
 # Правила взаимодействия с L2_pattern_evidence строками.
@@ -535,11 +522,10 @@ def build_runtime_memory_system_prompt(
         ROLE
         + OUTPUT_FORMAT
         + KEY_SEMANTICS
-        + DURABLE_VS_TEMPORARY
         + RUNTIME_FIELDS
-        + TIME_NORMALIZATION
-        + AFFECTIVE_STATE
-        + SUMMARIZATION_DEPTH
+        # + TIME_NORMALIZATION
+        # + AFFECTIVE_STATE
+        # + SUMMARIZATION_DEPTH
     )
 
     # ── Confirmable facts ─────────────────────────────────────────────────────
