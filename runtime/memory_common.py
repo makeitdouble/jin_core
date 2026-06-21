@@ -37,7 +37,6 @@ from utils.tokens import (
 
 def build_runtime_summarizer_trusted_context(
         context=None,
-        context_tokens: int | None = None,
 ) -> str:
 
     timestamp = (
@@ -134,8 +133,6 @@ def build_runtime_summarizer_trusted_context(
         user_input="",
         runtime_mode="SERVICE",
         service_model_uid=settings.SERVICE_MODEL_UID,
-        context_tokens=context_tokens,
-        context_window=settings.SERVICE_CONTEXT_WINDOW,
         timestamp=str(timestamp),
         current_date=str(
             current_date
@@ -167,30 +164,9 @@ def build_runtime_summarizer_user_prompt(
         prompt: str,
 ) -> str:
 
-    context_tokens = 0
-
-    for _ in range(3):
-        trusted_context = build_runtime_summarizer_trusted_context(
-            context,
-            context_tokens=context_tokens,
-        )
-        user_prompt = "\n\n".join([
-            trusted_context,
-            prompt,
-        ])
-        next_context_tokens = estimate_runtime_tokens(
-            user_input=user_prompt,
-        )
-
-        if next_context_tokens == context_tokens:
-            break
-
-        context_tokens = next_context_tokens
-
     return "\n\n".join([
         build_runtime_summarizer_trusted_context(
             context,
-            context_tokens=context_tokens,
         ),
         prompt,
     ])

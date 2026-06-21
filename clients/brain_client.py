@@ -17,23 +17,15 @@ from clients.errors import (
 
 from clients.brain_context_builder import (
     build_brain_runtime_context,
-    build_brain_runtime_context_with_current_tokens,
 )
 
 from clients.brain_client_utils import (
-    MAX_PREVIOUS_THINK_CHARS,
-    MAX_PREVIOUS_THINK_SECTION_CHARS,
     apply_runtime_action_calls,
     build_conditional_prompt_rules,
-    build_previous_think_block,
-    extract_previous_think_tail,
     get_enabled_runtime_actions,
-    get_previous_think_context_block,
     has_zero_diff_stall_alert,
     is_user_initiated_remember_event,
-    log_previous_think_payload,
     record_deep_thought_calls,
-    record_previous_think,
     should_execute_remember_session,
 )
 
@@ -75,11 +67,9 @@ def build_brain_system_prompt(
         "\n"
     )
 
-    runtime_context = build_brain_runtime_context_with_current_tokens(
-        prompt_prefix=prompt_prefix,
-        user_input=user_input,
-        context=context,
-        runtime_actions=runtime_actions,
+    runtime_context = build_brain_runtime_context(
+        context,
+        runtime_actions,
     )
 
     return (
@@ -125,10 +115,6 @@ async def ask_brain(
             runtime_actions,
             user_input=brain_payload,
         )
-    )
-
-    await log_previous_think_payload(
-        context
     )
 
     # -----------------------------------------------------
@@ -190,11 +176,6 @@ async def ask_brain(
                     + content_actions.actions
                 ),
                 user_message=text,
-            )
-
-            record_previous_think(
-                context,
-                reasoning,
             )
 
             return content_actions.text
@@ -289,11 +270,6 @@ async def ask_brain(
                 + content_actions.actions
             ),
             user_message=text,
-        )
-
-        record_previous_think(
-            context,
-            reasoning,
         )
 
         if content_actions.text:

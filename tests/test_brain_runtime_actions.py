@@ -433,6 +433,11 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
 
+        self.assertNotIn(
+            "<USER_WEEKDAY>",
+            prompt,
+        )
+
         self.assertIn(
             "<MODE>SERVICE as BRAIN</MODE>",
             prompt,
@@ -443,9 +448,9 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
 
-        self.assertRegex(
+        self.assertNotIn(
+            "<CONTEXT>",
             prompt,
-            rf"<CONTEXT>\d+/{config.SERVICE_CONTEXT_WINDOW}</CONTEXT>",
         )
 
         self.assertNotIn(

@@ -13,12 +13,12 @@ from clients.brain_client_utils import (
     get_conversation_activity_diff,
     get_conversation_activity_percent,
     get_enabled_runtime_actions,
-    get_previous_think_context_block,
     indent_xml,
     strip_empty_results_xml,
 )
 from runtime.context_contract import (
     ContextContract,
+    format_session_state,
     RUNTIME_ACTION_REMEMBER_EVENT,
     RUNTIME_ACTION_REMEMBER_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
@@ -26,9 +26,6 @@ from runtime.context_contract import (
 from runtime.L1_memory_utils import (
     build_runtime_memory_context_text,
     canonicalize_runtime_memory_text,
-)
-from utils.tokens import (
-    estimate_runtime_tokens,
 )
 
 
@@ -40,22 +37,18 @@ def get_brain_runtime_mode() -> str:
     return "BRAIN"
 
 
-def get_brain_context_window() -> int:
-
-    if settings.USE_SERVICE_AS_BRAIN:
-        return settings.SERVICE_CONTEXT_WINDOW
-
-    return settings.BRAIN_CONTEXT_WINDOW
-
-
 def build_runtime_xml(
     context=None,
     runtime_actions=None,
-    context_tokens: int | None = None,
 ) -> str:
 
     enabled_actions = get_enabled_runtime_actions(
         runtime_actions
+    )
+    conversation_activity_instruction = (
+        get_conversation_activity_instruction(
+            context
+        )
     )
     now = datetime.now()
 
@@ -66,8 +59,6 @@ def build_runtime_xml(
             system_state="ACTIVE",
             runtime_mode=get_brain_runtime_mode(),
             service_model_uid=settings.SERVICE_MODEL_UID,
-            context_tokens=context_tokens,
-            context_window=get_brain_context_window(),
             deep_thought_count=0,
             can_deep_thought=False,
             can_web_search=(
@@ -87,6 +78,9 @@ def build_runtime_xml(
             current_time=now.strftime("%H:%M:%S"),
             weekday=now.strftime("%A"),
             year=now.year,
+            conversation_activity_instruction=(
+                conversation_activity_instruction
+            ),
         )
         .to_runtime_xml()
     )
@@ -101,11 +95,15 @@ def append_session_state(
         return
 
     parts.append(
-        "<SESSION_STATE>\n"
-        f"    <TURN_NUMBER>{getattr(context, 'turn_number', 0)}</TURN_NUMBER>\n"
-        f"    <USER_MESSAGE_COUNT>{getattr(context, 'user_message_count', 0)}</USER_MESSAGE_COUNT>\n"
-        f"    <ASSISTANT_MESSAGE_COUNT>{getattr(context, 'assistant_message_count', 0)}</ASSISTANT_MESSAGE_COUNT>\n"
-        "</SESSION_STATE>"
+        format_session_state(
+            turn_number=getattr(context, "turn_number", 0),
+            user_message_count=getattr(context, "user_message_count", 0),
+            assistant_message_count=getattr(
+                context,
+                "assistant_message_count",
+                0,
+            ),
+        )
     )
 
 
@@ -131,9 +129,9 @@ def append_L3_session_memory(
         return
 
     parts.append(
-        "<SESSION_MEMORY priority=\"higher_than_runtime_memory\">\n"
+        "<PREVIOUS_SESSION_STATE priority=\"higher_than_runtime_memory\">\n"
         f"{indent_xml(escape(session_memory))}\n"
-        "</SESSION_MEMORY>"
+        "</PREVIOUS_SESSION_STATE>"
     )
 
 
@@ -153,6 +151,9 @@ def append_session_event_snapshots(
             )
             or []
         )
+
+    if not session_event_snapshots:
+        return
 
     parts.append(
         "<SESSION_EVENT_SNAPSHOTS priority=\"session_context\">\n"
@@ -212,48 +213,29 @@ def append_L2_runtime_memory(
     )
 
 
-def append_conversation_activity(
-    parts: list[str],
+def get_conversation_activity_instruction(
     context=None,
-) -> None:
+) -> str:
 
     conversation_activity_diff = get_conversation_activity_diff(
         context
     )
 
     if conversation_activity_diff is None:
-        return
+        return ""
 
     activity_percent = get_conversation_activity_percent(
         conversation_activity_diff
     )
+
+    if activity_percent >= 100:
+        return ""
+
     activity_instruction = build_conversation_activity_instruction(
         activity_percent
     )
 
-    parts.append(
-        "<CONVERSATION_ACTIVITY>\n"
-        f"    <PERCENT>{activity_percent}</PERCENT>\n"
-        "    <INSTRUCTION>\n"
-        f"{indent_xml(escape(activity_instruction))}\n"
-        "    </INSTRUCTION>\n"
-        "</CONVERSATION_ACTIVITY>"
-    )
-
-
-def append_previous_think(
-    parts: list[str],
-    context=None,
-) -> None:
-
-    previous_think_block = get_previous_think_context_block(
-        context
-    )
-
-    if previous_think_block:
-        parts.append(
-            previous_think_block
-        )
+    return activity_instruction
 
 
 def append_zero_diff_alert(
@@ -371,14 +353,12 @@ def append_tool_results(
 def build_brain_runtime_context(
     context=None,
     runtime_actions=None,
-    context_tokens: int | None = None,
 ) -> str:
 
     parts = [
         build_runtime_xml(
             context,
             runtime_actions,
-            context_tokens=context_tokens,
         )
     ]
 
@@ -402,14 +382,6 @@ def build_brain_runtime_context(
         parts,
         context,
     )
-    append_conversation_activity(
-        parts,
-        context,
-    )
-    append_previous_think(
-        parts,
-        context,
-    )
     append_zero_diff_alert(
         parts,
         context,
@@ -421,39 +393,4 @@ def build_brain_runtime_context(
 
     return "\n".join(
         parts
-    )
-
-
-def build_brain_runtime_context_with_current_tokens(
-    *,
-    prompt_prefix: str,
-    user_input: str = "",
-    context=None,
-    runtime_actions=None,
-) -> str:
-
-    context_tokens = 0
-
-    for _ in range(3):
-        runtime_context = build_brain_runtime_context(
-            context,
-            runtime_actions,
-            context_tokens=context_tokens,
-        )
-        next_context_tokens = estimate_runtime_tokens(
-            system_prompt=(
-                f"{prompt_prefix}{runtime_context}"
-            ),
-            user_input=user_input,
-        )
-
-        if next_context_tokens == context_tokens:
-            break
-
-        context_tokens = next_context_tokens
-
-    return build_brain_runtime_context(
-        context,
-        runtime_actions,
-        context_tokens=context_tokens,
     )
