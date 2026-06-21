@@ -18,6 +18,9 @@ def format_xml_field(
     value,
 ) -> str:
 
+    if tag == "CURRENT_SESSION_STATE":
+        return str(value)
+
     rendered_value = escape(
         str(value)
     )
@@ -54,6 +57,44 @@ def format_available_actions(
     )
 
 
+def format_user_datetime(
+    current_date: str,
+    current_time: str,
+    weekday: str,
+) -> str:
+
+    time_value = str(
+        current_time
+        or ""
+    )
+    time_minutes = (
+        time_value[:5]
+        if len(time_value) >= 5
+        else time_value
+    )
+
+    return (
+        f"{current_date} {time_minutes}, {weekday}"
+        .strip()
+    )
+
+
+def format_session_state(
+    *,
+    turn_number: int | None,
+    user_message_count: int | None,
+    assistant_message_count: int | None,
+) -> str:
+
+    return "\n".join([
+        "<CURRENT_SESSION_STATE>",
+        f"    Total turns count:      {turn_number if turn_number is not None else 0}",
+        f"    User messages count:    {user_message_count if user_message_count is not None else 0}",
+        f"    JIN messages count:     {assistant_message_count if assistant_message_count is not None else 0}",
+        "</CURRENT_SESSION_STATE>",
+    ])
+
+
 @dataclass(frozen=True)
 class ContextContract:
     user_input: str
@@ -62,8 +103,6 @@ class ContextContract:
     system_state: str = "ACTIVE"
     runtime_mode: str = ""
     service_model_uid: str = ""
-    context_tokens: int | None = None
-    context_window: int | None = None
     deep_thought_count: int = 0
     can_deep_thought: bool = False
     can_web_search: bool = True
@@ -77,6 +116,7 @@ class ContextContract:
     )
     weekday: str = field(default_factory=lambda: datetime.now().strftime("%A"))
     year: int = field(default_factory=lambda: datetime.now().year)
+    conversation_activity_instruction: str = ""
 
     turn_number: int | None = None
     user_message_count: int | None = None
@@ -92,27 +132,31 @@ class ContextContract:
         if self.service_model_uid:
             fields["SERVICE_MODEL_UID"] = self.service_model_uid
 
-        if self.context_window is not None:
-            fields["CONTEXT"] = (
-                f"{self.context_tokens or 0}/{self.context_window}"
+        fields["USER_DATETIME"] = format_user_datetime(
+            self.current_date,
+            self.current_time,
+            self.weekday,
+        )
+
+        if self.conversation_activity_instruction:
+            fields["CONVERSATION_ACTIVITY"] = (
+                self.conversation_activity_instruction
             )
 
-        fields["USER_DATETIME"] = self.timestamp
-        fields["USER_WEEKDAY"] = self.weekday
-
-        if self.turn_number is not None:
-            fields["TURN_NUMBER"] = str(
-                self.turn_number
+        has_session_counts = any(
+            value is not None
+            for value in (
+                self.turn_number,
+                self.user_message_count,
+                self.assistant_message_count,
             )
+        )
 
-        if self.user_message_count is not None:
-            fields["USER_MESSAGE_COUNT"] = str(
-                self.user_message_count
-            )
-
-        if self.assistant_message_count is not None:
-            fields["ASSISTANT_MESSAGE_COUNT"] = str(
-                self.assistant_message_count
+        if has_session_counts:
+            fields["CURRENT_SESSION_STATE"] = format_session_state(
+                turn_number=self.turn_number,
+                user_message_count=self.user_message_count,
+                assistant_message_count=self.assistant_message_count,
             )
 
         available_actions = []

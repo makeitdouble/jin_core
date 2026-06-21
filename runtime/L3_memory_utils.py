@@ -219,16 +219,32 @@ def get_l3_session_previous_last_turn(
     )
 
 
+def strip_l3_session_snapshot_metadata(
+        memory: str,
+) -> str:
+
+    stripped_metadata_keys = set(
+        L3_SESSION_META_KEYS
+    )
+
+    clean_memory_lines = [
+        line
+        for line in str(memory or "").splitlines()
+        if line.split(
+            ":",
+            1,
+        )[0].strip() not in stripped_metadata_keys
+    ]
+
+    return "\n".join(clean_memory_lines).strip()
+
+
 def prepend_l3_session_snapshot_metadata(
         memory: str,
         *,
         previous_session_memory: str,
         runtime_memory_snapshots: list[dict],
 ) -> str:
-
-    # Session snapshots are local chunks, not a global turn timeline.
-    # After browser restore, runtime snapshot indexes restart from 0.
-    # session_snapshot_first_turn / last_turn describe the current saved chunk only.
 
     valid_snapshots = [
         snapshot
@@ -244,9 +260,6 @@ def prepend_l3_session_snapshot_metadata(
     )
     previous_first_turn = previous_metadata.get(
         "session_snapshot_first_turn"
-    )
-    previous_last_turn = previous_metadata.get(
-        "session_snapshot_last_turn"
     )
 
     runtime_indexes = [
@@ -277,20 +290,11 @@ def prepend_l3_session_snapshot_metadata(
     lines = [
         f"session_snapshot_first_turn: {session_first_turn}",
         f"session_snapshot_last_turn: {runtime_last_turn}",
-        f"session_snapshot_previous_last_turn: {previous_last_turn if previous_last_turn is not None else -1}",
-        f"session_snapshot_runtime_first_turn: {runtime_first_turn}",
-        f"session_snapshot_runtime_last_turn: {runtime_last_turn}",
     ]
 
-    clean_memory_lines = [
-        line
-        for line in str(memory or "").splitlines()
-        if line.split(
-            ":",
-            1,
-        )[0].strip() not in L3_SESSION_META_KEYS
-    ]
-    clean_memory = "\n".join(clean_memory_lines).strip()
+    clean_memory = strip_l3_session_snapshot_metadata(
+        memory
+    )
 
     if clean_memory:
         lines.append(clean_memory)

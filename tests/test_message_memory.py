@@ -752,6 +752,8 @@ class MessageMemoryTests(
 
         context = SimpleNamespace(
             session_memory=(
+                "session_snapshot_first_turn: 0\n"
+                "session_snapshot_last_turn: 6\n"
                 "decision: Continue the memory architecture work."
             ),
             runtime_memory=(
@@ -771,23 +773,31 @@ class MessageMemoryTests(
         )
 
         self.assertIn(
-            "<SESSION_MEMORY priority=\"higher_than_runtime_memory\">",
+            "<PREVIOUS_SESSION_STATE priority=\"higher_than_runtime_memory\">",
             prompt,
         )
         self.assertIn(
             "Continue the memory architecture work",
             prompt,
         )
+        self.assertIn(
+            "session_snapshot_first_turn",
+            prompt,
+        )
+        self.assertIn(
+            "session_snapshot_last_turn",
+            prompt,
+        )
         self.assertLess(
             prompt.index(
-                "<SESSION_MEMORY"
+                "<PREVIOUS_SESSION_STATE"
             ),
             prompt.index(
                 "<RUNTIME_MEMORY>"
             ),
         )
 
-    def test_brain_prompt_always_includes_session_event_snapshots_array(self):
+    def test_brain_prompt_includes_nonempty_session_event_snapshots_array(self):
 
         context = SimpleNamespace(
             session_memory="decision: Continue session snapshots",
@@ -821,6 +831,30 @@ class MessageMemoryTests(
         )
         self.assertIn(
             "Use session snapshots array",
+            prompt,
+        )
+
+    def test_brain_prompt_omits_empty_session_event_snapshots_array(self):
+
+        context = SimpleNamespace(
+            session_memory="decision: Continue session snapshots",
+            runtime_session_event_snapshots=[],
+            runtime_memory="topic: live runtime state",
+            deep_thought_count=0,
+            runtime_search_result="",
+            runtime_search_result_id="",
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_WEB_SEARCH": False,
+                "CAN_DEEP_THOUGHT": False,
+            },
+        )
+
+        self.assertNotIn(
+            "<SESSION_EVENT_SNAPSHOTS",
             prompt,
         )
 
@@ -965,8 +999,28 @@ class MessageMemoryTests(
             "<CONVERSATION_ACTIVITY>",
             prompt,
         )
-        self.assertIn(
-            "<PERCENT>30</PERCENT>",
+        self.assertLess(
+            prompt.index(
+                "<USER_DATETIME>"
+            ),
+            prompt.index(
+                "<CONVERSATION_ACTIVITY>"
+            ),
+        )
+        self.assertLess(
+            prompt.index(
+                "<CONVERSATION_ACTIVITY>"
+            ),
+            prompt.index(
+                "</CURRENT_TRUSTED_RUNTIME_VARIABLES>"
+            ),
+        )
+        self.assertNotIn(
+            "<PERCENT>",
+            prompt,
+        )
+        self.assertNotIn(
+            "<INSTRUCTION>",
             prompt,
         )
         self.assertNotIn(
@@ -1009,7 +1063,11 @@ class MessageMemoryTests(
         )
 
         self.assertIn(
-            "<PERCENT>10</PERCENT>",
+            "<CONVERSATION_ACTIVITY>",
+            prompt,
+        )
+        self.assertNotIn(
+            "<PERCENT>",
             prompt,
         )
         self.assertIn(
@@ -1054,7 +1112,11 @@ class MessageMemoryTests(
         )
 
         self.assertIn(
-            "<PERCENT>19</PERCENT>",
+            "<CONVERSATION_ACTIVITY>",
+            prompt,
+        )
+        self.assertNotIn(
+            "<PERCENT>",
             prompt,
         )
         self.assertIn(
@@ -1086,8 +1148,8 @@ class MessageMemoryTests(
             },
         )
 
-        self.assertIn(
-            "<PERCENT>100</PERCENT>",
+        self.assertNotIn(
+            "<CONVERSATION_ACTIVITY>",
             prompt,
         )
         self.assertNotIn(
@@ -1123,12 +1185,8 @@ class MessageMemoryTests(
             },
         )
 
-        self.assertIn(
-            "<PERCENT>100</PERCENT>",
-            prompt,
-        )
         self.assertNotIn(
-            "<PERCENT>0</PERCENT>",
+            "<CONVERSATION_ACTIVITY>",
             prompt,
         )
 
@@ -1578,7 +1636,7 @@ class MessageMemoryTests(
             memory,
         )
         self.assertIn(
-            "[ creation_turn_number: 3 ]",
+            "[ created_jin_message_number: 3 ]",
             memory,
         )
         self.assertIn(
@@ -1586,7 +1644,7 @@ class MessageMemoryTests(
             memory,
         )
         self.assertIn(
-            "[ elapsed_turns: 0 ] [ status: pending ]",
+            "[ elapsed_jin_message_number: 0 ] [ status: pending ]",
             memory,
         )
 
@@ -1596,9 +1654,9 @@ class MessageMemoryTests(
             "active_memory: Secret word: Sun "
             "[ purpose: Ask user to guess ] "
             "[ creation_time: 2026-06-20T10:00:00 ] "
-            "[ creation_turn_number: 3 ] "
+            "[ created_jin_message_number: 3 ] "
             "[ elapsed_time: 00:00:00 ] "
-            "[ elapsed_turns: 0 ] "
+            "[ elapsed_jin_message_number: 0 ] "
             "[ status: pending ]"
         )
 
@@ -1620,7 +1678,7 @@ class MessageMemoryTests(
             memory,
         )
         self.assertIn(
-            "[ creation_turn_number: 3 ]",
+            "[ created_jin_message_number: 3 ]",
             memory,
         )
         self.assertIn(
@@ -1628,7 +1686,7 @@ class MessageMemoryTests(
             memory,
         )
         self.assertIn(
-            "[ elapsed_turns: 2 ]",
+            "[ elapsed_jin_message_number: 2 ]",
             memory,
         )
 
@@ -1639,9 +1697,9 @@ class MessageMemoryTests(
                 "active_memory: Secret word: Sun "
                 "[ purpose: Ask user to guess ] "
                 "[ creation_time: 2026-06-20T10:00:00 ] "
-                "[ creation_turn_number: 3 ] "
+                "[ created_jin_message_number: 3 ] "
                 "[ elapsed_time: 01:02:03 ] "
-                "[ elapsed_turns: 2 ] "
+                "[ elapsed_jin_message_number: 2 ] "
                 "[ status: pending ]\n"
                 "primary_goal: Play a memory game."
             )
@@ -1691,18 +1749,18 @@ class MessageMemoryTests(
                 "active_memory: Secret word: Sun "
                 "[ purpose: Ask user to guess ] "
                 "[ creation_time: 2026-06-20T10:00:00 ] "
-                "[ creation_turn_number: 3 ] "
+                "[ created_jin_message_number: 3 ] "
                 "[ elapsed_time: 00:00:00 ] "
-                "[ elapsed_turns: 0 ] "
+                "[ elapsed_jin_message_number: 0 ] "
                 "[ status: pending ]"
             ),
             runtime_memory_stable=(
                 "active_memory: Secret word: Sun "
                 "[ purpose: Ask user to guess ] "
                 "[ creation_time: 2026-06-20T10:00:00 ] "
-                "[ creation_turn_number: 3 ] "
+                "[ created_jin_message_number: 3 ] "
                 "[ elapsed_time: 00:00:00 ] "
-                "[ elapsed_turns: 0 ] "
+                "[ elapsed_jin_message_number: 0 ] "
                 "[ status: pending ]"
             ),
             runtime_memory_updates=1,
@@ -1745,7 +1803,7 @@ class MessageMemoryTests(
             updated_memory,
         )
         self.assertIn(
-            "[ elapsed_turns: 2 ]",
+            "[ elapsed_jin_message_number: 2 ]",
             updated_memory,
         )
 
@@ -2050,7 +2108,7 @@ class MessageMemoryTests(
             user_prompt,
         )
         self.assertIn(
-            "<USER_DATETIME>2026-06-05T13:38:50</USER_DATETIME>",
+            "<USER_DATETIME>2026-06-05 13:38, Friday</USER_DATETIME>",
             user_prompt,
         )
         self.assertIn(
@@ -2061,21 +2119,25 @@ class MessageMemoryTests(
             f"<SERVICE_MODEL_UID>{config.SERVICE_MODEL_UID}</SERVICE_MODEL_UID>",
             user_prompt,
         )
+        self.assertNotIn(
+            "<CONTEXT>",
+            user_prompt,
+        )
+        self.assertIn(
+            "<CURRENT_SESSION_STATE>",
+            user_prompt,
+        )
         self.assertRegex(
             user_prompt,
-            rf"<CONTEXT>\d+/{config.SERVICE_CONTEXT_WINDOW}</CONTEXT>",
+            r"Total turns count:\s+12",
         )
-        self.assertIn(
-            "<TURN_NUMBER>12</TURN_NUMBER>",
+        self.assertRegex(
             user_prompt,
+            r"User messages count:\s+7",
         )
-        self.assertIn(
-            "<USER_MESSAGE_COUNT>7</USER_MESSAGE_COUNT>",
+        self.assertRegex(
             user_prompt,
-        )
-        self.assertIn(
-            "<ASSISTANT_MESSAGE_COUNT>6</ASSISTANT_MESSAGE_COUNT>",
-            user_prompt,
+            r"JIN messages count:\s+6",
         )
         self.assertLess(
             user_prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
@@ -3008,7 +3070,7 @@ class MessageMemoryTests(
             service_client.calls[0]["user_prompt"],
         )
         self.assertIn(
-            "<USER_DATETIME>2026-06-05T13:38:50</USER_DATETIME>",
+            "<USER_DATETIME>2026-06-05 13:38, Friday</USER_DATETIME>",
             service_client.calls[0]["user_prompt"],
         )
         self.assertLess(
@@ -3077,9 +3139,6 @@ class MessageMemoryTests(
             runtime_l3_session_memory=(
                 "session_snapshot_first_turn: 0\n"
                 "session_snapshot_last_turn: 15\n"
-                "session_snapshot_previous_last_turn: -1\n"
-                "session_snapshot_runtime_first_turn: 0\n"
-                "session_snapshot_runtime_last_turn: 15\n"
                 "decision: old consolidated handoff"
             ),
             session_memory="",
@@ -3173,18 +3232,6 @@ class MessageMemoryTests(
         )
         self.assertIn(
             "session_snapshot_last_turn: 20",
-            updated_memory,
-        )
-        self.assertIn(
-            "session_snapshot_previous_last_turn: 15",
-            updated_memory,
-        )
-        self.assertIn(
-            "session_snapshot_runtime_first_turn: 16",
-            updated_memory,
-        )
-        self.assertIn(
-            "session_snapshot_runtime_last_turn: 20",
             updated_memory,
         )
         self.assertEqual(

@@ -404,16 +404,16 @@ RUNTIME_MEMORY_TRACE_FIELD_RE = re.compile(
 
 ACTIVE_MEMORY_LIFECYCLE_SUFFIX_NAMES = (
     "creation_time",
-    "creation_turn_number",
+    "created_jin_message_number",
     "elapsed_time",
-    "elapsed_turns",
+    "elapsed_jin_message_number",
 )
 
 ACTIVE_MEMORY_LIFECYCLE_SUFFIX_RE = re.compile(
     (
         r"\s*\[\s*"
-        r"(?:creation_time|cr(?:e)?ation_turn_number|"
-        r"elapsed_time|ela(?:m)?psed_turns)"
+        r"(?:creation_time|created_jin_message_number|"
+        r"elapsed_time|elapsed_jin_message_number)"
         r"\s*:\s*[^\]]*\]\s*"
     ),
     re.IGNORECASE,
@@ -630,12 +630,12 @@ def _parse_active_memory_suffix(
     ).strip()
 
 
-def _parse_active_memory_creation_turn_suffix(
+def _parse_active_memory_created_jin_message_suffix(
         value: str,
 ) -> str:
 
     pattern = re.compile(
-        r"\[\s*cr(?:e)?ation_turn_number\s*:\s*([^\]]*)\]",
+        r"\[\s*created_jin_message_number\s*:\s*([^\]]*)\]",
         re.IGNORECASE,
     )
     match = pattern.search(
@@ -742,19 +742,19 @@ def _format_runtime_elapsed_time(
 def _build_active_memory_lifecycle_suffixes(
         *,
         creation_time: str,
-        creation_turn_number: int,
+        created_jin_message_number: int,
         elapsed_time: str,
-        elapsed_turns: int,
+        elapsed_jin_message_number: int,
 ) -> str:
 
     values = {
         "creation_time": creation_time,
-        "creation_turn_number": str(
-            creation_turn_number
+        "created_jin_message_number": str(
+            created_jin_message_number
         ),
         "elapsed_time": elapsed_time,
-        "elapsed_turns": str(
-            elapsed_turns
+        "elapsed_jin_message_number": str(
+            elapsed_jin_message_number
         ),
     }
 
@@ -915,16 +915,16 @@ def refresh_active_memory_runtime_metadata(
             )
             or current_timestamp
         )
-        creation_turn_number = (
+        created_jin_message_number = (
             _parse_runtime_int(
-                _parse_active_memory_creation_turn_suffix(
+                _parse_active_memory_created_jin_message_suffix(
                     previous_value,
                 )
             )
         )
 
-        if creation_turn_number is None:
-            creation_turn_number = current_turn_number
+        if created_jin_message_number is None:
+            created_jin_message_number = current_turn_number
 
         elapsed_seconds = _runtime_datetime_delta_seconds(
             _parse_runtime_datetime(
@@ -932,18 +932,18 @@ def refresh_active_memory_runtime_metadata(
             ),
             current_datetime,
         )
-        elapsed_turns = max(
+        elapsed_jin_message_number = max(
             0,
             current_turn_number
-            - creation_turn_number,
+            - created_jin_message_number,
         )
         suffixes = _build_active_memory_lifecycle_suffixes(
             creation_time=creation_time,
-            creation_turn_number=creation_turn_number,
+            created_jin_message_number=created_jin_message_number,
             elapsed_time=_format_runtime_elapsed_time(
                 elapsed_seconds
             ),
-            elapsed_turns=elapsed_turns,
+            elapsed_jin_message_number=elapsed_jin_message_number,
         )
         value = _attach_active_memory_lifecycle_suffixes_to_value(
             value,

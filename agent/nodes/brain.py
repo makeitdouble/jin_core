@@ -8,9 +8,7 @@ from clients.brain_client import (
     ask_brain_stream,
     build_brain_payload,
     build_brain_system_prompt,
-    log_previous_think_payload,
     record_deep_thought_calls,
-    record_previous_think,
 )
 
 from clients.search_client import (
@@ -159,10 +157,6 @@ class BrainNode(BaseNode):
             )
         )
 
-        await log_previous_think_payload(
-            context
-        )
-
         text, reasoning = await self.run_brain_stream(
             state=state,
             context=context,
@@ -273,10 +267,5 @@ class BrainNode(BaseNode):
                 text = build_search_result_fallback_answer(
                     search_result
                 )
-
-        record_previous_think(
-            context,
-            reasoning,
-        )
 
         state.brain_response = text or ""

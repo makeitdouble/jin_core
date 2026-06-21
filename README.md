@@ -121,7 +121,7 @@ L1 is the live factual layer. It keeps the current state needed for the next ans
 user_message: "thanks"
 last_jin_response: Acknowledged the user and kept the pending recall contract active.
 primary_goal: Play a memory test game where JIN prompts the user to guess the secret word.
-active_memory: Secret word: Sun [ purpose: Ask user to guess this exact word ] [ conditions: Do not reveal or change the word ] [ creation_time: 2026-06-20T10:00:00 ] [ creation_turn_number: 3 ] [ elapsed_time: 00:02:39 ] [ elapsed_turns: 2 ] [ status: pending ]
+active_memory: Secret word: Sun [ purpose: Ask user to guess this exact word ] [ conditions: Do not reveal or change the word ] [ creation_time: 2026-06-20T10:00:00 ] [ created_jin_message_number: 3 ] [ elapsed_time: 00:02:39 ] [ elapsed_jin_message_number: 2 ] [ status: pending ]
 ```
 
 A rendered runtime snapshot also carries metadata used by the right-side timeline panel:
@@ -134,7 +134,7 @@ A rendered runtime snapshot also carries metadata used by the right-side timelin
   "lines": [
     {
       "key": "active_memory",
-      "value": "Secret word: Sun [ purpose: Ask user to guess this exact word ] [ conditions: Do not reveal or change the word ] [ creation_time: 2026-06-20T10:00:00 ] [ creation_turn_number: 3 ] [ elapsed_time: 00:02:39 ] [ elapsed_turns: 2 ] [ status: pending ]",
+      "value": "Secret word: Sun [ purpose: Ask user to guess this exact word ] [ conditions: Do not reveal or change the word ] [ creation_time: 2026-06-20T10:00:00 ] [ created_jin_message_number: 3 ] [ elapsed_time: 00:02:39 ] [ elapsed_jin_message_number: 2 ] [ status: pending ]",
       "key_status": "same",
       "value_status": "same",
       "key_change_ratio": 0.0,
@@ -151,7 +151,7 @@ A rendered runtime snapshot also carries metadata used by the right-side timelin
 }
 ```
 
-`active_memory` lifecycle suffixes are owned by runtime, not L1. L1 sees the contract value and `[ status: ... ]`; runtime reattaches `[ creation_time ]`, `[ creation_turn_number ]`, `[ elapsed_time ]`, and `[ elapsed_turns ]` after each update. Memory lines may also have temporary trace strength such as `[ trace: 0.50 ]` or inject `user_idle: 9s` into the displayed context. Those are runtime metadata signals, not durable memory facts.
+`active_memory` lifecycle suffixes are owned by runtime, not L1. L1 sees the contract value and `[ status: ... ]`; runtime reattaches `[ creation_time ]`, `[ created_jin_message_number ]`, `[ elapsed_time ]`, and `[ elapsed_jin_message_number ]` after each update. Memory lines may also have temporary trace strength such as `[ trace: 0.50 ]` or inject `user_idle: 9s` into the displayed context. Those are runtime metadata signals, not durable memory facts.
 
 ### L2 memory snapshot (patterns)
 
@@ -565,6 +565,10 @@ The frontend uses vanilla JavaScript and Tailwind from CDN. The current input be
 
 The following capabilities are planned but not yet implemented.
 
+**Paused memory panel.** A second memory-panel mode for temporarily removing runtime memory lines without deleting them. Long-pressing a runtime memory line moves it into `paused_memory`, stored separately in browser `localStorage` and available across sessions. Paused lines are never injected into the prompt automatically; the user can manually restore a line into the current runtime snapshot before the next message, or long-press it inside the paused panel to delete it permanently. This gives the user direct control over noisy or incorrectly formed memory without rebooting the session.
+
+**Delayed memory snapshots.** A separate `delayed_memory_snapshot` layer for future-facing thoughts that should not pollute active runtime memory: reminders, check-ins, follow-ups, revisits, and small social obligations. Each delayed memory stores `created_session_id`, creation turn/time, summary, kind, intent, time hint, status, and linked session ids. The first implementation links delayed memories only to saved session snapshots, using simple text search and optional LLM reranking over session headers. This creates a soft “thought for later” layer between active runtime memory and permanent long-term facts.
+
 **Long-term facts layer (L4).** A cross-session key-fact store extracted from completed turns by the service model, stored as JSON, and retrieved via keyword scoring before each brain call. Facts carry category, relevance, confidence, and mention count. A deduplication pass prevents drift from accumulating near-duplicate entries. The top-N retrieved facts are injected into the brain prompt as low-priority background context. No vector search or embedding index; heuristic scoring only for MVP.
 
 **User and JIN (LX layer) profiles.** A periodic distillation of session snapshots into two versioned JSON files: `user_profile.json` (stable preferences, recurring themes, friction points, open projects) and `jin_profile.json` (emergent behavioral biases, voice tendencies, avoidances). Profiles are built from snapshot archives in batches, not in real time. They are injected as soft background context, not as hard identity constraints. Old profile versions are kept for rollback.
@@ -576,6 +580,8 @@ The following capabilities are planned but not yet implemented.
 **Background LLM job queue.** A non-blocking `BackgroundLLMJob` model and in-memory worker that moves heavy service-model calls (L3 session saves, memory consolidation, future night-brain tasks) out of the interactive chat path. The worker runs as an `asyncio` task inside the existing `lifespan` hook, respects a concurrency semaphore, and logs through the existing `log_memory_event` channel. Disabled by default via `BACKGROUND_LLM_ENABLED = False`. A Stage 2 adds fair scheduling across job sources to prevent one session from starving other background work.
 
 **Image and file attachments (multimodal pipeline).** The attachment UI already collects files via drag-and-drop and the file picker, but they are not yet sent through the WebSocket or passed to the model. The planned work covers: base64 serialization of images in the socket payload, multimodal content format in `RuntimeClient` (`image_url` blocks alongside text), backend state propagation through `AgentState` and `RuntimeContext`, and conditional injection of the vision rule block into the brain prompt when images are present. Non-image files will be metadata-only on first iteration.
+
+**Shared Folder file snapshots.** A local shared-folder layer that lets the user drop files into a watched directory and make them available to JIN without injecting the files directly into chat context. The scanner creates compact `F1` file snapshots with path, type, human title, summary, keywords, important entities, parser status, and `open_when` hints. JIN first sees lightweight file cards and only requests the fuller snapshot or source file when the current conversation makes it relevant. This keeps file retrieval explainable and debuggable without requiring vector search for the MVP.
 
 **Pending facts and open loops.** A lightweight `pending_fact` key in L1 memory that tracks unresolved external outcomes — moderation status, waiting for a reply, a deployment in progress. Each entry carries a trusted timestamp. When the pending outcome is older than roughly one day and still open, the brain may tactfully surface it. On resolution the entry is renamed to `resolved_fact` and moved to archive memory.
 

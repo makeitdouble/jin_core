@@ -38,9 +38,6 @@ MAX_SESSION_LINE_CHARS = 220
 L3_SESSION_META_KEYS = (
     "session_snapshot_first_turn",
     "session_snapshot_last_turn",
-    "session_snapshot_previous_last_turn",
-    "session_snapshot_runtime_first_turn",
-    "session_snapshot_runtime_last_turn",
 )
 
 # Default values used when recording a runtime session event snapshot.

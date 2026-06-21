@@ -154,7 +154,3 @@ class RuntimeContext:
     runtime_user_idle_paused: bool = False
 
     runtime_last_response_feedback: dict | None = None
-
-    runtime_previous_think_raw: str = ""
-
-    runtime_previous_think_payload_log: dict | None = None

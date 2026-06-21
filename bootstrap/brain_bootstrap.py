@@ -37,22 +37,6 @@ MEMORY_REQUEST_MARKERS = (
     "anchor",
 )
 
-PHILOSOPHY_MARKERS = (
-    "сознание",
-    "субъектив",
-    "опыт",
-    "квалиа",
-    "личность",
-    "существ",
-    "реальность",
-    "смысл",
-    "meaning",
-    "consciousness",
-    "subjective",
-    "experience",
-    "qualia",
-)
-
 MEDIA_CONTEXT_ATTRS = (
     "uploaded_files",
     "attached_files",
@@ -224,10 +208,7 @@ def build_conversation_activity_instruction(activity_percent: int) -> str:
             "Avoid repeating the same response shape."
         )
 
-    return (
-        "FULL activity. The conversation is active; keep following the current useful direction "
-        "unless runtime memory or pattern memory indicates a loop."
-    )
+    return ""
 
 
 def build_zero_diff_stall_instruction() -> str:
