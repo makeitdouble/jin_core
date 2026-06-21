@@ -121,7 +121,7 @@ L1 is the live factual layer. It keeps the current state needed for the next ans
 user_message: "thanks"
 last_jin_response: Acknowledged the user and kept the pending recall contract active.
 primary_goal: Play a memory test game where JIN prompts the user to guess the secret word.
-active_memory: Secret word: Sun [ purpose: Ask user to guess this exact word ] [ conditions: Do not reveal or change the word ] [ creation_time: 2026-06-20T10:00:00 ] [ creation_turn_number: 3 ] [ elapsed_time: 00:02:39 ] [ elapsed_turns: 2 ] [ status: pending ]
+active_memory: Secret word: Sun [ purpose: Ask user to guess this exact word ] [ conditions: Do not reveal or change the word ] [ creation_time: 2026-06-20T10:00:00 ] [ created_jin_message_number: 3 ] [ elapsed_time: 00:02:39 ] [ elapsed_jin_message_number: 2 ] [ status: pending ]
 ```
 
 A rendered runtime snapshot also carries metadata used by the right-side timeline panel:
@@ -134,7 +134,7 @@ A rendered runtime snapshot also carries metadata used by the right-side timelin
   "lines": [
     {
       "key": "active_memory",
-      "value": "Secret word: Sun [ purpose: Ask user to guess this exact word ] [ conditions: Do not reveal or change the word ] [ creation_time: 2026-06-20T10:00:00 ] [ creation_turn_number: 3 ] [ elapsed_time: 00:02:39 ] [ elapsed_turns: 2 ] [ status: pending ]",
+      "value": "Secret word: Sun [ purpose: Ask user to guess this exact word ] [ conditions: Do not reveal or change the word ] [ creation_time: 2026-06-20T10:00:00 ] [ created_jin_message_number: 3 ] [ elapsed_time: 00:02:39 ] [ elapsed_jin_message_number: 2 ] [ status: pending ]",
       "key_status": "same",
       "value_status": "same",
       "key_change_ratio": 0.0,
@@ -151,7 +151,7 @@ A rendered runtime snapshot also carries metadata used by the right-side timelin
 }
 ```
 
-`active_memory` lifecycle suffixes are owned by runtime, not L1. L1 sees the contract value and `[ status: ... ]`; runtime reattaches `[ creation_time ]`, `[ creation_turn_number ]`, `[ elapsed_time ]`, and `[ elapsed_turns ]` after each update. Memory lines may also have temporary trace strength such as `[ trace: 0.50 ]` or inject `user_idle: 9s` into the displayed context. Those are runtime metadata signals, not durable memory facts.
+`active_memory` lifecycle suffixes are owned by runtime, not L1. L1 sees the contract value and `[ status: ... ]`; runtime reattaches `[ creation_time ]`, `[ created_jin_message_number ]`, `[ elapsed_time ]`, and `[ elapsed_jin_message_number ]` after each update. Memory lines may also have temporary trace strength such as `[ trace: 0.50 ]` or inject `user_idle: 9s` into the displayed context. Those are runtime metadata signals, not durable memory facts.
 
 ### L2 memory snapshot (patterns)
 

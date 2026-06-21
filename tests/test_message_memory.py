@@ -1636,7 +1636,7 @@ class MessageMemoryTests(
             memory,
         )
         self.assertIn(
-            "[ creation_turn_number: 3 ]",
+            "[ created_jin_message_number: 3 ]",
             memory,
         )
         self.assertIn(
@@ -1644,7 +1644,7 @@ class MessageMemoryTests(
             memory,
         )
         self.assertIn(
-            "[ elapsed_turns: 0 ] [ status: pending ]",
+            "[ elapsed_jin_message_number: 0 ] [ status: pending ]",
             memory,
         )
 
@@ -1654,9 +1654,9 @@ class MessageMemoryTests(
             "active_memory: Secret word: Sun "
             "[ purpose: Ask user to guess ] "
             "[ creation_time: 2026-06-20T10:00:00 ] "
-            "[ creation_turn_number: 3 ] "
+            "[ created_jin_message_number: 3 ] "
             "[ elapsed_time: 00:00:00 ] "
-            "[ elapsed_turns: 0 ] "
+            "[ elapsed_jin_message_number: 0 ] "
             "[ status: pending ]"
         )
 
@@ -1678,7 +1678,7 @@ class MessageMemoryTests(
             memory,
         )
         self.assertIn(
-            "[ creation_turn_number: 3 ]",
+            "[ created_jin_message_number: 3 ]",
             memory,
         )
         self.assertIn(
@@ -1686,7 +1686,7 @@ class MessageMemoryTests(
             memory,
         )
         self.assertIn(
-            "[ elapsed_turns: 2 ]",
+            "[ elapsed_jin_message_number: 2 ]",
             memory,
         )
 
@@ -1697,9 +1697,9 @@ class MessageMemoryTests(
                 "active_memory: Secret word: Sun "
                 "[ purpose: Ask user to guess ] "
                 "[ creation_time: 2026-06-20T10:00:00 ] "
-                "[ creation_turn_number: 3 ] "
+                "[ created_jin_message_number: 3 ] "
                 "[ elapsed_time: 01:02:03 ] "
-                "[ elapsed_turns: 2 ] "
+                "[ elapsed_jin_message_number: 2 ] "
                 "[ status: pending ]\n"
                 "primary_goal: Play a memory game."
             )
@@ -1749,18 +1749,18 @@ class MessageMemoryTests(
                 "active_memory: Secret word: Sun "
                 "[ purpose: Ask user to guess ] "
                 "[ creation_time: 2026-06-20T10:00:00 ] "
-                "[ creation_turn_number: 3 ] "
+                "[ created_jin_message_number: 3 ] "
                 "[ elapsed_time: 00:00:00 ] "
-                "[ elapsed_turns: 0 ] "
+                "[ elapsed_jin_message_number: 0 ] "
                 "[ status: pending ]"
             ),
             runtime_memory_stable=(
                 "active_memory: Secret word: Sun "
                 "[ purpose: Ask user to guess ] "
                 "[ creation_time: 2026-06-20T10:00:00 ] "
-                "[ creation_turn_number: 3 ] "
+                "[ created_jin_message_number: 3 ] "
                 "[ elapsed_time: 00:00:00 ] "
-                "[ elapsed_turns: 0 ] "
+                "[ elapsed_jin_message_number: 0 ] "
                 "[ status: pending ]"
             ),
             runtime_memory_updates=1,
@@ -1803,7 +1803,7 @@ class MessageMemoryTests(
             updated_memory,
         )
         self.assertIn(
-            "[ elapsed_turns: 2 ]",
+            "[ elapsed_jin_message_number: 2 ]",
             updated_memory,
         )
 
