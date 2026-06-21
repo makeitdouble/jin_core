@@ -2154,7 +2154,7 @@
 
         body.theme-win95 .jin-chat-avatar-service {
             background:
-                    linear-gradient(180deg, rgba(46, 139, 118, 0.16), rgba(46, 139, 118, 0.045)),
+                    linear-gradient(180deg, rgba(46, 139, 118, 0.050), rgba(46, 139, 118, 0.050)),
                     var(--win95-face);
         }
 
@@ -2208,8 +2208,18 @@
         }
 
         body.theme-win95 .jin-chat-bubble-service {
-            background: var(--win95-face);
+            padding-top: 14px;
+            padding-bottom: 14px;
+            background:
+                    linear-gradient(180deg, rgba(46, 139, 118, 0.050), rgba(46, 139, 118, 0.050)),
+                    var(--win95-face);
             color: var(--win95-text);
+        }
+
+        body.theme-win95 .jin-chat-bubble-user {
+            background:
+                    linear-gradient(180deg, rgba(72, 96, 130, 0.090), rgba(72, 96, 130, 0.060)),
+                    var(--win95-face);
         }
 
         body.theme-win95 .jin-chat-bubble-service .jin-chat-pre {
