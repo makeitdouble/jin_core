@@ -2127,17 +2127,17 @@ class MessageMemoryTests(
             "<CURRENT_SESSION_STATE>",
             user_prompt,
         )
-        self.assertIn(
-            "Total turns count:          12",
+        self.assertRegex(
             user_prompt,
+            r"Total turns count:\s+12",
         )
-        self.assertIn(
-            "User messages count:   7",
+        self.assertRegex(
             user_prompt,
+            r"User messages count:\s+7",
         )
-        self.assertIn(
-            "JIN messages count:     6",
+        self.assertRegex(
             user_prompt,
+            r"JIN messages count:\s+6",
         )
         self.assertLess(
             user_prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
