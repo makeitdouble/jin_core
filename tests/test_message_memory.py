@@ -459,7 +459,7 @@ class MessageMemoryTests(
         )
 
         for required_text in (
-                "Scan all existing active_memory family slots",
+                "Scan all existing active_memory slots",
                 "L2_pattern_evidence_N lines are owned by L2",
                 "identity_state: JIN identity remains unchanged",
         ):
@@ -478,12 +478,12 @@ class MessageMemoryTests(
         # Keep this test focused on the durable create-block contracts,
         # not on exact prompt prose.
         for required_text in (
-                "Write active_memory only when this turn creates an active contract",
+                "Write new active_memory only when this turn creates an active contract",
                 "active_memory:",
-                "<value>",
-                "active_memory_2",
+                "purpose:",
                 "conditions:",
-                "<what must happen later>",
+                "status: pending",
+                "WHEN to write:",
         ):
             self.assertIn(
                 required_text,
@@ -1286,7 +1286,7 @@ class MessageMemoryTests(
             "Do you remember this?",
             service_client.calls[0]["user_prompt"],
         )
-        self.assertIn(
+        self.assertNotIn(
             "atomic bullet lines",
             service_client.calls[0]["user_prompt"],
         )
