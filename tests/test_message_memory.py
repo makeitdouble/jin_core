@@ -29,6 +29,7 @@ from runtime.L1_memory import (
     summarize_runtime_memory_pending_turns,
 )
 from runtime.L1_memory_utils import (
+    build_runtime_memory_context_text,
     build_runtime_memory_snapshot,
     enforce_runtime_turn_fields,
     ensure_active_memory_status_suffixes,
@@ -1689,6 +1690,65 @@ class MessageMemoryTests(
             "[ elapsed_jin_message_number: 2 ]",
             memory,
         )
+
+    def test_runtime_context_refresh_adds_user_idle_to_active_memory_elapsed(self):
+
+        memory = (
+            "active_memory: Reminder set for potatoes "
+            "[ purpose: remind user ] "
+            "[ creation_time: 2026-06-20T10:00:00 ] "
+            "[ created_jin_message_number: 3 ] "
+            "[ elapsed_time: 00:00:00 ] "
+            "[ elapsed_jin_message_number: 0 ] "
+            "[ status: pending ]"
+        )
+
+        refreshed = build_runtime_memory_context_text(
+            memory,
+            SimpleNamespace(
+                timestamp="2026-06-20T10:00:00",
+                turn_number=4,
+                runtime_user_idle_seconds=300,
+                runtime_user_idle_text="5m 0s",
+            ),
+            refresh_active_memory_elapsed=True,
+        )
+
+        self.assertIn(
+            "[ elapsed_time: 00:05:00 ]",
+            refreshed,
+        )
+        self.assertIn(
+            "user_idle: 5m",
+            refreshed,
+        )
+
+    def test_runtime_context_refresh_does_not_mutate_stored_elapsed_by_default(self):
+
+        memory = (
+            "active_memory: Reminder set for potatoes "
+            "[ creation_time: 2026-06-20T10:00:00 ] "
+            "[ created_jin_message_number: 3 ] "
+            "[ elapsed_time: 00:00:00 ] "
+            "[ elapsed_jin_message_number: 0 ] "
+            "[ status: pending ]"
+        )
+
+        rendered = build_runtime_memory_context_text(
+            memory,
+            SimpleNamespace(
+                timestamp="2026-06-20T10:00:00",
+                turn_number=4,
+                runtime_user_idle_seconds=300,
+                runtime_user_idle_text="5m 0s",
+            ),
+        )
+
+        self.assertIn(
+            "[ elapsed_time: 00:00:00 ]",
+            rendered,
+        )
+
 
     def test_strip_active_memory_runtime_metadata_keeps_status_for_l1(self):
 

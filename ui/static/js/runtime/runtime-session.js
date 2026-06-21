@@ -7,6 +7,7 @@
     init,
     persistSessionMemory: notInitialized,
     getRuntimeMemoryForSoftReconnect: notInitialized,
+    getInitialRuntimeMemoryBootstrap: notInitialized,
     captureSessionSaveRuntimeSnapshot: notInitialized,
     isReconnectInitialRuntimeMemoryUpdate: notInitialized,
     isLatestRuntimeMemoryDuplicate: notInitialized,
@@ -64,7 +65,6 @@
       writeLatestSavedRuntimeMemory,
       readLatestSavedRuntimeMemory,
       buildPersistedRuntimeSnapshot,
-      cloneBootRuntimeMemoryIfNeeded,
       collectOtherLatestRuntimeMemorySnapshots,
       clearOtherLatestRuntimeMemorySnapshots,
       getSavedRuntimeMemoryFallback,
@@ -78,8 +78,6 @@
     let pendingSessionMemoryPersistData = null;
     let persistedSessionBootstrapCleared = false;
     let hasUnsavedSessionActivity = false;
-
-    cloneBootRuntimeMemoryIfNeeded();
 
     function runtimeMemoryObjectFromSnapshot(snapshot) {
       const runtimeMemory =
@@ -633,6 +631,15 @@
       };
     }
 
+    function getInitialRuntimeMemoryBootstrap() {
+      // Page reload/new-tab bootstrap must only come from an explicit saved
+      // session (`getPersistedSessionBootstrap`). The per-session
+      // latestRuntimeMemory localStorage copy is a live reconnect cache, not a
+      // restore point: after Save -> more messages -> refresh, replaying it
+      // would skip the saved state and resurrect unsaved runtime facts.
+      return null;
+    }
+
     function hasTabCloseSessionBootstrap() {
       if (persistedSessionBootstrapCleared) {
         return false;
@@ -1164,6 +1171,7 @@
 
     session.persistSessionMemory = persistSessionMemory;
     session.getRuntimeMemoryForSoftReconnect = getRuntimeMemoryForSoftReconnect;
+    session.getInitialRuntimeMemoryBootstrap = getInitialRuntimeMemoryBootstrap;
     session.captureSessionSaveRuntimeSnapshot = captureSessionSaveRuntimeSnapshot;
     session.isReconnectInitialRuntimeMemoryUpdate = isReconnectInitialRuntimeMemoryUpdate;
     session.isLatestRuntimeMemoryDuplicate = isLatestRuntimeMemoryDuplicate;
@@ -1175,6 +1183,7 @@
 
     window.prepareRuntimeMemoryForUserMessage = prepareRuntimeMemoryForUserMessage;
     window.getSoftReconnectRuntimeResume = getSoftReconnectRuntimeResume;
+    window.getInitialRuntimeMemoryBootstrap = getInitialRuntimeMemoryBootstrap;
     window.applyPersistedSessionBootstrap = applyPersistedSessionBootstrap;
     window.getPersistedSessionBootstrap = getPersistedSessionBootstrap;
     window.clearPersistedSessionBootstrap = clearPersistedSessionBootstrap;

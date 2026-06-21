@@ -402,10 +402,9 @@
       return;
     }
 
-    cloneRuntimeMemoryFromSessionId(
-      clonedRuntimeSessionId
-    );
-
+    // Do not copy live latestRuntimeMemory across a page reload. That cache is
+    // only safe for in-page WebSocket reconnects. Saved session restore uses
+    // latestSavedSessionMemory/latestSavedRuntimeMemory instead.
     clonedRuntimeSessionId = null;
 
   }

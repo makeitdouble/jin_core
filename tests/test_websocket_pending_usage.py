@@ -13,6 +13,7 @@ from utils.brain import (
     get_brain_runtime_config,
 )
 from websocket import (
+    apply_runtime_resume,
     apply_session_bootstrap,
     arm_remember_session_from_user_text,
     reject_when_all_models_offline,
@@ -386,6 +387,123 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             len(context.runtime_memory_snapshots),
             1,
+        )
+
+    async def test_runtime_resume_hydrates_active_memory_lifecycle_counters(self):
+
+        context = SimpleNamespace(
+            runtime_memory="session status: New session",
+            runtime_memory_stable="session status: New session",
+            runtime_memory_updates=0,
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
+            turn_number=0,
+            user_message_count=0,
+            assistant_message_count=0,
+            timestamp="2026-06-21T17:05:00",
+            session_id="test-session",
+        )
+
+        restored = apply_runtime_resume(
+            context,
+            {
+                "type": "runtime_resume",
+                "runtime_memory": (
+                    "active_memory: Remind the user about eating "
+                    "[ purpose: Trigger notification to user about eating ] "
+                    "[ creation_time: 2026-06-21T17:00:00 ] "
+                    "[ created_jin_message_number: 2 ] "
+                    "[ elapsed_time: 00:00:00 ] "
+                    "[ elapsed_jin_message_number: 0 ] "
+                    "[ status: pending ]"
+                ),
+                "runtime_memory_updates": 1,
+            },
+        )
+
+        self.assertTrue(
+            restored
+        )
+        self.assertEqual(
+            context.turn_number,
+            2,
+        )
+        self.assertEqual(
+            context.assistant_message_count,
+            2,
+        )
+        self.assertEqual(
+            context.user_message_count,
+            2,
+        )
+        self.assertIn(
+            "[ elapsed_time: 00:05:00 ]",
+            context.runtime_memory,
+        )
+        self.assertIn(
+            "[ elapsed_jin_message_number: 0 ]",
+            context.runtime_memory,
+        )
+
+    async def test_session_bootstrap_hydrates_active_memory_elapsed_counter_floor(self):
+
+        context = SimpleNamespace(
+            runtime_memory="session status: New session",
+            runtime_memory_stable="session status: New session",
+            runtime_memory_updates=0,
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
+            session_memory="",
+            session_memory_source="",
+            runtime_l3_session_memory="",
+            runtime_session_memory_updates=0,
+            runtime_session_event_snapshots=[],
+            turn_number=0,
+            user_message_count=0,
+            assistant_message_count=0,
+            timestamp="2026-06-21T17:05:00",
+            session_id="test-session",
+        )
+
+        restored = apply_session_bootstrap(
+            context,
+            {
+                "type": "session_bootstrap",
+                "runtime_memory": (
+                    "active_memory: Remind the user about eating "
+                    "[ purpose: Trigger notification to user about eating ] "
+                    "[ creation_time: 2026-06-21T17:00:00 ] "
+                    "[ created_jin_message_number: 2 ] "
+                    "[ elapsed_time: 00:00:00 ] "
+                    "[ elapsed_jin_message_number: 3 ] "
+                    "[ status: pending ]"
+                ),
+                "runtime_memory_updates": 1,
+            },
+        )
+
+        self.assertTrue(
+            restored
+        )
+        self.assertEqual(
+            context.turn_number,
+            5,
+        )
+        self.assertEqual(
+            context.assistant_message_count,
+            5,
+        )
+        self.assertEqual(
+            context.user_message_count,
+            5,
+        )
+        self.assertIn(
+            "[ elapsed_time: 00:05:00 ]",
+            context.runtime_memory,
+        )
+        self.assertIn(
+            "[ elapsed_jin_message_number: 3 ]",
+            context.runtime_memory,
         )
 
     async def test_runtime_session_memory_update_is_not_browser_persisted_by_default(self):

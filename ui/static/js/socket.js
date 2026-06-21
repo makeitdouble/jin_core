@@ -1445,26 +1445,42 @@ async function handleSocketOpen() {
   const bootstrap =
     window.getPersistedSessionBootstrap();
 
-  if (!bootstrap) {
+  if (bootstrap) {
+    sendSocketMessage(
+      bootstrap
+    );
+
+    if (window.applyPersistedSessionBootstrap) {
+      window.applyPersistedSessionBootstrap(
+        bootstrap
+      );
+    }
+
+    persistedSessionBootstrapSent = true;
+
+    appendLog(
+      "[SYSTEM]",
+      "Browser session memory sent."
+    );
+
     return;
   }
 
-  sendSocketMessage(
-    bootstrap
-  );
+  if (window.getInitialRuntimeMemoryBootstrap) {
+    const runtimeBootstrap =
+      window.getInitialRuntimeMemoryBootstrap();
 
-  if (window.applyPersistedSessionBootstrap) {
-    window.applyPersistedSessionBootstrap(
-      bootstrap
-    );
+    if (runtimeBootstrap) {
+      sendSocketMessage(
+        runtimeBootstrap
+      );
+
+      appendLog(
+        "[SYSTEM]",
+        "Latest runtime memory sent."
+      );
+    }
   }
-
-  persistedSessionBootstrapSent = true;
-
-  appendLog(
-    "[SYSTEM]",
-    "Browser session memory sent."
-  );
 
 }
 

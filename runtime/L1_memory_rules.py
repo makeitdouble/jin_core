@@ -322,7 +322,10 @@ RUNTIME_FIELDS = (
     "This field is runtime evidence for L2 counters; update it on every L1 snapshot.\n"
     "Always keep a field last_jin_response with the concise gist of JIN's latest completed answer, "
     "offer, or question — only the meaning needed to resolve the user's next short or elliptical reply.\n"
-    "Update last_jin_response each completed turn. If JIN's answer was interrupted, mark it incomplete.\n"
+    "Update last_jin_response each completed turn. Do not copy a clipped preview. "
+    "Never end last_jin_response with '...' or '…' for a completed answer, because that makes JIN think the visible reply was interrupted. "
+    "If the answer was long, write a complete short gist instead of a partial quote. "
+    "If JIN's answer was actually interrupted, mark it incomplete explicitly.\n"
     "Never omit either field from the memory snapshot.\n"
 )
 
@@ -363,19 +366,6 @@ SUMMARIZATION_DEPTH = (
     "If the user asks a follow-up that depends on prior context, preserve the referent "
     "clearly enough for the next brain prompt to resolve it.\n"
 )
-
-# Финальная проверка перед выводом.
-PRE_OUTPUT_CHECK = (
-    "Before final output, verify:\n"
-    "1. Every durable line from current memory is still present unless explicitly corrected, "
-    "cancelled, completed, or superseded in the latest turn.\n"
-    "2. Every active_memory line is still present until its recall contract is resolved.\n"
-    "If a required durable or active contract line is missing, add it back before output.\n"
-    "If nothing durable changed, preserve durable lines unchanged and update only temporary state "
-    "and last_jin_response.\n"
-    "The final memory snapshot must feel like current live trusted state.\n"
-)
-
 
 # =============================================================================
 # PROMPT BLOCKS — CONDITIONAL
@@ -445,7 +435,9 @@ ACTIVE_MEMORY_CREATE = (
     "One contract = one slot. Never split or merge contracts across slots.\n"
 
     "UPDATES:\n"
-    "Append inside the existing [ status: … ] suffix only: [ status: pending, <compact note> ]. "
+    "Update active_memory status only when this turn creates a logical update."
+    "WHEN to write: JIN recalls a value or reminds user about completed conditions, or makes appropriate action to resolve conditions.\n"
+    "Append inside the existing [ status: … ] suffix only: [ status: pending -> <compact note> ]. "
     "Never add a second status suffix. Never create a duplicate slot for a status update.\n"
     "Preserve all earlier status contents — append only, never rewrite.\n"
 
@@ -548,7 +540,6 @@ def build_runtime_memory_system_prompt(
         + TIME_NORMALIZATION
         + AFFECTIVE_STATE
         + SUMMARIZATION_DEPTH
-        + PRE_OUTPUT_CHECK
     )
 
     # ── Confirmable facts ─────────────────────────────────────────────────────

@@ -51,7 +51,7 @@ NUMBERED_MEMORY_KEY_RE = re.compile(
 
 RUNTIME_USER_MESSAGE_KEY = "user_message"
 RUNTIME_LAST_JIN_RESPONSE_KEY = "last_jin_response"
-RUNTIME_LAST_JIN_RESPONSE_FALLBACK_LIMIT = 180
+RUNTIME_LAST_JIN_RESPONSE_FALLBACK_LIMIT = 240
 
 
 def _runtime_value_has_open_quote(
@@ -295,6 +295,33 @@ def find_runtime_memory_entry_value(
     return ""
 
 
+def last_jin_response_looks_visibly_truncated(
+        value: str,
+) -> bool:
+
+    text = str(value or "").strip()
+
+    if not text:
+        return True
+
+    lowered = text.lower()
+
+    if any(
+            marker in lowered
+            for marker in (
+                "<truncated>",
+                "[truncated]",
+                "response was truncated",
+            )
+    ):
+        return True
+
+    return (
+        text.endswith("...")
+        or text.endswith("…")
+    )
+
+
 def build_last_jin_response_fallback(
         assistant_message: str,
 ) -> str:
@@ -306,16 +333,20 @@ def build_last_jin_response_fallback(
     ).strip()
 
     if not compact:
-        compact = "No complete assistant answer was delivered."
+        return "No complete assistant answer was delivered."
+
+    if last_jin_response_looks_visibly_truncated(compact):
+        compact = compact.rstrip(". …").rstrip()
+
+        if compact:
+            return f"{compact} (visible assistant response ended there)"
+
+        return "No complete assistant answer was delivered."
 
     if len(compact) <= RUNTIME_LAST_JIN_RESPONSE_FALLBACK_LIMIT:
         return compact
 
-    return (
-        compact[:RUNTIME_LAST_JIN_RESPONSE_FALLBACK_LIMIT - 3]
-        .rstrip()
-        + "..."
-    )
+    return compact[:RUNTIME_LAST_JIN_RESPONSE_FALLBACK_LIMIT].rstrip()
 
 
 def enforce_runtime_turn_fields(
@@ -345,6 +376,9 @@ def enforce_runtime_turn_fields(
 
     if (
             not candidate_last_jin_response
+            or last_jin_response_looks_visibly_truncated(
+                candidate_last_jin_response
+            )
             or (
                 previous_last_jin_response
                 and candidate_last_jin_response == previous_last_jin_response
@@ -739,6 +773,87 @@ def _format_runtime_elapsed_time(
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
+def _parse_runtime_elapsed_seconds(
+        value: str | None,
+) -> int | None:
+
+    text = str(
+        value
+        or ""
+    ).strip()
+
+    if not text:
+        return None
+
+    match = re.fullmatch(
+        r"(?P<hours>\d+):(?P<minutes>\d{1,2}):(?P<seconds>\d{1,2})",
+        text,
+    )
+
+    if match:
+        return (
+            int(
+                match.group(
+                    "hours",
+                )
+            )
+            * 3600
+            + int(
+                match.group(
+                    "minutes",
+                )
+            )
+            * 60
+            + int(
+                match.group(
+                    "seconds",
+                )
+            )
+        )
+
+    match = re.fullmatch(
+        r"(?P<value>\d+)",
+        text,
+    )
+
+    if match:
+        return int(
+            match.group(
+                "value",
+            )
+        )
+
+    return None
+
+
+def _runtime_user_idle_seconds(
+        context,
+) -> int:
+
+    try:
+        seconds = int(
+            getattr(
+                context,
+                "runtime_user_idle_seconds",
+                0,
+            )
+            or 0
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return 0
+
+    return max(
+        0,
+        min(
+            seconds,
+            365 * 24 * 60 * 60,
+        ),
+    )
+
+
 def _build_active_memory_lifecycle_suffixes(
         *,
         creation_time: str,
@@ -799,6 +914,7 @@ def refresh_active_memory_runtime_metadata(
         *,
         previous_memory: str = "",
         context=None,
+        add_runtime_user_idle_to_elapsed: bool = False,
 ) -> str:
 
     parsed_lines = parse_runtime_memory_lines(
@@ -932,6 +1048,25 @@ def refresh_active_memory_runtime_metadata(
             ),
             current_datetime,
         )
+
+        if add_runtime_user_idle_to_elapsed:
+            previous_elapsed_seconds = (
+                _parse_runtime_elapsed_seconds(
+                    _parse_active_memory_suffix(
+                        previous_value,
+                        "elapsed_time",
+                    )
+                )
+                or 0
+            )
+            elapsed_seconds = max(
+                elapsed_seconds,
+                previous_elapsed_seconds
+                + _runtime_user_idle_seconds(
+                    context
+                ),
+            )
+
         elapsed_jin_message_number = max(
             0,
             current_turn_number
@@ -2055,11 +2190,21 @@ def remove_runtime_user_idle_lines(
 def build_runtime_memory_context_text(
         memory: str,
         context=None,
+        *,
+        refresh_active_memory_elapsed: bool = False,
 ) -> str:
 
     durable_memory = remove_runtime_user_idle_lines(
         memory
     ).strip()
+
+    if refresh_active_memory_elapsed and durable_memory:
+        durable_memory = refresh_active_memory_runtime_metadata(
+            durable_memory,
+            previous_memory=durable_memory,
+            context=context,
+            add_runtime_user_idle_to_elapsed=True,
+        )
 
     memory_text = canonicalize_runtime_memory_text(
         durable_memory or DEFAULT_RUNTIME_MEMORY

@@ -177,6 +177,7 @@ def append_L1_runtime_memory(
             "",
         ),
         context,
+        refresh_active_memory_elapsed=True,
     )
 
     if not runtime_memory.strip():

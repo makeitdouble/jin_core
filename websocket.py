@@ -74,6 +74,8 @@ from runtime import (
 )
 from runtime.L1_memory_utils import (
     build_runtime_memory_context_text,
+    is_active_memory_key,
+    refresh_active_memory_runtime_metadata,
     remove_runtime_user_idle_lines,
 )
 from runtime.L1_memory import (
@@ -708,6 +710,175 @@ def is_default_runtime_memory_text(
     ).lower()
 
 
+ACTIVE_MEMORY_JIN_MESSAGE_COUNTER_RE = re.compile(
+    (
+        r"\[\s*"
+        r"(?P<name>created_jin_message_number|elapsed_jin_message_number)"
+        r"\s*:\s*(?P<value>-?\d+)"
+        r"\s*\]"
+    ),
+    re.IGNORECASE,
+)
+
+
+def _parse_runtime_int_value(
+    value,
+) -> int | None:
+
+    try:
+        return int(
+            str(value).strip()
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def _active_memory_jin_message_floor(
+    runtime_memory: str,
+) -> int:
+
+    max_message_number = 0
+
+    for line in parse_runtime_memory_lines(
+        runtime_memory
+    ):
+        key = (
+            line.get(
+                "key",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if not is_active_memory_key(
+            key
+        ):
+            continue
+
+        suffix_values = {}
+
+        for match in ACTIVE_MEMORY_JIN_MESSAGE_COUNTER_RE.finditer(
+            str(
+                line.get(
+                    "value",
+                    "",
+                )
+                or ""
+            )
+        ):
+            parsed_value = _parse_runtime_int_value(
+                match.group(
+                    "value"
+                )
+            )
+
+            if parsed_value is None:
+                continue
+
+            suffix_values[
+                match.group(
+                    "name"
+                ).casefold()
+            ] = max(
+                0,
+                parsed_value,
+            )
+
+        created_message_number = suffix_values.get(
+            "created_jin_message_number"
+        )
+        elapsed_message_number = suffix_values.get(
+            "elapsed_jin_message_number",
+            0,
+        )
+
+        if created_message_number is None:
+            continue
+
+        max_message_number = max(
+            max_message_number,
+            created_message_number + elapsed_message_number,
+        )
+
+    return max_message_number
+
+
+def _raise_runtime_counter_floor(
+    context,
+    field_name: str,
+    floor: int,
+):
+
+    if floor <= 0:
+        return
+
+    current_value = _parse_runtime_int_value(
+        getattr(
+            context,
+            field_name,
+            0,
+        )
+    ) or 0
+
+    if current_value >= floor:
+        return
+
+    setattr(
+        context,
+        field_name,
+        floor,
+    )
+
+
+def hydrate_runtime_counters_from_active_memory(
+    context,
+    runtime_memory: str,
+):
+
+    message_floor = _active_memory_jin_message_floor(
+        runtime_memory
+    )
+
+    if message_floor <= 0:
+        return
+
+    for field_name in (
+        "turn_number",
+        "assistant_message_count",
+        "user_message_count",
+    ):
+        _raise_runtime_counter_floor(
+            context,
+            field_name,
+            message_floor,
+        )
+
+
+def refresh_restored_active_memory_runtime_metadata(
+    context,
+    runtime_memory: str,
+) -> str:
+
+    runtime_memory = str(
+        runtime_memory
+        or ""
+    ).strip()
+
+    if not runtime_memory:
+        return ""
+
+    hydrate_runtime_counters_from_active_memory(
+        context,
+        runtime_memory,
+    )
+
+    return refresh_active_memory_runtime_metadata(
+        runtime_memory,
+        previous_memory=runtime_memory,
+        context=context,
+    )
+
+
 def apply_runtime_resume(
     context,
     message_data: dict,
@@ -759,6 +930,11 @@ def apply_runtime_resume(
 
     if runtime_memory_is_snapshot_fallback:
         runtime_memory_updates = 0
+
+    runtime_memory = refresh_restored_active_memory_runtime_metadata(
+        context,
+        runtime_memory,
+    )
 
     current_updates = parse_bootstrap_counter(
         getattr(
@@ -927,6 +1103,12 @@ def apply_session_bootstrap(
             session_memory_updates=session_memory_updates,
         )
         runtime_memory_updates = 0
+
+    if runtime_memory and not stale_runtime_memory_for_ui:
+        runtime_memory = refresh_restored_active_memory_runtime_metadata(
+            context,
+            runtime_memory,
+        )
 
     if session_memory:
         session_metadata = parse_l3_session_snapshot_metadata(
@@ -1750,8 +1932,19 @@ async def websocket_endpoint(
 
                 if restored:
                     await logger.log_system(
-                        "[WS] soft reconnect runtime resumed"
+                        "[WS] runtime resumed from browser memory"
                     )
+
+                    if message_data.get(
+                        "emit_after_restore"
+                    ):
+                        await emit_current_runtime_memory(
+                            context
+                        )
+
+                        await emit_runtime_l1_diff_update(
+                            context
+                        )
 
                 continue
 
