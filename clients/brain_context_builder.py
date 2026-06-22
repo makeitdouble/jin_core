@@ -16,6 +16,10 @@ from clients.brain_client_utils import (
     indent_xml,
     strip_empty_results_xml,
 )
+from runtime.context import (
+    RECENT_MESSAGES_MAX_PAIRS,
+    RECENT_MESSAGE_MAX_CHARS,
+)
 from runtime.context_contract import (
     ContextContract,
     format_session_state,
@@ -214,6 +218,118 @@ def append_L2_runtime_memory(
     )
 
 
+def crop_recent_message_text(
+    text: str,
+    max_chars: int = RECENT_MESSAGE_MAX_CHARS,
+) -> str:
+
+    cleaned = str(
+        text
+        or ""
+    ).replace(
+        "\r\n",
+        "\n",
+    ).replace(
+        "\r",
+        "\n",
+    )
+
+    cleaned = cleaned.replace(
+        "\n",
+        "\\n",
+    ).strip()
+
+    if max_chars <= 0:
+        return ""
+
+    if len(cleaned) <= max_chars:
+        return cleaned
+
+    if max_chars <= 3:
+        return "." * max_chars
+
+    return (
+        cleaned[: max_chars - 3].rstrip()
+        + "..."
+    )
+
+
+def build_recent_turns_context_text(
+    recent_turns: list[dict] | None,
+) -> str:
+
+    turns = list(
+        recent_turns
+        or []
+    )[-RECENT_MESSAGES_MAX_PAIRS:]
+
+    lines = [
+        "<recent_turns>",
+    ]
+
+    for turn in turns:
+        if not isinstance(
+            turn,
+            dict,
+        ):
+            continue
+
+        user_text = crop_recent_message_text(
+            turn.get(
+                "user",
+                "",
+            )
+        )
+        jin_text = crop_recent_message_text(
+            turn.get(
+                "jin",
+                "",
+            )
+        )
+
+        if user_text:
+            lines.append(
+                f"user: {user_text}"
+            )
+
+        if jin_text:
+            lines.append(
+                f"jin: {jin_text}"
+            )
+
+    lines.append(
+        "</recent_turns>"
+    )
+
+    return "\n".join(
+        lines
+    )
+
+
+def append_recent_turns(
+    parts: list[str],
+    context=None,
+) -> None:
+
+    if context is None:
+        return
+
+    recent_turns = getattr(
+        context,
+        "runtime_recent_turns",
+        [],
+    )
+
+    if not recent_turns:
+        return
+
+    parts.append(
+        build_recent_turns_context_text(
+            recent_turns
+        )
+    )
+
+
 def get_conversation_activity_instruction(
     context=None,
 ) -> str:
@@ -380,6 +496,10 @@ def build_brain_runtime_context(
         context,
     )
     append_L2_runtime_memory(
+        parts,
+        context,
+    )
+    append_recent_turns(
         parts,
         context,
     )

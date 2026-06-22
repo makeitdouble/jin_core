@@ -84,6 +84,9 @@ from runtime.L1_memory import (
 from runtime.L3_memory_utils import (
     parse_l3_session_snapshot_metadata,
 )
+from runtime.context import (
+    RECENT_MESSAGES_MAX_PAIRS,
+)
 
 
 websocket_router = APIRouter()
@@ -1589,6 +1592,44 @@ def apply_runtime_pattern_context(
     )
 
 
+def append_runtime_recent_turn(
+    context,
+    *,
+    user_message: str,
+    assistant_message: str,
+) -> None:
+
+    if context is None:
+        return
+
+    if not hasattr(
+        context,
+        "runtime_recent_turns",
+    ):
+        context.runtime_recent_turns = []
+
+    user_message = str(
+        user_message
+        or ""
+    ).strip()
+    assistant_message = str(
+        assistant_message
+        or ""
+    ).strip()
+
+    if not user_message and not assistant_message:
+        return
+
+    context.runtime_recent_turns.append({
+        "user": user_message,
+        "jin": assistant_message,
+    })
+
+    context.runtime_recent_turns = context.runtime_recent_turns[
+        -RECENT_MESSAGES_MAX_PAIRS:
+    ]
+
+
 def format_runtime_memory_user_message(
     context,
     user_text: str,
@@ -1684,6 +1725,12 @@ async def process_message(
                 state.final_answer
                 or state.brain_response
                 or context.runtime_turn_assistant_response
+        )
+
+        append_runtime_recent_turn(
+            context,
+            user_message=user_text,
+            assistant_message=assistant_message,
         )
 
         memory_update_task = schedule_runtime_memory_update(

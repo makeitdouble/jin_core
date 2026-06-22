@@ -237,12 +237,26 @@ KEY_SEMANTICS = (
     "Choose names that help immediate continuity and retrieval.\n"
     "For user facts, examples include: user_fact, user_name, user_state, user_identity, user_work.\n"
     "For JIN facts, examples include: jin_fact, jin_purpose, jin_state, jin_identity.\n"
-    "Usual key examples: active_topic, current_task, current_request, "
+    "Update usual keys value when needed.\n"
+    "Usual key examples: session status, active_topic, current_task, current_request, "
     "user_focus, user_intent, open_question, open_risk, pending_choice, pending_action, "
     "project_decision, product_insight, user_preference, technical_constraint, "
     "test_result, observed_behavior, interaction_state.\n"
-    "Durable key examples: active_memory, user_fact, jin_fact, shared_axiom.\n"
     "</memory_line_semantics_rules>\n"
+    "\n"
+)
+
+DURABLE_CARRY_FORWARD = (
+    "\n"
+    "<durable_carry_forward_rules>\n"
+    "Some existing memory lines are durable. Durable lines must be copied into every new L1 snapshot.\n"
+    "A durable line may be removed only if the latest user message explicitly cancels, corrects, replaces, or invalidates that exact fact.\n"
+    "A topic change, low-signal message, casual chat, or short reply never removes durable lines.\n"
+    "If the latest turn does not change a durable line, copy the existing durable line exactly unchanged.\n"
+    "Before final output, scan Current runtime memory and copy forward every line whose key is durable.\n"
+    "Durable keys include any key containing: user_name, user_fact, user_identity, user_state, user_preference, jin_fact, jin_identity, jin_role, jin_purpose, shared_axiom, active_memory, stored_memory, contract.\n"
+    "Facts about the user's name, identity, preferences, stable state, or JIN's identity/role are durable even if the key is not listed.\n"
+    "</durable_carry_forward_rules>\n"
     "\n"
 )
 
@@ -325,6 +339,7 @@ def build_runtime_memory_system_prompt(
     prompt = (
         ROLE
         + KEY_SEMANTICS
+        + DURABLE_CARRY_FORWARD
         + OUTPUT_FORMAT
        # + ACTIVE_MEMORY_CREATE
     )

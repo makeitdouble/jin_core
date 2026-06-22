@@ -7,6 +7,10 @@ from runtime.L1_memory_rules import (
 )
 
 
+RECENT_MESSAGES_MAX_PAIRS = 3
+RECENT_MESSAGE_MAX_CHARS = 220
+
+
 class RuntimeEmitter:
 
     def __init__(
@@ -120,6 +124,10 @@ class RuntimeContext:
     assistant_message_count: int = 0
 
     runtime_memory_pending_turns: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_recent_turns: list[dict] = field(
         default_factory=list
     )
 
