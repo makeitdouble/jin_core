@@ -30,6 +30,7 @@ from runtime.memory_common import (
     build_memory_failure_details,
     build_memory_update_skip_details,
     build_runtime_summarizer_payload,
+    build_runtime_summarizer_response_details,
     extract_runtime_memory_text,
     is_runtime_memory_response_truncated,
     latest_turn_context_is_overloaded,
@@ -578,6 +579,13 @@ async def summarize_runtime_memory(
             response,
             allow_reasoning_fallback=False,
         )
+        context.runtime_l1_last_summarizer_response_details = (
+            build_runtime_summarizer_response_details(
+                response,
+                extracted_memory=updated_memory,
+                allow_reasoning_fallback=False,
+            )
+        )
         updated_memory = remove_runtime_response_feedback_text(
             updated_memory
         )
@@ -810,6 +818,13 @@ async def summarize_runtime_memory_pending_turns(
         updated_memory = extract_runtime_memory_text(
             response,
             allow_reasoning_fallback=False,
+        )
+        context.runtime_l1_last_summarizer_response_details = (
+            build_runtime_summarizer_response_details(
+                response,
+                extracted_memory=updated_memory,
+                allow_reasoning_fallback=False,
+            )
         )
         updated_memory = remove_runtime_response_feedback_text(
             updated_memory

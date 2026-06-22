@@ -270,7 +270,13 @@ async def record_runtime_l1_diff(
             f"repeated keys {repeated_keys}; "
             f"{l2_turn_label}"
         ),
+        details=getattr(
+            context,
+            "runtime_l1_last_summarizer_response_details",
+            None,
+        ),
         fallback_channel="service",
+        event="summarizer_response",
     )
 
     await emit_runtime_l1_diff_update(

@@ -60,10 +60,10 @@ function ensureTraceModal() {
     "anywhere";
 
   traceModalContent =
-    document.createElement("pre");
+    document.createElement("div");
 
   traceModalContent.className =
-    "min-h-0 flex-1 overflow-auto p-4 text-[12px] leading-relaxed text-zinc-200 whitespace-pre-wrap";
+    "min-h-0 flex-1 overflow-auto p-4 text-[12px] leading-relaxed text-zinc-200";
 
   traceModalContent.style.overflowWrap =
     "anywhere";
@@ -130,6 +130,155 @@ function ensureTraceModal() {
   );
 }
 
+function parseTraceJson(details) {
+  try {
+    return JSON.parse(
+      String(details || "")
+    );
+  } catch (_error) {
+    return null;
+  }
+}
+
+function appendTraceSection(
+  parent,
+  title,
+  content,
+) {
+  const section =
+    document.createElement("section");
+
+  section.className =
+    "mb-4 rounded border border-zinc-800 bg-black/20";
+
+  const heading =
+    document.createElement("div");
+
+  heading.className =
+    "border-b border-zinc-800 px-3 py-2 text-[10px] uppercase tracking-widest text-zinc-400";
+
+  heading.textContent =
+    title;
+
+  const body =
+    document.createElement("pre");
+
+  body.className =
+    "max-h-[34vh] overflow-auto whitespace-pre-wrap p-3 text-[12px] leading-relaxed text-zinc-200";
+
+  body.style.overflowWrap =
+    "anywhere";
+
+  body.textContent =
+    String(content || "").trim()
+    || "<empty>";
+
+  section.appendChild(
+    heading
+  );
+
+  section.appendChild(
+    body
+  );
+
+  parent.appendChild(
+    section
+  );
+}
+
+function renderTraceDetails(details) {
+  traceModalContent.replaceChildren();
+
+  const parsed =
+    parseTraceJson(details);
+
+  if (
+      parsed
+      && parsed.kind === "summarizer_response"
+  ) {
+    const meta = {
+      model: parsed.model || "",
+      finish_reason: parsed.finish_reason || "",
+      allow_reasoning_fallback: Boolean(parsed.allow_reasoning_fallback),
+      used_reasoning_fallback: Boolean(parsed.used_reasoning_fallback),
+      usage: parsed.usage || {},
+    };
+
+    appendTraceSection(
+      traceModalContent,
+      "Meta",
+      JSON.stringify(
+        meta,
+        null,
+        2
+      )
+    );
+
+    appendTraceSection(
+      traceModalContent,
+      "Assistant content",
+      parsed.content || ""
+    );
+
+    appendTraceSection(
+      traceModalContent,
+      "Reasoning content",
+      parsed.reasoning_content || ""
+    );
+
+    appendTraceSection(
+      traceModalContent,
+      "Extracted L1 memory text",
+      parsed.extracted_memory || ""
+    );
+
+    appendTraceSection(
+      traceModalContent,
+      "Raw message",
+      JSON.stringify(
+        parsed.message || {},
+        null,
+        2
+      )
+    );
+
+    return;
+  }
+
+  const pre =
+    document.createElement("pre");
+
+  pre.className =
+    "whitespace-pre-wrap text-[12px] leading-relaxed text-zinc-200";
+
+  pre.style.overflowWrap =
+    "anywhere";
+
+  pre.textContent =
+    String(details);
+
+  traceModalContent.appendChild(
+    pre
+  );
+}
+
+function getTraceTitle(
+  details,
+  fallbackTitle,
+) {
+  const parsed =
+    parseTraceJson(details);
+
+  if (
+      parsed
+      && parsed.kind === "summarizer_response"
+  ) {
+    return "Summarizer response";
+  }
+
+  return fallbackTitle;
+}
+
 function showTrace(
   details,
   title = "Trace",
@@ -156,8 +305,9 @@ function showTrace(
     );
   }
 
-  traceModalContent.textContent =
-    String(details);
+  renderTraceDetails(
+    details
+  );
 
   traceModal.classList.remove(
     "hidden"
@@ -737,17 +887,20 @@ function appendLog(
       function () {
         showTrace(
           prettifyTraceDetails(normalized.details),
-          isPatternResult
-            ? "L2 pattern memory"
-            : isLatestSnapshots
-            ? "Latest snapshots"
-            : isSession
-            ? "Session bootstrap"
-            : tag.includes("ACTIVE_MEMORY")
-            ? "Active memory payload"
-            : isSummarizer
-            ? "Summarizer payload"
-            : "Trace",
+          getTraceTitle(
+            normalized.details,
+            isPatternResult
+              ? "L2 pattern memory"
+              : isLatestSnapshots
+              ? "Latest snapshots"
+              : isSession
+              ? "Session bootstrap"
+              : tag.includes("ACTIVE_MEMORY")
+              ? "Active memory payload"
+              : isSummarizer
+              ? "Summarizer payload"
+              : "Trace"
+          ),
           reason
         );
       }
