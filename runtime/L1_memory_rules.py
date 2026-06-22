@@ -256,9 +256,10 @@ OUTPUT_FORMAT = (
     "Return only the new compressed L1 memory state as plain text.\n"
     "Every memory line must be a complete key:value entry.\n"
     "Do not output empty keys or bare values.\n"
-    "Do not output JSON, Markdown headings, nested bullets, numbered lists, or tables.\n"
+    "Do not output JSON, Markdown headings, nested bullets, or numbered lists, or tables.\n"
     "Do not explain your reasoning or the summarization process.\n"
     "Do not write the current turn number or user_message_count.\n"
+    "If nothing new - reflect this in state, or output previous state unchanged.\n"
     "\n"
 )
 

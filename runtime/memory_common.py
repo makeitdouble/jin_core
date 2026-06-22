@@ -456,16 +456,21 @@ async def log_active_memory_event(
 
 def extract_runtime_memory_text(
         response: dict,
+        *,
+        allow_reasoning_fallback: bool = True,
 ) -> str:
 
-    text = (
-            ResponseExtractor.extract_content_text(
-                response
-            )
-            or ResponseExtractor.extract_reasoning_text(
+    text = ResponseExtractor.extract_content_text(
         response
     )
-    )
+
+    if (
+            not text
+            and allow_reasoning_fallback
+    ):
+        text = ResponseExtractor.extract_reasoning_text(
+            response
+        )
 
     return text.strip()
 

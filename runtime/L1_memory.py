@@ -575,7 +575,8 @@ async def summarize_runtime_memory(
         )
 
         updated_memory = extract_runtime_memory_text(
-            response
+            response,
+            allow_reasoning_fallback=False,
         )
         updated_memory = remove_runtime_response_feedback_text(
             updated_memory
@@ -807,7 +808,8 @@ async def summarize_runtime_memory_pending_turns(
         )
 
         updated_memory = extract_runtime_memory_text(
-            response
+            response,
+            allow_reasoning_fallback=False,
         )
         updated_memory = remove_runtime_response_feedback_text(
             updated_memory
