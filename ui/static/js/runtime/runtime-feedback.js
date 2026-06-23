@@ -253,6 +253,50 @@
 
   // In-place rating mutation: rating clicks are part of the current L1 page,
   // not a new runtime memory page.
+  function getLatestSnapshotIndexForMutation() {
+    const runtimeDeps = ensureDeps();
+    const snapshots = typeof runtimeDeps.getSnapshots === "function"
+      ? runtimeDeps.getSnapshots()
+      : [];
+
+    return snapshots.length
+      ? snapshots.length - 1
+      : null;
+  }
+
+  function resolveFeedbackSnapshotIndex(detail) {
+    const rawSnapshotIndex = detail
+      ? (
+        detail.runtimeSnapshotIndex
+        ?? detail.snapshotIndex
+        ?? null
+      )
+      : null;
+
+    const incomingGeneration = Number(
+      detail && detail.ratingGateGeneration || 0
+    );
+
+    // A rating click for the generation that has just become L1-ready must
+    // always mutate the newest runtime snapshot. Bubble dataset values can be
+    // stale when the hover zones were attached before the final L1-ready event
+    // rewrote runtimeSnapshotIndex, so the server receives the right feedback
+    // while the visible panel mutates the previous page. Prefer the current
+    // runtime history tail for the active ready generation.
+    if (
+        incomingGeneration > 0
+        && incomingGeneration === jinAnswerRatingL1Gate.readyGeneration
+    ) {
+      const latestSnapshotIndex = getLatestSnapshotIndexForMutation();
+
+      if (latestSnapshotIndex !== null) {
+        return latestSnapshotIndex;
+      }
+    }
+
+    return rawSnapshotIndex;
+  }
+
   function getCurrentSnapshotForMutation(feedback = null) {
     const runtimeDeps = ensureDeps();
     const snapshots = typeof runtimeDeps.getSnapshots === "function"
@@ -529,10 +573,9 @@
 
     pendingRuntimeResponseFeedback = {
       rating,
-      runtimeSnapshotIndex:
-        detail && detail.runtimeSnapshotIndex !== undefined
-          ? detail.runtimeSnapshotIndex
-          : null,
+      runtimeSnapshotIndex: resolveFeedbackSnapshotIndex(
+        detail
+      ),
     };
 
     return applyToCurrentSnapshot(
@@ -548,10 +591,9 @@
     pendingRuntimeResponseFeedback = null;
 
     return applyToCurrentSnapshot({
-      runtimeSnapshotIndex:
-        detail && detail.runtimeSnapshotIndex !== undefined
-          ? detail.runtimeSnapshotIndex
-          : null,
+      runtimeSnapshotIndex: resolveFeedbackSnapshotIndex(
+        detail
+      ),
     });
   }
 
