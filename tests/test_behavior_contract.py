@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from app import app
 from clients.brain_client import (
     is_user_initiated_remember_event,
-    should_execute_remember_session,
+    should_execute_save_session,
 )
 from runtime.behavior_contract import (
     get_action_guard,
@@ -31,28 +31,28 @@ class BehaviorContractTests(unittest.TestCase):
             dict,
         )
 
-    def test_remember_session_guard_exists(self):
+    def test_save_session_guard_exists(self):
 
         guard = get_action_guard(
-            "remember_session"
+            "save_session"
         )
 
         self.assertEqual(
             guard["runtime_action"],
-            "REMEMBER_SESSION",
+            "SAVE_SESSION",
         )
         self.assertEqual(
             guard["private_marker"],
-            "<INTERNAL_ACTION_REMEMBER_SESSION>",
+            "<INTERNAL_ACTION_SAVE_SESSION>",
         )
         self.assertTrue(
             guard["effects"]["save_session"],
         )
 
-    def test_remember_session_triggers_include_known_phrases(self):
+    def test_save_session_triggers_include_known_phrases(self):
 
         triggers = get_action_guard_triggers(
-            "remember_session"
+            "save_session"
         )
 
         for phrase in (
@@ -66,10 +66,10 @@ class BehaviorContractTests(unittest.TestCase):
                 triggers,
             )
 
-    def test_remember_session_blockers_include_known_phrases(self):
+    def test_save_session_blockers_include_known_phrases(self):
 
         blockers = get_action_guard_blockers(
-            "remember_session"
+            "save_session"
         )
 
         for phrase in (
@@ -133,58 +133,58 @@ class BehaviorContractTests(unittest.TestCase):
             )
         )
 
-    def test_should_execute_remember_session_matches_bedtime(self):
+    def test_should_execute_save_session_matches_bedtime(self):
 
         self.assertTrue(
-            should_execute_remember_session(
+            should_execute_save_session(
                 "ладно, я спать, до завтра"
             )
         )
 
-    def test_should_execute_remember_session_matches_save_request(self):
+    def test_should_execute_save_session_matches_save_request(self):
 
         self.assertTrue(
-            should_execute_remember_session(
+            should_execute_save_session(
                 "сохрани сессию"
             )
         )
 
-    def test_should_execute_remember_session_blocks_meta_tag_request(self):
+    def test_should_execute_save_session_blocks_meta_tag_request(self):
 
         self.assertFalse(
-            should_execute_remember_session(
-                "покажи тег remember session"
+            should_execute_save_session(
+                "покажи тег save session"
             )
         )
 
-    def test_should_execute_remember_session_ignores_normal_message(self):
+    def test_should_execute_save_session_ignores_normal_message(self):
 
         self.assertFalse(
-            should_execute_remember_session(
+            should_execute_save_session(
                 "обсудим статью дальше"
             )
         )
 
-    def test_should_execute_remember_session_ignores_event_save_request(self):
+    def test_should_execute_save_session_ignores_event_save_request(self):
 
         self.assertFalse(
-            should_execute_remember_session(
+            should_execute_save_session(
                 "хорошо, тогда сохрани это как нашу новую аксиому"
             )
         )
 
-    def test_should_execute_remember_session_ignores_generic_save_this(self):
+    def test_should_execute_save_session_ignores_generic_save_this(self):
 
         self.assertFalse(
-            should_execute_remember_session(
+            should_execute_save_session(
                 "сохрани это"
             )
         )
 
-    def test_should_execute_remember_session_ignores_bare_save_command(self):
+    def test_should_execute_save_session_ignores_bare_save_command(self):
 
         self.assertFalse(
-            should_execute_remember_session(
+            should_execute_save_session(
                 "сохрани"
             )
         )
@@ -193,7 +193,7 @@ class BehaviorContractTests(unittest.TestCase):
 
         self.assertTrue(
             should_execute_action_guard(
-                "remember_session",
+                "save_session",
                 "давай на сегодня все",
             )
         )

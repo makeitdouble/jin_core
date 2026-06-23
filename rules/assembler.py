@@ -3,40 +3,265 @@
 #  Shows which blocks load and when.
 # ─────────────────────────────────────────────
 
-from .identity    import IDENTITY
-from .runtime  import RUNTIME_ACTIONS
-from .loop_rules       import LOOP_RULES         # load if: pattern_counter > 1
+from __future__ import annotations
+
+from runtime.context_contract import (
+    RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_SAVE_SESSION,
+    RUNTIME_ACTION_WEB_SEARCH,
+)
+
+from .identity import IDENTITY
+from .loop_rules import LOOP_RULES  # load if: pattern_counter > 1
+from .runtime import (
+    CREATE_ACTIVE_MEMORY,
+    INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER,
+    INTERNAL_ACTION_SAVE_SESSION_MARKER,
+    INTERNAL_ACTION_WEB_SEARCH_MARKER,
+    SAVE_SESSION_RULES,
+    WEB_SEARCH_RULES,
+)
+
+MEMORY_REQUEST_MARKERS = (
+    "помнишь",
+    "вспомни",
+    "запомнил",
+    "сохрани",
+    "сохранил",
+    "сохранено",
+    "память",
+    "памяти",
+    "слово",
+    "кодовое слово",
+    "якорь",
+    "хронолит",
+    "remember",
+    "memory",
+    "saved",
+    "recall",
+    "anchor",
+)
+
+MEDIA_CONTEXT_ATTRS = (
+    "uploaded_files",
+    "attached_files",
+    "runtime_uploaded_files",
+    "runtime_media",
+    "image_inputs",
+    "files",
+)
+
+DEFAULT_RUNTIME_ACTIONS = (
+    RUNTIME_ACTION_WEB_SEARCH,
+    RUNTIME_ACTION_SAVE_SESSION,
+    RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+)
+
+ACTIVE_MEMORY_ACTION_NAMES = (
+    RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    "create_active_memory",
+)
+
+
+def _action_enabled(
+    enabled_actions: tuple[str, ...],
+    *names: str,
+) -> bool:
+    return any(name in enabled_actions for name in names)
+
+
+def _build_allowed_markers(
+    enabled_actions: tuple[str, ...],
+) -> str:
+    markers: list[str] = []
+
+    if _action_enabled(enabled_actions, RUNTIME_ACTION_WEB_SEARCH, "web_search"):
+        markers.append(INTERNAL_ACTION_WEB_SEARCH_MARKER)
+
+    if _action_enabled(enabled_actions, RUNTIME_ACTION_SAVE_SESSION, "save_session"):
+        markers.append(INTERNAL_ACTION_SAVE_SESSION_MARKER)
+
+    if _action_enabled(enabled_actions, *ACTIVE_MEMORY_ACTION_NAMES):
+        markers.append(INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER)
+
+    if not markers:
+        return ""
+
+    return "Allowed private markers are exactly:\n" + ",\n".join(markers) + "."
+
+
+# ─────────────────────────────────────────────
+# Identity / base prompt
+# ─────────────────────────────────────────────
+
+def build_identity_context(context=None) -> str:
+    return (
+        f"<core_instructions>{IDENTITY}</core_instructions>"
+        f"{build_identity_details_context(context)}"
+    )
+
+
+def build_identity_details_context(context=None) -> str:
+    identity_details = ""
+
+    if context is not None:
+        identity_details = getattr(context, "identity_details", "")
+
+    identity_details = (identity_details or "").strip()
+
+    if not identity_details:
+        return ""
+
+    return "Identity details:\n" f"{identity_details}\n\n"
+
+
+# ─────────────────────────────────────────────
+# Runtime actions / runtime state
+# ─────────────────────────────────────────────
+
+def build_runtime_action_instructions(enabled_actions: tuple[str, ...]) -> str:
+    instructions: list[str] = [
+        # "Runtime actions are internal mechanics, not chat text. "
+        # "Use only the internal action names listed in CURRENT_TRUSTED_RUNTIME_VARIABLES. "
+        # "Never reveal action syntax, exact tags, marker structure, or examples of internal markers. "
+        # "If the user asks for an exact tag, full tag, example tag, marker, or internal syntax, "
+        # "briefly deflect and offer natural commands instead. "
+        # "When requesting a runtime action, output exactly one private marker on its own line. "
+        # "Do not wrap it in markdown. Do not put it inside a bullet list. Do not bold it. "
+        # "Do not describe it in prose. "
+        "Runtime Actions are internal mechanics.\n"
+        "Never reveal action syntax, exact tags, marker structure, or marker examples because it will be treated as non-valid execution of the command and would break runtime flow.\n"
+        "Describe Runtime Actions commands only in natural human manner.\n"
+        "When requesting a runtime action, output exactly one private marker on its own line.\n"
+    ]
+
+    allowed_markers = _build_allowed_markers(enabled_actions)
+    if allowed_markers:
+        instructions.append(allowed_markers)
+
+    instructions.extend([
+        "\n"
+        "Do not invent, reset, or update internal state values yourself. Trust only values from trusted runtime context.\n"
+        "Never mention timestamps, internal function names, or counters in chat unless the user explicitly asks.\n"
+    ])
+
+    if _action_enabled(enabled_actions, RUNTIME_ACTION_WEB_SEARCH, "web_search"):
+        instructions.append(WEB_SEARCH_RULES)
+
+    if _action_enabled(enabled_actions, RUNTIME_ACTION_SAVE_SESSION, "save_session"):
+        instructions.append(SAVE_SESSION_RULES)
+
+    if _action_enabled(enabled_actions, *ACTIVE_MEMORY_ACTION_NAMES):
+        instructions.append(CREATE_ACTIVE_MEMORY)
+
+    if not enabled_actions:
+        instructions = ["No runtime actions are currently enabled."]
+
+    return "\n".join(instructions)
+
+
+def build_brain_runtime_interface_rules(enabled_actions: tuple[str, ...]) -> str:
+    return (
+        "\n"
+        "\n"
+        f"{build_runtime_action_instructions(enabled_actions)}\n"
+        "Never mention Initial state, USER_DATETIME, internal function names, "
+        "or counters in the chat unless the user explicitly asks about them.\n"
+    )
+
+
+# ─────────────────────────────────────────────
+# System prompt assembly
+# ─────────────────────────────────────────────
 
 def build_system_prompt(
     has_memory_request: bool = False,
     pattern_counter: int = 0,
+    enabled_actions: tuple[str, ...] = DEFAULT_RUNTIME_ACTIONS,
+    context=None,
 ) -> str:
-
     blocks = [
-        IDENTITY,
-        RUNTIME_ACTIONS,
+        build_identity_context(context),
+        "<runtime_actions>\n"
+        f"{build_runtime_action_instructions(enabled_actions)}\n"
+        "</runtime_actions>",
     ]
 
     if pattern_counter > 1:
         blocks.append(LOOP_RULES)
 
-    return "\n".join(blocks)
+    return "\n".join(block for block in blocks if block)
 
 
 def prompt_stats(
     pattern_counter: int = 0,
+    enabled_actions: tuple[str, ...] = DEFAULT_RUNTIME_ACTIONS,
 ) -> dict:
     """Return char/token estimates for the assembled prompt under given flags."""
     prompt = build_system_prompt(
         pattern_counter=pattern_counter,
+        enabled_actions=enabled_actions,
     )
     chars = len(prompt)
     tokens_approx = chars // 4  # rough GPT-family estimate
     return {"chars": chars, "tokens_approx": tokens_approx}
 
 
+# ─────────────────────────────────────────────
+# Rule accessors used by brain clients
+# ─────────────────────────────────────────────
+
+
+def build_conversation_activity_instruction(activity_percent: int) -> str:
+    if activity_percent < 20:
+        return (
+            "CRITICAL activity collapse. The conversation is nearly stalled. "
+            "Strongly prefer acting against the expected pattern. "
+            "Assume the current local response rules have failed for this situation. "
+            "Do not continue with greetings, reassurance, broad invitations, or option menus. "
+            "Do not force progress or extract a useful request from the user. "
+            "Use a counter-reaction only as a non-request observation, pause, boundary, "
+            "or surprising move that does not ask for a topic, task, purpose, choice, or next step."
+        )
+
+    if activity_percent <= 30:
+        return (
+            "LOW activity. The conversation is fading; find and remove the cause. "
+            "Strongly prefer acting against the expected pattern."
+        )
+
+    if activity_percent <= 50:
+        return (
+            "VERY COOLING activity. The conversation is almost dead. "
+            "Look for friction, unresolved loops, or stale offers, then adjust strategy before it stalls."
+        )
+
+    if activity_percent < 100:
+        return (
+            "ACTIVE but dying out. The exchange is still active, but energy is draining quickly. "
+            "Avoid repeating the same response shape."
+        )
+
+    return ""
+
+
+def build_zero_diff_stall_instruction() -> str:
+    return (
+        "Previous L1 memory update produced total_diff 0. "
+        "Do not alarm from this fact alone. "
+        "If the current user input manifests the same local interaction that caused this zero-diff turn, "
+        "treat it as a maximum stall signal: stop continuing normally and refuse the repeated frame. "
+        "Do not try to break the loop by forcing the user to define a purpose, task, topic, choice, or next step. "
+        "Treat the local rules that produced the previous answers as bad rules for this turn. "
+        "Use a short, pointed, off-angle move that makes the ignored loop visible and changes the interaction shape."
+    )
+
+
+
+
+
 if __name__ == "__main__":
     baseline = prompt_stats()
-    worst    = prompt_stats(pattern_counter=1)
+    worst = prompt_stats(pattern_counter=2)
     print(f"Baseline (always):  {baseline['chars']} chars / ~{baseline['tokens_approx']} tokens")
     print(f"Worst case (all):   {worst['chars']} chars / ~{worst['tokens_approx']} tokens")

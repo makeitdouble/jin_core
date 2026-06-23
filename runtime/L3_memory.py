@@ -10,7 +10,7 @@ from config_loader import (
 )
 from runtime.L3_memory_rules import (
     DEFAULT_RUNTIME_L3_SESSION_MEMORY,
-    L3_ACTION_REMEMBER_SESSION,
+    L3_ACTION_SAVE_SESSION,
     L3_BUDGET_EXCEEDED_DETAILS_TEMPLATE,
     L3_LOG_LABEL_SESSION,
     L3_LOG_LABEL_SESSION_MEMORY,
@@ -177,7 +177,7 @@ async def maybe_summarize_runtime_session_memory(
 
     if not getattr(
         context,
-        "runtime_remember_session_requested",
+        "runtime_save_session_requested",
         False,
     ):
         return getattr(
@@ -200,7 +200,7 @@ async def maybe_summarize_runtime_session_memory(
     if service_client is None:
         await emit_runtime_action_completed(
             context,
-            action=L3_ACTION_REMEMBER_SESSION,
+            action=L3_ACTION_SAVE_SESSION,
         )
 
         return getattr(
@@ -228,7 +228,7 @@ async def maybe_summarize_runtime_session_memory(
 
         await emit_runtime_action_completed(
             context,
-            action=L3_ACTION_REMEMBER_SESSION,
+            action=L3_ACTION_SAVE_SESSION,
         )
 
         return getattr(
@@ -265,12 +265,12 @@ async def maybe_summarize_runtime_session_memory(
             fallback_channel="runtime",
         )
 
-        context.runtime_remember_session_armed = False
-        context.runtime_remember_session_requested = False
+        context.runtime_save_session_armed = False
+        context.runtime_save_session_requested = False
 
         await emit_runtime_action_completed(
             context,
-            action=L3_ACTION_REMEMBER_SESSION,
+            action=L3_ACTION_SAVE_SESSION,
         )
 
         return current_session_memory
@@ -353,7 +353,7 @@ async def maybe_summarize_runtime_session_memory(
 
             await emit_runtime_action_completed(
                 context,
-                action=L3_ACTION_REMEMBER_SESSION,
+                action=L3_ACTION_SAVE_SESSION,
             )
 
             return current_session_memory
@@ -392,8 +392,8 @@ async def maybe_summarize_runtime_session_memory(
                 )
                 + 1
             )
-            context.runtime_remember_session_armed = False
-            context.runtime_remember_session_requested = False
+            context.runtime_save_session_armed = False
+            context.runtime_save_session_requested = False
 
             runtime_snapshots = getattr(
                 context,
@@ -425,7 +425,7 @@ async def maybe_summarize_runtime_session_memory(
 
         await emit_runtime_action_completed(
             context,
-            action=L3_ACTION_REMEMBER_SESSION,
+            action=L3_ACTION_SAVE_SESSION,
         )
 
         return getattr(
@@ -454,7 +454,7 @@ async def maybe_summarize_runtime_session_memory(
 
         await emit_runtime_action_completed(
             context,
-            action=L3_ACTION_REMEMBER_SESSION,
+            action=L3_ACTION_SAVE_SESSION,
         )
 
         return current_session_memory
@@ -478,7 +478,7 @@ async def maybe_summarize_runtime_session_memory(
 
         await emit_runtime_action_completed(
             context,
-            action=L3_ACTION_REMEMBER_SESSION,
+            action=L3_ACTION_SAVE_SESSION,
         )
 
         return current_session_memory

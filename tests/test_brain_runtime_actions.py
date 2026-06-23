@@ -22,7 +22,7 @@ from utils.brain import (
 
 class BrainRuntimeActionTests(unittest.TestCase):
 
-    def test_non_stream_blocks_remember_session_meta_request_in_reasoning(self):
+    def test_non_stream_blocks_save_session_meta_request_in_reasoning(self):
 
         class FakeBrainClient:
             async def ask(self, **_kwargs):
@@ -33,7 +33,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                             "message": {
                                 "reasoning": (
                                     "The user asked for internal syntax.\n"
-                                    "<INTERNAL_ACTION_REMEMBER_SESSION>"
+                                    "<INTERNAL_ACTION_SAVE_SESSION>"
                                 ),
                                 "content": "ok",
                             },
@@ -61,8 +61,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     ),
                     context=context,
                     runtime_actions={
-                        "CAN_DEEP_THOUGHT": True,
-                        "CAN_REMEMBER_SESSION": True,
+                        "CAN_SAVE_SESSION": True,
                     },
                 )
             )
@@ -76,11 +75,11 @@ class BrainRuntimeActionTests(unittest.TestCase):
         self.assertFalse(
             hasattr(
                 context,
-                "runtime_remember_session_requested",
+                "runtime_save_session_requested",
             )
         )
 
-    def test_non_stream_applies_remember_session_marker_in_reasoning(self):
+    def test_non_stream_applies_save_session_marker_in_reasoning(self):
 
         class FakeBrainClient:
             async def ask(self, **_kwargs):
@@ -91,7 +90,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                             "message": {
                                 "reasoning": (
                                     "The user asked to save.\n"
-                                    "<INTERNAL_ACTION_REMEMBER_SESSION>"
+                                    "<INTERNAL_ACTION_SAVE_SESSION>"
                                 ),
                                 "content": "ok",
                             },
@@ -113,8 +112,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     text="сохрани сессию",
                     context=context,
                     runtime_actions={
-                        "CAN_DEEP_THOUGHT": True,
-                        "CAN_REMEMBER_SESSION": True,
+                        "CAN_SAVE_SESSION": True,
                     },
                 )
             )
@@ -126,10 +124,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
             "ok",
         )
         self.assertTrue(
-            context.runtime_remember_session_requested,
+            context.runtime_save_session_requested,
         )
 
-    def test_stream_applies_remember_session_marker_in_thinking_once(self):
+    def test_stream_applies_save_session_marker_in_thinking_once(self):
 
         class FakeBrainClient:
             async def stream(self, **_kwargs):
@@ -137,14 +135,14 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     "type": "thinking",
                     "content": (
                         "The user asked to save.\n"
-                        "<INTERNAL_ACTION_REMEMBER_SESSION>"
+                        "<INTERNAL_ACTION_SAVE_SESSION>"
                     ),
                 }
                 yield {
                     "type": "thinking",
                     "content": (
                         "Again\n"
-                        "<INTERNAL_ACTION_REMEMBER_SESSION>"
+                        "<INTERNAL_ACTION_SAVE_SESSION>"
                     ),
                 }
                 yield {
@@ -163,8 +161,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 text="сохрани сессию",
                 context=context,
                 runtime_actions={
-                    "CAN_DEEP_THOUGHT": True,
-                    "CAN_REMEMBER_SESSION": True,
+                    "CAN_SAVE_SESSION": True,
                 },
             ):
                 chunks.append(
@@ -194,7 +191,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             },
         )
         self.assertTrue(
-            context.runtime_remember_session_requested,
+            context.runtime_save_session_requested,
         )
         self.assertEqual(
             [
@@ -207,14 +204,14 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     "type": "thinking",
                     "content": (
                         "The user asked to save.\n"
-                        "<INTERNAL_ACTION_REMEMBER_SESSION>"
+                        "<INTERNAL_ACTION_SAVE_SESSION>"
                     ),
                 },
                 {
                     "type": "thinking",
                     "content": (
                         "Again\n"
-                        "<INTERNAL_ACTION_REMEMBER_SESSION>"
+                        "<INTERNAL_ACTION_SAVE_SESSION>"
                     ),
                 },
             ],
@@ -248,7 +245,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 context=context,
                 runtime_actions={
                     "CAN_WEB_SEARCH": True,
-                    "CAN_REMEMBER_SESSION": True,
+                    "CAN_SAVE_SESSION": True,
                 },
             ):
                 chunks.append(
@@ -304,7 +301,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
-    def test_agent_runtime_action_flags_enable_search_and_remember_session(self):
+    def test_agent_runtime_action_flags_enable_search_and_save_session(self):
 
         self.assertEqual(
             get_enabled_runtime_actions(
@@ -312,8 +309,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ),
             (
                 "WEB_SEARCH",
-                "REMEMBER_SESSION",
-                "REMEMBER_EVENT",
+                "SAVE_SESSION",
+                "CREATE_ACTIVE_MEMORY",
             ),
         )
 
@@ -323,8 +320,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ),
             (
                 "WEB_SEARCH",
-                "REMEMBER_SESSION",
-                "REMEMBER_EVENT",
+                "SAVE_SESSION",
+                "CREATE_ACTIVE_MEMORY",
             ),
         )
 
@@ -332,8 +329,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         runtime_actions = {
             "CAN_WEB_SEARCH": True,
-            "CAN_REMEMBER_SESSION": True,
-            "CAN_REMEMBER_EVENT": True,
+            "CAN_SAVE_SESSION": True,
+            "CAN_SAVE_ACTIVE_MEMORY": True,
         }
 
         prompt = build_brain_system_prompt(
@@ -362,8 +359,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
             )
 
         for private_marker in (
-            "<INTERNAL_ACTION_REMEMBER_SESSION>",
-            "<INTERNAL_ACTION_REMEMBER_EVENT>",
+            "<INTERNAL_ACTION_SAVE_SESSION>",
+            "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:Detailed description about purpose and conditions of active memory item to be created for>",
             "<INTERNAL_ACTION_WEB_SEARCH:plain text query>",
         ):
             self.assertIn(
@@ -379,18 +376,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         prompt = build_brain_system_prompt(
             runtime_actions={
-                "CAN_DEEP_THOUGHT": False,
                 "CAN_WEB_SEARCH": True,
             }
         )
 
         self.assertNotIn(
             "CAN_WEB_SEARCH",
-            prompt,
-        )
-
-        self.assertNotIn(
-            "CAN_DEEP_THOUGHT",
             prompt,
         )
 
@@ -482,14 +473,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         prompt = build_brain_system_prompt(
             runtime_actions={
-                "CAN_DEEP_THOUGHT": True,
                 "CAN_WEB_SEARCH": False,
             }
-        )
-
-        self.assertNotIn(
-            "CAN_DEEP_THOUGHT",
-            prompt,
         )
 
         self.assertNotIn(
@@ -526,7 +511,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         prompt = build_brain_system_prompt(
             runtime_actions={
-                "CAN_DEEP_THOUGHT": False,
                 "CAN_WEB_SEARCH": True,
             }
         )
@@ -537,12 +521,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "When the answer needs external search",
-            prompt,
-        )
-
-        self.assertIn(
-            "Do not present guessed search results as facts",
+            "Do not present guessed results as facts",
             prompt,
         )
 
@@ -551,28 +530,23 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
 
-        self.assertIn(
-            "not JSON",
-            prompt,
-        )
 
-    def test_prompt_includes_remember_session_only_when_enabled(self):
+    def test_prompt_includes_save_session_only_when_enabled(self):
 
         prompt = build_brain_system_prompt(
             runtime_actions={
-                "CAN_DEEP_THOUGHT": False,
                 "CAN_WEB_SEARCH": False,
-                "CAN_REMEMBER_SESSION": True,
-                "CAN_REMEMBER_EVENT": True,
+                "CAN_SAVE_SESSION": True,
+                "CAN_SAVE_ACTIVE_MEMORY": True,
             }
         )
 
         self.assertNotIn(
-            '<RUNTIME_ACTION:REMEMBER_SESSION enabled="false"/>' ,
+            '<RUNTIME_ACTION:SAVE_SESSION enabled="false"/>' ,
             prompt,
         )
         self.assertNotIn(
-            '<RUNTIME_ACTION:REMEMBER_SESSION enabled="true"/>' ,
+            '<RUNTIME_ACTION:SAVE_SESSION enabled="true"/>' ,
             prompt,
         )
         self.assertNotIn(
@@ -584,7 +558,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
         self.assertIn(
-            '<ACTION name="REMEMBER_SESSION">',
+            '<ACTION name="SAVE_SESSION">',
             prompt,
         )
         self.assertNotIn(
@@ -596,31 +570,19 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
         self.assertIn(
-            "<INTERNAL_ACTION_REMEMBER_SESSION>",
+            "<INTERNAL_ACTION_SAVE_SESSION>",
             prompt,
         )
         self.assertIn(
-            "<INTERNAL_ACTION_REMEMBER_EVENT>",
+            "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:Detailed description about purpose and conditions of active memory item to be created for>",
             prompt,
         )
         self.assertIn(
-            '<ACTION name="REMEMBER_EVENT">',
+            '<ACTION name="CREATE_ACTIVE_MEMORY">',
             prompt,
         )
         self.assertIn(
-            "explicitly marks the current moment/event as worth saving",
-            prompt,
-        )
-        self.assertIn(
-            "rare high-signal events",
-            prompt,
-        )
-        self.assertIn(
-            "after the answer text is complete",
-            prompt,
-        )
-        self.assertIn(
-            "so the snapshot captures the event",
+            "CREATE_ACTIVE_MEMORY",
             prompt,
         )
 
@@ -633,7 +595,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
         prompt = build_brain_system_prompt(
             context=context,
             runtime_actions={
-                "CAN_DEEP_THOUGHT": False,
                 "CAN_WEB_SEARCH": False,
             }
         )

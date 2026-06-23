@@ -15,7 +15,7 @@ from utils.brain import (
 from websocket import (
     apply_runtime_resume,
     apply_session_bootstrap,
-    arm_remember_session_from_user_text,
+    arm_save_session_from_user_text,
     reject_when_all_models_offline,
     refresh_pending_brain_usage,
     wait_for_runtime_memory_update,
@@ -142,16 +142,16 @@ class FakeWebSocket:
 
 class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
 
-    async def test_arm_remember_session_prearms_without_banner(self):
+    async def test_arm_save_session_prearms_without_banner(self):
 
         context = SimpleNamespace(
             emitter=FakeEmitter(),
             logger=FakeLogger(),
-            runtime_remember_session_armed=False,
-            runtime_remember_session_requested=False,
+            runtime_save_session_armed=False,
+            runtime_save_session_requested=False,
         )
 
-        armed = await arm_remember_session_from_user_text(
+        armed = await arm_save_session_from_user_text(
             context,
             "\u0441\u043e\u0445\u0440\u0430\u043d\u0438 \u0441\u0435\u0441\u0441\u0438\u044e",
         )
@@ -160,13 +160,13 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             armed,
         )
         self.assertTrue(
-            context.runtime_remember_session_armed,
+            context.runtime_save_session_armed,
         )
         self.assertFalse(
-            context.runtime_remember_session_requested,
+            context.runtime_save_session_requested,
         )
         self.assertFalse(
-            context.runtime_remember_session_action_emitted,
+            context.runtime_save_session_action_emitted,
         )
         self.assertEqual(
             context.emitter.events,

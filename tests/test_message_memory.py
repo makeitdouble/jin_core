@@ -291,7 +291,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -318,7 +317,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -371,7 +369,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -706,7 +703,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -734,7 +730,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -767,7 +762,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -816,7 +810,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -848,7 +841,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -871,7 +863,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -919,7 +910,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -990,7 +980,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -1057,7 +1046,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -1106,7 +1094,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -1143,7 +1130,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -1180,7 +1166,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -3017,7 +3002,7 @@ class MessageMemoryTests(
                 emit=None,
             ),
             logger=logger,
-            runtime_remember_session_requested=True,
+            runtime_save_session_requested=True,
             runtime_l3_session_memory="",
             session_memory="",
             session_memory_source="",
@@ -3070,7 +3055,7 @@ class MessageMemoryTests(
             1,
         )
         self.assertFalse(
-            context.runtime_remember_session_requested,
+            context.runtime_save_session_requested,
         )
         self.assertEqual(
             context.runtime_memory_snapshots,
@@ -3153,7 +3138,7 @@ class MessageMemoryTests(
             context.emitter.events[-1],
             {
                 "type": "runtime_action",
-                "action": "remember_session",
+                "action": "save_session",
                 "status": "completed",
             },
         )
@@ -3173,7 +3158,7 @@ class MessageMemoryTests(
                 emit=None,
             ),
             logger=logger,
-            runtime_remember_session_requested=True,
+            runtime_save_session_requested=True,
             runtime_l3_session_memory=(
                 "session_snapshot_first_turn: 0\n"
                 "session_snapshot_last_turn: 15\n"
@@ -3299,7 +3284,7 @@ class MessageMemoryTests(
                 emit=None,
             ),
             logger=logger,
-            runtime_remember_session_requested=True,
+            runtime_save_session_requested=True,
             runtime_l3_session_memory="decision: keep current",
             session_memory="decision: keep current",
             session_memory_source="",
@@ -3332,7 +3317,7 @@ class MessageMemoryTests(
             "decision: keep current",
         )
         self.assertTrue(
-            context.runtime_remember_session_requested,
+            context.runtime_save_session_requested,
         )
         self.assertEqual(
             context.runtime_memory_snapshots,
@@ -3377,7 +3362,7 @@ class MessageMemoryTests(
                 emit=None,
             ),
             logger=logger,
-            runtime_remember_session_requested=True,
+            runtime_save_session_requested=True,
             runtime_l3_session_memory="decision: keep current",
             session_memory="decision: keep current",
             session_memory_source="",
@@ -3417,7 +3402,7 @@ class MessageMemoryTests(
             context.emitter.events[-1],
             {
                 "type": "runtime_action",
-                "action": "remember_session",
+                "action": "save_session",
                 "status": "completed",
             },
         )
@@ -3467,7 +3452,7 @@ class MessageMemoryTests(
                 emit=None,
             ),
             logger=logger,
-            runtime_remember_session_requested=True,
+            runtime_save_session_requested=True,
             runtime_l3_session_memory="decision: keep current",
             session_memory="decision: keep current",
             session_memory_source="",
@@ -3493,7 +3478,7 @@ class MessageMemoryTests(
             "decision: keep current",
         )
         self.assertTrue(
-            context.runtime_remember_session_requested,
+            context.runtime_save_session_requested,
         )
         self.assertEqual(
             context.runtime_memory_snapshots,
@@ -3519,7 +3504,7 @@ class MessageMemoryTests(
                 emit=None,
             ),
             logger=logger,
-            runtime_remember_session_requested=True,
+            runtime_save_session_requested=True,
             runtime_l3_session_memory="decision: keep current",
             session_memory="decision: keep current",
             runtime_memory_snapshots=[],
@@ -3549,7 +3534,7 @@ class MessageMemoryTests(
             [],
         )
         self.assertTrue(
-            context.runtime_remember_session_requested,
+            context.runtime_save_session_requested,
         )
         self.assertEqual(
             logger.runtime_logs,

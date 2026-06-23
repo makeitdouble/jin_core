@@ -1033,7 +1033,7 @@ def schedule_runtime_memory_update(
             not assistant_message.strip()
             and not getattr(
                 context,
-                "runtime_remember_session_requested",
+                "runtime_save_session_requested",
                 False,
             )
     ):

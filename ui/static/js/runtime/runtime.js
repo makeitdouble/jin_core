@@ -343,7 +343,7 @@ function handleRuntimeMemoryMessage(data) {
         && window.fadeRuntimeAction
     ) {
       window.fadeRuntimeAction(
-        "remember_session"
+        "save_session"
       );
     }
 

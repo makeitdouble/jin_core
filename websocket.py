@@ -27,7 +27,7 @@ from clients import (
     build_brain_system_prompt,
 )
 from clients.brain_client import (
-    should_execute_remember_session,
+    should_execute_save_session,
 )
 
 from utils.brain import (
@@ -1295,7 +1295,7 @@ async def receive_message(
 # PROCESS MESSAGE
 # ---------------------------------------------------------
 
-async def arm_remember_session_from_user_text(
+async def arm_save_session_from_user_text(
     context,
     user_text: str,
 ) -> bool:
@@ -1303,29 +1303,29 @@ async def arm_remember_session_from_user_text(
     if (
         getattr(
             context,
-            "runtime_remember_session_armed",
+            "runtime_save_session_armed",
             False,
         )
         or getattr(
             context,
-            "runtime_remember_session_requested",
+            "runtime_save_session_requested",
             False,
         )
     ):
         return False
 
-    if not should_execute_remember_session(
+    if not should_execute_save_session(
         user_text,
     ):
         return False
 
-    context.runtime_remember_session_armed = True
-    context.runtime_remember_session_requested = False
+    context.runtime_save_session_armed = True
+    context.runtime_save_session_requested = False
     # This path is only a deterministic early trigger. It lets the brain see
     # the user's explicit save intent, but it does not confirm the save and
     # must not show the UI banner. The save becomes real only when JIN emits
-    # the private REMEMBER_SESSION marker handled by apply_runtime_action_calls().
-    context.runtime_remember_session_action_emitted = False
+    # the private SAVE_SESSION marker handled by apply_runtime_action_calls().
+    context.runtime_save_session_action_emitted = False
 
     logger = getattr(
         context,
@@ -1340,7 +1340,7 @@ async def arm_remember_session_from_user_text(
 
     if log_runtime is not None:
         await log_runtime(
-            "[RUNTIME ACTION] remember_session armed"
+            "[RUNTIME ACTION] save_session armed"
         )
 
     return True
@@ -1668,7 +1668,7 @@ async def process_message(
         context.runtime_turn_user_message = user_text
         context.runtime_turn_assistant_response = ""
         context.runtime_turn_interrupted = False
-        await arm_remember_session_from_user_text(
+        await arm_save_session_from_user_text(
             context,
             user_text,
         )
@@ -1744,7 +1744,7 @@ async def process_message(
 
         if getattr(
             context,
-            "runtime_remember_session_requested",
+            "runtime_save_session_requested",
             False,
         ):
             await wait_for_runtime_memory_update(

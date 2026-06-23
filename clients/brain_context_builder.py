@@ -5,7 +5,7 @@ from xml.sax.saxutils import escape
 from app_settings import (
     settings,
 )
-from bootstrap.brain_bootstrap import (
+from rules.assembler import (
     build_conversation_activity_instruction,
     build_zero_diff_stall_instruction,
 )
@@ -23,8 +23,8 @@ from runtime.context import (
 from runtime.context_contract import (
     ContextContract,
     format_session_state,
-    RUNTIME_ACTION_REMEMBER_EVENT,
-    RUNTIME_ACTION_REMEMBER_SESSION,
+    RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
 )
 from runtime.L1_memory_utils import (
@@ -63,18 +63,16 @@ def build_runtime_xml(
             system_state="ACTIVE",
             runtime_mode=get_brain_runtime_mode(),
             service_model_uid=settings.SERVICE_MODEL_UID,
-            deep_thought_count=0,
-            can_deep_thought=False,
             can_web_search=(
                 RUNTIME_ACTION_WEB_SEARCH
                 in enabled_actions
             ),
-            can_remember_session=(
-                RUNTIME_ACTION_REMEMBER_SESSION
+            can_save_session=(
+                RUNTIME_ACTION_SAVE_SESSION
                 in enabled_actions
             ),
-            can_remember_event=(
-                RUNTIME_ACTION_REMEMBER_EVENT
+            can_create_active_memory=(
+                RUNTIME_ACTION_CREATE_ACTIVE_MEMORY
                 in enabled_actions
             ),
             timestamp=now.isoformat(),

@@ -2,17 +2,15 @@ from app_settings import settings
 
 
 SERVICE_AS_BRAIN_RUNTIME_ACTIONS = {
-    "CAN_DEEP_THOUGHT": False,
-    "CAN_WEB_SEARCH": True,
-    "CAN_REMEMBER_SESSION": True,
-    "CAN_REMEMBER_EVENT": True,
+    "CAN_WEB_SEARCH": False,
+    "CAN_SAVE_SESSION": True,
+    "CAN_SAVE_ACTIVE_MEMORY": True,
 }
 
 BRAIN_RUNTIME_ACTIONS = {
-    "CAN_DEEP_THOUGHT": False,
     "CAN_WEB_SEARCH": True,
-    "CAN_REMEMBER_SESSION": True,
-    "CAN_REMEMBER_EVENT": True,
+    "CAN_SAVE_SESSION": True,
+    "CAN_SAVE_ACTIVE_MEMORY": True,
 }
 
 

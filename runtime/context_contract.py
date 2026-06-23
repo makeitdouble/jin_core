@@ -2,15 +2,13 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from xml.sax.saxutils import escape
 
-RUNTIME_ACTION_DEEP_THOUGHT = "DEEP_THOUGHT"
 RUNTIME_ACTION_WEB_SEARCH = "WEB_SEARCH"
-RUNTIME_ACTION_REMEMBER_SESSION = "REMEMBER_SESSION"
-RUNTIME_ACTION_REMEMBER_EVENT = "REMEMBER_EVENT"
+RUNTIME_ACTION_SAVE_SESSION = "SAVE_SESSION"
+RUNTIME_ACTION_CREATE_ACTIVE_MEMORY = "CREATE_ACTIVE_MEMORY"
 
-DEEP_THOUGHT_REQUEST = "<INTERNAL_ACTION_DEEP_THOUGHT>"
 WEB_SEARCH_REQUEST_TEMPLATE = "<INTERNAL_ACTION_WEB_SEARCH:plain text query>"
-REMEMBER_SESSION_REQUEST = "<INTERNAL_ACTION_REMEMBER_SESSION>"
-REMEMBER_EVENT_REQUEST = "<INTERNAL_ACTION_REMEMBER_EVENT>"
+SAVE_SESSION_REQUEST = "<INTERNAL_ACTION_SAVE_SESSION>"
+CREATE_ACTIVE_MEMORY_REQUEST = "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:Detailed description about purpose and conditions of active memory item to be created for>"
 
 
 def format_xml_field(
@@ -103,11 +101,9 @@ class ContextContract:
     system_state: str = "ACTIVE"
     runtime_mode: str = ""
     service_model_uid: str = ""
-    deep_thought_count: int = 0
-    can_deep_thought: bool = False
     can_web_search: bool = True
-    can_remember_session: bool = False
-    can_remember_event: bool = False
+    can_save_session: bool = False
+    can_create_active_memory: bool = False
 
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
     current_date: str = field(default_factory=lambda: datetime.now().date().isoformat())
@@ -159,41 +155,6 @@ class ContextContract:
                 assistant_message_count=self.assistant_message_count,
             )
 
-        available_actions = []
-
-        if self.can_deep_thought:
-            fields["DEEP_THOUGHT_COUNTER"] = str(self.deep_thought_count)
-            available_actions.append(
-                (
-                    RUNTIME_ACTION_DEEP_THOUGHT,
-                    DEEP_THOUGHT_REQUEST,
-                )
-            )
-
-        if self.can_web_search:
-            available_actions.append(
-                (
-                    RUNTIME_ACTION_WEB_SEARCH,
-                    WEB_SEARCH_REQUEST_TEMPLATE,
-                )
-            )
-
-        if self.can_remember_session:
-            available_actions.append(
-                (
-                    RUNTIME_ACTION_REMEMBER_SESSION,
-                    REMEMBER_SESSION_REQUEST,
-                )
-            )
-
-        if self.can_remember_event:
-            available_actions.append(
-                (
-                    RUNTIME_ACTION_REMEMBER_EVENT,
-                    REMEMBER_EVENT_REQUEST,
-                )
-            )
-
         state_fields = [
             format_xml_field(
                 tag,
@@ -202,15 +163,6 @@ class ContextContract:
             for tag, value
             in fields.items()
         ]
-
-        available_actions_xml = format_available_actions(
-            available_actions
-        )
-
-        if available_actions_xml:
-            state_fields.append(
-                available_actions_xml
-            )
 
         fields_xml = "\n    ".join(
             state_fields

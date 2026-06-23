@@ -240,7 +240,7 @@
         || runtimeMemory.includes("saved")
         || runtimeMemory.includes("saving")
         || runtimeMemory.includes("remembering")
-        || runtimeMemory.includes("remember_session")
+        || runtimeMemory.includes("save_session")
         || runtimeMemory.includes("сохран")
         || runtimeMemory.includes("запомн");
 
@@ -317,13 +317,13 @@
         || runtimeMemory.includes("saved")
         || runtimeMemory.includes("saving")
         || runtimeMemory.includes("remembering")
-        || runtimeMemory.includes("remember_session")
+        || runtimeMemory.includes("save_session")
         || runtimeMemory.includes("сохран");
 
       const hasRememberSessionTrigger =
         behaviorContractPhraseAppears(
           runtimeMemory,
-          "remember_session",
+          "save_session",
           "triggers"
         );
 
@@ -338,7 +338,7 @@
         || runtimeMemory.includes("confirmed saving")
         || runtimeMemory.includes("confirmed saved")
         || runtimeMemory.includes("remembering this session")
-        || runtimeMemory.includes("remember_session")
+        || runtimeMemory.includes("save_session")
         || hasRememberSessionTrigger
         || runtimeMemory.includes("сохраняю")
         || runtimeMemory.includes("сохранено")

@@ -6,10 +6,6 @@ from config_loader import (
 from runtime.context_contract import (
     RUNTIME_ACTION_WEB_SEARCH,
 )
-from bootstrap.brain_bootstrap import (
-    build_brain_runtime_interface_rules,
-    build_identity_context,
-)
 
 from clients.errors import (
     format_client_error,
@@ -19,14 +15,17 @@ from clients.brain_context_builder import (
     build_brain_runtime_context,
 )
 
+from rules.assembler import (
+    build_brain_runtime_interface_rules,
+    build_identity_context,
+)
+
 from clients.brain_client_utils import (
     apply_runtime_action_calls,
     build_conditional_prompt_rules,
     get_enabled_runtime_actions,
     has_zero_diff_stall_alert,
-    is_user_initiated_remember_event,
-    record_deep_thought_calls,
-    should_execute_remember_session,
+    should_execute_save_session,
 )
 
 from clients.service_client import (

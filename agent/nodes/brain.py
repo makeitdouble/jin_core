@@ -8,7 +8,6 @@ from clients.brain_client import (
     ask_brain_stream,
     build_brain_payload,
     build_brain_system_prompt,
-    record_deep_thought_calls,
 )
 
 from clients.search_client import (
@@ -170,11 +169,6 @@ class BrainNode(BaseNode):
             ),
         )
 
-        record_deep_thought_calls(
-            context,
-            reasoning,
-        )
-
         if context.runtime_search_queries:
 
             search_call = (
@@ -256,11 +250,6 @@ class BrainNode(BaseNode):
                 emit_content_to_chat=(
                     not state.translate_response
                 ),
-            )
-
-            record_deep_thought_calls(
-                context,
-                reasoning,
             )
 
             if not text.strip():

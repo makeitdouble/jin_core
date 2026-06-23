@@ -1,9 +1,6 @@
 from xml.etree import ElementTree
 
-from bootstrap.brain_bootstrap import (
-    get_last_jin_response_rules,
-    get_loop_rules,
-    get_memory_rules,
+from rules.assembler import (
     MEDIA_CONTEXT_ATTRS,
     MEMORY_REQUEST_MARKERS,
 )
@@ -11,12 +8,9 @@ from runtime.behavior_contract import (
     should_execute_action_guard,
 )
 from runtime.context_contract import (
-    RUNTIME_ACTION_REMEMBER_EVENT,
-    RUNTIME_ACTION_REMEMBER_SESSION,
+    RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
-)
-from runtime.L3_memory_utils import (
-    build_runtime_session_event_snapshot,
 )
 from utils.runtime_actions import (
     build_runtime_action_id,
@@ -39,12 +33,12 @@ def get_enabled_runtime_actions(
             "CAN_WEB_SEARCH",
         ),
         (
-            RUNTIME_ACTION_REMEMBER_SESSION,
-            "CAN_REMEMBER_SESSION",
+            RUNTIME_ACTION_SAVE_SESSION,
+            "CAN_SAVE_SESSION",
         ),
         (
-            RUNTIME_ACTION_REMEMBER_EVENT,
-            "CAN_REMEMBER_EVENT",
+            RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+            "CAN_SAVE_ACTIVE_MEMORY",
         ),
     ):
 
@@ -63,36 +57,11 @@ def get_enabled_runtime_actions(
     )
 
 
-def count_deep_thought_calls(
-    text: str,
-    runtime_actions=None,
-) -> int:
-
-    return 0
-
-
-def record_deep_thought_calls(
-    context,
-    reasoning: str,
-) -> int:
-
-    return 0
-
-
-def should_execute_remember_session(
+def should_execute_save_session(
     user_message: str,
 ) -> bool:
     return should_execute_action_guard(
-        "remember_session",
-        user_message
-    )
-
-
-def is_user_initiated_remember_event(
-    user_message: str,
-) -> bool:
-    return should_execute_action_guard(
-        "remember_event",
+        "save_session",
         user_message
     )
 
@@ -156,24 +125,36 @@ async def apply_runtime_action_calls(
         if event.get("name") == "web_search"
     )
 
+    # Runtime action markers may be seen more than once in a single streamed
+    # answer: thinking + content, chunk retries, or a model repeating the same
+    # marker. Treat the first accepted marker as the contract for this turn and
+    # drop later duplicates before they can create extra UI bubbles or duplicate
+    # runtime side effects.
+    emitted_action_names = {
+        str(event.get("name", "")).lower()
+        for event in context.runtime_action_events
+        if event.get("name")
+    }
+    accepted_action_names = set()
+
     search_calls = []
     filtered_actions = []
     search_query_seen = False
-    remember_session_seen = bool(
+    save_session_seen = bool(
         getattr(
             context,
-            "runtime_remember_session_requested",
+            "runtime_save_session_requested",
             False,
         )
     )
-    remember_session_action_emitted = bool(
+    save_session_action_emitted = bool(
         getattr(
             context,
-            "runtime_remember_session_action_emitted",
+            "runtime_save_session_action_emitted",
             False,
         )
     )
-    remember_event_seen = False
+    create_active_memory_seen = False
     resolved_user_message = resolve_runtime_action_user_message(
         context,
         user_message,
@@ -181,33 +162,50 @@ async def apply_runtime_action_calls(
 
     for action in actions:
 
-        if action.name == RUNTIME_ACTION_REMEMBER_SESSION:
-            if not should_execute_remember_session(
+        action_event_name = action.name.lower()
+
+        if (
+            action_event_name in emitted_action_names
+            or action_event_name in accepted_action_names
+        ):
+            continue
+
+        if action.name == RUNTIME_ACTION_SAVE_SESSION:
+            if not should_execute_save_session(
                 resolved_user_message
             ):
                 continue
 
-            if remember_session_seen:
-                if not remember_session_action_emitted:
-                    remember_session_action_emitted = True
+            if save_session_seen:
+                if not save_session_action_emitted:
+                    save_session_action_emitted = True
+                    accepted_action_names.add(
+                        action_event_name
+                    )
                     filtered_actions.append(
                         action
                     )
 
                 continue
 
-            remember_session_seen = True
-            remember_session_action_emitted = True
+            save_session_seen = True
+            save_session_action_emitted = True
+            accepted_action_names.add(
+                action_event_name
+            )
             filtered_actions.append(
                 action
             )
             continue
 
-        if action.name == RUNTIME_ACTION_REMEMBER_EVENT:
-            if remember_event_seen:
+        if action.name == RUNTIME_ACTION_CREATE_ACTIVE_MEMORY:
+            if create_active_memory_seen:
                 continue
 
-            remember_event_seen = True
+            create_active_memory_seen = True
+            accepted_action_names.add(
+                action_event_name
+            )
             filtered_actions.append(
                 action
             )
@@ -231,6 +229,9 @@ async def apply_runtime_action_calls(
 
             search_query_seen = True
 
+        accepted_action_names.add(
+            action_event_name
+        )
         filtered_actions.append(
             action
         )
@@ -273,16 +274,16 @@ async def apply_runtime_action_calls(
             action_event
         )
 
-    remember_session_count = sum(
+    save_session_count = sum(
         1
         for action in filtered_actions
-        if action.name == RUNTIME_ACTION_REMEMBER_SESSION
+        if action.name == RUNTIME_ACTION_SAVE_SESSION
     )
 
-    remember_event_count = sum(
+    create_active_memory_count = sum(
         1
         for action in filtered_actions
-        if action.name == RUNTIME_ACTION_REMEMBER_EVENT
+        if action.name == RUNTIME_ACTION_CREATE_ACTIVE_MEMORY
     )
 
     search_queries = [
@@ -332,14 +333,14 @@ async def apply_runtime_action_calls(
             f"search x{len(search_queries)}"
         )
 
-    if remember_session_count:
-        context.runtime_remember_session_armed = False
-        context.runtime_remember_session_requested = True
-        context.runtime_remember_session_action_emitted = True
+    if save_session_count:
+        context.runtime_save_session_armed = False
+        context.runtime_save_session_requested = True
+        context.runtime_save_session_action_emitted = True
 
         if log_runtime is not None:
             await log_runtime(
-                "[RUNTIME ACTION] remember_session requested"
+                "[RUNTIME ACTION] save_session requested"
             )
 
         emitter = getattr(
@@ -356,93 +357,22 @@ async def apply_runtime_action_calls(
         if emit is not None:
             await emit({
                 "type": "runtime_action",
-                "action": "remember_session",
+                "action": "save_session",
                 "text": "Remembering this session",
             })
 
-    if remember_event_count:
-        initiated_by = (
-            "user"
-            if is_user_initiated_remember_event(
-                resolved_user_message
-            )
-            else "jin"
+    if create_active_memory_count and log_runtime is not None:
+        await log_runtime(
+            "[RUNTIME ACTION] create_active_memory requested"
         )
-
-        if not hasattr(
-            context,
-            "runtime_session_event_snapshots",
-        ):
-            context.runtime_session_event_snapshots = []
-
-        context.runtime_session_event_snapshots.append(
-            build_runtime_session_event_snapshot(
-                context,
-                source="runtime_action",
-                initiated_by=initiated_by,
-            )
-        )
-
-        if log_runtime is not None:
-            await log_runtime(
-                "[RUNTIME ACTION] remember_event saved"
-            )
-
-        emitter = getattr(
-            context,
-            "emitter",
-            None,
-        )
-        emit = getattr(
-            emitter,
-            "emit",
-            None,
-        )
-
-        if emit is not None:
-            session_memory = (
-                getattr(
-                    context,
-                    "runtime_l3_session_memory",
-                    "",
-                )
-                or getattr(
-                    context,
-                    "session_memory",
-                    "",
-                )
-            )
-            await emit({
-                "type": "runtime_action",
-                "action": "remember_event",
-                "text": "Remembering this event",
-            })
-            await emit({
-                "type": "runtime_session_memory_update",
-                "memory": session_memory,
-                "event_snapshots": list(
-                    context.runtime_session_event_snapshots
-                ),
-                "updates": getattr(
-                    context,
-                    "runtime_session_memory_updates",
-                    0,
-                ),
-                "source": getattr(
-                    context,
-                    "session_memory_source",
-                    "",
-                ),
-                "persist": True,
-            })
 
     return len(
         search_queries
     ) + min(
-        remember_session_count,
+        save_session_count,
         1,
     ) + min(
-        remember_event_count,
+        create_active_memory_count,
         1,
     )
 
@@ -778,7 +708,7 @@ def build_conditional_prompt_rules(
         context
     ):
         rules.append(
-            get_loop_rules()
+            LOOP_RULES
         )
 
     return "".join(

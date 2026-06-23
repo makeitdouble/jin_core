@@ -3,9 +3,8 @@ import re
 from dataclasses import dataclass
 
 from runtime.context_contract import (
-    RUNTIME_ACTION_DEEP_THOUGHT,
-    RUNTIME_ACTION_REMEMBER_EVENT,
-    RUNTIME_ACTION_REMEMBER_SESSION,
+    RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
 )
 
@@ -13,10 +12,9 @@ from runtime.context_contract import (
 KNOWN_RUNTIME_ACTIONS = tuple(
     sorted(
         (
-            RUNTIME_ACTION_DEEP_THOUGHT,
+            RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
             RUNTIME_ACTION_WEB_SEARCH,
-            RUNTIME_ACTION_REMEMBER_SESSION,
-            RUNTIME_ACTION_REMEMBER_EVENT,
+            RUNTIME_ACTION_SAVE_SESSION,
         )
     )
 )
@@ -24,7 +22,7 @@ KNOWN_RUNTIME_ACTIONS = tuple(
 BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
     (
         r"<\s*INTERNAL_ACTION_"
-        r"(?P<name>DEEP_THOUGHT|WEB_SEARCH|REMEMBER_SESSION|REMEMBER_EVENT)"
+        r"(?P<name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY)"
         r"(?:\s*:\s*(?P<query>[^>]*?))?"
         r"\s*>+"
     ),
@@ -41,13 +39,6 @@ class RuntimeActionCall:
 class RuntimeActionResult:
     text: str
     actions: tuple[RuntimeActionCall, ...] = ()
-
-    @property
-    def deep_thought_count(self) -> int:
-
-        return self.count(
-            RUNTIME_ACTION_DEEP_THOUGHT
-        )
 
     @property
     def search_queries(self) -> tuple[str, ...]:
@@ -114,7 +105,15 @@ def normalize_runtime_action_name(
     ):
         normalized_name = normalized_name[4:]
 
-    return normalized_name
+    aliases = {
+        "SAVE_SESSION": RUNTIME_ACTION_SAVE_SESSION,
+        "SAVE_ACTIVE_MEMORY": RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    }
+
+    return aliases.get(
+        normalized_name,
+        normalized_name,
+    )
 
 
 def normalize_runtime_action_names(
@@ -222,6 +221,16 @@ def _build_internal_action_call(
             },
             ensure_ascii=False,
         )
+
+    elif normalized_name == RUNTIME_ACTION_CREATE_ACTIVE_MEMORY:
+        payload = _clean_internal_action_query(
+            query
+        )
+
+        if _is_placeholder_internal_query(
+            payload
+        ):
+            return None
 
     return RuntimeActionCall(
         name=normalized_name,
@@ -540,19 +549,14 @@ def _enabled_action_start_markers(
 
     markers = []
 
-    if RUNTIME_ACTION_DEEP_THOUGHT in enabled_action_names:
+    if RUNTIME_ACTION_SAVE_SESSION in enabled_action_names:
         markers.append(
-            "<INTERNAL_ACTION_DEEP_THOUGHT>"
+            "<INTERNAL_ACTION_SAVE_SESSION>"
         )
 
-    if RUNTIME_ACTION_REMEMBER_SESSION in enabled_action_names:
+    if RUNTIME_ACTION_CREATE_ACTIVE_MEMORY in enabled_action_names:
         markers.append(
-            "<INTERNAL_ACTION_REMEMBER_SESSION>"
-        )
-
-    if RUNTIME_ACTION_REMEMBER_EVENT in enabled_action_names:
-        markers.append(
-            "<INTERNAL_ACTION_REMEMBER_EVENT>"
+            "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:"
         )
 
     if RUNTIME_ACTION_WEB_SEARCH in enabled_action_names:

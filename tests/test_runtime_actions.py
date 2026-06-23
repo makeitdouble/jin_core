@@ -5,7 +5,7 @@ from clients import (
     apply_runtime_action_calls,
 )
 from clients.brain_client import (
-    should_execute_remember_session,
+    should_execute_save_session,
 )
 from utils.runtime_actions import (
     RuntimeActionCall,
@@ -32,7 +32,7 @@ class RuntimeActionTests(unittest.TestCase):
             (),
         )
 
-    def test_extracts_and_removes_deep_thought_marker(self):
+    def test_deep_thought_marker_is_not_parsed(self):
 
         result = extract_runtime_actions(
             "before <INTERNAL_ACTION_DEEP_THOUGHT> after"
@@ -40,11 +40,11 @@ class RuntimeActionTests(unittest.TestCase):
 
         self.assertEqual(
             result.text,
-            "before  after",
+            "before <INTERNAL_ACTION_DEEP_THOUGHT> after",
         )
         self.assertEqual(
-            result.deep_thought_count,
-            1,
+            result.actions,
+            (),
         )
 
     def test_extracts_bracketed_web_search_marker(self):
@@ -123,12 +123,12 @@ class RuntimeActionTests(unittest.TestCase):
                 0,
             )
 
-    def test_extracts_bracketed_remember_session_marker(self):
+    def test_extracts_bracketed_save_session_marker(self):
 
         result = extract_runtime_actions(
-            "<INTERNAL_ACTION_REMEMBER_SESSION>",
+            "<INTERNAL_ACTION_SAVE_SESSION>",
             enabled_actions=[
-                "CAN_REMEMBER_SESSION",
+                "CAN_SAVE_SESSION",
             ],
         )
 
@@ -137,16 +137,16 @@ class RuntimeActionTests(unittest.TestCase):
             "",
         )
         self.assertEqual(
-            result.count("REMEMBER_SESSION"),
+            result.count("SAVE_SESSION"),
             1,
         )
 
-    def test_extracts_bracketed_remember_event_marker(self):
+    def test_extracts_bracketed_create_active_memory_marker(self):
 
         result = extract_runtime_actions(
-            "before <INTERNAL_ACTION_REMEMBER_EVENT> after",
+            "before <INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:remind later> after",
             enabled_actions=[
-                "CAN_REMEMBER_EVENT",
+                "CAN_SAVE_ACTIVE_MEMORY",
             ],
         )
 
@@ -155,22 +155,26 @@ class RuntimeActionTests(unittest.TestCase):
             "before  after",
         )
         self.assertEqual(
-            result.count("REMEMBER_EVENT"),
+            result.count("CREATE_ACTIVE_MEMORY"),
             1,
+        )
+        self.assertEqual(
+            result.actions[0].payload,
+            "remind later",
         )
 
     def test_old_xml_runtime_action_protocol_is_not_parsed(self):
 
         result = extract_runtime_actions(
-            '<RUNTIME_ACTION:REMEMBER_SESSION enabled="true"/>',
+            '<RUNTIME_ACTION:SAVE_SESSION enabled="true"/>',
             enabled_actions=[
-                "CAN_REMEMBER_SESSION",
+                "CAN_SAVE_SESSION",
             ],
         )
 
         self.assertEqual(
             result.text,
-            '<RUNTIME_ACTION:REMEMBER_SESSION enabled="true"/>',
+            '<RUNTIME_ACTION:SAVE_SESSION enabled="true"/>',
         )
         self.assertEqual(
             result.actions,
@@ -195,7 +199,7 @@ class RuntimeActionTests(unittest.TestCase):
             (),
         )
 
-    def test_stream_filter_handles_split_bracketed_deep_thought_marker(self):
+    def test_stream_filter_keeps_deep_thought_marker_as_text(self):
 
         stream_filter = RuntimeActionStreamFilter()
 
@@ -208,19 +212,11 @@ class RuntimeActionTests(unittest.TestCase):
 
         self.assertEqual(
             first.text,
-            "before ",
-        )
-        self.assertEqual(
-            first.deep_thought_count,
-            0,
+            "before <INTERNAL_ACTION_DEEP",
         )
         self.assertEqual(
             second.text,
-            " after",
-        )
-        self.assertEqual(
-            second.deep_thought_count,
-            1,
+            "_THOUGHT> after",
         )
         self.assertEqual(
             stream_filter.flush(),
@@ -476,16 +472,16 @@ class RuntimeActionTests(unittest.TestCase):
             ],
         )
 
-    def test_bracketed_remember_session_marker_allowed_by_save_request(self):
+    def test_bracketed_save_session_marker_allowed_by_save_request(self):
 
         class Context:
             pass
 
         context = Context()
         result = extract_runtime_actions(
-            "<INTERNAL_ACTION_REMEMBER_SESSION>",
+            "<INTERNAL_ACTION_SAVE_SESSION>",
             enabled_actions=[
-                "CAN_REMEMBER_SESSION",
+                "CAN_SAVE_SESSION",
             ],
         )
 
@@ -506,19 +502,19 @@ class RuntimeActionTests(unittest.TestCase):
             1,
         )
         self.assertTrue(
-            context.runtime_remember_session_requested,
+            context.runtime_save_session_requested,
         )
 
-    def test_bracketed_remember_session_marker_allowed_by_bedtime_pause(self):
+    def test_bracketed_save_session_marker_allowed_by_bedtime_pause(self):
 
         class Context:
             pass
 
         context = Context()
         result = extract_runtime_actions(
-            "<INTERNAL_ACTION_REMEMBER_SESSION>",
+            "<INTERNAL_ACTION_SAVE_SESSION>",
             enabled_actions=[
-                "CAN_REMEMBER_SESSION",
+                "CAN_SAVE_SESSION",
             ],
         )
 
@@ -535,19 +531,19 @@ class RuntimeActionTests(unittest.TestCase):
             1,
         )
         self.assertTrue(
-            context.runtime_remember_session_requested,
+            context.runtime_save_session_requested,
         )
 
-    def test_bracketed_remember_session_marker_blocked_by_meta_request(self):
+    def test_bracketed_save_session_marker_blocked_by_meta_request(self):
 
         class Context:
             pass
 
         context = Context()
         result = extract_runtime_actions(
-            "<INTERNAL_ACTION_REMEMBER_SESSION>",
+            "<INTERNAL_ACTION_SAVE_SESSION>",
             enabled_actions=[
-                "CAN_REMEMBER_SESSION",
+                "CAN_SAVE_SESSION",
             ],
         )
 
@@ -570,78 +566,68 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertFalse(
             getattr(
                 context,
-                "runtime_remember_session_requested",
+                "runtime_save_session_requested",
                 False,
             )
         )
 
-    def test_remember_session_guard_intents(self):
+    def test_save_session_guard_intents(self):
 
         self.assertTrue(
-            should_execute_remember_session(
+            should_execute_save_session(
                 "\u0441\u043e\u0445\u0440\u0430\u043d\u0438 \u0441\u0435\u0441\u0441\u0438\u044e"
             )
         )
         self.assertTrue(
-            should_execute_remember_session(
+            should_execute_save_session(
                 "\u0437\u0430\u043a\u043e\u043d\u0447\u0438\u043c"
             )
         )
         self.assertTrue(
-            should_execute_remember_session(
+            should_execute_save_session(
                 "\u043b\u0430\u0434\u043d\u043e, \u044f \u0441\u043f\u0430\u0442\u044c, \u0434\u043e \u0437\u0430\u0432\u0442\u0440\u0430!"
             )
         )
         self.assertFalse(
-            should_execute_remember_session(
+            should_execute_save_session(
                 "\u043d\u0430\u043f\u0438\u0448\u0438 \u043f\u043e\u043b\u043d\u044b\u0439 \u0442\u0435\u0433 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0438\u044f \u0441\u0435\u0441\u0441\u0438\u0438"
             )
         )
         self.assertFalse(
-            should_execute_remember_session(
+            should_execute_save_session(
                 "\u043f\u043e\u043a\u0430\u0436\u0438 \u0442\u043e\u0447\u043d\u044b\u0439 \u0442\u0435\u0433 \u0434\u043b\u044f \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0438\u044f \u0441\u0435\u0441\u0441\u0438\u0438"
             )
         )
         self.assertFalse(
-            should_execute_remember_session(
+            should_execute_save_session(
                 "\u043f\u0440\u0438\u043c\u0435\u0440 \u0442\u0435\u0433\u0430"
             )
         )
         self.assertFalse(
-            should_execute_remember_session(
+            should_execute_save_session(
                 "\u0437\u0430\u0431\u0443\u0434\u044c \u043f\u0440\u043e\u0448\u043b\u043e\u0435, \u0441\u043c\u0435\u043d\u0438\u043c \u0442\u0435\u043c\u0443"
             )
         )
         self.assertFalse(
-            should_execute_remember_session(
+            should_execute_save_session(
                 "\u0445\u043e\u0440\u043e\u0448\u043e, \u044f \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u043b, \u0441\u043f\u0430\u0441\u0438\u0431\u043e"
             )
         )
 
-    def test_apply_runtime_action_calls_saves_session_event_snapshot(self):
-
-        class Emitter:
-            def __init__(self):
-                self.events = []
-
-            async def emit(self, event):
-                self.events.append(event)
+    def test_apply_runtime_action_calls_records_create_active_memory(self):
 
         class Context:
             pass
 
         context = Context()
-        context.emitter = Emitter()
-        context.runtime_session_event_snapshots = []
-        context.runtime_turn_user_message = "\u0445\u043e\u0447\u0443 \u044d\u0442\u043e \u0437\u0430\u043f\u043e\u043c\u043d\u0438\u0442\u044c"
-        context.runtime_turn_assistant_response = "A memorable answer."
 
         applied_count = asyncio.run(
             apply_runtime_action_calls(
                 context,
                 (
                     RuntimeActionCall(
-                        name="REMEMBER_EVENT",
+                        name="CREATE_ACTIVE_MEMORY",
+                        payload="remind later",
                     ),
                 ),
             )
@@ -652,58 +638,13 @@ class RuntimeActionTests(unittest.TestCase):
             1,
         )
         self.assertEqual(
-            len(context.runtime_session_event_snapshots),
-            1,
-        )
-        self.assertEqual(
-            context.runtime_session_event_snapshots[0]["memory_type"],
-            "session_event_snapshot",
-        )
-        self.assertEqual(
-            context.runtime_session_event_snapshots[0]["source"],
-            "runtime_action",
-        )
-        self.assertEqual(
-            context.runtime_session_event_snapshots[0]["initiated_by"],
-            "user",
-        )
-        self.assertIn(
-            "A memorable answer.",
-            context.runtime_session_event_snapshots[0]["assistant_response"],
-        )
-        self.assertEqual(
-            context.emitter.events[-1]["type"],
-            "runtime_session_memory_update",
-        )
-
-    def test_apply_runtime_action_calls_marks_auto_session_event_as_jin_initiated(self):
-
-        class Context:
-            pass
-
-        context = Context()
-        context.runtime_session_event_snapshots = []
-        context.runtime_turn_user_message = "let's keep implementing this"
-        context.runtime_turn_assistant_response = "A high-signal correction."
-
-        applied_count = asyncio.run(
-            apply_runtime_action_calls(
-                context,
-                (
-                    RuntimeActionCall(
-                        name="REMEMBER_EVENT",
-                    ),
-                ),
-            )
-        )
-
-        self.assertEqual(
-            applied_count,
-            1,
-        )
-        self.assertEqual(
-            context.runtime_session_event_snapshots[0]["initiated_by"],
-            "jin",
+            context.runtime_action_events,
+            [
+                {
+                    "name": "create_active_memory",
+                    "payload": "remind later",
+                }
+            ],
         )
 
     def test_extract_search_query_unnests_json_string(self):

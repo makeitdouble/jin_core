@@ -553,6 +553,180 @@ function dismissLogAfterClear(
 
 }
 
+
+function normalizeInternalActionName(action) {
+  return String(
+    action || ""
+  )
+    .trim()
+    .replace(/^INTERNAL_ACTION_/i, "")
+    .replace(/^CAN_/i, "")
+    .replace(/[^a-z0-9]+/gi, "_")
+    .replace(/^_+|_+$/g, "")
+    .toUpperCase();
+}
+
+function prettifyInternalActionName(action) {
+  return normalizeInternalActionName(
+    action
+  )
+    .replace(/_/g, " ")
+    .trim();
+}
+
+function getInternalActionPayload(data) {
+  if (!data) {
+    return null;
+  }
+
+  if (data.payload !== undefined && data.payload !== null && data.payload !== "") {
+    return data.payload;
+  }
+
+  if (data.details !== undefined && data.details !== null && data.details !== "") {
+    return data.details;
+  }
+
+  return null;
+}
+
+function formatInternalActionPayload(payload) {
+  if (typeof payload === "string") {
+    return prettifyTraceDetails(
+      payload
+    );
+  }
+
+  try {
+    return JSON.stringify(
+      payload,
+      null,
+      2
+    );
+  } catch (_error) {
+    return String(
+      payload
+    );
+  }
+}
+
+function log_internal_action(
+  action,
+  data = {}
+) {
+  const actionName =
+    normalizeInternalActionName(
+      action
+    );
+
+  if (!actionName || actionName === "SAVE_SESSION" || actionName === "SAVE_SESSION") {
+    return;
+  }
+
+  const title =
+    `[ ACTION : ${prettifyInternalActionName(actionName)} ]`;
+
+  const text =
+    String(
+      data.text || data.query || ""
+    ).trim();
+
+  const payload =
+    getInternalActionPayload(
+      data
+    );
+
+  const logDiv =
+    document.createElement("div");
+
+  logDiv.className =
+    "mb-1 min-w-0 whitespace-pre-wrap break-words font-mono text-[12px] bg-emerald-500/5 p-2 rounded border border-emerald-500/10";
+
+  logDiv.dataset.logKind =
+    "action";
+
+  logDiv.style.overflowWrap =
+    "anywhere";
+
+  const tagSpan =
+    document.createElement("span");
+
+  tagSpan.className =
+    "text-emerald-300 font-bold logger-tag block";
+
+  tagSpan.textContent =
+    title;
+
+  logDiv.appendChild(
+    tagSpan
+  );
+
+  if (text) {
+    const messageSpan =
+      document.createElement("span");
+
+    messageSpan.className =
+      "block mt-1 text-emerald-100/70";
+
+    messageSpan.style.overflowWrap =
+      "anywhere";
+
+    messageSpan.textContent =
+      text;
+
+    logDiv.appendChild(
+      messageSpan
+    );
+  }
+
+  if (payload !== null) {
+    const actions =
+      document.createElement("div");
+
+    actions.className =
+      "mt-2 flex flex-wrap items-center gap-2";
+
+    const payloadButton =
+      document.createElement("button");
+
+    payloadButton.type =
+      "button";
+
+    payloadButton.className =
+      "inline-flex items-center rounded border border-emerald-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-emerald-300 hover:bg-emerald-500/10 transition";
+
+    payloadButton.textContent =
+      "payload";
+
+    payloadButton.addEventListener(
+      "click",
+      function () {
+        showTrace(
+          formatInternalActionPayload(
+            payload
+          ),
+          title
+        );
+      }
+    );
+
+    actions.appendChild(
+      payloadButton
+    );
+
+    logDiv.appendChild(
+      actions
+    );
+  }
+
+  consoleStream.appendChild(
+    logDiv
+  );
+
+  consoleStream.scrollTop =
+    consoleStream.scrollHeight;
+}
+
 function appendLog(
   tag,
   message,
@@ -975,6 +1149,9 @@ function appendLog(
 
 window.appendLog =
   appendLog;
+
+window.log_internal_action =
+  log_internal_action;
 
 window.showTrace =
   showTrace;

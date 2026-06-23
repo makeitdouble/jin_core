@@ -533,6 +533,10 @@ function scheduleWebSocketReconnect() {
  * @property {string=} chunk
  * @property {Object=} context
  * @property {string=} action
+ * @property {string=} status
+ * @property {string=} id
+ * @property {string=} query
+ * @property {*=} payload
  * @property {string=} tag
  * @property {string=} message
  * @property {string=} details
@@ -1036,10 +1040,23 @@ function handleSocketMessage(event) {
       return;
     }
 
-    appendRuntimeAction(
+    const appended = appendRuntimeAction(
       action,
-      text
+      text,
+      {
+        id: data.id || "",
+      }
     );
+
+    if (
+      appended
+      && window.log_internal_action
+    ) {
+      window.log_internal_action(
+        action,
+        data
+      );
+    }
 
     return;
 

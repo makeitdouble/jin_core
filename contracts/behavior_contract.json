@@ -1,10 +1,10 @@
 {
   "version": 1,
   "action_guards": {
-    "remember_session": {
+    "save_session": {
       "description": "Allows the model to request saving the current session when the user clearly ends, wraps up, or asks to save the session.",
-      "runtime_action": "REMEMBER_SESSION",
-      "private_marker": "<INTERNAL_ACTION_REMEMBER_SESSION>",
+      "runtime_action": "SAVE_SESSION",
+      "private_marker": "<INTERNAL_ACTION_SAVE_SESSION>",
       "triggers": [
         "закончим",
         "на сегодня все",

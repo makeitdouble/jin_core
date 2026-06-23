@@ -86,7 +86,7 @@ Completed thinking blocks are also scanned for direct citations from trusted pro
 
 If generation is aborted, the runtime captures the partial answer and schedules an interrupted memory update. The memory summarizer is instructed to mark the turn as incomplete and not treat it as resolved.
 
-When the user signals the end of a session — explicitly or through natural closing phrases — the brain emits a `REMEMBER_SESSION` action. The runtime builds a compact L3 digest from the current snapshot history and sends it to the browser for local storage. On the next connection, the browser sends the digest back as part of the bootstrap payload and the runtime injects it as trusted session context before the first turn.
+When the user signals the end of a session — explicitly or through natural closing phrases — the brain emits a `SAVE_SESSION` action. The runtime builds a compact L3 digest from the current snapshot history and sends it to the browser for local storage. On the next connection, the browser sends the digest back as part of the bootstrap payload and the runtime injects it as trusted session context before the first turn.
 
 ## Runtime Memory
 
@@ -410,7 +410,7 @@ TRANSLATION_MAX_TOKENS = 2048
 
 L3 session memory lets context survive across browser sessions without a server-side database.
 
-To save a session, say something that signals you are done: "save the session", "that's all for today", "wrap it up", "I'm going to sleep", or the Russian equivalents. The brain emits a `REMEMBER_SESSION` action and the runtime builds a compressed digest from the current snapshot history. The browser stores this digest in `localStorage` and also writes it back to `saved_runtime.txt` if that path is configured.
+To save a session, say something that signals you are done: "save the session", "that's all for today", "wrap it up", "I'm going to sleep", or the Russian equivalents. The brain emits a `SAVE_SESSION` action and the runtime builds a compressed digest from the current snapshot history. The browser stores this digest in `localStorage` and also writes it back to `saved_runtime.txt` if that path is configured.
 
 On the next page load or reconnect, the browser includes the saved digest in its bootstrap payload. The runtime receives it, validates it against any fresh L1 memory that may have accumulated, and injects the session context into the brain prompt before the first turn.
 

@@ -99,9 +99,9 @@ class RuntimeContext:
         default_factory=list
     )
 
-    runtime_remember_session_armed: bool = False
+    runtime_save_session_armed: bool = False
 
-    runtime_remember_session_requested: bool = False
+    runtime_save_session_requested: bool = False
 
     runtime_l1_diff_history: list[dict] = field(
         default_factory=list
