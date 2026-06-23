@@ -52,6 +52,71 @@ NUMBERED_MEMORY_KEY_RE = re.compile(
 RUNTIME_USER_MESSAGE_KEY = "user_message"
 RUNTIME_LAST_JIN_RESPONSE_KEY = "last_jin_response"
 
+RUNTIME_MEMORY_KEY_PREFIX_RE = re.compile(
+    r"^\s*-?\s*[A-Za-z][A-Za-z0-9_ #]{0,80}\s*:",
+)
+
+
+def _line_starts_runtime_memory_entry(
+        line: str,
+) -> bool:
+
+    return bool(
+        RUNTIME_MEMORY_KEY_PREFIX_RE.match(
+            str(line or "")
+        )
+    )
+
+
+def _escape_multiline_runtime_memory_entries(
+        memory: str,
+) -> list[str]:
+
+    """Keep accidental multiline values attached to their owning key.
+
+    L1 sometimes copies markdown/code/ascii into a value after a real
+    ``key: value`` prefix.  Physical continuation lines must stay inside
+    that value as escaped ``\n`` text; otherwise the generic parser turns
+    every ascii line into a separate ``session memory`` entry.
+    """
+
+    escaped_lines: list[str] = []
+    pending_line: str | None = None
+
+    def flush_pending() -> None:
+        nonlocal pending_line
+
+        if pending_line is not None:
+            escaped_lines.append(
+                pending_line
+            )
+            pending_line = None
+
+    for raw_line in (memory or "").splitlines():
+        line = str(raw_line or "").strip().lstrip("-").strip()
+
+        if not line:
+            if pending_line is not None:
+                pending_line += "\\n"
+            continue
+
+        if _line_starts_runtime_memory_entry(line):
+            flush_pending()
+            pending_line = line
+            continue
+
+        if pending_line is not None:
+            pending_line += "\\n" + line
+            continue
+
+        escaped_lines.append(
+            line
+        )
+
+    flush_pending()
+
+    return escaped_lines
+
 
 def _runtime_value_has_open_quote(
         value: str,
@@ -133,7 +198,9 @@ def _join_multiline_user_message_entries(
     joined_lines: list[str] = []
     pending_line: str | None = None
 
-    for raw_line in (memory or "").splitlines():
+    for raw_line in _escape_multiline_runtime_memory_entries(
+            memory
+    ):
         line = raw_line.strip().lstrip("-").strip()
 
         if not line:
@@ -2395,7 +2462,9 @@ def normalize_compound_runtime_memory_lines(
 
     normalized_lines = []
 
-    for raw_line in (memory or "").splitlines():
+    for raw_line in _escape_multiline_runtime_memory_entries(
+            memory
+    ):
         line = str(raw_line or "")
 
         if not line.strip():

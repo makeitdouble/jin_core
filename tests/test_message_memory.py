@@ -107,6 +107,44 @@ class RuntimeMemoryCompoundLineTests(unittest.TestCase):
         )
 
 
+    def test_normalize_compound_runtime_memory_lines_escapes_multiline_ascii_value(self):
+        memory = "\n".join([
+            "last_jin_response: Я нарисовал домик:",
+            r" /\\",
+            r"/  \\",
+            "|---|",
+            "session_status: Waiting for next request",
+        ])
+
+        self.assertEqual(
+            normalize_compound_runtime_memory_lines(memory),
+            "\n".join([
+                r"last_jin_response: Я нарисовал домик:\n/\\\n/  \\\n|---|",
+                "session_status: Waiting for next request",
+            ]),
+        )
+
+    def test_parse_runtime_memory_lines_keeps_multiline_ascii_inside_value(self):
+        memory = "\n".join([
+            "last_jin_response: Я нарисовал домик:",
+            r" /\\",
+            r"/  \\",
+            "|---|",
+            "session_status: Waiting for next request",
+        ])
+
+        lines = parse_runtime_memory_lines(memory)
+
+        self.assertEqual(
+            [line["key"] for line in lines],
+            ["last_jin_response", "session_status"],
+        )
+        self.assertEqual(
+            lines[0]["value"],
+            r"Я нарисовал домик:\n/\\\n/  \\\n|---|",
+        )
+
+
 class FakeServiceClient:
 
     def __init__(

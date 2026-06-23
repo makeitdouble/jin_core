@@ -46,11 +46,64 @@
   }
 
 
+
+  function lineStartsRuntimeMemoryEntry(line) {
+
+    return /^\s*-?\s*[A-Za-z][A-Za-z0-9_ #]{0,80}\s*:/.test(
+        String(line || "")
+    );
+
+  }
+
+
+  function escapeMultilineRuntimeMemoryTextLines(text) {
+
+    const escapedLines = [];
+    let pendingLine = null;
+
+    const flushPending = () => {
+      if (pendingLine !== null) {
+        escapedLines.push(pendingLine);
+        pendingLine = null;
+      }
+    };
+
+    String(text || "")
+      .split(/\r?\n/)
+      .forEach((rawLine) => {
+        const line =
+            String(rawLine || "").trim().replace(/^-+/, "").trim();
+
+        if (!line) {
+          if (pendingLine !== null) {
+            pendingLine += "\\n";
+          }
+          return;
+        }
+
+        if (lineStartsRuntimeMemoryEntry(line)) {
+          flushPending();
+          pendingLine = line;
+          return;
+        }
+
+        if (pendingLine !== null) {
+          pendingLine += `\\n${line}`;
+          return;
+        }
+
+        escapedLines.push(line);
+      });
+
+    flushPending();
+
+    return escapedLines;
+
+  }
+
   function splitMemoryTextLines(text) {
 
-    return String(text || "")
-      .replace(/\\n/g, "\n")
-      .split(/\r?\n+/)
+    return escapeMultilineRuntimeMemoryTextLines(text)
       .flatMap(splitCompoundRuntimeMemoryLine)
       .map(line => line.trim())
       .filter(Boolean);
@@ -442,6 +495,9 @@
     const value =
         line && line.value || "";
 
+    const displayValue =
+        String(value || "").replace(/\\n/g, " ↵ ");
+
     const parsedValue =
         splitMemoryMeta(value);
 
@@ -452,7 +508,7 @@
 
     const rawValue =
         appendProperties(
-          value,
+          displayValue,
           strengthProperties
         );
 
@@ -464,7 +520,7 @@
     ) {
       presentation.text =
           formatUserMessageValueForDisplay(
-              value
+              displayValue
           );
     } else if (
         isJinResponseRuntimeMemoryKey(line && line.key)
