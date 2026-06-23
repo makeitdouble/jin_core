@@ -1,8 +1,7 @@
 from xml.etree import ElementTree
 
-from rules.assembler import (
-    MEDIA_CONTEXT_ATTRS,
-    MEMORY_REQUEST_MARKERS,
+from rules.loop_rules import (
+    LOOP_RULES,
 )
 from runtime.behavior_contract import (
     should_execute_action_guard,
@@ -556,90 +555,6 @@ def has_zero_diff_stall_alert(
         )
     )
 
-def _get_current_user_message(
-    context=None,
-) -> str:
-
-    if context is None:
-        return ""
-
-    for attr_name in (
-        "runtime_turn_user_message",
-        "original_user_input",
-        "user_input",
-        "last_user_message",
-    ):
-
-        value = getattr(
-            context,
-            attr_name,
-            "",
-        )
-
-        if value:
-            return str(
-                value
-            )
-
-    return ""
-
-
-def _normalized_text(
-    value: str,
-) -> str:
-
-    return (
-        value
-        or ""
-    ).casefold().replace(
-        "ё",
-        "е",
-    )
-
-
-def _contains_any_marker(
-    text: str,
-    markers: tuple[str, ...],
-) -> bool:
-
-    normalized = _normalized_text(
-        text
-    )
-
-    return any(
-        _normalized_text(
-            marker
-        ) in normalized
-        for marker in markers
-    )
-
-def has_memory_rule_request(
-    context=None,
-) -> bool:
-
-    if context is None:
-        return False
-
-    explicit_flag = getattr(
-        context,
-        "has_memory_request",
-        None,
-    )
-
-    if explicit_flag is not None:
-        return bool(
-            explicit_flag
-        )
-
-    user_message = _get_current_user_message(
-        context
-    )
-
-    return _contains_any_marker(
-        user_message,
-        MEMORY_REQUEST_MARKERS,
-    )
-
 
 def has_loop_rule_signal(
     context=None,
@@ -664,36 +579,6 @@ def has_loop_rule_signal(
     ):
         return False
 
-
-def has_media_context(
-    context=None,
-) -> bool:
-
-    if context is None:
-        return False
-
-    explicit_flag = getattr(
-        context,
-        "has_media",
-        None,
-    )
-
-    if explicit_flag is not None:
-        return bool(
-            explicit_flag
-        )
-
-    for attr_name in MEDIA_CONTEXT_ATTRS:
-        value = getattr(
-            context,
-            attr_name,
-            None,
-        )
-
-        if value:
-            return True
-
-    return False
 
 
 def build_conditional_prompt_rules(

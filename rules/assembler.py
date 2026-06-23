@@ -22,34 +22,6 @@ from .runtime import (
     WEB_SEARCH_RULES,
 )
 
-MEMORY_REQUEST_MARKERS = (
-    "помнишь",
-    "вспомни",
-    "запомнил",
-    "сохрани",
-    "сохранил",
-    "сохранено",
-    "память",
-    "памяти",
-    "слово",
-    "кодовое слово",
-    "якорь",
-    "хронолит",
-    "remember",
-    "memory",
-    "saved",
-    "recall",
-    "anchor",
-)
-
-MEDIA_CONTEXT_ATTRS = (
-    "uploaded_files",
-    "attached_files",
-    "runtime_uploaded_files",
-    "runtime_media",
-    "image_inputs",
-    "files",
-)
 
 DEFAULT_RUNTIME_ACTIONS = (
     RUNTIME_ACTION_WEB_SEARCH,
