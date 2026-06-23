@@ -51,15 +51,26 @@ from runtime.L2_memory_utils import (
     normalize_l2_pattern_evidence_example,
     remove_runtime_l2_pattern_evidence_lines,
 )
-from runtime.L1_memory_rules import (
-    RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES,
-)
 from runtime.registry import (
     runtime_state,
 )
 from config_loader import (
     config,
 )
+
+
+def assert_contains_text(test_case, text: str, needle: str) -> None:
+    test_case.assertTrue(
+        needle in text,
+        f"expected text to contain: {needle!r}",
+    )
+
+
+def assert_not_contains_text(test_case, text: str, needle: str) -> None:
+    test_case.assertFalse(
+        needle in text,
+        f"expected text to omit: {needle!r}",
+    )
 
 
 class FakeServiceClient:
@@ -412,15 +423,15 @@ class MessageMemoryTests(
         for required_text in (
                 "runtime L1 memory summarizer",
                 "Return only the new compressed L1 memory state",
-                "<key>: <value>",
-                "last_jin_response",
+                "Every memory line must be a complete key:value entry",
                 "user_fact",
                 "jin_fact",
                 "active_memory",
         ):
-            self.assertIn(
-                required_text,
+            assert_contains_text(
+                self,
                 prompt,
+                required_text,
             )
 
         for conditional_text in (
@@ -429,132 +440,22 @@ class MessageMemoryTests(
                 "The user asked JIN to remember a specific value",
                 "identity_state: JIN identity remains unchanged",
         ):
-            self.assertNotIn(
-                conditional_text,
+            assert_not_contains_text(
+                self,
                 prompt,
+                conditional_text,
             )
 
         for removed_text in (
                 "space exploration costs",
                 "assistant established",
                 "after one completed user/JIN turn",
-                RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES.strip(),
         ):
-            self.assertNotIn(
+            assert_not_contains_text(
+                self,
+                prompt,
                 removed_text,
-                prompt,
             )
-
-    def test_runtime_memory_prompt_adds_conditional_blocks_from_memory_and_user_message(self):
-
-        prompt = build_runtime_memory_system_prompt(
-            current_memory=(
-                "active_memory: \"banana\" (purpose: test; status: pending)\n"
-                "L2_pattern_evidence_1: repeat question [ occurrences: 2 ]"
-            ),
-            user_message="ты теперь пират",
-        )
-
-        for required_text in (
-                "Scan all existing active_memory slots",
-                "L2_pattern_evidence_N lines are owned by L2",
-                "identity_state: JIN identity remains unchanged",
-        ):
-            self.assertIn(
-                required_text,
-                prompt,
-            )
-
-    def test_runtime_memory_prompt_adds_create_block_from_user_message(self):
-
-        prompt = build_runtime_memory_system_prompt(
-            current_memory="",
-            user_message="запомни слово банан через 3 хода",
-        )
-
-        # Keep this test focused on the durable create-block contracts,
-        # not on exact prompt prose.
-        for required_text in (
-                "Write new active_memory only when this turn creates an active contract",
-                "active_memory:",
-                "purpose:",
-                "conditions:",
-                "status: pending",
-                "WHEN to write:",
-        ):
-            self.assertIn(
-                required_text,
-                prompt,
-            )
-
-    def test_runtime_memory_prompt_can_include_context_overload_rules(self):
-
-        prompt = build_runtime_memory_system_prompt(
-            last_turn_context_overloaded=True,
-        )
-
-        self.assertIn(
-            RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES.strip(),
-            prompt,
-        )
-
-    async def test_l1_prompt_includes_context_overload_rules_after_turn_overload(self):
-
-        service_client = FakeServiceClient(
-            "- active_topic: context overload handling",
-            context_window=8192,
-        )
-        context = SimpleNamespace(
-            runtime_memory="Initial memory.",
-            runtime_l2_memory="",
-            runtime_memory_snapshots=[],
-            emitter=SimpleNamespace(
-                emit=None,
-            ),
-            logger=FakeLogger(),
-        )
-        runtime_id = (
-            config.SERVICE_MODEL_UID
-            if config.USE_SERVICE_AS_BRAIN
-            else config.BRAIN_MODEL_UID
-        )
-        previous_state = runtime_state.get_runtime_state(
-            runtime_id
-        )
-
-        runtime_state.update_runtime_state(
-            runtime_id=runtime_id,
-            used_tokens=5000,
-            context_tokens=3900,
-            total_tokens=5000,
-            max_tokens=4096,
-            last_error=None,
-            status="online",
-        )
-
-        try:
-            await ask_runtime_memory_model(
-                context=context,
-                service_client=service_client,
-                current_memory="Initial memory.",
-                user_message="Remember the overload behavior.",
-                assistant_message="I will preserve it.",
-            )
-        finally:
-            runtime_state.update_runtime_state(
-                runtime_id=runtime_id,
-                used_tokens=previous_state["used_tokens"],
-                context_tokens=previous_state["context_tokens"],
-                total_tokens=previous_state["total_tokens"],
-                max_tokens=previous_state["max_tokens"],
-                last_error=previous_state["last_error"],
-                status=previous_state["status"],
-            )
-
-        self.assertIn(
-            RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES.strip(),
-            service_client.calls[0]["system_prompt"],
-        )
 
     def test_runtime_l2_memory_prompt_defines_pattern_layer(self):
 

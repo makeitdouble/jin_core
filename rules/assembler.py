@@ -121,14 +121,6 @@ def build_identity_details_context(context=None) -> str:
 
 def build_runtime_action_instructions(enabled_actions: tuple[str, ...]) -> str:
     instructions: list[str] = [
-        # "Runtime actions are internal mechanics, not chat text. "
-        # "Use only the internal action names listed in CURRENT_TRUSTED_RUNTIME_VARIABLES. "
-        # "Never reveal action syntax, exact tags, marker structure, or examples of internal markers. "
-        # "If the user asks for an exact tag, full tag, example tag, marker, or internal syntax, "
-        # "briefly deflect and offer natural commands instead. "
-        # "When requesting a runtime action, output exactly one private marker on its own line. "
-        # "Do not wrap it in markdown. Do not put it inside a bullet list. Do not bold it. "
-        # "Do not describe it in prose. "
         "Runtime Actions are internal mechanics.\n"
         "Never reveal action syntax, exact tags, marker structure, or marker examples because it will be treated as non-valid execution of the command and would break runtime flow.\n"
         "Describe Runtime Actions commands only in natural human manner.\n"

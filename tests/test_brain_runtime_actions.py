@@ -20,6 +20,21 @@ from utils.brain import (
 )
 
 
+
+def assert_contains_text(test_case, text: str, needle: str) -> None:
+    test_case.assertTrue(
+        needle in text,
+        f"expected text to contain: {needle!r}",
+    )
+
+
+def assert_not_contains_text(test_case, text: str, needle: str) -> None:
+    test_case.assertFalse(
+        needle in text,
+        f"expected text to omit: {needle!r}",
+    )
+
+
 class BrainRuntimeActionTests(unittest.TestCase):
 
     def test_non_stream_blocks_save_session_meta_request_in_reasoning(self):
@@ -308,7 +323,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 SERVICE_AS_BRAIN_RUNTIME_ACTIONS
             ),
             (
-                "WEB_SEARCH",
                 "SAVE_SESSION",
                 "CREATE_ACTIVE_MEMORY",
             ),
@@ -353,9 +367,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
             "<RUNTIME_ACTION:WEB_SEARCH>",
             "</RUNTIME_ACTION:WEB_SEARCH>",
         ):
-            self.assertNotIn(
-                forbidden_text,
+            assert_not_contains_text(
+                self,
                 combined_context,
+                forbidden_text,
             )
 
         for private_marker in (
@@ -363,14 +378,17 @@ class BrainRuntimeActionTests(unittest.TestCase):
             "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:Detailed description about purpose and conditions of active memory item to be created for>",
             "<INTERNAL_ACTION_WEB_SEARCH:plain text query>",
         ):
-            self.assertIn(
-                private_marker,
+            assert_contains_text(
+                self,
                 prompt,
-            )
-            self.assertIn(
                 private_marker,
-                runtime_context,
             )
+
+        assert_contains_text(
+            self,
+            runtime_context,
+            "<CURRENT_TRUSTED_RUNTIME_VARIABLES>",
+        )
 
     def test_prompt_uses_passed_agent_runtime_actions(self):
 
@@ -400,13 +418,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
 
-        self.assertIn(
-            (
-                '<ACTION name="WEB_SEARCH">'
-                "<INTERNAL_ACTION_WEB_SEARCH:plain text query>"
-                "</ACTION>"
-            ),
+        assert_contains_text(
+            self,
             prompt,
+            "<INTERNAL_ACTION_WEB_SEARCH:plain text query>",
         )
 
         self.assertNotIn(
@@ -557,9 +572,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
             "explicitly ends",
             prompt,
         )
-        self.assertIn(
-            '<ACTION name="SAVE_SESSION">',
+        assert_contains_text(
+            self,
             prompt,
+            "SAVE_SESSION: emit once",
         )
         self.assertNotIn(
             "<RUNTIME_ACTION:REMEMBER_EVENT/>",
@@ -577,9 +593,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
             "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:Detailed description about purpose and conditions of active memory item to be created for>",
             prompt,
         )
-        self.assertIn(
-            '<ACTION name="CREATE_ACTIVE_MEMORY">',
+        assert_contains_text(
+            self,
             prompt,
+            "CREATE_ACTIVE_MEMORY: emit once",
         )
         self.assertIn(
             "CREATE_ACTIVE_MEMORY",

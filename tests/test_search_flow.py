@@ -26,6 +26,9 @@ from runtime import (
 from websocket_logger import (
     WebSocketLogger,
 )
+from utils.brain import (
+    SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
+)
 
 
 class FakeWebSocket:
@@ -334,6 +337,20 @@ def get_fake_logger(
 class SearchFlowTests(
     unittest.IsolatedAsyncioTestCase
 ):
+
+    def setUp(self):
+        self._original_service_web_search = (
+            SERVICE_AS_BRAIN_RUNTIME_ACTIONS.get(
+                "CAN_WEB_SEARCH",
+                False,
+            )
+        )
+        SERVICE_AS_BRAIN_RUNTIME_ACTIONS["CAN_WEB_SEARCH"] = True
+
+    def tearDown(self):
+        SERVICE_AS_BRAIN_RUNTIME_ACTIONS["CAN_WEB_SEARCH"] = (
+            self._original_service_web_search
+        )
 
     def test_found_search_result_contains_results(self):
 
