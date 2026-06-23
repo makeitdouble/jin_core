@@ -536,7 +536,7 @@
           "runtime-memory-key";
 
       keySpan.textContent =
-          `${key}:`;
+          `${memoryModel.runtimeMemoryDisplay.convertKeyToName(key) || key}:`;
 
       const valueSpan =
           document.createElement("span");
@@ -604,7 +604,7 @@
         "runtime-memory-key";
 
     keySpan.textContent =
-        "user_idle:";
+        `${memoryModel.runtimeMemoryDisplay.convertKeyToName("user_idle")}:`;
 
     const valueSpan =
         document.createElement("span");

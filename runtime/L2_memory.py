@@ -39,6 +39,7 @@ from runtime.memory_common import (
     build_memory_failure_details,
     build_memory_update_skip_details,
     build_runtime_summarizer_payload,
+    build_runtime_summarizer_response_details,
     extract_runtime_memory_text,
     is_runtime_memory_response_truncated,
     log_memory_event,
@@ -372,6 +373,12 @@ async def maybe_summarize_runtime_l2_memory(
                     reason=skip_reason,
                     previous_memory=current_l2_memory,
                     candidate_memory=updated_l2_memory,
+                    summarizer_response_details=(
+                        build_runtime_summarizer_response_details(
+                            response,
+                            extracted_memory=updated_l2_memory,
+                        )
+                    ),
                 ),
                 fallback_channel="error",
             )

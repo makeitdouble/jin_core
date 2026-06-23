@@ -262,6 +262,7 @@ DURABLE_CARRY_FORWARD = (
 
 OUTPUT_FORMAT = (
     "\n"
+    "If no actionable facts or semantic updates - update session status.\n"
     "Decide how much new memory to add from the latest turn.\n"
     "Depth controls how much new content you add, not how much existing memory you keep.\n"
     "For low-signal turns, update only existing keys if needed.\n"
@@ -273,7 +274,6 @@ OUTPUT_FORMAT = (
     "Do not output JSON, Markdown headings, nested bullets, or numbered lists, or tables.\n"
     "Do not explain your reasoning or the summarization process.\n"
     "Do not write the current turn number or user_message_count.\n"
-    "If nothing new - reflect this in state, or output previous state unchanged.\n"
     "\n"
 )
 

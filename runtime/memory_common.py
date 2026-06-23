@@ -884,14 +884,31 @@ def build_memory_update_skip_details(
         reason: str,
         previous_memory: str,
         candidate_memory: str,
+        summarizer_response_details: str = "",
 ) -> str:
 
-    return (
-        f"{reason}\n\n"
-        "Previous memory:\n"
-        "----------------\n"
-        f"{previous_memory.strip() or DEFAULT_RUNTIME_MEMORY}\n\n"
-        "Candidate memory:\n"
-        "-----------------\n"
-        f"{candidate_memory.strip() or '<empty>'}"
+    sections = [
+        f"Likely reason: {reason}",
+        "",
+        "Previous memory:",
+        "----------------",
+        previous_memory.strip() or DEFAULT_RUNTIME_MEMORY,
+        "",
+        "Candidate memory:",
+        "-----------------",
+        candidate_memory.strip() or "<empty>",
+    ]
+
+    response_details = (
+        str(summarizer_response_details or "").strip()
     )
+
+    if response_details:
+        sections.extend([
+            "",
+            "Summarizer response details:",
+            "----------------------------",
+            response_details,
+        ])
+
+    return "\n".join(sections)

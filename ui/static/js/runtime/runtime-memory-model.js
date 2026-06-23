@@ -104,6 +104,7 @@
   }
 
 
+  // Removes bracket metadata from a runtime memory value for panel text, e.g. "Book [status: pending]" -> "Book".
   function stripMemoryMetaForDisplay(value) {
 
     return splitMemoryMeta(value).text;
@@ -111,6 +112,7 @@
   }
 
 
+  // Removes bracket metadata from every runtime memory line for plain fallback rendering, e.g. "note: hi [trace: 0.50]" -> "note: hi".
   function stripMemoryTextMetaForDisplay(text) {
 
     return splitMemoryTextLines(text)
@@ -126,6 +128,51 @@
       .trim()
       .replace(/\s+/g, "_")
       .toLowerCase();
+
+  }
+
+
+  // Keeps known product acronyms uppercase in readable UI labels, e.g. "Last jin response" -> "Last JIN response".
+  function normalizeDisplayLabelAcronyms(label) {
+
+    return String(label || "")
+      .replace(/\bjin\b/gi, "JIN");
+
+  }
+
+
+  // Converts a runtime memory key into a readable UI label, e.g. "user_name" -> "User name", "user_fact_1" -> "User fact #1", and "last_jin_response" -> "Last JIN response".
+  function convertKeyToName(key) {
+
+    const raw =
+        String(key || "").trim();
+
+    if (!raw) {
+      return "";
+    }
+
+    const match =
+        raw.match(/^(.*?)(?:[_\s]+)(\d+)$/);
+
+    const base =
+        (match ? match[1] : raw)
+          .replace(/_/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .toLowerCase();
+
+    if (!base) {
+      return match ? `#${match[2]}` : "";
+    }
+
+    const label =
+        normalizeDisplayLabelAcronyms(
+            base.charAt(0).toUpperCase() + base.slice(1)
+        );
+
+    return match
+      ? `${label} #${match[2]}`
+      : label;
 
   }
 
@@ -348,6 +395,7 @@
   }
 
 
+  // Builds the UI value presentation while keeping raw hover data, e.g. value "Book" with strength 0.5 -> text "Book", raw "Book [trace: 0.50]".
   function buildRuntimeMemoryValuePresentation(line) {
 
     const value =
@@ -384,6 +432,7 @@
   }
 
 
+  // Splits repeated metadata from a quoted user message, e.g. "\"hi\" [repeated: 2]" -> quote + metadata parts.
   function splitUserMessageRepeatedMetadata(value) {
 
     const raw =
@@ -414,6 +463,7 @@
   }
 
 
+  // Parses a JSON-quoted user message for display truncation, e.g. "\"hello\"" -> "hello".
   function parseQuotedUserMessage(value) {
 
     const trimmed =
@@ -437,6 +487,7 @@
   }
 
 
+  // Re-quotes a displayed user message after safe truncation, e.g. "hello" -> "\"hello\"".
   function quoteUserMessageForDisplay(value) {
 
     return JSON.stringify(
@@ -446,6 +497,7 @@
   }
 
 
+  // Truncates long displayed user messages, e.g. 60 characters -> first 50 characters plus "...".
   function truncateUserMessageQuote(value) {
 
     const chars =
@@ -460,6 +512,7 @@
   }
 
 
+  // Formats user_message values for compact UI display, e.g. a long quoted message keeps quotes, truncates text, and preserves [repeated: N].
   function formatUserMessageValueForDisplay(value) {
 
     const parts =
@@ -485,11 +538,24 @@
   }
 
 
+  // Aggregates deterministic UI-only runtime memory string formatters, e.g. raw keys and values stay intact in data/title while panel text uses readable labels.
+  const runtimeMemoryDisplay = {
+    stripMemoryMetaForDisplay,
+    stripMemoryTextMetaForDisplay,
+    normalizeDisplayLabelAcronyms,
+    convertKeyToName,
+    buildRuntimeMemoryValuePresentation,
+    formatUserMessageValueForDisplay,
+  };
+
+
   window.JinRuntime.memoryModel = {
     splitMemoryTextLines,
     appendProperties,
     splitMemoryMeta,
     memoryMetaHasTag,
+    normalizeDisplayLabelAcronyms,
+    convertKeyToName,
     stripMemoryMetaForDisplay,
     stripRuntimeMemoryMeta: stripMemoryMetaForDisplay,
     stripMemoryTextMetaForDisplay,
@@ -505,6 +571,7 @@
     formatRuntimeMemoryStrengthProperties,
     buildRuntimeMemoryValuePresentation,
     formatUserMessageValueForDisplay,
+    runtimeMemoryDisplay,
   };
 
 }());

@@ -612,6 +612,9 @@ async def summarize_runtime_memory(
                     reason="Summarizer returned an incomplete memory update.",
                     previous_memory=current_memory,
                     candidate_memory=updated_memory,
+                    summarizer_response_details=(
+                        context.runtime_l1_last_summarizer_response_details
+                    ),
                 ),
                 fallback_channel="error",
             )
@@ -853,6 +856,9 @@ async def summarize_runtime_memory_pending_turns(
                     reason="Summarizer returned an incomplete memory update.",
                     previous_memory=initial_memory,
                     candidate_memory=updated_memory,
+                    summarizer_response_details=(
+                        context.runtime_l1_last_summarizer_response_details
+                    ),
                 ),
                 fallback_channel="error",
             )
