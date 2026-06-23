@@ -32,20 +32,6 @@ class RuntimeActionTests(unittest.TestCase):
             (),
         )
 
-    def test_deep_thought_marker_is_not_parsed(self):
-
-        result = extract_runtime_actions(
-            "before <INTERNAL_ACTION_DEEP_THOUGHT> after"
-        )
-
-        self.assertEqual(
-            result.text,
-            "before <INTERNAL_ACTION_DEEP_THOUGHT> after",
-        )
-        self.assertEqual(
-            result.actions,
-            (),
-        )
 
     def test_extracts_bracketed_web_search_marker(self):
 

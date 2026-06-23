@@ -418,7 +418,6 @@ The sidebar shows a distinct indicator when a session was restored from a saved 
 
 `saved_runtime.example.txt` shows the expected format for a pre-populated session memory file. Copy it to `saved_runtime.txt` and edit the contents to seed JIN with static facts that should survive every session.
 
-Important events — a major decision, a strong insight, a correction that changes how JIN understands the user — can also be saved mid-session with a `REMEMBER_EVENT` action. The brain emits this automatically when the conversation reaches a clear milestone.
 
 ## Tests
 
@@ -587,6 +586,5 @@ The following capabilities are planned but not yet implemented.
 
 **Brain fallback on low repair score.** When a service-model code/diff attempt scores below a configurable threshold (default 50), the next repair attempt is routed to the brain model with a clean snapshot containing only the original task, the current file state, the failed patch, and the exact error. The brain model does not receive the previous model's reasoning chain.
 
-**Memory event temperature.** Episodic key moments saved via `REMEMBER_EVENT` will carry emotional temperature (`positive`, `negative`, `mixed`), intensity, and initiator (`user_marked` or `jin_detected`). The service model infers these fields from natural language rather than requiring the user to fill a form. JIN may occasionally propose saving a moment it judges significant, but does so rarely.
 
 **Safe memory key normalization.** All memory keys arriving from model output or runtime updates are normalized before storage: trimmed, capped at 120 characters, and stripped of characters outside `[a-zA-Z0-9_\-:.]`. When normalization changes a key, the original is preserved as `raw_label` metadata. Conflicts from key collisions after normalization get numeric suffixes. Keys and values are rendered as `textContent` in the UI, never as `innerHTML`.

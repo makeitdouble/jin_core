@@ -403,15 +403,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
 
-        self.assertNotIn(
-            "DEEP_THOUGHT_COUNTER",
-            prompt,
-        )
 
-        self.assertNotIn(
-            "<RUNTIME_ACTION:DEEP_THOUGHT/>",
-            prompt,
-        )
 
         self.assertNotIn(
             '<RUNTIME_ACTION:WEB_SEARCH>{"query":"..."}</RUNTIME_ACTION:WEB_SEARCH>' ,
@@ -497,20 +489,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
 
-        self.assertNotIn(
-            "<RUNTIME_ACTION:DEEP_THOUGHT/>",
-            prompt,
-        )
 
-        self.assertNotIn(
-            "<INTERNAL_ACTION_DEEP_THOUGHT>",
-            prompt,
-        )
 
-        self.assertNotIn(
-            '<ACTION name="DEEP_THOUGHT">',
-            prompt,
-        )
 
         self.assertNotIn(
             "<![CDATA[",
@@ -576,10 +556,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
             self,
             prompt,
             "SAVE_SESSION: emit once",
-        )
-        self.assertNotIn(
-            "<RUNTIME_ACTION:REMEMBER_EVENT/>",
-            prompt,
         )
         self.assertNotIn(
             "<RUNTIME_ACTION",

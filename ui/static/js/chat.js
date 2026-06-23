@@ -2009,7 +2009,7 @@ function stripInternalActionMarkers(
 
   return String(text || "")
     .replace(
-      /(^|\n)[^\S\r\n]*<INTERNAL_ACTION_(?:DEEP_THOUGHT|SAVE_SESSION|REMEMBER_EVENT)>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<INTERNAL_ACTION_SAVE_SESSION>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(
