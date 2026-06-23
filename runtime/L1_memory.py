@@ -60,6 +60,7 @@ from runtime.L1_memory_utils import (
     normalize_managed_runtime_memory_slots,
     normalize_memory_key,
     normalize_runtime_memory_key_family,
+    normalize_compound_runtime_memory_lines,
     parse_runtime_memory_lines,
     refresh_active_memory_runtime_metadata,
     repeatable_runtime_memory_values_are_same_slot,
@@ -579,6 +580,9 @@ async def summarize_runtime_memory(
             response,
             allow_reasoning_fallback=False,
         )
+        updated_memory = normalize_compound_runtime_memory_lines(
+            updated_memory
+        )
         context.runtime_l1_last_summarizer_response_details = (
             build_runtime_summarizer_response_details(
                 response,
@@ -821,6 +825,9 @@ async def summarize_runtime_memory_pending_turns(
         updated_memory = extract_runtime_memory_text(
             response,
             allow_reasoning_fallback=False,
+        )
+        updated_memory = normalize_compound_runtime_memory_lines(
+            updated_memory
         )
         context.runtime_l1_last_summarizer_response_details = (
             build_runtime_summarizer_response_details(

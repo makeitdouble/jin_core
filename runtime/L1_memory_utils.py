@@ -51,7 +51,6 @@ NUMBERED_MEMORY_KEY_RE = re.compile(
 
 RUNTIME_USER_MESSAGE_KEY = "user_message"
 RUNTIME_LAST_JIN_RESPONSE_KEY = "last_jin_response"
-RUNTIME_LAST_JIN_RESPONSE_FALLBACK_LIMIT = 240
 
 
 def _runtime_value_has_open_quote(
@@ -343,10 +342,7 @@ def build_last_jin_response_fallback(
 
         return "No complete assistant answer was delivered."
 
-    if len(compact) <= RUNTIME_LAST_JIN_RESPONSE_FALLBACK_LIMIT:
-        return compact
-
-    return compact[:RUNTIME_LAST_JIN_RESPONSE_FALLBACK_LIMIT].rstrip()
+    return compact
 
 
 def enforce_runtime_turn_fields(
@@ -2345,6 +2341,42 @@ def build_interrupted_assistant_message(
         user_message=user_message.strip(),
         assistant_message=partial_text,
     )
+
+
+def normalize_compound_runtime_memory_lines(
+        memory: str,
+) -> str:
+
+    """Split L1-glued memory entries into separate lines.
+
+    Example:
+        "jin_identity: hi; user_name: Sergey"
+        -> "jin_identity: hi\nuser_name: Sergey"
+    """
+
+    normalized_lines = []
+
+    for raw_line in (memory or "").splitlines():
+        line = str(raw_line or "")
+
+        if not line.strip():
+            normalized_lines.append(line)
+            continue
+
+        pieces = re.split(
+            r";\s+(?=[A-Za-z][A-Za-z0-9_]*(?:[_\s]+\d+)?\s*:)",
+            line,
+        )
+
+        normalized_lines.extend(
+            piece.strip()
+            for piece in pieces
+            if piece.strip()
+        )
+
+    return "\n".join(
+        normalized_lines
+    ).strip()
 
 
 def parse_runtime_memory_lines(memory: str) -> list[dict]:

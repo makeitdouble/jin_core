@@ -425,6 +425,13 @@
           formatUserMessageValueForDisplay(
               value
           );
+    } else if (
+        isJinResponseRuntimeMemoryKey(line && line.key)
+    ) {
+      presentation.text =
+          formatJinResponseValueForDisplay(
+              presentation.text
+          );
     }
 
     return presentation;
@@ -537,6 +544,45 @@
 
   }
 
+  // Checks whether a runtime memory key contains a JIN answer value for compact UI display, e.g. "last_jin_response" -> true.
+  function isJinResponseRuntimeMemoryKey(key) {
+
+    return [
+      "last_jin_response",
+      "latest_jin_response",
+      "last_jin_answer",
+      "latest_jin_answer",
+    ].includes(
+        normalizeRuntimeMemoryKey(key)
+    );
+
+  }
+
+
+  // Truncates long displayed JIN answers for the runtime memory panel, e.g. 120 characters -> first 80 characters plus "...".
+  function truncateJinResponseForDisplay(value) {
+
+    const chars =
+        Array.from(String(value || ""));
+
+    if (chars.length <= 80) {
+      return String(value || "");
+    }
+
+    return `${chars.slice(0, 80).join("").trimEnd()}...`;
+
+  }
+
+
+  // Formats JIN response values for compact UI display, e.g. a long last_jin_response is shortened while raw hover data stays full.
+  function formatJinResponseValueForDisplay(value) {
+
+    return truncateJinResponseForDisplay(
+        value
+    );
+
+  }
+
 
   // Aggregates deterministic UI-only runtime memory string formatters, e.g. raw keys and values stay intact in data/title while panel text uses readable labels.
   const runtimeMemoryDisplay = {
@@ -546,6 +592,9 @@
     convertKeyToName,
     buildRuntimeMemoryValuePresentation,
     formatUserMessageValueForDisplay,
+    isJinResponseRuntimeMemoryKey,
+    truncateJinResponseForDisplay,
+    formatJinResponseValueForDisplay,
   };
 
 
@@ -572,6 +621,9 @@
     buildRuntimeMemoryValuePresentation,
     formatUserMessageValueForDisplay,
     runtimeMemoryDisplay,
+    isJinResponseRuntimeMemoryKey,
+    truncateJinResponseForDisplay,
+    formatJinResponseValueForDisplay,
   };
 
 }());
