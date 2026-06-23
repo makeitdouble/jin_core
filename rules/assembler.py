@@ -68,7 +68,7 @@ def _build_allowed_markers(
 
 def build_identity_context(context=None) -> str:
     return (
-        f"<core_instructions>{IDENTITY}</core_instructions>"
+        f"<core_constraints_and_capabilities>{IDENTITY}</core_constraints_and_capabilities>"
         f"{build_identity_details_context(context)}"
     )
 

@@ -274,6 +274,7 @@ OUTPUT_FORMAT = (
     "Do not output JSON, Markdown headings, nested bullets, or numbered lists, or tables.\n"
     "Do not explain your reasoning or the summarization process.\n"
     "Do not write the current turn number or user_message_count.\n"
+    "Do not copy markdowns, ascii art and other symbolic output, replace it with text description of the content.\n"
     "\n"
 )
 

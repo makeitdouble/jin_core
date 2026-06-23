@@ -2343,15 +2343,54 @@ def build_interrupted_assistant_message(
     )
 
 
+COMPOUND_RUNTIME_MEMORY_KEY_BOUNDARY_RE = re.compile(
+    r"(?P<delimiter>;|[.!?。！？])\s+"
+    r"(?=(?:[A-Za-z][A-Za-z0-9]*_+[A-Za-z0-9_]*|active_memory(?:_\d+)?)\s*:)",
+)
+
+
+def _split_compound_runtime_memory_line(
+        line: str,
+) -> list[str]:
+
+    pieces = []
+    start = 0
+
+    for match in COMPOUND_RUNTIME_MEMORY_KEY_BOUNDARY_RE.finditer(
+            str(line or "")
+    ):
+        delimiter = match.group("delimiter")
+        end = (
+            match.start()
+            if delimiter == ";"
+            else match.start() + len(delimiter)
+        )
+
+        piece = line[start:end].strip()
+        if piece:
+            pieces.append(piece)
+
+        start = match.end()
+
+    tail = str(line or "")[start:].strip()
+    if tail:
+        pieces.append(tail)
+
+    return pieces
+
+
 def normalize_compound_runtime_memory_lines(
         memory: str,
 ) -> str:
 
     """Split L1-glued memory entries into separate lines.
 
-    Example:
+    Examples:
         "jin_identity: hi; user_name: Sergey"
         -> "jin_identity: hi\nuser_name: Sergey"
+
+        "active_topic: Drawing. user_intent: Asked to draw"
+        -> "active_topic: Drawing.\nuser_intent: Asked to draw"
     """
 
     normalized_lines = []
@@ -2363,15 +2402,8 @@ def normalize_compound_runtime_memory_lines(
             normalized_lines.append(line)
             continue
 
-        pieces = re.split(
-            r";\s+(?=[A-Za-z][A-Za-z0-9_]*(?:[_\s]+\d+)?\s*:)",
-            line,
-        )
-
         normalized_lines.extend(
-            piece.strip()
-            for piece in pieces
-            if piece.strip()
+            _split_compound_runtime_memory_line(line)
         )
 
     return "\n".join(

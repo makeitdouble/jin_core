@@ -2,15 +2,56 @@
 
   window.JinRuntime = window.JinRuntime || {};
 
+  function splitCompoundRuntimeMemoryLine(line) {
+
+    const source =
+        String(line || "");
+
+    const boundaryRe =
+        /(;|[.!?。！？])\s+(?=(?:[A-Za-z][A-Za-z0-9]*_+[A-Za-z0-9_]*|active_memory(?:_\d+)?)\s*:)/g;
+
+    const pieces = [];
+    let start = 0;
+    let match = null;
+
+    while ((match = boundaryRe.exec(source)) !== null) {
+      const delimiter =
+          match[1];
+
+      const end =
+          delimiter === ";"
+            ? match.index
+            : match.index + delimiter.length;
+
+      const piece =
+          source.slice(start, end).trim();
+
+      if (piece) {
+        pieces.push(piece);
+      }
+
+      start =
+          boundaryRe.lastIndex;
+    }
+
+    const tail =
+        source.slice(start).trim();
+
+    if (tail) {
+      pieces.push(tail);
+    }
+
+    return pieces;
+
+  }
+
+
   function splitMemoryTextLines(text) {
 
     return String(text || "")
       .replace(/\\n/g, "\n")
-      .replace(
-        /;\s+(?=[a-z][a-z0-9_]*\s*:)/g,
-        "\n"
-      )
       .split(/\r?\n+/)
+      .flatMap(splitCompoundRuntimeMemoryLine)
       .map(line => line.trim())
       .filter(Boolean);
 
@@ -599,6 +640,7 @@
 
 
   window.JinRuntime.memoryModel = {
+    splitCompoundRuntimeMemoryLine,
     splitMemoryTextLines,
     appendProperties,
     splitMemoryMeta,

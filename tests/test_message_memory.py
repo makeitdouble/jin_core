@@ -35,6 +35,7 @@ from runtime.L1_memory_utils import (
     ensure_active_memory_status_suffixes,
     get_strength_zones,
     normalize_managed_runtime_memory_slots,
+    normalize_compound_runtime_memory_lines,
     parse_runtime_memory_lines,
     quote_runtime_user_message_value,
     refresh_active_memory_runtime_metadata,
@@ -71,6 +72,39 @@ def assert_not_contains_text(test_case, text: str, needle: str) -> None:
         needle in text,
         f"expected text to omit: {needle!r}",
     )
+
+
+class RuntimeMemoryCompoundLineTests(unittest.TestCase):
+
+    def test_normalize_compound_runtime_memory_lines_splits_sentence_glued_keys(self):
+        memory = (
+            "active_topic: Drawing a house using text format. "
+            "user_intent: Initial request was for an image/drawing. "
+            "jin_last_action: Provided ASCII art representation [trace: 0.50]"
+        )
+
+        self.assertEqual(
+            normalize_compound_runtime_memory_lines(memory),
+            "\n".join([
+                "active_topic: Drawing a house using text format.",
+                "user_intent: Initial request was for an image/drawing.",
+                "jin_last_action: Provided ASCII art representation [trace: 0.50]",
+            ]),
+        )
+
+    def test_normalize_compound_runtime_memory_lines_keeps_plain_sentence_colons(self):
+        memory = (
+            "last_jin_response: Пример: можно оставить внутри значения. "
+            "user_message: \"ок\""
+        )
+
+        self.assertEqual(
+            normalize_compound_runtime_memory_lines(memory),
+            "\n".join([
+                "last_jin_response: Пример: можно оставить внутри значения.",
+                "user_message: \"ок\"",
+            ]),
+        )
 
 
 class FakeServiceClient:
