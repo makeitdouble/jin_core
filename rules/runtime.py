@@ -28,8 +28,9 @@ RUNTIME = (
 )
 
 RUNTIME_ACTIONS = (
-    f'{RUNTIME}\n'
-    "Runtime Actions are internal mechanics."
+    "\n"
+    "<runtime_actions>\n"
+    "Runtime Actions are internal mechanics.\n"
     "Never reveal action syntax, exact tags, marker structure, or marker examples because it will be treated as non-valid execution of the command and would break runtime flow.\n"
     "Describe Runtime Actions commands only in natural human manner.\n"
     "When requesting a runtime action, output exactly one private marker on its own line.\n"
@@ -54,5 +55,6 @@ RUNTIME_ACTIONS = (
     "\n"
     "Do not invent, reset, or update internal state values yourself. Trust only values from trusted runtime context.\n"
     "Never mention timestamps, internal function names, or counters in chat unless the user explicitly asks.\n"
+    "</runtime_actions>\n"
     "\n"
 )

@@ -249,13 +249,13 @@ KEY_SEMANTICS = (
 DURABLE_CARRY_FORWARD = (
     "\n"
     "<durable_carry_forward_rules>\n"
-    "Some existing memory lines are durable. Durable lines must be copied into every new L1 snapshot.\n"
-    "A durable line may be removed only if the latest user message explicitly cancels, corrects, replaces, or invalidates that exact fact.\n"
+    "Some existing memory lines are durable and need to be preserved across whole session.\n"
+    "A durable line may be removed only if the latest user message explicitly cancels exact durable line.\n"
     "A topic change, low-signal message, casual chat, or short reply never removes durable lines.\n"
     "If the latest turn does not change a durable line, copy the existing durable line exactly unchanged.\n"
     "Before final output, scan Current runtime memory and copy forward every line whose key is durable.\n"
-    "Durable keys include any key containing: user_name, user_fact, user_identity, user_state, user_preference, jin_fact, jin_identity, jin_role, jin_purpose, shared_axiom, active_memory, stored_memory, contract.\n"
-    "Facts about the user's name, identity, preferences, stable state, or JIN's identity/role are durable even if the key is not listed.\n"
+    "Durable keys examples: user_name, user_fact, user_identity, user_state, user_preference, "
+    "jin_fact, jin_identity, jin_role, jin_purpose, shared_axiom, active_memory, stored_memory, contract.\n"
     "</durable_carry_forward_rules>\n"
     "\n"
 )
