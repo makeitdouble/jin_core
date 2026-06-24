@@ -15,7 +15,7 @@ from clients.search_client import (
     run_search_service,
 )
 
-from utils.brain import (
+from clients.brain_client_utils import (
     get_brain_runtime_config,
 )
 

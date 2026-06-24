@@ -26,7 +26,7 @@ from runtime import (
 from websocket_logger import (
     WebSocketLogger,
 )
-from utils.brain import (
+from clients.brain_client_utils import (
     SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
 )
 

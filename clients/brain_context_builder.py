@@ -16,16 +16,14 @@ from clients.brain_client_utils import (
     indent_xml,
     strip_empty_results_xml,
 )
-from runtime.context import (
-    RECENT_MESSAGES_MAX_PAIRS,
-    RECENT_MESSAGE_MAX_CHARS,
-)
-from runtime.context_contract import (
+from runtime.runtime_context import (
     ContextContract,
-    format_session_state,
+    RECENT_MESSAGE_MAX_CHARS,
+    RECENT_MESSAGES_MAX_PAIRS,
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
+    format_session_state,
 )
 from runtime.L1_memory_utils import (
     build_runtime_memory_context_text,

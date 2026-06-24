@@ -9,7 +9,7 @@ from runtime import (
 from config_loader import (
     config,
 )
-from utils.brain import (
+from clients.brain_client_utils import (
     get_brain_runtime_config,
 )
 from websocket import (

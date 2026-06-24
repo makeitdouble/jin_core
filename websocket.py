@@ -30,7 +30,7 @@ from clients.brain_client import (
     should_execute_save_session,
 )
 
-from utils.brain import (
+from clients.brain_client_utils import (
     get_brain_runtime_config,
 )
 
@@ -84,7 +84,7 @@ from runtime.L1_memory import (
 from runtime.L3_memory_utils import (
     parse_l3_session_snapshot_metadata,
 )
-from runtime.context import (
+from runtime.runtime_context import (
     RECENT_MESSAGES_MAX_PAIRS,
 )
 

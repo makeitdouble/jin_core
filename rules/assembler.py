@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from runtime.context_contract import (
+from runtime.runtime_context import (
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,

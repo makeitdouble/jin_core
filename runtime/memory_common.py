@@ -15,7 +15,7 @@ from config_loader import (
 from app_settings import (
     settings,
 )
-from runtime.context_contract import (
+from runtime.runtime_context import (
     ContextContract,
 )
 from runtime.L1_memory_rules import (

@@ -3,7 +3,7 @@ import asyncio
 from config_loader import (
     config,
 )
-from runtime.context_contract import (
+from runtime.runtime_context import (
     RUNTIME_ACTION_WEB_SEARCH,
 )
 
