@@ -153,14 +153,6 @@ async def ask_brain(
                 runtime_actions
             )
 
-            reasoning_actions = (
-                extract_runtime_actions(
-                    reasoning,
-                    enabled_actions=enabled_actions,
-                    preserve_action_text=True,
-                )
-            )
-
             content_actions = (
                 extract_runtime_actions(
                     content,
@@ -170,10 +162,7 @@ async def ask_brain(
 
             await apply_runtime_action_calls(
                 context,
-                (
-                    reasoning_actions.actions
-                    + content_actions.actions
-                ),
+                content_actions.actions,
                 user_message=text,
             )
 
@@ -251,12 +240,6 @@ async def ask_brain(
             runtime_actions
         )
 
-        reasoning_actions = extract_runtime_actions(
-            reasoning,
-            enabled_actions=enabled_actions,
-            preserve_action_text=True,
-        )
-
         content_actions = extract_runtime_actions(
             content,
             enabled_actions=enabled_actions,
@@ -264,10 +247,7 @@ async def ask_brain(
 
         await apply_runtime_action_calls(
             context,
-            (
-                reasoning_actions.actions
-                + content_actions.actions
-            ),
+            content_actions.actions,
             user_message=text,
         )
 
@@ -330,10 +310,6 @@ async def ask_brain_stream(
         runtime_actions
     )
 
-    thinking_filter = RuntimeActionStreamFilter(
-        enabled_actions=enabled_actions,
-        preserve_action_text=True,
-    )
     content_filter = RuntimeActionStreamFilter(
         enabled_actions=enabled_actions
     )
@@ -355,13 +331,10 @@ async def ask_brain_stream(
         ):
             return action_chunk
 
-        stream_filter = (
-            thinking_filter
-            if chunk_type == "thinking"
-            else content_filter
-        )
+        if chunk_type == "thinking":
+            return action_chunk
 
-        result = stream_filter.filter(
+        result = content_filter.filter(
             action_chunk.get(
                 "content",
                 "",
@@ -388,15 +361,6 @@ async def ask_brain_stream(
                 if not result.text:
                     return None
 
-                return {
-                    **action_chunk,
-                    "content": result.text,
-                }
-
-            if (
-                chunk_type == "thinking"
-                and result.text
-            ):
                 return {
                     **action_chunk,
                     "content": result.text,
@@ -452,16 +416,6 @@ async def ask_brain_stream(
 
                 if stop_for_runtime_action:
                     break
-
-            thinking_tail = thinking_filter.flush()
-            if (
-                thinking_tail
-                and not stop_for_runtime_action
-            ):
-                yield {
-                    "type": "thinking",
-                    "content": thinking_tail,
-                }
 
             content_tail = content_filter.flush()
             if (
@@ -528,16 +482,6 @@ async def ask_brain_stream(
 
             if stop_for_runtime_action:
                 break
-
-        thinking_tail = thinking_filter.flush()
-        if (
-            thinking_tail
-            and not stop_for_runtime_action
-        ):
-            yield {
-                "type": "thinking",
-                "content": thinking_tail,
-            }
 
         content_tail = content_filter.flush()
         if (

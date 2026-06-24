@@ -633,6 +633,48 @@ class RuntimeActionTests(unittest.TestCase):
             ],
         )
 
+    def test_apply_runtime_action_calls_emits_create_active_memory_bubble(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="CREATE_ACTIVE_MEMORY",
+                        payload="remind later",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertEqual(
+            context.emitter.events,
+            [
+                {
+                    "type": "runtime_action",
+                    "action": "create_active_memory",
+                    "text": "Saving: remind later",
+                }
+            ],
+        )
+
     def test_extract_search_query_unnests_json_string(self):
 
         self.assertEqual(

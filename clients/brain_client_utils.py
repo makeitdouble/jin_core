@@ -413,13 +413,45 @@ async def apply_runtime_action_calls(
             await emit({
                 "type": "runtime_action",
                 "action": "save_session",
-                "text": "Remembering this session",
+                "text": "Saving session",
             })
 
-    if create_active_memory_count and log_runtime is not None:
-        await log_runtime(
-            "[RUNTIME ACTION] create_active_memory requested"
+    if create_active_memory_count:
+        if log_runtime is not None:
+            await log_runtime(
+                "[RUNTIME ACTION] create_active_memory requested"
+            )
+
+        active_memory_text = next(
+            (
+                action.payload
+                for action in filtered_actions
+                if action.name == RUNTIME_ACTION_CREATE_ACTIVE_MEMORY
+                and action.payload
+            ),
+            "",
         )
+
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if (
+            emit is not None
+            and active_memory_text
+        ):
+            await emit({
+                "type": "runtime_action",
+                "action": "create_active_memory",
+                "text": f"Saving: {active_memory_text}",
+            })
 
     return len(
         search_queries

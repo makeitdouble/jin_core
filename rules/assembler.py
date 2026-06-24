@@ -89,9 +89,8 @@ def build_identity_details_context(context=None) -> str:
 def build_runtime_action_instructions(enabled_actions: tuple[str, ...]) -> str:
     instructions: list[str] = [
         "Runtime Actions are internal mechanics.\n"
-        "Never reveal action syntax, exact tags, marker structure, or marker examples because it will be treated as non-valid execution of the command and would break runtime flow.\n"
-        "Describe Runtime Actions commands only in natural human manner.\n"
-        "When requesting a runtime action, output exactly one private marker on its own line.\n"
+        "When an internal action is required, emit the marker in the final answer stream."
+        "When requesting a runtime action, output one INTERNAL_ACTION marker in your final answer on its own line.\n"
     ]
 
     allowed_markers = _build_allowed_markers(enabled_actions)

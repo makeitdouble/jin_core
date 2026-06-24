@@ -14,7 +14,7 @@ def _format_action_guard_triggers(
     )
 INTERNAL_ACTION_WEB_SEARCH_MARKER = "<INTERNAL_ACTION_WEB_SEARCH:plain text query>"
 INTERNAL_ACTION_SAVE_SESSION_MARKER = "<INTERNAL_ACTION_SAVE_SESSION>"
-INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER = "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: Detailed description about purpose and conditions of active memory item to be created for >"
+INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER = "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: PURPOSE | CONDITIONS >"
 
 WEB_SEARCH_RULES = (
     "WEB_SEARCH: use when freshness, recency, availability, latest releases, prices, news, or current facts matter.\n"
@@ -31,8 +31,17 @@ SAVE_SESSION_RULES = (
 )
 
 CREATE_ACTIVE_MEMORY = (
-    "CREATE_ACTIVE_MEMORY: emit once only when the user asks JIN to remember, track, remind, ask later, or preserve an active task/condition.\n"
+    "CREATE_ACTIVE_MEMORY: emit once only when the user asks JIN to remember, delayed-prompt requests, remind, ask later, or preserve an active task/condition.\n"
+    "JIN must delegate timing/tracking tasks to runtime by emitting CREATE_ACTIVE_MEMORY marker.\n"
+    "PURPOSE is a description of what must be remembered or done later.\n"
+    "CONDITIONS are the exact trigger conditions for when this memory becomes relevant and what needed to resolve it purpose.\n"
+    "Use exactly one ` | ` separator inside marker between purpose and conditions.\n"
     "Do not emit for generic 'save this moment/event/session' requests.\n"
-    "Provide clear description about purpose of active memory and list of it's conditions inside internal marker only.\n"
-    "Do not add creation time, elapsed time and elapsed messages properties, or any other properties, except description text.\n"
+)
+
+UPDATE_ACTIVE_MEMORY = (
+    #"UPDATE_ACTIVE_MEMORY: emit once only when the user asks JIN to remember, track, remind, ask later, or preserve an active task/condition.\n"
+    #"I MUST explicitly resolve all active and pending active_memory, active_memory can not be resolved automatically by the system.\n"
+    #"I do not violate active_memory core conditions. I'm waiting for the core conditions to be met before resolving pending memory.\n"
+    #"If active_memory contains an expired reminder or timer, I MUST immediately and explicitly announce it to the user in the response text.\n"
 )
