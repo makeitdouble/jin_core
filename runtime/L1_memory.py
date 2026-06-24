@@ -42,6 +42,7 @@ from runtime.memory_common import (
     runtime_prompt_is_context_overloaded,
 )
 from runtime.memory_events import (
+    emit_runtime_action_completed,
     emit_runtime_memory_update,
 )
 from runtime.L1_memory_utils import (
@@ -64,12 +65,95 @@ from runtime.L1_memory_utils import (
     parse_runtime_memory_lines,
     refresh_active_memory_runtime_metadata,
     repeatable_runtime_memory_values_are_same_slot,
+    merge_runtime_owned_active_memory_entries,
+    remove_active_memory_entries,
     remove_runtime_memory_placeholder_lines,
     remove_runtime_response_feedback_text,
     remove_runtime_user_idle_lines,
-    strip_active_memory_runtime_metadata,
     upsert_runtime_memory_entry_text,
 )
+
+
+
+def pop_pending_active_memory_records(context) -> str:
+
+    pending_records = getattr(
+        context,
+        "runtime_pending_active_memory_records",
+        None,
+    )
+
+    if not pending_records:
+        return ""
+
+    setattr(
+        context,
+        "runtime_pending_active_memory_records",
+        [],
+    )
+
+    return "\n".join(
+        str(record or "").strip()
+        for record in pending_records
+        if str(record or "").strip()
+    ).strip()
+
+
+def merge_pending_active_memory_records(
+        context,
+        *,
+        previous_memory: str,
+        candidate_memory: str,
+) -> str:
+
+    pending_active_memory = pop_pending_active_memory_records(
+        context
+    )
+
+    if not pending_active_memory:
+        return candidate_memory
+
+    setattr(
+        context,
+        "runtime_pending_active_memory_merged",
+        True,
+    )
+
+    merged_candidate = "\n".join(
+        line
+        for line in (
+            candidate_memory,
+            pending_active_memory,
+        )
+        if str(line or "").strip()
+    ).strip()
+
+    return normalize_managed_runtime_memory_slots(
+        previous_memory,
+        merged_candidate,
+    )
+
+
+async def maybe_complete_pending_active_memory_action(context) -> None:
+
+    if not getattr(
+        context,
+        "runtime_pending_active_memory_merged",
+        False,
+    ):
+        return
+
+    setattr(
+        context,
+        "runtime_pending_active_memory_merged",
+        False,
+    )
+
+    await emit_runtime_action_completed(
+        context,
+        action="create_active_memory",
+    )
+
 
 def normalize_runtime_response_feedback(feedback) -> dict | None:
 
@@ -548,11 +632,8 @@ async def summarize_runtime_memory(
         previous_memory=stored_memory,
         context=context,
     )
-    current_memory = strip_active_memory_runtime_metadata(
+    current_memory = remove_active_memory_entries(
         stored_memory
-    )
-    current_memory = ensure_active_memory_status_suffixes(
-        current_memory
     )
 
     context.runtime_memory = stored_memory
@@ -675,6 +756,15 @@ async def summarize_runtime_memory(
         updated_memory = remove_runtime_user_idle_lines(
             updated_memory
         )
+        updated_memory = merge_runtime_owned_active_memory_entries(
+            stored_memory,
+            updated_memory,
+        )
+        updated_memory = merge_pending_active_memory_records(
+            context,
+            previous_memory=stored_memory,
+            candidate_memory=updated_memory,
+        )
         updated_memory = refresh_active_memory_runtime_metadata(
             updated_memory,
             previous_memory=stored_memory,
@@ -693,6 +783,10 @@ async def summarize_runtime_memory(
             context.runtime_memory_updates = updates_counter + 1
 
             snapshot = await emit_runtime_memory_update(
+                context
+            )
+
+            await maybe_complete_pending_active_memory_action(
                 context
             )
 
@@ -795,11 +889,8 @@ async def summarize_runtime_memory_pending_turns(
         previous_memory=stored_initial_memory,
         context=context,
     )
-    initial_memory = strip_active_memory_runtime_metadata(
+    initial_memory = remove_active_memory_entries(
         stored_initial_memory
-    )
-    initial_memory = ensure_active_memory_status_suffixes(
-        initial_memory
     )
 
     context.runtime_memory = remove_runtime_memory_placeholder_lines(
@@ -933,6 +1024,15 @@ async def summarize_runtime_memory_pending_turns(
         updated_memory = remove_runtime_user_idle_lines(
             updated_memory
         )
+        updated_memory = merge_runtime_owned_active_memory_entries(
+            stored_initial_memory,
+            updated_memory,
+        )
+        updated_memory = merge_pending_active_memory_records(
+            context,
+            previous_memory=stored_initial_memory,
+            candidate_memory=updated_memory,
+        )
         updated_memory = refresh_active_memory_runtime_metadata(
             updated_memory,
             previous_memory=stored_initial_memory,
@@ -957,6 +1057,10 @@ async def summarize_runtime_memory_pending_turns(
             ]
 
             snapshot = await emit_runtime_memory_update(
+                context
+            )
+
+            await maybe_complete_pending_active_memory_action(
                 context
             )
 

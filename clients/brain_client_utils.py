@@ -121,6 +121,89 @@ def should_execute_save_session(
     )
 
 
+
+def split_active_memory_payload(
+    payload: str,
+) -> tuple[str, str]:
+
+    text = str(
+        payload or ""
+    ).strip()
+
+    if not text:
+        return "", ""
+
+    if "|" not in text:
+        return text, ""
+
+    purpose, conditions = text.split(
+        "|",
+        1,
+    )
+
+    return (
+        purpose.strip(),
+        conditions.strip(),
+    )
+
+
+def build_active_memory_runtime_line(
+    payload: str,
+) -> str:
+
+    purpose, conditions = split_active_memory_payload(
+        payload
+    )
+
+    if not purpose:
+        return ""
+
+    value = purpose
+
+    if conditions:
+        value = (
+            f"{value} [ conditions: {conditions} ]"
+        )
+
+    return f"active_memory: {value}"
+
+
+async def create_active_memory_runtime_record(
+    context,
+    payload: str,
+) -> bool:
+
+    active_memory_line = build_active_memory_runtime_line(
+        payload
+    )
+
+    if (
+        context is None
+        or not active_memory_line
+    ):
+        return False
+
+    pending_records = getattr(
+        context,
+        "runtime_pending_active_memory_records",
+        None,
+    )
+
+    if pending_records is None:
+        pending_records = []
+        setattr(
+            context,
+            "runtime_pending_active_memory_records",
+            pending_records,
+        )
+
+    pending_records.append(
+        active_memory_line
+    )
+
+    return True
+
+
 def resolve_runtime_action_user_message(
     context,
     user_message: str | None = None,
@@ -431,6 +514,22 @@ async def apply_runtime_action_calls(
             ),
             "",
         )
+
+        if active_memory_text:
+            record_created = (
+                await create_active_memory_runtime_record(
+                    context,
+                    active_memory_text,
+                )
+            )
+
+            if (
+                log_runtime is not None
+                and record_created
+            ):
+                await log_runtime(
+                    "[RUNTIME ACTION] active_memory record created"
+                )
 
         emitter = getattr(
             context,

@@ -65,6 +65,10 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_pending_active_memory_records: list[str] = field(
+        default_factory=list
+    )
+
     runtime_usage_events: list[dict] = field(
         default_factory=list
     )

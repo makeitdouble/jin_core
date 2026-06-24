@@ -665,15 +665,84 @@ class RuntimeActionTests(unittest.TestCase):
             1,
         )
         self.assertEqual(
+            len(context.emitter.events),
+            1,
+        )
+        self.assertEqual(
+            context.emitter.events[0],
+            {
+                "type": "runtime_action",
+                "action": "create_active_memory",
+                "text": "Saving: remind later",
+            },
+        )
+        self.assertEqual(
+            context.runtime_pending_active_memory_records,
+            [
+                "active_memory: remind later",
+            ],
+        )
+
+    def test_apply_runtime_action_calls_queues_active_memory_record(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+        context.timestamp = "2026-06-24T15:00:00"
+        context.turn_number = 7
+        context.runtime_memory = "session_status: active"
+        context.runtime_memory_updates = 0
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="CREATE_ACTIVE_MEMORY",
+                        payload="Drink coffee | Trigger in 5 minutes",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertEqual(
+            context.runtime_memory_updates,
+            0,
+        )
+        self.assertEqual(
+            context.runtime_memory,
+            "session_status: active",
+        )
+        self.assertEqual(
+            context.runtime_pending_active_memory_records,
+            [
+                "active_memory: Drink coffee [ conditions: Trigger in 5 minutes ]",
+            ],
+        )
+        self.assertEqual(
             context.emitter.events,
             [
                 {
                     "type": "runtime_action",
                     "action": "create_active_memory",
-                    "text": "Saving: remind later",
-                }
+                    "text": "Saving: Drink coffee | Trigger in 5 minutes",
+                },
             ],
         )
+
 
     def test_extract_search_query_unnests_json_string(self):
 

@@ -702,6 +702,84 @@ def strip_active_memory_runtime_metadata(
     ).strip()
 
 
+def remove_active_memory_entries(
+        memory: str,
+) -> str:
+
+    parsed_lines = parse_runtime_memory_lines(
+        memory
+    )
+
+    if not parsed_lines:
+        return memory or ""
+
+    return "\n".join(
+        durable_memory_line_text(
+            line
+        )
+        for line in parsed_lines
+        if not is_active_memory_key(
+            (
+                line.get(
+                    "key",
+                    "",
+                )
+                or ""
+            ).strip()
+        )
+    ).strip()
+
+
+def extract_active_memory_entries(
+        memory: str,
+) -> str:
+
+    parsed_lines = parse_runtime_memory_lines(
+        memory
+    )
+
+    if not parsed_lines:
+        return ""
+
+    return "\n".join(
+        durable_memory_line_text(
+            line
+        )
+        for line in parsed_lines
+        if is_active_memory_key(
+            (
+                line.get(
+                    "key",
+                    "",
+                )
+                or ""
+            ).strip()
+        )
+    ).strip()
+
+
+def merge_runtime_owned_active_memory_entries(
+        previous_memory: str,
+        candidate_memory: str,
+) -> str:
+
+    candidate_without_active_memory = remove_active_memory_entries(
+        candidate_memory
+    )
+    active_memory = extract_active_memory_entries(
+        previous_memory
+    )
+
+    return "\n".join(
+        line
+        for line in (
+            candidate_without_active_memory,
+            active_memory,
+        )
+        if str(line or "").strip()
+    ).strip()
+
+
 def _parse_active_memory_suffix(
         value: str,
         suffix_name: str,
@@ -2314,6 +2392,74 @@ def build_runtime_memory_context_text(
         lines
     )
 
+
+
+def is_default_runtime_memory_line(
+        line: str,
+) -> bool:
+
+    cleaned = (
+        line
+        or ""
+    ).strip()
+
+    if not cleaned:
+        return False
+
+    if cleaned == DEFAULT_RUNTIME_MEMORY:
+        return True
+
+    if ":" not in cleaned:
+        return False
+
+    key, value = cleaned.split(
+        ":",
+        1,
+    )
+
+    return (
+        key.strip().casefold() == "note"
+        and value.strip() == DEFAULT_RUNTIME_MEMORY
+    )
+
+
+def remove_default_runtime_memory_lines(
+        memory: str,
+) -> str:
+
+    lines = []
+
+    for raw_line in (memory or "").splitlines():
+        if is_default_runtime_memory_line(
+            raw_line
+        ):
+            continue
+
+        lines.append(
+            raw_line
+        )
+
+    return "\n".join(
+        lines
+    ).strip()
+
+
+def build_l1_current_memory_prompt_block(
+        current_memory: str,
+) -> str:
+
+    memory_text = remove_default_runtime_memory_lines(
+        current_memory
+    ).strip()
+
+    if not memory_text:
+        return ""
+
+    return (
+        "Current runtime memory:\n"
+        f"{memory_text}\n\n"
+    )
+
 def build_runtime_memory_user_prompt(
         *,
         current_memory: str,
@@ -2331,13 +2477,14 @@ def build_runtime_memory_user_prompt(
             )
 
     return (
-        "Current runtime memory:\n"
-        f"{current_memory.strip() or DEFAULT_RUNTIME_MEMORY}\n\n"
-        f"{hot_traces}"
-        "Latest user message:\n"
-        f"{user_message.strip()}\n\n"
-        "Latest JIN answer:\n"
-        f"{assistant_message.strip()}\n\n"
+        build_l1_current_memory_prompt_block(
+            current_memory
+        )
+        + f"{hot_traces}"
+        + "Latest user message:\n"
+        + f"{user_message.strip()}\n\n"
+        + "Latest JIN answer:\n"
+        + f"{assistant_message.strip()}\n\n"
     )
 
 
@@ -2348,11 +2495,18 @@ def build_runtime_memory_batch_user_prompt(
         strength_zones: dict | None = None,
 ) -> str:
 
-    lines = [
-        "Current runtime memory:",
-        current_memory.strip() or DEFAULT_RUNTIME_MEMORY,
-        "",
-    ]
+    lines = []
+
+    current_memory_text = remove_default_runtime_memory_lines(
+        current_memory
+    ).strip()
+
+    if current_memory_text:
+        lines.extend([
+            "Current runtime memory:",
+            current_memory_text,
+            "",
+        ])
 
     if strength_zones:
         hot_items = strength_zones.get("hot", [])

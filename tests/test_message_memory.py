@@ -38,7 +38,9 @@ from runtime.L1_memory_utils import (
     normalize_compound_runtime_memory_lines,
     parse_runtime_memory_lines,
     quote_runtime_user_message_value,
+    merge_runtime_owned_active_memory_entries,
     refresh_active_memory_runtime_metadata,
+    remove_active_memory_entries,
     strip_active_memory_runtime_metadata,
 )
 from runtime.L3_memory_utils import (
@@ -301,7 +303,7 @@ class MessageMemoryTests(
     unittest.IsolatedAsyncioTestCase
 ):
 
-    def test_runtime_memory_user_prompt_uses_session_fallback(self):
+    def test_runtime_memory_user_prompt_omits_empty_session_fallback(self):
 
         prompt = build_runtime_memory_user_prompt(
             current_memory="",
@@ -309,8 +311,12 @@ class MessageMemoryTests(
             assistant_message="hi",
         )
 
-        self.assertIn(
+        self.assertNotIn(
             DEFAULT_RUNTIME_MEMORY,
+            prompt,
+        )
+        self.assertNotIn(
+            "Current runtime memory:",
             prompt,
         )
         self.assertNotIn(
@@ -319,6 +325,38 @@ class MessageMemoryTests(
         )
         self.assertNotIn(
             "Occurrences: 2",
+            prompt,
+        )
+
+    def test_runtime_memory_user_prompt_omits_default_note_line(self):
+
+        prompt = build_runtime_memory_user_prompt(
+            current_memory=(
+                f"note: {DEFAULT_RUNTIME_MEMORY}"
+            ),
+            user_message="hello",
+            assistant_message="hi",
+        )
+
+        self.assertNotIn(
+            DEFAULT_RUNTIME_MEMORY,
+            prompt,
+        )
+        self.assertNotIn(
+            "Current runtime memory:",
+            prompt,
+        )
+
+    def test_runtime_memory_user_prompt_keeps_real_memory(self):
+
+        prompt = build_runtime_memory_user_prompt(
+            current_memory="session_status: active",
+            user_message="hello",
+            assistant_message="hi",
+        )
+
+        self.assertIn(
+            "Current runtime memory:\nsession_status: active",
             prompt,
         )
 
@@ -1324,6 +1362,70 @@ class MessageMemoryTests(
             event["snapshot"]["raw_memory"],
         )
 
+    async def test_pending_active_memory_fades_after_l1_snapshot(self):
+
+        service_client = FakeServiceClient(
+            "session_status: reminder accepted"
+        )
+        logger = FakeLogger()
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            emitter=SimpleNamespace(
+                events=[],
+                emit=None,
+            ),
+            logger=logger,
+            runtime_memory="session_status: active",
+            runtime_memory_stable="session_status: active",
+            runtime_memory_updates=0,
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
+            runtime_pending_active_memory_records=[
+                "active_memory: Drink coffee [ conditions: in 5 minutes ]",
+            ],
+            session_id="test-session",
+        )
+
+        async def emit(event):
+            context.emitter.events.append(
+                event
+            )
+
+        context.emitter.emit = emit
+
+        updated_memory = await summarize_runtime_memory(
+            context=context,
+            user_message="remind me to drink coffee in 5 minutes",
+            assistant_message="I will remind you.",
+        )
+
+        self.assertIn(
+            "active_memory: Drink coffee",
+            updated_memory,
+        )
+        self.assertEqual(
+            context.runtime_pending_active_memory_records,
+            [],
+        )
+        self.assertEqual(
+            getattr(
+                context,
+                "runtime_pending_active_memory_merged",
+                False,
+            ),
+            False,
+        )
+        self.assertIn(
+            {
+                "type": "runtime_action",
+                "action": "create_active_memory",
+                "status": "completed",
+            },
+            context.emitter.events,
+        )
+
     def test_enforce_runtime_turn_fields_keeps_repetition_metadata_outside_quote(self):
 
         memory = enforce_runtime_turn_fields(
@@ -1742,6 +1844,61 @@ class MessageMemoryTests(
             memory,
         )
 
+    def test_remove_active_memory_entries_hides_runtime_owned_memory_from_l1(self):
+
+        memory = remove_active_memory_entries(
+            (
+                "session_status: active\n"
+                "active_memory: Drink coffee "
+                "[ conditions: in 5 minutes ] "
+                "[ status: pending ]\n"
+                "user_message: hello"
+            )
+        )
+
+        self.assertIn(
+            "session_status: active",
+            memory,
+        )
+        self.assertIn(
+            "user_message: hello",
+            memory,
+        )
+        self.assertNotIn(
+            "active_memory",
+            memory,
+        )
+        self.assertNotIn(
+            "Drink coffee",
+            memory,
+        )
+
+    def test_merge_runtime_owned_active_memory_preserves_previous_and_drops_l1_candidate(self):
+
+        merged = merge_runtime_owned_active_memory_entries(
+            (
+                "session_status: active\n"
+                "active_memory: Runtime owned reminder [ status: pending ]"
+            ),
+            (
+                "session_status: updated\n"
+                "active_memory: L1 invented reminder [ status: pending ]"
+            ),
+        )
+
+        self.assertIn(
+            "session_status: updated",
+            merged,
+        )
+        self.assertIn(
+            "active_memory: Runtime owned reminder",
+            merged,
+        )
+        self.assertNotIn(
+            "L1 invented reminder",
+            merged,
+        )
+
     async def test_summarizer_hides_active_memory_runtime_metadata_from_l1_payload(self):
 
         service_client = FakeServiceClient(
@@ -1803,6 +1960,14 @@ class MessageMemoryTests(
         user_prompt = service_client.calls[0]["user_prompt"]
 
         self.assertNotIn(
+            "active_memory",
+            user_prompt,
+        )
+        self.assertNotIn(
+            "Secret word: Sun",
+            user_prompt,
+        )
+        self.assertNotIn(
             "creation_time",
             user_prompt,
         )
@@ -1811,8 +1976,8 @@ class MessageMemoryTests(
             user_prompt,
         )
         self.assertIn(
-            "[ status: pending ]",
-            user_prompt,
+            "active_memory: Secret word: Sun",
+            updated_memory,
         )
         self.assertIn(
             "[ elapsed_time: 00:03:04 ]",
@@ -1823,7 +1988,7 @@ class MessageMemoryTests(
             updated_memory,
         )
 
-    async def test_summarizer_logs_active_memory_collapse_payload(self):
+    async def test_summarizer_drops_l1_active_memory_candidate_and_keeps_runtime_owned_entry(self):
 
         service_client = FakeServiceClient(
             (
@@ -1873,6 +2038,12 @@ class MessageMemoryTests(
             assistant_message="Reminder sent.",
         )
 
+        user_prompt = service_client.calls[0]["user_prompt"]
+
+        self.assertNotIn(
+            "active_memory",
+            user_prompt,
+        )
         self.assertIn(
             (
                 "active_memory_1: Secret word: Water "
@@ -1881,7 +2052,11 @@ class MessageMemoryTests(
             updated_memory,
         )
         self.assertIn(
-            "[ status: pending, Reminder given in Turn 1 ]",
+            "[ status: pending ]",
+            updated_memory,
+        )
+        self.assertNotIn(
+            "Reminder given in Turn 1",
             updated_memory,
         )
         self.assertNotIn(
@@ -1889,25 +2064,8 @@ class MessageMemoryTests(
             updated_memory,
         )
         self.assertEqual(
-            len(logger.active_memory_logs),
-            1,
-        )
-        message, details, event = logger.active_memory_logs[0]
-        self.assertIn(
-            "collapsed",
-            message,
-        )
-        self.assertEqual(
-            event,
-            "collapse",
-        )
-        self.assertIn(
-            '"candidate_key": "active_memory_2"',
-            details,
-        )
-        self.assertIn(
-            '"result_memory"',
-            details,
+            logger.active_memory_logs,
+            [],
         )
 
     async def test_summarizer_enforces_latest_user_message_when_model_is_stale(self):
