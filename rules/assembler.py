@@ -29,11 +29,6 @@ DEFAULT_RUNTIME_ACTIONS = (
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
 )
 
-ACTIVE_MEMORY_ACTION_NAMES = (
-    RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
-    "create_active_memory",
-)
-
 
 def _action_enabled(
     enabled_actions: tuple[str, ...],
@@ -53,7 +48,7 @@ def _build_allowed_markers(
     if _action_enabled(enabled_actions, RUNTIME_ACTION_SAVE_SESSION, "save_session"):
         markers.append(INTERNAL_ACTION_SAVE_SESSION_MARKER)
 
-    if _action_enabled(enabled_actions, *ACTIVE_MEMORY_ACTION_NAMES):
+    if _action_enabled(enabled_actions, RUNTIME_ACTION_CREATE_ACTIVE_MEMORY, "create_active_memory"):
         markers.append(INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER)
 
     if not markers:
@@ -115,7 +110,7 @@ def build_runtime_action_instructions(enabled_actions: tuple[str, ...]) -> str:
     if _action_enabled(enabled_actions, RUNTIME_ACTION_SAVE_SESSION, "save_session"):
         instructions.append(SAVE_SESSION_RULES)
 
-    if _action_enabled(enabled_actions, *ACTIVE_MEMORY_ACTION_NAMES):
+    if _action_enabled(enabled_actions, RUNTIME_ACTION_CREATE_ACTIVE_MEMORY, "create_active_memory"):
         instructions.append(CREATE_ACTIVE_MEMORY)
 
     if not enabled_actions:
