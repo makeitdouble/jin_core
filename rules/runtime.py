@@ -8,6 +8,8 @@ INTERNAL_ACTION_SAVE_SESSION_MARKER = "<INTERNAL_ACTION_SAVE_SESSION>"
 INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER = "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: CONDITIONS >"
 INTERNAL_ACTION_UPDATE_ACTIVE_MEMORY_MARKER = "<INTERNAL_ACTION_UPDATE_ACTIVE_MEMORY: active_memory_id | STATUS >"
 
+INTERNAL_ACTIONS_WITH_PAYLOAD = [ INTERNAL_ACTION_WEB_SEARCH_MARKER, INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER, INTERNAL_ACTION_UPDATE_ACTIVE_MEMORY_MARKER ]
+
 WEB_SEARCH_RULES = (
     "WEB_SEARCH: use when freshness, recency, availability, latest releases, prices, news, or current facts matter.\n"
     "The query should be plain text and preserve the exact subject from the user request.\n"
@@ -40,7 +42,7 @@ UPDATE_ACTIVE_MEMORY_RULES = (
     "UPDATE_ACTIVE_MEMORY: emit once only when an existing active memory should be modified to reflect new user intent, "
     "updated conditions, status, timing, or tracked task details.\n"
     "active_memory_id: is a placeholder, replace it with actual specific active_memory_id required to update.\n"
-    "STATUS: is a placeholder, replase it with current status, it must describe the new slot state, such as reminded, resolved, completed, cancelled, or still_pending.\n"
+    "STATUS: is a placeholder, replace it with current status, it must describe the new slot state, such as reminded, resolved, completed, cancelled, or still_pending.\n"
     "Never calculate active_memory timing from timestamps. Use only runtime-provided elapsed_time to decide UPDATE_ACTIVE_MEMORY."
     "If UPDATE_ACTIVE_MEMORY is required, the FINAL ANSWER MUST start with the UPDATE_ACTIVE_MEMORY marker on its own line before any user-facing text.\n"
     "If an active_memory condition is already met according to runtime state, emit UPDATE_ACTIVE_MEMORY before answering the current user request.\n"

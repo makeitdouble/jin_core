@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+from unittest.mock import patch
 
 from clients import (
     apply_runtime_action_calls,
@@ -7,6 +8,7 @@ from clients import (
 from clients.brain_client import (
     should_execute_save_session,
 )
+from rules import runtime as runtime_rules
 from utils.runtime_actions import (
     RuntimeActionCall,
     RuntimeActionStreamFilter,
@@ -155,12 +157,19 @@ class RuntimeActionTests(unittest.TestCase):
 
     def test_ignores_placeholder_create_active_memory_marker(self):
 
-        result = extract_runtime_actions(
-            "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: PURPOSE | CONDITIONS | VALUE >",
-            enabled_actions=[
-                "CAN_SAVE_ACTIVE_MEMORY",
+        with patch.object(
+            runtime_rules,
+            "INTERNAL_ACTIONS_WITH_PAYLOAD",
+            [
+                "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: DETAILS | PURPOSE | VALUE >",
             ],
-        )
+        ):
+            result = extract_runtime_actions(
+                "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: details|purpose|value >",
+                enabled_actions=[
+                    "CAN_SAVE_ACTIVE_MEMORY",
+                ],
+            )
 
         self.assertEqual(
             result.text,
@@ -168,6 +177,38 @@ class RuntimeActionTests(unittest.TestCase):
         )
         self.assertEqual(
             result.count("CREATE_ACTIVE_MEMORY"),
+            0,
+        )
+
+    def test_ignores_placeholder_from_all_payload_marker_bodies(self):
+
+        with patch.object(
+            runtime_rules,
+            "INTERNAL_ACTIONS_WITH_PAYLOAD",
+            [
+                "<INTERNAL_ACTION_WEB_SEARCH: plain text query >",
+                "<INTERNAL_ACTION_UPDATE_ACTIVE_MEMORY: active_memory_id | STATUS >",
+            ],
+        ):
+            search_result = extract_runtime_actions(
+                "<INTERNAL_ACTION_WEB_SEARCH:<plain text query>>",
+                enabled_actions=[
+                    "CAN_WEB_SEARCH",
+                ],
+            )
+            memory_result = extract_runtime_actions(
+                "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: active_memory_id|status>",
+                enabled_actions=[
+                    "CAN_SAVE_ACTIVE_MEMORY",
+                ],
+            )
+
+        self.assertEqual(
+            search_result.count("WEB_SEARCH"),
+            0,
+        )
+        self.assertEqual(
+            memory_result.count("CREATE_ACTIVE_MEMORY"),
             0,
         )
 
@@ -701,7 +742,11 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             context.runtime_pending_active_memory_records,
             [
-                "active_memory: remind later",
+                (
+                    "active_memory: remind later "
+                    "[ conditions: remind later ] "
+                    "[ status: pending ]"
+                ),
             ],
         )
 
@@ -752,9 +797,9 @@ class RuntimeActionTests(unittest.TestCase):
             context.runtime_pending_active_memory_records,
             [
                 (
-                    "active_memory: Drink coffee "
-                    "[ conditions: Trigger in 5 minutes ] "
-                    "[ value: coffee ]"
+                    "active_memory: Drink coffee | Trigger in 5 minutes | coffee "
+                    "[ conditions: Drink coffee | Trigger in 5 minutes | coffee ] "
+                    "[ status: pending ]"
                 ),
             ],
         )

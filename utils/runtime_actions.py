@@ -38,6 +38,87 @@ CREATE_ACTIVE_MEMORY_MARKER_RE = re.compile(
     re.IGNORECASE,
 )
 
+INTERNAL_ACTION_WITH_PAYLOAD_MARKER_RE = re.compile(
+    (
+        r"^\s*<\s*INTERNAL_ACTION_[A-Z_]+"
+        r"\s*:\s*(?P<payload>.*?)\s*>+\s*$"
+    ),
+    re.IGNORECASE,
+)
+
+
+def _normalize_internal_action_placeholder(
+    value: str,
+) -> str:
+
+    value = (
+        value
+        or ""
+    ).strip()
+
+    parts = [
+        part.strip()
+        for part in value.split("|")
+        if part.strip()
+    ]
+
+    if parts:
+        value = " | ".join(
+            parts
+        )
+
+    return value.casefold().strip(
+        "`'\"<>"
+    ).strip()
+
+
+def _get_internal_action_marker_payload(
+    marker: str,
+) -> str:
+
+    match = INTERNAL_ACTION_WITH_PAYLOAD_MARKER_RE.match(
+        str(marker or "")
+    )
+
+    if not match:
+        return ""
+
+    return " | ".join(
+        part.strip()
+        for part in match.group("payload").split("|")
+        if part.strip()
+    )
+
+
+def _get_internal_action_placeholder_payloads(
+    markers=None,
+) -> tuple[str, ...]:
+
+    markers = (
+        markers
+        if markers is not None
+        else runtime_rules.INTERNAL_ACTIONS_WITH_PAYLOAD
+    )
+
+    payloads = []
+
+    for marker in markers:
+        payload = _get_internal_action_marker_payload(
+            marker
+        )
+
+        if (
+            payload
+            and payload not in payloads
+        ):
+            payloads.append(
+                payload
+            )
+
+    return tuple(
+        payloads
+    )
+
 
 def normalize_active_memory_marker_field(
     field: str,
@@ -256,53 +337,37 @@ def _clean_internal_action_query(
 
 def _is_placeholder_internal_query(
     query: str,
+    placeholder_payloads=(),
 ) -> bool:
 
-    normalized_query = (
+    normalized_query = _normalize_internal_action_placeholder(
         query
-        or ""
-    ).strip().casefold()
+    )
 
-    normalized_query = normalized_query.strip(
-        "`'\"<>"
-    ).strip()
-
-    return normalized_query in {
+    if normalized_query in {
         "",
         "...",
-        "plain text query",
-        "<plain text query>",
-        "purpose | conditions | value",
+    }:
+        return True
+
+    placeholder_payloads = {
+        _normalize_internal_action_placeholder(
+            payload
+        )
+        for payload in placeholder_payloads
     }
+
+    return normalized_query in placeholder_payloads
 
 
 def _is_placeholder_create_active_memory_query(
     query: str,
+    placeholder_payloads=(),
 ) -> bool:
 
-    if _is_placeholder_internal_query(
-        query
-    ):
-        return True
-
-    normalized_query = (
-        query
-        or ""
-    ).strip().casefold()
-
-    normalized_query = normalized_query.strip(
-        "`'\"<>"
-    ).strip()
-
-    marker_placeholder = (
-        get_create_active_memory_placeholder_payload()
-        .strip()
-        .casefold()
-    )
-
-    return bool(
-        marker_placeholder
-        and normalized_query == marker_placeholder
+    return _is_placeholder_internal_query(
+        query,
+        placeholder_payloads,
     )
 
 
@@ -319,6 +384,7 @@ def _build_internal_action_call(
         return None
 
     payload = ""
+    placeholder_payloads = _get_internal_action_placeholder_payloads()
 
     if normalized_name == RUNTIME_ACTION_WEB_SEARCH:
         query = _clean_internal_action_query(
@@ -326,7 +392,8 @@ def _build_internal_action_call(
         )
 
         if _is_placeholder_internal_query(
-            query
+            query,
+            placeholder_payloads,
         ):
             return None
 
@@ -343,7 +410,8 @@ def _build_internal_action_call(
         )
 
         if _is_placeholder_create_active_memory_query(
-            payload
+            payload,
+            placeholder_payloads,
         ):
             return None
 
