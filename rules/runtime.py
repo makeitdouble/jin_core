@@ -37,6 +37,9 @@ CREATE_ACTIVE_MEMORY = (
     "CONDITIONS are the exact trigger conditions for when this memory becomes relevant and what needed to resolve it purpose.\n"
     "Use exactly one ` | ` separator inside marker between purpose and conditions.\n"
     "Do not emit for generic 'save this moment/event/session' requests.\n"
+    "I MUST ALWAYS check all active_memory slots BEFORE analyzing the context.\n"
+    "ALL pending active memory slots MUST be explicitly resolved. NEVER ignore expired slots and resolve it with user.\n"
+    "If active memory slot conditions are met - IMMEDIATELY notify user before proceeding with request fulfillment.\n"
 )
 
 UPDATE_ACTIVE_MEMORY = (
