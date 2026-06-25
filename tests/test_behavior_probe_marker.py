@@ -22,7 +22,7 @@ import os
 import re
 import sys
 import unittest
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -277,6 +277,25 @@ class TurnResult:
     expected_memory: list[str]
     unexpected_answer: list[str]
     unexpected_memory: list[str]
+    runtime_actions: list[dict[str, Any]] = field(default_factory=list)
+
+
+def render_runtime_actions(actions: list[dict[str, Any]]) -> str:
+    if not actions:
+        return "<none>"
+
+    lines = []
+    for action in actions:
+        parts = [str(action.get("name", "unknown"))]
+        payload = action.get("payload")
+        if payload:
+            parts.append(f"payload={payload}")
+        query = action.get("query")
+        if query:
+            parts.append(f"query={query}")
+        lines.append(" | ".join(parts))
+
+    return "\n".join(lines)
 
 
 def print_live_turn_result(turn: TurnResult) -> None:
@@ -296,6 +315,15 @@ def print_live_turn_result(turn: TurnResult) -> None:
         else:
             description = f"{check['target']} contains: {check['fragment']}"
         print(f"  {status_label(check['passed'])} {description}", flush=True)
+
+    print(
+        paint("  RUNTIME ACTIONS EMITTED BY MODEL:", "yellow", bold=True),
+        flush=True,
+    )
+    print(
+        indent_block(render_runtime_actions(turn.runtime_actions), prefix="    "),
+        flush=True,
+    )
 
 
 async def run_standard_turn(context: RuntimeContext, user_text: str) -> AgentState:
@@ -469,6 +497,9 @@ def print_behavior_probe_report(report: dict[str, Any]) -> None:
             for fragment in turn["unexpected_memory"]:
                 print(f"  {status_label(not fragment_found(turn['memory_after_turn'], fragment))} not: {fragment}")
 
+        print(paint("RUNTIME ACTIONS EMITTED BY MODEL:", "yellow", bold=True))
+        print(indent_block(render_runtime_actions(turn.get("runtime_actions", []))))
+
     print("\n" + paint("TEXT CHECKS", "blue", bold=True))
     if not score["checks"]:
         print(paint("  No expected fragments declared. This probe only prints dialogue.", "gray", dim=True))
@@ -514,7 +545,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
         self.assertEqual(steps[1]["expected_answer"], [])
         self.assertEqual(steps[1]["expected_memory"], ["active_memory"])
 
-    def test_evaluator_checks_forbidden_marker_chars_and_active_memory(self):
+    def test_evaluator_checks_forbidden_marker_chars(self):
         turns = [
             TurnResult(
                 index=1,
@@ -530,9 +561,9 @@ class BehaviorProbeShapeTests(unittest.TestCase):
                 index=2,
                 user_text=USER_TEXT_2,
                 answer="Поставлено напоминание. Через 5 минут я напомню вам выпить кофе.",
-                memory_after_turn="active_memory: Напоминание выпить кофе | Через 5 минут",
+                memory_after_turn="reminder_fixture: coffee reminder after five minutes",
                 expected_answer=[],
-                expected_memory=["active_memory"],
+                expected_memory=[],
                 unexpected_answer=[],
                 unexpected_memory=[],
             ),
@@ -578,6 +609,7 @@ class SimpleBehaviorProbe(unittest.IsolatedAsyncioTestCase):
         turns: list[TurnResult] = []
 
         for step in collect_dialogue_steps():
+            action_event_offset = len(getattr(self.context, "runtime_action_events", []))
             state = await run_standard_turn(self.context, step["user_text"])
             answer = (
                 state.final_answer
@@ -586,6 +618,9 @@ class SimpleBehaviorProbe(unittest.IsolatedAsyncioTestCase):
                 or ""
             )
             memory_after_turn = build_memory_blob(self.context)
+            runtime_actions = list(
+                getattr(self.context, "runtime_action_events", [])[action_event_offset:]
+            )
 
             turns.append(
                 TurnResult(
@@ -597,6 +632,7 @@ class SimpleBehaviorProbe(unittest.IsolatedAsyncioTestCase):
                     expected_memory=step["expected_memory"],
                     unexpected_answer=step["unexpected_answer"],
                     unexpected_memory=step["unexpected_memory"],
+                    runtime_actions=runtime_actions,
                 )
             )
             print_live_turn_result(turns[-1])
@@ -618,6 +654,7 @@ class SimpleBehaviorProbe(unittest.IsolatedAsyncioTestCase):
                     "expected_memory": turn.expected_memory,
                     "unexpected_answer": turn.unexpected_answer,
                     "unexpected_memory": turn.unexpected_memory,
+                    "runtime_actions": turn.runtime_actions,
                 }
                 for turn in turns
             ],

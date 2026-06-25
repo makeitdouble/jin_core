@@ -3,7 +3,7 @@ import asyncio
 from config_loader import (
     config,
 )
-from runtime.runtime_context import (
+from rules.runtime import (
     RUNTIME_ACTION_WEB_SEARCH,
 )
 
@@ -16,8 +16,8 @@ from clients.brain_context_builder import (
 )
 
 from rules.assembler import (
-    build_brain_runtime_interface_rules,
     build_identity_context,
+    build_runtime_action_instructions,
 )
 
 from clients.brain_client_utils import (
@@ -62,7 +62,9 @@ def build_brain_system_prompt(
     prompt_prefix = (
         f"{build_identity_context(context)}"
         f"{build_conditional_prompt_rules(context)}"
-        f"{build_brain_runtime_interface_rules(enabled_actions)}"
+        "\n"
+        "\n"
+        f"{build_runtime_action_instructions(enabled_actions)}\n"
         "\n"
     )
 

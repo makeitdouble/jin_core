@@ -130,7 +130,11 @@ class RuntimeActionTests(unittest.TestCase):
     def test_extracts_bracketed_create_active_memory_marker(self):
 
         result = extract_runtime_actions(
-            "before <INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:remind later> after",
+            (
+                "before "
+                "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:remind later | tomorrow | coffee>"
+                " after"
+            ),
             enabled_actions=[
                 "CAN_SAVE_ACTIVE_MEMORY",
             ],
@@ -146,7 +150,25 @@ class RuntimeActionTests(unittest.TestCase):
         )
         self.assertEqual(
             result.actions[0].payload,
-            "remind later",
+            "remind later | tomorrow | coffee",
+        )
+
+    def test_ignores_placeholder_create_active_memory_marker(self):
+
+        result = extract_runtime_actions(
+            "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: PURPOSE | CONDITIONS | VALUE >",
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.count("CREATE_ACTIVE_MEMORY"),
+            0,
         )
 
     def test_old_xml_runtime_action_protocol_is_not_parsed(self):
@@ -708,7 +730,7 @@ class RuntimeActionTests(unittest.TestCase):
                 (
                     RuntimeActionCall(
                         name="CREATE_ACTIVE_MEMORY",
-                        payload="Drink coffee | Trigger in 5 minutes",
+                        payload="Drink coffee | Trigger in 5 minutes | coffee",
                     ),
                 ),
             )
@@ -729,7 +751,11 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             context.runtime_pending_active_memory_records,
             [
-                "active_memory: Drink coffee [ conditions: Trigger in 5 minutes ]",
+                (
+                    "active_memory: Drink coffee "
+                    "[ conditions: Trigger in 5 minutes ] "
+                    "[ value: coffee ]"
+                ),
             ],
         )
         self.assertEqual(
@@ -738,7 +764,7 @@ class RuntimeActionTests(unittest.TestCase):
                 {
                     "type": "runtime_action",
                     "action": "create_active_memory",
-                    "text": "Saving: Drink coffee | Trigger in 5 minutes",
+                    "text": "Saving: Drink coffee | Trigger in 5 minutes | coffee",
                 },
             ],
         )

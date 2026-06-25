@@ -2,7 +2,8 @@ import json
 import re
 from dataclasses import dataclass
 
-from runtime.runtime_context import (
+from rules import runtime as runtime_rules
+from rules.runtime import (
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
@@ -28,6 +29,89 @@ BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
     ),
     re.IGNORECASE,
 )
+
+CREATE_ACTIVE_MEMORY_MARKER_RE = re.compile(
+    (
+        r"^\s*<\s*INTERNAL_ACTION_CREATE_ACTIVE_MEMORY"
+        r"\s*:\s*(?P<fields>.*?)\s*>+\s*$"
+    ),
+    re.IGNORECASE,
+)
+
+
+def normalize_active_memory_marker_field(
+    field: str,
+) -> str:
+
+    normalized_field = re.sub(
+        r"[^0-9a-zA-Z_]+",
+        "_",
+        str(field or "").strip().casefold(),
+    ).strip("_")
+
+    return normalized_field
+
+
+def get_create_active_memory_marker_fields(
+    marker: str | None = None,
+) -> tuple[str, ...]:
+
+    marker = (
+        marker
+        if marker is not None
+        else runtime_rules.INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER
+    )
+
+    match = CREATE_ACTIVE_MEMORY_MARKER_RE.match(
+        str(marker or "")
+    )
+
+    if not match:
+        return ()
+
+    fields = []
+
+    for field in match.group("fields").split("|"):
+        normalized_field = normalize_active_memory_marker_field(
+            field
+        )
+
+        if (
+            normalized_field
+            and normalized_field not in fields
+        ):
+            fields.append(
+                normalized_field
+            )
+
+    return tuple(
+        fields
+    )
+
+
+def get_create_active_memory_placeholder_payload(
+    marker: str | None = None,
+) -> str:
+
+    marker = (
+        marker
+        if marker is not None
+        else runtime_rules.INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER
+    )
+
+    match = CREATE_ACTIVE_MEMORY_MARKER_RE.match(
+        str(marker or "")
+    )
+
+    if not match:
+        return ""
+
+    return " | ".join(
+        field.strip()
+        for field in match.group("fields").split("|")
+        if field.strip()
+    )
+
 
 @dataclass(frozen=True)
 class RuntimeActionCall:
@@ -188,7 +272,38 @@ def _is_placeholder_internal_query(
         "...",
         "plain text query",
         "<plain text query>",
+        "purpose | conditions | value",
     }
+
+
+def _is_placeholder_create_active_memory_query(
+    query: str,
+) -> bool:
+
+    if _is_placeholder_internal_query(
+        query
+    ):
+        return True
+
+    normalized_query = (
+        query
+        or ""
+    ).strip().casefold()
+
+    normalized_query = normalized_query.strip(
+        "`'\"<>"
+    ).strip()
+
+    marker_placeholder = (
+        get_create_active_memory_placeholder_payload()
+        .strip()
+        .casefold()
+    )
+
+    return bool(
+        marker_placeholder
+        and normalized_query == marker_placeholder
+    )
 
 
 def _build_internal_action_call(
@@ -227,7 +342,7 @@ def _build_internal_action_call(
             query
         )
 
-        if _is_placeholder_internal_query(
+        if _is_placeholder_create_active_memory_query(
             payload
         ):
             return None

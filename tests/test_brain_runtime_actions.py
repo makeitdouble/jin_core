@@ -375,7 +375,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         for private_marker in (
             "<INTERNAL_ACTION_SAVE_SESSION>",
-            "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:Detailed description about purpose and conditions of active memory item to be created for>",
+            "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: PURPOSE | CONDITIONS | VALUE >",
             "<INTERNAL_ACTION_WEB_SEARCH:plain text query>",
         ):
             assert_contains_text(
@@ -566,7 +566,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
         self.assertIn(
-            "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:Detailed description about purpose and conditions of active memory item to be created for>",
+            "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: PURPOSE | CONDITIONS | VALUE >",
             prompt,
         )
         assert_contains_text(

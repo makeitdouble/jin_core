@@ -59,18 +59,19 @@ from xml.etree import ElementTree
 from rules.loop_rules import (
     LOOP_RULES,
 )
-from runtime.behavior_contract import (
-    should_execute_action_guard,
-)
-from runtime.runtime_context import (
+from rules.runtime import (
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
+)
+from runtime.behavior_contract import (
+    should_execute_action_guard,
 )
 from utils.runtime_actions import (
     build_runtime_action_id,
     extract_search_query,
     extract_runtime_actions,
+    get_create_active_memory_marker_fields,
 )
 
 
@@ -124,26 +125,48 @@ def should_execute_save_session(
 
 def split_active_memory_payload(
     payload: str,
-) -> tuple[str, str]:
+) -> tuple[tuple[str, str], ...]:
 
     text = str(
         payload or ""
     ).strip()
 
     if not text:
-        return "", ""
+        return ()
 
-    if "|" not in text:
-        return text, ""
+    marker_fields = get_create_active_memory_marker_fields()
 
-    purpose, conditions = text.split(
-        "|",
-        1,
+    if not marker_fields:
+        return ()
+
+    max_splits = max(
+        len(marker_fields) - 1,
+        0,
     )
 
-    return (
-        purpose.strip(),
-        conditions.strip(),
+    parts = [
+        part.strip()
+        for part in text.split(
+            "|",
+            max_splits,
+        )
+    ]
+
+    while len(parts) < len(marker_fields):
+        parts.append(
+            ""
+        )
+
+    return tuple(
+        (
+            field,
+            value,
+        )
+        for field, value in zip(
+            marker_fields,
+            parts,
+        )
+        if value
     )
 
 
@@ -151,19 +174,21 @@ def build_active_memory_runtime_line(
     payload: str,
 ) -> str:
 
-    purpose, conditions = split_active_memory_payload(
+    suffix_values = split_active_memory_payload(
         payload
     )
 
-    if not purpose:
+    if not suffix_values:
         return ""
 
-    value = purpose
-
-    if conditions:
-        value = (
-            f"{value} [ conditions: {conditions} ]"
-        )
+    visible_value = suffix_values[0][1]
+    suffix_text = " ".join(
+        f"[ {field}: {field_value} ]"
+        for field, field_value in suffix_values
+    )
+    value = (
+        f"{visible_value} {suffix_text} [ status: pending ]"
+    ).strip()
 
     return f"active_memory: {value}"
 

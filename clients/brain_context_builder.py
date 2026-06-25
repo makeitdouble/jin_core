@@ -9,6 +9,11 @@ from rules.assembler import (
     build_conversation_activity_instruction,
     build_zero_diff_stall_instruction,
 )
+from rules.runtime import (
+    RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_SAVE_SESSION,
+    RUNTIME_ACTION_WEB_SEARCH,
+)
 from clients.brain_client_utils import (
     get_conversation_activity_diff,
     get_conversation_activity_percent,
@@ -20,9 +25,6 @@ from runtime.runtime_context import (
     ContextContract,
     RECENT_MESSAGE_MAX_CHARS,
     RECENT_MESSAGES_MAX_PAIRS,
-    RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
-    RUNTIME_ACTION_SAVE_SESSION,
-    RUNTIME_ACTION_WEB_SEARCH,
     format_session_state,
 )
 from runtime.L1_memory_utils import (

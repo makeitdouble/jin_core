@@ -1,20 +1,11 @@
-from runtime.behavior_contract import (
-    get_action_guard_triggers,
-)
+RUNTIME_ACTION_WEB_SEARCH = "WEB_SEARCH"
+RUNTIME_ACTION_SAVE_SESSION = "SAVE_SESSION"
+RUNTIME_ACTION_CREATE_ACTIVE_MEMORY = "CREATE_ACTIVE_MEMORY"
 
 
-def _format_action_guard_triggers(
-    name: str,
-) -> str:
-    return ", ".join(
-        f"'{trigger}'"
-        for trigger in get_action_guard_triggers(
-            name
-        )
-    )
 INTERNAL_ACTION_WEB_SEARCH_MARKER = "<INTERNAL_ACTION_WEB_SEARCH:plain text query>"
 INTERNAL_ACTION_SAVE_SESSION_MARKER = "<INTERNAL_ACTION_SAVE_SESSION>"
-INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER = "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: PURPOSE | CONDITIONS >"
+INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER = "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: CONDITIONS >"
 INTERNAL_ACTION_UPDATE_ACTIVE_MEMORY_MARKER = "<INTERNAL_ACTION_UPDATE_ACTIVE_MEMORY: active_memory_id | STATUS >"
 
 WEB_SEARCH_RULES = (
@@ -25,21 +16,23 @@ WEB_SEARCH_RULES = (
 )
 
 SAVE_SESSION_RULES = (
-    "SAVE_SESSION: high priority action, emit once when the user clearly and explicitly ends session, wraps up session, or asks to save the session.\n"
+    "SAVE_SESSION: high priority action\n"
+    f"Emit using exactly this schema {INTERNAL_ACTION_SAVE_SESSION_MARKER} once "
+    "when the user clearly and explicitly ends session, wraps up session, or asks to save the session.\n"
     "Do not emit for topic changes, brief silence, casual pause, bare ambiguous save commands, or while active work continues.\n"
     "If the user only says 'save' without clarifying what exactly to save (session, or something else), "
     "do not emit any runtime marker and ask one short clarification.\n"
 )
 
 CREATE_ACTIVE_MEMORY_RULES = (
-    "CREATE_ACTIVE_MEMORY: emit once only when the user asks JIN to remember, delayed-prompt requests, remind, ask later, or preserve an active task/condition.\n"
-    "JIN must delegate timing/tracking tasks to runtime by emitting CREATE_ACTIVE_MEMORY marker.\n"
-    "PURPOSE: is a placeholder, replace it with a description of what must be remembered or done later.\n"
-    "CONDITIONS: is a placeholder, replace it with the exact trigger conditions for when this memory becomes relevant and what needed to resolve it purpose.\n"
-    "Use exactly one ` | ` separator inside marker between purpose and conditions.\n"
-    "Do not emit for generic 'save this moment/event/session' requests.\n"
+    "CREATE_ACTIVE_MEMORY:\n "
+    f"When user asks to remind or remember something - I MUST emit in my respone "
+    f"{INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER} using exactly this schema.\n"
+    "ALL timing/tracking tasks, delayed-prompt requests, remind requests, ask later request MUST be handled by emiting this marker.\n"
+    "CONDITIONS - replace with the description, written as an very discriptive task, "
+    "and exact trigger when to perform the action and when it is completed.\n"
     "I MUST ALWAYS check all active_memory slots BEFORE analyzing the context.\n"
-    "ALL pending active memory slots MUST be explicitly handled and resolved ONLY by JIN. NEVER ignore expired slots.\n"
+    "ALL pending active memory slots MUST be explicitly handled and resolved ONLY by JIN, NEVER ignore expired slots.\n"
     "If active memory slot conditions are met - IMMEDIATELY notify user before proceeding with any other request fulfillment.\n"
 )
 

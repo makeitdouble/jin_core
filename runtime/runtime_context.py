@@ -170,15 +170,6 @@ class RuntimeContext:
     runtime_last_response_feedback: dict | None = None
 
 
-RUNTIME_ACTION_WEB_SEARCH = "WEB_SEARCH"
-RUNTIME_ACTION_SAVE_SESSION = "SAVE_SESSION"
-RUNTIME_ACTION_CREATE_ACTIVE_MEMORY = "CREATE_ACTIVE_MEMORY"
-
-WEB_SEARCH_REQUEST_TEMPLATE = "<INTERNAL_ACTION_WEB_SEARCH:plain text query>"
-SAVE_SESSION_REQUEST = "<INTERNAL_ACTION_SAVE_SESSION>"
-CREATE_ACTIVE_MEMORY_REQUEST = "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:Detailed description about purpose and conditions of active memory item to be created for>"
-
-
 def format_xml_field(
     tag: str,
     value,

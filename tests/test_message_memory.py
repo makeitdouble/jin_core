@@ -32,7 +32,6 @@ from runtime.L1_memory_utils import (
     build_runtime_memory_context_text,
     build_runtime_memory_snapshot,
     enforce_runtime_turn_fields,
-    ensure_active_memory_status_suffixes,
     get_strength_zones,
     normalize_managed_runtime_memory_slots,
     normalize_compound_runtime_memory_lines,
@@ -1653,29 +1652,6 @@ class MessageMemoryTests(
             memory,
         )
 
-    def test_ensure_active_memory_status_suffixes_adds_pending(self):
-
-        memory = ensure_active_memory_status_suffixes(
-            (
-                "active_memory: Secret word: Sun "
-                "[ purpose: Ask user to guess ]\n"
-                "primary_goal: Play a memory game."
-            )
-        )
-
-        self.assertIn(
-            (
-                "active_memory: Secret word: Sun "
-                "[ purpose: Ask user to guess ] "
-                "[ status: pending ]"
-            ),
-            memory,
-        )
-        self.assertIn(
-            "primary_goal: Play a memory game.",
-            memory,
-        )
-
     def test_refresh_active_memory_runtime_metadata_attaches_suffixes_before_status(self):
 
         memory = refresh_active_memory_runtime_metadata(
@@ -1833,6 +1809,37 @@ class MessageMemoryTests(
         )
         self.assertIn(
             "primary_goal: Play a memory game.",
+            memory,
+        )
+        self.assertNotIn(
+            "creation_time",
+            memory,
+        )
+        self.assertNotIn(
+            "elapsed_time",
+            memory,
+        )
+
+    def test_strip_active_memory_runtime_metadata_keeps_value_suffix_for_l1(self):
+
+        memory = strip_active_memory_runtime_metadata(
+            (
+                "active_memory: Secret recall request "
+                "[ conditions: Ask when user returns ] "
+                "[ value: Sun ] "
+                "[ creation_time: 2026-06-20T10:00:00 ] "
+                "[ elapsed_time: 01:02:03 ] "
+                "[ status: pending ]"
+            )
+        )
+
+        self.assertIn(
+            (
+                "active_memory: Secret recall request "
+                "[ conditions: Ask when user returns ] "
+                "[ value: Sun ] "
+                "[ status: pending ]"
+            ),
             memory,
         )
         self.assertNotIn(

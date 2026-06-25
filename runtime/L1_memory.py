@@ -55,7 +55,6 @@ from runtime.L1_memory_utils import (
     enrich_active_memory_recall_conditions,
     get_strength_zones,
     has_durable_fact_negation,
-    ensure_active_memory_status_suffixes,
     is_durable_memory_key,
     is_runtime_memory_repeatable_key_family,
     normalize_managed_runtime_memory_slots,
@@ -577,9 +576,6 @@ async def summarize_runtime_memory(
             previous_memory=stored_memory,
             context=context,
         )
-        updated_memory = ensure_active_memory_status_suffixes(
-            updated_memory
-        )
         context.runtime_memory = updated_memory
         context.runtime_memory_stable = updated_memory
         return updated_memory
@@ -609,9 +605,6 @@ async def summarize_runtime_memory(
             stored_memory,
             previous_memory=stored_memory,
             context=context,
-        )
-        updated_memory = ensure_active_memory_status_suffixes(
-            updated_memory
         )
         context.runtime_memory = updated_memory
         context.runtime_memory_stable = updated_memory
@@ -675,9 +668,6 @@ async def summarize_runtime_memory(
             updated_memory
         )
         updated_memory = remove_runtime_memory_placeholder_lines(
-            updated_memory
-        )
-        updated_memory = ensure_active_memory_status_suffixes(
             updated_memory
         )
 
@@ -749,9 +739,6 @@ async def summarize_runtime_memory(
             user_message=user_message,
             assistant_message=assistant_message,
             previous_memory=current_memory,
-        )
-        updated_memory = ensure_active_memory_status_suffixes(
-            updated_memory
         )
         updated_memory = remove_runtime_user_idle_lines(
             updated_memory
@@ -933,9 +920,6 @@ async def summarize_runtime_memory_pending_turns(
         updated_memory = remove_runtime_memory_placeholder_lines(
             updated_memory
         )
-        updated_memory = ensure_active_memory_status_suffixes(
-            updated_memory
-        )
 
         skip_reason = None
 
@@ -1017,9 +1001,6 @@ async def summarize_runtime_memory_pending_turns(
             user_message=latest_user_message,
             assistant_message=latest_assistant_message,
             previous_memory=initial_memory,
-        )
-        updated_memory = ensure_active_memory_status_suffixes(
-            updated_memory
         )
         updated_memory = remove_runtime_user_idle_lines(
             updated_memory
