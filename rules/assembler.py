@@ -14,12 +14,14 @@ from runtime.runtime_context import (
 from .identity import IDENTITY
 from .loop_rules import LOOP_RULES  # load if: pattern_counter > 1
 from .runtime import (
-    CREATE_ACTIVE_MEMORY,
+    CREATE_ACTIVE_MEMORY_RULES,
+    UPDATE_ACTIVE_MEMORY_RULES,
     INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER,
     INTERNAL_ACTION_SAVE_SESSION_MARKER,
     INTERNAL_ACTION_WEB_SEARCH_MARKER,
     SAVE_SESSION_RULES,
     WEB_SEARCH_RULES,
+    INTERNAL_ACTION_UPDATE_ACTIVE_MEMORY_MARKER,
 )
 
 
@@ -50,6 +52,7 @@ def _build_allowed_markers(
 
     if _action_enabled(enabled_actions, RUNTIME_ACTION_CREATE_ACTIVE_MEMORY, "create_active_memory"):
         markers.append(INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER)
+        markers.append(INTERNAL_ACTION_UPDATE_ACTIVE_MEMORY_MARKER)
 
     if not markers:
         return ""
@@ -112,7 +115,8 @@ def build_runtime_action_instructions(enabled_actions: tuple[str, ...]) -> str:
         instructions.append(SAVE_SESSION_RULES)
 
     if _action_enabled(enabled_actions, RUNTIME_ACTION_CREATE_ACTIVE_MEMORY, "create_active_memory"):
-        instructions.append(CREATE_ACTIVE_MEMORY)
+        instructions.append(CREATE_ACTIVE_MEMORY_RULES)
+        instructions.append(UPDATE_ACTIVE_MEMORY_RULES)
 
     if not enabled_actions:
         instructions = ["No runtime actions are currently enabled."]

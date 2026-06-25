@@ -256,6 +256,8 @@ DURABLE_CARRY_FORWARD = (
     "Before final output, scan Current runtime memory and copy forward every line whose key is durable.\n"
     "Durable keys examples: user_name, user_fact, user_identity, user_state, user_preference, "
     "jin_fact, jin_identity, jin_role, jin_purpose, shared_axiom, active_memory, stored_memory, contract.\n"
+    "An active_memory remains active and durable until JIN explicitly resolves or updates it.\n"
+    "Topic changes, conversation flow, or unrelated user requests never cancel or modify active_memory by themselves.\n"
     "</durable_carry_forward_rules>\n"
     "\n"
 )
@@ -278,58 +280,6 @@ OUTPUT_FORMAT = (
     "\n"
 )
 
-
-# -------------------------------------------------------------------
-# ------------------------ CONDITIONED RULES ------------------------
-
-ACTIVE_MEMORY_CREATE = (
-    "\n"
-    "<active_memory_rules>\n"
-    "REMOVAL: remove all completed, resolved or cancelled active_memory lines.\n"
-
-    "Write new active_memory only when this turn creates an active contract: "
-    "a promise to remember, remind, ask back, reveal, or recall a specific value later.\n"
-
-    "HOW to write:\n"
-    "active_memory: <descriptive value why this active memory line exist> 'User asks JIN to remind user to drink coffee after a five minutes passed' "
-    "[ purpose: <describe what must happen later> After a five minutes from memory creation JIN must remind user to drink coffee ] "
-    "[ conditions: <list of clear constraints from request> remind to drink coffee, 5 minutes passed after creation time ] "
-    "[ status: pending ]\n"
-
-
-
-    "WHEN to write:\n"
-    "— User asks JIN to remember a hidden/chosen value for later guessing or reveal.\n"
-    "— JIN commits to a concrete future action tied to a specific condition not yet met.\n"
-    "— User sets a reminder or follow-up that requires JIN to initiate in a later turn.\n"
-    "— Latest JIN answer accepts such a game, chooses a value, or promises a future action.\n"
-
-    "WHEN NOT to write:\n"
-    "— Casual conversation.\n"
-    "— One shot request.\n"
-    "— Simple question answer dialog.\n"
-    "— Simple facts or statements.\n"
-    "— Tone shifts, mode changes, role adoptions (e.g. companion, assistant, tutor).\n"
-    "— Completed single-turn requests or factual answers.\n"
-
-    "Do not write for completed one-off requests, facts, or casual conversation.\n"
-    "Before writing any new line:\n"
-    "Scan all existing active_memory slots (active_memory, active_memory_2, …). "
-    "If any slot already holds the same value AND same purpose: do not create a new slot.\n"
-    "Copy existing line unchanged or update only its [ status: … ] suffix if this turn affects it.\n"
-    "Never split or merge contracts across slots.\n"
-
-    "KEY FORMAT: always write bare active_memory as the key. "
-
-    "UPDATES:\n"
-    "Update active_memory status only when this turn creates a logical update."
-    "Example when to update status: JIN recalls a value or reminds user about completed conditions upon a timer.\n"
-    "Append inside the existing [ status: … ] suffix only: [ status: pending -> <compact note> ]. Append only, never rewrite.\n"
-    "Never create a duplicate slot for a status update.\n"
-    "</active_memory_rules>\n"
-    "\n"
-)
-
 def build_runtime_memory_system_prompt(
         *,
         current_memory: str = "",
@@ -342,7 +292,6 @@ def build_runtime_memory_system_prompt(
         + KEY_SEMANTICS
         + DURABLE_CARRY_FORWARD
         + OUTPUT_FORMAT
-       # + ACTIVE_MEMORY_CREATE
     )
 
     return prompt
