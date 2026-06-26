@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from rules import runtime as runtime_rules
 from rules.runtime import (
+    RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
@@ -16,6 +17,7 @@ KNOWN_RUNTIME_ACTIONS = tuple(
     sorted(
         (
             RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+            RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY,
             RUNTIME_ACTION_WEB_SEARCH,
             RUNTIME_ACTION_SAVE_SESSION,
         )
@@ -24,10 +26,17 @@ KNOWN_RUNTIME_ACTIONS = tuple(
 
 BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
     (
+        r"(?:"
         r"<\s*INTERNAL_ACTION_"
-        r"(?P<name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY)"
-        r"(?:\s*:\s*(?P<query>[^>]*?))?"
+        r"(?P<bracketed_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|UPDATE_ACTIVE_MEMORY)"
+        r"(?:\s*:\s*(?P<bracketed_query>[^>]*?))?"
         r"\s*>+"
+        r"|"
+        r"(?m:^\s*INTERNAL_ACTION_"
+        r"(?P<bare_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|UPDATE_ACTIVE_MEMORY)"
+        r"(?:\s*:\s*(?P<bare_query>[^\r\n]*))?"
+        r"\s*$)"
+        r")"
     ),
     re.IGNORECASE,
 )
@@ -57,6 +66,10 @@ ACTIVE_MEMORY_SLOT_ID_SUFFIX_RE = re.compile(
     re.IGNORECASE,
 )
 
+ACTIVE_MEMORY_UPDATE_SLOT_ID_TOKEN_RE = re.compile(
+    r"(?<![a-zA-Z0-9_])([a-zA-Z0-9]{6})(?![a-zA-Z0-9_])",
+)
+
 ACTIVE_MEMORY_SLOT_ID_ALPHABET = (
     string.ascii_lowercase
     + string.digits
@@ -80,6 +93,38 @@ def collect_active_memory_slot_ids(
             )
 
     return ids
+
+
+def extract_active_memory_update_slot_id(
+    payload: str,
+    *,
+    existing_ids=None,
+) -> str:
+
+    existing_id_set = {
+        str(active_memory_id or "").strip().casefold()
+        for active_memory_id in (existing_ids or ())
+        if ACTIVE_MEMORY_SLOT_ID_RE.fullmatch(
+            str(active_memory_id or "").strip().casefold()
+        )
+    }
+
+    for match in ACTIVE_MEMORY_UPDATE_SLOT_ID_TOKEN_RE.finditer(
+        str(payload or "")
+    ):
+        active_memory_id = match.group(
+            1
+        ).casefold()
+
+        if (
+            existing_id_set
+            and active_memory_id not in existing_id_set
+        ):
+            continue
+
+        return active_memory_id
+
+    return ""
 
 
 def generate_active_memory_slot_id(
@@ -332,6 +377,7 @@ def normalize_runtime_action_name(
     aliases = {
         "SAVE_SESSION": RUNTIME_ACTION_SAVE_SESSION,
         "SAVE_ACTIVE_MEMORY": RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+        "UPDATE_ACTIVE_MEMORY": RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY,
     }
 
     return aliases.get(
@@ -369,13 +415,26 @@ def normalize_runtime_action_names(
             action_name
         )
 
-        if (
-            normalized_name in KNOWN_RUNTIME_ACTIONS
-            and normalized_name not in actions
-        ):
-            actions.append(
-                normalized_name
+        normalized_names = [
+            normalized_name,
+        ]
+
+        if normalized_name == RUNTIME_ACTION_CREATE_ACTIVE_MEMORY:
+            normalized_names.append(
+                RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY
             )
+
+        if (
+            normalized_name
+            not in KNOWN_RUNTIME_ACTIONS
+        ):
+            continue
+
+        for normalized_name in normalized_names:
+            if normalized_name not in actions:
+                actions.append(
+                    normalized_name
+                )
 
     return tuple(
         actions
@@ -469,6 +528,17 @@ def _build_internal_action_call(
         )
 
         if _is_placeholder_create_active_memory_query(
+            payload,
+            placeholder_payloads,
+        ):
+            return None
+
+    elif normalized_name == RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY:
+        payload = _clean_internal_action_query(
+            query
+        )
+
+        if _is_placeholder_internal_query(
             payload,
             placeholder_payloads,
         ):
@@ -635,13 +705,11 @@ def extract_runtime_actions(
     def replace_marker(match):
 
         action = _build_internal_action_call(
-            match.group(
-                "name"
-            ),
-            match.groupdict().get(
-                "query",
-                "",
-            ),
+            match.group("bracketed_name")
+            or match.group("bare_name"),
+            match.group("bracketed_query")
+            or match.group("bare_query")
+            or "",
         )
 
         if (
@@ -801,6 +869,14 @@ def _enabled_action_start_markers(
             "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:"
         )
 
+    if RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY in enabled_action_names:
+        markers.append(
+            "<INTERNAL_ACTION_UPDATE_ACTIVE_MEMORY:"
+        )
+        markers.append(
+            "INTERNAL_ACTION_UPDATE_ACTIVE_MEMORY:"
+        )
+
     if RUNTIME_ACTION_WEB_SEARCH in enabled_action_names:
         markers.append(
             "<INTERNAL_ACTION_WEB_SEARCH:"
@@ -856,10 +932,7 @@ def _action_text_may_contain_marker(
     text: str,
 ) -> bool:
 
-    if (
-        not text
-        or "<" not in text
-    ):
+    if not text:
         return False
 
     return (

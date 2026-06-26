@@ -64,7 +64,7 @@ def build_brain_system_prompt(
         f"{build_conditional_prompt_rules(context)}"
         "\n"
         "\n"
-        f"{build_runtime_action_instructions(enabled_actions)}\n"
+        f"{build_runtime_action_instructions(enabled_actions, context)}\n"
         "\n"
     )
 

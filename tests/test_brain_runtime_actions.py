@@ -325,6 +325,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             (
                 "SAVE_SESSION",
                 "CREATE_ACTIVE_MEMORY",
+                "UPDATE_ACTIVE_MEMORY",
             ),
         )
 
@@ -336,6 +337,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 "WEB_SEARCH",
                 "SAVE_SESSION",
                 "CREATE_ACTIVE_MEMORY",
+                "UPDATE_ACTIVE_MEMORY",
             ),
         )
 

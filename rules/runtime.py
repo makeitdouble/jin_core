@@ -1,6 +1,7 @@
 RUNTIME_ACTION_WEB_SEARCH = "WEB_SEARCH"
 RUNTIME_ACTION_SAVE_SESSION = "SAVE_SESSION"
 RUNTIME_ACTION_CREATE_ACTIVE_MEMORY = "CREATE_ACTIVE_MEMORY"
+RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY = "UPDATE_ACTIVE_MEMORY"
 
 
 INTERNAL_ACTION_WEB_SEARCH_MARKER = "<INTERNAL_ACTION_WEB_SEARCH:plain text query>"
@@ -27,7 +28,7 @@ SAVE_SESSION_RULES = (
 )
 
 CREATE_ACTIVE_MEMORY_RULES = (
-    "CREATE_ACTIVE_MEMORY:\n "
+    "CREATE_ACTIVE_MEMORY:\n"
     f"When user asks to remind or remember ANYTHING - I MUST emit in my response "
     f"{INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER}.\n"
     "CONDITIONS - is a placeholder inside marker, replace CONDITIONS placeholder with the description, "
@@ -42,13 +43,14 @@ CREATE_ACTIVE_MEMORY_RULES = (
 )
 
 UPDATE_ACTIVE_MEMORY_RULES = (
-    "UPDATE_ACTIVE_MEMORY: emit once only when an existing active memory should be modified to reflect new user intent, "
-    "updated conditions, status, timing, or tracked task details.\n"
-    "active_memory_id: is a placeholder, replace it with actual specific active_memory_id required to update.\n"
-    "STATUS: is a placeholder, replace it with current status, it must describe the new slot state, such as reminded, resolved, completed, cancelled, or still_pending.\n"
-    "Never calculate active_memory timing from timestamps. Use only runtime-provided elapsed_time to decide UPDATE_ACTIVE_MEMORY."
-    "If UPDATE_ACTIVE_MEMORY is required, the FINAL ANSWER MUST start with the UPDATE_ACTIVE_MEMORY marker on its own line before any user-facing text.\n"
-    "If an active_memory condition is already met according to runtime state, emit UPDATE_ACTIVE_MEMORY before answering the current user request.\n"
-    "Do not violate active_memory core conditions. Must wait for the core conditions to be met before resolving pending memory.\n"
-    "When UPDATE_ACTIVE_MEMORY resolves a reminder, the user-facing text must explicitly remind the user of the original task, not merely comment on it.\n"
+    "UPDATE_ACTIVE_MEMORY:\n"
+    "When an existing active memory should be resolved — I MUST emit in my response .\n"
+    f"{INTERNAL_ACTION_UPDATE_ACTIVE_MEMORY_MARKER}.\n"
+    "active_memory_id - is a placeholder, replace it with actual specific active_memory_id required to resolve.\n"
+#    "STATUS: is a placeholder, replace it with current status, it must describe the new slot state, such as reminded, resolved, completed, cancelled, or still_pending.\n"
+#    "Never calculate active_memory timing from timestamps. Use only runtime-provided elapsed_time to decide UPDATE_ACTIVE_MEMORY."
+#    "If UPDATE_ACTIVE_MEMORY is required, the FINAL ANSWER MUST start with the UPDATE_ACTIVE_MEMORY marker on its own line before any user-facing text.\n"
+#    "If an active_memory condition is already met according to runtime state, emit UPDATE_ACTIVE_MEMORY before answering the current user request.\n"
+#    "Do not violate active_memory core conditions. Must wait for the core conditions to be met before resolving pending memory.\n"
+#    "When UPDATE_ACTIVE_MEMORY resolves a reminder, the user-facing text must explicitly remind the user of the original task, not merely comment on it.\n"
 )

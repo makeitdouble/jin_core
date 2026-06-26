@@ -12,6 +12,7 @@ from rules import runtime as runtime_rules
 from utils.runtime_actions import (
     RuntimeActionCall,
     RuntimeActionStreamFilter,
+    extract_active_memory_update_slot_id,
     extract_search_query,
     extract_runtime_actions,
 )
@@ -153,6 +154,98 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             result.actions[0].payload,
             "remind later | tomorrow | coffee",
+        )
+
+    def test_extracts_bare_update_active_memory_marker(self):
+
+        result = extract_runtime_actions(
+            (
+                "INTERNAL_ACTION_UPDATE_ACTIVE_MEMORY: "
+                "active_memory_id=e2qxe7 STATUS=resolved\n"
+                "\n"
+                "Память очищена."
+            ),
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "Память очищена.",
+        )
+        self.assertEqual(
+            result.count("UPDATE_ACTIVE_MEMORY"),
+            1,
+        )
+        self.assertEqual(
+            result.actions[0].payload,
+            "active_memory_id=e2qxe7 STATUS=resolved",
+        )
+
+    def test_extracts_bracketed_update_active_memory_marker(self):
+
+        result = extract_runtime_actions(
+            (
+                "before "
+                "<INTERNAL_ACTION_UPDATE_ACTIVE_MEMORY:e2qxe7 | resolved>"
+                " after"
+            ),
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "before  after",
+        )
+        self.assertEqual(
+            result.count("UPDATE_ACTIVE_MEMORY"),
+            1,
+        )
+        self.assertEqual(
+            result.actions[0].payload,
+            "e2qxe7 | resolved",
+        )
+
+    def test_extract_active_memory_update_slot_id_accepts_loose_payload_shape(self):
+
+        self.assertEqual(
+            extract_active_memory_update_slot_id(
+                "active_memory_id: 5fdg4g",
+            ),
+            "5fdg4g",
+        )
+        self.assertEqual(
+            extract_active_memory_update_slot_id(
+                "resolve slot 5fdg4g please",
+                existing_ids={
+                    "5fdg4g",
+                },
+            ),
+            "5fdg4g",
+        )
+
+    def test_extract_active_memory_update_slot_id_skips_non_existing_tokens(self):
+
+        self.assertEqual(
+            extract_active_memory_update_slot_id(
+                "active_memory_id | STATUS",
+                existing_ids={
+                    "5fdg4g",
+                },
+            ),
+            "",
+        )
+        self.assertEqual(
+            extract_active_memory_update_slot_id(
+                "resolve status abc123",
+                existing_ids={
+                    "5fdg4g",
+                },
+            ),
+            "",
         )
 
     def test_ignores_placeholder_create_active_memory_marker(self):
@@ -740,14 +833,17 @@ class RuntimeActionTests(unittest.TestCase):
             },
         )
         self.assertEqual(
-            context.runtime_pending_active_memory_records,
-            [
-                (
-                    "active_memory: remind later "
-                    "[ conditions: remind later ] "
-                    "[ status: pending ]"
-                ),
-            ],
+            len(context.runtime_pending_active_memory_records),
+            1,
+        )
+        self.assertRegex(
+            context.runtime_pending_active_memory_records[0],
+            (
+                r"^active_memory: remind later "
+                r"\[ id: [a-z0-9]{6} \] "
+                r"\[ conditions: remind later \] "
+                r"\[ status: pending \]$"
+            ),
         )
 
     def test_apply_runtime_action_calls_queues_active_memory_record(self):
@@ -794,14 +890,17 @@ class RuntimeActionTests(unittest.TestCase):
             "session_status: active",
         )
         self.assertEqual(
-            context.runtime_pending_active_memory_records,
-            [
-                (
-                    "active_memory: Drink coffee | Trigger in 5 minutes | coffee "
-                    "[ conditions: Drink coffee | Trigger in 5 minutes | coffee ] "
-                    "[ status: pending ]"
-                ),
-            ],
+            len(context.runtime_pending_active_memory_records),
+            1,
+        )
+        self.assertRegex(
+            context.runtime_pending_active_memory_records[0],
+            (
+                r"^active_memory: Drink coffee \| Trigger in 5 minutes \| coffee "
+                r"\[ id: [a-z0-9]{6} \] "
+                r"\[ conditions: Drink coffee \| Trigger in 5 minutes \| coffee \] "
+                r"\[ status: pending \]$"
+            ),
         )
         self.assertEqual(
             context.emitter.events,
@@ -812,6 +911,120 @@ class RuntimeActionTests(unittest.TestCase):
                     "text": "Saving: Drink coffee | Trigger in 5 minutes | coffee",
                 },
             ],
+        )
+
+    def test_apply_runtime_action_calls_resolves_active_memory_by_id(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+        context.runtime_memory = (
+            "session_status: active\n"
+            "active_memory: remember cuckoo [ id: 5fdg4g ] "
+            "[ status: pending ]\n"
+            "user_message: hello"
+        )
+        context.runtime_memory_stable = context.runtime_memory
+        context.runtime_pending_active_memory_records = [
+            (
+                "active_memory: keep this [ id: abc123 ] "
+                "[ status: pending ]"
+            ),
+        ]
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="UPDATE_ACTIVE_MEMORY",
+                        payload="active_memory_id: 5fdg4g",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertNotIn(
+            "active_memory: remember cuckoo",
+            context.runtime_memory,
+        )
+        self.assertNotIn(
+            "5fdg4g",
+            context.runtime_memory_stable,
+        )
+        self.assertIn(
+            "session_status: active",
+            context.runtime_memory,
+        )
+        self.assertEqual(
+            context.runtime_pending_active_memory_records,
+            [
+                (
+                    "active_memory: keep this [ id: abc123 ] "
+                    "[ status: pending ]"
+                ),
+            ],
+        )
+        self.assertEqual(
+            context.emitter.events,
+            [
+                {
+                    "type": "runtime_action",
+                    "action": "update_active_memory",
+                    "text": "Active memory resolved",
+                },
+            ],
+        )
+
+    def test_apply_runtime_action_calls_skips_unknown_active_memory_id(self):
+
+        class Context:
+            pass
+
+        context = Context()
+        context.runtime_memory = (
+            "active_memory: remember cuckoo [ id: 5fdg4g ] "
+            "[ status: pending ]"
+        )
+        context.runtime_memory_stable = context.runtime_memory
+        context.runtime_pending_active_memory_records = []
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="UPDATE_ACTIVE_MEMORY",
+                        payload="active_memory_id: abc123",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            0,
+        )
+        self.assertIn(
+            "5fdg4g",
+            context.runtime_memory,
+        )
+        self.assertEqual(
+            context.runtime_action_events,
+            [],
         )
 
 

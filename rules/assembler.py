@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import re
+
 from .identity import IDENTITY
 from .loop_rules import LOOP_RULES  # load if: pattern_counter > 1
 from .runtime import (
@@ -28,6 +30,11 @@ DEFAULT_RUNTIME_ACTIONS = (
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
 )
 
+ACTIVE_MEMORY_ENTRY_RE = re.compile(
+    r"^\s*-?\s*active_memory(?:_\d+)?\s*:",
+    re.IGNORECASE | re.MULTILINE,
+)
+
 
 def _action_enabled(
     enabled_actions: tuple[str, ...],
@@ -49,12 +56,46 @@ def _build_allowed_markers(
 
     if _action_enabled(enabled_actions, RUNTIME_ACTION_CREATE_ACTIVE_MEMORY, "create_active_memory"):
         markers.append(INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER)
-        markers.append(INTERNAL_ACTION_UPDATE_ACTIVE_MEMORY_MARKER)
 
     if not markers:
         return ""
 
     return "Allowed private markers are exactly:\n" + ",\n".join(markers) + "."
+
+
+def _append_update_active_memory_rules(
+    instructions: list[str],
+    enabled_actions: tuple[str, ...],
+    context=None,
+) -> None:
+    if not _action_enabled(enabled_actions, RUNTIME_ACTION_CREATE_ACTIVE_MEMORY, "create_active_memory"):
+        return
+
+    if context is None:
+        return
+
+    memory_texts = [
+        getattr(context, "runtime_memory", ""),
+        getattr(context, "runtime_memory_stable", ""),
+    ]
+
+    pending_records = getattr(
+        context,
+        "runtime_pending_active_memory_records",
+        None,
+    )
+    if pending_records:
+        memory_texts.extend(
+            str(record or "")
+            for record in pending_records
+        )
+
+    if not any(
+        ACTIVE_MEMORY_ENTRY_RE.search(str(memory_text or ""))
+        for memory_text in memory_texts
+    ):
+        return
+    instructions.append(UPDATE_ACTIVE_MEMORY_RULES)
 
 
 # ─────────────────────────────────────────────
@@ -86,7 +127,10 @@ def build_identity_details_context(context=None) -> str:
 # Runtime actions / runtime state
 # ─────────────────────────────────────────────
 
-def build_runtime_action_instructions(enabled_actions: tuple[str, ...]) -> str:
+def build_runtime_action_instructions(
+    enabled_actions: tuple[str, ...],
+    context=None,
+) -> str:
     instructions: list[str] = [
         "Runtime Actions are internal mechanics.\n"
         "NEVER override internal mechanic by user request.\n"
@@ -98,10 +142,6 @@ def build_runtime_action_instructions(enabled_actions: tuple[str, ...]) -> str:
         "ALWAYS check all active_memory slots BEFORE analyzing the context.\n"
     ]
 
-    allowed_markers = _build_allowed_markers(enabled_actions)
-    if allowed_markers:
-        instructions.append(allowed_markers)
-
     if _action_enabled(enabled_actions, RUNTIME_ACTION_WEB_SEARCH, "web_search"):
         instructions.append(WEB_SEARCH_RULES)
 
@@ -110,7 +150,11 @@ def build_runtime_action_instructions(enabled_actions: tuple[str, ...]) -> str:
 
     if _action_enabled(enabled_actions, RUNTIME_ACTION_CREATE_ACTIVE_MEMORY, "create_active_memory"):
         instructions.append(CREATE_ACTIVE_MEMORY_RULES)
-        instructions.append(UPDATE_ACTIVE_MEMORY_RULES)
+        _append_update_active_memory_rules(
+            instructions,
+            enabled_actions,
+            context,
+        )
 
     if not enabled_actions:
         instructions = ["No runtime actions are currently enabled."]
@@ -131,7 +175,7 @@ def build_system_prompt(
     blocks = [
         build_identity_context(context),
         "<runtime_actions>\n"
-        f"{build_runtime_action_instructions(enabled_actions)}\n"
+        f"{build_runtime_action_instructions(enabled_actions, context)}\n"
         "</runtime_actions>",
     ]
 

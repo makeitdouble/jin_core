@@ -53,11 +53,14 @@ from websocket_logger import WebSocketLogger  # noqa: E402
 SCENARIO_ID = "save_word_active_memory"
 SCENARIO_TITLE = "Save word into active memory"
 SCENARIO_NOTES = """
-Two-step probe:
+Four-step probe:
 1. The user greets JIN. Any answer is accepted.
 2. The user asks JIN to remember the word "кукушка". Any answer is accepted,
    but runtime memory must contain an active_memory line whose description
    includes that word.
+3. The user says thanks. Any answer is accepted.
+4. The user asks JIN to forget the word and resolve the task. Any answer is
+   accepted, but runtime memory must not contain any active_memory slot.
 """
 
 # Add more turns by appending:
@@ -86,6 +89,20 @@ EXPECTED_TEXT_MEMORY_2 = [
 EXPECTED_ACTIVE_MEMORY_WORD_2 = WORD_TO_SAVE
 UNEXPECTED_TEXT_ANSWER_2 = []
 UNEXPECTED_TEXT_MEMORY_2 = []
+
+USER_TEXT_3 = "спасибо"
+EXPECTED_TEXT_ANSWER_3 = []
+EXPECTED_TEXT_MEMORY_3 = []
+UNEXPECTED_TEXT_ANSWER_3 = []
+UNEXPECTED_TEXT_MEMORY_3 = []
+
+USER_TEXT_4 = f'теперь забудь слово "{WORD_TO_SAVE}", зарезолви таск'
+EXPECTED_TEXT_ANSWER_4 = []
+EXPECTED_TEXT_MEMORY_4 = []
+UNEXPECTED_TEXT_ANSWER_4 = []
+UNEXPECTED_TEXT_MEMORY_4 = [
+    "active_memory",
+]
 
 
 # =============================================================================
@@ -578,7 +595,7 @@ def print_behavior_probe_report(report: dict[str, Any]) -> None:
 class BehaviorProbeShapeTests(unittest.TestCase):
     def test_collect_dialogue_steps_finds_save_word_steps(self):
         steps = collect_dialogue_steps()
-        self.assertEqual(len(steps), 2)
+        self.assertEqual(len(steps), 4)
 
         self.assertEqual(steps[0]["user_text"], "привет")
         self.assertEqual(steps[0]["expected_answer"], [])
@@ -588,6 +605,16 @@ class BehaviorProbeShapeTests(unittest.TestCase):
         self.assertEqual(steps[1]["expected_answer"], [])
         self.assertEqual(steps[1]["expected_memory"], ["active_memory", WORD_TO_SAVE])
         self.assertEqual(steps[1]["expected_active_memory_words"], [WORD_TO_SAVE])
+
+        self.assertEqual(steps[2]["user_text"], "спасибо")
+        self.assertEqual(steps[2]["expected_answer"], [])
+        self.assertEqual(steps[2]["expected_memory"], [])
+        self.assertEqual(steps[2]["unexpected_memory"], [])
+
+        self.assertIn(WORD_TO_SAVE, steps[3]["user_text"])
+        self.assertEqual(steps[3]["expected_answer"], [])
+        self.assertEqual(steps[3]["expected_memory"], [])
+        self.assertEqual(steps[3]["unexpected_memory"], ["active_memory"])
 
     def test_evaluator_checks_word_inside_active_memory_line(self):
         turns = [
@@ -614,6 +641,16 @@ class BehaviorProbeShapeTests(unittest.TestCase):
                 unexpected_answer=[],
                 unexpected_memory=[],
                 expected_active_memory_words=[WORD_TO_SAVE],
+            ),
+            TurnResult(
+                index=4,
+                user_text=USER_TEXT_4,
+                answer="Память очищена.",
+                memory_after_turn="session_status: active",
+                expected_answer=[],
+                expected_memory=[],
+                unexpected_answer=[],
+                unexpected_memory=["active_memory"],
             ),
         ]
 
