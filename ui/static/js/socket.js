@@ -1129,17 +1129,6 @@ function handleSocketMessage(event) {
         data.active_memory
       ]);
 
-      if (window.handleRuntimeMemoryMessage) {
-        window.handleRuntimeMemoryMessage({
-          type: "runtime_memory_update",
-          updates: 0,
-          replace_latest: true,
-          snapshot: {
-            raw_memory: "",
-            lines: [],
-          },
-        });
-      }
     }
 
     if (
