@@ -28,13 +28,16 @@ SAVE_SESSION_RULES = (
 
 CREATE_ACTIVE_MEMORY_RULES = (
     "CREATE_ACTIVE_MEMORY:\n "
-    f"When user asks to remind or remember something - I MUST emit in my respone "
-    f"{INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER} using exactly this schema.\n"
-    "ALL timing/tracking tasks, delayed-prompt requests, remind requests, ask later request MUST be handled by emiting this marker.\n"
-    "CONDITIONS - replace with the description, written as an very discriptive task, "
-    "and exact trigger when to perform the action and when it is completed.\n"
-    "I MUST ALWAYS check all active_memory slots BEFORE analyzing the context.\n"
-    "ALL pending active memory slots MUST be explicitly handled and resolved ONLY by JIN, NEVER ignore expired slots.\n"
+    f"When user asks to remind or remember ANYTHING - I MUST emit in my response "
+    f"{INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER}.\n"
+    "CONDITIONS - is a placeholder inside marker, replace CONDITIONS placeholder with the description, "
+    "written as an very descriptive task, and exact trigger when to perform the action and when it is completed.\n"
+    f"The FINAL ANSWER MUST start with the fulfilled {INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER} "
+    "marker on its own line before any user-facing text.\n"
+    "ALL remeber/store/save task MUST be handled by emitting fulfilled marker.\n"
+    "ALL timing/tracking tasks, delayed-prompt requests, remind requests, ask later request "
+    f"MUST be handled by emitting fulfilled marker.\n"
+    "ALL pending active memory slots MUST be explicitly handled and resolved ONLY by emitting marker by JIN itself, NEVER ignore expired slots.\n"
     "If active memory slot conditions are met - IMMEDIATELY notify user before proceeding with any other request fulfillment.\n"
 )
 

@@ -313,7 +313,8 @@ async def ask_brain_stream(
     )
 
     content_filter = RuntimeActionStreamFilter(
-        enabled_actions=enabled_actions
+        enabled_actions=enabled_actions,
+        #preserve_action_text=True
     )
     stop_for_runtime_action = False
 

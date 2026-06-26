@@ -69,8 +69,10 @@ from runtime.behavior_contract import (
 )
 from utils.runtime_actions import (
     build_runtime_action_id,
+    collect_active_memory_slot_ids,
     extract_search_query,
     extract_runtime_actions,
+    generate_active_memory_slot_id,
     get_create_active_memory_marker_fields,
 )
 
@@ -172,6 +174,8 @@ def split_active_memory_payload(
 
 def build_active_memory_runtime_line(
     payload: str,
+    *,
+    existing_ids=None,
 ) -> str:
 
     suffix_values = split_active_memory_payload(
@@ -186,11 +190,43 @@ def build_active_memory_runtime_line(
         f"[ {field}: {field_value} ]"
         for field, field_value in suffix_values
     )
+    active_memory_id = generate_active_memory_slot_id(
+        existing_ids
+    )
     value = (
-        f"{visible_value} {suffix_text} [ status: pending ]"
+        f"{visible_value} [ id: {active_memory_id} ] "
+        f"{suffix_text} [ status: pending ]"
     ).strip()
 
     return f"active_memory: {value}"
+
+
+def collect_context_active_memory_slot_ids(
+    context,
+) -> set[str]:
+
+    pending_records = getattr(
+        context,
+        "runtime_pending_active_memory_records",
+        None,
+    )
+
+    return collect_active_memory_slot_ids(
+        getattr(
+            context,
+            "runtime_memory",
+            "",
+        ),
+        getattr(
+            context,
+            "runtime_memory_stable",
+            "",
+        ),
+        "\n".join(
+            str(record or "")
+            for record in (pending_records or ())
+        ),
+    )
 
 
 async def create_active_memory_runtime_record(
@@ -199,7 +235,10 @@ async def create_active_memory_runtime_record(
 ) -> bool:
 
     active_memory_line = build_active_memory_runtime_line(
-        payload
+        payload,
+        existing_ids=collect_context_active_memory_slot_ids(
+            context
+        ),
     )
 
     if (

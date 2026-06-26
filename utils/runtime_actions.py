@@ -1,5 +1,7 @@
 import json
 import re
+import secrets
+import string
 from dataclasses import dataclass
 
 from rules import runtime as runtime_rules
@@ -45,6 +47,63 @@ INTERNAL_ACTION_WITH_PAYLOAD_MARKER_RE = re.compile(
     ),
     re.IGNORECASE,
 )
+
+ACTIVE_MEMORY_SLOT_ID_RE = re.compile(
+    r"^[a-z0-9]{6}$",
+)
+
+ACTIVE_MEMORY_SLOT_ID_SUFFIX_RE = re.compile(
+    r"\[\s*id\s*:\s*([a-z0-9]{6})\s*\]",
+    re.IGNORECASE,
+)
+
+ACTIVE_MEMORY_SLOT_ID_ALPHABET = (
+    string.ascii_lowercase
+    + string.digits
+)
+
+
+def collect_active_memory_slot_ids(
+    *texts,
+) -> set[str]:
+
+    ids = set()
+
+    for text in texts:
+        for match in ACTIVE_MEMORY_SLOT_ID_SUFFIX_RE.finditer(
+            str(text or "")
+        ):
+            ids.add(
+                match.group(
+                    1
+                ).casefold()
+            )
+
+    return ids
+
+
+def generate_active_memory_slot_id(
+    existing_ids=None,
+) -> str:
+
+    used_ids = {
+        str(active_memory_id or "").strip().casefold()
+        for active_memory_id in (existing_ids or ())
+        if ACTIVE_MEMORY_SLOT_ID_RE.fullmatch(
+            str(active_memory_id or "").strip().casefold()
+        )
+    }
+
+    while True:
+        active_memory_id = "".join(
+            secrets.choice(
+                ACTIVE_MEMORY_SLOT_ID_ALPHABET
+            )
+            for _ in range(6)
+        )
+
+        if active_memory_id not in used_ids:
+            return active_memory_id
 
 
 def _normalize_internal_action_placeholder(
