@@ -106,32 +106,13 @@ def merge_pending_active_memory_records(
         candidate_memory: str,
 ) -> str:
 
-    pending_active_memory = pop_pending_active_memory_records(
+    # Active memory is stored in context.active_memory_records and browser
+    # localStorage, not inside L1 runtime memory snapshots.
+    pop_pending_active_memory_records(
         context
     )
 
-    if not pending_active_memory:
-        return candidate_memory
-
-    setattr(
-        context,
-        "runtime_pending_active_memory_merged",
-        True,
-    )
-
-    merged_candidate = "\n".join(
-        line
-        for line in (
-            candidate_memory,
-            pending_active_memory,
-        )
-        if str(line or "").strip()
-    ).strip()
-
-    return normalize_active_memory_slots(
-        previous_memory,
-        merged_candidate,
-    )
+    return candidate_memory
 
 
 async def maybe_complete_pending_active_memory_action(context) -> None:
@@ -571,10 +552,8 @@ async def summarize_runtime_memory(
                 )
             )
         )
-        updated_memory = refresh_active_memory_runtime_metadata(
-            stored_memory,
-            previous_memory=stored_memory,
-            context=context,
+        updated_memory = remove_active_memory_entries(
+            stored_memory
         )
         context.runtime_memory = updated_memory
         context.runtime_memory_stable = updated_memory
@@ -601,10 +580,8 @@ async def summarize_runtime_memory(
                 )
             )
         )
-        updated_memory = refresh_active_memory_runtime_metadata(
-            stored_memory,
-            previous_memory=stored_memory,
-            context=context,
+        updated_memory = remove_active_memory_entries(
+            stored_memory
         )
         context.runtime_memory = updated_memory
         context.runtime_memory_stable = updated_memory
@@ -620,14 +597,10 @@ async def summarize_runtime_memory(
     stored_memory = remove_runtime_memory_placeholder_lines(
         stored_memory
     )
-    stored_memory = refresh_active_memory_runtime_metadata(
-        stored_memory,
-        previous_memory=stored_memory,
-        context=context,
-    )
-    current_memory = remove_active_memory_entries(
+    stored_memory = remove_active_memory_entries(
         stored_memory
     )
+    current_memory = stored_memory
 
     context.runtime_memory = stored_memory
     context.runtime_memory_stable = remove_runtime_memory_placeholder_lines(
@@ -706,22 +679,10 @@ async def summarize_runtime_memory(
         updated_memory = remove_runtime_memory_placeholder_lines(
             updated_memory
         )
-        updated_memory = await normalize_active_memory_slots_with_logging(
-            context,
-            previous_memory=current_memory,
-            candidate_memory=updated_memory,
-            stage="after durable merge",
-        )
         updated_memory = ensure_confirmable_memory_markers(
             updated_memory,
             user_message=user_message,
             assistant_message=assistant_message,
-        )
-        updated_memory = await normalize_active_memory_slots_with_logging(
-            context,
-            previous_memory=current_memory,
-            candidate_memory=updated_memory,
-            stage="after confirmable markers",
         )
         updated_memory = remove_runtime_response_feedback_text(
             updated_memory
@@ -738,19 +699,13 @@ async def summarize_runtime_memory(
         updated_memory = remove_runtime_user_idle_lines(
             updated_memory
         )
-        updated_memory = merge_runtime_owned_active_memory_entries(
-            stored_memory,
-            updated_memory,
+        updated_memory = remove_active_memory_entries(
+            updated_memory
         )
         updated_memory = merge_pending_active_memory_records(
             context,
             previous_memory=stored_memory,
             candidate_memory=updated_memory,
-        )
-        updated_memory = refresh_active_memory_runtime_metadata(
-            updated_memory,
-            previous_memory=stored_memory,
-            context=context,
         )
 
         updates_counter = getattr(
@@ -866,14 +821,10 @@ async def summarize_runtime_memory_pending_turns(
     stored_initial_memory = remove_runtime_memory_placeholder_lines(
         stored_initial_memory
     )
-    stored_initial_memory = refresh_active_memory_runtime_metadata(
-        stored_initial_memory,
-        previous_memory=stored_initial_memory,
-        context=context,
-    )
-    initial_memory = remove_active_memory_entries(
+    stored_initial_memory = remove_active_memory_entries(
         stored_initial_memory
     )
+    initial_memory = stored_initial_memory
 
     context.runtime_memory = remove_runtime_memory_placeholder_lines(
         remove_runtime_response_feedback_text(
@@ -952,12 +903,6 @@ async def summarize_runtime_memory_pending_turns(
         updated_memory = remove_runtime_memory_placeholder_lines(
             updated_memory
         )
-        updated_memory = await normalize_active_memory_slots_with_logging(
-            context,
-            previous_memory=initial_memory,
-            candidate_memory=updated_memory,
-            stage="batch after durable merge",
-        )
 
         latest_turn = turns[-1] if turns else {}
         latest_user_message = latest_turn.get(
@@ -974,12 +919,6 @@ async def summarize_runtime_memory_pending_turns(
             user_message=latest_user_message,
             assistant_message=latest_assistant_message,
         )
-        updated_memory = await normalize_active_memory_slots_with_logging(
-            context,
-            previous_memory=initial_memory,
-            candidate_memory=updated_memory,
-            stage="batch after confirmable markers",
-        )
         updated_memory = remove_runtime_response_feedback_text(
             updated_memory
         )
@@ -995,19 +934,13 @@ async def summarize_runtime_memory_pending_turns(
         updated_memory = remove_runtime_user_idle_lines(
             updated_memory
         )
-        updated_memory = merge_runtime_owned_active_memory_entries(
-            stored_initial_memory,
-            updated_memory,
+        updated_memory = remove_active_memory_entries(
+            updated_memory
         )
         updated_memory = merge_pending_active_memory_records(
             context,
             previous_memory=stored_initial_memory,
             candidate_memory=updated_memory,
-        )
-        updated_memory = refresh_active_memory_runtime_metadata(
-            updated_memory,
-            previous_memory=stored_initial_memory,
-            context=context,
         )
 
         updates_counter = getattr(

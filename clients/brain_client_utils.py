@@ -63,7 +63,7 @@ from rules.loop_rules import (
 from rules.runtime import (
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_SAVE_SESSION,
-    RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
 )
 from runtime.behavior_contract import (
@@ -72,12 +72,13 @@ from runtime.behavior_contract import (
 from utils.runtime_actions import (
     build_runtime_action_id,
     collect_active_memory_slot_ids,
-    extract_active_memory_update_slot_id,
+    extract_active_memory_resolve_slot_id,
     extract_search_query,
     extract_runtime_actions,
     generate_active_memory_slot_id,
     generate_active_memory_slot_key,
     get_create_active_memory_marker_fields,
+    refresh_active_memory_runtime_metadata,
 )
 
 
@@ -103,7 +104,7 @@ def get_enabled_runtime_actions(
             "CAN_SAVE_ACTIVE_MEMORY",
         ),
         (
-            RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY,
+            RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
             "CAN_SAVE_ACTIVE_MEMORY",
         ),
     ):
@@ -203,7 +204,7 @@ def build_active_memory_runtime_line(
         existing_ids
     )
     value = (
-        f"{visible_value} [ id: {active_memory_id} ] "
+        f"{visible_value} [ active_memory_id: {active_memory_id} ] "
         f"{suffix_text} [ status: pending ]"
     ).strip()
 
@@ -231,6 +232,11 @@ def collect_context_active_memory_texts(
         "runtime_pending_active_memory_records",
         None,
     )
+    active_records = getattr(
+        context,
+        "active_memory_records",
+        None,
+    )
     return (
         getattr(
             context,
@@ -245,6 +251,10 @@ def collect_context_active_memory_texts(
         "\n".join(
             str(record or "")
             for record in (pending_records or ())
+        ),
+        "\n".join(
+            str(record or "")
+            for record in (active_records or ())
         ),
     )
 
@@ -327,7 +337,7 @@ async def resolve_active_memory_runtime_record(
             "",
         )
 
-    active_memory_id = extract_active_memory_update_slot_id(
+    active_memory_id = extract_active_memory_resolve_slot_id(
         payload,
         existing_ids=collect_context_active_memory_slot_ids(
             context
@@ -363,16 +373,22 @@ async def resolve_active_memory_runtime_record(
             )
             removed = True
 
-    pending_records = getattr(
-        context,
+    for records_attr_name in (
         "runtime_pending_active_memory_records",
-        None,
-    )
+        "active_memory_records",
+    ):
+        records = getattr(
+            context,
+            records_attr_name,
+            None,
+        )
 
-    if pending_records:
-        kept_pending_records = []
+        if not records:
+            continue
 
-        for record in pending_records:
+        kept_records = []
+
+        for record in records:
             _, did_remove = remove_active_memory_slot_from_text(
                 str(record or ""),
                 active_memory_id,
@@ -382,13 +398,15 @@ async def resolve_active_memory_runtime_record(
                 removed = True
                 continue
 
-            kept_pending_records.append(
+            kept_records.append(
                 record
             )
 
-        if len(kept_pending_records) != len(pending_records):
-            context.runtime_pending_active_memory_records = (
-                kept_pending_records
+        if len(kept_records) != len(records):
+            setattr(
+                context,
+                records_attr_name,
+                kept_records,
             )
 
     return (
@@ -420,23 +438,30 @@ async def create_active_memory_runtime_record(
     if not active_memory_line:
         return False
 
-    pending_records = getattr(
+    active_memory_line = refresh_active_memory_runtime_metadata(
+        active_memory_line,
+        previous_memory=active_memory_line,
+        context=context,
+    )
+
+    active_records = getattr(
         context,
-        "runtime_pending_active_memory_records",
+        "active_memory_records",
         None,
     )
 
-    if pending_records is None:
-        pending_records = []
+    if active_records is None:
+        active_records = []
         setattr(
             context,
-            "runtime_pending_active_memory_records",
-            pending_records,
+            "active_memory_records",
+            active_records,
         )
 
-    pending_records.append(
-        active_memory_line
-    )
+    if active_memory_line not in active_records:
+        active_records.append(
+            active_memory_line
+        )
 
     return True
 
@@ -519,7 +544,7 @@ async def apply_runtime_action_calls(
             False,
         )
     )
-    update_active_memory_seen = False
+    resolve_active_memory_seen = False
     resolved_user_message = resolve_runtime_action_user_message(
         context,
         user_message,
@@ -563,11 +588,11 @@ async def apply_runtime_action_calls(
             )
             continue
 
-        if action.name == RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY:
-            if update_active_memory_seen:
+        if action.name == RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY:
+            if resolve_active_memory_seen:
                 continue
 
-            if not extract_active_memory_update_slot_id(
+            if not extract_active_memory_resolve_slot_id(
                 action.payload,
                 existing_ids=collect_context_active_memory_slot_ids(
                     context
@@ -575,7 +600,7 @@ async def apply_runtime_action_calls(
             ):
                 continue
 
-            update_active_memory_seen = True
+            resolve_active_memory_seen = True
             accepted_action_names.add(
                 action_event_name
             )
@@ -625,6 +650,16 @@ async def apply_runtime_action_calls(
                 action.payload
             )
 
+        if action.name == RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY:
+            active_memory_id = extract_active_memory_resolve_slot_id(
+                action.payload,
+                existing_ids=collect_context_active_memory_slot_ids(
+                    context
+                ),
+            )
+            if active_memory_id:
+                action_event["id"] = active_memory_id
+
         if query:
             search_action_count += 1
             tool_call_id = build_runtime_action_id(
@@ -662,10 +697,10 @@ async def apply_runtime_action_calls(
         create_active_memory_actions
     )
 
-    update_active_memory_count = sum(
+    resolve_active_memory_count = sum(
         1
         for action in filtered_actions
-        if action.name == RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY
+        if action.name == RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
     )
 
     search_queries = [
@@ -789,20 +824,24 @@ async def apply_runtime_action_calls(
 
         if emit is not None:
             for active_memory_text in created_active_memory_texts:
+                active_memory_line = (
+                    getattr(context, "active_memory_records", []) or []
+                )[-1] if getattr(context, "active_memory_records", []) else ""
                 await emit({
                     "type": "runtime_action",
                     "action": "create_active_memory",
                     "text": f"Saving: {active_memory_text}",
+                    "active_memory": active_memory_line,
                 })
 
     resolved_active_memory_count = 0
 
-    if update_active_memory_count:
-        active_memory_update_text = next(
+    if resolve_active_memory_count:
+        active_memory_resolve_text = next(
             (
                 action.payload
                 for action in filtered_actions
-                if action.name == RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY
+                if action.name == RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
                 and action.payload
             ),
             "",
@@ -811,7 +850,7 @@ async def apply_runtime_action_calls(
         record_resolved, active_memory_id = (
             await resolve_active_memory_runtime_record(
                 context,
-                active_memory_update_text,
+                active_memory_resolve_text,
             )
         )
 
@@ -841,7 +880,8 @@ async def apply_runtime_action_calls(
         ):
             await emit({
                 "type": "runtime_action",
-                "action": "update_active_memory",
+                "action": "resolve_active_memory",
+                "id": active_memory_id,
                 "text": "Active memory resolved",
             })
 

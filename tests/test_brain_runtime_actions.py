@@ -325,7 +325,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             (
                 "SAVE_SESSION",
                 "CREATE_ACTIVE_MEMORY",
-                "UPDATE_ACTIVE_MEMORY",
+                "RESOLVE_ACTIVE_MEMORY",
             ),
         )
 
@@ -337,7 +337,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 "WEB_SEARCH",
                 "SAVE_SESSION",
                 "CREATE_ACTIVE_MEMORY",
-                "UPDATE_ACTIVE_MEMORY",
+                "RESOLVE_ACTIVE_MEMORY",
             ),
         )
 
@@ -390,6 +390,98 @@ class BrainRuntimeActionTests(unittest.TestCase):
             self,
             runtime_context,
             "<CURRENT_TRUSTED_RUNTIME_VARIABLES>",
+        )
+
+    def test_prompt_adds_resolve_active_memory_rules_from_active_records_only(self):
+
+        context = SimpleNamespace(
+            runtime_memory="session_status: active",
+            runtime_memory_stable="session_status: active",
+            runtime_l2_memory="",
+            runtime_pending_active_memory_records=[],
+            active_memory_records=[
+                (
+                    "active_memory_1: remember cuckoo "
+                    "[ id: 5fdg4g ] [ status: pending ]"
+                ),
+            ],
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_SAVE_ACTIVE_MEMORY": True,
+            },
+        )
+        runtime_context = build_brain_runtime_context(
+            context=context,
+            runtime_actions={
+                "CAN_SAVE_ACTIVE_MEMORY": True,
+            },
+        )
+
+        assert_contains_text(
+            self,
+            prompt,
+            "CREATE_ACTIVE_MEMORY:",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "RESOLVE_ACTIVE_MEMORY:",
+        )
+        assert_contains_text(
+            self,
+            runtime_context,
+            "<ACTIVE_MEMORY priority=\"active_runtime_contracts\">",
+        )
+        assert_contains_text(
+            self,
+            runtime_context,
+            "5fdg4g",
+        )
+
+        runtime_memory_block = runtime_context.split(
+            "<ACTIVE_MEMORY",
+            1,
+        )[0]
+        assert_not_contains_text(
+            self,
+            runtime_memory_block,
+            "active_memory_1:",
+        )
+        assert_not_contains_text(
+            self,
+            context.runtime_memory,
+            "active_memory",
+        )
+
+    def test_prompt_omits_resolve_active_memory_rules_without_active_records(self):
+
+        context = SimpleNamespace(
+            runtime_memory="session_status: active",
+            runtime_memory_stable="session_status: active",
+            runtime_l2_memory="",
+            runtime_pending_active_memory_records=[],
+            active_memory_records=[],
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_SAVE_ACTIVE_MEMORY": True,
+            },
+        )
+
+        assert_contains_text(
+            self,
+            prompt,
+            "CREATE_ACTIVE_MEMORY:",
+        )
+        assert_not_contains_text(
+            self,
+            prompt,
+            "RESOLVE_ACTIVE_MEMORY:",
         )
 
     def test_prompt_uses_passed_agent_runtime_actions(self):

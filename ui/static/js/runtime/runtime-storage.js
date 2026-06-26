@@ -17,6 +17,9 @@
   const latestSavedRuntimeMemoryStorageKey =
     "jin.latestSavedRuntimeMemory.v1";
 
+  const activeMemoryStorageKey =
+    "jin.activeMemory.v1";
+
   const savedRuntimeFallbackPath =
     "/saved_runtime.txt";
 
@@ -298,6 +301,113 @@
     return readBrowserMemory(
       latestSavedRuntimeMemoryStorageKey
     );
+
+  }
+
+
+  function normalizeActiveMemoryRecords(value) {
+
+    const source =
+      Array.isArray(value)
+        ? value
+        : String(value || "").split(/\r?\n/);
+
+    const records = [];
+    const seen = new Set();
+
+    source.forEach(function (record) {
+      const text = String(record || "").trim();
+
+      if (!/^active_memory(?:_\d+)?\s*:/i.test(text)) {
+        return;
+      }
+
+      if (seen.has(text)) {
+        return;
+      }
+
+      seen.add(text);
+      records.push(text);
+    });
+
+    return records;
+
+  }
+
+
+  function readActiveMemoryRecords() {
+
+    return normalizeActiveMemoryRecords(
+      readBrowserMemory(
+        activeMemoryStorageKey
+      )
+    );
+
+  }
+
+
+  function writeActiveMemoryRecords(
+    records
+  ) {
+
+    writeBrowserMemory(
+      activeMemoryStorageKey,
+      normalizeActiveMemoryRecords(records)
+    );
+
+  }
+
+
+  function clearActiveMemoryRecords() {
+
+    removeBrowserMemory(
+      activeMemoryStorageKey
+    );
+
+    return [];
+
+  }
+
+
+  function appendActiveMemoryRecords(
+    records
+  ) {
+
+    const current =
+      readActiveMemoryRecords();
+
+    writeActiveMemoryRecords(
+      current.concat(
+        normalizeActiveMemoryRecords(records)
+      )
+    );
+
+    return readActiveMemoryRecords();
+
+  }
+
+
+  function removeActiveMemoryRecordById(
+    activeMemoryId
+  ) {
+
+    const needle =
+      String(activeMemoryId || "")
+        .trim()
+        .toLowerCase();
+
+    if (!needle) {
+      return readActiveMemoryRecords();
+    }
+
+    const kept = readActiveMemoryRecords()
+      .filter(record => !String(record).toLowerCase().includes(needle));
+
+    writeActiveMemoryRecords(
+      kept
+    );
+
+    return kept;
 
   }
 
@@ -761,6 +871,7 @@
       latestRuntimeMemoryStorageKeyPrefix,
       latestRuntimeMemoryStorageKeyVersion,
       latestSavedRuntimeMemoryStorageKey,
+      activeMemoryStorageKey,
       savedRuntimeFallbackPath,
     },
     getRuntimeSessionId,
@@ -780,6 +891,12 @@
     writeLatestSavedSessionMemory,
     readLatestSavedRuntimeMemory,
     writeLatestSavedRuntimeMemory,
+    normalizeActiveMemoryRecords,
+    readActiveMemoryRecords,
+    writeActiveMemoryRecords,
+    clearActiveMemoryRecords,
+    appendActiveMemoryRecords,
+    removeActiveMemoryRecordById,
     buildPersistedRuntimeSnapshot,
     cloneRuntimeMemoryToCurrentSession,
     cloneRuntimeMemoryFromSessionId,

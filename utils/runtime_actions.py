@@ -7,7 +7,7 @@ from datetime import datetime
 
 from rules import runtime as runtime_rules
 from rules.runtime import (
-    RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
@@ -18,7 +18,7 @@ KNOWN_RUNTIME_ACTIONS = tuple(
     sorted(
         (
             RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
-            RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY,
+            RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
             RUNTIME_ACTION_WEB_SEARCH,
             RUNTIME_ACTION_SAVE_SESSION,
         )
@@ -29,12 +29,12 @@ BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
     (
         r"(?:"
         r"<\s*INTERNAL_ACTION_"
-        r"(?P<bracketed_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|UPDATE_ACTIVE_MEMORY)"
-        r"(?:\s*:\s*(?P<bracketed_query>[^>]*?))?"
+        r"(?P<bracketed_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY)"
+        r"(?:\s*:\s*(?P<bracketed_query>[^\r\n>]*?))?"
         r"\s*>+"
         r"|"
         r"(?m:^\s*INTERNAL_ACTION_"
-        r"(?P<bare_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|UPDATE_ACTIVE_MEMORY)"
+        r"(?P<bare_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY)"
         r"(?:\s*:\s*(?P<bare_query>[^\r\n]*))?"
         r"\s*$)"
         r")"
@@ -44,16 +44,22 @@ BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
 
 CREATE_ACTIVE_MEMORY_MARKER_RE = re.compile(
     (
-        r"^\s*<\s*INTERNAL_ACTION_CREATE_ACTIVE_MEMORY"
+        r"^\s*<?\s*INTERNAL_ACTION_CREATE_ACTIVE_MEMORY"
         r"\s*:\s*(?P<fields>.*?)\s*>+\s*$"
+        r"|"
+        r"^\s*INTERNAL_ACTION_CREATE_ACTIVE_MEMORY"
+        r"\s*:\s*(?P<bare_fields>[^\r\n]*)\s*$"
     ),
     re.IGNORECASE,
 )
 
 INTERNAL_ACTION_WITH_PAYLOAD_MARKER_RE = re.compile(
     (
-        r"^\s*<\s*INTERNAL_ACTION_[A-Z_]+"
+        r"^\s*<?\s*INTERNAL_ACTION_[A-Z_]+"
         r"\s*:\s*(?P<payload>.*?)\s*>+\s*$"
+        r"|"
+        r"^\s*INTERNAL_ACTION_[A-Z_]+"
+        r"\s*:\s*(?P<bare_payload>[^\r\n]*)\s*$"
     ),
     re.IGNORECASE,
 )
@@ -63,11 +69,11 @@ ACTIVE_MEMORY_SLOT_ID_RE = re.compile(
 )
 
 ACTIVE_MEMORY_SLOT_ID_SUFFIX_RE = re.compile(
-    r"\[\s*id\s*:\s*([a-z0-9]{6})\s*\]",
+    r"\[\s*active_memory_id\s*:\s*([a-z0-9]{6})\s*\]",
     re.IGNORECASE,
 )
 
-ACTIVE_MEMORY_UPDATE_SLOT_ID_TOKEN_RE = re.compile(
+ACTIVE_MEMORY_RESOLVE_SLOT_ID_TOKEN_RE = re.compile(
     r"(?<![a-zA-Z0-9_])([a-zA-Z0-9]{6})(?![a-zA-Z0-9_])",
 )
 
@@ -934,7 +940,7 @@ def normalize_active_memory_slots(
     ).strip()
 
 
-def extract_active_memory_update_slot_id(
+def extract_active_memory_resolve_slot_id(
     payload: str,
     *,
     existing_ids=None,
@@ -948,7 +954,7 @@ def extract_active_memory_update_slot_id(
         )
     }
 
-    for match in ACTIVE_MEMORY_UPDATE_SLOT_ID_TOKEN_RE.finditer(
+    for match in ACTIVE_MEMORY_RESOLVE_SLOT_ID_TOKEN_RE.finditer(
         str(payload or "")
     ):
         active_memory_id = match.group(
@@ -1026,9 +1032,15 @@ def _get_internal_action_marker_payload(
     if not match:
         return ""
 
+    payload = (
+        match.group("payload")
+        or match.group("bare_payload")
+        or ""
+    )
+
     return " | ".join(
         part.strip()
-        for part in match.group("payload").split("|")
+        for part in payload.split("|")
         if part.strip()
     )
 
@@ -1093,9 +1105,15 @@ def get_create_active_memory_marker_fields(
     if not match:
         return ()
 
+    marker_fields = (
+        match.group("fields")
+        or match.group("bare_fields")
+        or ""
+    )
+
     fields = []
 
-    for field in match.group("fields").split("|"):
+    for field in marker_fields.split("|"):
         normalized_field = normalize_active_memory_marker_field(
             field
         )
@@ -1130,9 +1148,15 @@ def get_create_active_memory_placeholder_payload(
     if not match:
         return ""
 
+    marker_fields = (
+        match.group("fields")
+        or match.group("bare_fields")
+        or ""
+    )
+
     return " | ".join(
         field.strip()
-        for field in match.group("fields").split("|")
+        for field in marker_fields.split("|")
         if field.strip()
     )
 
@@ -1216,7 +1240,7 @@ def normalize_runtime_action_name(
     aliases = {
         "SAVE_SESSION": RUNTIME_ACTION_SAVE_SESSION,
         "SAVE_ACTIVE_MEMORY": RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
-        "UPDATE_ACTIVE_MEMORY": RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY,
+        "RESOLVE_ACTIVE_MEMORY": RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     }
 
     return aliases.get(
@@ -1260,7 +1284,7 @@ def normalize_runtime_action_names(
 
         if normalized_name == RUNTIME_ACTION_CREATE_ACTIVE_MEMORY:
             normalized_names.append(
-                RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY
+                RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
             )
 
         if (
@@ -1372,7 +1396,7 @@ def _build_internal_action_call(
         ):
             return None
 
-    elif normalized_name == RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY:
+    elif normalized_name == RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY:
         payload = _clean_internal_action_query(
             query
         )
@@ -1707,13 +1731,16 @@ def _enabled_action_start_markers(
         markers.append(
             "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:"
         )
-
-    if RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY in enabled_action_names:
         markers.append(
-            "<INTERNAL_ACTION_UPDATE_ACTIVE_MEMORY:"
+            "INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:"
+        )
+
+    if RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY in enabled_action_names:
+        markers.append(
+            "<INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY:"
         )
         markers.append(
-            "INTERNAL_ACTION_UPDATE_ACTIVE_MEMORY:"
+            "INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY:"
         )
 
     if RUNTIME_ACTION_WEB_SEARCH in enabled_action_names:
@@ -1744,7 +1771,7 @@ def _trailing_marker_prefix_length(
         len(text),
         max(
             [
-                len(marker) - 1
+                len(marker)
                 for marker in markers
             ],
             default=0,
@@ -1884,6 +1911,31 @@ class RuntimeActionStreamFilter:
                 text="",
             )
 
+        combined = (
+            self.pending
+            + chunk
+        )
+
+        if not self.pending:
+            hold_length = _trailing_marker_prefix_length(
+                combined,
+                enabled_actions=self.enabled_actions,
+            )
+
+            if hold_length:
+
+                self.pending = combined[
+                    -hold_length:
+                ]
+
+                return _extract_runtime_actions_if_needed(
+                    combined[
+                        :-hold_length
+                    ],
+                    enabled_actions=self.enabled_actions,
+                    preserve_action_text=self.preserve_action_text,
+                )
+
         if (
             not self.pending
             and not _action_text_may_contain_marker(
@@ -1907,10 +1959,6 @@ class RuntimeActionStreamFilter:
                 text="",
             )
 
-        combined = (
-            self.pending
-            + chunk
-        )
         self.pending = ""
         self.pending_is_action = False
 

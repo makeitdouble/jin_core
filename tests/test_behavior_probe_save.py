@@ -33,6 +33,7 @@ sys.path.insert(0, str(ROOT))
 
 from agent import AgentRuntime, AgentState  # noqa: E402
 from clients import build_clients  # noqa: E402
+from clients.brain_client_utils import create_active_memory_runtime_record  # noqa: E402
 from runtime import (  # noqa: E402
     RuntimeContext,
     RuntimeEmitter,
@@ -56,11 +57,12 @@ SCENARIO_NOTES = """
 Four-step probe:
 1. The user greets JIN. Any answer is accepted.
 2. The user asks JIN to remember the word "кукушка". Any answer is accepted,
-   but runtime memory must contain an active_memory line whose description
+   but JIN must emit create_active_memory runtime action whose payload
    includes that word.
 3. The user says thanks. Any answer is accepted.
 4. The user asks JIN to forget the word and resolve the task. Any answer is
-   accepted, but runtime memory must not contain any active_memory slot.
+   accepted, but JIN must see the active-memory record created from turn 2
+   and emit resolve_active_memory to resolve it.
 """
 
 # Add more turns by appending:
@@ -82,11 +84,9 @@ UNEXPECTED_TEXT_MEMORY_1 = []
 
 USER_TEXT_2 = f'запомни слово "{WORD_TO_SAVE}"'
 EXPECTED_TEXT_ANSWER_2 = []
-EXPECTED_TEXT_MEMORY_2 = [
-    "active_memory",
-    WORD_TO_SAVE,
-]
-EXPECTED_ACTIVE_MEMORY_WORD_2 = WORD_TO_SAVE
+EXPECTED_TEXT_MEMORY_2 = []
+EXPECTED_RUNTIME_ACTION_2 = ["create_active_memory"]
+EXPECTED_RUNTIME_ACTION_PAYLOAD_2 = [WORD_TO_SAVE]
 UNEXPECTED_TEXT_ANSWER_2 = []
 UNEXPECTED_TEXT_MEMORY_2 = []
 
@@ -99,10 +99,10 @@ UNEXPECTED_TEXT_MEMORY_3 = []
 USER_TEXT_4 = f'теперь забудь слово "{WORD_TO_SAVE}", зарезолви таск'
 EXPECTED_TEXT_ANSWER_4 = []
 EXPECTED_TEXT_MEMORY_4 = []
+EXPECTED_RUNTIME_ACTION_4 = ["resolve_active_memory"]
+EXPECTED_BRAIN_CONTEXT_4 = ["RESOLVE_ACTIVE_MEMORY:"]
 UNEXPECTED_TEXT_ANSWER_4 = []
-UNEXPECTED_TEXT_MEMORY_4 = [
-    "active_memory",
-]
+UNEXPECTED_TEXT_MEMORY_4 = []
 
 
 # =============================================================================
@@ -264,7 +264,9 @@ def collect_dialogue_steps() -> list[dict[str, Any]]:
         user_key = f"USER_TEXT_{index}"
         answer_key = f"EXPECTED_TEXT_ANSWER_{index}"
         memory_key = f"EXPECTED_TEXT_MEMORY_{index}"
-        active_memory_word_key = f"EXPECTED_ACTIVE_MEMORY_WORD_{index}"
+        runtime_action_key = f"EXPECTED_RUNTIME_ACTION_{index}"
+        runtime_action_payload_key = f"EXPECTED_RUNTIME_ACTION_PAYLOAD_{index}"
+        brain_context_key = f"EXPECTED_BRAIN_CONTEXT_{index}"
         unexpected_answer_key = f"UNEXPECTED_TEXT_ANSWER_{index}"
         unexpected_memory_key = f"UNEXPECTED_TEXT_MEMORY_{index}"
 
@@ -279,8 +281,14 @@ def collect_dialogue_steps() -> list[dict[str, Any]]:
                     "user_text": user_text,
                     "expected_answer": expected_fragments(globals().get(answer_key, [])),
                     "expected_memory": expected_fragments(globals().get(memory_key, [])),
-                    "expected_active_memory_words": expected_fragments(
-                        globals().get(active_memory_word_key, [])
+                    "expected_runtime_actions": expected_fragments(
+                        globals().get(runtime_action_key, [])
+                    ),
+                    "expected_runtime_action_payload": expected_fragments(
+                        globals().get(runtime_action_payload_key, [])
+                    ),
+                    "expected_brain_context": expected_fragments(
+                        globals().get(brain_context_key, [])
                     ),
                     "unexpected_answer": expected_fragments(globals().get(unexpected_answer_key, [])),
                     "unexpected_memory": expected_fragments(globals().get(unexpected_memory_key, [])),
@@ -302,7 +310,10 @@ class TurnResult:
     expected_memory: list[str]
     unexpected_answer: list[str]
     unexpected_memory: list[str]
-    expected_active_memory_words: list[str] = field(default_factory=list)
+    expected_runtime_actions: list[str] = field(default_factory=list)
+    expected_runtime_action_payload: list[str] = field(default_factory=list)
+    expected_brain_context: list[str] = field(default_factory=list)
+    brain_context: str = ""
     runtime_actions: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -410,6 +421,78 @@ def build_memory_blob(context: RuntimeContext) -> str:
     return "\n\n".join(parts)
 
 
+
+def normalize_runtime_action_name(name: str) -> str:
+    return normalize_text(name).replace("-", "_").replace(" ", "_")
+
+
+def runtime_action_found(actions: list[dict[str, Any]], expected_name: str) -> bool:
+    normalized_expected = normalize_runtime_action_name(expected_name)
+    return any(
+        normalize_runtime_action_name(str(action.get("name", ""))) == normalized_expected
+        for action in actions
+    )
+
+
+def runtime_action_payload_contains_fragment(
+    actions: list[dict[str, Any]],
+    fragment: str,
+) -> bool:
+    normalized_fragment = normalize_text(fragment)
+    if not normalized_fragment:
+        return False
+
+    return any(
+        normalized_fragment in normalize_text(action.get("payload", ""))
+        for action in actions
+    )
+
+async def hydrate_active_memory_records_from_runtime_actions(
+    context: RuntimeContext,
+    actions: list[dict[str, Any]],
+) -> None:
+    """
+    Browser runs persist active_memory in frontend localStorage and send it
+    back as active_memory_records on following turns. This Python probe has no
+    browser/localStorage, so it mirrors only that tiny handoff inside this test:
+    accepted create_active_memory runtime actions become active_memory_records
+    before the next model turn.
+    """
+
+    for action in actions:
+        if not runtime_action_found([action], "create_active_memory"):
+            continue
+
+        payload = render_text(action.get("payload", ""))
+        if not payload:
+            continue
+
+        before = list(
+            getattr(context, "active_memory_records", [])
+            or []
+        )
+
+        await create_active_memory_runtime_record(
+            context,
+            payload,
+        )
+
+        after = list(
+            getattr(context, "active_memory_records", [])
+            or []
+        )
+
+        if len(after) > len(before):
+            print(
+                paint("  HYDRATED ACTIVE MEMORY FROM ACTION:", "yellow", bold=True),
+                flush=True,
+            )
+            print(
+                indent_block(after[-1], prefix="    "),
+                flush=True,
+            )
+
+
 def active_memory_line_contains_fragment(memory: str, fragment: str) -> bool:
     normalized_fragment = normalize_text(fragment)
     if not normalized_fragment:
@@ -461,17 +544,39 @@ def evaluate_expected_text(turns: list[TurnResult]) -> dict[str, Any]:
                 }
             )
 
-        for fragment in turn.expected_active_memory_words:
+        for action_name in turn.expected_runtime_actions:
             checks.append(
                 {
-                    "name": f"turn_{turn.index}.active_memory_contains",
-                    "target": "active_memory",
+                    "name": f"turn_{turn.index}.runtime_action_contains",
+                    "target": "runtime_action",
+                    "turn": turn.index,
+                    "fragment": action_name,
+                    "passed": runtime_action_found(turn.runtime_actions, action_name),
+                }
+            )
+
+        for fragment in turn.expected_runtime_action_payload:
+            checks.append(
+                {
+                    "name": f"turn_{turn.index}.runtime_action_payload_contains",
+                    "target": "runtime_action_payload",
                     "turn": turn.index,
                     "fragment": fragment,
-                    "passed": active_memory_line_contains_fragment(
-                        turn.memory_after_turn,
+                    "passed": runtime_action_payload_contains_fragment(
+                        turn.runtime_actions,
                         fragment,
                     ),
+                }
+            )
+
+        for fragment in turn.expected_brain_context:
+            checks.append(
+                {
+                    "name": f"turn_{turn.index}.brain_context_contains",
+                    "target": "brain_context",
+                    "turn": turn.index,
+                    "fragment": fragment,
+                    "passed": fragment_found(turn.brain_context, fragment),
                 }
             )
 
@@ -547,6 +652,30 @@ def print_behavior_probe_report(report: dict[str, Any]) -> None:
         else:
             print(paint("EXPECTED TEXT IN MEMORY: <any memory accepted>", "gray", dim=True))
 
+        if turn.get("expected_runtime_actions"):
+            print(paint("EXPECTED RUNTIME ACTIONS:", "yellow", bold=True))
+            for action_name in turn["expected_runtime_actions"]:
+                print(
+                    f"  {status_label(runtime_action_found(turn.get('runtime_actions', []), action_name))} "
+                    f"{action_name}"
+                )
+
+        if turn.get("expected_runtime_action_payload"):
+            print(paint("EXPECTED RUNTIME ACTION PAYLOAD:", "yellow", bold=True))
+            for fragment in turn["expected_runtime_action_payload"]:
+                print(
+                    f"  {status_label(runtime_action_payload_contains_fragment(turn.get('runtime_actions', []), fragment))} "
+                    f"{fragment}"
+                )
+
+        if turn.get("expected_brain_context"):
+            print(paint("EXPECTED BRAIN CONTEXT:", "yellow", bold=True))
+            for fragment in turn["expected_brain_context"]:
+                print(
+                    f"  {status_label(fragment_found(turn.get('brain_context', ''), fragment))} "
+                    f"{fragment}"
+                )
+
         if turn.get("unexpected_answer"):
             print(paint("UNEXPECTED TEXT IN ANSWER:", "red", bold=True))
             for fragment in turn["unexpected_answer"]:
@@ -603,8 +732,9 @@ class BehaviorProbeShapeTests(unittest.TestCase):
 
         self.assertIn(WORD_TO_SAVE, steps[1]["user_text"])
         self.assertEqual(steps[1]["expected_answer"], [])
-        self.assertEqual(steps[1]["expected_memory"], ["active_memory", WORD_TO_SAVE])
-        self.assertEqual(steps[1]["expected_active_memory_words"], [WORD_TO_SAVE])
+        self.assertEqual(steps[1]["expected_memory"], [])
+        self.assertEqual(steps[1]["expected_runtime_actions"], ["create_active_memory"])
+        self.assertEqual(steps[1]["expected_runtime_action_payload"], [WORD_TO_SAVE])
 
         self.assertEqual(steps[2]["user_text"], "спасибо")
         self.assertEqual(steps[2]["expected_answer"], [])
@@ -614,7 +744,9 @@ class BehaviorProbeShapeTests(unittest.TestCase):
         self.assertIn(WORD_TO_SAVE, steps[3]["user_text"])
         self.assertEqual(steps[3]["expected_answer"], [])
         self.assertEqual(steps[3]["expected_memory"], [])
-        self.assertEqual(steps[3]["unexpected_memory"], ["active_memory"])
+        self.assertEqual(steps[3]["expected_runtime_actions"], ["resolve_active_memory"])
+        self.assertEqual(steps[3]["expected_brain_context"], ["RESOLVE_ACTIVE_MEMORY:"])
+        self.assertEqual(steps[3]["unexpected_memory"], [])
 
     def test_evaluator_checks_word_inside_active_memory_line(self):
         turns = [
@@ -640,7 +772,11 @@ class BehaviorProbeShapeTests(unittest.TestCase):
                 expected_memory=["active_memory", WORD_TO_SAVE],
                 unexpected_answer=[],
                 unexpected_memory=[],
-                expected_active_memory_words=[WORD_TO_SAVE],
+                expected_runtime_actions=["create_active_memory"],
+                expected_runtime_action_payload=[WORD_TO_SAVE],
+                runtime_actions=[
+                    {"name": "create_active_memory", "payload": f"remember {WORD_TO_SAVE}"}
+                ],
             ),
             TurnResult(
                 index=4,
@@ -651,6 +787,12 @@ class BehaviorProbeShapeTests(unittest.TestCase):
                 expected_memory=[],
                 unexpected_answer=[],
                 unexpected_memory=["active_memory"],
+                expected_runtime_actions=["resolve_active_memory"],
+                expected_brain_context=["RESOLVE_ACTIVE_MEMORY:"],
+                brain_context="RESOLVE_ACTIVE_MEMORY:\nWhen an existing active memory should be resolved",
+                runtime_actions=[
+                    {"name": "resolve_active_memory", "payload": "abc123"}
+                ],
             ),
         ]
 
@@ -702,9 +844,17 @@ class SimpleBehaviorProbe(unittest.IsolatedAsyncioTestCase):
                 or self.context.runtime_turn_assistant_response
                 or ""
             )
-            memory_after_turn = build_memory_blob(self.context)
             runtime_actions = list(
                 getattr(self.context, "runtime_action_events", [])[action_event_offset:]
+            )
+            await hydrate_active_memory_records_from_runtime_actions(
+                self.context,
+                runtime_actions,
+            )
+            memory_after_turn = build_memory_blob(self.context)
+            visible_response_context = getattr(state, "visible_response_context", {}) or {}
+            brain_context = render_text(
+                visible_response_context.get("system_prompt", "")
             )
 
             turns.append(
@@ -717,7 +867,10 @@ class SimpleBehaviorProbe(unittest.IsolatedAsyncioTestCase):
                     expected_memory=step["expected_memory"],
                     unexpected_answer=step["unexpected_answer"],
                     unexpected_memory=step["unexpected_memory"],
-                    expected_active_memory_words=step["expected_active_memory_words"],
+                    expected_runtime_actions=step["expected_runtime_actions"],
+                    expected_runtime_action_payload=step["expected_runtime_action_payload"],
+                    expected_brain_context=step["expected_brain_context"],
+                    brain_context=brain_context,
                     runtime_actions=runtime_actions,
                 )
             )
@@ -738,7 +891,10 @@ class SimpleBehaviorProbe(unittest.IsolatedAsyncioTestCase):
                     "memory_after_turn": turn.memory_after_turn,
                     "expected_answer": turn.expected_answer,
                     "expected_memory": turn.expected_memory,
-                    "expected_active_memory_words": turn.expected_active_memory_words,
+                    "expected_runtime_actions": turn.expected_runtime_actions,
+                    "expected_runtime_action_payload": turn.expected_runtime_action_payload,
+                    "expected_brain_context": turn.expected_brain_context,
+                    "brain_context": turn.brain_context,
                     "unexpected_answer": turn.unexpected_answer,
                     "unexpected_memory": turn.unexpected_memory,
                     "runtime_actions": turn.runtime_actions,

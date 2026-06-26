@@ -278,6 +278,56 @@
   }
 
 
+  function isActiveMemoryRuntimeMemoryKey(key) {
+
+    return /^active_memory(?:_\d+)?$/.test(
+        normalizeRuntimeMemoryKey(key)
+    );
+
+  }
+
+
+  function isActiveMemoryRuntimeMemoryLine(line) {
+
+    if (!line) {
+      return false;
+    }
+
+    if (typeof line === "object") {
+      return isActiveMemoryRuntimeMemoryKey(line.key);
+    }
+
+    const separatorIndex =
+        String(line).indexOf(":");
+
+    if (separatorIndex <= 0) {
+      return false;
+    }
+
+    return isActiveMemoryRuntimeMemoryKey(
+        String(line).slice(0, separatorIndex)
+    );
+
+  }
+
+
+  function extractActiveMemoryRuntimeMemoryLines(text) {
+
+    return splitMemoryTextLines(text)
+      .filter(line => isActiveMemoryRuntimeMemoryLine(line));
+
+  }
+
+
+  function stripActiveMemoryRuntimeMemoryText(text) {
+
+    return splitMemoryTextLines(text)
+      .filter(line => !isActiveMemoryRuntimeMemoryLine(line))
+      .join("\n");
+
+  }
+
+
   function isUserIdleRuntimeMemoryLine(line) {
 
     if (!line) {
@@ -707,6 +757,10 @@
     stripRuntimeMemoryMeta: stripMemoryMetaForDisplay,
     stripMemoryTextMetaForDisplay,
     normalizeRuntimeMemoryKey,
+    isActiveMemoryRuntimeMemoryKey,
+    isActiveMemoryRuntimeMemoryLine,
+    extractActiveMemoryRuntimeMemoryLines,
+    stripActiveMemoryRuntimeMemoryText,
     isUserIdleRuntimeMemoryKey,
     isUserIdleRuntimeMemoryLine,
     stripUserIdleRuntimeMemoryText,

@@ -610,6 +610,176 @@ function formatInternalActionPayload(payload) {
   }
 }
 
+function formatUserPayloadValue(
+  value,
+  depth = 0,
+) {
+  if (Array.isArray(value)) {
+    if (!value.length) {
+      return "[]";
+    }
+
+    return value
+      .map((item, index) => {
+        return (
+          `${"  ".repeat(depth)}${index + 1}. `
+          + formatUserPayloadValue(
+            item,
+            depth + 1,
+          )
+        );
+      })
+      .join("\n");
+  }
+
+  if (
+      value
+      && typeof value === "object"
+  ) {
+    return formatUserPayload(
+      value,
+      depth + 1,
+    );
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+
+  if (
+      value === null
+      || value === undefined
+  ) {
+    return "";
+  }
+
+  return String(value);
+}
+
+function formatUserPayload(
+  payload,
+  depth = 0,
+) {
+  const data =
+    payload && typeof payload === "object"
+      ? payload
+      : {
+          text: String(payload || ""),
+        };
+
+  const lines = [];
+
+  Object.keys(data).forEach((key) => {
+    const value =
+      formatUserPayloadValue(
+        data[key],
+        depth,
+      );
+
+    lines.push(
+      `${key}: ${value || "<empty>"}`
+    );
+  });
+
+  return lines.join("\n");
+}
+
+function log_user(
+  payload = {}
+) {
+  const text =
+    String(
+      payload && payload.text
+        ? payload.text
+        : ""
+    ).trim();
+
+  const logDiv =
+    document.createElement("div");
+
+  logDiv.className =
+    "mb-1 min-w-0 whitespace-pre-wrap break-words font-mono text-[12px] bg-sky-500/5 p-2 rounded border border-sky-500/10";
+
+  logDiv.dataset.logKind =
+    "user";
+
+  logDiv.style.overflowWrap =
+    "anywhere";
+
+  const tagSpan =
+    document.createElement("span");
+
+  tagSpan.className =
+    "text-sky-300 font-bold logger-tag block";
+
+  tagSpan.textContent =
+    "[USER]";
+
+  logDiv.appendChild(
+    tagSpan
+  );
+
+  if (text) {
+    const messageSpan =
+      document.createElement("span");
+
+    messageSpan.className =
+      "block mt-1 text-sky-100/70";
+
+    messageSpan.textContent =
+      text;
+
+    logDiv.appendChild(
+      messageSpan
+    );
+  }
+
+  const actions =
+    document.createElement("div");
+
+  actions.className =
+    "mt-2 flex flex-wrap items-center gap-2";
+
+  const payloadButton =
+    document.createElement("button");
+
+  payloadButton.type =
+    "button";
+
+  payloadButton.className =
+    "inline-flex items-center rounded border border-sky-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-sky-300 hover:bg-sky-500/10 transition";
+
+  payloadButton.textContent =
+    "payload";
+
+  payloadButton.addEventListener(
+    "click",
+    function () {
+      showTrace(
+        formatUserPayload(
+          payload
+        ),
+        "User payload"
+      );
+    }
+  );
+
+  actions.appendChild(
+    payloadButton
+  );
+
+  logDiv.appendChild(
+    actions
+  );
+
+  consoleStream.appendChild(
+    logDiv
+  );
+
+  consoleStream.scrollTop =
+    consoleStream.scrollHeight;
+}
+
 function log_internal_action(
   action,
   data = {}
@@ -997,6 +1167,9 @@ function appendLog(
     const isLatestSnapshots =
       tag.includes("LATEST SNAPSHOTS");
 
+    const isActiveMemory =
+      tag.includes("ACTIVE_MEMORY");
+
     const isUser =
       tag.includes("USER");
 
@@ -1048,19 +1221,24 @@ function appendLog(
     traceButton.textContent =
       isPatternResult
         ? "patterns"
-        : isSession || isLatestSnapshots
+        : isSession || isLatestSnapshots || isActiveMemory
         ? "show"
         : isSummarizer
         ? "payload"
         : isUser
-        ? "message"
+        ? "payload"
         : "trace";
 
     traceButton.addEventListener(
       "click",
       function () {
         showTrace(
-          prettifyTraceDetails(normalized.details),
+          isUser
+            ? formatUserPayload(
+                parseTraceJson(normalized.details)
+                || normalized.details
+              )
+            : prettifyTraceDetails(normalized.details),
           getTraceTitle(
             normalized.details,
             isPatternResult
@@ -1087,6 +1265,7 @@ function appendLog(
     if (
         isSession
         || isLatestSnapshots
+        || isActiveMemory
     ) {
       const clearButton =
         document.createElement("button");
@@ -1098,7 +1277,9 @@ function appendLog(
         "inline-flex items-center rounded border border-zinc-600/40 px-2 py-1 text-[10px] uppercase tracking-wider text-zinc-300 hover:bg-zinc-700/40 transition";
 
       clearButton.textContent =
-        "clear";
+        isActiveMemory
+          ? "delete"
+          : "clear";
 
       clearButton.addEventListener(
         "click",
@@ -1108,13 +1289,24 @@ function appendLog(
               && window.clearOtherLatestRuntimeMemorySnapshots
           ) {
             window.clearOtherLatestRuntimeMemorySnapshots();
+          } else if (isActiveMemory) {
+            if (
+                window.JinRuntime
+                && window.JinRuntime.runtime
+                && window.JinRuntime.runtime.clearActiveMemoryRecords
+            ) {
+              window.JinRuntime.runtime.clearActiveMemoryRecords();
+            }
           } else if (window.clearPersistedSessionBootstrap) {
             window.clearPersistedSessionBootstrap();
           }
 
           normalized.details = null;
           clearButton.disabled = true;
-          clearButton.textContent = "cleared";
+          clearButton.textContent =
+            isActiveMemory
+              ? "deleted"
+              : "cleared";
           traceButton.disabled = true;
           traceButton.classList.add("opacity-40");
           dismissLogAfterClear(
@@ -1149,6 +1341,9 @@ function appendLog(
 
 window.appendLog =
   appendLog;
+
+window.log_user =
+  log_user;
 
 window.log_internal_action =
   log_internal_action;

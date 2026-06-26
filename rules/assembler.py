@@ -11,16 +11,17 @@ from .identity import IDENTITY
 from .loop_rules import LOOP_RULES  # load if: pattern_counter > 1
 from .runtime import (
     CREATE_ACTIVE_MEMORY_RULES,
-    UPDATE_ACTIVE_MEMORY_RULES,
+    RESOLVE_ACTIVE_MEMORY_RULES,
     INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER,
     INTERNAL_ACTION_SAVE_SESSION_MARKER,
     INTERNAL_ACTION_WEB_SEARCH_MARKER,
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
     SAVE_SESSION_RULES,
     WEB_SEARCH_RULES,
-    INTERNAL_ACTION_UPDATE_ACTIVE_MEMORY_MARKER,
+    INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY_MARKER,
 )
 
 
@@ -63,12 +64,12 @@ def _build_allowed_markers(
     return "Allowed private markers are exactly:\n" + ",\n".join(markers) + "."
 
 
-def _append_update_active_memory_rules(
+def _append_resolve_active_memory_rules(
     instructions: list[str],
     enabled_actions: tuple[str, ...],
     context=None,
 ) -> None:
-    if not _action_enabled(enabled_actions, RUNTIME_ACTION_CREATE_ACTIVE_MEMORY, "create_active_memory"):
+    if not _action_enabled(enabled_actions, RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY, "resolve_active_memory"):
         return
 
     if context is None:
@@ -90,12 +91,23 @@ def _append_update_active_memory_rules(
             for record in pending_records
         )
 
+    active_records = getattr(
+        context,
+        "active_memory_records",
+        None,
+    )
+    if active_records:
+        memory_texts.extend(
+            str(record or "")
+            for record in active_records
+        )
+
     if not any(
         ACTIVE_MEMORY_ENTRY_RE.search(str(memory_text or ""))
         for memory_text in memory_texts
     ):
         return
-    instructions.append(UPDATE_ACTIVE_MEMORY_RULES)
+    instructions.append(RESOLVE_ACTIVE_MEMORY_RULES)
 
 
 # ─────────────────────────────────────────────
@@ -150,7 +162,7 @@ def build_runtime_action_instructions(
 
     if _action_enabled(enabled_actions, RUNTIME_ACTION_CREATE_ACTIVE_MEMORY, "create_active_memory"):
         instructions.append(CREATE_ACTIVE_MEMORY_RULES)
-        _append_update_active_memory_rules(
+        _append_resolve_active_memory_rules(
             instructions,
             enabled_actions,
             context,

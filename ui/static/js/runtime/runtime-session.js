@@ -54,6 +54,7 @@
       splitMemoryTextLines,
       parseRuntimeMemoryLine,
       removeRuntimeMemoryLineByKey,
+      stripActiveMemoryRuntimeMemoryText,
     } = memoryModel;
 
     const {
@@ -81,13 +82,15 @@
 
     function runtimeMemoryObjectFromSnapshot(snapshot) {
       const runtimeMemory =
-        (
-          snapshot
-          && snapshot.raw_memory
-          && snapshot.display_source !== "default_runtime_memory"
-          && snapshot.raw_memory
-        )
-        || "";
+        stripActiveMemoryRuntimeMemoryText(
+          (
+            snapshot
+            && snapshot.raw_memory
+            && snapshot.display_source !== "default_runtime_memory"
+            && snapshot.raw_memory
+          )
+          || ""
+        );
 
       if (!runtimeMemory.trim()) {
         return null;
@@ -118,7 +121,9 @@
       }
 
       let runtimeMemory =
-        String(persisted.runtime_memory || "").trim();
+        stripActiveMemoryRuntimeMemoryText(
+          persisted.runtime_memory || ""
+        ).trim();
 
       runtimeMemory = removeRuntimeMemoryLineByKey(
         runtimeMemory,
@@ -870,7 +875,7 @@
 
     function buildRuntimeMemoryDisplaySnapshot(data) {
       const runtimeMemory =
-        String(
+        stripActiveMemoryRuntimeMemoryText(
           (
             data
             && (

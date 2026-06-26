@@ -256,7 +256,7 @@ DURABLE_CARRY_FORWARD = (
     "Before final output, scan Current runtime memory and copy forward every line whose key is durable.\n"
     "Durable keys examples: user_name, user_fact, user_identity, user_state, user_preference, "
     "jin_fact, jin_identity, jin_role, jin_purpose, shared_axiom, active_memory, stored_memory, contract.\n"
-    "An active_memory remains active and durable until JIN explicitly resolves or updates it.\n"
+    "An active_memory remains active and durable until JIN explicitly resolves it.\n"
     "Topic changes, conversation flow, or unrelated user requests never cancel or modify active_memory by themselves.\n"
     "</durable_carry_forward_rules>\n"
     "\n"

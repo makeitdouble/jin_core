@@ -12,9 +12,11 @@ from rules import runtime as runtime_rules
 from utils.runtime_actions import (
     RuntimeActionCall,
     RuntimeActionStreamFilter,
-    extract_active_memory_update_slot_id,
+    extract_active_memory_resolve_slot_id,
     extract_search_query,
     extract_runtime_actions,
+    get_create_active_memory_marker_fields,
+    get_create_active_memory_placeholder_payload,
 )
 
 
@@ -156,11 +158,57 @@ class RuntimeActionTests(unittest.TestCase):
             "remind later | tomorrow | coffee",
         )
 
-    def test_extracts_bare_update_active_memory_marker(self):
+    def test_extracts_bare_create_active_memory_marker_line(self):
 
         result = extract_runtime_actions(
             (
-                "INTERNAL_ACTION_UPDATE_ACTIVE_MEMORY: "
+                "Я напомню.\n\n"
+                "INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: "
+                "REMINDER: Drink coffee in 5 minutes\n"
+            ),
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "Я напомню.\n",
+        )
+        self.assertEqual(
+            result.count("CREATE_ACTIVE_MEMORY"),
+            1,
+        )
+        self.assertEqual(
+            result.actions[0].payload,
+            "REMINDER: Drink coffee in 5 minutes",
+        )
+
+    def test_create_active_memory_marker_helpers_accept_bare_marker(self):
+
+        marker = "INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: PURPOSE | CONDITIONS"
+
+        self.assertEqual(
+            get_create_active_memory_marker_fields(
+                marker
+            ),
+            (
+                "purpose",
+                "conditions",
+            ),
+        )
+        self.assertEqual(
+            get_create_active_memory_placeholder_payload(
+                marker
+            ),
+            "PURPOSE | CONDITIONS",
+        )
+
+    def test_extracts_bare_resolve_active_memory_marker(self):
+
+        result = extract_runtime_actions(
+            (
+                "INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY: "
                 "active_memory_id=e2qxe7 STATUS=resolved\n"
                 "\n"
                 "Память очищена."
@@ -175,7 +223,7 @@ class RuntimeActionTests(unittest.TestCase):
             "Память очищена.",
         )
         self.assertEqual(
-            result.count("UPDATE_ACTIVE_MEMORY"),
+            result.count("RESOLVE_ACTIVE_MEMORY"),
             1,
         )
         self.assertEqual(
@@ -183,12 +231,12 @@ class RuntimeActionTests(unittest.TestCase):
             "active_memory_id=e2qxe7 STATUS=resolved",
         )
 
-    def test_extracts_bracketed_update_active_memory_marker(self):
+    def test_extracts_bracketed_resolve_active_memory_marker(self):
 
         result = extract_runtime_actions(
             (
                 "before "
-                "<INTERNAL_ACTION_UPDATE_ACTIVE_MEMORY:e2qxe7 | resolved>"
+                "<INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY:e2qxe7 | resolved>"
                 " after"
             ),
             enabled_actions=[
@@ -201,7 +249,7 @@ class RuntimeActionTests(unittest.TestCase):
             "before  after",
         )
         self.assertEqual(
-            result.count("UPDATE_ACTIVE_MEMORY"),
+            result.count("RESOLVE_ACTIVE_MEMORY"),
             1,
         )
         self.assertEqual(
@@ -209,16 +257,16 @@ class RuntimeActionTests(unittest.TestCase):
             "e2qxe7 | resolved",
         )
 
-    def test_extract_active_memory_update_slot_id_accepts_loose_payload_shape(self):
+    def test_extract_active_memory_resolve_slot_id_accepts_loose_payload_shape(self):
 
         self.assertEqual(
-            extract_active_memory_update_slot_id(
+            extract_active_memory_resolve_slot_id(
                 "active_memory_id: 5fdg4g",
             ),
             "5fdg4g",
         )
         self.assertEqual(
-            extract_active_memory_update_slot_id(
+            extract_active_memory_resolve_slot_id(
                 "resolve slot 5fdg4g please",
                 existing_ids={
                     "5fdg4g",
@@ -227,10 +275,10 @@ class RuntimeActionTests(unittest.TestCase):
             "5fdg4g",
         )
 
-    def test_extract_active_memory_update_slot_id_skips_non_existing_tokens(self):
+    def test_extract_active_memory_resolve_slot_id_skips_non_existing_tokens(self):
 
         self.assertEqual(
-            extract_active_memory_update_slot_id(
+            extract_active_memory_resolve_slot_id(
                 "active_memory_id | STATUS",
                 existing_ids={
                     "5fdg4g",
@@ -239,7 +287,7 @@ class RuntimeActionTests(unittest.TestCase):
             "",
         )
         self.assertEqual(
-            extract_active_memory_update_slot_id(
+            extract_active_memory_resolve_slot_id(
                 "resolve status abc123",
                 existing_ids={
                     "5fdg4g",
@@ -280,7 +328,7 @@ class RuntimeActionTests(unittest.TestCase):
             "INTERNAL_ACTIONS_WITH_PAYLOAD",
             [
                 "<INTERNAL_ACTION_WEB_SEARCH: plain text query >",
-                "<INTERNAL_ACTION_UPDATE_ACTIVE_MEMORY: active_memory_id | STATUS >",
+                "<INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY: active_memory_id | STATUS >",
             ],
         ):
             search_result = extract_runtime_actions(
@@ -499,6 +547,42 @@ class RuntimeActionTests(unittest.TestCase):
             (
                 "blue tomato",
             ),
+        )
+
+    def test_stream_filter_handles_split_bare_create_active_memory_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:"
+        )
+        second = stream_filter.filter(
+            " REMINDER: Drink coffee in 5 minutes\n"
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.count("CREATE_ACTIVE_MEMORY"),
+            0,
+        )
+        self.assertEqual(
+            second.text,
+            "",
+        )
+        self.assertEqual(
+            second.count("CREATE_ACTIVE_MEMORY"),
+            1,
+        )
+        self.assertEqual(
+            second.actions[0].payload,
+            "REMINDER: Drink coffee in 5 minutes",
         )
 
     def test_apply_runtime_action_calls_stores_search_queries(self):
@@ -803,6 +887,8 @@ class RuntimeActionTests(unittest.TestCase):
 
         context = Context()
         context.emitter = Emitter()
+        context.timestamp = "2026-06-20T10:00:00"
+        context.turn_number = 3
 
         applied_count = asyncio.run(
             apply_runtime_action_calls(
@@ -825,25 +911,37 @@ class RuntimeActionTests(unittest.TestCase):
             1,
         )
         self.assertEqual(
-            context.emitter.events[0],
-            {
-                "type": "runtime_action",
-                "action": "create_active_memory",
-                "text": "Saving: remind later",
-            },
+            context.emitter.events[0]["type"],
+            "runtime_action",
         )
         self.assertEqual(
-            len(context.runtime_pending_active_memory_records),
+            context.emitter.events[0]["action"],
+            "create_active_memory",
+        )
+        self.assertEqual(
+            context.emitter.events[0]["text"],
+            "Saving: remind later",
+        )
+        self.assertEqual(
+            len(context.active_memory_records),
             1,
         )
         self.assertRegex(
-            context.runtime_pending_active_memory_records[0],
+            context.active_memory_records[0],
             (
                 r"^active_memory_1: remind later "
                 r"\[ id: [a-z0-9]{6} \] "
                 r"\[ conditions: remind later \] "
+                r"\[ creation_time: 2026-06-20T10:00:00 \] "
+                r"\[ created_jin_message_number: 3 \] "
+                r"\[ elapsed_time: 00:00:00 \] "
+                r"\[ elapsed_jin_message_number: 0 \] "
                 r"\[ status: pending \]$"
             ),
+        )
+        self.assertEqual(
+            context.emitter.events[0]["active_memory"],
+            context.active_memory_records[0],
         )
 
     def test_apply_runtime_action_calls_queues_active_memory_record(self):
@@ -890,27 +988,37 @@ class RuntimeActionTests(unittest.TestCase):
             "session_status: active",
         )
         self.assertEqual(
-            len(context.runtime_pending_active_memory_records),
+            len(context.active_memory_records),
             1,
         )
         self.assertRegex(
-            context.runtime_pending_active_memory_records[0],
+            context.active_memory_records[0],
             (
                 r"^active_memory_1: Drink coffee \| Trigger in 5 minutes \| coffee "
                 r"\[ id: [a-z0-9]{6} \] "
                 r"\[ conditions: Drink coffee \| Trigger in 5 minutes \| coffee \] "
+                r"\[ creation_time: 2026-06-24T15:00:00 \] "
+                r"\[ created_jin_message_number: 7 \] "
+                r"\[ elapsed_time: 00:00:00 \] "
+                r"\[ elapsed_jin_message_number: 0 \] "
                 r"\[ status: pending \]$"
             ),
         )
         self.assertEqual(
-            context.emitter.events,
-            [
-                {
-                    "type": "runtime_action",
-                    "action": "create_active_memory",
-                    "text": "Saving: Drink coffee | Trigger in 5 minutes | coffee",
-                },
-            ],
+            context.emitter.events[0]["type"],
+            "runtime_action",
+        )
+        self.assertEqual(
+            context.emitter.events[0]["action"],
+            "create_active_memory",
+        )
+        self.assertEqual(
+            context.emitter.events[0]["text"],
+            "Saving: Drink coffee | Trigger in 5 minutes | coffee",
+        )
+        self.assertEqual(
+            context.emitter.events[0]["active_memory"],
+            context.active_memory_records[0],
         )
 
     def test_apply_runtime_action_calls_resolves_active_memory_by_id(self):
@@ -940,13 +1048,19 @@ class RuntimeActionTests(unittest.TestCase):
                 "[ status: pending ]"
             ),
         ]
+        context.active_memory_records = [
+            (
+                "active_memory_1: remember cuckoo [ id: 5fdg4g ] "
+                "[ status: pending ]"
+            ),
+        ]
 
         applied_count = asyncio.run(
             apply_runtime_action_calls(
                 context,
                 (
                     RuntimeActionCall(
-                        name="UPDATE_ACTIVE_MEMORY",
+                        name="RESOLVE_ACTIVE_MEMORY",
                         payload="active_memory_id: 5fdg4g",
                     ),
                 ),
@@ -979,11 +1093,20 @@ class RuntimeActionTests(unittest.TestCase):
             ],
         )
         self.assertEqual(
+            context.active_memory_records,
+            [],
+        )
+        self.assertEqual(
+            context.runtime_action_events[0]["id"],
+            "5fdg4g",
+        )
+        self.assertEqual(
             context.emitter.events,
             [
                 {
                     "type": "runtime_action",
-                    "action": "update_active_memory",
+                    "action": "resolve_active_memory",
+                    "id": "5fdg4g",
                     "text": "Active memory resolved",
                 },
             ],
@@ -998,6 +1121,7 @@ class RuntimeActionTests(unittest.TestCase):
         context.runtime_action_events = []
         context.runtime_search_calls = []
         context.runtime_pending_active_memory_records = []
+        context.active_memory_records = []
         context.runtime_memory = ""
         context.runtime_memory_stable = ""
 
@@ -1033,15 +1157,19 @@ class RuntimeActionTests(unittest.TestCase):
             1,
         )
         self.assertEqual(
-            len(context.runtime_pending_active_memory_records),
+            context.runtime_pending_active_memory_records,
+            [],
+        )
+        self.assertEqual(
+            len(context.active_memory_records),
             2,
         )
         self.assertRegex(
-            context.runtime_pending_active_memory_records[0],
+            context.active_memory_records[0],
             r"^active_memory_1: First reminder ",
         )
         self.assertRegex(
-            context.runtime_pending_active_memory_records[1],
+            context.active_memory_records[1],
             r"^active_memory_2: Second reminder ",
         )
 
@@ -1063,7 +1191,7 @@ class RuntimeActionTests(unittest.TestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="UPDATE_ACTIVE_MEMORY",
+                        name="RESOLVE_ACTIVE_MEMORY",
                         payload="active_memory_id: abc123",
                     ),
                 ),

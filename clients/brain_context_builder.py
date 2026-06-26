@@ -33,6 +33,7 @@ from runtime.L1_memory_utils import (
 )
 from utils.runtime_actions import (
     refresh_active_memory_runtime_metadata,
+    remove_active_memory_entries,
 )
 
 
@@ -175,33 +176,49 @@ def append_L1_runtime_memory(
     if context is None:
         return
 
-    runtime_memory = refresh_active_memory_runtime_metadata(
+    raw_runtime_memory = remove_active_memory_entries(
         getattr(
             context,
             "runtime_memory",
             "",
-        ),
-        context=context,
-        previous_memory=getattr(
-            context,
-            "runtime_memory",
-            "",
-        ),
-        add_runtime_user_idle_to_elapsed=True,
+        )
     )
+
     runtime_memory = build_runtime_memory_context_text(
-        runtime_memory,
+        raw_runtime_memory,
         context,
     )
 
-    if not runtime_memory.strip():
-        return
+    if runtime_memory.strip():
+        parts.append(
+            "<RUNTIME_MEMORY>\n"
+            f"{indent_xml(escape(canonicalize_runtime_memory_text(runtime_memory)))}\n"
+            "</RUNTIME_MEMORY>"
+        )
 
-    parts.append(
-        "<RUNTIME_MEMORY>\n"
-        f"{indent_xml(escape(canonicalize_runtime_memory_text(runtime_memory)))}\n"
-        "</RUNTIME_MEMORY>"
-    )
+    active_memory_records = [
+        str(record or "").strip()
+        for record in getattr(
+            context,
+            "active_memory_records",
+            [],
+        )
+        if str(record or "").strip()
+    ]
+
+    if active_memory_records:
+        active_memory_text = refresh_active_memory_runtime_metadata(
+            "\n".join(active_memory_records),
+            context=context,
+            previous_memory="\n".join(active_memory_records),
+            add_runtime_user_idle_to_elapsed=True,
+        )
+
+        parts.append(
+            "<ACTIVE_MEMORY priority=\"active_runtime_contracts\">\n"
+            f"{indent_xml(escape(canonicalize_runtime_memory_text(active_memory_text)))}\n"
+            "</ACTIVE_MEMORY>"
+        )
 
 
 def append_L2_runtime_memory(

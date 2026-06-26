@@ -79,6 +79,7 @@ from runtime.L1_memory_utils import (
 from utils.runtime_actions import (
     is_active_memory_key,
     refresh_active_memory_runtime_metadata,
+    remove_active_memory_entries,
 )
 from runtime.L1_memory import (
     parse_runtime_memory_lines,
@@ -104,6 +105,56 @@ MAX_RESUME_CLIENT_ID_CHARS = 80
 RESUME_CLIENT_ID_RE = re.compile(
     r"[^a-zA-Z0-9_.:-]"
 )
+
+
+ACTIVE_MEMORY_LINE_RE = re.compile(
+    r"^\s*active_memory(?:_\d+)?\s*:",
+    re.IGNORECASE,
+)
+
+
+def clean_active_memory_records(value) -> list[str]:
+
+    records = []
+
+    if isinstance(value, list):
+        candidates = value
+    else:
+        candidates = str(value or "").splitlines()
+
+    seen = set()
+
+    for candidate in candidates:
+        line = clean_bootstrap_memory(
+            str(candidate or ""),
+            limit=2000,
+        )
+
+        if not ACTIVE_MEMORY_LINE_RE.match(line):
+            continue
+
+        if line in seen:
+            continue
+
+        seen.add(line)
+        records.append(line)
+
+    return records
+
+
+def apply_active_memory_records(
+    context,
+    message_data: dict,
+) -> None:
+
+    records = clean_active_memory_records(
+        message_data.get(
+            "active_memory_records",
+            [],
+        )
+    )
+
+    context.active_memory_records = records
 
 
 def clean_bootstrap_memory(
@@ -135,10 +186,12 @@ def clean_bootstrap_runtime_memory(
     limit: int = MAX_BOOTSTRAP_MEMORY_CHARS,
 ) -> str:
 
-    return remove_runtime_user_idle_lines(
-        clean_bootstrap_memory(
-            value,
-            limit=limit,
+    return remove_active_memory_entries(
+        remove_runtime_user_idle_lines(
+            clean_bootstrap_memory(
+                value,
+                limit=limit,
+            )
         )
     ).strip()
 
@@ -889,6 +942,11 @@ def apply_runtime_resume(
     message_data: dict,
 ) -> bool:
 
+    apply_active_memory_records(
+        context,
+        message_data,
+    )
+
     runtime_memory = clean_bootstrap_runtime_memory(
         message_data.get(
             "runtime_memory",
@@ -1009,6 +1067,11 @@ def apply_session_bootstrap(
     context,
     message_data: dict,
 ) -> bool:
+
+    apply_active_memory_records(
+        context,
+        message_data,
+    )
 
     session_memory = clean_bootstrap_memory(
         message_data.get(
@@ -1678,6 +1741,10 @@ async def process_message(
             context,
             message_data,
         )
+        apply_active_memory_records(
+            context,
+            message_data,
+        )
         apply_runtime_pattern_context(
             context,
             message_data,
@@ -2038,7 +2105,17 @@ async def websocket_endpoint(
                 continue
 
             await logger.log_user(
-                f'{message_data}'
+                str(
+                    message_data.get(
+                        "text",
+                        "",
+                    )
+                ),
+                details=json.dumps(
+                    message_data,
+                    ensure_ascii=False,
+                    indent=2,
+                ),
             )
 
             # -------------------------------------------------

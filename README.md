@@ -151,7 +151,7 @@ A rendered runtime snapshot also carries metadata used by the right-side timelin
 }
 ```
 
-`active_memory` lifecycle suffixes are owned by runtime, not L1. L1 sees the contract value and `[ status: ... ]`; runtime reattaches `[ creation_time ]`, `[ created_jin_message_number ]`, `[ elapsed_time ]`, and `[ elapsed_jin_message_number ]` after each update. Memory lines may also have temporary trace strength such as `[ trace: 0.50 ]` or inject `user_idle: 9s` into the displayed context. Those are runtime metadata signals, not durable memory facts.
+`active_memory` lifecycle suffixes are owned by runtime, not L1. L1 sees the contract value and `[ status: ... ]`; runtime reattaches `[ creation_time ]`, `[ created_jin_message_number ]`, `[ elapsed_time ]`, and `[ elapsed_jin_message_number ]` after each runtime refresh. Memory lines may also have temporary trace strength such as `[ trace: 0.50 ]` or inject `user_idle: 9s` into the displayed context. Those are runtime metadata signals, not durable memory facts.
 
 ### L2 memory snapshot (patterns)
 
