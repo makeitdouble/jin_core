@@ -839,7 +839,7 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertRegex(
             context.runtime_pending_active_memory_records[0],
             (
-                r"^active_memory: remind later "
+                r"^active_memory_1: remind later "
                 r"\[ id: [a-z0-9]{6} \] "
                 r"\[ conditions: remind later \] "
                 r"\[ status: pending \]$"
@@ -896,7 +896,7 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertRegex(
             context.runtime_pending_active_memory_records[0],
             (
-                r"^active_memory: Drink coffee \| Trigger in 5 minutes \| coffee "
+                r"^active_memory_1: Drink coffee \| Trigger in 5 minutes \| coffee "
                 r"\[ id: [a-z0-9]{6} \] "
                 r"\[ conditions: Drink coffee \| Trigger in 5 minutes \| coffee \] "
                 r"\[ status: pending \]$"
@@ -987,6 +987,62 @@ class RuntimeActionTests(unittest.TestCase):
                     "text": "Active memory resolved",
                 },
             ],
+        )
+
+    def test_apply_runtime_action_calls_allows_multiple_create_active_memory_turns(self):
+
+        class Context:
+            pass
+
+        context = Context()
+        context.runtime_action_events = []
+        context.runtime_search_calls = []
+        context.runtime_pending_active_memory_records = []
+        context.runtime_memory = ""
+        context.runtime_memory_stable = ""
+
+        first_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="CREATE_ACTIVE_MEMORY",
+                        payload="First reminder",
+                    ),
+                ),
+            )
+        )
+        second_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="CREATE_ACTIVE_MEMORY",
+                        payload="Second reminder",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            first_count,
+            1,
+        )
+        self.assertEqual(
+            second_count,
+            1,
+        )
+        self.assertEqual(
+            len(context.runtime_pending_active_memory_records),
+            2,
+        )
+        self.assertRegex(
+            context.runtime_pending_active_memory_records[0],
+            r"^active_memory_1: First reminder ",
+        )
+        self.assertRegex(
+            context.runtime_pending_active_memory_records[1],
+            r"^active_memory_2: Second reminder ",
         )
 
     def test_apply_runtime_action_calls_skips_unknown_active_memory_id(self):

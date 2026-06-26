@@ -52,24 +52,25 @@ from runtime.L1_memory_utils import (
     build_runtime_memory_user_prompt,
     durable_memory_line_text,
     enforce_runtime_turn_fields,
-    enrich_active_memory_recall_conditions,
     get_strength_zones,
     has_durable_fact_negation,
     is_durable_memory_key,
     is_runtime_memory_repeatable_key_family,
-    normalize_managed_runtime_memory_slots,
     normalize_memory_key,
     normalize_runtime_memory_key_family,
     normalize_compound_runtime_memory_lines,
     parse_runtime_memory_lines,
-    refresh_active_memory_runtime_metadata,
     repeatable_runtime_memory_values_are_same_slot,
-    merge_runtime_owned_active_memory_entries,
-    remove_active_memory_entries,
     remove_runtime_memory_placeholder_lines,
     remove_runtime_response_feedback_text,
     remove_runtime_user_idle_lines,
     upsert_runtime_memory_entry_text,
+)
+from utils.runtime_actions import (
+    merge_runtime_owned_active_memory_entries,
+    normalize_active_memory_slots,
+    refresh_active_memory_runtime_metadata,
+    remove_active_memory_entries,
 )
 
 
@@ -127,7 +128,7 @@ def merge_pending_active_memory_records(
         if str(line or "").strip()
     ).strip()
 
-    return normalize_managed_runtime_memory_slots(
+    return normalize_active_memory_slots(
         previous_memory,
         merged_candidate,
     )
@@ -250,10 +251,9 @@ async def normalize_active_memory_slots_with_logging(
 ) -> str:
 
     collapse_events = []
-    result_memory = normalize_managed_runtime_memory_slots(
+    result_memory = normalize_active_memory_slots(
         previous_memory,
         candidate_memory,
-        collapse_events=collapse_events,
     )
 
     if collapse_events:
@@ -717,11 +717,6 @@ async def summarize_runtime_memory(
             user_message=user_message,
             assistant_message=assistant_message,
         )
-        updated_memory = enrich_active_memory_recall_conditions(
-            updated_memory,
-            user_message=user_message,
-            assistant_message=assistant_message,
-        )
         updated_memory = await normalize_active_memory_slots_with_logging(
             context,
             previous_memory=current_memory,
@@ -975,11 +970,6 @@ async def summarize_runtime_memory_pending_turns(
         )
 
         updated_memory = ensure_confirmable_memory_markers(
-            updated_memory,
-            user_message=latest_user_message,
-            assistant_message=latest_assistant_message,
-        )
-        updated_memory = enrich_active_memory_recall_conditions(
             updated_memory,
             user_message=latest_user_message,
             assistant_message=latest_assistant_message,

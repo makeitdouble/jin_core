@@ -76,6 +76,7 @@ from utils.runtime_actions import (
     extract_search_query,
     extract_runtime_actions,
     generate_active_memory_slot_id,
+    generate_active_memory_slot_key,
     get_create_active_memory_marker_fields,
 )
 
@@ -183,6 +184,7 @@ def build_active_memory_runtime_line(
     payload: str,
     *,
     existing_ids=None,
+    slot_key: str = "active_memory_1",
 ) -> str:
 
     suffix_values = split_active_memory_payload(
@@ -205,20 +207,31 @@ def build_active_memory_runtime_line(
         f"{suffix_text} [ status: pending ]"
     ).strip()
 
-    return f"active_memory: {value}"
+    slot_key = str(
+        slot_key
+        or "active_memory_1"
+    ).strip()
+
+    if not re.fullmatch(
+        r"active_memory_\d+",
+        slot_key,
+        re.IGNORECASE,
+    ):
+        slot_key = "active_memory_1"
+
+    return f"{slot_key}: {value}"
 
 
-def collect_context_active_memory_slot_ids(
+def collect_context_active_memory_texts(
     context,
-) -> set[str]:
+) -> tuple[str, ...]:
 
     pending_records = getattr(
         context,
         "runtime_pending_active_memory_records",
         None,
     )
-
-    return collect_active_memory_slot_ids(
+    return (
         getattr(
             context,
             "runtime_memory",
@@ -233,6 +246,17 @@ def collect_context_active_memory_slot_ids(
             str(record or "")
             for record in (pending_records or ())
         ),
+    )
+
+
+def collect_context_active_memory_slot_ids(
+    context,
+) -> set[str]:
+
+    return collect_active_memory_slot_ids(
+        *collect_context_active_memory_texts(
+            context
+        )
     )
 
 
@@ -378,17 +402,22 @@ async def create_active_memory_runtime_record(
     payload: str,
 ) -> bool:
 
+    if context is None:
+        return False
+
     active_memory_line = build_active_memory_runtime_line(
         payload,
+        slot_key=generate_active_memory_slot_key(
+            *collect_context_active_memory_texts(
+                context
+            )
+        ),
         existing_ids=collect_context_active_memory_slot_ids(
             context
         ),
     )
 
-    if (
-        context is None
-        or not active_memory_line
-    ):
+    if not active_memory_line:
         return False
 
     pending_records = getattr(
@@ -471,16 +500,6 @@ async def apply_runtime_action_calls(
         if event.get("name") == "web_search"
     )
 
-    # Runtime action markers may be seen more than once in a single streamed
-    # answer: thinking + content, chunk retries, or a model repeating the same
-    # marker. Treat the first accepted marker as the contract for this turn and
-    # drop later duplicates before they can create extra UI bubbles or duplicate
-    # runtime side effects.
-    emitted_action_names = {
-        str(event.get("name", "")).lower()
-        for event in context.runtime_action_events
-        if event.get("name")
-    }
     accepted_action_names = set()
 
     search_calls = []
@@ -500,7 +519,6 @@ async def apply_runtime_action_calls(
             False,
         )
     )
-    create_active_memory_seen = False
     update_active_memory_seen = False
     resolved_user_message = resolve_runtime_action_user_message(
         context,
@@ -510,12 +528,6 @@ async def apply_runtime_action_calls(
     for action in actions:
 
         action_event_name = action.name.lower()
-
-        if (
-            action_event_name in emitted_action_names
-            or action_event_name in accepted_action_names
-        ):
-            continue
 
         if action.name == RUNTIME_ACTION_SAVE_SESSION:
             if not should_execute_save_session(
@@ -546,13 +558,6 @@ async def apply_runtime_action_calls(
             continue
 
         if action.name == RUNTIME_ACTION_CREATE_ACTIVE_MEMORY:
-            if create_active_memory_seen:
-                continue
-
-            create_active_memory_seen = True
-            accepted_action_names.add(
-                action_event_name
-            )
             filtered_actions.append(
                 action
             )
@@ -648,10 +653,13 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_SAVE_SESSION
     )
 
-    create_active_memory_count = sum(
-        1
+    create_active_memory_actions = [
+        action
         for action in filtered_actions
         if action.name == RUNTIME_ACTION_CREATE_ACTIVE_MEMORY
+    ]
+    create_active_memory_count = len(
+        create_active_memory_actions
     )
 
     update_active_memory_count = sum(
@@ -735,29 +743,30 @@ async def apply_runtime_action_calls(
                 "text": "Saving session",
             })
 
+    created_active_memory_texts = []
+
     if create_active_memory_count:
         if log_runtime is not None:
             await log_runtime(
                 "[RUNTIME ACTION] create_active_memory requested"
             )
 
-        active_memory_text = next(
-            (
-                action.payload
-                for action in filtered_actions
-                if action.name == RUNTIME_ACTION_CREATE_ACTIVE_MEMORY
-                and action.payload
-            ),
-            "",
-        )
-
-        if active_memory_text:
+        for active_memory_text in (
+            action.payload
+            for action in create_active_memory_actions
+            if action.payload
+        ):
             record_created = (
                 await create_active_memory_runtime_record(
                     context,
                     active_memory_text,
                 )
             )
+
+            if record_created:
+                created_active_memory_texts.append(
+                    active_memory_text
+                )
 
             if (
                 log_runtime is not None
@@ -778,15 +787,13 @@ async def apply_runtime_action_calls(
             None,
         )
 
-        if (
-            emit is not None
-            and active_memory_text
-        ):
-            await emit({
-                "type": "runtime_action",
-                "action": "create_active_memory",
-                "text": f"Saving: {active_memory_text}",
-            })
+        if emit is not None:
+            for active_memory_text in created_active_memory_texts:
+                await emit({
+                    "type": "runtime_action",
+                    "action": "create_active_memory",
+                    "text": f"Saving: {active_memory_text}",
+                })
 
     resolved_active_memory_count = 0
 
@@ -846,9 +853,8 @@ async def apply_runtime_action_calls(
             save_session_count,
             1,
         )
-        + min(
-            create_active_memory_count,
-            1,
+        + len(
+            created_active_memory_texts
         )
         + resolved_active_memory_count
     )

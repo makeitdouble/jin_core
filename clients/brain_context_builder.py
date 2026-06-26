@@ -31,6 +31,9 @@ from runtime.L1_memory_utils import (
     build_runtime_memory_context_text,
     canonicalize_runtime_memory_text,
 )
+from utils.runtime_actions import (
+    refresh_active_memory_runtime_metadata,
+)
 
 
 def get_brain_runtime_mode() -> str:
@@ -172,14 +175,23 @@ def append_L1_runtime_memory(
     if context is None:
         return
 
-    runtime_memory = build_runtime_memory_context_text(
+    runtime_memory = refresh_active_memory_runtime_metadata(
         getattr(
             context,
             "runtime_memory",
             "",
         ),
+        context=context,
+        previous_memory=getattr(
+            context,
+            "runtime_memory",
+            "",
+        ),
+        add_runtime_user_idle_to_elapsed=True,
+    )
+    runtime_memory = build_runtime_memory_context_text(
+        runtime_memory,
         context,
-        refresh_active_memory_elapsed=True,
     )
 
     if not runtime_memory.strip():

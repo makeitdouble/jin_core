@@ -33,11 +33,13 @@ from runtime.L1_memory_utils import (
     build_runtime_memory_snapshot,
     enforce_runtime_turn_fields,
     get_strength_zones,
-    normalize_managed_runtime_memory_slots,
     normalize_compound_runtime_memory_lines,
     parse_runtime_memory_lines,
     quote_runtime_user_message_value,
+)
+from utils.runtime_actions import (
     merge_runtime_owned_active_memory_entries,
+    normalize_active_memory_slots,
     refresh_active_memory_runtime_metadata,
     remove_active_memory_entries,
     strip_active_memory_runtime_metadata,
@@ -1401,7 +1403,7 @@ class MessageMemoryTests(
         )
 
         self.assertIn(
-            "active_memory: Drink coffee",
+            "active_memory_1: Drink coffee",
             updated_memory,
         )
         self.assertEqual(
@@ -1536,7 +1538,7 @@ class MessageMemoryTests(
             memory,
         )
 
-    def test_managed_active_memory_collapses_numeric_status_duplicate_to_parent(self):
+    def test_active_memory_exact_duplicate_is_not_reappended(self):
 
         previous_memory = (
             "active_memory_1: Secret word: Water "
@@ -1555,11 +1557,9 @@ class MessageMemoryTests(
             "primary_goal: Play a memory guessing game."
         )
 
-        collapse_events = []
-        memory = normalize_managed_runtime_memory_slots(
+        memory = normalize_active_memory_slots(
             previous_memory,
             candidate_memory,
-            collapse_events=collapse_events,
         )
 
         self.assertIn(
@@ -1567,7 +1567,7 @@ class MessageMemoryTests(
                 "active_memory_1: Secret word: Water "
                 "[ purpose: Remind user to guess it ] "
                 "[ conditions: Remind only once ] "
-                "[ status: pending, Reminder given in Turn 1 ]"
+                "[ status: pending ]"
             ),
             memory,
         )
@@ -1579,17 +1579,9 @@ class MessageMemoryTests(
             "active_memory_2:",
             memory,
         )
-        self.assertIn(
+        self.assertNotIn(
             "Reminder given in Turn 1",
             memory,
-        )
-        self.assertEqual(
-            len(collapse_events),
-            1,
-        )
-        self.assertEqual(
-            collapse_events[0]["parent_key"],
-            "active_memory_1",
         )
 
     def test_managed_active_memory_keeps_numeric_suffix_when_value_differs(self):
@@ -1607,7 +1599,7 @@ class MessageMemoryTests(
             "[ status: pending, Reminder given in Turn 1 ]"
         )
 
-        memory = normalize_managed_runtime_memory_slots(
+        memory = normalize_active_memory_slots(
             previous_memory,
             candidate_memory,
         )
@@ -1621,7 +1613,7 @@ class MessageMemoryTests(
             memory,
         )
 
-    def test_managed_active_memory_merges_same_key_status_update(self):
+    def test_active_memory_status_update_does_not_mutate_parent(self):
 
         previous_memory = (
             "active_memory: Secret word: Water "
@@ -1634,7 +1626,7 @@ class MessageMemoryTests(
             "[ status: pending, Reminder given in Turn 1 ]"
         )
 
-        memory = normalize_managed_runtime_memory_slots(
+        memory = normalize_active_memory_slots(
             previous_memory,
             candidate_memory,
         )
@@ -1643,8 +1635,12 @@ class MessageMemoryTests(
             (
                 "active_memory: Secret word: Water "
                 "[ purpose: Ask user to guess ] "
-                "[ status: pending, Reminder given in Turn 1 ]"
+                "[ status: pending ]"
             ),
+            memory,
+        )
+        self.assertNotIn(
+            "Reminder given in Turn 1",
             memory,
         )
         self.assertNotIn(
@@ -1737,15 +1733,21 @@ class MessageMemoryTests(
             "[ status: pending ]"
         )
 
-        refreshed = build_runtime_memory_context_text(
+        context = SimpleNamespace(
+            timestamp="2026-06-20T10:00:00",
+            turn_number=4,
+            runtime_user_idle_seconds=300,
+            runtime_user_idle_text="5m 0s",
+        )
+        refreshed = refresh_active_memory_runtime_metadata(
             memory,
-            SimpleNamespace(
-                timestamp="2026-06-20T10:00:00",
-                turn_number=4,
-                runtime_user_idle_seconds=300,
-                runtime_user_idle_text="5m 0s",
-            ),
-            refresh_active_memory_elapsed=True,
+            previous_memory=memory,
+            context=context,
+            add_runtime_user_idle_to_elapsed=True,
+        )
+        refreshed = build_runtime_memory_context_text(
+            refreshed,
+            context,
         )
 
         self.assertIn(
