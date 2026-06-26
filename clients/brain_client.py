@@ -60,11 +60,10 @@ def build_brain_system_prompt(
     )
 
     prompt_prefix = (
+        f"{build_runtime_action_instructions(enabled_actions, context)}\n"
+        "\n"
         f"{build_identity_context(context)}"
         f"{build_conditional_prompt_rules(context)}"
-        "\n"
-        "\n"
-        f"{build_runtime_action_instructions(enabled_actions, context)}\n"
         "\n"
     )
 
