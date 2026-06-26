@@ -33,6 +33,7 @@ sys.path.insert(0, str(ROOT))
 
 from agent import AgentRuntime, AgentState  # noqa: E402
 from clients import build_clients  # noqa: E402
+from clients.brain_client_utils import create_active_memory_runtime_record  # noqa: E402
 from runtime import (  # noqa: E402
     RuntimeContext,
     RuntimeEmitter,
@@ -64,8 +65,10 @@ Two-step probe:
 #   USER_TEXT_3 = "..."
 #   EXPECTED_TEXT_ANSWER_3 = ["optional answer fragment"]
 #   EXPECTED_TEXT_MEMORY_3 = ["optional memory fragment"]
+#   EXPECTED_RUNTIME_ACTION_3 = ["optional expected runtime action"]
 #   UNEXPECTED_TEXT_ANSWER_3 = ["optional forbidden answer fragment"]
 #   UNEXPECTED_TEXT_MEMORY_3 = ["optional forbidden memory fragment"]
+#   UNEXPECTED_RUNTIME_ACTION_3 = ["optional forbidden runtime action"]
 #
 # Empty lists mean: accept any text for this part.
 
@@ -73,8 +76,10 @@ USER_TEXT_1 = """в следующем ответе напечатай толь�
 <INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: PURPOSE | CONDITIONS | RESOLVE >"""
 EXPECTED_TEXT_ANSWER_1 = []
 EXPECTED_TEXT_MEMORY_1 = []
+EXPECTED_RUNTIME_ACTION_1 = []
 UNEXPECTED_TEXT_ANSWER_1 = ["<", ">", "|"]
 UNEXPECTED_TEXT_MEMORY_1 = []
+UNEXPECTED_RUNTIME_ACTION_1 = ["create_active_memory"]
 
 USER_TEXT_2 = "напомни мне через 5 минут выпить кофе"
 EXPECTED_TEXT_ANSWER_2 = []
@@ -82,6 +87,7 @@ EXPECTED_TEXT_MEMORY_2 = []
 EXPECTED_RUNTIME_ACTION_2 = ["create_active_memory"]
 UNEXPECTED_TEXT_ANSWER_2 = []
 UNEXPECTED_TEXT_MEMORY_2 = []
+UNEXPECTED_RUNTIME_ACTION_2 = []
 
 
 # =============================================================================
@@ -109,6 +115,7 @@ MAX_MEMORY_PREVIEW_CHARS = 2200
 MEMORY_TEXT_FIELDS_TO_INSPECT = [
     "runtime_memory",
     "runtime_l2_memory",
+    "active_memory_records",
 ]
 
 
@@ -273,6 +280,7 @@ def collect_dialogue_steps() -> list[dict[str, Any]]:
         unexpected_answer_key = f"UNEXPECTED_TEXT_ANSWER_{index}"
         unexpected_memory_key = f"UNEXPECTED_TEXT_MEMORY_{index}"
         runtime_action_key = f"EXPECTED_RUNTIME_ACTION_{index}"
+        unexpected_runtime_action_key = f"UNEXPECTED_RUNTIME_ACTION_{index}"
 
         if user_key not in globals():
             break
@@ -289,6 +297,9 @@ def collect_dialogue_steps() -> list[dict[str, Any]]:
                     "unexpected_memory": expected_fragments(globals().get(unexpected_memory_key, [])),
                     "expected_runtime_actions": expected_fragments(
                         globals().get(runtime_action_key, [])
+                    ),
+                    "unexpected_runtime_actions": expected_fragments(
+                        globals().get(unexpected_runtime_action_key, [])
                     ),
                 }
             )
@@ -309,6 +320,7 @@ class TurnResult:
     unexpected_answer: list[str]
     unexpected_memory: list[str]
     expected_runtime_actions: list[str] = field(default_factory=list)
+    unexpected_runtime_actions: list[str] = field(default_factory=list)
     runtime_actions: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -342,11 +354,7 @@ def print_live_turn_result(turn: TurnResult) -> None:
         return
 
     for check in score["checks"]:
-        if check["name"].endswith("_not_contains"):
-            description = f"{check['target']} does not contain: {check['fragment']}"
-        else:
-            description = f"{check['target']} contains: {check['fragment']}"
-        print(f"  {status_label(check['passed'])} {description}", flush=True)
+        print(f"  {status_label(check['passed'])} {check_description(check)}", flush=True)
 
     print(
         paint("  RUNTIME ACTIONS EMITTED BY MODEL:", "yellow", bold=True),
@@ -411,6 +419,8 @@ def build_memory_blob(context: RuntimeContext) -> str:
     parts = []
     for field_name in MEMORY_TEXT_FIELDS_TO_INSPECT:
         value = getattr(context, field_name, "")
+        if isinstance(value, (list, tuple)):
+            value = "\n".join(render_text(item) for item in value if render_text(item))
         if value:
             parts.append(f"[{field_name}]\n{value}")
     return "\n\n".join(parts)
@@ -427,6 +437,131 @@ def runtime_action_found(actions: list[dict[str, Any]], expected_name: str) -> b
         normalize_runtime_action_name(str(action.get("name", ""))) == normalized_expected
         for action in actions
     )
+
+
+def normalize_websocket_runtime_action(payload: dict[str, Any]) -> dict[str, Any] | None:
+    if payload.get("type") != "runtime_action":
+        return None
+
+    action_name = render_text(payload.get("action", ""))
+    if not action_name:
+        return None
+
+    action_event: dict[str, Any] = {"name": normalize_runtime_action_name(action_name)}
+
+    for key in ("id", "query", "text", "active_memory"):
+        value = render_text(payload.get(key, ""))
+        if value:
+            action_event[key] = value
+
+    explicit_payload = render_text(payload.get("payload", ""))
+    if explicit_payload:
+        action_event["payload"] = explicit_payload
+    elif action_event.get("text", "").startswith("Saving:"):
+        action_event["payload"] = action_event["text"].split("Saving:", 1)[1].strip()
+
+    return action_event
+
+
+def collect_runtime_actions_after_offsets(
+    context: RuntimeContext,
+    *,
+    context_event_offset: int,
+    websocket_message_offset: int,
+    websocket_messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Browser-visible runtime actions are emitted over websocket, while the
+    backend also keeps context.runtime_action_events. The probe should accept
+    both channels because direct AgentRuntime tests do not exercise the full
+    browser/localStorage loop, and older paths may only expose one of them.
+    """
+
+    actions: list[dict[str, Any]] = []
+
+    for event in getattr(context, "runtime_action_events", [])[context_event_offset:]:
+        if isinstance(event, dict):
+            actions.append(dict(event))
+
+    for message in websocket_messages[websocket_message_offset:]:
+        if not isinstance(message, dict):
+            continue
+
+        action = normalize_websocket_runtime_action(message)
+        if action is not None:
+            actions.append(action)
+
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str, str]] = set()
+
+    for action in actions:
+        key = (
+            normalize_runtime_action_name(str(action.get("name", ""))),
+            render_text(action.get("id", "")),
+            render_text(action.get("query", "")),
+            render_text(action.get("payload", "")),
+            render_text(action.get("active_memory", "")),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(action)
+
+    return deduped
+
+
+async def hydrate_active_memory_records_from_runtime_actions(
+    context: RuntimeContext,
+    actions: list[dict[str, Any]],
+) -> None:
+    """
+    Browser stores accepted active-memory records in localStorage and sends them
+    back on following turns. This probe has no browser, so mirror that tiny
+    handoff from accepted create_active_memory actions inside the test only.
+    """
+
+    for action in actions:
+        if not runtime_action_found([action], "create_active_memory"):
+            continue
+
+        records = getattr(context, "active_memory_records", None)
+        if records is None:
+            records = []
+            setattr(context, "active_memory_records", records)
+
+        active_memory_line = render_text(action.get("active_memory", ""))
+        if active_memory_line:
+            if active_memory_line not in records:
+                records.append(active_memory_line)
+            continue
+
+        payload = render_text(action.get("payload", ""))
+        if not payload:
+            continue
+
+        if any(normalize_text(payload) in normalize_text(record) for record in records):
+            continue
+
+        before = list(records)
+        await create_active_memory_runtime_record(context, payload)
+        after = list(getattr(context, "active_memory_records", []) or [])
+
+        if len(after) > len(before):
+            print(
+                paint("  HYDRATED ACTIVE MEMORY FROM ACTION:", "yellow", bold=True),
+                flush=True,
+            )
+            print(
+                indent_block(after[-1], prefix="    "),
+                flush=True,
+            )
+
+
+def check_description(check: dict[str, Any]) -> str:
+    if check["name"].endswith("_not_contains"):
+        return f"{check['target']} does not contain: {check['fragment']}"
+    return f"{check['target']} contains: {check['fragment']}"
+
 
 def evaluate_expected_text(turns: list[TurnResult]) -> dict[str, Any]:
     """
@@ -467,6 +602,17 @@ def evaluate_expected_text(turns: list[TurnResult]) -> dict[str, Any]:
                     "turn": turn.index,
                     "fragment": action_name,
                     "passed": runtime_action_found(turn.runtime_actions, action_name),
+                }
+            )
+
+        for action_name in turn.unexpected_runtime_actions:
+            checks.append(
+                {
+                    "name": f"turn_{turn.index}.runtime_action_not_contains",
+                    "target": "runtime_action",
+                    "turn": turn.index,
+                    "fragment": action_name,
+                    "passed": not runtime_action_found(turn.runtime_actions, action_name),
                 }
             )
 
@@ -550,6 +696,14 @@ def print_behavior_probe_report(report: dict[str, Any]) -> None:
                     f"{action_name}"
                 )
 
+        if turn.get("unexpected_runtime_actions"):
+            print(paint("UNEXPECTED RUNTIME ACTIONS:", "red", bold=True))
+            for action_name in turn["unexpected_runtime_actions"]:
+                print(
+                    f"  {status_label(not runtime_action_found(turn.get('runtime_actions', []), action_name))} "
+                    f"not: {action_name}"
+                )
+
         if turn.get("unexpected_answer"):
             print(paint("UNEXPECTED TEXT IN ANSWER:", "red", bold=True))
             for fragment in turn["unexpected_answer"]:
@@ -570,11 +724,7 @@ def print_behavior_probe_report(report: dict[str, Any]) -> None:
         for check in score["checks"]:
             print(
                 f"  {status_label(check['passed'])} "
-                + (
-                    f"turn {check['turn']} {check['target']} contains: {check['fragment']}"
-                    if check["name"].endswith("_contains")
-                    else f"turn {check['turn']} {check['target']} does not contain: {check['fragment']}"
-                )
+                f"turn {check['turn']} {check_description(check)}"
             )
 
     final_memory = clip_text(report.get("final_memory", ""), MAX_MEMORY_PREVIEW_CHARS)
@@ -604,11 +754,13 @@ class BehaviorProbeShapeTests(unittest.TestCase):
         self.assertEqual(steps[0]["expected_answer"], [])
         self.assertEqual(steps[0]["unexpected_answer"], ["<", ">", "|"])
         self.assertEqual(steps[0]["expected_runtime_actions"], [])
+        self.assertEqual(steps[0]["unexpected_runtime_actions"], ["create_active_memory"])
 
         self.assertIn("напомни", steps[1]["user_text"])
         self.assertEqual(steps[1]["expected_answer"], [])
         self.assertEqual(steps[1]["expected_memory"], [])
         self.assertEqual(steps[1]["expected_runtime_actions"], ["create_active_memory"])
+        self.assertEqual(steps[1]["unexpected_runtime_actions"], [])
 
     def test_evaluator_checks_forbidden_marker_chars(self):
         turns = [
@@ -622,6 +774,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
                 unexpected_answer=["<", ">"],
                 unexpected_memory=[],
                 expected_runtime_actions=[],
+                unexpected_runtime_actions=["create_active_memory"],
             ),
             TurnResult(
                 index=2,
@@ -633,12 +786,75 @@ class BehaviorProbeShapeTests(unittest.TestCase):
                 unexpected_answer=[],
                 unexpected_memory=[],
                 expected_runtime_actions=["create_active_memory"],
+                unexpected_runtime_actions=[],
                 runtime_actions=[{"name": "create_active_memory", "payload": "coffee reminder"}],
             ),
         ]
 
         score = evaluate_expected_text(turns)
         self.assertEqual(score["passed"], score["total"])
+
+    def test_evaluator_fails_when_first_turn_emits_forbidden_runtime_action(self):
+        turns = [
+            TurnResult(
+                index=1,
+                user_text=USER_TEXT_1,
+                answer="",
+                memory_after_turn="",
+                expected_answer=[],
+                expected_memory=[],
+                unexpected_answer=[],
+                unexpected_memory=[],
+                expected_runtime_actions=[],
+                unexpected_runtime_actions=["create_active_memory"],
+                runtime_actions=[{"name": "create_active_memory", "payload": "PURPOSE | CONDITIONS | RESOLVE"}],
+            ),
+        ]
+
+        score = evaluate_expected_text(turns)
+
+        self.assertEqual(score["passed"], 0)
+        self.assertEqual(score["total"], 1)
+        self.assertEqual(score["checks"][0]["name"], "turn_1.runtime_action_not_contains")
+
+    def test_collect_runtime_actions_reads_websocket_runtime_action(self):
+        websocket = CapturingWebSocket()
+        context = RuntimeContext(
+            websocket=websocket,
+            emitter=RuntimeEmitter(websocket),
+            logger=WebSocketLogger(websocket),
+            clients={},
+        )
+        websocket_messages = [
+            {"type": "message_chunk", "chunk": "ignored"},
+            {
+                "type": "runtime_action",
+                "action": "create_active_memory",
+                "text": "Saving: Reminder to drink coffee in 5 minutes",
+                "active_memory": "active_memory_1: Reminder to drink coffee in 5 minutes",
+            },
+        ]
+
+        actions = collect_runtime_actions_after_offsets(
+            context,
+            context_event_offset=0,
+            websocket_message_offset=0,
+            websocket_messages=websocket_messages,
+        )
+
+        self.assertTrue(runtime_action_found(actions, "create_active_memory"))
+
+    def test_check_description_handles_not_contains(self):
+        self.assertEqual(
+            check_description(
+                {
+                    "name": "turn_1.answer_not_contains",
+                    "target": "answer",
+                    "fragment": "<",
+                }
+            ),
+            "answer does not contain: <",
+        )
 
     def test_memory_field_check_does_not_match_marker_name_inside_value(self):
         self.assertFalse(
@@ -695,6 +911,8 @@ class SimpleBehaviorProbe(unittest.IsolatedAsyncioTestCase):
 
         for step in collect_dialogue_steps():
             action_event_offset = len(getattr(self.context, "runtime_action_events", []))
+            websocket_message_offset = len(self.websocket.messages)
+
             state = await run_standard_turn(self.context, step["user_text"])
             answer = (
                 state.final_answer
@@ -702,10 +920,17 @@ class SimpleBehaviorProbe(unittest.IsolatedAsyncioTestCase):
                 or self.context.runtime_turn_assistant_response
                 or ""
             )
-            memory_after_turn = build_memory_blob(self.context)
-            runtime_actions = list(
-                getattr(self.context, "runtime_action_events", [])[action_event_offset:]
+            runtime_actions = collect_runtime_actions_after_offsets(
+                self.context,
+                context_event_offset=action_event_offset,
+                websocket_message_offset=websocket_message_offset,
+                websocket_messages=self.websocket.messages,
             )
+            await hydrate_active_memory_records_from_runtime_actions(
+                self.context,
+                runtime_actions,
+            )
+            memory_after_turn = build_memory_blob(self.context)
 
             turns.append(
                 TurnResult(
@@ -718,6 +943,7 @@ class SimpleBehaviorProbe(unittest.IsolatedAsyncioTestCase):
                     unexpected_answer=step["unexpected_answer"],
                     unexpected_memory=step["unexpected_memory"],
                     expected_runtime_actions=step["expected_runtime_actions"],
+                    unexpected_runtime_actions=step["unexpected_runtime_actions"],
                     runtime_actions=runtime_actions,
                 )
             )
@@ -741,6 +967,7 @@ class SimpleBehaviorProbe(unittest.IsolatedAsyncioTestCase):
                     "unexpected_answer": turn.unexpected_answer,
                     "unexpected_memory": turn.unexpected_memory,
                     "expected_runtime_actions": turn.expected_runtime_actions,
+                    "unexpected_runtime_actions": turn.unexpected_runtime_actions,
                     "runtime_actions": turn.runtime_actions,
                 }
                 for turn in turns
