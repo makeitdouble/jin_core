@@ -385,7 +385,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         for private_marker in (
             "<INTERNAL_ACTION_SAVE_SESSION>",
             "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: CONDITIONS >",
-            "WEB_SEARCH: use when freshness",
+            "Use WEB_SEARCH when freshness",
         ):
             assert_contains_text(
                 self,
@@ -512,7 +512,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "WEB_SEARCH: use when freshness",
+            "Use WEB_SEARCH when freshness",
         )
 
         self.assertNotIn(
