@@ -959,6 +959,9 @@ function appendLog(
   } else if (normalizedTag.includes("LATEST SNAPSHOTS")) {
     logKind =
       "session";
+  } else if (normalizedTag.includes("ACTIVE_MEMORY")) {
+    logKind =
+      "active-memory";
   } else if (normalizedTag.includes("MEMORY:")) {
     logKind =
       "memory";
@@ -1063,6 +1066,21 @@ function appendLog(
       "rounded",
       "border",
       "border-cyan-500/10",
+    );
+  }
+
+  if (tag.includes("ACTIVE_MEMORY")) {
+    tagClass =
+      "text-zinc-300 font-bold";
+
+    logDiv.classList.add(
+      "font-mono",
+      "text-[12px]",
+      "bg-zinc-500/5",
+      "p-2",
+      "rounded",
+      "border",
+      "border-zinc-500/10",
     );
   }
 
@@ -1212,7 +1230,9 @@ function appendLog(
       "button";
 
     traceButton.className =
-      isSummarizer
+      isActiveMemory
+        ? "inline-flex items-center rounded border border-zinc-600/40 px-2 py-1 text-[10px] uppercase tracking-wider text-zinc-300 hover:bg-zinc-700/40 transition"
+        : isSummarizer
         ? "mt-2 inline-flex items-center rounded border border-blue-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-blue-300 hover:bg-blue-500/10 transition"
         : isSession || isLatestSnapshots
         ? "inline-flex items-center rounded border border-cyan-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/10 transition"
