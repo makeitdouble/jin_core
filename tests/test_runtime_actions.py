@@ -90,6 +90,70 @@ class RuntimeActionTests(unittest.TestCase):
             ),
         )
 
+    def test_extracts_tool_call_style_web_search_marker(self):
+
+        result = extract_runtime_actions(
+            "<|tool_call>call:INTERNAL_ACTION_WEB_SEARCH: \u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u043d\u0430 From (\u0441\u0435\u0440\u0438\u0430\u043b) >",
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "\u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u043d\u0430 From (\u0441\u0435\u0440\u0438\u0430\u043b)",
+            ),
+        )
+        self.assertEqual(
+            result.removed_markers,
+            (
+                "<|tool_call>call:INTERNAL_ACTION_WEB_SEARCH: \u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u043d\u0430 From (\u0441\u0435\u0440\u0438\u0430\u043b) >",
+            ),
+        )
+
+    def test_extracts_bare_call_style_web_search_marker_line(self):
+
+        result = extract_runtime_actions(
+            "call:INTERNAL_ACTION_WEB_SEARCH: \u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u043d\u0430 From (\u0441\u0435\u0440\u0438\u0430\u043b)",
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "\u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u043d\u0430 From (\u0441\u0435\u0440\u0438\u0430\u043b)",
+            ),
+        )
+
+    def test_does_not_extract_inline_bare_call_style_marker(self):
+
+        result = extract_runtime_actions(
+            "before call:INTERNAL_ACTION_WEB_SEARCH: blue tomato after",
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "before call:INTERNAL_ACTION_WEB_SEARCH: blue tomato after",
+        )
+        self.assertEqual(
+            result.actions,
+            (),
+        )
+
     def test_ignores_placeholder_bracketed_web_search_marker(self):
 
         for marker in (
@@ -571,6 +635,93 @@ class RuntimeActionTests(unittest.TestCase):
             second.search_queries,
             (
                 "\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440",
+            ),
+        )
+        self.assertEqual(
+            stream_filter.flush(),
+            "",
+        )
+
+    def test_stream_filter_handles_split_tool_call_style_web_search_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "<|tool"
+        )
+        second = stream_filter.filter(
+            "_call>call:INTERNAL_ACTION_WEB_SEARCH: blue"
+        )
+        final = stream_filter.filter(
+            " tomato>"
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.count("WEB_SEARCH"),
+            0,
+        )
+        self.assertEqual(
+            second.text,
+            "",
+        )
+        self.assertEqual(
+            second.count("WEB_SEARCH"),
+            0,
+        )
+        self.assertEqual(
+            final.text,
+            "",
+        )
+        self.assertEqual(
+            final.search_queries,
+            (
+                "blue tomato",
+            ),
+        )
+        self.assertEqual(
+            stream_filter.flush(),
+            "",
+        )
+
+    def test_stream_filter_handles_split_bare_call_style_web_search_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "call:"
+        )
+        second = stream_filter.filter(
+            "INTERNAL_ACTION_WEB_SEARCH: blue tomato\n"
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.count("WEB_SEARCH"),
+            0,
+        )
+        self.assertEqual(
+            second.text,
+            "",
+        )
+        self.assertEqual(
+            second.search_queries,
+            (
+                "blue tomato",
             ),
         )
         self.assertEqual(

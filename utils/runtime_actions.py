@@ -42,6 +42,23 @@ BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+MALFORMED_CALL_INTERNAL_ACTION_PATTERN = re.compile(
+    (
+        r"(?:"
+        r"<\|tool_call\>\s*call\s*:\s*INTERNAL_ACTION_"
+        r"(?P<tool_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY)"
+        r"(?:\s*:\s*(?P<tool_call_query>[^\r\n>]*?))?"
+        r"\s*>+"
+        r"|"
+        r"(?m:^\s*call\s*:\s*INTERNAL_ACTION_"
+        r"(?P<bare_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY)"
+        r"(?:\s*:\s*(?P<bare_call_query>[^\r\n]*))?"
+        r"\s*$)"
+        r")"
+    ),
+    re.IGNORECASE,
+)
+
 CREATE_ACTIVE_MEMORY_MARKER_RE = re.compile(
     (
         r"^\s*<?\s*INTERNAL_ACTION_CREATE_ACTIVE_MEMORY"
@@ -1382,9 +1399,11 @@ def extract_runtime_actions(
     if seen_action_keys is None:
         seen_action_keys = set()
 
-    def replace_marker(match):
-
-        raw_marker = match.group(0)
+    def handle_marker(
+        raw_marker: str,
+        action_name: str,
+        query: str = "",
+    ) -> str:
 
         if not preserve_action_text:
             removed_markers.append(
@@ -1392,11 +1411,8 @@ def extract_runtime_actions(
             )
 
         action = _build_internal_action_call(
-            match.group("bracketed_name")
-            or match.group("bare_name"),
-            match.group("bracketed_query")
-            or match.group("bare_query")
-            or "",
+            action_name,
+            query,
         )
 
         if (
@@ -1417,15 +1433,43 @@ def extract_runtime_actions(
                 )
 
         return (
-            match.group(0)
+            raw_marker
             if preserve_action_text
             else ""
         )
 
+    def replace_private_marker(match):
+
+        return handle_marker(
+            match.group(0),
+            match.group("bracketed_name")
+            or match.group("bare_name"),
+            match.group("bracketed_query")
+            or match.group("bare_query")
+            or "",
+        )
+
+    def replace_malformed_call_marker(match):
+
+        return handle_marker(
+            match.group(0),
+            match.group("tool_call_name")
+            or match.group("bare_call_name"),
+            match.group("tool_call_query")
+            or match.group("bare_call_query")
+            or "",
+        )
+
     clean_text = _replace_runtime_action_matches(
         text,
+        MALFORMED_CALL_INTERNAL_ACTION_PATTERN,
+        replace_malformed_call_marker,
+    )
+
+    clean_text = _replace_runtime_action_matches(
+        clean_text,
         BRACKETED_INTERNAL_ACTION_PATTERN,
-        replace_marker,
+        replace_private_marker,
     )
 
     return RuntimeActionResult(
@@ -1437,7 +1481,6 @@ def extract_runtime_actions(
             removed_markers
         ),
     )
-
 
 def extract_search_query(
     payload: str,
@@ -1562,6 +1605,12 @@ def _enabled_action_start_markers(
         markers.append(
             "<INTERNAL_ACTION_SAVE_SESSION>"
         )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_SAVE_SESSION"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_SAVE_SESSION"
+        )
 
     if RUNTIME_ACTION_CREATE_ACTIVE_MEMORY in enabled_action_names:
         markers.append(
@@ -1569,6 +1618,12 @@ def _enabled_action_start_markers(
         )
         markers.append(
             "INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:"
+        )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:"
         )
 
     if RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY in enabled_action_names:
@@ -1578,10 +1633,22 @@ def _enabled_action_start_markers(
         markers.append(
             "INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY:"
         )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY:"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY:"
+        )
 
     if RUNTIME_ACTION_WEB_SEARCH in enabled_action_names:
         markers.append(
             "<INTERNAL_ACTION_WEB_SEARCH:"
+        )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_WEB_SEARCH:"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_WEB_SEARCH:"
         )
 
     return tuple(
@@ -1716,13 +1783,69 @@ def _unclosed_bracketed_internal_action_start(
     return None
 
 
+def _unclosed_tool_call_internal_action_start(
+    text: str,
+) -> int | None:
+
+    upper_text = text.upper()
+    marker_start = upper_text.rfind(
+        "<|TOOL_CALL>"
+    )
+
+    if marker_start < 0:
+        return None
+
+    candidate = text[
+        marker_start:
+    ]
+
+    after_prefix = candidate[
+        len("<|tool_call>"):
+    ]
+
+    if ">" in after_prefix:
+        return None
+
+    normalized = (
+        after_prefix
+        .lstrip()
+        .upper()
+    )
+
+    if not normalized.startswith(
+        "CALL:INTERNAL_ACTION_"
+    ):
+        return None
+
+    action_name = normalized[
+        len("CALL:INTERNAL_ACTION_"):
+    ]
+
+    for known_action in KNOWN_RUNTIME_ACTIONS:
+        if action_name.startswith(
+            known_action
+        ):
+            return marker_start
+
+    return None
+
+
 def _unclosed_internal_action_request_start(
     text: str,
 ) -> int | None:
 
-    return _unclosed_bracketed_internal_action_start(
-        text
-    )
+    for detector in (
+        _unclosed_bracketed_internal_action_start,
+        _unclosed_tool_call_internal_action_start,
+    ):
+        marker_start = detector(
+            text
+        )
+
+        if marker_start is not None:
+            return marker_start
+
+    return None
 
 
 class RuntimeActionStreamFilter:
