@@ -495,15 +495,46 @@ def collect_runtime_actions_after_offsets(
     seen: set[tuple[str, str, str, str, str]] = set()
 
     for action in actions:
-        key = (
+        base_key = (
             normalize_runtime_action_name(str(action.get("name", ""))),
             render_text(action.get("id", "")),
             render_text(action.get("query", "")),
             render_text(action.get("payload", "")),
-            render_text(action.get("active_memory", "")),
+        )
+        active_memory = render_text(action.get("active_memory", ""))
+        key = (
+            *base_key,
+            active_memory,
         )
         if key in seen:
             continue
+
+        duplicate_index = next(
+            (
+                index
+                for index, existing_action in enumerate(deduped)
+                if (
+                    (
+                        normalize_runtime_action_name(str(existing_action.get("name", ""))),
+                        render_text(existing_action.get("id", "")),
+                        render_text(existing_action.get("query", "")),
+                        render_text(existing_action.get("payload", "")),
+                    )
+                    == base_key
+                    and (
+                        not render_text(existing_action.get("active_memory", ""))
+                        or not active_memory
+                    )
+                )
+            ),
+            None,
+        )
+        if duplicate_index is not None:
+            if active_memory:
+                deduped[duplicate_index]["active_memory"] = active_memory
+            seen.add(key)
+            continue
+
         seen.add(key)
         deduped.append(action)
 
@@ -843,6 +874,43 @@ class BehaviorProbeShapeTests(unittest.TestCase):
         )
 
         self.assertTrue(runtime_action_found(actions, "create_active_memory"))
+
+    def test_collect_runtime_actions_dedupes_context_and_websocket_views(self):
+        websocket = CapturingWebSocket()
+        context = RuntimeContext(
+            websocket=websocket,
+            emitter=RuntimeEmitter(websocket),
+            logger=WebSocketLogger(websocket),
+            clients={},
+        )
+        context.runtime_action_events.append(
+            {
+                "name": "create_active_memory",
+                "payload": "Reminder to drink coffee in 5 minutes",
+            }
+        )
+        websocket_messages = [
+            {
+                "type": "runtime_action",
+                "action": "create_active_memory",
+                "text": "Saving: Reminder to drink coffee in 5 minutes",
+                "active_memory": "active_memory_1: Reminder to drink coffee in 5 minutes",
+            },
+        ]
+
+        actions = collect_runtime_actions_after_offsets(
+            context,
+            context_event_offset=0,
+            websocket_message_offset=0,
+            websocket_messages=websocket_messages,
+        )
+
+        self.assertEqual(len(actions), 1)
+        self.assertTrue(runtime_action_found(actions, "create_active_memory"))
+        self.assertIn(
+            "active_memory",
+            actions[0],
+        )
 
     def test_check_description_handles_not_contains(self):
         self.assertEqual(

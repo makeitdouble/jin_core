@@ -522,7 +522,7 @@ class SearchFlowTests(
             streams=[
                 [
                     {
-                        "type": "thinking",
+                        "type": "content",
                         "content": (
                             "Needs current pricing. "
                             "<INTERNAL_ACTION_WEB_SEARCH:tesla car price>"
@@ -608,14 +608,6 @@ class SearchFlowTests(
             [
                 "tesla car price",
             ],
-        )
-        self.assertIn(
-            (
-                "<INTERNAL_ACTION_WEB_SEARCH:tesla car price>"
-            ),
-            "".join(
-                thinking_chunks
-            ),
         )
         self.assertIn(
             "action: web_search",
@@ -775,7 +767,7 @@ class SearchFlowTests(
             streams=[
                 [
                     {
-                        "type": "thinking",
+                        "type": "content",
                         "content": (
                             "Needs current pricing. "
                             "<INTERNAL_ACTION_WEB_SEARCH:apple price>"
@@ -841,7 +833,7 @@ class SearchFlowTests(
             streams=[
                 [
                     {
-                        "type": "thinking",
+                        "type": "content",
                         "content": (
                             "<INTERNAL_ACTION_WEB_SEARCH:jupiter cost>"
                         ),
@@ -893,7 +885,7 @@ class SearchFlowTests(
             streams=[
                 [
                     {
-                        "type": "thinking",
+                        "type": "content",
                         "content": (
                             "<INTERNAL_ACTION_WEB_SEARCH:latest Python version>"
                         ),

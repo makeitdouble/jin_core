@@ -472,6 +472,9 @@ async def hydrate_active_memory_records_from_runtime_actions(
             or []
         )
 
+        if any(normalize_text(payload) in normalize_text(record) for record in before):
+            continue
+
         await create_active_memory_runtime_record(
             context,
             payload,

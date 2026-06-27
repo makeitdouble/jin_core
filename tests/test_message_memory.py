@@ -1399,19 +1399,18 @@ class MessageMemoryTests(
         )
         self.assertEqual(
             lines[0]["value"],
-            '"first line\\nsecond line\\nthird line"',
+            (
+                '"first line\\nsecond line\\nthird line"'
+                "\\nstandalone continuation stays note"
+            ),
         )
         self.assertEqual(
-            lines[1],
-            {
-                "key": "note",
-                "value": "standalone continuation stays note",
-                "status": "same",
-            },
-        )
-        self.assertEqual(
-            lines[2]["key"],
+            lines[1]["key"],
             "last_jin_response",
+        )
+        self.assertEqual(
+            len(lines),
+            2,
         )
 
     def test_parse_runtime_memory_keeps_quoted_user_message_fragments_together(self):
@@ -3464,11 +3463,11 @@ class MessageMemoryTests(
 
         self.assertEqual(
             updated_memory,
-            "Initial memory.",
+            "note: Initial memory.",
         )
         self.assertEqual(
             context.runtime_memory,
-            "Initial memory.",
+            "note: Initial memory.",
         )
         self.assertEqual(
             context.runtime_memory_updates,
@@ -3505,7 +3504,7 @@ class MessageMemoryTests(
 
         self.assertEqual(
             updated_memory,
-            "Initial memory.",
+            "note: Initial memory.",
         )
         self.assertEqual(
             len(logger.errors),
