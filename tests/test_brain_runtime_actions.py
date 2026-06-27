@@ -14,7 +14,7 @@ from clients.brain_client import (
 from config_loader import (
     config,
 )
-from clients.brain_client_utils import (
+from rules.assembler import (
     BRAIN_RUNTIME_ACTIONS,
     SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
 )

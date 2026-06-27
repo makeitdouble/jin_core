@@ -1,17 +1,9 @@
 from app_settings import settings
 
-
-SERVICE_AS_BRAIN_RUNTIME_ACTIONS = {
-    "CAN_WEB_SEARCH": False,
-    "CAN_SAVE_SESSION": True,
-    "CAN_SAVE_ACTIVE_MEMORY": True,
-}
-
-BRAIN_RUNTIME_ACTIONS = {
-    "CAN_WEB_SEARCH": True,
-    "CAN_SAVE_SESSION": True,
-    "CAN_SAVE_ACTIVE_MEMORY": True,
-}
+from rules.assembler import (
+    BRAIN_RUNTIME_ACTIONS,
+    SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
+)
 
 
 def get_brain_runtime_config():
