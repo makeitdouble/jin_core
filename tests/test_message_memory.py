@@ -2429,10 +2429,6 @@ class MessageMemoryTests(
             "total_diff: 254",
             service_client.calls[0]["user_prompt"],
         )
-        self.assertIn(
-            "[MEMORY:L2] L2 memory updated",
-            logger.service_logs,
-        )
         self.assertEqual(
             logger.summarizer_logs[0][0],
             "[MEMORY:L2] L2 summarizer request",

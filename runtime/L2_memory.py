@@ -422,13 +422,6 @@ async def maybe_summarize_runtime_l2_memory(
         )
         context.runtime_l2_pending_patches = []
 
-        await log_memory_event(
-            context,
-            level="L2",
-            message="L2 memory updated",
-            fallback_channel="service",
-        )
-
         await log_runtime_summarizer_result(
             context,
             label="L2 pattern memory",

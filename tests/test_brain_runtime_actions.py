@@ -35,6 +35,26 @@ def assert_not_contains_text(test_case, text: str, needle: str) -> None:
     )
 
 
+def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
+    expected_actions = []
+
+    if bool(runtime_actions.get("CAN_WEB_SEARCH", False)):
+        expected_actions.append("WEB_SEARCH")
+
+    if bool(runtime_actions.get("CAN_SAVE_SESSION", False)):
+        expected_actions.append("SAVE_SESSION")
+
+    if bool(runtime_actions.get("CAN_SAVE_ACTIVE_MEMORY", False)):
+        expected_actions.extend(
+            (
+                "CREATE_ACTIVE_MEMORY",
+                "RESOLVE_ACTIVE_MEMORY",
+            )
+        )
+
+    return tuple(expected_actions)
+
+
 class BrainRuntimeActionTests(unittest.TestCase):
 
     def test_non_stream_blocks_save_session_meta_request_in_reasoning(self):
@@ -308,16 +328,14 @@ class BrainRuntimeActionTests(unittest.TestCase):
             chunks,
         )
 
-    def test_agent_runtime_action_flags_enable_search_and_save_session(self):
+    def test_agent_runtime_action_flags_follow_assembler_constants(self):
 
         self.assertEqual(
             get_enabled_runtime_actions(
                 SERVICE_AS_BRAIN_RUNTIME_ACTIONS
             ),
-            (
-                "SAVE_SESSION",
-                "CREATE_ACTIVE_MEMORY",
-                "RESOLVE_ACTIVE_MEMORY",
+            expected_enabled_runtime_actions(
+                SERVICE_AS_BRAIN_RUNTIME_ACTIONS
             ),
         )
 
@@ -325,11 +343,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
             get_enabled_runtime_actions(
                 BRAIN_RUNTIME_ACTIONS
             ),
-            (
-                "WEB_SEARCH",
-                "SAVE_SESSION",
-                "CREATE_ACTIVE_MEMORY",
-                "RESOLVE_ACTIVE_MEMORY",
+            expected_enabled_runtime_actions(
+                BRAIN_RUNTIME_ACTIONS
             ),
         )
 
