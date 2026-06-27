@@ -25,6 +25,7 @@ from clients.brain_client_utils import (
     build_conditional_prompt_rules,
     get_enabled_runtime_actions,
     has_zero_diff_stall_alert,
+    log_runtime_action_marker_removals,
     should_execute_save_session,
 )
 
@@ -211,6 +212,12 @@ async def ask_brain(
                 )
             )
 
+            await log_runtime_action_marker_removals(
+                context,
+                content_actions,
+                source="brain content",
+            )
+
             await apply_runtime_action_calls(
                 context,
                 content_actions.actions,
@@ -296,6 +303,12 @@ async def ask_brain(
             enabled_actions=enabled_actions,
         )
 
+        await log_runtime_action_marker_removals(
+            context,
+            content_actions,
+            source="brain content",
+        )
+
         await apply_runtime_action_calls(
             context,
             content_actions.actions,
@@ -305,10 +318,18 @@ async def ask_brain(
         if content_actions.text:
             return content_actions.text
 
-        return extract_runtime_actions(
+        reasoning_actions = extract_runtime_actions(
             reasoning,
             enabled_actions=enabled_actions,
-        ).text
+        )
+
+        await log_runtime_action_marker_removals(
+            context,
+            reasoning_actions,
+            source="brain reasoning fallback",
+        )
+
+        return reasoning_actions.text
 
     except Exception as error:
 
@@ -399,6 +420,12 @@ async def ask_brain_stream(
             )
         )
 
+        await log_runtime_action_marker_removals(
+            context,
+            result,
+            source="brain stream content",
+        )
+
         runtime_action_calls = tuple(
             result.actions
         )
@@ -475,7 +502,15 @@ async def ask_brain_stream(
                 if stop_for_runtime_action:
                     break
 
-            content_tail = content_filter.flush()
+            tail_result = content_filter.flush_result()
+
+            await log_runtime_action_marker_removals(
+                context,
+                tail_result,
+                source="brain stream tail",
+            )
+
+            content_tail = tail_result.text
             if (
                 content_tail
                 and not stop_for_runtime_action
@@ -541,7 +576,15 @@ async def ask_brain_stream(
             if stop_for_runtime_action:
                 break
 
-        content_tail = content_filter.flush()
+        tail_result = content_filter.flush_result()
+
+        await log_runtime_action_marker_removals(
+            context,
+            tail_result,
+            source="brain stream tail",
+        )
+
+        content_tail = tail_result.text
         if (
             content_tail
             and not stop_for_runtime_action

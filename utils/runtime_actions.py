@@ -981,6 +981,7 @@ class RuntimeActionCall:
 class RuntimeActionResult:
     text: str
     actions: tuple[RuntimeActionCall, ...] = ()
+    removed_markers: tuple[str, ...] = ()
 
     @property
     def search_queries(self) -> tuple[str, ...]:
@@ -1081,6 +1082,7 @@ def normalize_runtime_action_names(
         candidates = enabled_actions
 
     actions = []
+    removed_markers = []
 
     for action_name in candidates:
 
@@ -1375,11 +1377,19 @@ def extract_runtime_actions(
         enabled_actions
     )
     actions = []
+    removed_markers = []
 
     if seen_action_keys is None:
         seen_action_keys = set()
 
     def replace_marker(match):
+
+        raw_marker = match.group(0)
+
+        if not preserve_action_text:
+            removed_markers.append(
+                raw_marker
+            )
 
         action = _build_internal_action_call(
             match.group("bracketed_name")
@@ -1422,6 +1432,9 @@ def extract_runtime_actions(
         text=clean_text,
         actions=tuple(
             actions
+        ),
+        removed_markers=tuple(
+            removed_markers
         ),
     )
 
@@ -1836,22 +1849,33 @@ class RuntimeActionStreamFilter:
             seen_action_keys=self.seen_action_keys,
         )
 
-    def flush(self) -> str:
+    def flush_result(self) -> RuntimeActionResult:
 
         pending = self.pending
         self.pending = ""
         self.pending_is_action = False
 
         if self.preserve_action_text:
-            return pending
+            return RuntimeActionResult(
+                text=pending,
+            )
 
         if _unclosed_internal_action_request_start(
             pending
         ) == 0:
-            return ""
+            return RuntimeActionResult(
+                text="",
+                removed_markers=(
+                    pending,
+                ) if pending else (),
+            )
 
         return extract_runtime_actions(
             pending,
             enabled_actions=self.enabled_actions,
             preserve_action_text=False,
-        ).text
+        )
+
+    def flush(self) -> str:
+
+        return self.flush_result().text

@@ -472,6 +472,81 @@ def resolve_runtime_action_user_message(
     return ""
 
 
+def build_runtime_action_marker_preview(
+    marker: str,
+    *,
+    limit: int = 160,
+) -> str:
+
+    return (
+        str(marker or "")
+        .replace("\n", "\\n")
+        .strip()
+    )[:limit]
+
+
+async def log_runtime_action_marker_removals(
+    context,
+    result,
+    *,
+    source: str = "brain content",
+) -> None:
+
+    removed_markers = tuple(
+        getattr(
+            result,
+            "removed_markers",
+            (),
+        )
+        or ()
+    )
+
+    if not removed_markers:
+        return
+
+    logger = getattr(
+        context,
+        "logger",
+        None,
+    )
+
+    if logger is None:
+        return
+
+    log_validator = getattr(
+        logger,
+        "log_validator",
+        None,
+    )
+    log_runtime = getattr(
+        logger,
+        "log_runtime",
+        None,
+    )
+
+    for marker in removed_markers:
+        preview = build_runtime_action_marker_preview(
+            marker
+        )
+
+        message = (
+            "Runtime action marker stripped.\n"
+            f"Source: {source}\n"
+            f'Preview: "{preview}"'
+        )
+
+        if log_validator is not None:
+            await log_validator(
+                message
+            )
+            continue
+
+        if log_runtime is not None:
+            await log_runtime(
+                message
+            )
+
+
 async def apply_runtime_action_calls(
     context,
     actions,

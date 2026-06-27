@@ -131,6 +131,34 @@ class RuntimeActionTests(unittest.TestCase):
             result.count("SAVE_SESSION"),
             1,
         )
+        self.assertEqual(
+            result.removed_markers,
+            (
+                "<INTERNAL_ACTION_SAVE_SESSION>",
+            ),
+        )
+
+    def test_logs_marker_removal_even_when_action_disabled(self):
+
+        result = extract_runtime_actions(
+            "before <INTERNAL_ACTION_SAVE_SESSION> after",
+            enabled_actions=[],
+        )
+
+        self.assertEqual(
+            result.text,
+            "before  after",
+        )
+        self.assertEqual(
+            result.actions,
+            (),
+        )
+        self.assertEqual(
+            result.removed_markers,
+            (
+                "<INTERNAL_ACTION_SAVE_SESSION>",
+            ),
+        )
 
     def test_extracts_bracketed_create_active_memory_marker(self):
 
