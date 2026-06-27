@@ -111,6 +111,7 @@ ACTIVE_MEMORY_RUNTIME_LINE_RE = re.compile(
 
 ACTIVE_MEMORY_LIFECYCLE_SUFFIX_NAMES = (
     "creation_time",
+    "created_session_id",
     "created_jin_message_number",
     "elapsed_time",
     "elapsed_jin_message_number",
@@ -119,7 +120,7 @@ ACTIVE_MEMORY_LIFECYCLE_SUFFIX_NAMES = (
 ACTIVE_MEMORY_LIFECYCLE_SUFFIX_RE = re.compile(
     (
         r"\s*\[\s*"
-        r"(?:creation_time|created_jin_message_number|"
+        r"(?:creation_time|created_session_id|created_jin_message_number|"
         r"elapsed_time|elapsed_jin_message_number)"
         r"\s*:\s*[^\]]*\]\s*"
     ),
@@ -530,6 +531,7 @@ def _runtime_user_idle_seconds(
 def _build_active_memory_lifecycle_suffixes(
     *,
     creation_time: str,
+    created_session_id: str = "",
     created_jin_message_number: int,
     elapsed_time: str,
     elapsed_jin_message_number: int,
@@ -537,6 +539,10 @@ def _build_active_memory_lifecycle_suffixes(
 
     values = {
         "creation_time": creation_time,
+        "created_session_id": str(
+            created_session_id
+            or ""
+        ).strip(),
         "created_jin_message_number": str(
             created_jin_message_number
         ),
@@ -549,6 +555,7 @@ def _build_active_memory_lifecycle_suffixes(
     return " ".join(
         f"[ {name}: {values[name]} ]"
         for name in ACTIVE_MEMORY_LIFECYCLE_SUFFIX_NAMES
+        if values[name]
     )
 
 
@@ -706,6 +713,20 @@ def refresh_active_memory_runtime_metadata(
             )
             or current_timestamp
         )
+        created_session_id = (
+            _parse_active_memory_suffix(
+                previous_value,
+                "created_session_id",
+            )
+            or str(
+                getattr(
+                    context,
+                    "session_id",
+                    "",
+                )
+                or ""
+            ).strip()
+        )
         created_jin_message_number = _parse_runtime_int(
             _parse_active_memory_created_jin_message_suffix(
                 previous_value
@@ -749,6 +770,7 @@ def refresh_active_memory_runtime_metadata(
             value,
             _build_active_memory_lifecycle_suffixes(
                 creation_time=creation_time,
+                created_session_id=created_session_id,
                 created_jin_message_number=created_jin_message_number,
                 elapsed_time=_format_runtime_elapsed_time(
                     elapsed_seconds

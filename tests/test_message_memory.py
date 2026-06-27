@@ -1481,12 +1481,17 @@ class MessageMemoryTests(
             ),
             context=SimpleNamespace(
                 timestamp="2026-06-20T10:00:00",
+                session_id="session-alpha",
                 turn_number=3,
             ),
         )
 
         self.assertIn(
             "[ creation_time: 2026-06-20T10:00:00 ]",
+            memory,
+        )
+        self.assertIn(
+            "[ created_session_id: session-alpha ]",
             memory,
         )
         self.assertIn(
@@ -1508,6 +1513,7 @@ class MessageMemoryTests(
             "active_memory: Secret word: Sun "
             "[ purpose: Ask user to guess ] "
             "[ creation_time: 2026-06-20T10:00:00 ] "
+            "[ created_session_id: session-alpha ] "
             "[ created_jin_message_number: 3 ] "
             "[ elapsed_time: 00:00:00 ] "
             "[ elapsed_jin_message_number: 0 ] "
@@ -1523,12 +1529,17 @@ class MessageMemoryTests(
             previous_memory=previous_memory,
             context=SimpleNamespace(
                 timestamp="2026-06-20T11:02:03",
+                session_id="session-beta",
                 turn_number=5,
             ),
         )
 
         self.assertIn(
             "[ creation_time: 2026-06-20T10:00:00 ]",
+            memory,
+        )
+        self.assertIn(
+            "[ created_session_id: session-alpha ]",
             memory,
         )
         self.assertIn(
@@ -1616,6 +1627,7 @@ class MessageMemoryTests(
                 "active_memory: Secret word: Sun "
                 "[ purpose: Ask user to guess ] "
                 "[ creation_time: 2026-06-20T10:00:00 ] "
+                "[ created_session_id: session-alpha ] "
                 "[ created_jin_message_number: 3 ] "
                 "[ elapsed_time: 01:02:03 ] "
                 "[ elapsed_jin_message_number: 2 ] "
@@ -1641,6 +1653,10 @@ class MessageMemoryTests(
             memory,
         )
         self.assertNotIn(
+            "created_session_id",
+            memory,
+        )
+        self.assertNotIn(
             "elapsed_time",
             memory,
         )
@@ -1653,6 +1669,7 @@ class MessageMemoryTests(
                 "[ conditions: Ask when user returns ] "
                 "[ value: Sun ] "
                 "[ creation_time: 2026-06-20T10:00:00 ] "
+                "[ created_session_id: session-alpha ] "
                 "[ elapsed_time: 01:02:03 ] "
                 "[ status: pending ]"
             )
@@ -1669,6 +1686,10 @@ class MessageMemoryTests(
         )
         self.assertNotIn(
             "creation_time",
+            memory,
+        )
+        self.assertNotIn(
+            "created_session_id",
             memory,
         )
         self.assertNotIn(

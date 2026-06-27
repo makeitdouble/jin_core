@@ -1203,6 +1203,7 @@ class RuntimeActionTests(unittest.TestCase):
         context = Context()
         context.emitter = Emitter()
         context.timestamp = "2026-06-20T10:00:00"
+        context.session_id = "test-session"
         context.turn_number = 3
 
         applied_count = asyncio.run(
@@ -1248,6 +1249,7 @@ class RuntimeActionTests(unittest.TestCase):
                 r"\[ active_memory_id: [a-z0-9]{6} \] "
                 r"\[ conditions: remind later \] "
                 r"\[ creation_time: 2026-06-20T10:00:00 \] "
+                r"\[ created_session_id: test-session \] "
                 r"\[ created_jin_message_number: 3 \] "
                 r"\[ elapsed_time: 00:00:00 \] "
                 r"\[ elapsed_jin_message_number: 0 \] "
@@ -1274,6 +1276,7 @@ class RuntimeActionTests(unittest.TestCase):
         context = Context()
         context.emitter = Emitter()
         context.timestamp = "2026-06-24T15:00:00"
+        context.session_id = "tab-session"
         context.turn_number = 7
         context.runtime_memory = "session_status: active"
         context.runtime_memory_updates = 0
@@ -1313,6 +1316,7 @@ class RuntimeActionTests(unittest.TestCase):
                 r"\[ active_memory_id: [a-z0-9]{6} \] "
                 r"\[ conditions: Drink coffee \| Trigger in 5 minutes \| coffee \] "
                 r"\[ creation_time: 2026-06-24T15:00:00 \] "
+                r"\[ created_session_id: tab-session \] "
                 r"\[ created_jin_message_number: 7 \] "
                 r"\[ elapsed_time: 00:00:00 \] "
                 r"\[ elapsed_jin_message_number: 0 \] "
