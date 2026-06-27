@@ -8,6 +8,7 @@ from clients.brain_client import (
     ask_brain_stream,
     build_brain_payload,
     build_brain_system_prompt,
+    emit_active_memory_records_update_if_dirty,
 )
 
 from clients.search_client import (
@@ -144,7 +145,12 @@ class BrainNode(BaseNode):
             build_brain_system_prompt(
                 context,
                 runtime_actions=runtime_actions,
+                commit_active_memory_refresh=True,
             )
+        )
+
+        await emit_active_memory_records_update_if_dirty(
+            context
         )
 
         context.runtime_zero_diff_alert = None
@@ -227,7 +233,12 @@ class BrainNode(BaseNode):
                 build_brain_system_prompt(
                     context,
                     runtime_actions=followup_runtime_actions,
+                    commit_active_memory_refresh=True,
                 )
+            )
+
+            await emit_active_memory_records_update_if_dirty(
+                context
             )
 
             followup_payload = (

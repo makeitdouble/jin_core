@@ -158,6 +158,105 @@ class RuntimeActionTests(unittest.TestCase):
             "remind later | tomorrow | coffee",
         )
 
+    def test_dedupes_duplicate_runtime_action_markers_by_payload(self):
+
+        cases = (
+            (
+                (
+                    "Before "
+                    "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: Remind to drink coffee>"
+                    " middle "
+                    "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: Remind to drink coffee>"
+                    " after"
+                ),
+                [
+                    "CAN_SAVE_ACTIVE_MEMORY",
+                ],
+                (
+                    RuntimeActionCall(
+                        name="CREATE_ACTIVE_MEMORY",
+                        payload="Remind to drink coffee",
+                    ),
+                ),
+                "Before  middle  after",
+            ),
+            (
+                (
+                    "Before "
+                    "<INTERNAL_ACTION_SAVE_SESSION>"
+                    " middle "
+                    "<INTERNAL_ACTION_SAVE_SESSION>"
+                    " after"
+                ),
+                [
+                    "CAN_SAVE_SESSION",
+                ],
+                (
+                    RuntimeActionCall(
+                        name="SAVE_SESSION",
+                    ),
+                ),
+                "Before  middle  after",
+            ),
+            (
+                (
+                    "Before\n"
+                    "INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: Remind to drink coffee\n"
+                    "INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: Remind to drink coffee\n"
+                    "After"
+                ),
+                [
+                    "CAN_SAVE_ACTIVE_MEMORY",
+                ],
+                (
+                    RuntimeActionCall(
+                        name="CREATE_ACTIVE_MEMORY",
+                        payload="Remind to drink coffee",
+                    ),
+                ),
+                "Before\nAfter",
+            ),
+            (
+                (
+                    "Before\n"
+                    "INTERNAL_ACTION_SAVE_SESSION\n"
+                    "INTERNAL_ACTION_SAVE_SESSION\n"
+                    "After"
+                ),
+                [
+                    "CAN_SAVE_SESSION",
+                ],
+                (
+                    RuntimeActionCall(
+                        name="SAVE_SESSION",
+                    ),
+                ),
+                "Before\nAfter",
+            ),
+        )
+
+        for text, enabled_actions, expected_actions, expected_text in cases:
+            with self.subTest(
+                text=text,
+            ):
+                result = extract_runtime_actions(
+                    text,
+                    enabled_actions=enabled_actions,
+                )
+
+                self.assertEqual(
+                    result.text,
+                    expected_text,
+                )
+                self.assertEqual(
+                    result.actions,
+                    expected_actions,
+                )
+                self.assertNotIn(
+                    "INTERNAL_ACTION_",
+                    result.text,
+                )
+
     def test_extracts_bare_create_active_memory_marker_line(self):
 
         result = extract_runtime_actions(
@@ -585,6 +684,43 @@ class RuntimeActionTests(unittest.TestCase):
             "REMINDER: Drink coffee in 5 minutes",
         )
 
+    def test_stream_filter_dedupes_duplicate_markers_across_chunks(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: Remind to drink coffee>"
+        )
+        second = stream_filter.filter(
+            "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: Remind to drink coffee>"
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.actions,
+            (
+                RuntimeActionCall(
+                    name="CREATE_ACTIVE_MEMORY",
+                    payload="Remind to drink coffee",
+                ),
+            ),
+        )
+        self.assertEqual(
+            second.text,
+            "",
+        )
+        self.assertEqual(
+            second.actions,
+            (),
+        )
+
     def test_apply_runtime_action_calls_stores_search_queries(self):
 
         class Context:
@@ -930,7 +1066,7 @@ class RuntimeActionTests(unittest.TestCase):
             context.active_memory_records[0],
             (
                 r"^active_memory_1: remind later "
-                r"\[ id: [a-z0-9]{6} \] "
+                r"\[ active_memory_id: [a-z0-9]{6} \] "
                 r"\[ conditions: remind later \] "
                 r"\[ creation_time: 2026-06-20T10:00:00 \] "
                 r"\[ created_jin_message_number: 3 \] "
@@ -995,7 +1131,7 @@ class RuntimeActionTests(unittest.TestCase):
             context.active_memory_records[0],
             (
                 r"^active_memory_1: Drink coffee \| Trigger in 5 minutes \| coffee "
-                r"\[ id: [a-z0-9]{6} \] "
+                r"\[ active_memory_id: [a-z0-9]{6} \] "
                 r"\[ conditions: Drink coffee \| Trigger in 5 minutes \| coffee \] "
                 r"\[ creation_time: 2026-06-24T15:00:00 \] "
                 r"\[ created_jin_message_number: 7 \] "
@@ -1037,20 +1173,14 @@ class RuntimeActionTests(unittest.TestCase):
         context.emitter = Emitter()
         context.runtime_memory = (
             "session_status: active\n"
-            "active_memory: remember cuckoo [ id: 5fdg4g ] "
+            "active_memory: remember cuckoo [ active_memory_id: 5fdg4g ] "
             "[ status: pending ]\n"
             "user_message: hello"
         )
         context.runtime_memory_stable = context.runtime_memory
-        context.runtime_pending_active_memory_records = [
-            (
-                "active_memory: keep this [ id: abc123 ] "
-                "[ status: pending ]"
-            ),
-        ]
         context.active_memory_records = [
             (
-                "active_memory_1: remember cuckoo [ id: 5fdg4g ] "
+                "active_memory_1: remember cuckoo [ active_memory_id: 5fdg4g ] "
                 "[ status: pending ]"
             ),
         ]
@@ -1084,15 +1214,6 @@ class RuntimeActionTests(unittest.TestCase):
             context.runtime_memory,
         )
         self.assertEqual(
-            context.runtime_pending_active_memory_records,
-            [
-                (
-                    "active_memory: keep this [ id: abc123 ] "
-                    "[ status: pending ]"
-                ),
-            ],
-        )
-        self.assertEqual(
             context.active_memory_records,
             [],
         )
@@ -1120,7 +1241,6 @@ class RuntimeActionTests(unittest.TestCase):
         context = Context()
         context.runtime_action_events = []
         context.runtime_search_calls = []
-        context.runtime_pending_active_memory_records = []
         context.active_memory_records = []
         context.runtime_memory = ""
         context.runtime_memory_stable = ""
@@ -1157,10 +1277,6 @@ class RuntimeActionTests(unittest.TestCase):
             1,
         )
         self.assertEqual(
-            context.runtime_pending_active_memory_records,
-            [],
-        )
-        self.assertEqual(
             len(context.active_memory_records),
             2,
         )
@@ -1180,11 +1296,10 @@ class RuntimeActionTests(unittest.TestCase):
 
         context = Context()
         context.runtime_memory = (
-            "active_memory: remember cuckoo [ id: 5fdg4g ] "
+            "active_memory: remember cuckoo [ active_memory_id: 5fdg4g ] "
             "[ status: pending ]"
         )
         context.runtime_memory_stable = context.runtime_memory
-        context.runtime_pending_active_memory_records = []
 
         applied_count = asyncio.run(
             apply_runtime_action_calls(

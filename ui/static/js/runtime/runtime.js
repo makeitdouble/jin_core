@@ -105,6 +105,7 @@ const {
   clearOtherLatestRuntimeMemorySnapshots,
   getSavedRuntimeMemoryFallback,
   readActiveMemoryRecords,
+  writeActiveMemoryRecords,
   clearActiveMemoryRecords,
   appendActiveMemoryRecords: appendStoredActiveMemoryRecords,
   removeActiveMemoryRecordById: removeStoredActiveMemoryRecordById,
@@ -451,6 +452,22 @@ function appendActiveMemoryRecordsAndRender(
 }
 
 
+function replaceActiveMemoryRecordsAndRender(
+  records
+) {
+
+  writeActiveMemoryRecords(
+    records
+  );
+
+  showLatestRuntimeMemorySnapshot();
+  renderRuntimeMemorySnapshot();
+
+  return readActiveMemoryRecords();
+
+}
+
+
 function removeActiveMemoryRecordByIdAndRender(
   activeMemoryId
 ) {
@@ -695,6 +712,7 @@ window.JinRuntime.runtime = {
 
     return records;
   },
+  replaceActiveMemoryRecords: replaceActiveMemoryRecordsAndRender,
   appendActiveMemoryRecords: appendActiveMemoryRecordsAndRender,
   removeActiveMemoryRecordById: removeActiveMemoryRecordByIdAndRender,
 };

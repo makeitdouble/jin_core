@@ -398,11 +398,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
             runtime_memory="session_status: active",
             runtime_memory_stable="session_status: active",
             runtime_l2_memory="",
-            runtime_pending_active_memory_records=[],
             active_memory_records=[
                 (
                     "active_memory_1: remember cuckoo "
-                    "[ id: 5fdg4g ] [ status: pending ]"
+                    "[ active_memory_id: 5fdg4g ] [ status: pending ]"
                 ),
             ],
         )
@@ -462,7 +461,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
             runtime_memory="session_status: active",
             runtime_memory_stable="session_status: active",
             runtime_l2_memory="",
-            runtime_pending_active_memory_records=[],
             active_memory_records=[],
         )
 

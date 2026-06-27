@@ -318,57 +318,6 @@ def remove_active_memory_entries(
     ).strip()
 
 
-def extract_active_memory_entries(
-    memory: str,
-) -> str:
-
-    parse_runtime_memory_lines, _, _ = _runtime_memory_helpers()
-    parsed_lines = parse_runtime_memory_lines(
-        memory
-    )
-
-    if not parsed_lines:
-        return ""
-
-    return "\n".join(
-        _active_memory_line_text(
-            line
-        )
-        for line in parsed_lines
-        if is_active_memory_key(
-            (
-                line.get(
-                    "key",
-                    "",
-                )
-                or ""
-            ).strip()
-        )
-    ).strip()
-
-
-def merge_runtime_owned_active_memory_entries(
-    previous_memory: str,
-    candidate_memory: str,
-) -> str:
-
-    candidate_without_active_memory = remove_active_memory_entries(
-        candidate_memory
-    )
-    active_memory = extract_active_memory_entries(
-        previous_memory
-    )
-
-    return "\n".join(
-        line
-        for line in (
-            candidate_without_active_memory,
-            active_memory,
-        )
-        if str(line or "").strip()
-    ).strip()
-
-
 def _parse_active_memory_suffix(
     value: str,
     suffix_name: str,
@@ -793,145 +742,6 @@ def refresh_active_memory_runtime_metadata(
         updated_lines.append(
             f"{key}: {value}".strip()
         )
-
-    return "\n".join(
-        line
-        for line in updated_lines
-        if line.strip()
-    ).strip()
-
-
-def _normalize_active_memory_value(
-    value: str,
-) -> str:
-
-    cleaned = ACTIVE_MEMORY_STATUS_FIELD_RE.sub(
-        " ",
-        str(value or ""),
-    )
-    cleaned = ACTIVE_MEMORY_TRACE_FIELD_RE.sub(
-        " ",
-        cleaned,
-    )
-    cleaned = ACTIVE_MEMORY_LIFECYCLE_SUFFIX_RE.sub(
-        " ",
-        cleaned,
-    )
-
-    return re.sub(
-        r"\s+",
-        " ",
-        cleaned.strip().casefold(),
-    )
-
-
-def normalize_active_memory_slots(
-    previous_memory: str,
-    candidate_memory: str,
-) -> str:
-
-    parse_runtime_memory_lines, durable_memory_line_text, _ = (
-        _runtime_memory_helpers()
-    )
-    used_indexes = collect_active_memory_slot_indexes(
-        previous_memory
-    )
-    previous_values = {
-        _normalize_active_memory_value(
-            line.get(
-                "value",
-                "",
-            )
-        )
-        for line in parse_runtime_memory_lines(
-            previous_memory
-        )
-        if is_active_memory_key(
-            line.get(
-                "key",
-                "",
-            )
-        )
-    }
-    emitted_previous = False
-    updated_lines = []
-
-    def emit_previous_active_memory() -> None:
-
-        nonlocal emitted_previous
-
-        if emitted_previous:
-            return
-
-        emitted_previous = True
-
-        for line in parse_runtime_memory_lines(
-            previous_memory
-        ):
-            if is_active_memory_key(
-                line.get(
-                    "key",
-                    "",
-                )
-            ):
-                updated_lines.append(
-                    durable_memory_line_text(
-                        line
-                    )
-                )
-
-    for line in parse_runtime_memory_lines(
-        candidate_memory
-    ):
-        key = (
-            line.get(
-                "key",
-                "",
-            )
-            or ""
-        ).strip()
-        value = (
-            line.get(
-                "value",
-                "",
-            )
-            or ""
-        ).strip()
-
-        if not is_active_memory_key(
-            key
-        ):
-            updated_lines.append(
-                durable_memory_line_text(
-                    line
-                )
-            )
-            continue
-
-        emit_previous_active_memory()
-        normalized_value = _normalize_active_memory_value(
-            value
-        )
-
-        if normalized_value in previous_values:
-            continue
-
-        index = 1
-
-        while index in used_indexes:
-            index += 1
-
-        used_indexes.add(
-            index
-        )
-        previous_values.add(
-            normalized_value
-        )
-        updated_lines.append(
-            f"active_memory_{index}: {value}".strip()
-        )
-
-    emit_previous_active_memory()
 
     return "\n".join(
         line
@@ -1553,6 +1363,7 @@ def extract_runtime_actions(
     text: str,
     enabled_actions=None,
     preserve_action_text: bool = False,
+    seen_action_keys=None,
 ) -> RuntimeActionResult:
 
     if not text:
@@ -1564,6 +1375,9 @@ def extract_runtime_actions(
         enabled_actions
     )
     actions = []
+
+    if seen_action_keys is None:
+        seen_action_keys = set()
 
     def replace_marker(match):
 
@@ -1579,9 +1393,18 @@ def extract_runtime_actions(
             action is not None
             and action.name in enabled_action_names
         ):
-            actions.append(
-                action
+            action_key = (
+                action.name,
+                action.payload,
             )
+
+            if action_key not in seen_action_keys:
+                seen_action_keys.add(
+                    action_key
+                )
+                actions.append(
+                    action
+                )
 
         return (
             match.group(0)
@@ -1812,6 +1635,7 @@ def _extract_runtime_actions_if_needed(
     *,
     enabled_actions=None,
     preserve_action_text: bool = False,
+    seen_action_keys=None,
 ) -> RuntimeActionResult:
 
     if not text:
@@ -1830,6 +1654,7 @@ def _extract_runtime_actions_if_needed(
         text,
         enabled_actions=enabled_actions,
         preserve_action_text=preserve_action_text,
+        seen_action_keys=seen_action_keys,
     )
 
 
@@ -1897,6 +1722,7 @@ class RuntimeActionStreamFilter:
         self.pending = ""
         self.pending_is_action = False
         self.preserve_action_text = preserve_action_text
+        self.seen_action_keys = set()
         self.enabled_actions = normalize_runtime_action_names(
             enabled_actions
         )
@@ -1934,6 +1760,7 @@ class RuntimeActionStreamFilter:
                     ],
                     enabled_actions=self.enabled_actions,
                     preserve_action_text=self.preserve_action_text,
+                    seen_action_keys=self.seen_action_keys,
                 )
 
         if (
@@ -1979,6 +1806,7 @@ class RuntimeActionStreamFilter:
                 ],
                 enabled_actions=self.enabled_actions,
                 preserve_action_text=self.preserve_action_text,
+                seen_action_keys=self.seen_action_keys,
             )
 
         hold_length = _trailing_marker_prefix_length(
@@ -1998,12 +1826,14 @@ class RuntimeActionStreamFilter:
                 ],
                 enabled_actions=self.enabled_actions,
                 preserve_action_text=self.preserve_action_text,
+                seen_action_keys=self.seen_action_keys,
             )
 
         return _extract_runtime_actions_if_needed(
             combined,
             enabled_actions=self.enabled_actions,
             preserve_action_text=self.preserve_action_text,
+            seen_action_keys=self.seen_action_keys,
         )
 
     def flush(self) -> str:

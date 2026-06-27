@@ -157,6 +157,19 @@ def apply_active_memory_records(
     context.active_memory_records = records
 
 
+def active_memory_records_text(context) -> str:
+
+    return "\n".join(
+        str(record or "").strip()
+        for record in getattr(
+            context,
+            "active_memory_records",
+            [],
+        )
+        if str(record or "").strip()
+    )
+
+
 def clean_bootstrap_memory(
     value,
     *,
@@ -994,6 +1007,16 @@ def apply_runtime_resume(
     if runtime_memory_is_snapshot_fallback:
         runtime_memory_updates = 0
 
+    active_memory_text = active_memory_records_text(
+        context
+    )
+
+    if active_memory_text:
+        hydrate_runtime_counters_from_active_memory(
+            context,
+            active_memory_text,
+        )
+
     runtime_memory = refresh_restored_active_memory_runtime_metadata(
         context,
         runtime_memory,
@@ -1171,6 +1194,16 @@ def apply_session_bootstrap(
             session_memory_updates=session_memory_updates,
         )
         runtime_memory_updates = 0
+
+    active_memory_text = active_memory_records_text(
+        context
+    )
+
+    if active_memory_text:
+        hydrate_runtime_counters_from_active_memory(
+            context,
+            active_memory_text,
+        )
 
     if runtime_memory and not stale_runtime_memory_for_ui:
         runtime_memory = refresh_restored_active_memory_runtime_metadata(

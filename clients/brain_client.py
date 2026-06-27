@@ -49,6 +49,7 @@ def build_brain_system_prompt(
     context=None,
     runtime_actions=None,
     user_input: str = "",
+    commit_active_memory_refresh: bool = False,
 ) -> str:
 
     enabled_actions = get_enabled_runtime_actions(
@@ -70,12 +71,56 @@ def build_brain_system_prompt(
     runtime_context = build_brain_runtime_context(
         context,
         runtime_actions,
+        commit_active_memory_refresh=commit_active_memory_refresh,
     )
 
     return (
         f"{prompt_prefix}"
         f"{runtime_context}"
     )
+
+
+async def emit_active_memory_records_update_if_dirty(
+    context,
+) -> None:
+
+    if context is None:
+        return
+
+    if not getattr(
+        context,
+        "runtime_active_memory_records_dirty",
+        False,
+    ):
+        return
+
+    context.runtime_active_memory_records_dirty = False
+
+    emitter = getattr(
+        context,
+        "emitter",
+        None,
+    )
+    emit = getattr(
+        emitter,
+        "emit",
+        None,
+    )
+
+    if emit is None:
+        return
+
+    await emit({
+        "type": "active_memory_records_update",
+        "active_memory_records": list(
+            getattr(
+                context,
+                "active_memory_records",
+                [],
+            )
+            or []
+        ),
+    })
 
 
 # ---------------------------------------------------------
@@ -114,7 +159,12 @@ async def ask_brain(
             context,
             runtime_actions,
             user_input=brain_payload,
+            commit_active_memory_refresh=True,
         )
+    )
+
+    await emit_active_memory_records_update_if_dirty(
+        context
     )
 
     # -----------------------------------------------------
@@ -304,8 +354,14 @@ async def ask_brain_stream(
             context,
             runtime_actions,
             user_input=resolved_brain_payload,
+            commit_active_memory_refresh=True,
         )
     )
+
+    if system_prompt is None:
+        await emit_active_memory_records_update_if_dirty(
+            context
+        )
 
     enabled_actions = get_enabled_runtime_actions(
         runtime_actions

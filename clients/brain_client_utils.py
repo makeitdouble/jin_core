@@ -227,11 +227,6 @@ def collect_context_active_memory_texts(
     context,
 ) -> tuple[str, ...]:
 
-    pending_records = getattr(
-        context,
-        "runtime_pending_active_memory_records",
-        None,
-    )
     active_records = getattr(
         context,
         "active_memory_records",
@@ -247,10 +242,6 @@ def collect_context_active_memory_texts(
             context,
             "runtime_memory_stable",
             "",
-        ),
-        "\n".join(
-            str(record or "")
-            for record in (pending_records or ())
         ),
         "\n".join(
             str(record or "")
@@ -373,19 +364,13 @@ async def resolve_active_memory_runtime_record(
             )
             removed = True
 
-    for records_attr_name in (
-        "runtime_pending_active_memory_records",
+    records = getattr(
+        context,
         "active_memory_records",
-    ):
-        records = getattr(
-            context,
-            records_attr_name,
-            None,
-        )
+        None,
+    )
 
-        if not records:
-            continue
-
+    if records:
         kept_records = []
 
         for record in records:
@@ -405,7 +390,7 @@ async def resolve_active_memory_runtime_record(
         if len(kept_records) != len(records):
             setattr(
                 context,
-                records_attr_name,
+                "active_memory_records",
                 kept_records,
             )
 

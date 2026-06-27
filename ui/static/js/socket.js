@@ -934,6 +934,25 @@ function handleSocketMessage(event) {
     );
   }
 
+  if (
+    data.type
+    === "active_memory_records_update"
+  ) {
+
+    if (
+        window.JinRuntime
+        && window.JinRuntime.runtime
+        && window.JinRuntime.runtime.replaceActiveMemoryRecords
+    ) {
+      window.JinRuntime.runtime.replaceActiveMemoryRecords(
+        data.active_memory_records || []
+      );
+    }
+
+    return;
+
+  }
+
   if (data.type === "fact_check_state") {
     if (data.active) {
       startFactCheckGlow();

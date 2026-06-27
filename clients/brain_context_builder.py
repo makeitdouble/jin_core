@@ -171,6 +171,8 @@ def append_session_event_snapshots(
 def append_L1_runtime_memory(
     parts: list[str],
     context=None,
+    *,
+    commit_active_memory_refresh: bool = False,
 ) -> None:
 
     if context is None:
@@ -207,12 +209,54 @@ def append_L1_runtime_memory(
     ]
 
     if active_memory_records:
-        active_memory_text = refresh_active_memory_runtime_metadata(
-            "\n".join(active_memory_records),
-            context=context,
-            previous_memory="\n".join(active_memory_records),
-            add_runtime_user_idle_to_elapsed=True,
+        active_memory_refresh_turn = (
+            getattr(
+                context,
+                "turn_number",
+                0,
+            ),
+            getattr(
+                context,
+                "user_message_count",
+                0,
+            ),
         )
+        active_memory_refresh_committed = (
+            commit_active_memory_refresh
+            and getattr(
+                context,
+                "runtime_active_memory_records_refresh_turn",
+                None,
+            )
+            == active_memory_refresh_turn
+        )
+        previous_active_memory_text = "\n".join(
+            active_memory_records
+        )
+        active_memory_text = (
+            previous_active_memory_text
+            if active_memory_refresh_committed
+            else refresh_active_memory_runtime_metadata(
+                previous_active_memory_text,
+                context=context,
+                previous_memory=previous_active_memory_text,
+                add_runtime_user_idle_to_elapsed=True,
+            )
+        )
+
+        if commit_active_memory_refresh:
+            context.runtime_active_memory_records_refresh_turn = (
+                active_memory_refresh_turn
+            )
+            refreshed_records = [
+                line.strip()
+                for line in active_memory_text.splitlines()
+                if line.strip()
+            ]
+
+            if refreshed_records != active_memory_records:
+                context.active_memory_records = refreshed_records
+                context.runtime_active_memory_records_dirty = True
 
         parts.append(
             "<ACTIVE_MEMORY priority=\"active_runtime_contracts\">\n"
@@ -497,6 +541,8 @@ def append_tool_results(
 def build_brain_runtime_context(
     context=None,
     runtime_actions=None,
+    *,
+    commit_active_memory_refresh: bool = False,
 ) -> str:
 
     parts = [
@@ -521,6 +567,7 @@ def build_brain_runtime_context(
     append_L1_runtime_memory(
         parts,
         context,
+        commit_active_memory_refresh=commit_active_memory_refresh,
     )
     append_L2_runtime_memory(
         parts,

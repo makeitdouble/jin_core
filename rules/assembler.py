@@ -80,17 +80,6 @@ def _append_resolve_active_memory_rules(
         getattr(context, "runtime_memory_stable", ""),
     ]
 
-    pending_records = getattr(
-        context,
-        "runtime_pending_active_memory_records",
-        None,
-    )
-    if pending_records:
-        memory_texts.extend(
-            str(record or "")
-            for record in pending_records
-        )
-
     active_records = getattr(
         context,
         "active_memory_records",
