@@ -94,6 +94,58 @@ class StreamHandler:
             "chunk": chunk,
         })
 
+    async def log_validator_cleanup_events(
+        self,
+    ):
+
+        if not self.validator:
+            return
+
+        if not self.validator.cleanup_events:
+            return
+
+        for event in (
+            self.validator.cleanup_events
+        ):
+
+            await self.logger.log_validator(
+                f'{event["reason"]}\n'
+                f'Preview: "{event["preview"]}"'
+            )
+
+        self.validator.cleanup_events.clear()
+
+    async def flush_validator_tail(
+        self,
+        *,
+        emit: bool = True,
+    ):
+
+        if not self.validator:
+            return
+
+        safe_tail = (
+            self.validator.flush_trailing_artifact_candidate()
+        )
+
+        await self.log_validator_cleanup_events()
+
+        if not safe_tail:
+            return
+
+        self.response += safe_tail
+
+        if not emit:
+            return
+
+        await self.websocket.send_json({
+            "type": "message_chunk",
+            "message_id": (
+                self.message_id
+            ),
+            "chunk": safe_tail,
+        })
+
     # ---------------------------------------------------------
     # CONTENT
     # ---------------------------------------------------------
@@ -115,22 +167,7 @@ class StreamHandler:
                 )
             )
 
-            # ---------------------------------------------------------
-            # CLEANUP EVENTS
-            # ---------------------------------------------------------
-
-            if self.validator.cleanup_events:
-
-                for event in (
-                    self.validator.cleanup_events
-                ):
-
-                    await self.logger.log_validator(
-                        f'{event["reason"]}\n'
-                        f'Preview: "{event["preview"]}"'
-                    )
-
-                self.validator.cleanup_events.clear()
+            await self.log_validator_cleanup_events()
 
             if not is_valid:
 
@@ -228,6 +265,10 @@ class StreamHandler:
         *,
         emit: bool = True,
     ):
+
+        await self.flush_validator_tail(
+            emit=emit,
+        )
 
         if not emit:
             return
