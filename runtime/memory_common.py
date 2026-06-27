@@ -15,7 +15,7 @@ from config_loader import (
 from app_settings import (
     settings,
 )
-from runtime.context_contract import (
+from runtime.runtime_context import (
     ContextContract,
 )
 from runtime.L1_memory_rules import (
@@ -456,16 +456,21 @@ async def log_active_memory_event(
 
 def extract_runtime_memory_text(
         response: dict,
+        *,
+        allow_reasoning_fallback: bool = True,
 ) -> str:
 
-    text = (
-            ResponseExtractor.extract_content_text(
-                response
-            )
-            or ResponseExtractor.extract_reasoning_text(
+    text = ResponseExtractor.extract_content_text(
         response
     )
-    )
+
+    if (
+            not text
+            and allow_reasoning_fallback
+    ):
+        text = ResponseExtractor.extract_reasoning_text(
+            response
+        )
 
     return text.strip()
 
@@ -812,19 +817,98 @@ async def log_runtime_summarizer_result(
         event="summarizer_result",
     )
 
+def build_runtime_summarizer_response_details(
+        response: dict,
+        *,
+        extracted_memory: str = "",
+        allow_reasoning_fallback: bool = False,
+) -> str:
+
+    content = ResponseExtractor.extract_content_text(
+        response
+    )
+    reasoning = ResponseExtractor.extract_reasoning_text(
+        response
+    )
+    message = ResponseExtractor.extract_message(
+        response
+    )
+    choice = ResponseExtractor.extract_choice(
+        response
+    )
+    usage = response.get(
+        "usage",
+        {},
+    )
+
+    if not isinstance(
+            usage,
+            dict,
+    ):
+        usage = {}
+
+    payload = {
+        "kind": "summarizer_response",
+        "model": ResponseExtractor.extract_model(
+            response
+        ),
+        "finish_reason": ResponseExtractor.extract_finish_reason(
+            response
+        ),
+        "content": content,
+        "reasoning_content": reasoning,
+        "extracted_memory": extracted_memory,
+        "allow_reasoning_fallback": allow_reasoning_fallback,
+        "used_reasoning_fallback": (
+            bool(reasoning)
+            and not bool(content)
+            and allow_reasoning_fallback
+        ),
+        "usage": usage,
+        "message": message,
+        "choice_index": choice.get(
+            "index",
+            0,
+        ),
+    }
+
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
 def build_memory_update_skip_details(
         *,
         reason: str,
         previous_memory: str,
         candidate_memory: str,
+        summarizer_response_details: str = "",
 ) -> str:
 
-    return (
-        f"{reason}\n\n"
-        "Previous memory:\n"
-        "----------------\n"
-        f"{previous_memory.strip() or DEFAULT_RUNTIME_MEMORY}\n\n"
-        "Candidate memory:\n"
-        "-----------------\n"
-        f"{candidate_memory.strip() or '<empty>'}"
+    sections = [
+        f"Likely reason: {reason}",
+        "",
+        "Previous memory:",
+        "----------------",
+        previous_memory.strip() or DEFAULT_RUNTIME_MEMORY,
+        "",
+        "Candidate memory:",
+        "-----------------",
+        candidate_memory.strip() or "<empty>",
+    ]
+
+    response_details = (
+        str(summarizer_response_details or "").strip()
     )
+
+    if response_details:
+        sections.extend([
+            "",
+            "Summarizer response details:",
+            "----------------------------",
+            response_details,
+        ])
+
+    return "\n".join(sections)

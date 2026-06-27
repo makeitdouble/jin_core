@@ -9,13 +9,13 @@ from runtime import (
 from config_loader import (
     config,
 )
-from utils.brain import (
+from clients.brain_client_utils import (
     get_brain_runtime_config,
 )
 from websocket import (
     apply_runtime_resume,
     apply_session_bootstrap,
-    arm_remember_session_from_user_text,
+    arm_save_session_from_user_text,
     reject_when_all_models_offline,
     refresh_pending_brain_usage,
     wait_for_runtime_memory_update,
@@ -142,16 +142,16 @@ class FakeWebSocket:
 
 class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
 
-    async def test_arm_remember_session_prearms_without_banner(self):
+    async def test_arm_save_session_prearms_without_banner(self):
 
         context = SimpleNamespace(
             emitter=FakeEmitter(),
             logger=FakeLogger(),
-            runtime_remember_session_armed=False,
-            runtime_remember_session_requested=False,
+            runtime_save_session_armed=False,
+            runtime_save_session_requested=False,
         )
 
-        armed = await arm_remember_session_from_user_text(
+        armed = await arm_save_session_from_user_text(
             context,
             "\u0441\u043e\u0445\u0440\u0430\u043d\u0438 \u0441\u0435\u0441\u0441\u0438\u044e",
         )
@@ -160,13 +160,13 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             armed,
         )
         self.assertTrue(
-            context.runtime_remember_session_armed,
+            context.runtime_save_session_armed,
         )
         self.assertFalse(
-            context.runtime_remember_session_requested,
+            context.runtime_save_session_requested,
         )
         self.assertFalse(
-            context.runtime_remember_session_action_emitted,
+            context.runtime_save_session_action_emitted,
         )
         self.assertEqual(
             context.emitter.events,
@@ -408,7 +408,8 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             context,
             {
                 "type": "runtime_resume",
-                "runtime_memory": (
+                "runtime_memory": "session status: restored",
+                "active_memory_records": [
                     "active_memory: Remind the user about eating "
                     "[ purpose: Trigger notification to user about eating ] "
                     "[ creation_time: 2026-06-21T17:00:00 ] "
@@ -416,7 +417,7 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
                     "[ elapsed_time: 00:00:00 ] "
                     "[ elapsed_jin_message_number: 0 ] "
                     "[ status: pending ]"
-                ),
+                ],
                 "runtime_memory_updates": 1,
             },
         )
@@ -437,12 +438,12 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             2,
         )
         self.assertIn(
-            "[ elapsed_time: 00:05:00 ]",
-            context.runtime_memory,
+            "[ elapsed_time: 00:00:00 ]",
+            context.active_memory_records[0],
         )
         self.assertIn(
             "[ elapsed_jin_message_number: 0 ]",
-            context.runtime_memory,
+            context.active_memory_records[0],
         )
 
     async def test_session_bootstrap_hydrates_active_memory_elapsed_counter_floor(self):
@@ -469,7 +470,8 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             context,
             {
                 "type": "session_bootstrap",
-                "runtime_memory": (
+                "runtime_memory": "session status: restored",
+                "active_memory_records": [
                     "active_memory: Remind the user about eating "
                     "[ purpose: Trigger notification to user about eating ] "
                     "[ creation_time: 2026-06-21T17:00:00 ] "
@@ -477,7 +479,7 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
                     "[ elapsed_time: 00:00:00 ] "
                     "[ elapsed_jin_message_number: 3 ] "
                     "[ status: pending ]"
-                ),
+                ],
                 "runtime_memory_updates": 1,
             },
         )
@@ -498,12 +500,12 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             5,
         )
         self.assertIn(
-            "[ elapsed_time: 00:05:00 ]",
-            context.runtime_memory,
+            "[ elapsed_time: 00:00:00 ]",
+            context.active_memory_records[0],
         )
         self.assertIn(
             "[ elapsed_jin_message_number: 3 ]",
-            context.runtime_memory,
+            context.active_memory_records[0],
         )
 
     async def test_runtime_session_memory_update_is_not_browser_persisted_by_default(self):

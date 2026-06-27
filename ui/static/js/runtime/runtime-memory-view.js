@@ -6,6 +6,7 @@
   let memoryModel = null;
   let initialized = false;
   let userIdleValueNode = null;
+  let buildDisplaySnapshot = null;
 
   const pinnedRuntimeMemorySnapshotIndexes = new Set();
 
@@ -73,9 +74,11 @@
         ` ${text}`;
 
     updateRuntimeMemoryTitleMetrics(
-        runtimeMemoryHistory.snapshots[
-            runtimeMemoryHistory.index
-        ]
+        getDisplayRuntimeMemorySnapshot(
+            runtimeMemoryHistory.snapshots[
+                runtimeMemoryHistory.index
+            ]
+        )
     );
   }
 
@@ -91,6 +94,32 @@
       latestSnapshot,
       userIdleText
     );
+  }
+
+  function getDisplayRuntimeMemorySnapshot(
+    snapshot
+  ) {
+
+    if (!snapshot || typeof snapshot !== "object") {
+      return snapshot;
+    }
+
+    if (typeof buildDisplaySnapshot !== "function") {
+      return snapshot;
+    }
+
+    const displaySnapshot =
+        buildDisplaySnapshot(
+          snapshot
+        );
+
+    return (
+        displaySnapshot
+        && typeof displaySnapshot === "object"
+    )
+      ? displaySnapshot
+      : snapshot;
+
   }
 
   function formatRuntimeDiffNumber(value) {
@@ -332,15 +361,49 @@
         `${charCount} chars / ~${tokenCount} tokens`;
   }
 
-  function renderRuntimeMemorySnapshot() {
+  function clampRuntimeMemoryHistoryIndex() {
     requireRuntimeMemoryHistory();
 
-    const snapshot =
+    const snapshotCount =
+        runtimeMemoryHistory.snapshots.length;
+
+    if (!snapshotCount) {
+      runtimeMemoryHistory.index = -1;
+      return;
+    }
+
+    if (runtimeMemoryHistory.index < 0) {
+      runtimeMemoryHistory.index = 0;
+      return;
+    }
+
+    if (runtimeMemoryHistory.index >= snapshotCount) {
+      runtimeMemoryHistory.index = snapshotCount - 1;
+    }
+  }
+
+  function showLatestRuntimeMemorySnapshot() {
+    requireRuntimeMemoryHistory();
+
+    if (!runtimeMemoryHistory.snapshots.length) {
+      runtimeMemoryHistory.index = -1;
+      return;
+    }
+
+    runtimeMemoryHistory.index =
+        runtimeMemoryHistory.snapshots.length - 1;
+  }
+
+  function renderRuntimeMemorySnapshot() {
+    requireRuntimeMemoryHistory();
+    clampRuntimeMemoryHistoryIndex();
+
+    const sourceSnapshot =
         runtimeMemoryHistory.snapshots[
             runtimeMemoryHistory.index
             ];
 
-    if (!snapshot) {
+    if (!sourceSnapshot) {
       if (runtimeMemoryText) {
         runtimeMemoryText.textContent = "";
       }
@@ -355,6 +418,11 @@
       updateRuntimeMemoryPinGlow();
       return;
     }
+
+    const snapshot =
+        getDisplayRuntimeMemorySnapshot(
+            sourceSnapshot
+        );
 
     renderRuntimeMemoryLines(
         snapshot,
@@ -536,7 +604,7 @@
           "runtime-memory-key";
 
       keySpan.textContent =
-          `${key}:`;
+          `${memoryModel.runtimeMemoryDisplay.convertKeyToName(key) || key}:`;
 
       const valueSpan =
           document.createElement("span");
@@ -604,7 +672,7 @@
         "runtime-memory-key";
 
     keySpan.textContent =
-        "user_idle:";
+        `${memoryModel.runtimeMemoryDisplay.convertKeyToName("user_idle")}:`;
 
     const valueSpan =
         document.createElement("span");
@@ -749,6 +817,7 @@
     runtimeMemoryHistory = options.history;
     idle = options.idle;
     memoryModel = options.memoryModel;
+    buildDisplaySnapshot = options.buildDisplaySnapshot || null;
 
     if (!runtimeMemoryHistory) {
       throw new Error(
@@ -789,6 +858,7 @@
     setRuntimeDiffUpdate,
     updateUserIdleTimerText,
     freezeLatestRuntimeMemoryUserIdle,
+    showLatestRuntimeMemorySnapshot,
     isLatestRuntimeMemorySnapshot,
     updateTitleMetrics: updateRuntimeMemoryTitleMetrics,
   };

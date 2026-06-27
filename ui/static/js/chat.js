@@ -18,6 +18,7 @@ let thinkRuleCitationWorker = null;
 let thinkRuleCitationRegistryPromise = null;
 let nextThinkRuntimeCitationIndex = 0;
 const deferredRuntimeActionsAfterResponse = [];
+const visibleRuntimeActionKeys = new Set();
 const activeThinkRuleCitationJobs = new Map();
 
 const jinInputLoopState = {
@@ -1476,6 +1477,37 @@ function appendChatMessage(
 
 // RUNTIME ACTION
 
+function normalizeRuntimeActionKeyPart(value) {
+
+  return String(
+    value || ""
+  ).trim().toLowerCase();
+
+}
+
+function buildRuntimeActionVisibleKey(
+  action,
+  options = {}
+) {
+
+  const actionName =
+    normalizeRuntimeActionKeyPart(
+      action
+    );
+
+  const actionId =
+    normalizeRuntimeActionKeyPart(
+      options.id
+    );
+
+  if (actionId) {
+    return `${actionName}:${actionId}`;
+  }
+
+  return `${jinConversationTurnCounter}:${actionName}`;
+
+}
+
 function appendRuntimeAction(
   action,
   text,
@@ -1488,7 +1520,28 @@ function appendRuntimeAction(
     );
 
   if (!actionText.trim()) {
-    return;
+    return false;
+  }
+
+  const actionKey =
+    buildRuntimeActionVisibleKey(
+      action,
+      options
+    );
+
+  if (
+    actionKey
+    && visibleRuntimeActionKeys.has(
+      actionKey
+    )
+  ) {
+    return false;
+  }
+
+  if (actionKey) {
+    visibleRuntimeActionKeys.add(
+      actionKey
+    );
   }
 
   if (options.activateScene !== false) {
@@ -1506,6 +1559,9 @@ function appendRuntimeAction(
 
   row.dataset.runtimeAction =
     action || "";
+
+  row.dataset.runtimeActionKey =
+    actionKey || "";
 
   const icon =
     document.createElement("div");
@@ -1542,12 +1598,15 @@ function appendRuntimeAction(
   chatHistory.scrollTop =
     chatHistory.scrollHeight;
 
+  return true;
+
 }
 
 
 function queueRuntimeActionAfterNextResponse(
   action,
-  text
+  text,
+  options = {}
 ) {
 
   const actionText =
@@ -1563,6 +1622,7 @@ function queueRuntimeActionAfterNextResponse(
     action:
       action || "",
     text: actionText,
+    id: options.id || "",
     completed: false,
   });
 
@@ -1602,6 +1662,7 @@ function flushRuntimeActionsAfterResponse(
       entry.action,
       entry.text,
       {
+        id: entry.id || "",
         activateScene: !entry.completed,
       }
     );
@@ -1948,7 +2009,7 @@ function stripInternalActionMarkers(
 
   return String(text || "")
     .replace(
-      /(^|\n)[^\S\r\n]*<INTERNAL_ACTION_(?:DEEP_THOUGHT|REMEMBER_SESSION|REMEMBER_EVENT)>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<INTERNAL_ACTION_SAVE_SESSION>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(

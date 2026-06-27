@@ -27,10 +27,10 @@ from clients import (
     build_brain_system_prompt,
 )
 from clients.brain_client import (
-    should_execute_remember_session,
+    should_execute_save_session,
 )
 
-from utils.brain import (
+from clients.brain_client_utils import (
     get_brain_runtime_config,
 )
 
@@ -74,15 +74,21 @@ from runtime import (
 )
 from runtime.L1_memory_utils import (
     build_runtime_memory_context_text,
+    remove_runtime_user_idle_lines,
+)
+from utils.runtime_actions import (
     is_active_memory_key,
     refresh_active_memory_runtime_metadata,
-    remove_runtime_user_idle_lines,
+    remove_active_memory_entries,
 )
 from runtime.L1_memory import (
     parse_runtime_memory_lines,
 )
 from runtime.L3_memory_utils import (
     parse_l3_session_snapshot_metadata,
+)
+from runtime.runtime_context import (
+    RECENT_MESSAGES_MAX_PAIRS,
 )
 
 
@@ -99,6 +105,69 @@ MAX_RESUME_CLIENT_ID_CHARS = 80
 RESUME_CLIENT_ID_RE = re.compile(
     r"[^a-zA-Z0-9_.:-]"
 )
+
+
+ACTIVE_MEMORY_LINE_RE = re.compile(
+    r"^\s*active_memory(?:_\d+)?\s*:",
+    re.IGNORECASE,
+)
+
+
+def clean_active_memory_records(value) -> list[str]:
+
+    records = []
+
+    if isinstance(value, list):
+        candidates = value
+    else:
+        candidates = str(value or "").splitlines()
+
+    seen = set()
+
+    for candidate in candidates:
+        line = clean_bootstrap_memory(
+            str(candidate or ""),
+            limit=2000,
+        )
+
+        if not ACTIVE_MEMORY_LINE_RE.match(line):
+            continue
+
+        if line in seen:
+            continue
+
+        seen.add(line)
+        records.append(line)
+
+    return records
+
+
+def apply_active_memory_records(
+    context,
+    message_data: dict,
+) -> None:
+
+    records = clean_active_memory_records(
+        message_data.get(
+            "active_memory_records",
+            [],
+        )
+    )
+
+    context.active_memory_records = records
+
+
+def active_memory_records_text(context) -> str:
+
+    return "\n".join(
+        str(record or "").strip()
+        for record in getattr(
+            context,
+            "active_memory_records",
+            [],
+        )
+        if str(record or "").strip()
+    )
 
 
 def clean_bootstrap_memory(
@@ -130,10 +199,12 @@ def clean_bootstrap_runtime_memory(
     limit: int = MAX_BOOTSTRAP_MEMORY_CHARS,
 ) -> str:
 
-    return remove_runtime_user_idle_lines(
-        clean_bootstrap_memory(
-            value,
-            limit=limit,
+    return remove_active_memory_entries(
+        remove_runtime_user_idle_lines(
+            clean_bootstrap_memory(
+                value,
+                limit=limit,
+            )
         )
     ).strip()
 
@@ -884,6 +955,11 @@ def apply_runtime_resume(
     message_data: dict,
 ) -> bool:
 
+    apply_active_memory_records(
+        context,
+        message_data,
+    )
+
     runtime_memory = clean_bootstrap_runtime_memory(
         message_data.get(
             "runtime_memory",
@@ -930,6 +1006,16 @@ def apply_runtime_resume(
 
     if runtime_memory_is_snapshot_fallback:
         runtime_memory_updates = 0
+
+    active_memory_text = active_memory_records_text(
+        context
+    )
+
+    if active_memory_text:
+        hydrate_runtime_counters_from_active_memory(
+            context,
+            active_memory_text,
+        )
 
     runtime_memory = refresh_restored_active_memory_runtime_metadata(
         context,
@@ -1004,6 +1090,11 @@ def apply_session_bootstrap(
     context,
     message_data: dict,
 ) -> bool:
+
+    apply_active_memory_records(
+        context,
+        message_data,
+    )
 
     session_memory = clean_bootstrap_memory(
         message_data.get(
@@ -1103,6 +1194,16 @@ def apply_session_bootstrap(
             session_memory_updates=session_memory_updates,
         )
         runtime_memory_updates = 0
+
+    active_memory_text = active_memory_records_text(
+        context
+    )
+
+    if active_memory_text:
+        hydrate_runtime_counters_from_active_memory(
+            context,
+            active_memory_text,
+        )
 
     if runtime_memory and not stale_runtime_memory_for_ui:
         runtime_memory = refresh_restored_active_memory_runtime_metadata(
@@ -1292,7 +1393,7 @@ async def receive_message(
 # PROCESS MESSAGE
 # ---------------------------------------------------------
 
-async def arm_remember_session_from_user_text(
+async def arm_save_session_from_user_text(
     context,
     user_text: str,
 ) -> bool:
@@ -1300,29 +1401,29 @@ async def arm_remember_session_from_user_text(
     if (
         getattr(
             context,
-            "runtime_remember_session_armed",
+            "runtime_save_session_armed",
             False,
         )
         or getattr(
             context,
-            "runtime_remember_session_requested",
+            "runtime_save_session_requested",
             False,
         )
     ):
         return False
 
-    if not should_execute_remember_session(
+    if not should_execute_save_session(
         user_text,
     ):
         return False
 
-    context.runtime_remember_session_armed = True
-    context.runtime_remember_session_requested = False
+    context.runtime_save_session_armed = True
+    context.runtime_save_session_requested = False
     # This path is only a deterministic early trigger. It lets the brain see
     # the user's explicit save intent, but it does not confirm the save and
     # must not show the UI banner. The save becomes real only when JIN emits
-    # the private REMEMBER_SESSION marker handled by apply_runtime_action_calls().
-    context.runtime_remember_session_action_emitted = False
+    # the private SAVE_SESSION marker handled by apply_runtime_action_calls().
+    context.runtime_save_session_action_emitted = False
 
     logger = getattr(
         context,
@@ -1337,7 +1438,7 @@ async def arm_remember_session_from_user_text(
 
     if log_runtime is not None:
         await log_runtime(
-            "[RUNTIME ACTION] remember_session armed"
+            "[RUNTIME ACTION] save_session armed"
         )
 
     return True
@@ -1589,6 +1690,44 @@ def apply_runtime_pattern_context(
     )
 
 
+def append_runtime_recent_turn(
+    context,
+    *,
+    user_message: str,
+    assistant_message: str,
+) -> None:
+
+    if context is None:
+        return
+
+    if not hasattr(
+        context,
+        "runtime_recent_turns",
+    ):
+        context.runtime_recent_turns = []
+
+    user_message = str(
+        user_message
+        or ""
+    ).strip()
+    assistant_message = str(
+        assistant_message
+        or ""
+    ).strip()
+
+    if not user_message and not assistant_message:
+        return
+
+    context.runtime_recent_turns.append({
+        "user": user_message,
+        "jin": assistant_message,
+    })
+
+    context.runtime_recent_turns = context.runtime_recent_turns[
+        -RECENT_MESSAGES_MAX_PAIRS:
+    ]
+
+
 def format_runtime_memory_user_message(
     context,
     user_text: str,
@@ -1627,11 +1766,15 @@ async def process_message(
         context.runtime_turn_user_message = user_text
         context.runtime_turn_assistant_response = ""
         context.runtime_turn_interrupted = False
-        await arm_remember_session_from_user_text(
+        await arm_save_session_from_user_text(
             context,
             user_text,
         )
         apply_user_idle_context(
+            context,
+            message_data,
+        )
+        apply_active_memory_records(
             context,
             message_data,
         )
@@ -1686,6 +1829,12 @@ async def process_message(
                 or context.runtime_turn_assistant_response
         )
 
+        append_runtime_recent_turn(
+            context,
+            user_message=user_text,
+            assistant_message=assistant_message,
+        )
+
         memory_update_task = schedule_runtime_memory_update(
             context=context,
             user_message=format_runtime_memory_user_message(
@@ -1697,7 +1846,7 @@ async def process_message(
 
         if getattr(
             context,
-            "runtime_remember_session_requested",
+            "runtime_save_session_requested",
             False,
         ):
             await wait_for_runtime_memory_update(
@@ -1989,7 +2138,17 @@ async def websocket_endpoint(
                 continue
 
             await logger.log_user(
-                f'{message_data}'
+                str(
+                    message_data.get(
+                        "text",
+                        "",
+                    )
+                ),
+                details=json.dumps(
+                    message_data,
+                    ensure_ascii=False,
+                    indent=2,
+                ),
             )
 
             # -------------------------------------------------

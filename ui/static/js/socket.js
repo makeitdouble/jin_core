@@ -52,6 +52,7 @@ let websocketReconnectAttempts = 0;
 let websocketDisconnectedLogged = false;
 let persistedSessionBootstrapSent = false;
 let latestRuntimeSnapshotsLogged = false;
+let activeMemoryRecordsLogged = false;
 
 const MEMORY_GLOW_CLASSES = [
   "memory-updating",
@@ -175,6 +176,75 @@ function logOtherLatestRuntimeMemorySnapshots() {
   );
 
 }
+
+
+function getActiveMemoryRecordsForStartupLog() {
+
+  if (
+      !window.JinRuntime
+      || !window.JinRuntime.runtime
+      || !window.JinRuntime.runtime.getActiveMemoryRecords
+  ) {
+    return [];
+  }
+
+  return window.JinRuntime.runtime.getActiveMemoryRecords();
+
+}
+
+
+function buildActiveMemoryDetails(
+  records
+) {
+
+  const lines = [
+    `count: ${records.length}`,
+  ];
+
+  records.forEach(
+    function (
+      record,
+      index,
+    ) {
+      lines.push(
+        "",
+        `[ active memory ${index + 1} ]`,
+        "",
+        String(record || "")
+      );
+    }
+  );
+
+  return lines.join("\n");
+
+}
+
+
+function logActiveMemoryRecords() {
+
+  if (activeMemoryRecordsLogged) {
+    return;
+  }
+
+  const records =
+    getActiveMemoryRecordsForStartupLog();
+
+  if (!records.length) {
+    return;
+  }
+
+  activeMemoryRecordsLogged = true;
+
+  appendLog(
+    "[ACTIVE_MEMORY]",
+    `count: ${records.length}`,
+    buildActiveMemoryDetails(
+      records
+    )
+  );
+
+}
+
 
 function isMemoryLog(data) {
   return Boolean(
@@ -533,6 +603,10 @@ function scheduleWebSocketReconnect() {
  * @property {string=} chunk
  * @property {Object=} context
  * @property {string=} action
+ * @property {string=} status
+ * @property {string=} id
+ * @property {string=} query
+ * @property {*=} payload
  * @property {string=} tag
  * @property {string=} message
  * @property {string=} details
@@ -860,6 +934,25 @@ function handleSocketMessage(event) {
     );
   }
 
+  if (
+    data.type
+    === "active_memory_records_update"
+  ) {
+
+    if (
+        window.JinRuntime
+        && window.JinRuntime.runtime
+        && window.JinRuntime.runtime.replaceActiveMemoryRecords
+    ) {
+      window.JinRuntime.runtime.replaceActiveMemoryRecords(
+        data.active_memory_records || []
+      );
+    }
+
+    return;
+
+  }
+
   if (data.type === "fact_check_state") {
     if (data.active) {
       startFactCheckGlow();
@@ -879,6 +972,32 @@ function handleSocketMessage(event) {
   // -----------------------------
 
   if (data.type === "log") {
+
+    if (
+        data.tag === "[USER]"
+        && window.log_user
+    ) {
+      let payload =
+        data.details || data.message || "";
+
+      try {
+        payload = JSON.parse(
+          payload
+        );
+      } catch (_error) {
+        payload = {
+          text: String(
+            data.message || ""
+          ),
+        };
+      }
+
+      window.log_user(
+        payload
+      );
+
+      return;
+    }
 
     appendLog(
       data.tag,
@@ -1019,6 +1138,31 @@ function handleSocketMessage(event) {
       );
 
     if (
+      action === "create_active_memory"
+      && data.active_memory
+      && window.JinRuntime
+      && window.JinRuntime.runtime
+      && window.JinRuntime.runtime.appendActiveMemoryRecords
+    ) {
+      window.JinRuntime.runtime.appendActiveMemoryRecords([
+        data.active_memory
+      ]);
+
+    }
+
+    if (
+      action === "resolve_active_memory"
+      && data.id
+      && window.JinRuntime
+      && window.JinRuntime.runtime
+      && window.JinRuntime.runtime.removeActiveMemoryRecordById
+    ) {
+      window.JinRuntime.runtime.removeActiveMemoryRecordById(
+        data.id
+      );
+    }
+
+    if (
       status === "completed"
       || status === "complete"
       || status === "done"
@@ -1036,10 +1180,23 @@ function handleSocketMessage(event) {
       return;
     }
 
-    appendRuntimeAction(
+    const appended = appendRuntimeAction(
       action,
-      text
+      text,
+      {
+        id: data.id || "",
+      }
     );
+
+    if (
+      appended
+      && window.log_internal_action
+    ) {
+      window.log_internal_action(
+        action,
+        data
+      );
+    }
 
     return;
 
@@ -1369,6 +1526,15 @@ chatForm.addEventListener(
       payload.pending_last_response_rating = pendingLastResponseRating;
     }
 
+    if (
+        window.JinRuntime
+        && window.JinRuntime.runtime
+        && window.JinRuntime.runtime.getActiveMemoryRecords
+    ) {
+      payload.active_memory_records =
+        window.JinRuntime.runtime.getActiveMemoryRecords();
+    }
+
     sendSocketMessage(payload);
 
     if (window.jinFreezeUserIdleTimerAtSeconds) {
@@ -1411,6 +1577,15 @@ async function handleSocketOpen() {
         window.getSoftReconnectRuntimeResume();
 
       if (runtimeResume) {
+        if (
+            window.JinRuntime
+            && window.JinRuntime.runtime
+            && window.JinRuntime.runtime.getActiveMemoryRecords
+        ) {
+          runtimeResume.active_memory_records =
+            window.JinRuntime.runtime.getActiveMemoryRecords();
+        }
+
         sendSocketMessage(
           runtimeResume
         );
@@ -1446,6 +1621,15 @@ async function handleSocketOpen() {
     window.getPersistedSessionBootstrap();
 
   if (bootstrap) {
+    if (
+        window.JinRuntime
+        && window.JinRuntime.runtime
+        && window.JinRuntime.runtime.getActiveMemoryRecords
+    ) {
+      bootstrap.active_memory_records =
+        window.JinRuntime.runtime.getActiveMemoryRecords();
+    }
+
     sendSocketMessage(
       bootstrap
     );
@@ -1471,6 +1655,15 @@ async function handleSocketOpen() {
       window.getInitialRuntimeMemoryBootstrap();
 
     if (runtimeBootstrap) {
+      if (
+          window.JinRuntime
+          && window.JinRuntime.runtime
+          && window.JinRuntime.runtime.getActiveMemoryRecords
+      ) {
+        runtimeBootstrap.active_memory_records =
+          window.JinRuntime.runtime.getActiveMemoryRecords();
+      }
+
       sendSocketMessage(
         runtimeBootstrap
       );
@@ -1543,4 +1736,5 @@ function connectWebSocket() {
 
 
 logOtherLatestRuntimeMemorySnapshots();
+logActiveMemoryRecords();
 connectWebSocket();

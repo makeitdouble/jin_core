@@ -32,12 +32,14 @@ from runtime.L1_memory_utils import (
     build_runtime_memory_context_text,
     build_runtime_memory_snapshot,
     enforce_runtime_turn_fields,
-    ensure_active_memory_status_suffixes,
     get_strength_zones,
-    normalize_managed_runtime_memory_slots,
+    normalize_compound_runtime_memory_lines,
     parse_runtime_memory_lines,
     quote_runtime_user_message_value,
+)
+from utils.runtime_actions import (
     refresh_active_memory_runtime_metadata,
+    remove_active_memory_entries,
     strip_active_memory_runtime_metadata,
 )
 from runtime.L3_memory_utils import (
@@ -51,15 +53,97 @@ from runtime.L2_memory_utils import (
     normalize_l2_pattern_evidence_example,
     remove_runtime_l2_pattern_evidence_lines,
 )
-from runtime.L1_memory_rules import (
-    RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES,
-)
 from runtime.registry import (
     runtime_state,
 )
 from config_loader import (
     config,
 )
+
+
+def assert_contains_text(test_case, text: str, needle: str) -> None:
+    test_case.assertTrue(
+        needle in text,
+        f"expected text to contain: {needle!r}",
+    )
+
+
+def assert_not_contains_text(test_case, text: str, needle: str) -> None:
+    test_case.assertFalse(
+        needle in text,
+        f"expected text to omit: {needle!r}",
+    )
+
+
+class RuntimeMemoryCompoundLineTests(unittest.TestCase):
+
+    def test_normalize_compound_runtime_memory_lines_splits_sentence_glued_keys(self):
+        memory = (
+            "active_topic: Drawing a house using text format. "
+            "user_intent: Initial request was for an image/drawing. "
+            "jin_last_action: Provided ASCII art representation [trace: 0.50]"
+        )
+
+        self.assertEqual(
+            normalize_compound_runtime_memory_lines(memory),
+            "\n".join([
+                "active_topic: Drawing a house using text format.",
+                "user_intent: Initial request was for an image/drawing.",
+                "jin_last_action: Provided ASCII art representation [trace: 0.50]",
+            ]),
+        )
+
+    def test_normalize_compound_runtime_memory_lines_keeps_plain_sentence_colons(self):
+        memory = (
+            "last_jin_response: Пример: можно оставить внутри значения. "
+            "user_message: \"ок\""
+        )
+
+        self.assertEqual(
+            normalize_compound_runtime_memory_lines(memory),
+            "\n".join([
+                "last_jin_response: Пример: можно оставить внутри значения.",
+                "user_message: \"ок\"",
+            ]),
+        )
+
+
+    def test_normalize_compound_runtime_memory_lines_escapes_multiline_ascii_value(self):
+        memory = "\n".join([
+            "last_jin_response: Я нарисовал домик:",
+            r" /\\",
+            r"/  \\",
+            "|---|",
+            "session_status: Waiting for next request",
+        ])
+
+        self.assertEqual(
+            normalize_compound_runtime_memory_lines(memory),
+            "\n".join([
+                r"last_jin_response: Я нарисовал домик:\n/\\\n/  \\\n|---|",
+                "session_status: Waiting for next request",
+            ]),
+        )
+
+    def test_parse_runtime_memory_lines_keeps_multiline_ascii_inside_value(self):
+        memory = "\n".join([
+            "last_jin_response: Я нарисовал домик:",
+            r" /\\",
+            r"/  \\",
+            "|---|",
+            "session_status: Waiting for next request",
+        ])
+
+        lines = parse_runtime_memory_lines(memory)
+
+        self.assertEqual(
+            [line["key"] for line in lines],
+            ["last_jin_response", "session_status"],
+        )
+        self.assertEqual(
+            lines[0]["value"],
+            r"Я нарисовал домик:\n/\\\n/  \\\n|---|",
+        )
 
 
 class FakeServiceClient:
@@ -218,7 +302,7 @@ class MessageMemoryTests(
     unittest.IsolatedAsyncioTestCase
 ):
 
-    def test_runtime_memory_user_prompt_uses_session_fallback(self):
+    def test_runtime_memory_user_prompt_omits_empty_session_fallback(self):
 
         prompt = build_runtime_memory_user_prompt(
             current_memory="",
@@ -226,8 +310,12 @@ class MessageMemoryTests(
             assistant_message="hi",
         )
 
-        self.assertIn(
+        self.assertNotIn(
             DEFAULT_RUNTIME_MEMORY,
+            prompt,
+        )
+        self.assertNotIn(
+            "Current runtime memory:",
             prompt,
         )
         self.assertNotIn(
@@ -236,6 +324,38 @@ class MessageMemoryTests(
         )
         self.assertNotIn(
             "Occurrences: 2",
+            prompt,
+        )
+
+    def test_runtime_memory_user_prompt_omits_default_note_line(self):
+
+        prompt = build_runtime_memory_user_prompt(
+            current_memory=(
+                f"note: {DEFAULT_RUNTIME_MEMORY}"
+            ),
+            user_message="hello",
+            assistant_message="hi",
+        )
+
+        self.assertNotIn(
+            DEFAULT_RUNTIME_MEMORY,
+            prompt,
+        )
+        self.assertNotIn(
+            "Current runtime memory:",
+            prompt,
+        )
+
+    def test_runtime_memory_user_prompt_keeps_real_memory(self):
+
+        prompt = build_runtime_memory_user_prompt(
+            current_memory="session_status: active",
+            user_message="hello",
+            assistant_message="hi",
+        )
+
+        self.assertIn(
+            "Current runtime memory:\nsession_status: active",
             prompt,
         )
 
@@ -291,7 +411,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -318,7 +437,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -371,7 +489,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -415,15 +532,15 @@ class MessageMemoryTests(
         for required_text in (
                 "runtime L1 memory summarizer",
                 "Return only the new compressed L1 memory state",
-                "<key>: <value>",
-                "last_jin_response",
+                "Every memory line must be a complete key:value entry",
                 "user_fact",
                 "jin_fact",
                 "active_memory",
         ):
-            self.assertIn(
-                required_text,
+            assert_contains_text(
+                self,
                 prompt,
+                required_text,
             )
 
         for conditional_text in (
@@ -432,132 +549,22 @@ class MessageMemoryTests(
                 "The user asked JIN to remember a specific value",
                 "identity_state: JIN identity remains unchanged",
         ):
-            self.assertNotIn(
-                conditional_text,
+            assert_not_contains_text(
+                self,
                 prompt,
+                conditional_text,
             )
 
         for removed_text in (
                 "space exploration costs",
                 "assistant established",
                 "after one completed user/JIN turn",
-                RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES.strip(),
         ):
-            self.assertNotIn(
+            assert_not_contains_text(
+                self,
+                prompt,
                 removed_text,
-                prompt,
             )
-
-    def test_runtime_memory_prompt_adds_conditional_blocks_from_memory_and_user_message(self):
-
-        prompt = build_runtime_memory_system_prompt(
-            current_memory=(
-                "active_memory: \"banana\" (purpose: test; status: pending)\n"
-                "L2_pattern_evidence_1: repeat question [ occurrences: 2 ]"
-            ),
-            user_message="ты теперь пират",
-        )
-
-        for required_text in (
-                "Scan all existing active_memory slots",
-                "L2_pattern_evidence_N lines are owned by L2",
-                "identity_state: JIN identity remains unchanged",
-        ):
-            self.assertIn(
-                required_text,
-                prompt,
-            )
-
-    def test_runtime_memory_prompt_adds_create_block_from_user_message(self):
-
-        prompt = build_runtime_memory_system_prompt(
-            current_memory="",
-            user_message="запомни слово банан через 3 хода",
-        )
-
-        # Keep this test focused on the durable create-block contracts,
-        # not on exact prompt prose.
-        for required_text in (
-                "Write new active_memory only when this turn creates an active contract",
-                "active_memory:",
-                "purpose:",
-                "conditions:",
-                "status: pending",
-                "WHEN to write:",
-        ):
-            self.assertIn(
-                required_text,
-                prompt,
-            )
-
-    def test_runtime_memory_prompt_can_include_context_overload_rules(self):
-
-        prompt = build_runtime_memory_system_prompt(
-            last_turn_context_overloaded=True,
-        )
-
-        self.assertIn(
-            RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES.strip(),
-            prompt,
-        )
-
-    async def test_l1_prompt_includes_context_overload_rules_after_turn_overload(self):
-
-        service_client = FakeServiceClient(
-            "- active_topic: context overload handling",
-            context_window=8192,
-        )
-        context = SimpleNamespace(
-            runtime_memory="Initial memory.",
-            runtime_l2_memory="",
-            runtime_memory_snapshots=[],
-            emitter=SimpleNamespace(
-                emit=None,
-            ),
-            logger=FakeLogger(),
-        )
-        runtime_id = (
-            config.SERVICE_MODEL_UID
-            if config.USE_SERVICE_AS_BRAIN
-            else config.BRAIN_MODEL_UID
-        )
-        previous_state = runtime_state.get_runtime_state(
-            runtime_id
-        )
-
-        runtime_state.update_runtime_state(
-            runtime_id=runtime_id,
-            used_tokens=5000,
-            context_tokens=3900,
-            total_tokens=5000,
-            max_tokens=4096,
-            last_error=None,
-            status="online",
-        )
-
-        try:
-            await ask_runtime_memory_model(
-                context=context,
-                service_client=service_client,
-                current_memory="Initial memory.",
-                user_message="Remember the overload behavior.",
-                assistant_message="I will preserve it.",
-            )
-        finally:
-            runtime_state.update_runtime_state(
-                runtime_id=runtime_id,
-                used_tokens=previous_state["used_tokens"],
-                context_tokens=previous_state["context_tokens"],
-                total_tokens=previous_state["total_tokens"],
-                max_tokens=previous_state["max_tokens"],
-                last_error=previous_state["last_error"],
-                status=previous_state["status"],
-            )
-
-        self.assertIn(
-            RUNTIME_MEMORY_CONTEXT_OVERLOAD_RULES.strip(),
-            service_client.calls[0]["system_prompt"],
-        )
 
     def test_runtime_l2_memory_prompt_defines_pattern_layer(self):
 
@@ -706,7 +713,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -734,7 +740,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -767,7 +772,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -816,7 +820,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -848,7 +851,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -871,7 +873,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -919,7 +920,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -990,7 +990,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -1057,7 +1056,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -1106,7 +1104,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -1143,7 +1140,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -1180,7 +1176,6 @@ class MessageMemoryTests(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
-                "CAN_DEEP_THOUGHT": False,
             },
         )
 
@@ -1404,19 +1399,18 @@ class MessageMemoryTests(
         )
         self.assertEqual(
             lines[0]["value"],
-            '"first line\\nsecond line\\nthird line"',
+            (
+                '"first line\\nsecond line\\nthird line"'
+                "\\nstandalone continuation stays note"
+            ),
         )
         self.assertEqual(
-            lines[1],
-            {
-                "key": "note",
-                "value": "standalone continuation stays note",
-                "status": "same",
-            },
-        )
-        self.assertEqual(
-            lines[2]["key"],
+            lines[1]["key"],
             "last_jin_response",
+        )
+        self.assertEqual(
+            len(lines),
+            2,
         )
 
     def test_parse_runtime_memory_keeps_quoted_user_message_fragments_together(self):
@@ -1474,145 +1468,6 @@ class MessageMemoryTests(
         )
         self.assertNotIn(
             "fragment two",
-            memory,
-        )
-
-    def test_managed_active_memory_collapses_numeric_status_duplicate_to_parent(self):
-
-        previous_memory = (
-            "active_memory_1: Secret word: Water "
-            "[ purpose: Remind user to guess it ] "
-            "[ conditions: Remind only once ] "
-            "[ status: pending ]"
-        )
-        candidate_memory = (
-            previous_memory
-            + "\n"
-            "active_memory_2: Secret word: Water "
-            "[ purpose: Remind user to guess it ] "
-            "[ conditions: Remind only once ] "
-            "[ status: pending, Reminder given in Turn 1 ] "
-            "[trace: 0.55]\n"
-            "primary_goal: Play a memory guessing game."
-        )
-
-        collapse_events = []
-        memory = normalize_managed_runtime_memory_slots(
-            previous_memory,
-            candidate_memory,
-            collapse_events=collapse_events,
-        )
-
-        self.assertIn(
-            (
-                "active_memory_1: Secret word: Water "
-                "[ purpose: Remind user to guess it ] "
-                "[ conditions: Remind only once ] "
-                "[ status: pending, Reminder given in Turn 1 ]"
-            ),
-            memory,
-        )
-        self.assertIn(
-            "primary_goal: Play a memory guessing game.",
-            memory,
-        )
-        self.assertNotIn(
-            "active_memory_2:",
-            memory,
-        )
-        self.assertIn(
-            "Reminder given in Turn 1",
-            memory,
-        )
-        self.assertEqual(
-            len(collapse_events),
-            1,
-        )
-        self.assertEqual(
-            collapse_events[0]["parent_key"],
-            "active_memory_1",
-        )
-
-    def test_managed_active_memory_keeps_numeric_suffix_when_value_differs(self):
-
-        previous_memory = (
-            "active_memory_1: Secret word: Water "
-            "[ purpose: Remind user to guess it ] "
-            "[ status: pending ]"
-        )
-        candidate_memory = (
-            previous_memory
-            + "\n"
-            "active_memory_2: Book title: Dune "
-            "[ purpose: Remind user to guess it ] "
-            "[ status: pending, Reminder given in Turn 1 ]"
-        )
-
-        memory = normalize_managed_runtime_memory_slots(
-            previous_memory,
-            candidate_memory,
-        )
-
-        self.assertIn(
-            previous_memory,
-            memory,
-        )
-        self.assertIn(
-            "active_memory_2: Book title: Dune",
-            memory,
-        )
-
-    def test_managed_active_memory_merges_same_key_status_update(self):
-
-        previous_memory = (
-            "active_memory: Secret word: Water "
-            "[ purpose: Ask user to guess ] "
-            "[ status: pending ]"
-        )
-        candidate_memory = (
-            "active_memory: Secret word: Water "
-            "[ purpose: Ask user to guess ] "
-            "[ status: pending, Reminder given in Turn 1 ]"
-        )
-
-        memory = normalize_managed_runtime_memory_slots(
-            previous_memory,
-            candidate_memory,
-        )
-
-        self.assertIn(
-            (
-                "active_memory: Secret word: Water "
-                "[ purpose: Ask user to guess ] "
-                "[ status: pending, Reminder given in Turn 1 ]"
-            ),
-            memory,
-        )
-        self.assertNotIn(
-            "active_memory_2:",
-            memory,
-        )
-
-    def test_ensure_active_memory_status_suffixes_adds_pending(self):
-
-        memory = ensure_active_memory_status_suffixes(
-            (
-                "active_memory: Secret word: Sun "
-                "[ purpose: Ask user to guess ]\n"
-                "primary_goal: Play a memory game."
-            )
-        )
-
-        self.assertIn(
-            (
-                "active_memory: Secret word: Sun "
-                "[ purpose: Ask user to guess ] "
-                "[ status: pending ]"
-            ),
-            memory,
-        )
-        self.assertIn(
-            "primary_goal: Play a memory game.",
             memory,
         )
 
@@ -1701,15 +1556,21 @@ class MessageMemoryTests(
             "[ status: pending ]"
         )
 
-        refreshed = build_runtime_memory_context_text(
+        context = SimpleNamespace(
+            timestamp="2026-06-20T10:00:00",
+            turn_number=4,
+            runtime_user_idle_seconds=300,
+            runtime_user_idle_text="5m 0s",
+        )
+        refreshed = refresh_active_memory_runtime_metadata(
             memory,
-            SimpleNamespace(
-                timestamp="2026-06-20T10:00:00",
-                turn_number=4,
-                runtime_user_idle_seconds=300,
-                runtime_user_idle_text="5m 0s",
-            ),
-            refresh_active_memory_elapsed=True,
+            previous_memory=memory,
+            context=context,
+            add_runtime_user_idle_to_elapsed=True,
+        )
+        refreshed = build_runtime_memory_context_text(
+            refreshed,
+            context,
         )
 
         self.assertIn(
@@ -1784,172 +1645,64 @@ class MessageMemoryTests(
             memory,
         )
 
-    async def test_summarizer_hides_active_memory_runtime_metadata_from_l1_payload(self):
+    def test_strip_active_memory_runtime_metadata_keeps_value_suffix_for_l1(self):
 
-        service_client = FakeServiceClient(
+        memory = strip_active_memory_runtime_metadata(
             (
-                "active_memory: Secret word: Sun "
-                "[ purpose: Ask user to guess ] "
+                "active_memory: Secret recall request "
+                "[ conditions: Ask when user returns ] "
+                "[ value: Sun ] "
+                "[ creation_time: 2026-06-20T10:00:00 ] "
+                "[ elapsed_time: 01:02:03 ] "
                 "[ status: pending ]"
             )
         )
-        logger = FakeLogger()
-        context = SimpleNamespace(
-            clients={
-                "service": service_client,
-            },
-            emitter=SimpleNamespace(
-                events=[],
-                emit=None,
-            ),
-            logger=logger,
-            runtime_memory=(
-                "active_memory: Secret word: Sun "
-                "[ purpose: Ask user to guess ] "
-                "[ creation_time: 2026-06-20T10:00:00 ] "
-                "[ created_jin_message_number: 3 ] "
-                "[ elapsed_time: 00:00:00 ] "
-                "[ elapsed_jin_message_number: 0 ] "
+
+        self.assertIn(
+            (
+                "active_memory: Secret recall request "
+                "[ conditions: Ask when user returns ] "
+                "[ value: Sun ] "
                 "[ status: pending ]"
             ),
-            runtime_memory_stable=(
-                "active_memory: Secret word: Sun "
-                "[ purpose: Ask user to guess ] "
-                "[ creation_time: 2026-06-20T10:00:00 ] "
-                "[ created_jin_message_number: 3 ] "
-                "[ elapsed_time: 00:00:00 ] "
-                "[ elapsed_jin_message_number: 0 ] "
-                "[ status: pending ]"
-            ),
-            runtime_memory_updates=1,
-            runtime_memory_snapshots=[],
-            runtime_memory_snapshot_index=0,
-            session_id="test-session",
-            timestamp="2026-06-20T10:03:04",
-            turn_number=5,
+            memory,
         )
-
-        async def emit(event):
-            context.emitter.events.append(
-                event
-            )
-
-        context.emitter.emit = emit
-
-        updated_memory = await summarize_runtime_memory(
-            context=context,
-            user_message="thanks",
-            assistant_message="You are welcome.",
-        )
-
-        user_prompt = service_client.calls[0]["user_prompt"]
-
         self.assertNotIn(
             "creation_time",
-            user_prompt,
+            memory,
         )
         self.assertNotIn(
             "elapsed_time",
-            user_prompt,
-        )
-        self.assertIn(
-            "[ status: pending ]",
-            user_prompt,
-        )
-        self.assertIn(
-            "[ elapsed_time: 00:03:04 ]",
-            updated_memory,
-        )
-        self.assertIn(
-            "[ elapsed_jin_message_number: 2 ]",
-            updated_memory,
+            memory,
         )
 
-    async def test_summarizer_logs_active_memory_collapse_payload(self):
+    def test_remove_active_memory_entries_hides_runtime_owned_memory_from_l1(self):
 
-        service_client = FakeServiceClient(
+        memory = remove_active_memory_entries(
             (
-                "active_memory_2: Secret word: Water "
-                "[ purpose: Ask user to guess ] "
-                "[ status: pending, Reminder given in Turn 1 ]"
+                "session_status: active\n"
+                "active_memory: Drink coffee "
+                "[ conditions: in 5 minutes ] "
+                "[ status: pending ]\n"
+                "user_message: hello"
             )
         )
-        logger = FakeLogger()
-        context = SimpleNamespace(
-            clients={
-                "service": service_client,
-            },
-            emitter=SimpleNamespace(
-                events=[],
-                emit=None,
-            ),
-            logger=logger,
-            runtime_memory=(
-                "active_memory_1: Secret word: Water "
-                "[ purpose: Ask user to guess ] "
-                "[ status: pending ]"
-            ),
-            runtime_memory_stable=(
-                "active_memory_1: Secret word: Water "
-                "[ purpose: Ask user to guess ] "
-                "[ status: pending ]"
-            ),
-            runtime_memory_updates=1,
-            runtime_memory_snapshots=[],
-            runtime_memory_snapshot_index=0,
-            session_id="test-session",
-            timestamp="2026-06-20T10:03:04",
-            turn_number=5,
-        )
-
-        async def emit(event):
-            context.emitter.events.append(
-                event
-            )
-
-        context.emitter.emit = emit
-
-        updated_memory = await summarize_runtime_memory(
-            context=context,
-            user_message="next",
-            assistant_message="Reminder sent.",
-        )
 
         self.assertIn(
-            (
-                "active_memory_1: Secret word: Water "
-                "[ purpose: Ask user to guess ]"
-            ),
-            updated_memory,
+            "session_status: active",
+            memory,
         )
         self.assertIn(
-            "[ status: pending, Reminder given in Turn 1 ]",
-            updated_memory,
+            "user_message: hello",
+            memory,
         )
         self.assertNotIn(
-            "active_memory_2:",
-            updated_memory,
+            "active_memory",
+            memory,
         )
-        self.assertEqual(
-            len(logger.active_memory_logs),
-            1,
-        )
-        message, details, event = logger.active_memory_logs[0]
-        self.assertIn(
-            "collapsed",
-            message,
-        )
-        self.assertEqual(
-            event,
-            "collapse",
-        )
-        self.assertIn(
-            '"candidate_key": "active_memory_2"',
-            details,
-        )
-        self.assertIn(
-            '"result_memory"',
-            details,
+        self.assertNotIn(
+            "Drink coffee",
+            memory,
         )
 
     async def test_summarizer_enforces_latest_user_message_when_model_is_stale(self):
@@ -2676,10 +2429,6 @@ class MessageMemoryTests(
             "total_diff: 254",
             service_client.calls[0]["user_prompt"],
         )
-        self.assertIn(
-            "[MEMORY:L2] L2 memory updated",
-            logger.service_logs,
-        )
         self.assertEqual(
             logger.summarizer_logs[0][0],
             "[MEMORY:L2] L2 summarizer request",
@@ -3017,7 +2766,7 @@ class MessageMemoryTests(
                 emit=None,
             ),
             logger=logger,
-            runtime_remember_session_requested=True,
+            runtime_save_session_requested=True,
             runtime_l3_session_memory="",
             session_memory="",
             session_memory_source="",
@@ -3070,7 +2819,7 @@ class MessageMemoryTests(
             1,
         )
         self.assertFalse(
-            context.runtime_remember_session_requested,
+            context.runtime_save_session_requested,
         )
         self.assertEqual(
             context.runtime_memory_snapshots,
@@ -3153,7 +2902,7 @@ class MessageMemoryTests(
             context.emitter.events[-1],
             {
                 "type": "runtime_action",
-                "action": "remember_session",
+                "action": "save_session",
                 "status": "completed",
             },
         )
@@ -3173,7 +2922,7 @@ class MessageMemoryTests(
                 emit=None,
             ),
             logger=logger,
-            runtime_remember_session_requested=True,
+            runtime_save_session_requested=True,
             runtime_l3_session_memory=(
                 "session_snapshot_first_turn: 0\n"
                 "session_snapshot_last_turn: 15\n"
@@ -3299,7 +3048,7 @@ class MessageMemoryTests(
                 emit=None,
             ),
             logger=logger,
-            runtime_remember_session_requested=True,
+            runtime_save_session_requested=True,
             runtime_l3_session_memory="decision: keep current",
             session_memory="decision: keep current",
             session_memory_source="",
@@ -3332,7 +3081,7 @@ class MessageMemoryTests(
             "decision: keep current",
         )
         self.assertTrue(
-            context.runtime_remember_session_requested,
+            context.runtime_save_session_requested,
         )
         self.assertEqual(
             context.runtime_memory_snapshots,
@@ -3377,7 +3126,7 @@ class MessageMemoryTests(
                 emit=None,
             ),
             logger=logger,
-            runtime_remember_session_requested=True,
+            runtime_save_session_requested=True,
             runtime_l3_session_memory="decision: keep current",
             session_memory="decision: keep current",
             session_memory_source="",
@@ -3417,7 +3166,7 @@ class MessageMemoryTests(
             context.emitter.events[-1],
             {
                 "type": "runtime_action",
-                "action": "remember_session",
+                "action": "save_session",
                 "status": "completed",
             },
         )
@@ -3467,7 +3216,7 @@ class MessageMemoryTests(
                 emit=None,
             ),
             logger=logger,
-            runtime_remember_session_requested=True,
+            runtime_save_session_requested=True,
             runtime_l3_session_memory="decision: keep current",
             session_memory="decision: keep current",
             session_memory_source="",
@@ -3493,7 +3242,7 @@ class MessageMemoryTests(
             "decision: keep current",
         )
         self.assertTrue(
-            context.runtime_remember_session_requested,
+            context.runtime_save_session_requested,
         )
         self.assertEqual(
             context.runtime_memory_snapshots,
@@ -3519,7 +3268,7 @@ class MessageMemoryTests(
                 emit=None,
             ),
             logger=logger,
-            runtime_remember_session_requested=True,
+            runtime_save_session_requested=True,
             runtime_l3_session_memory="decision: keep current",
             session_memory="decision: keep current",
             runtime_memory_snapshots=[],
@@ -3549,7 +3298,7 @@ class MessageMemoryTests(
             [],
         )
         self.assertTrue(
-            context.runtime_remember_session_requested,
+            context.runtime_save_session_requested,
         )
         self.assertEqual(
             logger.runtime_logs,
@@ -3710,11 +3459,11 @@ class MessageMemoryTests(
 
         self.assertEqual(
             updated_memory,
-            "Initial memory.",
+            "note: Initial memory.",
         )
         self.assertEqual(
             context.runtime_memory,
-            "Initial memory.",
+            "note: Initial memory.",
         )
         self.assertEqual(
             context.runtime_memory_updates,
@@ -3751,7 +3500,7 @@ class MessageMemoryTests(
 
         self.assertEqual(
             updated_memory,
-            "Initial memory.",
+            "note: Initial memory.",
         )
         self.assertEqual(
             len(logger.errors),

@@ -60,10 +60,10 @@ function ensureTraceModal() {
     "anywhere";
 
   traceModalContent =
-    document.createElement("pre");
+    document.createElement("div");
 
   traceModalContent.className =
-    "min-h-0 flex-1 overflow-auto p-4 text-[12px] leading-relaxed text-zinc-200 whitespace-pre-wrap";
+    "min-h-0 flex-1 overflow-auto p-4 text-[12px] leading-relaxed text-zinc-200";
 
   traceModalContent.style.overflowWrap =
     "anywhere";
@@ -130,6 +130,155 @@ function ensureTraceModal() {
   );
 }
 
+function parseTraceJson(details) {
+  try {
+    return JSON.parse(
+      String(details || "")
+    );
+  } catch (_error) {
+    return null;
+  }
+}
+
+function appendTraceSection(
+  parent,
+  title,
+  content,
+) {
+  const section =
+    document.createElement("section");
+
+  section.className =
+    "mb-4 rounded border border-zinc-800 bg-black/20";
+
+  const heading =
+    document.createElement("div");
+
+  heading.className =
+    "border-b border-zinc-800 px-3 py-2 text-[10px] uppercase tracking-widest text-zinc-400";
+
+  heading.textContent =
+    title;
+
+  const body =
+    document.createElement("pre");
+
+  body.className =
+    "max-h-[34vh] overflow-auto whitespace-pre-wrap p-3 text-[12px] leading-relaxed text-zinc-200";
+
+  body.style.overflowWrap =
+    "anywhere";
+
+  body.textContent =
+    String(content || "").trim()
+    || "<empty>";
+
+  section.appendChild(
+    heading
+  );
+
+  section.appendChild(
+    body
+  );
+
+  parent.appendChild(
+    section
+  );
+}
+
+function renderTraceDetails(details) {
+  traceModalContent.replaceChildren();
+
+  const parsed =
+    parseTraceJson(details);
+
+  if (
+      parsed
+      && parsed.kind === "summarizer_response"
+  ) {
+    const meta = {
+      model: parsed.model || "",
+      finish_reason: parsed.finish_reason || "",
+      allow_reasoning_fallback: Boolean(parsed.allow_reasoning_fallback),
+      used_reasoning_fallback: Boolean(parsed.used_reasoning_fallback),
+      usage: parsed.usage || {},
+    };
+
+    appendTraceSection(
+      traceModalContent,
+      "Meta",
+      JSON.stringify(
+        meta,
+        null,
+        2
+      )
+    );
+
+    appendTraceSection(
+      traceModalContent,
+      "Assistant content",
+      parsed.content || ""
+    );
+
+    appendTraceSection(
+      traceModalContent,
+      "Reasoning content",
+      parsed.reasoning_content || ""
+    );
+
+    appendTraceSection(
+      traceModalContent,
+      "Extracted L1 memory text",
+      parsed.extracted_memory || ""
+    );
+
+    appendTraceSection(
+      traceModalContent,
+      "Raw message",
+      JSON.stringify(
+        parsed.message || {},
+        null,
+        2
+      )
+    );
+
+    return;
+  }
+
+  const pre =
+    document.createElement("pre");
+
+  pre.className =
+    "whitespace-pre-wrap text-[12px] leading-relaxed text-zinc-200";
+
+  pre.style.overflowWrap =
+    "anywhere";
+
+  pre.textContent =
+    String(details);
+
+  traceModalContent.appendChild(
+    pre
+  );
+}
+
+function getTraceTitle(
+  details,
+  fallbackTitle,
+) {
+  const parsed =
+    parseTraceJson(details);
+
+  if (
+      parsed
+      && parsed.kind === "summarizer_response"
+  ) {
+    return "Summarizer response";
+  }
+
+  return fallbackTitle;
+}
+
 function showTrace(
   details,
   title = "Trace",
@@ -156,8 +305,9 @@ function showTrace(
     );
   }
 
-  traceModalContent.textContent =
-    String(details);
+  renderTraceDetails(
+    details
+  );
 
   traceModal.classList.remove(
     "hidden"
@@ -403,6 +553,350 @@ function dismissLogAfterClear(
 
 }
 
+
+function normalizeInternalActionName(action) {
+  return String(
+    action || ""
+  )
+    .trim()
+    .replace(/^INTERNAL_ACTION_/i, "")
+    .replace(/^CAN_/i, "")
+    .replace(/[^a-z0-9]+/gi, "_")
+    .replace(/^_+|_+$/g, "")
+    .toUpperCase();
+}
+
+function prettifyInternalActionName(action) {
+  return normalizeInternalActionName(
+    action
+  )
+    .replace(/_/g, " ")
+    .trim();
+}
+
+function getInternalActionPayload(data) {
+  if (!data) {
+    return null;
+  }
+
+  if (data.payload !== undefined && data.payload !== null && data.payload !== "") {
+    return data.payload;
+  }
+
+  if (data.details !== undefined && data.details !== null && data.details !== "") {
+    return data.details;
+  }
+
+  return null;
+}
+
+function formatInternalActionPayload(payload) {
+  if (typeof payload === "string") {
+    return prettifyTraceDetails(
+      payload
+    );
+  }
+
+  try {
+    return JSON.stringify(
+      payload,
+      null,
+      2
+    );
+  } catch (_error) {
+    return String(
+      payload
+    );
+  }
+}
+
+function formatUserPayloadValue(
+  value,
+  depth = 0,
+) {
+  if (Array.isArray(value)) {
+    if (!value.length) {
+      return "[]";
+    }
+
+    return value
+      .map((item, index) => {
+        return (
+          `${"  ".repeat(depth)}${index + 1}. `
+          + formatUserPayloadValue(
+            item,
+            depth + 1,
+          )
+        );
+      })
+      .join("\n");
+  }
+
+  if (
+      value
+      && typeof value === "object"
+  ) {
+    return formatUserPayload(
+      value,
+      depth + 1,
+    );
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+
+  if (
+      value === null
+      || value === undefined
+  ) {
+    return "";
+  }
+
+  return String(value);
+}
+
+function formatUserPayload(
+  payload,
+  depth = 0,
+) {
+  const data =
+    payload && typeof payload === "object"
+      ? payload
+      : {
+          text: String(payload || ""),
+        };
+
+  const lines = [];
+
+  Object.keys(data).forEach((key) => {
+    const value =
+      formatUserPayloadValue(
+        data[key],
+        depth,
+      );
+
+    lines.push(
+      `${key}: ${value || "<empty>"}`
+    );
+  });
+
+  return lines.join("\n");
+}
+
+function log_user(
+  payload = {}
+) {
+  const text =
+    String(
+      payload && payload.text
+        ? payload.text
+        : ""
+    ).trim();
+
+  const logDiv =
+    document.createElement("div");
+
+  logDiv.className =
+    "mb-1 min-w-0 whitespace-pre-wrap break-words font-mono text-[12px] bg-sky-500/5 p-2 rounded border border-sky-500/10";
+
+  logDiv.dataset.logKind =
+    "user";
+
+  logDiv.style.overflowWrap =
+    "anywhere";
+
+  const tagSpan =
+    document.createElement("span");
+
+  tagSpan.className =
+    "text-sky-300 font-bold logger-tag block";
+
+  tagSpan.textContent =
+    "[USER]";
+
+  logDiv.appendChild(
+    tagSpan
+  );
+
+  if (text) {
+    const messageSpan =
+      document.createElement("span");
+
+    messageSpan.className =
+      "block mt-1 text-sky-100/70";
+
+    messageSpan.textContent =
+      text;
+
+    logDiv.appendChild(
+      messageSpan
+    );
+  }
+
+  const actions =
+    document.createElement("div");
+
+  actions.className =
+    "mt-2 flex flex-wrap items-center gap-2";
+
+  const payloadButton =
+    document.createElement("button");
+
+  payloadButton.type =
+    "button";
+
+  payloadButton.className =
+    "inline-flex items-center rounded border border-sky-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-sky-300 hover:bg-sky-500/10 transition";
+
+  payloadButton.textContent =
+    "payload";
+
+  payloadButton.addEventListener(
+    "click",
+    function () {
+      showTrace(
+        formatUserPayload(
+          payload
+        ),
+        "User payload"
+      );
+    }
+  );
+
+  actions.appendChild(
+    payloadButton
+  );
+
+  logDiv.appendChild(
+    actions
+  );
+
+  consoleStream.appendChild(
+    logDiv
+  );
+
+  consoleStream.scrollTop =
+    consoleStream.scrollHeight;
+}
+
+function log_internal_action(
+  action,
+  data = {}
+) {
+  const actionName =
+    normalizeInternalActionName(
+      action
+    );
+
+  if (!actionName || actionName === "SAVE_SESSION" || actionName === "SAVE_SESSION") {
+    return;
+  }
+
+  const title =
+    `[ ACTION : ${prettifyInternalActionName(actionName)} ]`;
+
+  const text =
+    String(
+      data.text || data.query || ""
+    ).trim();
+
+  const payload =
+    getInternalActionPayload(
+      data
+    );
+
+  const logDiv =
+    document.createElement("div");
+
+  logDiv.className =
+    "mb-1 min-w-0 whitespace-pre-wrap break-words font-mono text-[12px] bg-emerald-500/5 p-2 rounded border border-emerald-500/10";
+
+  logDiv.dataset.logKind =
+    "action";
+
+  logDiv.style.overflowWrap =
+    "anywhere";
+
+  const tagSpan =
+    document.createElement("span");
+
+  tagSpan.className =
+    "text-emerald-300 font-bold logger-tag block";
+
+  tagSpan.textContent =
+    title;
+
+  logDiv.appendChild(
+    tagSpan
+  );
+
+  if (text) {
+    const messageSpan =
+      document.createElement("span");
+
+    messageSpan.className =
+      "block mt-1 text-emerald-100/70";
+
+    messageSpan.style.overflowWrap =
+      "anywhere";
+
+    messageSpan.textContent =
+      text;
+
+    logDiv.appendChild(
+      messageSpan
+    );
+  }
+
+  if (payload !== null) {
+    const actions =
+      document.createElement("div");
+
+    actions.className =
+      "mt-2 flex flex-wrap items-center gap-2";
+
+    const payloadButton =
+      document.createElement("button");
+
+    payloadButton.type =
+      "button";
+
+    payloadButton.className =
+      "inline-flex items-center rounded border border-emerald-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-emerald-300 hover:bg-emerald-500/10 transition";
+
+    payloadButton.textContent =
+      "payload";
+
+    payloadButton.addEventListener(
+      "click",
+      function () {
+        showTrace(
+          formatInternalActionPayload(
+            payload
+          ),
+          title
+        );
+      }
+    );
+
+    actions.appendChild(
+      payloadButton
+    );
+
+    logDiv.appendChild(
+      actions
+    );
+  }
+
+  consoleStream.appendChild(
+    logDiv
+  );
+
+  consoleStream.scrollTop =
+    consoleStream.scrollHeight;
+}
+
 function appendLog(
   tag,
   message,
@@ -465,6 +959,9 @@ function appendLog(
   } else if (normalizedTag.includes("LATEST SNAPSHOTS")) {
     logKind =
       "session";
+  } else if (normalizedTag.includes("ACTIVE_MEMORY")) {
+    logKind =
+      "active-memory";
   } else if (normalizedTag.includes("MEMORY:")) {
     logKind =
       "memory";
@@ -572,6 +1069,21 @@ function appendLog(
     );
   }
 
+  if (tag.includes("ACTIVE_MEMORY")) {
+    tagClass =
+      "text-zinc-300 font-bold";
+
+    logDiv.classList.add(
+      "font-mono",
+      "text-[12px]",
+      "bg-zinc-500/5",
+      "p-2",
+      "rounded",
+      "border",
+      "border-zinc-500/10",
+    );
+  }
+
   if (tag.includes("AFTER")) {
     tagClass =
       "text-purple-500";
@@ -673,6 +1185,9 @@ function appendLog(
     const isLatestSnapshots =
       tag.includes("LATEST SNAPSHOTS");
 
+    const isActiveMemory =
+      tag.includes("ACTIVE_MEMORY");
+
     const isUser =
       tag.includes("USER");
 
@@ -715,7 +1230,9 @@ function appendLog(
       "button";
 
     traceButton.className =
-      isSummarizer
+      isActiveMemory
+        ? "inline-flex items-center rounded border border-zinc-600/40 px-2 py-1 text-[10px] uppercase tracking-wider text-zinc-300 hover:bg-zinc-700/40 transition"
+        : isSummarizer
         ? "mt-2 inline-flex items-center rounded border border-blue-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-blue-300 hover:bg-blue-500/10 transition"
         : isSession || isLatestSnapshots
         ? "inline-flex items-center rounded border border-cyan-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/10 transition"
@@ -724,30 +1241,38 @@ function appendLog(
     traceButton.textContent =
       isPatternResult
         ? "patterns"
-        : isSession || isLatestSnapshots
+        : isSession || isLatestSnapshots || isActiveMemory
         ? "show"
         : isSummarizer
         ? "payload"
         : isUser
-        ? "message"
+        ? "payload"
         : "trace";
 
     traceButton.addEventListener(
       "click",
       function () {
         showTrace(
-          prettifyTraceDetails(normalized.details),
-          isPatternResult
-            ? "L2 pattern memory"
-            : isLatestSnapshots
-            ? "Latest snapshots"
-            : isSession
-            ? "Session bootstrap"
-            : tag.includes("ACTIVE_MEMORY")
-            ? "Active memory payload"
-            : isSummarizer
-            ? "Summarizer payload"
-            : "Trace",
+          isUser
+            ? formatUserPayload(
+                parseTraceJson(normalized.details)
+                || normalized.details
+              )
+            : prettifyTraceDetails(normalized.details),
+          getTraceTitle(
+            normalized.details,
+            isPatternResult
+              ? "L2 pattern memory"
+              : isLatestSnapshots
+              ? "Latest snapshots"
+              : isSession
+              ? "Session bootstrap"
+              : tag.includes("ACTIVE_MEMORY")
+              ? "Active memory payload"
+              : isSummarizer
+              ? "Summarizer payload"
+              : "Trace"
+          ),
           reason
         );
       }
@@ -760,6 +1285,7 @@ function appendLog(
     if (
         isSession
         || isLatestSnapshots
+        || isActiveMemory
     ) {
       const clearButton =
         document.createElement("button");
@@ -771,7 +1297,9 @@ function appendLog(
         "inline-flex items-center rounded border border-zinc-600/40 px-2 py-1 text-[10px] uppercase tracking-wider text-zinc-300 hover:bg-zinc-700/40 transition";
 
       clearButton.textContent =
-        "clear";
+        isActiveMemory
+          ? "delete"
+          : "clear";
 
       clearButton.addEventListener(
         "click",
@@ -781,13 +1309,24 @@ function appendLog(
               && window.clearOtherLatestRuntimeMemorySnapshots
           ) {
             window.clearOtherLatestRuntimeMemorySnapshots();
+          } else if (isActiveMemory) {
+            if (
+                window.JinRuntime
+                && window.JinRuntime.runtime
+                && window.JinRuntime.runtime.clearActiveMemoryRecords
+            ) {
+              window.JinRuntime.runtime.clearActiveMemoryRecords();
+            }
           } else if (window.clearPersistedSessionBootstrap) {
             window.clearPersistedSessionBootstrap();
           }
 
           normalized.details = null;
           clearButton.disabled = true;
-          clearButton.textContent = "cleared";
+          clearButton.textContent =
+            isActiveMemory
+              ? "deleted"
+              : "cleared";
           traceButton.disabled = true;
           traceButton.classList.add("opacity-40");
           dismissLogAfterClear(
@@ -822,6 +1361,12 @@ function appendLog(
 
 window.appendLog =
   appendLog;
+
+window.log_user =
+  log_user;
+
+window.log_internal_action =
+  log_internal_action;
 
 window.showTrace =
   showTrace;

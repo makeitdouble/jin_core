@@ -2,15 +2,109 @@
 
   window.JinRuntime = window.JinRuntime || {};
 
+  function splitCompoundRuntimeMemoryLine(line) {
+
+    const source =
+        String(line || "");
+
+    const boundaryRe =
+        /(;|[.!?。！？])\s+(?=(?:[A-Za-z][A-Za-z0-9]*_+[A-Za-z0-9_]*|active_memory(?:_\d+)?)\s*:)/g;
+
+    const pieces = [];
+    let start = 0;
+    let match = null;
+
+    while ((match = boundaryRe.exec(source)) !== null) {
+      const delimiter =
+          match[1];
+
+      const end =
+          delimiter === ";"
+            ? match.index
+            : match.index + delimiter.length;
+
+      const piece =
+          source.slice(start, end).trim();
+
+      if (piece) {
+        pieces.push(piece);
+      }
+
+      start =
+          boundaryRe.lastIndex;
+    }
+
+    const tail =
+        source.slice(start).trim();
+
+    if (tail) {
+      pieces.push(tail);
+    }
+
+    return pieces;
+
+  }
+
+
+
+  function lineStartsRuntimeMemoryEntry(line) {
+
+    return /^\s*-?\s*[A-Za-z][A-Za-z0-9_ #]{0,80}\s*:/.test(
+        String(line || "")
+    );
+
+  }
+
+
+  function escapeMultilineRuntimeMemoryTextLines(text) {
+
+    const escapedLines = [];
+    let pendingLine = null;
+
+    const flushPending = () => {
+      if (pendingLine !== null) {
+        escapedLines.push(pendingLine);
+        pendingLine = null;
+      }
+    };
+
+    String(text || "")
+      .split(/\r?\n/)
+      .forEach((rawLine) => {
+        const line =
+            String(rawLine || "").trim().replace(/^-+/, "").trim();
+
+        if (!line) {
+          if (pendingLine !== null) {
+            pendingLine += "\\n";
+          }
+          return;
+        }
+
+        if (lineStartsRuntimeMemoryEntry(line)) {
+          flushPending();
+          pendingLine = line;
+          return;
+        }
+
+        if (pendingLine !== null) {
+          pendingLine += `\\n${line}`;
+          return;
+        }
+
+        escapedLines.push(line);
+      });
+
+    flushPending();
+
+    return escapedLines;
+
+  }
+
   function splitMemoryTextLines(text) {
 
-    return String(text || "")
-      .replace(/\\n/g, "\n")
-      .replace(
-        /;\s+(?=[a-z][a-z0-9_]*\s*:)/g,
-        "\n"
-      )
-      .split(/\r?\n+/)
+    return escapeMultilineRuntimeMemoryTextLines(text)
+      .flatMap(splitCompoundRuntimeMemoryLine)
       .map(line => line.trim())
       .filter(Boolean);
 
@@ -104,6 +198,7 @@
   }
 
 
+  // Removes bracket metadata from a runtime memory value for panel text, e.g. "Book [status: pending]" -> "Book".
   function stripMemoryMetaForDisplay(value) {
 
     return splitMemoryMeta(value).text;
@@ -111,6 +206,7 @@
   }
 
 
+  // Removes bracket metadata from every runtime memory line for plain fallback rendering, e.g. "note: hi [trace: 0.50]" -> "note: hi".
   function stripMemoryTextMetaForDisplay(text) {
 
     return splitMemoryTextLines(text)
@@ -130,9 +226,104 @@
   }
 
 
+  // Keeps known product acronyms uppercase in readable UI labels, e.g. "Last jin response" -> "Last JIN response".
+  function normalizeDisplayLabelAcronyms(label) {
+
+    return String(label || "")
+      .replace(/\bjin\b/gi, "JIN");
+
+  }
+
+
+  // Converts a runtime memory key into a readable UI label, e.g. "user_name" -> "User name", "user_fact_1" -> "User fact #1", and "last_jin_response" -> "Last JIN response".
+  function convertKeyToName(key) {
+
+    const raw =
+        String(key || "").trim();
+
+    if (!raw) {
+      return "";
+    }
+
+    const match =
+        raw.match(/^(.*?)(?:[_\s]+)(\d+)$/);
+
+    const base =
+        (match ? match[1] : raw)
+          .replace(/_/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .toLowerCase();
+
+    if (!base) {
+      return match ? `#${match[2]}` : "";
+    }
+
+    const label =
+        normalizeDisplayLabelAcronyms(
+            base.charAt(0).toUpperCase() + base.slice(1)
+        );
+
+    return match
+      ? `${label} #${match[2]}`
+      : label;
+
+  }
+
+
   function isUserIdleRuntimeMemoryKey(key) {
 
     return normalizeRuntimeMemoryKey(key) === "user_idle";
+
+  }
+
+
+  function isActiveMemoryRuntimeMemoryKey(key) {
+
+    return /^active_memory(?:_\d+)?$/.test(
+        normalizeRuntimeMemoryKey(key)
+    );
+
+  }
+
+
+  function isActiveMemoryRuntimeMemoryLine(line) {
+
+    if (!line) {
+      return false;
+    }
+
+    if (typeof line === "object") {
+      return isActiveMemoryRuntimeMemoryKey(line.key);
+    }
+
+    const separatorIndex =
+        String(line).indexOf(":");
+
+    if (separatorIndex <= 0) {
+      return false;
+    }
+
+    return isActiveMemoryRuntimeMemoryKey(
+        String(line).slice(0, separatorIndex)
+    );
+
+  }
+
+
+  function extractActiveMemoryRuntimeMemoryLines(text) {
+
+    return splitMemoryTextLines(text)
+      .filter(line => isActiveMemoryRuntimeMemoryLine(line));
+
+  }
+
+
+  function stripActiveMemoryRuntimeMemoryText(text) {
+
+    return splitMemoryTextLines(text)
+      .filter(line => !isActiveMemoryRuntimeMemoryLine(line))
+      .join("\n");
 
   }
 
@@ -348,10 +539,14 @@
   }
 
 
+  // Builds the UI value presentation while keeping raw hover data, e.g. value "Book" with strength 0.5 -> text "Book", raw "Book [trace: 0.50]".
   function buildRuntimeMemoryValuePresentation(line) {
 
     const value =
         line && line.value || "";
+
+    const displayValue =
+        String(value || "").replace(/\\n/g, " ↵ ");
 
     const parsedValue =
         splitMemoryMeta(value);
@@ -363,7 +558,7 @@
 
     const rawValue =
         appendProperties(
-          value,
+          displayValue,
           strengthProperties
         );
 
@@ -375,7 +570,14 @@
     ) {
       presentation.text =
           formatUserMessageValueForDisplay(
-              value
+              displayValue
+          );
+    } else if (
+        isJinResponseRuntimeMemoryKey(line && line.key)
+    ) {
+      presentation.text =
+          formatJinResponseValueForDisplay(
+              presentation.text
           );
     }
 
@@ -384,6 +586,7 @@
   }
 
 
+  // Splits repeated metadata from a quoted user message, e.g. "\"hi\" [repeated: 2]" -> quote + metadata parts.
   function splitUserMessageRepeatedMetadata(value) {
 
     const raw =
@@ -414,6 +617,7 @@
   }
 
 
+  // Parses a JSON-quoted user message for display truncation, e.g. "\"hello\"" -> "hello".
   function parseQuotedUserMessage(value) {
 
     const trimmed =
@@ -437,6 +641,7 @@
   }
 
 
+  // Re-quotes a displayed user message after safe truncation, e.g. "hello" -> "\"hello\"".
   function quoteUserMessageForDisplay(value) {
 
     return JSON.stringify(
@@ -446,6 +651,7 @@
   }
 
 
+  // Truncates long displayed user messages, e.g. 60 characters -> first 50 characters plus "...".
   function truncateUserMessageQuote(value) {
 
     const chars =
@@ -460,6 +666,7 @@
   }
 
 
+  // Formats user_message values for compact UI display, e.g. a long quoted message keeps quotes, truncates text, and preserves [repeated: N].
   function formatUserMessageValueForDisplay(value) {
 
     const parts =
@@ -484,16 +691,76 @@
 
   }
 
+  // Checks whether a runtime memory key contains a JIN answer value for compact UI display, e.g. "last_jin_response" -> true.
+  function isJinResponseRuntimeMemoryKey(key) {
+
+    return [
+      "last_jin_response",
+      "latest_jin_response",
+      "last_jin_answer",
+      "latest_jin_answer",
+    ].includes(
+        normalizeRuntimeMemoryKey(key)
+    );
+
+  }
+
+
+  // Truncates long displayed JIN answers for the runtime memory panel, e.g. 120 characters -> first 80 characters plus "...".
+  function truncateJinResponseForDisplay(value) {
+
+    const chars =
+        Array.from(String(value || ""));
+
+    if (chars.length <= 80) {
+      return String(value || "");
+    }
+
+    return `${chars.slice(0, 80).join("").trimEnd()}...`;
+
+  }
+
+
+  // Formats JIN response values for compact UI display, e.g. a long last_jin_response is shortened while raw hover data stays full.
+  function formatJinResponseValueForDisplay(value) {
+
+    return truncateJinResponseForDisplay(
+        value
+    );
+
+  }
+
+
+  // Aggregates deterministic UI-only runtime memory string formatters, e.g. raw keys and values stay intact in data/title while panel text uses readable labels.
+  const runtimeMemoryDisplay = {
+    stripMemoryMetaForDisplay,
+    stripMemoryTextMetaForDisplay,
+    normalizeDisplayLabelAcronyms,
+    convertKeyToName,
+    buildRuntimeMemoryValuePresentation,
+    formatUserMessageValueForDisplay,
+    isJinResponseRuntimeMemoryKey,
+    truncateJinResponseForDisplay,
+    formatJinResponseValueForDisplay,
+  };
+
 
   window.JinRuntime.memoryModel = {
+    splitCompoundRuntimeMemoryLine,
     splitMemoryTextLines,
     appendProperties,
     splitMemoryMeta,
     memoryMetaHasTag,
+    normalizeDisplayLabelAcronyms,
+    convertKeyToName,
     stripMemoryMetaForDisplay,
     stripRuntimeMemoryMeta: stripMemoryMetaForDisplay,
     stripMemoryTextMetaForDisplay,
     normalizeRuntimeMemoryKey,
+    isActiveMemoryRuntimeMemoryKey,
+    isActiveMemoryRuntimeMemoryLine,
+    extractActiveMemoryRuntimeMemoryLines,
+    stripActiveMemoryRuntimeMemoryText,
     isUserIdleRuntimeMemoryKey,
     isUserIdleRuntimeMemoryLine,
     stripUserIdleRuntimeMemoryText,
@@ -505,6 +772,10 @@
     formatRuntimeMemoryStrengthProperties,
     buildRuntimeMemoryValuePresentation,
     formatUserMessageValueForDisplay,
+    runtimeMemoryDisplay,
+    isJinResponseRuntimeMemoryKey,
+    truncateJinResponseForDisplay,
+    formatJinResponseValueForDisplay,
   };
 
 }());

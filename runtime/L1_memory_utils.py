@@ -1,6 +1,5 @@
 import json
 import re
-from datetime import datetime
 from difflib import SequenceMatcher
 
 from runtime.L1_memory_rules import (
@@ -51,7 +50,71 @@ NUMBERED_MEMORY_KEY_RE = re.compile(
 
 RUNTIME_USER_MESSAGE_KEY = "user_message"
 RUNTIME_LAST_JIN_RESPONSE_KEY = "last_jin_response"
-RUNTIME_LAST_JIN_RESPONSE_FALLBACK_LIMIT = 240
+
+RUNTIME_MEMORY_KEY_PREFIX_RE = re.compile(
+    r"^\s*-?\s*[A-Za-z][A-Za-z0-9_ #]{0,80}\s*:",
+)
+
+
+def _line_starts_runtime_memory_entry(
+        line: str,
+) -> bool:
+
+    return bool(
+        RUNTIME_MEMORY_KEY_PREFIX_RE.match(
+            str(line or "")
+        )
+    )
+
+
+def _escape_multiline_runtime_memory_entries(
+        memory: str,
+) -> list[str]:
+
+    """Keep accidental multiline values attached to their owning key.
+
+    L1 sometimes copies markdown/code/ascii into a value after a real
+    ``key: value`` prefix.  Physical continuation lines must stay inside
+    that value as escaped ``\n`` text; otherwise the generic parser turns
+    every ascii line into a separate ``session memory`` entry.
+    """
+
+    escaped_lines: list[str] = []
+    pending_line: str | None = None
+
+    def flush_pending() -> None:
+        nonlocal pending_line
+
+        if pending_line is not None:
+            escaped_lines.append(
+                pending_line
+            )
+            pending_line = None
+
+    for raw_line in (memory or "").splitlines():
+        line = str(raw_line or "").strip().lstrip("-").strip()
+
+        if not line:
+            if pending_line is not None:
+                pending_line += "\\n"
+            continue
+
+        if _line_starts_runtime_memory_entry(line):
+            flush_pending()
+            pending_line = line
+            continue
+
+        if pending_line is not None:
+            pending_line += "\\n" + line
+            continue
+
+        escaped_lines.append(
+            line
+        )
+
+    flush_pending()
+
+    return escaped_lines
 
 
 def _runtime_value_has_open_quote(
@@ -134,7 +197,9 @@ def _join_multiline_user_message_entries(
     joined_lines: list[str] = []
     pending_line: str | None = None
 
-    for raw_line in (memory or "").splitlines():
+    for raw_line in _escape_multiline_runtime_memory_entries(
+            memory
+    ):
         line = raw_line.strip().lstrip("-").strip()
 
         if not line:
@@ -343,10 +408,7 @@ def build_last_jin_response_fallback(
 
         return "No complete assistant answer was delivered."
 
-    if len(compact) <= RUNTIME_LAST_JIN_RESPONSE_FALLBACK_LIMIT:
-        return compact
-
-    return compact[:RUNTIME_LAST_JIN_RESPONSE_FALLBACK_LIMIT].rstrip()
+    return compact
 
 
 def enforce_runtime_turn_fields(
@@ -394,1292 +456,6 @@ def enforce_runtime_turn_fields(
 
     return updated_memory
 
-
-ACTIVE_MEMORY_KEY_RE = re.compile(
-    r"^active_memory(?:_\d+)?$",
-    re.IGNORECASE,
-)
-
-
-def is_active_memory_key(
-        key: str,
-) -> bool:
-
-    return bool(
-        ACTIVE_MEMORY_KEY_RE.match(
-            str(key or "").strip()
-        )
-    )
-
-
-MANAGED_RUNTIME_MEMORY_KEY_FAMILIES = (
-    "active_memory",
-)
-
-MANAGED_RUNTIME_MEMORY_KEY_RE = re.compile(
-    r"^(?P<family>active_memory)(?:_(?P<suffix>[a-zA-Z0-9_]+))?$",
-    re.IGNORECASE,
-)
-
-RUNTIME_MEMORY_STATUS_FIELD_RE = re.compile(
-    r"\s*\[\s*status\s*:\s*[^\]]*\]\s*",
-    re.IGNORECASE,
-)
-
-RUNTIME_MEMORY_STATUS_VALUE_RE = re.compile(
-    r"\[\s*status\s*:\s*([^\]]*)\]",
-    re.IGNORECASE,
-)
-
-RUNTIME_MEMORY_TRACE_FIELD_RE = re.compile(
-    r"\s*(?:\[\s*trace\s*:\s*[^\]]*\]|\(\s*trace\s*:\s*[^)]*\))\s*",
-    re.IGNORECASE,
-)
-
-ACTIVE_MEMORY_LIFECYCLE_SUFFIX_NAMES = (
-    "creation_time",
-    "created_jin_message_number",
-    "elapsed_time",
-    "elapsed_jin_message_number",
-)
-
-ACTIVE_MEMORY_LIFECYCLE_SUFFIX_RE = re.compile(
-    (
-        r"\s*\[\s*"
-        r"(?:creation_time|created_jin_message_number|"
-        r"elapsed_time|elapsed_jin_message_number)"
-        r"\s*:\s*[^\]]*\]\s*"
-    ),
-    re.IGNORECASE,
-)
-
-
-def _match_managed_runtime_memory_key(
-        key: str,
-) -> re.Match | None:
-
-    return MANAGED_RUNTIME_MEMORY_KEY_RE.match(
-        str(key or "").strip()
-    )
-
-
-def _managed_runtime_memory_key_family(
-        key: str,
-) -> str:
-
-    match = _match_managed_runtime_memory_key(
-        key
-    )
-
-    if not match:
-        return ""
-
-    return match.group(
-        "family"
-    ).casefold()
-
-
-def _managed_runtime_memory_key_index(
-        key: str,
-) -> int | None:
-
-    match = _match_managed_runtime_memory_key(
-        key
-    )
-
-    if not match:
-        return None
-
-    suffix = match.group(
-        "suffix"
-    )
-
-    if suffix is None or suffix == "":
-        return 1
-
-    if not suffix.isdigit():
-        return None
-
-    try:
-        index = int(
-            suffix
-        )
-    except ValueError:
-        return None
-
-    if index <= 0:
-        return None
-
-    return index
-
-
-def _managed_runtime_memory_key_has_numeric_suffix(
-        key: str,
-) -> bool:
-
-    match = _match_managed_runtime_memory_key(
-        key
-    )
-
-    if not match:
-        return False
-
-    suffix = match.group(
-        "suffix"
-    )
-
-    return bool(
-        suffix
-        and suffix.isdigit()
-    )
-
-
-def _format_managed_runtime_memory_key(
-        family: str,
-        index: int,
-) -> str:
-
-    if index <= 1:
-        return family
-
-    return f"{family}_{index}"
-
-
-def _next_managed_runtime_memory_index(
-        used_indexes: set[int],
-) -> int:
-
-    index = 1
-
-    while index in used_indexes:
-        index += 1
-
-    used_indexes.add(
-        index
-    )
-
-    return index
-
-
-def _normalize_managed_runtime_memory_value(
-        value: str,
-) -> str:
-
-    return re.sub(
-        r"\s+",
-        " ",
-        str(value or "").strip().casefold(),
-    )
-
-
-def strip_active_memory_runtime_metadata(
-        memory: str,
-) -> str:
-
-    parsed_lines = parse_runtime_memory_lines(
-        memory
-    )
-
-    if not any(
-            is_active_memory_key(
-                (
-                    line.get(
-                        "key",
-                        "",
-                    )
-                    or ""
-                ).strip()
-            )
-            for line in parsed_lines
-    ):
-        return memory or ""
-
-    updated_lines = []
-
-    for line in parsed_lines:
-        key = (
-            line.get(
-                "key",
-                "",
-            )
-            or ""
-        ).strip()
-        value = (
-            line.get(
-                "value",
-                "",
-            )
-            or ""
-        ).strip()
-
-        if is_active_memory_key(
-                key
-        ):
-            value = ACTIVE_MEMORY_LIFECYCLE_SUFFIX_RE.sub(
-                " ",
-                value,
-            )
-            value = re.sub(
-                r"\s+",
-                " ",
-                value,
-            ).strip()
-
-        updated_lines.append(
-            durable_memory_line_text({
-                "key": key,
-                "value": value,
-            })
-        )
-
-    return "\n".join(
-        line
-        for line in updated_lines
-        if line.strip()
-    ).strip()
-
-
-def _parse_active_memory_suffix(
-        value: str,
-        suffix_name: str,
-) -> str:
-
-    pattern = re.compile(
-        r"\[\s*"
-        + re.escape(
-            suffix_name
-        )
-        + r"\s*:\s*([^\]]*)\]",
-        re.IGNORECASE,
-    )
-    match = pattern.search(
-        str(value or "")
-    )
-
-    if not match:
-        return ""
-
-    return match.group(
-        1
-    ).strip()
-
-
-def _parse_active_memory_created_jin_message_suffix(
-        value: str,
-) -> str:
-
-    pattern = re.compile(
-        r"\[\s*created_jin_message_number\s*:\s*([^\]]*)\]",
-        re.IGNORECASE,
-    )
-    match = pattern.search(
-        str(value or "")
-    )
-
-    if not match:
-        return ""
-
-    return match.group(
-        1
-    ).strip()
-
-
-def _parse_runtime_datetime(
-        value: str,
-) -> datetime | None:
-
-    text = str(value or "").strip()
-
-    if not text:
-        return None
-
-    try:
-        return datetime.fromisoformat(
-            text.replace(
-                "Z",
-                "+00:00",
-            )
-        )
-    except ValueError:
-        return None
-
-
-def _parse_runtime_int(
-        value,
-) -> int | None:
-
-    try:
-        return int(
-            str(value).strip()
-        )
-    except (TypeError, ValueError):
-        return None
-
-
-def _runtime_datetime_delta_seconds(
-        start: datetime | None,
-        end: datetime | None,
-) -> int:
-
-    if start is None or end is None:
-        return 0
-
-    if (
-            start.tzinfo is None
-            and end.tzinfo is not None
-    ):
-        end = end.replace(
-            tzinfo=None
-        )
-
-    if (
-            start.tzinfo is not None
-            and end.tzinfo is None
-    ):
-        start = start.replace(
-            tzinfo=None
-        )
-
-    return max(
-        0,
-        int(
-            (
-                end
-                - start
-            ).total_seconds()
-        ),
-    )
-
-
-def _format_runtime_elapsed_time(
-        seconds: int,
-) -> str:
-
-    seconds = max(
-        0,
-        int(
-            seconds
-        ),
-    )
-    hours, remainder = divmod(
-        seconds,
-        3600,
-    )
-    minutes, seconds = divmod(
-        remainder,
-        60,
-    )
-
-    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-
-
-def _parse_runtime_elapsed_seconds(
-        value: str | None,
-) -> int | None:
-
-    text = str(
-        value
-        or ""
-    ).strip()
-
-    if not text:
-        return None
-
-    match = re.fullmatch(
-        r"(?P<hours>\d+):(?P<minutes>\d{1,2}):(?P<seconds>\d{1,2})",
-        text,
-    )
-
-    if match:
-        return (
-            int(
-                match.group(
-                    "hours",
-                )
-            )
-            * 3600
-            + int(
-                match.group(
-                    "minutes",
-                )
-            )
-            * 60
-            + int(
-                match.group(
-                    "seconds",
-                )
-            )
-        )
-
-    match = re.fullmatch(
-        r"(?P<value>\d+)",
-        text,
-    )
-
-    if match:
-        return int(
-            match.group(
-                "value",
-            )
-        )
-
-    return None
-
-
-def _runtime_user_idle_seconds(
-        context,
-) -> int:
-
-    try:
-        seconds = int(
-            getattr(
-                context,
-                "runtime_user_idle_seconds",
-                0,
-            )
-            or 0
-        )
-    except (
-        TypeError,
-        ValueError,
-    ):
-        return 0
-
-    return max(
-        0,
-        min(
-            seconds,
-            365 * 24 * 60 * 60,
-        ),
-    )
-
-
-def _build_active_memory_lifecycle_suffixes(
-        *,
-        creation_time: str,
-        created_jin_message_number: int,
-        elapsed_time: str,
-        elapsed_jin_message_number: int,
-) -> str:
-
-    values = {
-        "creation_time": creation_time,
-        "created_jin_message_number": str(
-            created_jin_message_number
-        ),
-        "elapsed_time": elapsed_time,
-        "elapsed_jin_message_number": str(
-            elapsed_jin_message_number
-        ),
-    }
-
-    return " ".join(
-        f"[ {name}: {values[name]} ]"
-        for name in ACTIVE_MEMORY_LIFECYCLE_SUFFIX_NAMES
-    )
-
-
-def _attach_active_memory_lifecycle_suffixes_to_value(
-        value: str,
-        suffixes: str,
-) -> str:
-
-    cleaned = ACTIVE_MEMORY_LIFECYCLE_SUFFIX_RE.sub(
-        " ",
-        str(value or ""),
-    )
-    cleaned = re.sub(
-        r"\s+",
-        " ",
-        cleaned,
-    ).strip()
-
-    status_match = RUNTIME_MEMORY_STATUS_FIELD_RE.search(
-        cleaned
-    )
-
-    if not status_match:
-        return f"{cleaned} {suffixes}".strip()
-
-    before_status = cleaned[:status_match.start()].rstrip()
-    status_and_tail = cleaned[status_match.start():].strip()
-
-    return (
-        f"{before_status} {suffixes} {status_and_tail}"
-    ).strip()
-
-
-def refresh_active_memory_runtime_metadata(
-        memory: str,
-        *,
-        previous_memory: str = "",
-        context=None,
-        add_runtime_user_idle_to_elapsed: bool = False,
-) -> str:
-
-    parsed_lines = parse_runtime_memory_lines(
-        memory
-    )
-
-    if not any(
-            is_active_memory_key(
-                (
-                    line.get(
-                        "key",
-                        "",
-                    )
-                    or ""
-                ).strip()
-            )
-            for line in parsed_lines
-    ):
-        return memory or ""
-
-    current_timestamp = str(
-        getattr(
-            context,
-            "timestamp",
-            "",
-        )
-        or datetime.now().isoformat()
-    )
-    current_datetime = (
-        _parse_runtime_datetime(
-            current_timestamp
-        )
-        or datetime.now()
-    )
-    current_turn_number = (
-        _parse_runtime_int(
-            getattr(
-                context,
-                "turn_number",
-                None,
-            )
-        )
-        or 0
-    )
-
-    previous_active_values = {}
-
-    for previous_line in parse_runtime_memory_lines(
-            previous_memory
-    ):
-        previous_key = (
-            previous_line.get(
-                "key",
-                "",
-            )
-            or ""
-        ).strip()
-
-        if not is_active_memory_key(
-                previous_key
-        ):
-            continue
-
-        previous_active_values[
-            normalize_memory_key(
-                previous_key
-            )
-        ] = (
-            previous_line.get(
-                "value",
-                "",
-            )
-            or ""
-        ).strip()
-
-    updated_lines = []
-
-    for line in parsed_lines:
-        key = (
-            line.get(
-                "key",
-                "",
-            )
-            or ""
-        ).strip()
-        value = (
-            line.get(
-                "value",
-                "",
-            )
-            or ""
-        ).strip()
-
-        if not is_active_memory_key(
-                key
-        ):
-            updated_lines.append(
-                durable_memory_line_text(
-                    line
-                )
-            )
-            continue
-
-        previous_value = previous_active_values.get(
-            normalize_memory_key(
-                key
-            ),
-            "",
-        )
-        creation_time = (
-            _parse_active_memory_suffix(
-                previous_value,
-                "creation_time",
-            )
-            or current_timestamp
-        )
-        created_jin_message_number = (
-            _parse_runtime_int(
-                _parse_active_memory_created_jin_message_suffix(
-                    previous_value,
-                )
-            )
-        )
-
-        if created_jin_message_number is None:
-            created_jin_message_number = current_turn_number
-
-        elapsed_seconds = _runtime_datetime_delta_seconds(
-            _parse_runtime_datetime(
-                creation_time
-            ),
-            current_datetime,
-        )
-
-        if add_runtime_user_idle_to_elapsed:
-            previous_elapsed_seconds = (
-                _parse_runtime_elapsed_seconds(
-                    _parse_active_memory_suffix(
-                        previous_value,
-                        "elapsed_time",
-                    )
-                )
-                or 0
-            )
-            elapsed_seconds = max(
-                elapsed_seconds,
-                previous_elapsed_seconds
-                + _runtime_user_idle_seconds(
-                    context
-                ),
-            )
-
-        elapsed_jin_message_number = max(
-            0,
-            current_turn_number
-            - created_jin_message_number,
-        )
-        suffixes = _build_active_memory_lifecycle_suffixes(
-            creation_time=creation_time,
-            created_jin_message_number=created_jin_message_number,
-            elapsed_time=_format_runtime_elapsed_time(
-                elapsed_seconds
-            ),
-            elapsed_jin_message_number=elapsed_jin_message_number,
-        )
-        value = _attach_active_memory_lifecycle_suffixes_to_value(
-            value,
-            suffixes,
-        )
-
-        updated_lines.append(
-            f"{key}: {value}".strip()
-        )
-
-    return "\n".join(
-        line
-        for line in updated_lines
-        if line.strip()
-    ).strip()
-
-
-def _value_has_runtime_status_field(
-        value: str,
-) -> bool:
-
-    return bool(
-        RUNTIME_MEMORY_STATUS_FIELD_RE.search(
-            str(value or "")
-        )
-    )
-
-
-def ensure_active_memory_status_suffixes(
-        memory: str,
-) -> str:
-
-    parsed_lines = parse_runtime_memory_lines(
-        memory
-    )
-
-    if not any(
-            is_active_memory_key(
-                (
-                    line.get(
-                        "key",
-                        "",
-                    )
-                    or ""
-                ).strip()
-            )
-            for line in parsed_lines
-    ):
-        return memory or ""
-
-    updated_lines = []
-
-    for line in parsed_lines:
-        key = (
-            line.get(
-                "key",
-                "",
-            )
-            or ""
-        ).strip()
-        value = (
-            line.get(
-                "value",
-                "",
-            )
-            or ""
-        ).strip()
-
-        if (
-                is_active_memory_key(
-                    key
-                )
-                and not _value_has_runtime_status_field(
-                    value
-                )
-        ):
-            value = f"{value} [ status: pending ]".strip()
-
-        updated_lines.append(
-            durable_memory_line_text({
-                "key": key,
-                "value": value,
-            })
-        )
-
-    return "\n".join(
-        line
-        for line in updated_lines
-        if line.strip()
-    ).strip()
-
-
-def _parse_runtime_status_suffix_value(
-        value: str,
-) -> str:
-
-    match = RUNTIME_MEMORY_STATUS_VALUE_RE.search(
-        str(value or "")
-    )
-
-    if not match:
-        return ""
-
-    return re.sub(
-        r"\s+",
-        " ",
-        match.group(
-            1
-        ).strip(),
-    )
-
-
-def _merge_runtime_status_suffix_values(
-        previous_status: str,
-        candidate_status: str,
-) -> str:
-
-    previous_parts = [
-        part.strip()
-        for part in str(previous_status or "").split(",")
-        if part.strip()
-    ]
-    candidate_parts = [
-        part.strip()
-        for part in str(candidate_status or "").split(",")
-        if part.strip()
-    ]
-    merged_parts = []
-    seen = set()
-
-    for part in (
-            previous_parts
-            + candidate_parts
-    ):
-        normalized_part = part.casefold()
-
-        if normalized_part in seen:
-            continue
-
-        seen.add(
-            normalized_part
-        )
-        merged_parts.append(
-            part
-        )
-
-    return ", ".join(
-        merged_parts
-    )
-
-
-def _replace_runtime_status_suffix_value(
-        value: str,
-        status_value: str,
-) -> str:
-
-    replacement = f"[ status: {status_value or 'pending'} ]"
-    text = str(value or "").strip()
-
-    if RUNTIME_MEMORY_STATUS_VALUE_RE.search(
-            text
-    ):
-        return RUNTIME_MEMORY_STATUS_VALUE_RE.sub(
-            replacement,
-            text,
-            count=1,
-        ).strip()
-
-    return f"{text} {replacement}".strip()
-
-
-def _merge_active_memory_status_suffix(
-        previous_value: str,
-        candidate_value: str,
-) -> str:
-
-    previous_status = _parse_runtime_status_suffix_value(
-        previous_value
-    )
-    candidate_status = _parse_runtime_status_suffix_value(
-        candidate_value
-    )
-
-    if not candidate_status and previous_status:
-        return previous_value
-
-    merged_status = _merge_runtime_status_suffix_values(
-        previous_status or "pending",
-        candidate_status or "pending",
-    )
-
-    return _replace_runtime_status_suffix_value(
-        previous_value,
-        merged_status,
-    )
-
-
-def _normalize_status_collapsible_runtime_value(
-        value: str,
-) -> str:
-
-    cleaned = RUNTIME_MEMORY_STATUS_FIELD_RE.sub(
-        " ",
-        str(value or ""),
-    )
-    cleaned = RUNTIME_MEMORY_TRACE_FIELD_RE.sub(
-        " ",
-        cleaned,
-    )
-    cleaned = strip_runtime_memory_repeated_suffix(
-        cleaned
-    )
-    cleaned = strip_runtime_memory_confirmation_suffix(
-        cleaned
-    )
-
-    return re.sub(
-        r"\s+",
-        " ",
-        cleaned.strip().casefold(),
-    )
-
-
-def _managed_runtime_memory_values_are_status_duplicate(
-        previous_value: str,
-        candidate_value: str,
-) -> bool:
-
-    if not _value_has_runtime_status_field(
-            candidate_value
-    ):
-        return False
-
-    previous_text = _normalize_status_collapsible_runtime_value(
-        previous_value
-    )
-    candidate_text = _normalize_status_collapsible_runtime_value(
-        candidate_value
-    )
-
-    if not previous_text or not candidate_text:
-        return False
-
-    if previous_text == candidate_text:
-        return True
-
-    return SequenceMatcher(
-        None,
-        previous_text,
-        candidate_text,
-    ).ratio() >= 0.96
-
-
-def _managed_runtime_memory_candidate_collapses_to_previous(
-        *,
-        key: str,
-        value: str,
-        previous_entries: list[dict],
-) -> dict | None:
-
-    normalized_key = normalize_memory_key(
-        key
-    )
-
-    for previous_entry in previous_entries:
-        previous_key = normalize_memory_key(
-            previous_entry.get(
-                "key",
-                "",
-            )
-        )
-
-        if (
-                previous_key != normalized_key
-                and not _managed_runtime_memory_key_has_numeric_suffix(
-                    key
-                )
-        ):
-            continue
-
-        if _managed_runtime_memory_values_are_status_duplicate(
-                previous_entry.get(
-                    "value",
-                    "",
-                ),
-                value,
-        ):
-            return previous_entry
-
-    return None
-
-
-def _build_managed_runtime_memory_entries(
-        memory: str,
-) -> dict[str, list[dict]]:
-
-    entries = {
-        family: []
-        for family in MANAGED_RUNTIME_MEMORY_KEY_FAMILIES
-    }
-    used_indexes = {
-        family: set()
-        for family in MANAGED_RUNTIME_MEMORY_KEY_FAMILIES
-    }
-
-    for line in parse_runtime_memory_lines(
-            memory
-    ):
-        original_key = (
-            line.get(
-                "key",
-                "",
-            )
-            or ""
-        ).strip()
-        family = _managed_runtime_memory_key_family(
-            original_key
-        )
-
-        if not family:
-            continue
-
-        index = _managed_runtime_memory_key_index(
-            original_key
-        )
-
-        if (
-                index is None
-                or index in used_indexes[family]
-        ):
-            index = _next_managed_runtime_memory_index(
-                used_indexes[family]
-            )
-            key = _format_managed_runtime_memory_key(
-                family,
-                index,
-            )
-        else:
-            used_indexes[family].add(
-                index
-            )
-            key = original_key
-
-        value = str(
-            line.get(
-                "value",
-                "",
-            )
-            or ""
-        ).strip()
-
-        entries[family].append({
-            "key": key,
-            "value": value,
-            "index": index,
-            "line": f"{key}: {value}".strip(),
-        })
-
-    return entries
-
-
-def normalize_managed_runtime_memory_slots(
-        previous_memory: str,
-        candidate_memory: str,
-        collapse_events: list[dict] | None = None,
-) -> str:
-    """
-    Deterministically manage active_memory slot keys.
-
-    The L1 model may reuse an existing key, invent a suffix like _new, or try
-    to edit an old slot. Existing managed slots are anchors; conflicting
-    candidate appearances become the next numbered sibling.
-    """
-
-    previous_entries = _build_managed_runtime_memory_entries(
-        previous_memory
-    )
-    used_indexes = {
-        family: {
-            entry["index"]
-            for entry in entries
-        }
-        for family, entries in previous_entries.items()
-    }
-    previous_keys = {
-        family: {
-            normalize_memory_key(
-                entry["key"]
-            )
-            for entry in entries
-        }
-        for family, entries in previous_entries.items()
-    }
-    previous_values = {
-        family: {
-            _normalize_managed_runtime_memory_value(
-                entry["value"]
-            )
-            for entry in entries
-        }
-        for family, entries in previous_entries.items()
-    }
-    emitted_previous_families = {
-        family: False
-        for family in MANAGED_RUNTIME_MEMORY_KEY_FAMILIES
-    }
-    emitted_previous_line_indexes = {}
-    updated_lines: list[str] = []
-
-    def emit_previous_family(
-            family: str,
-    ) -> None:
-        if emitted_previous_families[family]:
-            return
-
-        emitted_previous_families[family] = True
-
-        for entry in previous_entries[family]:
-            emitted_previous_line_indexes[
-                (
-                    family,
-                    entry["index"],
-                )
-            ] = len(
-                updated_lines
-            )
-            updated_lines.append(
-                entry["line"]
-            )
-
-    for line in parse_runtime_memory_lines(
-            candidate_memory
-    ):
-        key = (
-            line.get(
-                "key",
-                "",
-            )
-            or ""
-        ).strip()
-        value = (
-            line.get(
-                "value",
-                "",
-            )
-            or ""
-        ).strip()
-        family = _managed_runtime_memory_key_family(
-            key
-        )
-
-        if not family:
-            updated_lines.append(
-                durable_memory_line_text(
-                    line
-                )
-            )
-            continue
-
-        emit_previous_family(
-            family
-        )
-
-        cleaned_value = value
-        normalized_key = normalize_memory_key(
-            key
-        )
-        normalized_value = _normalize_managed_runtime_memory_value(
-            cleaned_value
-        )
-
-        if (
-                normalized_key in previous_keys[family]
-                and normalized_value in previous_values[family]
-        ):
-            continue
-
-        if normalized_value in previous_values[family]:
-            continue
-
-        collapsed_parent = _managed_runtime_memory_candidate_collapses_to_previous(
-                key=key,
-                value=cleaned_value,
-                previous_entries=previous_entries[family],
-        )
-
-        if collapsed_parent is not None:
-            parent_value_before = collapsed_parent.get(
-                "value",
-                "",
-            )
-            merged_value = _merge_active_memory_status_suffix(
-                parent_value_before,
-                cleaned_value,
-            )
-            collapsed_parent["value"] = merged_value
-            collapsed_parent["line"] = (
-                f"{collapsed_parent['key']}: {merged_value}"
-            ).strip()
-            previous_values[family].add(
-                _normalize_managed_runtime_memory_value(
-                    merged_value
-                )
-            )
-            line_index = emitted_previous_line_indexes.get(
-                (
-                    family,
-                    collapsed_parent["index"],
-                )
-            )
-
-            if line_index is not None:
-                updated_lines[line_index] = collapsed_parent["line"]
-
-            if (
-                    collapse_events is not None
-                    and normalize_memory_key(
-                        key
-                    ) != normalize_memory_key(
-                        collapsed_parent.get(
-                            "key",
-                            "",
-                        )
-                    )
-            ):
-                collapse_events.append({
-                    "family": family,
-                    "candidate_key": key,
-                    "candidate_value": cleaned_value,
-                    "parent_key": collapsed_parent.get(
-                        "key",
-                        "",
-                    ),
-                    "parent_value_before": parent_value_before,
-                    "parent_value_after": merged_value,
-                    "result_line": collapsed_parent["line"],
-                })
-
-            continue
-
-        index = _managed_runtime_memory_key_index(
-            key
-        )
-
-        if (
-                index is None
-                or index in used_indexes[family]
-        ):
-            index = _next_managed_runtime_memory_index(
-                used_indexes[family]
-            )
-        else:
-            used_indexes[family].add(
-                index
-            )
-
-        managed_key = _format_managed_runtime_memory_key(
-            family,
-            index,
-        )
-        previous_keys[family].add(
-            normalize_memory_key(
-                managed_key
-            )
-        )
-        previous_values[family].add(
-            normalized_value
-        )
-        updated_lines.append(
-            f"{managed_key}: {cleaned_value}".strip()
-        )
-
-    for family in MANAGED_RUNTIME_MEMORY_KEY_FAMILIES:
-        emit_previous_family(
-            family
-        )
-
-    return "\n".join(
-        line
-        for line in updated_lines
-        if line.strip()
-    ).strip()
-
-
-def enrich_active_memory_recall_conditions(
-        memory: str,
-        *,
-        user_message: str,
-        assistant_message: str,
-) -> str:
-    """
-    Preserve active_memory exactly as L1 wrote it.
-
-    The active_memory contract is now owned by the L1 prompt. This deterministic
-    pass intentionally does not infer, add, or mutate conditions/status fields.
-    """
-    _ = (
-        user_message,
-        assistant_message,
-    )
-    return memory or ""
 
 def strip_runtime_memory_repeated_suffix(
         value: str,
@@ -2190,21 +966,11 @@ def remove_runtime_user_idle_lines(
 def build_runtime_memory_context_text(
         memory: str,
         context=None,
-        *,
-        refresh_active_memory_elapsed: bool = False,
 ) -> str:
 
     durable_memory = remove_runtime_user_idle_lines(
         memory
     ).strip()
-
-    if refresh_active_memory_elapsed and durable_memory:
-        durable_memory = refresh_active_memory_runtime_metadata(
-            durable_memory,
-            previous_memory=durable_memory,
-            context=context,
-            add_runtime_user_idle_to_elapsed=True,
-        )
 
     memory_text = canonicalize_runtime_memory_text(
         durable_memory or DEFAULT_RUNTIME_MEMORY
@@ -2251,6 +1017,74 @@ def build_runtime_memory_context_text(
         lines
     )
 
+
+
+def is_default_runtime_memory_line(
+        line: str,
+) -> bool:
+
+    cleaned = (
+        line
+        or ""
+    ).strip()
+
+    if not cleaned:
+        return False
+
+    if cleaned == DEFAULT_RUNTIME_MEMORY:
+        return True
+
+    if ":" not in cleaned:
+        return False
+
+    key, value = cleaned.split(
+        ":",
+        1,
+    )
+
+    return (
+        key.strip().casefold() == "note"
+        and value.strip() == DEFAULT_RUNTIME_MEMORY
+    )
+
+
+def remove_default_runtime_memory_lines(
+        memory: str,
+) -> str:
+
+    lines = []
+
+    for raw_line in (memory or "").splitlines():
+        if is_default_runtime_memory_line(
+            raw_line
+        ):
+            continue
+
+        lines.append(
+            raw_line
+        )
+
+    return "\n".join(
+        lines
+    ).strip()
+
+
+def build_l1_current_memory_prompt_block(
+        current_memory: str,
+) -> str:
+
+    memory_text = remove_default_runtime_memory_lines(
+        current_memory
+    ).strip()
+
+    if not memory_text:
+        return ""
+
+    return (
+        "Current runtime memory:\n"
+        f"{memory_text}\n\n"
+    )
+
 def build_runtime_memory_user_prompt(
         *,
         current_memory: str,
@@ -2268,13 +1102,14 @@ def build_runtime_memory_user_prompt(
             )
 
     return (
-        "Current runtime memory:\n"
-        f"{current_memory.strip() or DEFAULT_RUNTIME_MEMORY}\n\n"
-        f"{hot_traces}"
-        "Latest user message:\n"
-        f"{user_message.strip()}\n\n"
-        "Latest JIN answer:\n"
-        f"{assistant_message.strip()}\n\n"
+        build_l1_current_memory_prompt_block(
+            current_memory
+        )
+        + f"{hot_traces}"
+        + "Latest user message:\n"
+        + f"{user_message.strip()}\n\n"
+        + "Latest JIN answer:\n"
+        + f"{assistant_message.strip()}\n\n"
     )
 
 
@@ -2285,11 +1120,18 @@ def build_runtime_memory_batch_user_prompt(
         strength_zones: dict | None = None,
 ) -> str:
 
-    lines = [
-        "Current runtime memory:",
-        current_memory.strip() or DEFAULT_RUNTIME_MEMORY,
-        "",
-    ]
+    lines = []
+
+    current_memory_text = remove_default_runtime_memory_lines(
+        current_memory
+    ).strip()
+
+    if current_memory_text:
+        lines.extend([
+            "Current runtime memory:",
+            current_memory_text,
+            "",
+        ])
 
     if strength_zones:
         hot_items = strength_zones.get("hot", [])
@@ -2345,6 +1187,76 @@ def build_interrupted_assistant_message(
         user_message=user_message.strip(),
         assistant_message=partial_text,
     )
+
+
+COMPOUND_RUNTIME_MEMORY_KEY_BOUNDARY_RE = re.compile(
+    r"(?P<delimiter>;|[.!?。！？])\s+"
+    r"(?=(?:[A-Za-z][A-Za-z0-9]*_+[A-Za-z0-9_]*|active_memory(?:_\d+)?)\s*:)",
+)
+
+
+def _split_compound_runtime_memory_line(
+        line: str,
+) -> list[str]:
+
+    pieces = []
+    start = 0
+
+    for match in COMPOUND_RUNTIME_MEMORY_KEY_BOUNDARY_RE.finditer(
+            str(line or "")
+    ):
+        delimiter = match.group("delimiter")
+        end = (
+            match.start()
+            if delimiter == ";"
+            else match.start() + len(delimiter)
+        )
+
+        piece = line[start:end].strip()
+        if piece:
+            pieces.append(piece)
+
+        start = match.end()
+
+    tail = str(line or "")[start:].strip()
+    if tail:
+        pieces.append(tail)
+
+    return pieces
+
+
+def normalize_compound_runtime_memory_lines(
+        memory: str,
+) -> str:
+
+    """Split L1-glued memory entries into separate lines.
+
+    Examples:
+        "jin_identity: hi; user_name: Sergey"
+        -> "jin_identity: hi\nuser_name: Sergey"
+
+        "active_topic: Drawing. user_intent: Asked to draw"
+        -> "active_topic: Drawing.\nuser_intent: Asked to draw"
+    """
+
+    normalized_lines = []
+
+    for raw_line in _escape_multiline_runtime_memory_entries(
+            memory
+    ):
+        line = str(raw_line or "")
+
+        if not line.strip():
+            normalized_lines.append(line)
+            continue
+
+        normalized_lines.extend(
+            _split_compound_runtime_memory_line(line)
+        )
+
+    return "\n".join(
+        normalized_lines
+    ).strip()
 
 
 def parse_runtime_memory_lines(memory: str) -> list[dict]:

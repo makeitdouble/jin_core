@@ -1,10 +1,10 @@
 {
   "version": 1,
   "action_guards": {
-    "remember_session": {
+    "save_session": {
       "description": "Allows the model to request saving the current session when the user clearly ends, wraps up, or asks to save the session.",
-      "runtime_action": "REMEMBER_SESSION",
-      "private_marker": "<INTERNAL_ACTION_REMEMBER_SESSION>",
+      "runtime_action": "SAVE_SESSION",
+      "private_marker": "<INTERNAL_ACTION_SAVE_SESSION>",
       "triggers": [
         "закончим",
         "на сегодня все",
@@ -60,40 +60,7 @@
         "suppress_offer": true,
         "final_reply_mode": "short_closure"
       }
-    },
-    "remember_event": {
-      "description": "Classifies a REMEMBER_EVENT request as user-initiated when the user explicitly marks the current moment or detail as worth saving.",
-      "runtime_action": "REMEMBER_EVENT",
-      "private_marker": "<INTERNAL_ACTION_REMEMBER_EVENT>",
-      "triggers": [
-        "хочу это запомнить",
-        "хочу запомнить",
-        "сохрани это",
-        "сохранить это",
-        "это надо сохранить",
-        "это надо запомнить",
-        "запомни это",
-        "важный момент",
-        "надо сохранить"
-      ],
-      "blockers": [
-        "покажи тег",
-        "напиши тег",
-        "полный тег",
-        "точный тег",
-        "пример тега",
-        "как выглядит тег",
-        "процитируй тег",
-        "show tag",
-        "write tag",
-        "exact tag",
-        "full tag",
-        "tag example",
-        "quote tag"
-      ],
-      "effects": {
-        "save_event": true
-      }
+
     }
   }
 }

@@ -1,9 +1,5 @@
 import asyncio
 
-from clients.service_rules import (
-    build_service_system_prompt,
-)
-
 
 async def ask_service_model(
     *,
@@ -16,10 +12,7 @@ async def ask_service_model(
 ):
 
     request = {
-        "system_prompt": (
-            system_prompt
-            or build_service_system_prompt()
-        ),
+        "system_prompt": system_prompt,
         "user_prompt": user_prompt,
         "temperature": temperature,
         "max_tokens": max_tokens,
@@ -48,10 +41,7 @@ async def ask_service_model_stream(
         async for chunk in (
             client.stream(
                 context=context,
-                system_prompt=(
-                    system_prompt
-                    or build_service_system_prompt()
-                ),
+                system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 temperature=temperature,
                 max_tokens=max_tokens,

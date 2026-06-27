@@ -26,6 +26,10 @@ HTML_TAGS = [
     "head",
 ]
 
+TRAILING_ARTIFACTS = [
+    "</blockquote>",
+]
+
 # ---------------------------------------------------------
 # VALIDATION THRESHOLDS
 # ---------------------------------------------------------
@@ -73,6 +77,12 @@ class StreamValidator:
         self.leading_tags_removed = False
 
         self.cleanup_events = []
+
+        # -------------------------------------------------
+        # TRAILING CLEANUP
+        # -------------------------------------------------
+
+        self.trailing_artifact_buffer = ""
 
     # -----------------------------------------------------
     # REMOVE LEADING ARTIFACT
@@ -359,6 +369,94 @@ class StreamValidator:
             self.leading_tags_removed = True
 
     # -----------------------------------------------------
+    # TRAILING ARTIFACT CLEANUP
+    # -----------------------------------------------------
+
+    def get_trailing_artifact_candidate_length(
+        self,
+        text: str,
+    ) -> int:
+
+        best_length = 0
+
+        for artifact in TRAILING_ARTIFACTS:
+
+            max_length = min(
+                len(artifact),
+                len(text),
+            )
+
+            for length in range(
+                1,
+                max_length + 1,
+            ):
+
+                if text.endswith(
+                    artifact[:length]
+                ):
+                    best_length = max(
+                        best_length,
+                        length,
+                    )
+
+        return best_length
+
+    def hold_trailing_artifact_candidate(
+        self,
+        chunk: str,
+    ) -> str:
+
+        if not TRAILING_ARTIFACTS:
+            return chunk
+
+        working = (
+            self.trailing_artifact_buffer
+            + chunk
+        )
+
+        candidate_length = (
+            self.get_trailing_artifact_candidate_length(
+                working
+            )
+        )
+
+        if not candidate_length:
+
+            self.trailing_artifact_buffer = ""
+
+            return working
+
+        safe_chunk = working[:-candidate_length]
+
+        self.trailing_artifact_buffer = (
+            working[-candidate_length:]
+        )
+
+        return safe_chunk
+
+    def flush_trailing_artifact_candidate(
+        self,
+    ) -> str:
+
+        tail = self.trailing_artifact_buffer
+
+        self.trailing_artifact_buffer = ""
+
+        if not tail:
+            return ""
+
+        if tail in TRAILING_ARTIFACTS:
+
+            self.cleanup_events.append({
+                "reason": "Trailing artifact removed.",
+                "preview": tail,
+            })
+
+            return ""
+
+        return tail
+
+    # -----------------------------------------------------
     # VALIDATE WORD LOOPS
     # -----------------------------------------------------
 
@@ -527,7 +625,15 @@ class StreamValidator:
                 True,
             )
 
-        chunk = clean_chunk
+        chunk = self.hold_trailing_artifact_candidate(
+            clean_chunk
+        )
+
+        if not chunk:
+            return (
+                "",
+                True,
+            )
 
         # -------------------------------------------------
         # WORD LOOPS

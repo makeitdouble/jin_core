@@ -8,7 +8,7 @@ from clients.brain_client import (
     ask_brain_stream,
     build_brain_payload,
     build_brain_system_prompt,
-    record_deep_thought_calls,
+    emit_active_memory_records_update_if_dirty,
 )
 
 from clients.search_client import (
@@ -16,7 +16,7 @@ from clients.search_client import (
     run_search_service,
 )
 
-from utils.brain import (
+from clients.brain_client_utils import (
     get_brain_runtime_config,
 )
 
@@ -145,7 +145,12 @@ class BrainNode(BaseNode):
             build_brain_system_prompt(
                 context,
                 runtime_actions=runtime_actions,
+                commit_active_memory_refresh=True,
             )
+        )
+
+        await emit_active_memory_records_update_if_dirty(
+            context
         )
 
         context.runtime_zero_diff_alert = None
@@ -168,11 +173,6 @@ class BrainNode(BaseNode):
             emit_content_to_chat=(
                 not state.translate_response
             ),
-        )
-
-        record_deep_thought_calls(
-            context,
-            reasoning,
         )
 
         if context.runtime_search_queries:
@@ -233,7 +233,12 @@ class BrainNode(BaseNode):
                 build_brain_system_prompt(
                     context,
                     runtime_actions=followup_runtime_actions,
+                    commit_active_memory_refresh=True,
                 )
+            )
+
+            await emit_active_memory_records_update_if_dirty(
+                context
             )
 
             followup_payload = (
@@ -256,11 +261,6 @@ class BrainNode(BaseNode):
                 emit_content_to_chat=(
                     not state.translate_response
                 ),
-            )
-
-            record_deep_thought_calls(
-                context,
-                reasoning,
             )
 
             if not text.strip():

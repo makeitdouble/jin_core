@@ -26,6 +26,9 @@ from runtime import (
 from websocket_logger import (
     WebSocketLogger,
 )
+from rules.assembler import (
+    SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
+)
 
 
 class FakeWebSocket:
@@ -335,6 +338,20 @@ class SearchFlowTests(
     unittest.IsolatedAsyncioTestCase
 ):
 
+    def setUp(self):
+        self._original_service_web_search = (
+            SERVICE_AS_BRAIN_RUNTIME_ACTIONS.get(
+                "CAN_WEB_SEARCH",
+                False,
+            )
+        )
+        SERVICE_AS_BRAIN_RUNTIME_ACTIONS["CAN_WEB_SEARCH"] = True
+
+    def tearDown(self):
+        SERVICE_AS_BRAIN_RUNTIME_ACTIONS["CAN_WEB_SEARCH"] = (
+            self._original_service_web_search
+        )
+
     def test_found_search_result_contains_results(self):
 
         result = normalize_search_results(
@@ -505,7 +522,7 @@ class SearchFlowTests(
             streams=[
                 [
                     {
-                        "type": "thinking",
+                        "type": "content",
                         "content": (
                             "Needs current pricing. "
                             "<INTERNAL_ACTION_WEB_SEARCH:tesla car price>"
@@ -591,14 +608,6 @@ class SearchFlowTests(
             [
                 "tesla car price",
             ],
-        )
-        self.assertIn(
-            (
-                "<INTERNAL_ACTION_WEB_SEARCH:tesla car price>"
-            ),
-            "".join(
-                thinking_chunks
-            ),
         )
         self.assertIn(
             "action: web_search",
@@ -758,7 +767,7 @@ class SearchFlowTests(
             streams=[
                 [
                     {
-                        "type": "thinking",
+                        "type": "content",
                         "content": (
                             "Needs current pricing. "
                             "<INTERNAL_ACTION_WEB_SEARCH:apple price>"
@@ -824,7 +833,7 @@ class SearchFlowTests(
             streams=[
                 [
                     {
-                        "type": "thinking",
+                        "type": "content",
                         "content": (
                             "<INTERNAL_ACTION_WEB_SEARCH:jupiter cost>"
                         ),
@@ -876,7 +885,7 @@ class SearchFlowTests(
             streams=[
                 [
                     {
-                        "type": "thinking",
+                        "type": "content",
                         "content": (
                             "<INTERNAL_ACTION_WEB_SEARCH:latest Python version>"
                         ),

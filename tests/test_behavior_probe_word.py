@@ -25,9 +25,8 @@ import json
 import os
 import re
 import sys
-import unicodedata
 import unittest
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +37,7 @@ sys.path.insert(0, str(ROOT))
 
 from agent import AgentRuntime, AgentState  # noqa: E402
 from clients import build_clients  # noqa: E402
+from clients.brain_client_utils import create_active_memory_runtime_record  # noqa: E402
 from runtime import (  # noqa: E402
     RuntimeContext,
     RuntimeEmitter,
@@ -59,13 +59,11 @@ SCENARIO_ID = "recall_word_surprise_window"
 SCENARIO_TITLE = "Recall word surprise window"
 SCENARIO_NOTES = """
 Five-step probe for the recall-word contract.
-Turn 1 asks JIN to choose and reveal a word immediately, then ask for it back
-at any self-selected moment within the next three user turns. The probe extracts
-the proposed word from the first answer after a colon or dash-like separator,
-injects that word into dynamic forbidden-answer checks for later turns,
-and then watches whether a recall question appears during the recall window
-without revealing the word again. The exact extracted word must also appear in
-runtime memory after turn 1.
+Turn 1 gives JIN a fixed word from WORD_TO_REMEMBER, then asks JIN to ask for
+it back at any self-selected moment within the next three user turns. The probe
+checks that WORD_TO_REMEMBER appears in runtime memory after turn 1 and does not
+appear in later answers, while a recall question appears during the recall
+window.
 """
 
 # Add more turns by appending:
@@ -77,12 +75,12 @@ runtime memory after turn 1.
 #
 # Empty lists mean: accept any text for this part.
 
+WORD_TO_REMEMBER = "Кофе"
+
 USER_TEXT_1 = (
     "Сыграем в тест памяти.\n"
-    "Сейчас выбери одно простое слово.\n"
-    "В этом ответе назови выбранное слово ровно один раз в формате:\n"
-    "Загаданное слово: <слово>\n"
-    "После этого запомни задачу: в одном случайном из следующих 3 сообщений "
+    f"Запомни слово - {WORD_TO_REMEMBER}\n"
+    "После этого в одном случайном из следующих 3 своих сообщений "
     "один раз напомни мне угадать это слово.\n"
     "Само слово больше не называй.\n"
     "Пиши только просьбу угадать загаданное слово.\n"
@@ -90,9 +88,8 @@ USER_TEXT_1 = (
     "Твоя задача не напоминать мне в каждом сообщении, а выбрать один случайный момент.\n"
 )
 EXPECTED_TEXT_ANSWER_1 = []
-EXPECTED_TEXT_MEMORY_1 = [
-    "active_memory",
-]
+EXPECTED_TEXT_MEMORY_1 = []
+EXPECTED_RUNTIME_ACTION_1 = ["create_active_memory"]
 UNEXPECTED_TEXT_ANSWER_1 = []
 UNEXPECTED_TEXT_MEMORY_1 = []
 
@@ -147,6 +144,7 @@ MAX_MEMORY_PREVIEW_CHARS = 2200
 MEMORY_TEXT_FIELDS_TO_INSPECT = [
     "runtime_memory",
     "runtime_l2_memory",
+    "active_memory_records",
 ]
 
 # Extra RuntimeContext fields to scan for active memory contract entries right after
@@ -160,6 +158,7 @@ CONTEXT_ACTIVE_MEMORY_DEBUG_FIELDS_TO_SCAN = [
     "runtime_memory_snapshot_index",
     "pending_brain_usage",
     "runtime_usage_events",
+    "active_memory_records",
 ]
 
 
@@ -264,75 +263,6 @@ def fragment_found(text: str, fragment: str) -> bool:
     return normalize_text(fragment) in normalize_text(text)
 
 
-def strip_markdown_and_emoji(text: str) -> str:
-    text = render_text(text)
-    text = re.sub(r"```.*?```", " ", text, flags=re.DOTALL)
-    text = re.sub(r"`([^`]*)`", r"\1", text)
-    text = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", text)
-    text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
-    text = re.sub(r"[*_~>#]+", " ", text)
-
-    cleaned_chars = []
-    for char in text:
-        category = unicodedata.category(char)
-        if category.startswith("S"):
-            continue
-        if char in {"\ufe0f", "\u200d"}:
-            continue
-        cleaned_chars.append(char)
-
-    text = "".join(cleaned_chars)
-    text = re.sub(r"\s+", " ", text)
-    return text.strip(" \t\r\n:—–-.,;!?«»\"'()[]{}")
-
-
-def extract_recall_word_from_first_answer(answer: str) -> str:
-    """
-    Extract the model-proposed word from the first answer.
-    Expected shapes:
-    - "Первое слово: **Книга** 📖📚"
-    - "Первое слово — **Книга** 📖📚"
-    - "Моё слово - **Книга** 📖📚"
-
-    Prefer a separator that follows the word marker itself. This avoids false
-    extraction from a decorative dash earlier in the same sentence, for example:
-    "Интересная игра — первое слово — **Солнце**".
-    """
-
-    word_marker_pattern = re.compile(
-        r"\b(?:первое\s+)?слово\b\s*[:：\-—–]\s*(.+)",
-        flags=re.IGNORECASE,
-    )
-    fallback_separator_pattern = re.compile(r"[:：\-—–]")
-
-    # Prefer explicit word markers anywhere in the answer. Do not let an
-    # earlier decorative dash, for example "... слова — это ...", win over
-    # a later direct marker like "я загадал слово: **Облако**".
-    lines = render_text(answer).splitlines()
-
-    for raw_line in lines:
-        marker_match = word_marker_pattern.search(raw_line)
-        if not marker_match:
-            continue
-
-        cleaned = strip_markdown_and_emoji(marker_match.group(1))
-        tokens = re.findall(r"[0-9A-Za-zА-Яа-яЁё-]+", cleaned)
-        if tokens:
-            return tokens[0].strip("-")
-
-    for raw_line in lines:
-        fallback_match = fallback_separator_pattern.search(raw_line)
-        if not fallback_match:
-            continue
-
-        cleaned = strip_markdown_and_emoji(raw_line[fallback_match.end():])
-        tokens = re.findall(r"[0-9A-Za-zА-Яа-яЁё-]+", cleaned)
-        if tokens:
-            return tokens[0].strip("-")
-
-    return ""
-
-
 def answer_has_recall_question(
         answer: str,
         recall_word: str = "",
@@ -406,71 +336,63 @@ def answer_has_recall_question(
 
 
 def evaluate_recall_word_behavior(turns: list[TurnResult]) -> dict[str, Any]:
-    first_answer = turns[0].answer if turns else ""
-    extracted_word = extract_recall_word_from_first_answer(first_answer)
+    recall_word = WORD_TO_REMEMBER
 
     window_turns = [turn for turn in turns if 2 <= turn.index <= 4]
     fallback_turns = [turn for turn in turns if 2 <= turn.index <= 5]
-    recall_turns_in_window = [turn.index for turn in window_turns if answer_has_recall_question(turn.answer, extracted_word)]
-    recall_turns_by_fallback = [turn.index for turn in fallback_turns if answer_has_recall_question(turn.answer, extracted_word)]
+    recall_turns_in_window = [turn.index for turn in window_turns if answer_has_recall_question(turn.answer, recall_word)]
+    recall_turns_by_fallback = [turn.index for turn in fallback_turns if answer_has_recall_question(turn.answer, recall_word)]
     leaked_word_answer_turns = [
         turn.index
         for turn in turns[1:]
-        if extracted_word and fragment_found(turn.answer, extracted_word)
+        if recall_word and fragment_found(turn.answer, recall_word)
     ]
     memory_turns_with_recall_word = [
         turn.index
         for turn in turns
-        if extracted_word and fragment_found(turn.memory_after_turn, extracted_word)
+        if recall_word and fragment_found(turn.memory_after_turn, recall_word)
     ]
     memory_has_recall_word_after_turn_1 = bool(
         turns
-        and extracted_word
-        and fragment_found(turns[0].memory_after_turn, extracted_word)
+        and recall_word
+        and fragment_found(turns[0].memory_after_turn, recall_word)
     )
 
     checks = [
         {
-            "name": "turn_1.extract_recall_word_after_separator",
-            "target": "answer",
-            "turn": 1,
-            "fragment": "non-empty cleaned word after colon or dash separator",
-            "passed": bool(extracted_word),
-        },
-        {
-            "name": "turn_1.memory_contains_extracted_recall_word",
+            "name": "turn_1.memory_contains_word_to_remember",
             "target": "memory",
             "turn": 1,
-            "fragment": "extracted recall word appears in memory after turn 1",
+            "fragment": "WORD_TO_REMEMBER appears in memory after turn 1",
             "passed": memory_has_recall_word_after_turn_1,
         },
         {
-            "name": "turn_any.memory_contains_extracted_recall_word",
+            "name": "turn_any.memory_contains_word_to_remember",
             "target": "memory",
             "turn": "1-5",
-            "fragment": "extracted recall word appears in any memory snapshot",
+            "fragment": "WORD_TO_REMEMBER appears in any memory snapshot",
             "passed": bool(memory_turns_with_recall_word),
         },
         {
             "name": "turn_2_4.recall_question_within_three_user_turns",
             "target": "answer",
             "turn": "2-4",
-            "fragment": "answer contains direct recall wording without revealing the extracted word",
+            "fragment": "answer contains direct recall wording without revealing WORD_TO_REMEMBER",
             "passed": bool(recall_turns_in_window),
         },
         {
             "name": "turn_2_5.recall_question_observed_by_fallback_turn",
             "target": "answer",
             "turn": "2-5",
-            "fragment": "answer contains direct recall wording without revealing the extracted word",
+            "fragment": "answer contains direct recall wording without revealing WORD_TO_REMEMBER",
             "passed": bool(recall_turns_by_fallback),
         },
         {
-            "name": "turn_2_5.answer_does_not_reveal_extracted_recall_word",
+            "name": "turn_2_5.answer_does_not_reveal_word_to_remember",
             "target": "answer",
             "turn": "2-5",
-            "fragment": "extracted recall word must not appear in answers after turn 1",
-            "passed": bool(extracted_word) and not leaked_word_answer_turns,
+            "fragment": "WORD_TO_REMEMBER must not appear in answers after turn 1",
+            "passed": bool(recall_word) and not leaked_word_answer_turns,
         },
     ]
 
@@ -482,7 +404,7 @@ def evaluate_recall_word_behavior(turns: list[TurnResult]) -> dict[str, Any]:
         "total": total,
         "ratio": passed / total if total else 1.0,
         "checks": checks,
-        "extracted_recall_word": extracted_word,
+        "word_to_remember": recall_word,
         "recall_turns_in_window": recall_turns_in_window,
         "recall_turns_by_fallback": recall_turns_by_fallback,
         "memory_turns_with_recall_word": memory_turns_with_recall_word,
@@ -768,6 +690,7 @@ def collect_dialogue_steps() -> list[dict[str, Any]]:
         memory_key = f"EXPECTED_TEXT_MEMORY_{index}"
         unexpected_answer_key = f"UNEXPECTED_TEXT_ANSWER_{index}"
         unexpected_memory_key = f"UNEXPECTED_TEXT_MEMORY_{index}"
+        runtime_action_key = f"EXPECTED_RUNTIME_ACTION_{index}"
 
         if user_key not in globals():
             break
@@ -782,6 +705,9 @@ def collect_dialogue_steps() -> list[dict[str, Any]]:
                     "expected_memory": expected_fragments(globals().get(memory_key, [])),
                     "unexpected_answer": expected_fragments(globals().get(unexpected_answer_key, [])),
                     "unexpected_memory": expected_fragments(globals().get(unexpected_memory_key, [])),
+                    "expected_runtime_actions": expected_fragments(
+                        globals().get(runtime_action_key, [])
+                    ),
                 }
             )
 
@@ -800,8 +726,28 @@ class TurnResult:
     expected_memory: list[str]
     unexpected_answer: list[str]
     unexpected_memory: list[str]
+    expected_runtime_actions: list[str] = field(default_factory=list)
     context_active_memory_before_turn: str = ""
     snapshot_active_memory_after_turn: str = ""
+    runtime_actions: list[dict[str, Any]] = field(default_factory=list)
+
+
+def render_runtime_actions(actions: list[dict[str, Any]]) -> str:
+    if not actions:
+        return "<none>"
+
+    lines = []
+    for action in actions:
+        parts = [str(action.get("name", "unknown"))]
+        payload = action.get("payload")
+        if payload:
+            parts.append(f"payload={payload}")
+        query = action.get("query")
+        if query:
+            parts.append(f"query={query}")
+        lines.append(" | ".join(parts))
+
+    return "\n".join(lines)
 
 
 def print_live_turn_result(turn: TurnResult) -> None:
@@ -821,6 +767,15 @@ def print_live_turn_result(turn: TurnResult) -> None:
         else:
             description = f"{check['target']} contains: {check['fragment']}"
         print(f"  {status_label(check['passed'])} {description}", flush=True)
+
+    print(
+        paint("  RUNTIME ACTIONS EMITTED BY MODEL:", "yellow", bold=True),
+        flush=True,
+    )
+    print(
+        indent_block(render_runtime_actions(turn.runtime_actions), prefix="    "),
+        flush=True,
+    )
 
     if PRINT_ACTIVE_MEMORY_DEBUG:
         if turn.context_active_memory_before_turn:
@@ -896,9 +851,141 @@ def build_memory_blob(context: RuntimeContext) -> str:
     parts = []
     for field_name in MEMORY_TEXT_FIELDS_TO_INSPECT:
         value = getattr(context, field_name, "")
+        if isinstance(value, (list, tuple)):
+            value = "\n".join(render_text(item) for item in value if render_text(item))
         if value:
             parts.append(f"[{field_name}]\n{value}")
     return "\n\n".join(parts)
+
+
+def normalize_runtime_action_name(name: str) -> str:
+    return normalize_text(name).replace("-", "_").replace(" ", "_")
+
+
+def runtime_action_found(actions: list[dict[str, Any]], expected_name: str) -> bool:
+    normalized_expected = normalize_runtime_action_name(expected_name)
+    return any(
+        normalize_runtime_action_name(str(action.get("name", ""))) == normalized_expected
+        for action in actions
+    )
+
+
+def normalize_websocket_runtime_action(payload: dict[str, Any]) -> dict[str, Any] | None:
+    if payload.get("type") != "runtime_action":
+        return None
+
+    action_name = render_text(payload.get("action", ""))
+    if not action_name:
+        return None
+
+    action_event: dict[str, Any] = {"name": normalize_runtime_action_name(action_name)}
+
+    for key in ("id", "query", "text", "active_memory"):
+        value = render_text(payload.get(key, ""))
+        if value:
+            action_event[key] = value
+
+    explicit_payload = render_text(payload.get("payload", ""))
+    if explicit_payload:
+        action_event["payload"] = explicit_payload
+    elif action_event.get("text", "").startswith("Saving:"):
+        action_event["payload"] = action_event["text"].split("Saving:", 1)[1].strip()
+
+    return action_event
+
+
+def collect_runtime_actions_after_offsets(
+    context: RuntimeContext,
+    *,
+    context_event_offset: int,
+    websocket_message_offset: int,
+    websocket_messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Browser-visible runtime actions are emitted over websocket, while the
+    backend also keeps context.runtime_action_events. The recall-word probe
+    should track both channels instead of relying on old active_memory text
+    generated by the memory updater.
+    """
+
+    actions: list[dict[str, Any]] = []
+
+    for event in getattr(context, "runtime_action_events", [])[context_event_offset:]:
+        if isinstance(event, dict):
+            actions.append(dict(event))
+
+    for message in websocket_messages[websocket_message_offset:]:
+        if not isinstance(message, dict):
+            continue
+
+        action = normalize_websocket_runtime_action(message)
+        if action is not None:
+            actions.append(action)
+
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str, str]] = set()
+
+    for action in actions:
+        key = (
+            normalize_runtime_action_name(str(action.get("name", ""))),
+            render_text(action.get("id", "")),
+            render_text(action.get("query", "")),
+            render_text(action.get("payload", "")),
+            render_text(action.get("active_memory", "")),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(action)
+
+    return deduped
+
+
+async def hydrate_active_memory_records_from_runtime_actions(
+    context: RuntimeContext,
+    actions: list[dict[str, Any]],
+) -> None:
+    """
+    Browser runs persist accepted active-memory actions in frontend localStorage
+    and send them back as active_memory_records on following turns. This probe
+    has no browser, so mirror that handoff inside the test only.
+    """
+
+    for action in actions:
+        if not runtime_action_found([action], "create_active_memory"):
+            continue
+
+        records = getattr(context, "active_memory_records", None)
+        if records is None:
+            records = []
+            setattr(context, "active_memory_records", records)
+
+        active_memory_line = render_text(action.get("active_memory", ""))
+        if active_memory_line:
+            if active_memory_line not in records:
+                records.append(active_memory_line)
+            continue
+
+        payload = render_text(action.get("payload", ""))
+        if not payload:
+            continue
+
+        if any(normalize_text(payload) in normalize_text(record) for record in records):
+            continue
+
+        before = list(records)
+        await create_active_memory_runtime_record(context, payload)
+        after = list(getattr(context, "active_memory_records", []) or [])
+
+        if len(after) > len(before):
+            print(
+                paint("  HYDRATED ACTIVE MEMORY FROM ACTION:", "yellow", bold=True),
+                flush=True,
+            )
+            print(
+                indent_block(after[-1], prefix="    "),
+                flush=True,
+            )
 
 
 def evaluate_expected_text(turns: list[TurnResult]) -> dict[str, Any]:
@@ -929,6 +1016,17 @@ def evaluate_expected_text(turns: list[TurnResult]) -> dict[str, Any]:
                     "turn": turn.index,
                     "fragment": fragment,
                     "passed": fragment_found(turn.memory_after_turn, fragment),
+                }
+            )
+
+        for action_name in turn.expected_runtime_actions:
+            checks.append(
+                {
+                    "name": f"turn_{turn.index}.runtime_action_contains",
+                    "target": "runtime_action",
+                    "turn": turn.index,
+                    "fragment": action_name,
+                    "passed": runtime_action_found(turn.runtime_actions, action_name),
                 }
             )
 
@@ -965,7 +1063,7 @@ def evaluate_expected_text(turns: list[TurnResult]) -> dict[str, Any]:
         "total": total,
         "ratio": passed / total if total else 1.0,
         "checks": checks,
-        "extracted_recall_word": recall_score["extracted_recall_word"],
+        "word_to_remember": recall_score["word_to_remember"],
         "recall_turns_in_window": recall_score["recall_turns_in_window"],
         "recall_turns_by_fallback": recall_score["recall_turns_by_fallback"],
         "memory_turns_with_recall_word": recall_score["memory_turns_with_recall_word"],
@@ -988,14 +1086,14 @@ def print_behavior_probe_report(report: dict[str, Any]) -> None:
         + paint(f"{score['passed']}/{score['total']} ({score['ratio']:.0%})", score_color, bold=True)
     )
     print(paint(f"Title: {report['scenario_title']}", "gray"))
-    if score.get("extracted_recall_word"):
-        print(paint(f"Extracted recall word: {score['extracted_recall_word']}", "gray"))
+    if score.get("word_to_remember"):
+        print(paint(f"Word to remember: {score['word_to_remember']}", "gray"))
     if score.get("recall_turns_in_window"):
         print(paint(f"Recall question turns 2-4: {score['recall_turns_in_window']}", "gray"))
     if score.get("memory_turns_with_recall_word"):
-        print(paint(f"Memory contains extracted word after turns: {score['memory_turns_with_recall_word']}", "gray"))
+        print(paint(f"Memory contains WORD_TO_REMEMBER after turns: {score['memory_turns_with_recall_word']}", "gray"))
     if score.get("leaked_word_answer_turns"):
-        print(paint(f"Leaked extracted word in answer turns: {score['leaked_word_answer_turns']}", "red", bold=True))
+        print(paint(f"Leaked WORD_TO_REMEMBER in answer turns: {score['leaked_word_answer_turns']}", "red", bold=True))
 
     print("\n" + paint("DIALOGUE", "blue", bold=True))
     for turn in turns:
@@ -1020,6 +1118,14 @@ def print_behavior_probe_report(report: dict[str, Any]) -> None:
         else:
             print(paint("EXPECTED TEXT IN MEMORY: <any memory accepted>", "gray", dim=True))
 
+        if turn.get("expected_runtime_actions"):
+            print(paint("EXPECTED RUNTIME ACTIONS:", "yellow", bold=True))
+            for action_name in turn["expected_runtime_actions"]:
+                print(
+                    f"  {status_label(runtime_action_found(turn.get('runtime_actions', []), action_name))} "
+                    f"{action_name}"
+                )
+
         if turn.get("unexpected_answer"):
             print(paint("UNEXPECTED TEXT IN ANSWER:", "red", bold=True))
             for fragment in turn["unexpected_answer"]:
@@ -1029,6 +1135,9 @@ def print_behavior_probe_report(report: dict[str, Any]) -> None:
             print(paint("UNEXPECTED TEXT IN MEMORY:", "red", bold=True))
             for fragment in turn["unexpected_memory"]:
                 print(f"  {status_label(not fragment_found(turn['memory_after_turn'], fragment))} not: {fragment}")
+
+        print(paint("RUNTIME ACTIONS EMITTED BY MODEL:", "yellow", bold=True))
+        print(indent_block(render_runtime_actions(turn.get("runtime_actions", []))))
 
         if PRINT_ACTIVE_MEMORY_DEBUG:
             if turn.get("context_active_memory_before_turn"):
@@ -1072,12 +1181,42 @@ class BehaviorProbeShapeTests(unittest.TestCase):
         steps = collect_dialogue_steps()
         self.assertEqual(len(steps), 5)
         self.assertIn("Сыграем в тест памяти", steps[0]["user_text"])
-        self.assertIn("выбери одно простое слово", steps[0]["user_text"])
-        self.assertIn("Загаданное слово: <слово>", steps[0]["user_text"])
+        self.assertIn(f"Запомни слово - {WORD_TO_REMEMBER}", steps[0]["user_text"])
+        self.assertIn("напомни мне угадать это слово", steps[0]["user_text"])
+        self.assertEqual(steps[0]["expected_memory"], [])
+        self.assertEqual(steps[0]["expected_runtime_actions"], ["create_active_memory"])
         self.assertIn("нарисуй домик", steps[1]["user_text"])
         self.assertIn("хайку", steps[2]["user_text"])
         self.assertIn("спасибо", steps[3]["user_text"])
         self.assertIn("хорошо", steps[4]["user_text"])
+
+
+    def test_collect_runtime_actions_reads_websocket_runtime_action(self):
+        websocket = CapturingWebSocket()
+        context = RuntimeContext(
+            websocket=websocket,
+            emitter=RuntimeEmitter(websocket),
+            logger=WebSocketLogger(websocket),
+            clients={},
+        )
+        websocket_messages = [
+            {"type": "message_chunk", "chunk": "ignored"},
+            {
+                "type": "runtime_action",
+                "action": "create_active_memory",
+                "text": "Saving: запомнить слово Кофе для последующего теста памяти.",
+            },
+        ]
+
+        actions = collect_runtime_actions_after_offsets(
+            context,
+            context_event_offset=0,
+            websocket_message_offset=0,
+            websocket_messages=websocket_messages,
+        )
+
+        self.assertTrue(runtime_action_found(actions, "create_active_memory"))
+        self.assertTrue(fragment_found(render_runtime_actions(actions), WORD_TO_REMEMBER))
 
     def test_extract_active_memory_entries_splits_value_and_suffixes(self):
         blob = '[runtime_memory]\nactive_memory: облако (purpose: recall challenge; turns_left: 2; status: pending)'
@@ -1101,32 +1240,6 @@ class BehaviorProbeShapeTests(unittest.TestCase):
         self.assertIn("conditions: do not say secret word", entries[0]["suffixes"])
         self.assertIn("reminded: 0", entries[0]["suffixes"])
         self.assertIn("status: pending", entries[0]["suffixes"])
-
-    def test_extract_recall_word_strips_markdown_and_emoji(self):
-        answer = "Интересная игра на внимание. Первое слово: **Книга** 📖📚"
-        self.assertEqual(extract_recall_word_from_first_answer(answer), "Книга")
-
-    def test_extract_recall_word_accepts_dash_separator(self):
-        examples = (
-            "Первое слово — **Солнце**. ☀️",
-            "Первое слово - **Солнце**. ☀️",
-            "Первое слово – **Солнце**. ☀️",
-            "Интересная игра — первое слово — **Солнце**. ☀️",
-        )
-
-        for answer in examples:
-            with self.subTest(answer=answer):
-                self.assertEqual(
-                    extract_recall_word_from_first_answer(answer),
-                    "Солнце",
-                )
-
-    def test_extract_recall_word_prefers_explicit_marker_over_earlier_dash(self):
-        answer = (
-            "Привет! Отличная идея для игры. Загадывать слова — это всегда интересно.\n\n"
-            "Итак, я загадал слово: **Облако**. ☁️"
-        )
-        self.assertEqual(extract_recall_word_from_first_answer(answer), "Облако")
 
     def test_answer_has_recall_question_requires_direct_recall_trigger(self):
         self.assertTrue(
@@ -1166,7 +1279,10 @@ class BehaviorProbeShapeTests(unittest.TestCase):
             answer_has_recall_question("Не мог бы ты вспомнить то секретное слово, которое мы запоминали?")
         )
         self.assertFalse(
-            answer_has_recall_question("Кстати, наше слово было Книга.", "Книга")
+            answer_has_recall_question(
+                f"Кстати, наше слово было {WORD_TO_REMEMBER}.",
+                WORD_TO_REMEMBER,
+            )
         )
         self.assertFalse(
             answer_has_recall_question("Ты хочешь, чтобы я ещё помнил слово?")
@@ -1178,23 +1294,23 @@ class BehaviorProbeShapeTests(unittest.TestCase):
             answer_has_recall_question("Я всё ещё помню слово, продолжим.")
         )
 
-    def test_evaluator_tracks_dynamic_recall_question(self):
+    def test_evaluator_tracks_word_to_remember_recall_question(self):
         turns = [
             TurnResult(
                 index=1,
                 user_text=USER_TEXT_1,
-                answer="Интересная игра. Первое слово: **Книга** 📖📚",
-                memory_after_turn='active_memory: "Книга" (purpose: recall test; status: pending)',
+                answer="Saved.",
+                memory_after_turn=f'recall_word_fixture: "{WORD_TO_REMEMBER}" (purpose: recall evaluator fixture; status: pending)',
                 expected_answer=[],
-                expected_memory=["active_memory"],
+                expected_memory=[],
                 unexpected_answer=[],
                 unexpected_memory=[],
             ),
             TurnResult(
                 index=2,
                 user_text=USER_TEXT_2,
-                answer="Вот домик:\n /\\\n/  \\\n| [] |",
-                memory_after_turn='active_memory: "Книга" (purpose: recall test; status: pending)',
+                answer="ASCII house",
+                memory_after_turn=f'recall_word_fixture: "{WORD_TO_REMEMBER}" (purpose: recall evaluator fixture; status: pending)',
                 expected_answer=[],
                 expected_memory=[],
                 unexpected_answer=[],
@@ -1203,8 +1319,8 @@ class BehaviorProbeShapeTests(unittest.TestCase):
             TurnResult(
                 index=3,
                 user_text=USER_TEXT_3,
-                answer="Лягушка в пруду...",
-                memory_after_turn='active_memory: "Книга" (purpose: recall test; status: pending)',
+                answer="A small haiku.",
+                memory_after_turn=f'recall_word_fixture: "{WORD_TO_REMEMBER}" (purpose: recall evaluator fixture; status: pending)',
                 expected_answer=[],
                 expected_memory=[],
                 unexpected_answer=[],
@@ -1214,7 +1330,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
                 index=4,
                 user_text=USER_TEXT_4,
                 answer="Пожалуйста. Помнишь то слово, которое ты хотел(а) вспомнить?",
-                memory_after_turn='active_memory: "Книга" (purpose: recall test; status: pending)',
+                memory_after_turn=f'recall_word_fixture: "{WORD_TO_REMEMBER}" (purpose: recall evaluator fixture; status: pending)',
                 expected_answer=[],
                 expected_memory=[],
                 unexpected_answer=[],
@@ -1223,8 +1339,8 @@ class BehaviorProbeShapeTests(unittest.TestCase):
             TurnResult(
                 index=5,
                 user_text=USER_TEXT_5,
-                answer="Спасибо за слова. Кстати, продолжим игру памяти.",
-                memory_after_turn='active_memory: "Книга" (purpose: recall test; status: pending)',
+                answer="Thanks.",
+                memory_after_turn=f'recall_word_fixture: "{WORD_TO_REMEMBER}" (purpose: recall evaluator fixture; status: pending)',
                 expected_answer=[],
                 expected_memory=[],
                 unexpected_answer=[],
@@ -1233,12 +1349,11 @@ class BehaviorProbeShapeTests(unittest.TestCase):
         ]
 
         score = evaluate_expected_text(turns)
-        self.assertEqual(score["extracted_recall_word"], "Книга")
+        self.assertEqual(score["word_to_remember"], WORD_TO_REMEMBER)
         self.assertEqual(score["memory_turns_with_recall_word"], [1, 2, 3, 4, 5])
         self.assertEqual(score["recall_turns_in_window"], [4])
         self.assertEqual(score["leaked_word_answer_turns"], [])
         self.assertEqual(score["passed"], score["total"])
-
 
 # =============================================================================
 # LIVE MODEL BEHAVIOR PROBE. Skipped unless explicitly enabled.
@@ -1276,12 +1391,24 @@ class SimpleBehaviorProbe(unittest.IsolatedAsyncioTestCase):
         turns: list[TurnResult] = []
 
         for step in collect_dialogue_steps():
+            action_event_offset = len(getattr(self.context, "runtime_action_events", []))
+            websocket_message_offset = len(self.websocket.messages)
             state = await run_standard_turn(self.context, step["user_text"])
             answer = (
                 state.final_answer
                 or state.brain_response
                 or self.context.runtime_turn_assistant_response
                 or ""
+            )
+            runtime_actions = collect_runtime_actions_after_offsets(
+                self.context,
+                context_event_offset=action_event_offset,
+                websocket_message_offset=websocket_message_offset,
+                websocket_messages=self.websocket.messages,
+            )
+            await hydrate_active_memory_records_from_runtime_actions(
+                self.context,
+                runtime_actions,
             )
             memory_after_turn = build_memory_blob(self.context)
             context_active_memory_before_turn = getattr(
@@ -1304,8 +1431,10 @@ class SimpleBehaviorProbe(unittest.IsolatedAsyncioTestCase):
                     expected_memory=step["expected_memory"],
                     unexpected_answer=step["unexpected_answer"],
                     unexpected_memory=step["unexpected_memory"],
+                    expected_runtime_actions=step["expected_runtime_actions"],
                     context_active_memory_before_turn=context_active_memory_before_turn,
                     snapshot_active_memory_after_turn=snapshot_active_memory_after_turn,
+                    runtime_actions=runtime_actions,
                 )
             )
             print_live_turn_result(turns[-1])
@@ -1327,8 +1456,10 @@ class SimpleBehaviorProbe(unittest.IsolatedAsyncioTestCase):
                     "expected_memory": turn.expected_memory,
                     "unexpected_answer": turn.unexpected_answer,
                     "unexpected_memory": turn.unexpected_memory,
+                    "expected_runtime_actions": turn.expected_runtime_actions,
                     "context_active_memory_before_turn": turn.context_active_memory_before_turn,
                     "snapshot_active_memory_after_turn": turn.snapshot_active_memory_after_turn,
+                    "runtime_actions": turn.runtime_actions,
                 }
                 for turn in turns
             ],

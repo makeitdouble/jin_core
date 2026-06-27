@@ -5,9 +5,14 @@ from xml.sax.saxutils import escape
 from app_settings import (
     settings,
 )
-from bootstrap.brain_bootstrap import (
+from rules.assembler import (
     build_conversation_activity_instruction,
     build_zero_diff_stall_instruction,
+)
+from rules.runtime import (
+    RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_SAVE_SESSION,
+    RUNTIME_ACTION_WEB_SEARCH,
 )
 from clients.brain_client_utils import (
     get_conversation_activity_diff,
@@ -16,16 +21,19 @@ from clients.brain_client_utils import (
     indent_xml,
     strip_empty_results_xml,
 )
-from runtime.context_contract import (
+from runtime.runtime_context import (
     ContextContract,
+    RECENT_MESSAGE_MAX_CHARS,
+    RECENT_MESSAGES_MAX_PAIRS,
     format_session_state,
-    RUNTIME_ACTION_REMEMBER_EVENT,
-    RUNTIME_ACTION_REMEMBER_SESSION,
-    RUNTIME_ACTION_WEB_SEARCH,
 )
 from runtime.L1_memory_utils import (
     build_runtime_memory_context_text,
     canonicalize_runtime_memory_text,
+)
+from utils.runtime_actions import (
+    refresh_active_memory_runtime_metadata,
+    remove_active_memory_entries,
 )
 
 
@@ -59,18 +67,16 @@ def build_runtime_xml(
             system_state="ACTIVE",
             runtime_mode=get_brain_runtime_mode(),
             service_model_uid=settings.SERVICE_MODEL_UID,
-            deep_thought_count=0,
-            can_deep_thought=False,
             can_web_search=(
                 RUNTIME_ACTION_WEB_SEARCH
                 in enabled_actions
             ),
-            can_remember_session=(
-                RUNTIME_ACTION_REMEMBER_SESSION
+            can_save_session=(
+                RUNTIME_ACTION_SAVE_SESSION
                 in enabled_actions
             ),
-            can_remember_event=(
-                RUNTIME_ACTION_REMEMBER_EVENT
+            can_create_active_memory=(
+                RUNTIME_ACTION_CREATE_ACTIVE_MEMORY
                 in enabled_actions
             ),
             timestamp=now.isoformat(),
@@ -165,29 +171,98 @@ def append_session_event_snapshots(
 def append_L1_runtime_memory(
     parts: list[str],
     context=None,
+    *,
+    commit_active_memory_refresh: bool = False,
 ) -> None:
 
     if context is None:
         return
 
-    runtime_memory = build_runtime_memory_context_text(
+    raw_runtime_memory = remove_active_memory_entries(
         getattr(
             context,
             "runtime_memory",
             "",
-        ),
+        )
+    )
+
+    runtime_memory = build_runtime_memory_context_text(
+        raw_runtime_memory,
         context,
-        refresh_active_memory_elapsed=True,
     )
 
-    if not runtime_memory.strip():
-        return
+    if runtime_memory.strip():
+        parts.append(
+            "<RUNTIME_MEMORY>\n"
+            f"{indent_xml(escape(canonicalize_runtime_memory_text(runtime_memory)))}\n"
+            "</RUNTIME_MEMORY>"
+        )
 
-    parts.append(
-        "<RUNTIME_MEMORY>\n"
-        f"{indent_xml(escape(canonicalize_runtime_memory_text(runtime_memory)))}\n"
-        "</RUNTIME_MEMORY>"
-    )
+    active_memory_records = [
+        str(record or "").strip()
+        for record in getattr(
+            context,
+            "active_memory_records",
+            [],
+        )
+        if str(record or "").strip()
+    ]
+
+    if active_memory_records:
+        active_memory_refresh_turn = (
+            getattr(
+                context,
+                "turn_number",
+                0,
+            ),
+            getattr(
+                context,
+                "user_message_count",
+                0,
+            ),
+        )
+        active_memory_refresh_committed = (
+            commit_active_memory_refresh
+            and getattr(
+                context,
+                "runtime_active_memory_records_refresh_turn",
+                None,
+            )
+            == active_memory_refresh_turn
+        )
+        previous_active_memory_text = "\n".join(
+            active_memory_records
+        )
+        active_memory_text = (
+            previous_active_memory_text
+            if active_memory_refresh_committed
+            else refresh_active_memory_runtime_metadata(
+                previous_active_memory_text,
+                context=context,
+                previous_memory=previous_active_memory_text,
+                add_runtime_user_idle_to_elapsed=True,
+            )
+        )
+
+        if commit_active_memory_refresh:
+            context.runtime_active_memory_records_refresh_turn = (
+                active_memory_refresh_turn
+            )
+            refreshed_records = [
+                line.strip()
+                for line in active_memory_text.splitlines()
+                if line.strip()
+            ]
+
+            if refreshed_records != active_memory_records:
+                context.active_memory_records = refreshed_records
+                context.runtime_active_memory_records_dirty = True
+
+        parts.append(
+            "<ACTIVE_MEMORY priority=\"active_runtime_contracts\">\n"
+            f"{indent_xml(escape(canonicalize_runtime_memory_text(active_memory_text)))}\n"
+            "</ACTIVE_MEMORY>"
+        )
 
 
 def append_L2_runtime_memory(
@@ -211,6 +286,118 @@ def append_L2_runtime_memory(
         "<RUNTIME_PATTERN_MEMORY>\n"
         f"{indent_xml(escape(runtime_l2_memory))}\n"
         "</RUNTIME_PATTERN_MEMORY>"
+    )
+
+
+def crop_recent_message_text(
+    text: str,
+    max_chars: int = RECENT_MESSAGE_MAX_CHARS,
+) -> str:
+
+    cleaned = str(
+        text
+        or ""
+    ).replace(
+        "\r\n",
+        "\n",
+    ).replace(
+        "\r",
+        "\n",
+    )
+
+    cleaned = cleaned.replace(
+        "\n",
+        "\\n",
+    ).strip()
+
+    if max_chars <= 0:
+        return ""
+
+    if len(cleaned) <= max_chars:
+        return cleaned
+
+    if max_chars <= 3:
+        return "." * max_chars
+
+    return (
+        cleaned[: max_chars - 3].rstrip()
+        + "..."
+    )
+
+
+def build_recent_turns_context_text(
+    recent_turns: list[dict] | None,
+) -> str:
+
+    turns = list(
+        recent_turns
+        or []
+    )[-RECENT_MESSAGES_MAX_PAIRS:]
+
+    lines = [
+        "<recent_turns>",
+    ]
+
+    for turn in turns:
+        if not isinstance(
+            turn,
+            dict,
+        ):
+            continue
+
+        user_text = crop_recent_message_text(
+            turn.get(
+                "user",
+                "",
+            )
+        )
+        jin_text = crop_recent_message_text(
+            turn.get(
+                "jin",
+                "",
+            )
+        )
+
+        if user_text:
+            lines.append(
+                f"user: {user_text}"
+            )
+
+        if jin_text:
+            lines.append(
+                f"jin: {jin_text}"
+            )
+
+    lines.append(
+        "</recent_turns>"
+    )
+
+    return "\n".join(
+        lines
+    )
+
+
+def append_recent_turns(
+    parts: list[str],
+    context=None,
+) -> None:
+
+    if context is None:
+        return
+
+    recent_turns = getattr(
+        context,
+        "runtime_recent_turns",
+        [],
+    )
+
+    if not recent_turns:
+        return
+
+    parts.append(
+        build_recent_turns_context_text(
+            recent_turns
+        )
     )
 
 
@@ -354,6 +541,8 @@ def append_tool_results(
 def build_brain_runtime_context(
     context=None,
     runtime_actions=None,
+    *,
+    commit_active_memory_refresh: bool = False,
 ) -> str:
 
     parts = [
@@ -378,8 +567,13 @@ def build_brain_runtime_context(
     append_L1_runtime_memory(
         parts,
         context,
+        commit_active_memory_refresh=commit_active_memory_refresh,
     )
     append_L2_runtime_memory(
+        parts,
+        context,
+    )
+    append_recent_turns(
         parts,
         context,
     )

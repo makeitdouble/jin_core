@@ -1,27 +1,76 @@
+from app_settings import settings
+
+from rules.assembler import (
+    BRAIN_RUNTIME_ACTIONS,
+    SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
+)
+
+
+def get_brain_runtime_config():
+
+    if settings.USE_SERVICE_AS_BRAIN:
+
+        return {
+            "runtime_id": (
+                settings
+                .SERVICE_MODEL_UID
+            ),
+            "label": "service",
+            "context_window": (
+                settings.SERVICE_CONTEXT_WINDOW
+            ),
+            "log_method": (
+                "log_service_as_brain"
+            ),
+            "runtime_actions": (
+                SERVICE_AS_BRAIN_RUNTIME_ACTIONS
+            ),
+        }
+
+    return {
+        "runtime_id": (
+            settings
+            .BRAIN_MODEL_UID
+        ),
+        "label": "brain",
+        "context_window": (
+            settings
+            .BRAIN_CONTEXT_WINDOW
+        ),
+        "log_method": (
+            "log_brain"
+        ),
+        "runtime_actions": (
+            BRAIN_RUNTIME_ACTIONS
+        ),
+    }
+
+
+import re
 from xml.etree import ElementTree
 
-from bootstrap.brain_bootstrap import (
-    get_last_jin_response_rules,
-    get_loop_rules,
-    get_memory_rules,
-    MEDIA_CONTEXT_ATTRS,
-    MEMORY_REQUEST_MARKERS,
+from rules.loop_rules import (
+    LOOP_RULES,
+)
+from rules.runtime import (
+    RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_SAVE_SESSION,
+    RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_WEB_SEARCH,
 )
 from runtime.behavior_contract import (
     should_execute_action_guard,
 )
-from runtime.context_contract import (
-    RUNTIME_ACTION_REMEMBER_EVENT,
-    RUNTIME_ACTION_REMEMBER_SESSION,
-    RUNTIME_ACTION_WEB_SEARCH,
-)
-from runtime.L3_memory_utils import (
-    build_runtime_session_event_snapshot,
-)
 from utils.runtime_actions import (
     build_runtime_action_id,
+    collect_active_memory_slot_ids,
+    extract_active_memory_resolve_slot_id,
     extract_search_query,
     extract_runtime_actions,
+    generate_active_memory_slot_id,
+    generate_active_memory_slot_key,
+    get_create_active_memory_marker_fields,
+    refresh_active_memory_runtime_metadata,
 )
 
 
@@ -39,12 +88,16 @@ def get_enabled_runtime_actions(
             "CAN_WEB_SEARCH",
         ),
         (
-            RUNTIME_ACTION_REMEMBER_SESSION,
-            "CAN_REMEMBER_SESSION",
+            RUNTIME_ACTION_SAVE_SESSION,
+            "CAN_SAVE_SESSION",
         ),
         (
-            RUNTIME_ACTION_REMEMBER_EVENT,
-            "CAN_REMEMBER_EVENT",
+            RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+            "CAN_SAVE_ACTIVE_MEMORY",
+        ),
+        (
+            RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
+            "CAN_SAVE_ACTIVE_MEMORY",
         ),
     ):
 
@@ -63,38 +116,331 @@ def get_enabled_runtime_actions(
     )
 
 
-def count_deep_thought_calls(
-    text: str,
-    runtime_actions=None,
-) -> int:
+def should_execute_save_session(
+    user_message: str,
+) -> bool:
+    return should_execute_action_guard(
+        "save_session",
+        user_message
+    )
 
-    return 0
 
 
-def record_deep_thought_calls(
+def split_active_memory_payload(
+    payload: str,
+) -> tuple[tuple[str, str], ...]:
+
+    text = str(
+        payload or ""
+    ).strip()
+
+    if not text:
+        return ()
+
+    marker_fields = get_create_active_memory_marker_fields()
+
+    if not marker_fields:
+        return ()
+
+    max_splits = max(
+        len(marker_fields) - 1,
+        0,
+    )
+
+    parts = [
+        part.strip()
+        for part in text.split(
+            "|",
+            max_splits,
+        )
+    ]
+
+    while len(parts) < len(marker_fields):
+        parts.append(
+            ""
+        )
+
+    return tuple(
+        (
+            field,
+            value,
+        )
+        for field, value in zip(
+            marker_fields,
+            parts,
+        )
+        if value
+    )
+
+
+def build_active_memory_runtime_line(
+    payload: str,
+    *,
+    existing_ids=None,
+    slot_key: str = "active_memory_1",
+) -> str:
+
+    suffix_values = split_active_memory_payload(
+        payload
+    )
+
+    if not suffix_values:
+        return ""
+
+    visible_value = suffix_values[0][1]
+    suffix_text = " ".join(
+        f"[ {field}: {field_value} ]"
+        for field, field_value in suffix_values
+    )
+    active_memory_id = generate_active_memory_slot_id(
+        existing_ids
+    )
+    value = (
+        f"{visible_value} [ active_memory_id: {active_memory_id} ] "
+        f"{suffix_text} [ status: pending ]"
+    ).strip()
+
+    slot_key = str(
+        slot_key
+        or "active_memory_1"
+    ).strip()
+
+    if not re.fullmatch(
+        r"active_memory_\d+",
+        slot_key,
+        re.IGNORECASE,
+    ):
+        slot_key = "active_memory_1"
+
+    return f"{slot_key}: {value}"
+
+
+def collect_context_active_memory_texts(
     context,
-    reasoning: str,
-) -> int:
+) -> tuple[str, ...]:
 
-    return 0
-
-
-def should_execute_remember_session(
-    user_message: str,
-) -> bool:
-    return should_execute_action_guard(
-        "remember_session",
-        user_message
+    active_records = getattr(
+        context,
+        "active_memory_records",
+        None,
+    )
+    return (
+        getattr(
+            context,
+            "runtime_memory",
+            "",
+        ),
+        getattr(
+            context,
+            "runtime_memory_stable",
+            "",
+        ),
+        "\n".join(
+            str(record or "")
+            for record in (active_records or ())
+        ),
     )
 
 
-def is_user_initiated_remember_event(
-    user_message: str,
-) -> bool:
-    return should_execute_action_guard(
-        "remember_event",
-        user_message
+def collect_context_active_memory_slot_ids(
+    context,
+) -> set[str]:
+
+    return collect_active_memory_slot_ids(
+        *collect_context_active_memory_texts(
+            context
+        )
     )
+
+
+ACTIVE_MEMORY_RUNTIME_LINE_RE = re.compile(
+    r"^\s*active_memory(?:_\d+)?\s*:",
+    re.IGNORECASE,
+)
+
+
+def remove_active_memory_slot_from_text(
+    memory: str,
+    active_memory_id: str,
+) -> tuple[str, bool]:
+
+    active_memory_id = str(
+        active_memory_id or ""
+    ).strip().casefold()
+
+    if not active_memory_id:
+        return (
+            memory or "",
+            False,
+        )
+
+    removed = False
+    kept_lines = []
+
+    for line in str(
+        memory or ""
+    ).splitlines():
+        if (
+            ACTIVE_MEMORY_RUNTIME_LINE_RE.match(
+                line
+            )
+            and active_memory_id in collect_active_memory_slot_ids(
+                line
+            )
+        ):
+            removed = True
+            continue
+
+        kept_lines.append(
+            line
+        )
+
+    if not removed:
+        return (
+            memory or "",
+            False,
+        )
+
+    return (
+        "\n".join(
+            kept_lines
+        ).strip(),
+        True,
+    )
+
+
+async def resolve_active_memory_runtime_record(
+    context,
+    payload: str,
+) -> tuple[bool, str]:
+
+    if context is None:
+        return (
+            False,
+            "",
+        )
+
+    active_memory_id = extract_active_memory_resolve_slot_id(
+        payload,
+        existing_ids=collect_context_active_memory_slot_ids(
+            context
+        ),
+    )
+
+    if not active_memory_id:
+        return (
+            False,
+            "",
+        )
+
+    removed = False
+
+    for attr_name in (
+        "runtime_memory",
+        "runtime_memory_stable",
+    ):
+        updated_memory, did_remove = remove_active_memory_slot_from_text(
+            getattr(
+                context,
+                attr_name,
+                "",
+            ),
+            active_memory_id,
+        )
+
+        if did_remove:
+            setattr(
+                context,
+                attr_name,
+                updated_memory,
+            )
+            removed = True
+
+    records = getattr(
+        context,
+        "active_memory_records",
+        None,
+    )
+
+    if records:
+        kept_records = []
+
+        for record in records:
+            _, did_remove = remove_active_memory_slot_from_text(
+                str(record or ""),
+                active_memory_id,
+            )
+
+            if did_remove:
+                removed = True
+                continue
+
+            kept_records.append(
+                record
+            )
+
+        if len(kept_records) != len(records):
+            setattr(
+                context,
+                "active_memory_records",
+                kept_records,
+            )
+
+    return (
+        removed,
+        active_memory_id,
+    )
+
+
+async def create_active_memory_runtime_record(
+    context,
+    payload: str,
+) -> bool:
+
+    if context is None:
+        return False
+
+    active_memory_line = build_active_memory_runtime_line(
+        payload,
+        slot_key=generate_active_memory_slot_key(
+            *collect_context_active_memory_texts(
+                context
+            )
+        ),
+        existing_ids=collect_context_active_memory_slot_ids(
+            context
+        ),
+    )
+
+    if not active_memory_line:
+        return False
+
+    active_memory_line = refresh_active_memory_runtime_metadata(
+        active_memory_line,
+        previous_memory=active_memory_line,
+        context=context,
+    )
+
+    active_records = getattr(
+        context,
+        "active_memory_records",
+        None,
+    )
+
+    if active_records is None:
+        active_records = []
+        setattr(
+            context,
+            "active_memory_records",
+            active_records,
+        )
+
+    if active_memory_line not in active_records:
+        active_records.append(
+            active_memory_line
+        )
+
+    return True
 
 
 def resolve_runtime_action_user_message(
@@ -124,6 +470,81 @@ def resolve_runtime_action_user_message(
             return value
 
     return ""
+
+
+def build_runtime_action_marker_preview(
+    marker: str,
+    *,
+    limit: int = 160,
+) -> str:
+
+    return (
+        str(marker or "")
+        .replace("\n", "\\n")
+        .strip()
+    )[:limit]
+
+
+async def log_runtime_action_marker_removals(
+    context,
+    result,
+    *,
+    source: str = "brain content",
+) -> None:
+
+    removed_markers = tuple(
+        getattr(
+            result,
+            "removed_markers",
+            (),
+        )
+        or ()
+    )
+
+    if not removed_markers:
+        return
+
+    logger = getattr(
+        context,
+        "logger",
+        None,
+    )
+
+    if logger is None:
+        return
+
+    log_validator = getattr(
+        logger,
+        "log_validator",
+        None,
+    )
+    log_runtime = getattr(
+        logger,
+        "log_runtime",
+        None,
+    )
+
+    for marker in removed_markers:
+        preview = build_runtime_action_marker_preview(
+            marker
+        )
+
+        message = (
+            "Runtime action marker stripped.\n"
+            f"Source: {source}\n"
+            f'Preview: "{preview}"'
+        )
+
+        if log_validator is not None:
+            await log_validator(
+                message
+            )
+            continue
+
+        if log_runtime is not None:
+            await log_runtime(
+                message
+            )
 
 
 async def apply_runtime_action_calls(
@@ -156,24 +577,26 @@ async def apply_runtime_action_calls(
         if event.get("name") == "web_search"
     )
 
+    accepted_action_names = set()
+
     search_calls = []
     filtered_actions = []
     search_query_seen = False
-    remember_session_seen = bool(
+    save_session_seen = bool(
         getattr(
             context,
-            "runtime_remember_session_requested",
+            "runtime_save_session_requested",
             False,
         )
     )
-    remember_session_action_emitted = bool(
+    save_session_action_emitted = bool(
         getattr(
             context,
-            "runtime_remember_session_action_emitted",
+            "runtime_save_session_action_emitted",
             False,
         )
     )
-    remember_event_seen = False
+    resolve_active_memory_seen = False
     resolved_user_message = resolve_runtime_action_user_message(
         context,
         user_message,
@@ -181,33 +604,58 @@ async def apply_runtime_action_calls(
 
     for action in actions:
 
-        if action.name == RUNTIME_ACTION_REMEMBER_SESSION:
-            if not should_execute_remember_session(
+        action_event_name = action.name.lower()
+
+        if action.name == RUNTIME_ACTION_SAVE_SESSION:
+            if not should_execute_save_session(
                 resolved_user_message
             ):
                 continue
 
-            if remember_session_seen:
-                if not remember_session_action_emitted:
-                    remember_session_action_emitted = True
+            if save_session_seen:
+                if not save_session_action_emitted:
+                    save_session_action_emitted = True
+                    accepted_action_names.add(
+                        action_event_name
+                    )
                     filtered_actions.append(
                         action
                     )
 
                 continue
 
-            remember_session_seen = True
-            remember_session_action_emitted = True
+            save_session_seen = True
+            save_session_action_emitted = True
+            accepted_action_names.add(
+                action_event_name
+            )
             filtered_actions.append(
                 action
             )
             continue
 
-        if action.name == RUNTIME_ACTION_REMEMBER_EVENT:
-            if remember_event_seen:
+        if action.name == RUNTIME_ACTION_CREATE_ACTIVE_MEMORY:
+            filtered_actions.append(
+                action
+            )
+            continue
+
+        if action.name == RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY:
+            if resolve_active_memory_seen:
                 continue
 
-            remember_event_seen = True
+            if not extract_active_memory_resolve_slot_id(
+                action.payload,
+                existing_ids=collect_context_active_memory_slot_ids(
+                    context
+                ),
+            ):
+                continue
+
+            resolve_active_memory_seen = True
+            accepted_action_names.add(
+                action_event_name
+            )
             filtered_actions.append(
                 action
             )
@@ -231,6 +679,9 @@ async def apply_runtime_action_calls(
 
             search_query_seen = True
 
+        accepted_action_names.add(
+            action_event_name
+        )
         filtered_actions.append(
             action
         )
@@ -250,6 +701,16 @@ async def apply_runtime_action_calls(
             query = extract_search_query(
                 action.payload
             )
+
+        if action.name == RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY:
+            active_memory_id = extract_active_memory_resolve_slot_id(
+                action.payload,
+                existing_ids=collect_context_active_memory_slot_ids(
+                    context
+                ),
+            )
+            if active_memory_id:
+                action_event["id"] = active_memory_id
 
         if query:
             search_action_count += 1
@@ -273,16 +734,25 @@ async def apply_runtime_action_calls(
             action_event
         )
 
-    remember_session_count = sum(
+    save_session_count = sum(
         1
         for action in filtered_actions
-        if action.name == RUNTIME_ACTION_REMEMBER_SESSION
+        if action.name == RUNTIME_ACTION_SAVE_SESSION
     )
 
-    remember_event_count = sum(
+    create_active_memory_actions = [
+        action
+        for action in filtered_actions
+        if action.name == RUNTIME_ACTION_CREATE_ACTIVE_MEMORY
+    ]
+    create_active_memory_count = len(
+        create_active_memory_actions
+    )
+
+    resolve_active_memory_count = sum(
         1
         for action in filtered_actions
-        if action.name == RUNTIME_ACTION_REMEMBER_EVENT
+        if action.name == RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
     )
 
     search_queries = [
@@ -332,14 +802,14 @@ async def apply_runtime_action_calls(
             f"search x{len(search_queries)}"
         )
 
-    if remember_session_count:
-        context.runtime_remember_session_armed = False
-        context.runtime_remember_session_requested = True
-        context.runtime_remember_session_action_emitted = True
+    if save_session_count:
+        context.runtime_save_session_armed = False
+        context.runtime_save_session_requested = True
+        context.runtime_save_session_action_emitted = True
 
         if log_runtime is not None:
             await log_runtime(
-                "[RUNTIME ACTION] remember_session requested"
+                "[RUNTIME ACTION] save_session requested"
             )
 
         emitter = getattr(
@@ -356,37 +826,42 @@ async def apply_runtime_action_calls(
         if emit is not None:
             await emit({
                 "type": "runtime_action",
-                "action": "remember_session",
-                "text": "Remembering this session",
+                "action": "save_session",
+                "text": "Saving session",
             })
 
-    if remember_event_count:
-        initiated_by = (
-            "user"
-            if is_user_initiated_remember_event(
-                resolved_user_message
-            )
-            else "jin"
-        )
+    created_active_memory_texts = []
 
-        if not hasattr(
-            context,
-            "runtime_session_event_snapshots",
+    if create_active_memory_count:
+        if log_runtime is not None:
+            await log_runtime(
+                "[RUNTIME ACTION] create_active_memory requested"
+            )
+
+        for active_memory_text in (
+            action.payload
+            for action in create_active_memory_actions
+            if action.payload
         ):
-            context.runtime_session_event_snapshots = []
-
-        context.runtime_session_event_snapshots.append(
-            build_runtime_session_event_snapshot(
-                context,
-                source="runtime_action",
-                initiated_by=initiated_by,
+            record_created = (
+                await create_active_memory_runtime_record(
+                    context,
+                    active_memory_text,
+                )
             )
-        )
 
-        if log_runtime is not None:
-            await log_runtime(
-                "[RUNTIME ACTION] remember_event saved"
-            )
+            if record_created:
+                created_active_memory_texts.append(
+                    active_memory_text
+                )
+
+            if (
+                log_runtime is not None
+                and record_created
+            ):
+                await log_runtime(
+                    "[RUNTIME ACTION] active_memory record created"
+                )
 
         emitter = getattr(
             context,
@@ -400,50 +875,74 @@ async def apply_runtime_action_calls(
         )
 
         if emit is not None:
-            session_memory = (
-                getattr(
-                    context,
-                    "runtime_l3_session_memory",
-                    "",
-                )
-                or getattr(
-                    context,
-                    "session_memory",
-                    "",
-                )
+            for active_memory_text in created_active_memory_texts:
+                active_memory_line = (
+                    getattr(context, "active_memory_records", []) or []
+                )[-1] if getattr(context, "active_memory_records", []) else ""
+                await emit({
+                    "type": "runtime_action",
+                    "action": "create_active_memory",
+                    "text": f"Saving: {active_memory_text}",
+                    "active_memory": active_memory_line,
+                })
+
+    resolved_active_memory_count = 0
+
+    if resolve_active_memory_count:
+        active_memory_resolve_text = next(
+            (
+                action.payload
+                for action in filtered_actions
+                if action.name == RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+                and action.payload
+            ),
+            "",
+        )
+
+        record_resolved, active_memory_id = (
+            await resolve_active_memory_runtime_record(
+                context,
+                active_memory_resolve_text,
             )
+        )
+
+        if record_resolved:
+            resolved_active_memory_count = 1
+
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if (
+            emit is not None
+            and record_resolved
+        ):
             await emit({
                 "type": "runtime_action",
-                "action": "remember_event",
-                "text": "Remembering this event",
-            })
-            await emit({
-                "type": "runtime_session_memory_update",
-                "memory": session_memory,
-                "event_snapshots": list(
-                    context.runtime_session_event_snapshots
-                ),
-                "updates": getattr(
-                    context,
-                    "runtime_session_memory_updates",
-                    0,
-                ),
-                "source": getattr(
-                    context,
-                    "session_memory_source",
-                    "",
-                ),
-                "persist": True,
+                "action": "resolve_active_memory",
+                "id": active_memory_id,
+                "text": "Active memory resolved",
             })
 
-    return len(
-        search_queries
-    ) + min(
-        remember_session_count,
-        1,
-    ) + min(
-        remember_event_count,
-        1,
+    return (
+        len(
+            search_queries
+        )
+        + min(
+            save_session_count,
+            1,
+        )
+        + len(
+            created_active_memory_texts
+        )
+        + resolved_active_memory_count
     )
 
 
@@ -626,90 +1125,6 @@ def has_zero_diff_stall_alert(
         )
     )
 
-def _get_current_user_message(
-    context=None,
-) -> str:
-
-    if context is None:
-        return ""
-
-    for attr_name in (
-        "runtime_turn_user_message",
-        "original_user_input",
-        "user_input",
-        "last_user_message",
-    ):
-
-        value = getattr(
-            context,
-            attr_name,
-            "",
-        )
-
-        if value:
-            return str(
-                value
-            )
-
-    return ""
-
-
-def _normalized_text(
-    value: str,
-) -> str:
-
-    return (
-        value
-        or ""
-    ).casefold().replace(
-        "ё",
-        "е",
-    )
-
-
-def _contains_any_marker(
-    text: str,
-    markers: tuple[str, ...],
-) -> bool:
-
-    normalized = _normalized_text(
-        text
-    )
-
-    return any(
-        _normalized_text(
-            marker
-        ) in normalized
-        for marker in markers
-    )
-
-def has_memory_rule_request(
-    context=None,
-) -> bool:
-
-    if context is None:
-        return False
-
-    explicit_flag = getattr(
-        context,
-        "has_memory_request",
-        None,
-    )
-
-    if explicit_flag is not None:
-        return bool(
-            explicit_flag
-        )
-
-    user_message = _get_current_user_message(
-        context
-    )
-
-    return _contains_any_marker(
-        user_message,
-        MEMORY_REQUEST_MARKERS,
-    )
-
 
 def has_loop_rule_signal(
     context=None,
@@ -735,36 +1150,6 @@ def has_loop_rule_signal(
         return False
 
 
-def has_media_context(
-    context=None,
-) -> bool:
-
-    if context is None:
-        return False
-
-    explicit_flag = getattr(
-        context,
-        "has_media",
-        None,
-    )
-
-    if explicit_flag is not None:
-        return bool(
-            explicit_flag
-        )
-
-    for attr_name in MEDIA_CONTEXT_ATTRS:
-        value = getattr(
-            context,
-            attr_name,
-            None,
-        )
-
-        if value:
-            return True
-
-    return False
-
 
 def build_conditional_prompt_rules(
     context=None,
@@ -778,7 +1163,7 @@ def build_conditional_prompt_rules(
         context
     ):
         rules.append(
-            get_loop_rules()
+            LOOP_RULES
         )
 
     return "".join(

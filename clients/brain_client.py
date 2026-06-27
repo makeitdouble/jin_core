@@ -3,12 +3,8 @@ import asyncio
 from config_loader import (
     config,
 )
-from runtime.context_contract import (
+from rules.runtime import (
     RUNTIME_ACTION_WEB_SEARCH,
-)
-from bootstrap.brain_bootstrap import (
-    build_brain_runtime_interface_rules,
-    build_identity_context,
 )
 
 from clients.errors import (
@@ -19,14 +15,18 @@ from clients.brain_context_builder import (
     build_brain_runtime_context,
 )
 
+from rules.assembler import (
+    build_identity_context,
+    build_runtime_action_instructions,
+)
+
 from clients.brain_client_utils import (
     apply_runtime_action_calls,
     build_conditional_prompt_rules,
     get_enabled_runtime_actions,
     has_zero_diff_stall_alert,
-    is_user_initiated_remember_event,
-    record_deep_thought_calls,
-    should_execute_remember_session,
+    log_runtime_action_marker_removals,
+    should_execute_save_session,
 )
 
 from clients.service_client import (
@@ -50,6 +50,7 @@ def build_brain_system_prompt(
     context=None,
     runtime_actions=None,
     user_input: str = "",
+    commit_active_memory_refresh: bool = False,
 ) -> str:
 
     enabled_actions = get_enabled_runtime_actions(
@@ -61,21 +62,66 @@ def build_brain_system_prompt(
     )
 
     prompt_prefix = (
+        f"{build_runtime_action_instructions(enabled_actions, context)}\n"
+        "\n"
         f"{build_identity_context(context)}"
         f"{build_conditional_prompt_rules(context)}"
-        f"{build_brain_runtime_interface_rules(enabled_actions)}"
         "\n"
     )
 
     runtime_context = build_brain_runtime_context(
         context,
         runtime_actions,
+        commit_active_memory_refresh=commit_active_memory_refresh,
     )
 
     return (
         f"{prompt_prefix}"
         f"{runtime_context}"
     )
+
+
+async def emit_active_memory_records_update_if_dirty(
+    context,
+) -> None:
+
+    if context is None:
+        return
+
+    if not getattr(
+        context,
+        "runtime_active_memory_records_dirty",
+        False,
+    ):
+        return
+
+    context.runtime_active_memory_records_dirty = False
+
+    emitter = getattr(
+        context,
+        "emitter",
+        None,
+    )
+    emit = getattr(
+        emitter,
+        "emit",
+        None,
+    )
+
+    if emit is None:
+        return
+
+    await emit({
+        "type": "active_memory_records_update",
+        "active_memory_records": list(
+            getattr(
+                context,
+                "active_memory_records",
+                [],
+            )
+            or []
+        ),
+    })
 
 
 # ---------------------------------------------------------
@@ -114,7 +160,12 @@ async def ask_brain(
             context,
             runtime_actions,
             user_input=brain_payload,
+            commit_active_memory_refresh=True,
         )
+    )
+
+    await emit_active_memory_records_update_if_dirty(
+        context
     )
 
     # -----------------------------------------------------
@@ -154,14 +205,6 @@ async def ask_brain(
                 runtime_actions
             )
 
-            reasoning_actions = (
-                extract_runtime_actions(
-                    reasoning,
-                    enabled_actions=enabled_actions,
-                    preserve_action_text=True,
-                )
-            )
-
             content_actions = (
                 extract_runtime_actions(
                     content,
@@ -169,12 +212,15 @@ async def ask_brain(
                 )
             )
 
+            await log_runtime_action_marker_removals(
+                context,
+                content_actions,
+                source="brain content",
+            )
+
             await apply_runtime_action_calls(
                 context,
-                (
-                    reasoning_actions.actions
-                    + content_actions.actions
-                ),
+                content_actions.actions,
                 user_message=text,
             )
 
@@ -252,33 +298,38 @@ async def ask_brain(
             runtime_actions
         )
 
-        reasoning_actions = extract_runtime_actions(
-            reasoning,
-            enabled_actions=enabled_actions,
-            preserve_action_text=True,
-        )
-
         content_actions = extract_runtime_actions(
             content,
             enabled_actions=enabled_actions,
         )
 
+        await log_runtime_action_marker_removals(
+            context,
+            content_actions,
+            source="brain content",
+        )
+
         await apply_runtime_action_calls(
             context,
-            (
-                reasoning_actions.actions
-                + content_actions.actions
-            ),
+            content_actions.actions,
             user_message=text,
         )
 
         if content_actions.text:
             return content_actions.text
 
-        return extract_runtime_actions(
+        reasoning_actions = extract_runtime_actions(
             reasoning,
             enabled_actions=enabled_actions,
-        ).text
+        )
+
+        await log_runtime_action_marker_removals(
+            context,
+            reasoning_actions,
+            source="brain reasoning fallback",
+        )
+
+        return reasoning_actions.text
 
     except Exception as error:
 
@@ -324,19 +375,22 @@ async def ask_brain_stream(
             context,
             runtime_actions,
             user_input=resolved_brain_payload,
+            commit_active_memory_refresh=True,
         )
     )
+
+    if system_prompt is None:
+        await emit_active_memory_records_update_if_dirty(
+            context
+        )
 
     enabled_actions = get_enabled_runtime_actions(
         runtime_actions
     )
 
-    thinking_filter = RuntimeActionStreamFilter(
-        enabled_actions=enabled_actions,
-        preserve_action_text=True,
-    )
     content_filter = RuntimeActionStreamFilter(
-        enabled_actions=enabled_actions
+        enabled_actions=enabled_actions,
+        #preserve_action_text=True
     )
     stop_for_runtime_action = False
 
@@ -356,17 +410,20 @@ async def ask_brain_stream(
         ):
             return action_chunk
 
-        stream_filter = (
-            thinking_filter
-            if chunk_type == "thinking"
-            else content_filter
-        )
+        if chunk_type == "thinking":
+            return action_chunk
 
-        result = stream_filter.filter(
+        result = content_filter.filter(
             action_chunk.get(
                 "content",
                 "",
             )
+        )
+
+        await log_runtime_action_marker_removals(
+            context,
+            result,
+            source="brain stream content",
         )
 
         runtime_action_calls = tuple(
@@ -389,15 +446,6 @@ async def ask_brain_stream(
                 if not result.text:
                     return None
 
-                return {
-                    **action_chunk,
-                    "content": result.text,
-                }
-
-            if (
-                chunk_type == "thinking"
-                and result.text
-            ):
                 return {
                     **action_chunk,
                     "content": result.text,
@@ -454,17 +502,15 @@ async def ask_brain_stream(
                 if stop_for_runtime_action:
                     break
 
-            thinking_tail = thinking_filter.flush()
-            if (
-                thinking_tail
-                and not stop_for_runtime_action
-            ):
-                yield {
-                    "type": "thinking",
-                    "content": thinking_tail,
-                }
+            tail_result = content_filter.flush_result()
 
-            content_tail = content_filter.flush()
+            await log_runtime_action_marker_removals(
+                context,
+                tail_result,
+                source="brain stream tail",
+            )
+
+            content_tail = tail_result.text
             if (
                 content_tail
                 and not stop_for_runtime_action
@@ -530,17 +576,15 @@ async def ask_brain_stream(
             if stop_for_runtime_action:
                 break
 
-        thinking_tail = thinking_filter.flush()
-        if (
-            thinking_tail
-            and not stop_for_runtime_action
-        ):
-            yield {
-                "type": "thinking",
-                "content": thinking_tail,
-            }
+        tail_result = content_filter.flush_result()
 
-        content_tail = content_filter.flush()
+        await log_runtime_action_marker_removals(
+            context,
+            tail_result,
+            source="brain stream tail",
+        )
+
+        content_tail = tail_result.text
         if (
             content_tail
             and not stop_for_runtime_action

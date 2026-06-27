@@ -39,6 +39,7 @@ from runtime.memory_common import (
     build_memory_failure_details,
     build_memory_update_skip_details,
     build_runtime_summarizer_payload,
+    build_runtime_summarizer_response_details,
     extract_runtime_memory_text,
     is_runtime_memory_response_truncated,
     log_memory_event,
@@ -270,7 +271,13 @@ async def record_runtime_l1_diff(
             f"repeated keys {repeated_keys}; "
             f"{l2_turn_label}"
         ),
+        details=getattr(
+            context,
+            "runtime_l1_last_summarizer_response_details",
+            None,
+        ),
         fallback_channel="service",
+        event="summarizer_response",
     )
 
     await emit_runtime_l1_diff_update(
@@ -366,6 +373,12 @@ async def maybe_summarize_runtime_l2_memory(
                     reason=skip_reason,
                     previous_memory=current_l2_memory,
                     candidate_memory=updated_l2_memory,
+                    summarizer_response_details=(
+                        build_runtime_summarizer_response_details(
+                            response,
+                            extracted_memory=updated_l2_memory,
+                        )
+                    ),
                 ),
                 fallback_channel="error",
             )
@@ -408,13 +421,6 @@ async def maybe_summarize_runtime_l2_memory(
             context
         )
         context.runtime_l2_pending_patches = []
-
-        await log_memory_event(
-            context,
-            level="L2",
-            message="L2 memory updated",
-            fallback_channel="service",
-        )
 
         await log_runtime_summarizer_result(
             context,

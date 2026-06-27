@@ -10,7 +10,7 @@ from config_loader import (
 )
 from runtime.L3_memory_rules import (
     DEFAULT_RUNTIME_L3_SESSION_MEMORY,
-    L3_ACTION_REMEMBER_SESSION,
+    L3_ACTION_SAVE_SESSION,
     L3_BUDGET_EXCEEDED_DETAILS_TEMPLATE,
     L3_LOG_LABEL_SESSION,
     L3_LOG_LABEL_SESSION_MEMORY,
@@ -43,6 +43,7 @@ from runtime.memory_common import (
     build_memory_failure_details,
     build_memory_update_skip_details,
     build_runtime_summarizer_payload,
+    build_runtime_summarizer_response_details,
     extract_runtime_memory_text,
     is_runtime_memory_response_truncated,
     log_memory_event,
@@ -176,7 +177,7 @@ async def maybe_summarize_runtime_session_memory(
 
     if not getattr(
         context,
-        "runtime_remember_session_requested",
+        "runtime_save_session_requested",
         False,
     ):
         return getattr(
@@ -199,7 +200,7 @@ async def maybe_summarize_runtime_session_memory(
     if service_client is None:
         await emit_runtime_action_completed(
             context,
-            action=L3_ACTION_REMEMBER_SESSION,
+            action=L3_ACTION_SAVE_SESSION,
         )
 
         return getattr(
@@ -227,7 +228,7 @@ async def maybe_summarize_runtime_session_memory(
 
         await emit_runtime_action_completed(
             context,
-            action=L3_ACTION_REMEMBER_SESSION,
+            action=L3_ACTION_SAVE_SESSION,
         )
 
         return getattr(
@@ -264,12 +265,12 @@ async def maybe_summarize_runtime_session_memory(
             fallback_channel="runtime",
         )
 
-        context.runtime_remember_session_armed = False
-        context.runtime_remember_session_requested = False
+        context.runtime_save_session_armed = False
+        context.runtime_save_session_requested = False
 
         await emit_runtime_action_completed(
             context,
-            action=L3_ACTION_REMEMBER_SESSION,
+            action=L3_ACTION_SAVE_SESSION,
         )
 
         return current_session_memory
@@ -340,13 +341,19 @@ async def maybe_summarize_runtime_session_memory(
                     reason=skip_reason,
                     previous_memory=current_session_memory,
                     candidate_memory=updated_session_memory,
+                    summarizer_response_details=(
+                        build_runtime_summarizer_response_details(
+                            response,
+                            extracted_memory=updated_session_memory,
+                        )
+                    ),
                 ),
                 fallback_channel="error",
             )
 
             await emit_runtime_action_completed(
                 context,
-                action=L3_ACTION_REMEMBER_SESSION,
+                action=L3_ACTION_SAVE_SESSION,
             )
 
             return current_session_memory
@@ -385,8 +392,8 @@ async def maybe_summarize_runtime_session_memory(
                 )
                 + 1
             )
-            context.runtime_remember_session_armed = False
-            context.runtime_remember_session_requested = False
+            context.runtime_save_session_armed = False
+            context.runtime_save_session_requested = False
 
             runtime_snapshots = getattr(
                 context,
@@ -418,7 +425,7 @@ async def maybe_summarize_runtime_session_memory(
 
         await emit_runtime_action_completed(
             context,
-            action=L3_ACTION_REMEMBER_SESSION,
+            action=L3_ACTION_SAVE_SESSION,
         )
 
         return getattr(
@@ -447,7 +454,7 @@ async def maybe_summarize_runtime_session_memory(
 
         await emit_runtime_action_completed(
             context,
-            action=L3_ACTION_REMEMBER_SESSION,
+            action=L3_ACTION_SAVE_SESSION,
         )
 
         return current_session_memory
@@ -471,7 +478,7 @@ async def maybe_summarize_runtime_session_memory(
 
         await emit_runtime_action_completed(
             context,
-            action=L3_ACTION_REMEMBER_SESSION,
+            action=L3_ACTION_SAVE_SESSION,
         )
 
         return current_session_memory

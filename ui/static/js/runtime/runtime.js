@@ -85,6 +85,9 @@ const {
   removeRuntimeMemoryLineByKey,
   upsertRuntimeMemoryLine,
   buildRuntimeMemoryValuePresentation,
+  extractActiveMemoryRuntimeMemoryLines,
+  stripActiveMemoryRuntimeMemoryText,
+  isActiveMemoryRuntimeMemoryLine,
 } = memoryModel;
 
 const {
@@ -101,6 +104,11 @@ const {
   collectOtherLatestRuntimeMemorySnapshots,
   clearOtherLatestRuntimeMemorySnapshots,
   getSavedRuntimeMemoryFallback,
+  readActiveMemoryRecords,
+  writeActiveMemoryRecords,
+  clearActiveMemoryRecords,
+  appendActiveMemoryRecords: appendStoredActiveMemoryRecords,
+  removeActiveMemoryRecordById: removeStoredActiveMemoryRecordById,
 } = storage;
 
 const runtimeMemoryCount =
@@ -153,6 +161,90 @@ feedback.init({
 window.jinWebSocketConnected = false;
 
 
+function stripActiveMemoryFromRuntimeSnapshot(
+  snapshot
+) {
+
+  if (!snapshot || typeof snapshot !== "object") {
+    return snapshot;
+  }
+
+  const rawMemory =
+    String(snapshot.raw_memory || "");
+
+  const activeLines =
+    extractActiveMemoryRuntimeMemoryLines(
+      rawMemory
+    );
+
+  if (activeLines.length) {
+    appendStoredActiveMemoryRecords(
+      activeLines
+    );
+  }
+
+  const nextSnapshot = {
+    ...snapshot,
+    raw_memory: stripActiveMemoryRuntimeMemoryText(
+      rawMemory
+    ),
+  };
+
+  if (Array.isArray(snapshot.lines)) {
+    nextSnapshot.lines = snapshot.lines
+      .filter(line => !isActiveMemoryRuntimeMemoryLine(line));
+  }
+
+  return nextSnapshot;
+
+}
+
+
+function buildRuntimeMemoryDisplaySnapshot(
+  snapshot
+) {
+
+  if (!snapshot || typeof snapshot !== "object") {
+    return snapshot;
+  }
+
+  const latestSnapshot =
+    runtimeMemoryHistory.snapshots[
+      runtimeMemoryHistory.snapshots.length - 1
+    ];
+
+  if (snapshot !== latestSnapshot) {
+    return snapshot;
+  }
+
+  const activeRecords =
+    readActiveMemoryRecords();
+
+  if (!activeRecords.length) {
+    return snapshot;
+  }
+
+  const activeLines = activeRecords
+    .map(parseRuntimeMemoryLine);
+
+  return {
+    ...snapshot,
+    raw_memory: [
+      String(snapshot.raw_memory || "").trim(),
+      activeRecords.join("\n"),
+    ].filter(Boolean).join("\n"),
+    lines: [
+      ...(Array.isArray(snapshot.lines)
+        ? snapshot.lines
+        : splitMemoryTextLines(snapshot.raw_memory || "")
+          .map(parseRuntimeMemoryLine)),
+      ...activeLines,
+    ],
+  };
+
+}
+
+
 function persistRuntimeMemorySnapshot(
   data
 ) {
@@ -168,10 +260,15 @@ function persistRuntimeMemorySnapshot(
     return;
   }
 
+  const persistedSnapshot =
+    stripActiveMemoryFromRuntimeSnapshot(
+      data.snapshot
+    );
+
   const runtimeMemory =
     (
-      data.snapshot.raw_memory
-      || data.memory
+      persistedSnapshot.raw_memory
+      || stripActiveMemoryRuntimeMemoryText(data.memory || "")
       || ""
     ).trim();
 
@@ -190,7 +287,7 @@ function persistRuntimeMemorySnapshot(
     runtime_memory: runtimeMemory,
     runtime_memory_updates: data.updates || 0,
     runtime_snapshot: buildPersistedRuntimeSnapshot(
-      data.snapshot
+      persistedSnapshot
     ),
   });
 
@@ -309,14 +406,118 @@ memoryView.init({
   history: runtimeMemoryHistory,
   idle,
   memoryModel,
+  buildDisplaySnapshot: buildRuntimeMemoryDisplaySnapshot,
 });
 
 function renderRuntimeMemorySnapshot() {
   memoryView.renderRuntimeMemorySnapshot();
 }
 
+function showLatestRuntimeMemorySnapshot() {
+  if (
+      memoryView
+      && typeof memoryView.showLatestRuntimeMemorySnapshot === "function"
+  ) {
+    memoryView.showLatestRuntimeMemorySnapshot();
+    return;
+  }
+
+  if (!runtimeMemoryHistory.snapshots.length) {
+    runtimeMemoryHistory.index = -1;
+    return;
+  }
+
+  runtimeMemoryHistory.index =
+      runtimeMemoryHistory.snapshots.length - 1;
+}
+
 function renderRuntimeDiffs() {
   memoryView.renderDiffs();
+}
+
+function appendActiveMemoryRecordsAndRender(
+  records
+) {
+
+  const nextRecords =
+    appendStoredActiveMemoryRecords(
+      records
+    );
+
+  showLatestRuntimeMemorySnapshot();
+  renderRuntimeMemorySnapshot();
+
+  return nextRecords;
+
+}
+
+
+function replaceActiveMemoryRecordsAndRender(
+  records
+) {
+
+  writeActiveMemoryRecords(
+    records
+  );
+
+  showLatestRuntimeMemorySnapshot();
+  renderRuntimeMemorySnapshot();
+
+  return readActiveMemoryRecords();
+
+}
+
+
+function removeActiveMemoryRecordByIdAndRender(
+  activeMemoryId
+) {
+
+  const nextRecords =
+    removeStoredActiveMemoryRecordById(
+      activeMemoryId
+    );
+
+  showLatestRuntimeMemorySnapshot();
+  renderRuntimeMemorySnapshot();
+
+  return nextRecords;
+
+}
+
+const ACTIVE_MEMORY_RUNTIME_ACTIONS_TO_SILENCE_ON_L1 = [
+  "create_active_memory",
+  "resolve_active_memory",
+];
+
+function silenceActiveMemoryRuntimeActionsAfterL1(
+  data
+) {
+
+  if (!window.fadeRuntimeAction) {
+    return;
+  }
+
+  const isRuntimeMemoryUpdate =
+    data.type === "runtime_memory_update"
+    && Number(data.updates || 0) > 0;
+
+  const isRuntimeL1DiffUpdate =
+    data.type === "runtime_l1_diff_update";
+
+  if (
+      !isRuntimeMemoryUpdate
+      && !isRuntimeL1DiffUpdate
+  ) {
+    return;
+  }
+
+  ACTIVE_MEMORY_RUNTIME_ACTIONS_TO_SILENCE_ON_L1
+    .forEach((action) => {
+      window.fadeRuntimeAction(
+        action
+      );
+    });
+
 }
 
 function handleRuntimeMemoryMessage(data) {
@@ -326,6 +527,10 @@ function handleRuntimeMemoryMessage(data) {
   }
 
   if (data.type === "runtime_l1_diff_update") {
+    silenceActiveMemoryRuntimeActionsAfterL1(
+      data
+    );
+
     memoryView.setRuntimeDiffUpdate(
       data
     );
@@ -343,7 +548,7 @@ function handleRuntimeMemoryMessage(data) {
         && window.fadeRuntimeAction
     ) {
       window.fadeRuntimeAction(
-        "remember_session"
+        "save_session"
       );
     }
 
@@ -384,6 +589,10 @@ function handleRuntimeMemoryMessage(data) {
     return;
   }
 
+  silenceActiveMemoryRuntimeActionsAfterL1(
+    data
+  );
+
   runtimeMemoryDisplayMode = "runtime";
 
   if (window.stopMemoryGlow) {
@@ -405,11 +614,11 @@ function handleRuntimeMemoryMessage(data) {
       const clientIndex =
           runtimeMemoryHistory.snapshots.length - 1;
 
-      clientSnapshot = {
+      clientSnapshot = stripActiveMemoryFromRuntimeSnapshot({
         ...runtimeMemoryHistory.snapshots[clientIndex],
         ...data.snapshot,
         index: clientIndex,
-      };
+      });
 
       runtimeMemoryHistory.snapshots[clientIndex] =
           clientSnapshot;
@@ -420,10 +629,10 @@ function handleRuntimeMemoryMessage(data) {
       );
     } else {
       const clientIndex = runtimeMemoryHistory.snapshots.length;
-      clientSnapshot = {
+      clientSnapshot = stripActiveMemoryFromRuntimeSnapshot({
         ...data.snapshot,
         index: clientIndex,
-      };
+      });
 
       attachFirstUserIdleToInitialRuntimeSnapshot(
         clientSnapshot
@@ -491,8 +700,21 @@ window.JinRuntime.runtime = {
   },
   handleRuntimeMemoryMessage,
   renderRuntimeMemorySnapshot,
+  showLatestRuntimeMemorySnapshot,
   renderDiffs: renderRuntimeDiffs,
   persistRuntimeMemorySnapshot,
+  getActiveMemoryRecords: readActiveMemoryRecords,
+  clearActiveMemoryRecords() {
+    const records =
+      clearActiveMemoryRecords();
+
+    renderRuntimeMemorySnapshot();
+
+    return records;
+  },
+  replaceActiveMemoryRecords: replaceActiveMemoryRecordsAndRender,
+  appendActiveMemoryRecords: appendActiveMemoryRecordsAndRender,
+  removeActiveMemoryRecordById: removeActiveMemoryRecordByIdAndRender,
 };
 
 window.JinRuntime.init = function () {

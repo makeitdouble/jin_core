@@ -54,6 +54,7 @@
       splitMemoryTextLines,
       parseRuntimeMemoryLine,
       removeRuntimeMemoryLineByKey,
+      stripActiveMemoryRuntimeMemoryText,
     } = memoryModel;
 
     const {
@@ -81,13 +82,15 @@
 
     function runtimeMemoryObjectFromSnapshot(snapshot) {
       const runtimeMemory =
-        (
-          snapshot
-          && snapshot.raw_memory
-          && snapshot.display_source !== "default_runtime_memory"
-          && snapshot.raw_memory
-        )
-        || "";
+        stripActiveMemoryRuntimeMemoryText(
+          (
+            snapshot
+            && snapshot.raw_memory
+            && snapshot.display_source !== "default_runtime_memory"
+            && snapshot.raw_memory
+          )
+          || ""
+        );
 
       if (!runtimeMemory.trim()) {
         return null;
@@ -118,7 +121,9 @@
       }
 
       let runtimeMemory =
-        String(persisted.runtime_memory || "").trim();
+        stripActiveMemoryRuntimeMemoryText(
+          persisted.runtime_memory || ""
+        ).trim();
 
       runtimeMemory = removeRuntimeMemoryLineByKey(
         runtimeMemory,
@@ -240,7 +245,7 @@
         || runtimeMemory.includes("saved")
         || runtimeMemory.includes("saving")
         || runtimeMemory.includes("remembering")
-        || runtimeMemory.includes("remember_session")
+        || runtimeMemory.includes("save_session")
         || runtimeMemory.includes("сохран")
         || runtimeMemory.includes("запомн");
 
@@ -317,13 +322,13 @@
         || runtimeMemory.includes("saved")
         || runtimeMemory.includes("saving")
         || runtimeMemory.includes("remembering")
-        || runtimeMemory.includes("remember_session")
+        || runtimeMemory.includes("save_session")
         || runtimeMemory.includes("сохран");
 
       const hasRememberSessionTrigger =
         behaviorContractPhraseAppears(
           runtimeMemory,
-          "remember_session",
+          "save_session",
           "triggers"
         );
 
@@ -338,7 +343,7 @@
         || runtimeMemory.includes("confirmed saving")
         || runtimeMemory.includes("confirmed saved")
         || runtimeMemory.includes("remembering this session")
-        || runtimeMemory.includes("remember_session")
+        || runtimeMemory.includes("save_session")
         || hasRememberSessionTrigger
         || runtimeMemory.includes("сохраняю")
         || runtimeMemory.includes("сохранено")
@@ -870,7 +875,7 @@
 
     function buildRuntimeMemoryDisplaySnapshot(data) {
       const runtimeMemory =
-        String(
+        stripActiveMemoryRuntimeMemoryText(
           (
             data
             && (
