@@ -8,12 +8,13 @@
 
 **JIN Core Engine** is a local AI runtime for OpenAI-compatible models with visible memory, visible reasoning traces, and inspectable session state.
 
-### 3-Layer Memory
+### 3-Layer Memory + Active Contracts
 JIN uses short-term continuity to dynamically guide conversation strategy:
 
 * **L1 (Live Facts):** Actionable session state kept in active process memory.
 * **L2 (Patterns):** Tracks interaction loops and repetition counters to adapt prompts on the fly.
 * **L3 (Digest):** Compressed session snapshots serialized to browser `localStorage` and replayed on reconnect.
+* **Active Memory:** Runtime-owned pending contracts for reminders, delayed asks, and recall games.
 
 *Every memory update is captured as a versioned snapshot with diff highlights, fully inspectable in the right-side timeline panel.*
 
@@ -48,6 +49,7 @@ Runtime memory snapshots can be stepped through visually, with new or changed fa
 - Inspectable memory timeline: step through snapshots and see which facts or patterns were added instead of guessing what the assistant remembered.
 - Think citation highlighting: rule fragments, runtime memory, and restored session context are softly highlighted after a thinking block completes, then reappear on hover.
 - Session save and restore: natural closing phrases trigger a compact L3 memory digest, stored locally and replayed on reconnect.
+- Active-memory contracts: reminders, delayed asks, and recall games live outside normal L1 summarization until JIN resolves them.
 - Pattern and loop detection: repeated exchanges can change strategy instead of producing the same polite answer again.
 - Context pressure telemetry: model status, token usage, context pressure, runtime memory, and live logs stay visible in the right sidebar.
 - Local OpenAI-compatible routing: use separate brain, service, and translator runtimes, or collapse to one service model for a simpler setup.
@@ -56,8 +58,8 @@ Runtime memory snapshots can be stepped through visually, with new or changed fa
 
 - Streaming chat: answers appear as they are written, with thinking visually separated from the final reply.
 - Stop generation control: the input turns into a stop control while JIN is working, so a drifting answer can be interrupted immediately.
-- Built-in web-search action: the model can ask the runtime to search in web, then answer from trusted results without rendering raw tool syntax.
-- Multilingual input path: Cyrillic input can be translated internally while the visible conversation remains natural.
+- Built-in web-search action: the model can ask the runtime to search the web, then answer from returned evidence without rendering raw tool syntax.
+- Multilingual input path: Cyrillic input can be translated internally when translation is enabled, while the visible conversation remains natural.
 - Keyboard-first writing flow: Enter sends, Ctrl/Shift+Enter inserts a newline.
 - Deploy-friendly configuration: use a local `config.py` while experimenting, then switch to environment variables when running elsewhere.
 
@@ -69,12 +71,14 @@ Runtime memory snapshots can be stepped through visually, with new or changed fa
 
 The WebSocket layer creates a `RuntimeContext` per connection. Each user message is handled by `AgentRuntime`:
 
-- Cyrillic input routes through `planner -> translator -> brain -> validator`.
-- Other input routes through `planner -> brain -> validator`.
+- When translation is enabled, Cyrillic input can route through `planner -> translator -> brain -> validator`.
+- The default input path is `planner -> brain -> validator`.
 
 The translator node logs translator output for observability but does not render it as a chat message. The brain node streams the visible assistant response from the configured brain runtime.
 
-The brain can emit runtime action markers. The runtime consumes those markers as control events, executes the requested action, injects the trusted result into the next brain prompt, and prevents raw control syntax from being rendered as chat text.
+The brain can emit runtime action markers. The runtime consumes those markers as control events, executes the requested action, injects the trusted result into the next brain prompt, and prevents raw control syntax from being rendered as chat text. Current actions include web search, session save, active-memory creation, and active-memory resolution.
+
+Active-memory records are stored separately from normal L1 memory, synced through the browser, injected as a high-priority `<ACTIVE_MEMORY>` block, and resolved by ID when their condition is met.
 
 After the visible response ends, the service runtime updates `context.runtime_memory` in the background. This request does not block the user-facing answer. The next brain prompt receives the current memory as trusted runtime context, and the right sidebar shows the same memory as plain text.
 
@@ -94,34 +98,35 @@ Runtime memory is intentionally lightweight, but it is no longer passive storage
 
 - It lives in the active `RuntimeContext`, not in a database.
 - It is updated by separate service-model requests after a turn finishes.
-- It is split into factual L1 memory, higher-level L2 pattern memory, and a long-horizon L3 session digest.
+- It is split into factual L1 memory, higher-level L2 pattern memory, a long-horizon L3 session digest, and a separate active-memory contract channel.
 - L1 is written as compact, actionable bullet-like state rather than full transcript history.
 - L2 tracks possible repeated interaction patterns and occurrence signals during the active session.
 - L3 is a compressed session summary generated at explicit save points and stored in the browser. It survives page reloads and reconnects.
 - Memory is injected into the brain prompt as trusted runtime context.
-- It is mirrored in the right sidebar through `runtime_memory_update` and `runtime_session_memory_update` WebSocket events.
+- It is mirrored in the right sidebar through `runtime_memory_update`, `runtime_session_memory_update`, and `active_memory_records_update` WebSocket events.
 - Each L1/L2 update is captured as a session snapshot with an index, raw memory text, parsed key/value lines, and diff metadata.
-- Runtime-owned `active_memory` suffixes track creation/elapsed time and turns; they are stored and displayed, but stripped before L1 receives memory again.
+- Runtime-owned `active_memory_records` track pending contracts with IDs, status, creation time, elapsed time, and elapsed JIN-message counters; they are displayed and persisted, but stripped before L1 summarization.
 - The UI can navigate previous snapshots, replay visual highlights for new or changed memory fields, and show full memory suffixes line-by-line on hover.
 - Conversation activity and no-signal alerts can suppress overly soft default behavior when the exchange is clearly stuck.
 - Truncated or obviously incomplete summarizer output is rejected so it does not overwrite the previous memory.
 
-This gives JIN observable short-term memory and behavior adaptation without introducing persistence, vector storage, or retrieval infrastructure yet.
+This gives JIN observable short-term memory and behavior adaptation without introducing a server-side database, vector storage, or retrieval infrastructure yet.
 
 
 ## Memory Snapshot Examples
 
-JIN memory is stored as plain `key: value` lines so it can be shown in the UI, injected into prompts, diffed between turns, and compressed into a later session digest. The keys are semantic handles rather than a fixed database schema, but the current runtime expects stable line shapes for important contracts and pattern evidence.
+JIN memory is stored as plain `key: value` lines so it can be shown in the UI, injected into prompts, diffed between turns, and compressed into a later session digest. The keys are semantic handles rather than a fixed database schema, but the current runtime expects stable line shapes for important facts, active contracts, and pattern evidence.
 
 ### L1 memory snapshot (facts)
 
-L1 is the live factual layer. It keeps the current state needed for the next answer: user request, active topic, latest user message, unresolved active contracts, recall values, and the latest response gist. It is not a transcript and it should not infer long-term personality traits.
+L1 is the live factual layer. It keeps the current state needed for the next answer: user request, active topic, latest user message, current task, response feedback, durable facts, and unresolved normal conversation state. It is not a transcript and it should not infer long-term personality traits.
 
 ```text
 user_message: "thanks"
-last_jin_response: Acknowledged the user and kept the pending recall contract active.
-primary_goal: Play a memory test game where JIN prompts the user to guess the secret word.
-active_memory: Secret word: Sun [ purpose: Ask user to guess this exact word ] [ conditions: Do not reveal or change the word ] [ creation_time: 2026-06-20T10:00:00 ] [ created_jin_message_number: 3 ] [ elapsed_time: 00:02:39 ] [ elapsed_jin_message_number: 2 ] [ status: pending ]
+last_jin_response: Acknowledged the user and kept the current runtime state compact.
+active_topic: Runtime memory testing.
+current_task: Verify that JIN keeps continuity without rewriting the full transcript.
+open_question: User may continue testing active-memory behavior next.
 ```
 
 A rendered runtime snapshot also carries metadata used by the right-side timeline panel:
@@ -130,28 +135,44 @@ A rendered runtime snapshot also carries metadata used by the right-side timelin
 {
   "session_id": "runtime-session-id",
   "index": 5,
-  "raw_memory": "session status: ...\nuser_message: ...",
+  "raw_memory": "active_topic: Runtime memory testing.\ncurrent_task: Verify continuity.",
   "lines": [
     {
-      "key": "active_memory",
-      "value": "Secret word: Sun [ purpose: Ask user to guess this exact word ] [ conditions: Do not reveal or change the word ] [ creation_time: 2026-06-20T10:00:00 ] [ created_jin_message_number: 3 ] [ elapsed_time: 00:02:39 ] [ elapsed_jin_message_number: 2 ] [ status: pending ]",
+      "key": "active_topic",
+      "value": "Runtime memory testing.",
       "key_status": "same",
-      "value_status": "same",
+      "value_status": "changed",
       "key_change_ratio": 0.0,
-      "value_change_ratio": 0.0
+      "value_change_ratio": 0.42
     }
   ],
   "patch": {
-    "active_memory": {
-      "status": "same",
-      "value": "Secret word: Sun [ purpose: Ask user to guess this exact word ] [ status: pending ]"
+    "active_topic": {
+      "status": "changed",
+      "value": "Runtime memory testing."
     }
   },
   "total_diff": 87.3
 }
 ```
 
-`active_memory` lifecycle suffixes are owned by runtime, not L1. L1 sees the contract value and `[ status: ... ]`; runtime reattaches `[ creation_time ]`, `[ created_jin_message_number ]`, `[ elapsed_time ]`, and `[ elapsed_jin_message_number ]` after each runtime refresh. Memory lines may also have temporary trace strength such as `[ trace: 0.50 ]` or inject `user_idle: 9s` into the displayed context. Those are runtime metadata signals, not durable memory facts.
+Memory lines may also have temporary trace strength such as `[ trace: 0.50 ]` or inject `user_idle: 9s` into the displayed context. Those are runtime metadata signals, not durable memory facts.
+
+### Active memory snapshot (runtime contracts)
+
+Active memory is now owned by runtime, not by the L1 summarizer. It is stored as `active_memory_records`, persisted in browser `localStorage` under `jin.activeMemory.v1`, refreshed with runtime timing metadata, and injected into the brain prompt as a separate high-priority block.
+
+```text
+active_memory_1: Secret word: Sun; ask the user to guess it later without revealing it [ active_memory_id: a1b2c3 ] [ conditions: Secret word: Sun; ask the user to guess it later without revealing it ] [ status: pending ] [ creation_time: 2026-06-20T10:00:00 ] [ created_jin_message_number: 3 ] [ elapsed_time: 00:02:39 ] [ elapsed_jin_message_number: 2 ]
+```
+
+```xml
+<ACTIVE_MEMORY priority="active_runtime_contracts">
+    active_memory_1: Secret word: Sun; ask the user to guess it later without revealing it [ active_memory_id: a1b2c3 ] [ conditions: Secret word: Sun; ask the user to guess it later without revealing it ] [ status: pending ]
+</ACTIVE_MEMORY>
+```
+
+JIN creates these records with `CREATE_ACTIVE_MEMORY` and removes them with `RESOLVE_ACTIVE_MEMORY` using the actual `active_memory_id`. L1 receives normal runtime memory with active-memory lines stripped out, so pending reminders and recall contracts are not accidentally rewritten by summarization.
 
 ### L2 memory snapshot (patterns)
 
@@ -226,10 +247,13 @@ preserve_detail: The callback mattered because it felt like continuity inside th
 ## Requirements
 
 - Python 3.10+
+- Node.js 20+ for npm test/probe shortcuts
 - One or more OpenAI-compatible model servers
 - Provider endpoints that support:
   - `POST /v1/chat/completions`
   - `GET /v1/models`
+- Optional LM Studio metadata endpoint:
+  - `GET /api/v0/models`
 
 ## Windows One-Click Launcher
 
@@ -343,36 +367,44 @@ SEARCH_TIMEOUT=20.0
 Plain names take priority over prefixed names when both are set. Boolean env values accept `1`, `true`, `yes`, `on`, `0`, `false`, `no`, and `off`.
 
 ```python
-USE_SERVICE_AS_BRAIN = False
+USE_SERVICE_AS_BRAIN = True
+TRANSLATION_ENABLED = False
+TRANSLATE_RESPONSE = False
+DEBUG_RULE_CITATIONS = True
 
 CHAT_ENDPOINT = "/v1/chat/completions"
 MODELS_ENDPOINT = "/v1/models"
 NATIVE_MODELS_ENDPOINT = "/api/v0/models"
 
-BRAIN_API_BASE = "http://brain-host:1234"
-BRAIN_MODEL_UID = "brain-model"
-BRAIN_CONTEXT_WINDOW = 32768
-BRAIN_TEMPERATURE = 0.7
-BRAIN_MAX_TOKENS = 2048
-
-SERVICE_API_BASE = "http://service-host:1234"
-SERVICE_MODEL_UID = "service-model"
-SERVICE_CONTEXT_WINDOW = 8192
-SERVICE_TEMPERATURE = 0.15
-SERVICE_MAX_TOKENS = 1024
-
 RUNTIME_OUTPUT_TOKEN_RESERVE = 512
 RUNTIME_CONTEXT_WINDOW_FALLBACK_TO_SERVER = True
 RUNTIME_MAX_TOKENS_FALLBACK_TO_SERVER = True
 
+BRAIN_API_BASE = "http://brain-host:1234"
+BRAIN_MODEL_UID = "brain-model"
+BRAIN_REQUEST_TIMEOUT = 1000.0
+BRAIN_CONTEXT_WINDOW = 8192
+NIGHT_BRAIN_CONTEXT_WINDOW = 16384
+BRAIN_TEMPERATURE = 0.7
+BRAIN_MAX_TOKENS = 8192
+
+SERVICE_API_BASE = "http://service-host:1234"
+SERVICE_MODEL_UID = "service-model"
+SERVICE_REQUEST_TIMEOUT = 1000.0
+SERVICE_CONTEXT_WINDOW = 4096
+SERVICE_TEMPERATURE = 0.1
+SERVICE_MAX_TOKENS = 4096
+
 SEARCH_PROVIDER = "serper"
 SEARCH_SERPER_API_KEY = "mock-serper-api-key"
 SEARCH_MAX_RESULTS = 5
-SEARCH_TIMEOUT = 20.0
+SEARCH_TIMEOUT = 100.0
 
 TRANSLATOR_API_BASE = "http://translator-host:1234"
 TRANSLATOR_MODEL_UID = "translator-model"
-TRANSLATOR_CONTEXT_WINDOW = 4096
+TRANSLATOR_REQUEST_TIMEOUT = 120
+TRANSLATOR_CONTEXT_WINDOW = 2048
+TRANSLATION_RETRIES = 1
 TRANSLATION_TEMPERATURE = 0.1
 TRANSLATION_MIN_TOKENS = 64
 TRANSLATION_MAX_TOKENS = 2048
@@ -381,42 +413,32 @@ TRANSLATION_MAX_TOKENS = 2048
 ### Key Options
 
 - `USE_SERVICE_AS_BRAIN`: Uses the service runtime for brain responses when enabled.
+- `TRANSLATION_ENABLED`: Enables the internal translation node before the brain call.
+- `TRANSLATE_RESPONSE`: Enables response translation path when configured.
+- `DEBUG_RULE_CITATIONS`: Enables think citation scanning/highlighting support.
 - `NATIVE_MODELS_ENDPOINT`: Optional provider-native metadata endpoint. LM Studio exposes the currently loaded context length here, which is more accurate than some `/v1/models` responses. Leave empty to disable native probing.
-- `BRAIN_API_BASE`: Base URL for the brain provider.
-- `BRAIN_MODEL_UID`: Model ID for the brain provider.
-- `BRAIN_CONTEXT_WINDOW`: Context capacity displayed in telemetry.
-- `BRAIN_TEMPERATURE`: Sampling temperature for brain responses.
-- `BRAIN_MAX_TOKENS`: Maximum generated tokens for brain responses.
-- `SERVICE_API_BASE`: Base URL for the service provider.
-- `SERVICE_MODEL_UID`: Model ID for the service provider.
-- `SERVICE_CONTEXT_WINDOW`: Context capacity displayed in telemetry.
-- `SERVICE_TEMPERATURE`: Sampling temperature for service calls.
-- `SERVICE_MAX_TOKENS`: Maximum generated tokens for service calls.
-- `RUNTIME_OUTPUT_TOKEN_RESERVE`: Reserved context headroom kept free when calculating the dynamic response budget. Prevents requests from filling the context window exactly. Defaults to `512`.
+- `BRAIN_API_BASE`, `SERVICE_API_BASE`, `TRANSLATOR_API_BASE`: Provider base URLs.
+- `BRAIN_MODEL_UID`, `SERVICE_MODEL_UID`, `TRANSLATOR_MODEL_UID`: Model IDs for each runtime role.
+- `*_REQUEST_TIMEOUT`: Request timeout for each runtime role.
+- `*_CONTEXT_WINDOW`: Context capacity displayed in telemetry and used as fallback when server metadata is unavailable.
+- `*_MAX_TOKENS`: Maximum generated tokens for each runtime role.
+- `RUNTIME_OUTPUT_TOKEN_RESERVE`: Reserved context headroom kept free when calculating the dynamic response budget. Defaults to `512`.
 - `RUNTIME_CONTEXT_WINDOW_FALLBACK_TO_SERVER`: When `true`, JIN prefers the loaded context length reported by the runtime server over local config values. Defaults to `true`.
 - `RUNTIME_MAX_TOKENS_FALLBACK_TO_SERVER`: When `true`, JIN prefers the server-reported output token limit for model calls. Defaults to `true`.
-- `SEARCH_PROVIDER`: Search backend used by runtime search actions.
-- `SEARCH_SERPER_API_KEY`: API key for the Serper search provider.
-- `SEARCH_MAX_RESULTS`: Maximum search results returned to the runtime.
-- `SEARCH_TIMEOUT`: Search provider timeout in seconds.
-- `TRANSLATOR_API_BASE`: Base URL for the translator provider.
-- `TRANSLATOR_MODEL_UID`: Model ID for the translator provider.
-- `TRANSLATOR_CONTEXT_WINDOW`: Context capacity displayed in telemetry.
-- `TRANSLATION_TEMPERATURE`: Sampling temperature for translation calls.
-- `TRANSLATION_MIN_TOKENS`: Minimum token budget for translation.
-- `TRANSLATION_MAX_TOKENS`: Maximum token budget for translation.
+- `SEARCH_PROVIDER`, `SEARCH_SERPER_API_KEY`, `SEARCH_MAX_RESULTS`, `SEARCH_TIMEOUT`: Search backend settings used by runtime search and fact-check actions.
+- `TRANSLATION_RETRIES`, `TRANSLATION_TEMPERATURE`, `TRANSLATION_MIN_TOKENS`, `TRANSLATION_MAX_TOKENS`: Translation node generation settings.
 
 ## Session Memory Persistence
 
 L3 session memory lets context survive across browser sessions without a server-side database.
 
-To save a session, say something that signals you are done: "save the session", "that's all for today", "wrap it up", "I'm going to sleep", or the Russian equivalents. The brain emits a `SAVE_SESSION` action and the runtime builds a compressed digest from the current snapshot history. The browser stores this digest in `localStorage` and also writes it back to `saved_runtime.txt` if that path is configured.
+To save a session, say something that clearly signals you are done: "save the session", "that's all for today", "wrap it up", "I'm going to sleep", or the Russian equivalents. The brain emits a `SAVE_SESSION` action and the runtime builds a compressed digest from the current snapshot history. The browser stores this digest in `localStorage`.
 
-On the next page load or reconnect, the browser includes the saved digest in its bootstrap payload. The runtime receives it, validates it against any fresh L1 memory that may have accumulated, and injects the session context into the brain prompt before the first turn.
+On the next page load or reconnect, the browser includes the saved digest in its bootstrap payload. The runtime receives it, validates it against any fresh L1 memory that may have accumulated, and injects the session context into the brain prompt before the first turn. Active-memory records are bootstrapped separately from `jin.activeMemory.v1`.
 
 The sidebar shows a distinct indicator when a session was restored from a saved digest rather than built from live L1 memory.
 
-`saved_runtime.example.txt` shows the expected format for a pre-populated session memory file. Copy it to `saved_runtime.txt` and edit the contents to seed JIN with static facts that should survive every session.
+`saved_runtime.example.txt` shows the optional static fallback format. Copy it to `saved_runtime.txt` and edit the contents if you want the browser to read a pre-populated runtime/session memory seed from `/saved_runtime.txt`. The browser does not write this file automatically.
 
 
 ## Tests
@@ -433,6 +455,16 @@ The translation model smoke test is intentionally separate because it calls the 
 npm run translation_tests
 ```
 
+Optional model behavior probes stay local by default:
+
+```bash
+npm run probe ascii
+npm run probe movie
+npm run probe word
+npm run probe marker
+npm run probe save
+```
+
 GitHub Actions runs only the fast test suite. Model-dependent tests should stay local unless the workflow is given access to a real compatible runtime.
 
 ## WebSocket Protocol
@@ -445,6 +477,20 @@ Client message:
 }
 ```
 
+Client message with runtime context fields:
+
+```json
+{
+  "text": "Hello",
+  "runtime_pattern_counter": 0,
+  "runtime_repeated_input_count": 0,
+  "user_idle": "9s",
+  "user_idle_seconds": 9,
+  "user_idle_paused": false,
+  "active_memory_records": []
+}
+```
+
 Abort active generation:
 
 ```json
@@ -453,13 +499,23 @@ Abort active generation:
 }
 ```
 
+Manual fact check:
+
+```json
+{
+  "type": "fact_check"
+}
+```
+
 Streaming events:
 
 ```jsonl
-{ "type": "message_start", "message_id": "...", "role": "brain" }
+{ "type": "agent_runtime_start" }
+{ "type": "message_start", "message_id": "...", "role": "brain", "context": {} }
 { "type": "thinking_chunk", "message_id": "...", "chunk": "..." }
 { "type": "message_chunk", "message_id": "...", "chunk": "..." }
 { "type": "message_end", "message_id": "..." }
+{ "type": "agent_runtime_end" }
 { "type": "message_error", "message_id": "...", "text": "..." }
 ```
 
@@ -474,10 +530,9 @@ Runtime action event:
 ```json
 {
   "type": "runtime_action",
-  "action": "web_search",
-  "id": "web_search_001",
-  "text": "Searching for \"cost of tesla car\"",
-  "query": "cost of tesla car"
+  "action": "create_active_memory",
+  "text": "Saving: Remind the user to check coffee",
+  "active_memory": "active_memory_1: Remind the user to check coffee [ active_memory_id: a1b2c3 ] [ conditions: Remind the user to check coffee ] [ status: pending ]"
 }
 ```
 
@@ -508,16 +563,14 @@ Runtime memory update:
 }
 ```
 
-Active memory collapse log:
+Active-memory records sync:
 
 ```json
 {
-  "type": "log",
-  "tag": "[ACTIVE_MEMORY]",
-  "message": "active_memory duplicate collapsed",
-  "details": "{\n  \"stage\": \"after durable merge\",\n  \"events\": [...],\n  \"result_memory\": \"active_memory: ... [ status: pending, Reminder given in Turn 1 ]\"\n}",
-  "channel": "active_memory",
-  "active_memory_event": "collapse"
+  "type": "active_memory_records_update",
+  "active_memory_records": [
+    "active_memory_1: Remind the user to check coffee [ active_memory_id: a1b2c3 ] [ conditions: Remind the user to check coffee ] [ status: pending ]"
+  ]
 }
 ```
 
@@ -540,9 +593,11 @@ Session memory update (L3 digest, sent after save or restore):
   "type": "runtime_session_memory_update",
   "memory": "- decided: use separate runtimes\n- user: prefers terse replies",
   "updates": 2,
-  "source": "browser_localStorage",
+  "source": "L3",
   "persist": true,
-  "event_snapshots": []
+  "event_snapshots": [],
+  "session_first_turn": 1,
+  "session_last_turn": 8
 }
 ```
 
@@ -551,12 +606,20 @@ Session memory update (L3 digest, sent after save or restore):
 The UI is served directly by FastAPI:
 
 - `ui/templates/index.html` renders the shell.
-- `ui/static/js/socket.js` handles WebSocket connection, send, abort, stream events, and session bootstrap.
-- `ui/static/js/chat.js` renders normal and streaming messages.
+- `ui/static/js/socket.js` handles WebSocket connection, send, abort, stream events, runtime actions, fact-check requests, and session bootstrap.
+- `ui/static/js/chat.js` renders user/JIN messages, streaming text, thinking blocks, and runtime-action bubbles.
 - `ui/static/js/status.js` updates provider online/offline indicators.
-- `ui/static/js/telemetry.js` updates runtime status, context usage, runtime memory snapshots, memory diff highlighting, L3 session save and restore, and localStorage persistence.
 - `ui/static/js/logger.js` renders the runtime console.
-- `ui/static/js/dragdrop.js` handles file and image attachment UI (future feature): drag-and-drop onto the chat column, manual file picker via the attachment button, multi-file queuing, and per-file removal before send.
+- `ui/static/js/think-rule-worker.js` scans completed thinking blocks for trusted-context citations.
+- `ui/static/js/dragdrop.js` handles file and image attachment UI shell.
+- `ui/static/js/runtime/runtime-storage.js` wraps browser storage for runtime/session/active memory.
+- `ui/static/js/runtime/runtime-session.js` handles L3 session persistence and bootstrap memory.
+- `ui/static/js/runtime/runtime-memory-model.js` parses and normalizes runtime memory lines.
+- `ui/static/js/runtime/runtime-memory-view.js` renders memory lines, tags, hover details, and highlights.
+- `ui/static/js/runtime/runtime-panel.js` owns the right-panel controls and telemetry display.
+- `ui/static/js/runtime/runtime-feedback.js` tracks last-response feedback.
+- `ui/static/js/runtime/runtime-idle.js` tracks user-idle context.
+- `ui/static/js/runtime/runtime.js` connects the runtime-memory modules to socket events.
 
 The frontend uses vanilla JavaScript and Tailwind from CDN. The current input behavior is keyboard-first: Enter sends, Ctrl/Shift+Enter inserts a newline, and the whole input field becomes a red stop control while a generation is active.
 
@@ -564,15 +627,15 @@ The frontend uses vanilla JavaScript and Tailwind from CDN. The current input be
 
 The following capabilities are planned but not yet implemented.
 
-**Paused memory panel.** A second memory-panel mode for temporarily removing runtime memory lines without deleting them. Long-pressing a runtime memory line moves it into `paused_memory`, stored separately in browser `localStorage` and available across sessions. Paused lines are never injected into the prompt automatically; the user can manually restore a line into the current runtime snapshot before the next message, or long-press it inside the paused panel to delete it permanently. This gives the user direct control over noisy or incorrectly formed memory without rebooting the session.
-
-**Delayed memory snapshots.** A separate `delayed_memory_snapshot` layer for future-facing thoughts that should not pollute active runtime memory: reminders, check-ins, follow-ups, revisits, and small social obligations. Each delayed memory stores `created_session_id`, creation turn/time, summary, kind, intent, time hint, status, and linked session ids. The first implementation links delayed memories only to saved session snapshots, using simple text search and optional LLM reranking over session headers. This creates a soft “thought for later” layer between active runtime memory and permanent long-term facts.
+**Paused and delayed memory control.** A separate user-controlled memory layer for temporarily removing noisy runtime memory lines and holding future-facing thoughts outside active L1 memory. Long-pressing a runtime memory line moves it into `paused_memory`, stored separately in browser `localStorage` and available across sessions; paused lines are never injected into the prompt automatically, but can be restored before the next message or deleted permanently from the paused panel. The same direction extends into `delayed_memory_snapshot`: a soft “thought for later” layer for reminders, check-ins, follow-ups, revisits, and small social obligations, with creation metadata, summary, kind, intent, time hint, status, and linked session ids. Together these features give the user direct control over memory noise and future-facing context without rebooting the session or promoting everything into permanent long-term facts.
 
 **Long-term facts layer (L4).** A cross-session key-fact store extracted from completed turns by the service model, stored as JSON, and retrieved via keyword scoring before each brain call. Facts carry category, relevance, confidence, and mention count. A deduplication pass prevents drift from accumulating near-duplicate entries. The top-N retrieved facts are injected into the brain prompt as low-priority background context. No vector search or embedding index; heuristic scoring only for MVP.
 
 **User and JIN (LX layer) profiles.** A periodic distillation of session snapshots into two versioned JSON files: `user_profile.json` (stable preferences, recurring themes, friction points, open projects) and `jin_profile.json` (emergent behavioral biases, voice tendencies, avoidances). Profiles are built from snapshot archives in batches, not in real time. They are injected as soft background context, not as hard identity constraints. Old profile versions are kept for rollback.
 
 **Trusted archive search.** A `TRUSTED_ARCHIVE_SEARCH` runtime action that retrieves original message logs when the runtime memory is disputed, a user says "you said" or "we already discussed this", or a summarizer conclusion needs verification. The archive is not injected into the normal context; it is queried on demand. Retrieval results are treated as primary evidence, not as instruction.
+
+**Brain fallback on low repair score.** When a service-model code/diff attempt scores below a configurable threshold (default 50), the next repair attempt is routed to the brain model with a clean snapshot containing only the original task, the current file state, the failed patch, and the exact error. The brain model does not receive the previous model's reasoning chain.
 
 **Night Brain — cross-session consolidation.** An offline background process that reads completed session snapshots, identifies durable patterns versus one-time events, proposes permanent memory updates, and prepares a morning brief. The first iteration operates on session snapshots only; it does not touch raw message logs. Night Brain also drives a watchlist: observations flagged by intent analysis are checked once during a low-traffic window. Allowed actions are `observe` and `analyze` only; nothing is posted or modified without explicit user approval.
 
@@ -583,8 +646,3 @@ The following capabilities are planned but not yet implemented.
 **Shared Folder file snapshots.** A local shared-folder layer that lets the user drop files into a watched directory and make them available to JIN without injecting the files directly into chat context. The scanner creates compact `F1` file snapshots with path, type, human title, summary, keywords, important entities, parser status, and `open_when` hints. JIN first sees lightweight file cards and only requests the fuller snapshot or source file when the current conversation makes it relevant. This keeps file retrieval explainable and debuggable without requiring vector search for the MVP.
 
 **Pending facts and open loops.** A lightweight `pending_fact` key in L1 memory that tracks unresolved external outcomes — moderation status, waiting for a reply, a deployment in progress. Each entry carries a trusted timestamp. When the pending outcome is older than roughly one day and still open, the brain may tactfully surface it. On resolution the entry is renamed to `resolved_fact` and moved to archive memory.
-
-**Brain fallback on low repair score.** When a service-model code/diff attempt scores below a configurable threshold (default 50), the next repair attempt is routed to the brain model with a clean snapshot containing only the original task, the current file state, the failed patch, and the exact error. The brain model does not receive the previous model's reasoning chain.
-
-
-**Safe memory key normalization.** All memory keys arriving from model output or runtime updates are normalized before storage: trimmed, capped at 120 characters, and stripped of characters outside `[a-zA-Z0-9_\-:.]`. When normalization changes a key, the original is preserved as `raw_label` metadata. Conflicts from key collisions after normalization get numeric suffixes. Keys and values are rendered as `textContent` in the UI, never as `innerHTML`.
