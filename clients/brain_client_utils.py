@@ -909,12 +909,6 @@ async def apply_runtime_action_calls(
         if record_resolved:
             resolved_active_memory_count = 1
 
-            if log_runtime is not None:
-                await log_runtime(
-                    "[RUNTIME ACTION] "
-                    f"active_memory record resolved: {active_memory_id}"
-                )
-
         emitter = getattr(
             context,
             "emitter",
