@@ -255,6 +255,21 @@ preserve_detail: The callback mattered because it felt like continuity inside th
 - Optional LM Studio metadata endpoint:
   - `GET /api/v0/models`
 
+## Current Model Baseline
+
+JIN Core is model-agnostic at the API layer, but the current development and behavior testing baseline is:
+
+```text
+google/gemma-4-e4b
+LM Studio
+Enable Thinking: on
+OpenAI-compatible API
+```
+
+This matters because JIN depends on more than plain chat completion. The runtime expects the brain model to follow layered prompt context, keep JIN identity separate from the underlying model, emit internal runtime-action markers reliably, and expose reasoning in a separable form when thinking traces are enabled.
+
+Smaller or non-thinking models may still run, but they can behave differently: ignore current runtime variables, leak reasoning into the visible answer, miss active-memory actions, repeat generic replies, or confuse recent-turn context with the latest user request. During active development, reported behavior should be compared against the Gemma 4 E4B + enabled reasoning baseline before treating it as a JIN runtime bug.
+
 ## Windows One-Click Launcher
 
 Windows users can start JIN with LM Studio through:
@@ -272,7 +287,7 @@ http://localhost:1234/v1/models
 Before running it:
 
 - Install and open LM Studio.
-- Download a supported Gemma model in LM Studio. Recommended default: `google/gemma-3-12b-it`.
+- Recommended current development baseline: `google/gemma-4-e4b` with Enable Thinking turned on in LM Studio.
 - Start the LM Studio Local Server.
 
 The launcher does not download models automatically. LM Studio downloads are intentionally left to the LM Studio UI.
