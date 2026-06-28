@@ -238,10 +238,10 @@ KEY_SEMANTICS = (
     "For user facts, examples include: user_fact, user_name, user_state, user_identity, user_work.\n"
     "For JIN facts, examples include: jin_fact, jin_purpose, jin_state, jin_identity.\n"
     "Update usual keys value when needed.\n"
-    "Usual key examples: session status, active_topic, current_task, current_request, "
+    "Usual key examples: session_status, active_topic, current_task, current_request, "
     "user_focus, user_intent, open_question, open_risk, pending_choice, pending_action, "
     "project_decision, product_insight, user_preference, technical_constraint, "
-    "test_result, observed_behavior, interaction_state.\n"
+    "test_result, observed_behavior, interaction_state, dormant_thread.\n"
     "</memory_line_semantics_rules>\n"
     "\n"
 )

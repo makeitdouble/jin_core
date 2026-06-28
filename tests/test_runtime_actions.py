@@ -116,6 +116,32 @@ class RuntimeActionTests(unittest.TestCase):
             ),
         )
 
+    def test_extracts_tool_call_style_web_search_marker_without_internal_prefix(self):
+
+        result = extract_runtime_actions(
+            "<tool_call>call:WEB_SEARCH: Gemma 4 differences between e2b and e4b versions",
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "Gemma 4 differences between e2b and e4b versions",
+            ),
+        )
+        self.assertEqual(
+            result.removed_markers,
+            (
+                "<tool_call>call:WEB_SEARCH: Gemma 4 differences between e2b and e4b versions",
+            ),
+        )
+
     def test_extracts_bare_call_style_web_search_marker_line(self):
 
         result = extract_runtime_actions(
@@ -133,6 +159,26 @@ class RuntimeActionTests(unittest.TestCase):
             result.search_queries,
             (
                 "\u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u043d\u0430 From (\u0441\u0435\u0440\u0438\u0430\u043b)",
+            ),
+        )
+
+    def test_extracts_bare_call_style_web_search_marker_without_internal_prefix(self):
+
+        result = extract_runtime_actions(
+            "call:WEB_SEARCH: blue tomato",
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "blue tomato",
             ),
         )
 
@@ -689,6 +735,87 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             stream_filter.flush(),
             "",
+        )
+
+    def test_stream_filter_handles_split_tool_call_style_web_search_without_internal_prefix(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "<tool"
+        )
+        second = stream_filter.filter(
+            "_call>call:WEB_SEARCH: blue"
+        )
+        final = stream_filter.filter(
+            " tomato>"
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.count("WEB_SEARCH"),
+            0,
+        )
+        self.assertEqual(
+            second.text,
+            "",
+        )
+        self.assertEqual(
+            second.count("WEB_SEARCH"),
+            0,
+        )
+        self.assertEqual(
+            final.text,
+            "",
+        )
+        self.assertEqual(
+            final.search_queries,
+            (
+                "blue tomato",
+            ),
+        )
+        self.assertEqual(
+            stream_filter.flush(),
+            "",
+        )
+
+    def test_stream_filter_flush_extracts_unclosed_tool_call_style_web_search_without_internal_prefix(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        result = stream_filter.filter(
+            "<tool_call>call:WEB_SEARCH: blue tomato"
+        )
+        flushed = stream_filter.flush_result()
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.count("WEB_SEARCH"),
+            0,
+        )
+        self.assertEqual(
+            flushed.text,
+            "",
+        )
+        self.assertEqual(
+            flushed.search_queries,
+            (
+                "blue tomato",
+            ),
         )
 
     def test_stream_filter_handles_split_bare_call_style_web_search_marker(self):

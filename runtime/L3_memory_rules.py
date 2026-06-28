@@ -122,6 +122,8 @@ WHAT_TO_PRESERVE = (
     "or preferences from weak signal.\n"
     "Do not ask the user to fill snapshot fields manually; "
     "infer event snapshot meaning from natural conversation and explicit user markings.\n"
+    "When active_topic/current_task/user constraint is removed due to topic shift, preserve it as a dormant line, "
+    "if it contains a useful re-entry point, user constraint, unresolved task, or viewing/work progress.\n"
 )
 
 # ─────────────────────────────────────────────────────────────────────────────

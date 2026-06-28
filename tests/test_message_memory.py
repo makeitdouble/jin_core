@@ -49,6 +49,7 @@ from runtime.L3_memory_rules import (
     L3_OUTPUT_MAX_TOKENS,
 )
 from runtime.L2_memory_utils import (
+    extract_runtime_l2_pattern_evidence_lines,
     merge_runtime_l2_pattern_evidence_memory,
     normalize_l2_pattern_evidence_example,
     remove_runtime_l2_pattern_evidence_lines,
@@ -659,6 +660,43 @@ class MessageMemoryTests(
             "possible pattern: repeated message. Occurrences: 4\n"
             "scope: current session",
             cleaned,
+        )
+
+    def test_embedded_l2_pattern_evidence_is_extracted_for_runtime_display(self):
+
+        runtime_l2_memory = (
+            "possible pattern: User initiates a request for abstract creative content. "
+            'Occurrences: 1; evidence: [ user_message: "draw something unusual" ]; '
+            "L2_pattern_evidence_3: User initiates a request for abstract creative content. "
+            '[ quote: "draw something unusual" ] '
+            "[ first_seen_turn_snapshot: 4 ] "
+            "[ last_seen_turn_snapshot: 4 ]"
+        )
+
+        evidence_lines = extract_runtime_l2_pattern_evidence_lines(
+            runtime_l2_memory
+        )
+
+        self.assertEqual(
+            [
+                "L2_pattern_evidence_3: User initiates a request for abstract creative content. "
+                '[ quote: "draw something unusual" ] '
+                "[ first_seen_turn_snapshot: 4 ] "
+                "[ last_seen_turn_snapshot: 4 ]",
+            ],
+            evidence_lines,
+        )
+
+        rendered = build_runtime_memory_context_text(
+            "current_request: waiting",
+            SimpleNamespace(
+                runtime_l2_memory=runtime_l2_memory,
+            ),
+        )
+
+        self.assertIn(
+            "L2_pattern_evidence_3:",
+            rendered,
         )
 
     def test_l2_pattern_evidence_example_normalizer_strips_spaces_commas_and_dots(self):

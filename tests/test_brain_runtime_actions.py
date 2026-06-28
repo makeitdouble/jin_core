@@ -258,6 +258,64 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
+    def test_stream_applies_save_session_marker_from_content_tail(self):
+
+        class FakeBrainClient:
+            async def stream(self, **_kwargs):
+                yield {
+                    "type": "content",
+                    "content": "<INTERNAL_ACTION_SAVE_SESSION>",
+                }
+
+        class Context:
+            pass
+
+        async def collect(context):
+            chunks = []
+
+            async for chunk in ask_brain_stream(
+                client=FakeBrainClient(),
+                text="save session",
+                context=context,
+                runtime_actions={
+                    "CAN_SAVE_SESSION": True,
+                },
+            ):
+                chunks.append(
+                    chunk
+                )
+
+            return chunks
+
+        context = Context()
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            chunks = asyncio.run(
+                collect(
+                    context
+                )
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        self.assertEqual(
+            chunks,
+            [],
+        )
+        self.assertTrue(
+            context.runtime_save_session_requested,
+        )
+        self.assertEqual(
+            context.runtime_action_events,
+            [
+                {
+                    "name": "save_session",
+                },
+            ],
+        )
+
     def test_stream_ignores_web_search_internal_action_in_thinking(self):
 
         class FakeBrainClient:

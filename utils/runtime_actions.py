@@ -45,12 +45,12 @@ BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
 MALFORMED_CALL_INTERNAL_ACTION_PATTERN = re.compile(
     (
         r"(?:"
-        r"<\|tool_call\>\s*call\s*:\s*INTERNAL_ACTION_"
+        r"<\|?tool_call\>\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
         r"(?P<tool_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY)"
         r"(?:\s*:\s*(?P<tool_call_query>[^\r\n>]*?))?"
-        r"\s*>+"
+        r"(?:\s*>+|[^\S\r\n]*(?=\r?\n|$))"
         r"|"
-        r"(?m:^\s*call\s*:\s*INTERNAL_ACTION_"
+        r"(?m:^\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
         r"(?P<bare_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY)"
         r"(?:\s*:\s*(?P<bare_call_query>[^\r\n]*))?"
         r"\s*$)"
@@ -1631,7 +1631,19 @@ def _enabled_action_start_markers(
             "<|tool_call>call:INTERNAL_ACTION_SAVE_SESSION"
         )
         markers.append(
+            "<tool_call>call:INTERNAL_ACTION_SAVE_SESSION"
+        )
+        markers.append(
+            "<|tool_call>call:SAVE_SESSION"
+        )
+        markers.append(
+            "<tool_call>call:SAVE_SESSION"
+        )
+        markers.append(
             "call:INTERNAL_ACTION_SAVE_SESSION"
+        )
+        markers.append(
+            "call:SAVE_SESSION"
         )
 
     if RUNTIME_ACTION_CREATE_ACTIVE_MEMORY in enabled_action_names:
@@ -1645,7 +1657,19 @@ def _enabled_action_start_markers(
             "<|tool_call>call:INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:"
         )
         markers.append(
+            "<tool_call>call:INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:"
+        )
+        markers.append(
+            "<|tool_call>call:CREATE_ACTIVE_MEMORY:"
+        )
+        markers.append(
+            "<tool_call>call:CREATE_ACTIVE_MEMORY:"
+        )
+        markers.append(
             "call:INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:"
+        )
+        markers.append(
+            "call:CREATE_ACTIVE_MEMORY:"
         )
 
     if RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY in enabled_action_names:
@@ -1659,7 +1683,19 @@ def _enabled_action_start_markers(
             "<|tool_call>call:INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY:"
         )
         markers.append(
+            "<tool_call>call:INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY:"
+        )
+        markers.append(
+            "<|tool_call>call:RESOLVE_ACTIVE_MEMORY:"
+        )
+        markers.append(
+            "<tool_call>call:RESOLVE_ACTIVE_MEMORY:"
+        )
+        markers.append(
             "call:INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY:"
+        )
+        markers.append(
+            "call:RESOLVE_ACTIVE_MEMORY:"
         )
 
     if RUNTIME_ACTION_WEB_SEARCH in enabled_action_names:
@@ -1670,7 +1706,19 @@ def _enabled_action_start_markers(
             "<|tool_call>call:INTERNAL_ACTION_WEB_SEARCH:"
         )
         markers.append(
+            "<tool_call>call:INTERNAL_ACTION_WEB_SEARCH:"
+        )
+        markers.append(
+            "<|tool_call>call:WEB_SEARCH:"
+        )
+        markers.append(
+            "<tool_call>call:WEB_SEARCH:"
+        )
+        markers.append(
             "call:INTERNAL_ACTION_WEB_SEARCH:"
+        )
+        markers.append(
+            "call:WEB_SEARCH:"
         )
 
     return tuple(
@@ -1729,6 +1777,7 @@ def _action_text_may_contain_marker(
     return (
         "INTERNAL_ACTION_"
         in text.upper()
+        or "CALL:" in text.upper()
     )
 
 
@@ -1810,8 +1859,23 @@ def _unclosed_tool_call_internal_action_start(
 ) -> int | None:
 
     upper_text = text.upper()
-    marker_start = upper_text.rfind(
-        "<|TOOL_CALL>"
+    marker_candidates = (
+        (
+            upper_text.rfind(
+                "<|TOOL_CALL>"
+            ),
+            len("<|tool_call>"),
+        ),
+        (
+            upper_text.rfind(
+                "<TOOL_CALL>"
+            ),
+            len("<tool_call>"),
+        ),
+    )
+    marker_start, marker_length = max(
+        marker_candidates,
+        key=lambda item: item[0],
     )
 
     if marker_start < 0:
@@ -1822,7 +1886,7 @@ def _unclosed_tool_call_internal_action_start(
     ]
 
     after_prefix = candidate[
-        len("<|tool_call>"):
+        marker_length:
     ]
 
     if ">" in after_prefix:
@@ -1835,13 +1899,20 @@ def _unclosed_tool_call_internal_action_start(
     )
 
     if not normalized.startswith(
-        "CALL:INTERNAL_ACTION_"
+        "CALL:"
     ):
         return None
 
     action_name = normalized[
-        len("CALL:INTERNAL_ACTION_"):
+        len("CALL:"):
     ]
+
+    if action_name.startswith(
+        "INTERNAL_ACTION_"
+    ):
+        action_name = action_name[
+            len("INTERNAL_ACTION_"):
+        ]
 
     for known_action in KNOWN_RUNTIME_ACTIONS:
         if action_name.startswith(
@@ -2008,6 +2079,15 @@ class RuntimeActionStreamFilter:
         if _unclosed_internal_action_request_start(
             pending
         ) == 0:
+            result = extract_runtime_actions(
+                pending,
+                enabled_actions=self.enabled_actions,
+                preserve_action_text=False,
+            )
+
+            if result.actions:
+                return result
+
             return RuntimeActionResult(
                 text="",
                 removed_markers=(

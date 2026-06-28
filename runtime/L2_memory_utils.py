@@ -26,6 +26,18 @@ def normalize_memory_key(key: str) -> str:
     return str(key or "").strip().lower()
 
 
+EMBEDDED_L2_PATTERN_EVIDENCE_RE = re.compile(
+    r"(?P<line>"
+    r"L2_pattern_evidence_\d+\s*:\s*"
+    r".*?"
+    r"\[\s*quote\s*:\s*\"[^\"]*\"\s*\]\s*"
+    r"\[\s*first_seen_turn_snapshot\s*:\s*\d+\s*\]\s*"
+    r"\[\s*last_seen_turn_snapshot\s*:\s*\d+\s*\]"
+    r")",
+    re.IGNORECASE,
+)
+
+
 def extract_runtime_l2_pattern_evidence_lines(
         runtime_l2_memory: str,
 ) -> list[str]:
@@ -48,6 +60,14 @@ def extract_runtime_l2_pattern_evidence_lines(
                     parsed_line[0]
                 )
         ):
+            evidence_lines.extend(
+                match.group(
+                    "line"
+                ).strip()
+                for match in EMBEDDED_L2_PATTERN_EVIDENCE_RE.finditer(
+                    line
+                )
+            )
             continue
 
         evidence_lines.append(

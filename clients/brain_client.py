@@ -426,21 +426,9 @@ async def ask_brain_stream(
             source="brain stream content",
         )
 
-        runtime_action_calls = tuple(
-            result.actions
-        )
-
-        if runtime_action_calls:
-            await apply_runtime_action_calls(
-                context,
-                runtime_action_calls,
-                user_message=text,
-            )
-
-            stop_for_runtime_action = any(
-                action.name == RUNTIME_ACTION_WEB_SEARCH
-                for action in runtime_action_calls
-            )
+        if await apply_runtime_action_result(
+            result
+        ):
 
             if not stop_for_runtime_action:
                 if not result.text:
@@ -460,6 +448,33 @@ async def ask_brain_stream(
             **action_chunk,
             "content": result.text,
         }
+
+    async def apply_runtime_action_result(
+        result,
+    ) -> bool:
+
+        nonlocal stop_for_runtime_action
+
+        runtime_action_calls = tuple(
+            result.actions
+        )
+
+        if not runtime_action_calls:
+            return False
+
+        await apply_runtime_action_calls(
+            context,
+            runtime_action_calls,
+            user_message=text,
+        )
+
+        if any(
+            action.name == RUNTIME_ACTION_WEB_SEARCH
+            for action in runtime_action_calls
+        ):
+            stop_for_runtime_action = True
+
+        return True
 
     # -----------------------------------------------------
     # SERVICE AS BRAIN
@@ -508,6 +523,10 @@ async def ask_brain_stream(
                 context,
                 tail_result,
                 source="brain stream tail",
+            )
+
+            await apply_runtime_action_result(
+                tail_result
             )
 
             content_tail = tail_result.text
@@ -582,6 +601,10 @@ async def ask_brain_stream(
             context,
             tail_result,
             source="brain stream tail",
+        )
+
+        await apply_runtime_action_result(
+            tail_result
         )
 
         content_tail = tail_result.text

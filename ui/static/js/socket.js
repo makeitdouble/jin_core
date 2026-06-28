@@ -269,6 +269,36 @@ function memoryLogIncludes(data, text) {
   );
 }
 
+function memoryLogLevelIs(data, level) {
+  const normalizedLevel = String(level || "").toUpperCase();
+
+  return Boolean(
+    data
+    && (
+      String(data.memory_level || "").toUpperCase() === normalizedLevel
+      || String(data.tag || "").includes(`[MEMORY:${normalizedLevel}]`)
+      || String(data.message || "").includes(`[MEMORY:${normalizedLevel}]`)
+    )
+  );
+}
+
+function memoryLogEventIs(data, event) {
+  return Boolean(
+    data
+    && String(data.memory_event || "") === event
+  );
+}
+
+function memoryLogMessageHasOutcome(data) {
+  const message = String(data && data.message || "");
+
+  return (
+    message.includes("updated")
+    || message.includes("skipped")
+    || message.includes("failed")
+  );
+}
+
 let activeMemoryGlowStage = "";
 let memoryGlowPulseTimer = null;
 let memoryGlowFadeTimer = null;
@@ -1008,33 +1038,43 @@ function handleSocketMessage(event) {
 
     if (
         isMemoryLog(data)
-        && memoryLogIncludes(data, "L1 summarizer request")
+        && memoryLogLevelIs(data, "L1")
+        && (
+            memoryLogEventIs(data, "summarizer_request")
+            || memoryLogIncludes(data, "L1 summarizer request")
+        )
     ) {
       startMemoryGlow();
     }
 
     if (
         isMemoryLog(data)
-        && memoryLogIncludes(data, "L2 summarizer request")
+        && memoryLogLevelIs(data, "L2")
+        && (
+            memoryLogEventIs(data, "summarizer_request")
+            || memoryLogIncludes(data, "L2 summarizer request")
+        )
     ) {
       startL2MemoryGlow();
     }
 
     if (
         isMemoryLog(data)
-        && memoryLogIncludes(data, "L3 session summarizer request")
+        && memoryLogLevelIs(data, "L3")
+        && (
+            memoryLogEventIs(data, "summarizer_request")
+            || memoryLogIncludes(data, "L3 session summarizer request")
+        )
     ) {
       startL3MemoryGlow();
     }
 
     if (
         isMemoryLog(data)
-        && !memoryLogIncludes(data, "L2 memory")
-        && !memoryLogIncludes(data, "L3 session memory")
+        && memoryLogLevelIs(data, "L1")
         && (
-            data.message.includes("updated")
-            || data.message.includes("skipped")
-            || data.message.includes("failed")
+            memoryLogEventIs(data, "summarizer_result")
+            || memoryLogMessageHasOutcome(data)
         )
     ) {
       stopMemoryGlow();
@@ -1042,11 +1082,10 @@ function handleSocketMessage(event) {
 
     if (
         isMemoryLog(data)
-        && memoryLogIncludes(data, "L2 memory")
+        && memoryLogLevelIs(data, "L2")
         && (
-            data.message.includes("updated")
-            || data.message.includes("skipped")
-            || data.message.includes("failed")
+            memoryLogEventIs(data, "summarizer_result")
+            || memoryLogMessageHasOutcome(data)
         )
     ) {
       stopL2MemoryGlow();
@@ -1054,11 +1093,10 @@ function handleSocketMessage(event) {
 
     if (
         isMemoryLog(data)
-        && memoryLogIncludes(data, "L3 session memory")
+        && memoryLogLevelIs(data, "L3")
         && (
-            data.message.includes("updated")
-            || data.message.includes("skipped")
-            || data.message.includes("failed")
+            memoryLogEventIs(data, "summarizer_result")
+            || memoryLogMessageHasOutcome(data)
         )
     ) {
       stopL3MemoryGlow();
