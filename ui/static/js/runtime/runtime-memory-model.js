@@ -632,6 +632,43 @@
   }
 
 
+  function resetRuntimeMemoryLineFlashState(line) {
+
+    if (!line || typeof line !== "object") {
+      return line;
+    }
+
+    return {
+      ...line,
+      status: "same",
+      key_status: "same",
+      value_status: "same",
+      key_change_ratio: 0,
+      value_change_ratio: 0,
+    };
+
+  }
+
+
+  function consumeRuntimeMemorySnapshotFlash(snapshot) {
+
+    if (!snapshot || typeof snapshot !== "object") {
+      return snapshot;
+    }
+
+    if (!Array.isArray(snapshot.lines)) {
+      return snapshot;
+    }
+
+    snapshot.lines = snapshot.lines.map(
+      resetRuntimeMemoryLineFlashState
+    );
+
+    return snapshot;
+
+  }
+
+
   function removeRuntimeMemoryLineByKey(
     memory,
     key
@@ -921,6 +958,8 @@
     parseRuntimeMemoryLine,
     getUserIdleRuntimeMemoryLine,
     setRuntimeMemorySnapshotUserIdle,
+    resetRuntimeMemoryLineFlashState,
+    consumeRuntimeMemorySnapshotFlash,
     removeRuntimeMemoryLineByKey,
     upsertRuntimeMemoryLine,
     formatRuntimeMemoryStrengthProperties,

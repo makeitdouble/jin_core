@@ -529,10 +529,22 @@
             sourceSnapshot
         );
 
+    const persistGlow =
+        isCurrentRuntimeMemorySnapshotPinned();
+
     renderRuntimeMemoryLines(
         snapshot,
-        isCurrentRuntimeMemorySnapshotPinned()
+        persistGlow
     );
+
+    if (
+        !persistGlow
+        && memoryModel.consumeRuntimeMemorySnapshotFlash
+    ) {
+      memoryModel.consumeRuntimeMemorySnapshotFlash(
+        sourceSnapshot
+      );
+    }
 
     if (runtimeMemoryPosition) {
       runtimeMemoryPosition.textContent =
