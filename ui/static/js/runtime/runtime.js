@@ -204,43 +204,7 @@ function buildRuntimeMemoryDisplaySnapshot(
   snapshot
 ) {
 
-  if (!snapshot || typeof snapshot !== "object") {
-    return snapshot;
-  }
-
-  const latestSnapshot =
-    runtimeMemoryHistory.snapshots[
-      runtimeMemoryHistory.snapshots.length - 1
-    ];
-
-  if (snapshot !== latestSnapshot) {
-    return snapshot;
-  }
-
-  const activeRecords =
-    readActiveMemoryRecords();
-
-  if (!activeRecords.length) {
-    return snapshot;
-  }
-
-  const activeLines = activeRecords
-    .map(parseRuntimeMemoryLine);
-
-  return {
-    ...snapshot,
-    raw_memory: [
-      String(snapshot.raw_memory || "").trim(),
-      activeRecords.join("\n"),
-    ].filter(Boolean).join("\n"),
-    lines: [
-      ...(Array.isArray(snapshot.lines)
-        ? snapshot.lines
-        : splitMemoryTextLines(snapshot.raw_memory || "")
-          .map(parseRuntimeMemoryLine)),
-      ...activeLines,
-    ],
-  };
+  return snapshot;
 
 }
 
@@ -407,6 +371,12 @@ memoryView.init({
   idle,
   memoryModel,
   buildDisplaySnapshot: buildRuntimeMemoryDisplaySnapshot,
+  getActiveMemoryRecords: readActiveMemoryRecords,
+  setActiveMemoryRecords: writeActiveMemoryRecords,
+  getDisplayMode: () => runtimeMemoryDisplayMode,
+  setDisplayMode: (value) => {
+    runtimeMemoryDisplayMode = value;
+  },
 });
 
 function renderRuntimeMemorySnapshot() {

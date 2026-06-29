@@ -1355,6 +1355,15 @@
             line-height: 1.5;
         }
 
+        .runtime-memory-active-row {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .runtime-memory-active-row[data-active-memory-status="paused"] {
+            opacity: 0.5;
+        }
+
         .runtime-memory-key,
         .runtime-memory-value {
             color: rgba(244,244,245,0.62);
@@ -1409,6 +1418,19 @@
 
         .runtime-memory-key {
             font-weight: 600!important;
+        }
+
+        #runtime-memory-title.runtime-memory-title-clickable {
+            cursor: pointer;
+            transition:
+                    color 0.2s ease,
+                    text-shadow 0.2s ease;
+        }
+
+        #runtime-memory-title.runtime-memory-title-clickable:hover {
+            color: rgba(167,243,208,0.98);
+            text-shadow:
+                    0 0 8px rgba(16,185,129,0.35);
         }
 
 
@@ -1877,6 +1899,15 @@
         body.theme-win95 #runtime-memory-next {
             cursor: pointer;
             line-height: 1;
+        }
+
+        body.theme-win95 #runtime-memory-title.runtime-memory-title-clickable {
+            cursor: pointer;
+        }
+
+        body.theme-win95 #runtime-memory-title.runtime-memory-title-clickable:hover {
+            color: #00824a;
+            text-shadow: none;
         }
 
         body.theme-win95 #runtime-memory-prev:hover,

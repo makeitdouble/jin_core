@@ -149,31 +149,103 @@
     const tags = [];
     let text = raw;
 
-    const tagRe =
-        /\s*\[\s*([\w.-]+)\s*:\s*([^\]]*)\]\s*$/;
-
     while (true) {
-      const match =
-          text.match(tagRe);
+      const tag =
+          extractTrailingMemoryMetaTag(
+              text
+          );
 
-      if (!match) {
+      if (!tag) {
         break;
       }
 
       tags.unshift({
-        key: match[1],
-        value: match[2].trim(),
-        raw: match[0].trim(),
+        key: tag.key,
+        value: tag.value,
+        raw: tag.raw,
       });
 
       text =
-          text.slice(0, match.index).trimEnd();
+          tag.text;
     }
 
     return {
       text,
       tags,
       raw,
+    };
+
+  }
+
+
+  function extractTrailingMemoryMetaTag(value) {
+
+    const source =
+        String(value || "");
+
+    let end = source.length - 1;
+
+    while (
+        end >= 0
+        && /\s/.test(source.charAt(end))
+    ) {
+      end -= 1;
+    }
+
+    if (
+        end < 0
+        || source.charAt(end) !== "]"
+    ) {
+      return null;
+    }
+
+    let depth = 0;
+    let start = -1;
+
+    for (let index = end; index >= 0; index -= 1) {
+      const char =
+          source.charAt(index);
+
+      if (char === "]") {
+        depth += 1;
+      } else if (char === "[") {
+        depth -= 1;
+
+        if (depth === 0) {
+          start = index;
+          break;
+        }
+      }
+    }
+
+    if (start < 0) {
+      return null;
+    }
+
+    const body =
+        source.slice(
+            start + 1,
+            end
+        );
+
+    const match =
+        body.match(/^\s*([\w.-]+)\s*:\s*([\s\S]*)\s*$/);
+
+    if (!match) {
+      return null;
+    }
+
+    return {
+      key: match[1],
+      value: match[2].trim(),
+      raw: source.slice(
+          start,
+          end + 1
+      ).trim(),
+      text: source.slice(
+          0,
+          start
+      ).trimEnd(),
     };
 
   }
@@ -194,6 +266,86 @@
           tag => String(tag.key || "").toLowerCase() === normalizedKey
         )
     );
+
+  }
+
+
+  function setMemoryMetaValue(
+    value,
+    key,
+    nextValue
+  ) {
+
+    const parsed =
+        splitMemoryMeta(
+            value
+        );
+
+    const normalizedKey =
+        normalizeRuntimeMemoryKey(
+            key
+        );
+
+    if (!normalizedKey) {
+      return String(value || "");
+    }
+
+    let updated = false;
+    const nextTags =
+        parsed.tags.map((tag) => {
+          if (
+              normalizeRuntimeMemoryKey(tag.key)
+              !== normalizedKey
+          ) {
+            return tag.raw;
+          }
+
+          updated = true;
+
+          return `[ ${tag.key}: ${String(nextValue || "").trim()} ]`;
+        });
+
+    if (!updated) {
+      nextTags.push(
+          `[ ${key}: ${String(nextValue || "").trim()} ]`
+      );
+    }
+
+    return appendProperties(
+        parsed.text,
+        nextTags
+    );
+
+  }
+
+
+  function setRuntimeMemoryLineMetaValue(
+    line,
+    key,
+    nextValue
+  ) {
+
+    const parsedLine =
+        typeof line === "object"
+          ? line
+          : parseRuntimeMemoryLine(
+              String(line || "")
+          );
+
+    const lineKey =
+        parsedLine && parsedLine.key
+          ? String(parsedLine.key)
+          : "";
+
+    if (!lineKey) {
+      return String(line || "");
+    }
+
+    return `${lineKey}: ${setMemoryMetaValue(
+        parsedLine.value || "",
+        key,
+        nextValue
+    )}`;
 
   }
 
@@ -751,6 +903,8 @@
     appendProperties,
     splitMemoryMeta,
     memoryMetaHasTag,
+    setMemoryMetaValue,
+    setRuntimeMemoryLineMetaValue,
     normalizeDisplayLabelAcronyms,
     convertKeyToName,
     stripMemoryMetaForDisplay,

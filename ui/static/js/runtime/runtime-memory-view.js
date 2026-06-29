@@ -7,6 +7,12 @@
   let initialized = false;
   let userIdleValueNode = null;
   let buildDisplaySnapshot = null;
+  let getActiveMemoryRecords = null;
+  let setActiveMemoryRecords = null;
+  let getDisplayMode = null;
+  let setDisplayMode = null;
+
+  const ACTIVE_MEMORY_PAUSE_HOLD_MS = 500;
 
   const pinnedRuntimeMemorySnapshotIndexes = new Set();
 
@@ -59,6 +65,73 @@
 
   function getUserIdleText() {
     return idle ? idle.getText() : "0s";
+  }
+
+  function getRuntimeMemoryDisplayMode() {
+    return typeof getDisplayMode === "function"
+      ? getDisplayMode()
+      : "runtime";
+  }
+
+  function setRuntimeMemoryDisplayMode(mode) {
+    if (typeof setDisplayMode === "function") {
+      setDisplayMode(mode);
+    }
+  }
+
+  function getActiveMemoryRecordTexts() {
+    return typeof getActiveMemoryRecords === "function"
+      ? getActiveMemoryRecords()
+      : [];
+  }
+
+  function setActiveMemoryRecordTexts(records) {
+    if (typeof setActiveMemoryRecords === "function") {
+      setActiveMemoryRecords(
+          records
+      );
+    }
+  }
+
+  function updateRuntimeMemoryTitleState() {
+    if (!runtimeMemoryTitle) {
+      return;
+    }
+
+    const hasActiveMemory =
+        getActiveMemoryRecordTexts().length > 0;
+
+    const isActiveMode =
+        getRuntimeMemoryDisplayMode() === "active";
+
+    runtimeMemoryTitle.textContent =
+        isActiveMode
+          ? "[ active memory ]"
+          : "[ runtime memory ]";
+
+    runtimeMemoryTitle.classList.toggle(
+        "runtime-memory-title-clickable",
+        hasActiveMemory
+    );
+
+    if (hasActiveMemory) {
+      runtimeMemoryTitle.setAttribute(
+          "role",
+          "button"
+      );
+      runtimeMemoryTitle.setAttribute(
+          "tabindex",
+          "0"
+      );
+      return;
+    }
+
+    runtimeMemoryTitle.removeAttribute(
+        "role"
+    );
+    runtimeMemoryTitle.removeAttribute(
+        "tabindex"
+    );
   }
 
   function updateUserIdleTimerText(
@@ -265,6 +338,13 @@
       return;
     }
 
+    if (getRuntimeMemoryDisplayMode() === "active") {
+      runtimeMemoryPosition.classList.remove(
+          "runtime-memory-position-pinned"
+      );
+      return;
+    }
+
     runtimeMemoryPosition.classList.toggle(
         "runtime-memory-position-pinned",
         isCurrentRuntimeMemorySnapshotPinned()
@@ -361,6 +441,24 @@
         `${charCount} chars / ~${tokenCount} tokens`;
   }
 
+  function updateRuntimeMemoryTitleMetricsFromText(text) {
+    if (!runtimeMemoryTitle) {
+      return;
+    }
+
+    const metricText =
+        String(text || "").trim();
+
+    const charCount =
+        Array.from(metricText).length;
+
+    const tokenCount =
+        estimateRuntimeMemoryTokens(metricText);
+
+    runtimeMemoryTitle.title =
+        `${charCount} chars / ~${tokenCount} tokens`;
+  }
+
   function clampRuntimeMemoryHistoryIndex() {
     requireRuntimeMemoryHistory();
 
@@ -397,6 +495,12 @@
   function renderRuntimeMemorySnapshot() {
     requireRuntimeMemoryHistory();
     clampRuntimeMemoryHistoryIndex();
+    updateRuntimeMemoryTitleState();
+
+    if (getRuntimeMemoryDisplayMode() === "active") {
+      renderActiveMemoryRecords();
+      return;
+    }
 
     const sourceSnapshot =
         runtimeMemoryHistory.snapshots[
@@ -416,6 +520,7 @@
       updateRuntimeMemoryTitleMetrics(null);
       updateRuntimeMemoryArrows();
       updateRuntimeMemoryPinGlow();
+      updateRuntimeMemoryTitleState();
       return;
     }
 
@@ -441,6 +546,7 @@
     updateRuntimeMemoryTitleMetrics(snapshot);
     updateRuntimeMemoryArrows();
     updateRuntimeMemoryPinGlow();
+    updateRuntimeMemoryTitleState();
   }
 
   function isLatestRuntimeMemorySnapshot() {
@@ -575,7 +681,26 @@
       return;
     }
 
-    lines.forEach((line) => {
+    appendRuntimeMemoryLineRows(
+        lines,
+        persistGlow
+    );
+
+    if (showLiveUserIdle) {
+      appendUserIdleRuntimeMemoryLine();
+    } else {
+      userIdleValueNode = null;
+    }
+
+    idle.start();
+  }
+
+  function appendRuntimeMemoryLineRows(
+      lines,
+      persistGlow = false,
+      options = {}
+  ) {
+    lines.forEach((line, index) => {
       const row =
           document.createElement("div");
 
@@ -626,6 +751,14 @@
       row.appendChild(keySpan);
       row.appendChild(valueSpan);
 
+      if (options.interactiveActiveMemory) {
+        configureActiveMemoryRow(
+            row,
+            index,
+            line
+        );
+      }
+
       runtimeMemoryText.appendChild(row);
 
       applyRuntimeMemoryFlash(
@@ -644,14 +777,249 @@
           persistGlow
       );
     });
+  }
 
-    if (showLiveUserIdle) {
-      appendUserIdleRuntimeMemoryLine();
-    } else {
-      userIdleValueNode = null;
+  function getRuntimeMemoryLineStatus(line) {
+    const parsed =
+        memoryModel.splitMemoryMeta(
+            line && line.value || ""
+        );
+
+    const statusTag =
+        parsed.tags.find((tag) => (
+          memoryModel.normalizeRuntimeMemoryKey(tag.key) === "status"
+        ));
+
+    return String(
+        statusTag && statusTag.value || ""
+    )
+      .trim()
+      .toLowerCase();
+  }
+
+  function updateActiveMemoryRecordStatus(index, status) {
+    const records =
+        getActiveMemoryRecordTexts();
+
+    if (
+        index < 0
+        || index >= records.length
+    ) {
+      return;
     }
 
-    idle.start();
+    const nextRecords =
+        records.map((record, recordIndex) => (
+          recordIndex === index
+            ? memoryModel.setRuntimeMemoryLineMetaValue(
+                record,
+                "status",
+                status
+            )
+            : record
+        ));
+
+    setActiveMemoryRecordTexts(
+        nextRecords
+    );
+    renderRuntimeMemorySnapshot();
+  }
+
+  function setActiveMemoryRowPressVisual(row, active) {
+    if (!row) {
+      return;
+    }
+
+    row.style.transitionProperty =
+        "opacity";
+    row.style.transitionTimingFunction =
+        active
+          ? "linear"
+          : "ease";
+    row.style.transitionDuration =
+        active
+          ? `${ACTIVE_MEMORY_PAUSE_HOLD_MS}ms`
+          : "160ms";
+    row.style.opacity =
+        active
+          ? "0.5"
+          : "";
+  }
+
+  function configureActiveMemoryRow(
+      row,
+      index,
+      line
+  ) {
+    if (!row) {
+      return;
+    }
+
+    row.classList.add(
+        "runtime-memory-active-row"
+    );
+
+    const status =
+        getRuntimeMemoryLineStatus(
+            line
+        );
+
+    row.dataset.activeMemoryStatus =
+        status || "pending";
+
+    let holdTimer = null;
+    let holdCompleted = false;
+    let pointerDown = false;
+    let pointerId = null;
+
+    function clearHoldTimer() {
+      if (!holdTimer) {
+        return;
+      }
+
+      clearTimeout(
+          holdTimer
+      );
+      holdTimer = null;
+    }
+
+    function cancelPendingHold() {
+      clearHoldTimer();
+      pointerDown = false;
+
+      if (!holdCompleted) {
+        setActiveMemoryRowPressVisual(
+            row,
+            false
+        );
+      }
+
+      holdCompleted = false;
+      pointerId = null;
+    }
+
+    row.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) {
+        return;
+      }
+
+      pointerDown = true;
+      holdCompleted = false;
+      pointerId = event.pointerId;
+
+      if (
+          row.dataset.activeMemoryStatus
+          === "paused"
+      ) {
+        return;
+      }
+
+      setActiveMemoryRowPressVisual(
+          row,
+          true
+      );
+
+      clearHoldTimer();
+      holdTimer = setTimeout(() => {
+        if (!pointerDown) {
+          return;
+        }
+
+        holdCompleted = true;
+        updateActiveMemoryRecordStatus(
+            index,
+            "paused"
+        );
+      }, ACTIVE_MEMORY_PAUSE_HOLD_MS);
+    });
+
+    row.addEventListener("pointerup", (event) => {
+      if (!pointerDown) {
+        return;
+      }
+
+      if (
+          pointerId !== null
+          && event.pointerId !== pointerId
+      ) {
+        return;
+      }
+
+      if (
+          row.dataset.activeMemoryStatus
+          === "paused"
+      ) {
+        updateActiveMemoryRecordStatus(
+            index,
+            "pending"
+        );
+        cancelPendingHold();
+        return;
+      }
+
+      if (!holdCompleted) {
+        cancelPendingHold();
+        return;
+      }
+
+      pointerDown = false;
+      pointerId = null;
+    });
+
+    row.addEventListener(
+        "pointercancel",
+        cancelPendingHold
+    );
+    row.addEventListener(
+        "pointerleave",
+        cancelPendingHold
+    );
+  }
+
+  function renderActiveMemoryRecords() {
+    const records =
+        getActiveMemoryRecordTexts();
+
+    if (!records.length) {
+      setRuntimeMemoryDisplayMode(
+          "runtime"
+      );
+      renderRuntimeMemorySnapshot();
+      return;
+    }
+
+    if (runtimeMemoryText) {
+      runtimeMemoryText.innerHTML = "";
+      runtimeMemoryText.classList.remove(
+          "runtime-memory-text-pinned"
+      );
+      runtimeMemoryText.removeAttribute(
+          "title"
+      );
+
+      appendRuntimeMemoryLineRows(
+          records.map(memoryModel.parseRuntimeMemoryLine),
+          false,
+          {
+            interactiveActiveMemory: true,
+          }
+      );
+    }
+
+    if (runtimeMemoryPosition) {
+      runtimeMemoryPosition.textContent =
+          String(records.length);
+    }
+
+    userIdleValueNode = null;
+    idle.stop();
+
+    updateRuntimeMemoryTitleMetricsFromText(
+        records.join("\n")
+    );
+    updateRuntimeMemoryArrows();
+    updateRuntimeMemoryPinGlow();
+    updateRuntimeMemoryTitleState();
   }
 
   function appendUserIdleRuntimeMemoryLine() {
@@ -698,6 +1066,26 @@
       return;
     }
 
+    if (getRuntimeMemoryDisplayMode() === "active") {
+      runtimeMemoryPrev.disabled = true;
+      runtimeMemoryNext.disabled = true;
+
+      runtimeMemoryPrev.classList.add(
+          "opacity-30",
+          "cursor-default",
+          "text-slate-600"
+      );
+      runtimeMemoryNext.classList.add(
+          "opacity-30",
+          "cursor-default",
+          "text-slate-600"
+      );
+
+      runtimeMemoryPrev.classList.remove("text-emerald-300");
+      runtimeMemoryNext.classList.remove("text-emerald-300");
+      return;
+    }
+
     const canGoPrev =
         runtimeMemoryHistory.index > 0;
 
@@ -718,6 +1106,20 @@
 
     runtimeMemoryPrev.classList.toggle("text-slate-600", !canGoPrev);
     runtimeMemoryNext.classList.toggle("text-slate-600", !canGoNext);
+  }
+
+  function toggleRuntimeMemoryDisplayMode() {
+    if (!getActiveMemoryRecordTexts().length) {
+      return;
+    }
+
+    setRuntimeMemoryDisplayMode(
+        getRuntimeMemoryDisplayMode() === "active"
+          ? "runtime"
+          : "active"
+    );
+
+    renderRuntimeMemorySnapshot();
   }
 
   function bindRuntimeMemoryNavigation() {
@@ -748,6 +1150,10 @@
 
     runtimeMemoryPosition?.addEventListener("click", () => {
       requireRuntimeMemoryHistory();
+
+      if (getRuntimeMemoryDisplayMode() === "active") {
+        return;
+      }
 
       if (runtimeMemoryHistory.index < 0) {
         return;
@@ -803,6 +1209,22 @@
       runtimeMemoryPosition.click();
     });
 
+    runtimeMemoryTitle?.addEventListener("click", () => {
+      toggleRuntimeMemoryDisplayMode();
+    });
+
+    runtimeMemoryTitle?.addEventListener("keydown", (event) => {
+      if (
+          event.key !== "Enter"
+          && event.key !== " "
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      toggleRuntimeMemoryDisplayMode();
+    });
+
     runtimeDiffToggle?.addEventListener("click", () => {
       runtimeDiffHistory.expanded =
           !runtimeDiffHistory.expanded;
@@ -818,6 +1240,10 @@
     idle = options.idle;
     memoryModel = options.memoryModel;
     buildDisplaySnapshot = options.buildDisplaySnapshot || null;
+    getActiveMemoryRecords = options.getActiveMemoryRecords || null;
+    setActiveMemoryRecords = options.setActiveMemoryRecords || null;
+    getDisplayMode = options.getDisplayMode || null;
+    setDisplayMode = options.setDisplayMode || null;
 
     if (!runtimeMemoryHistory) {
       throw new Error(
