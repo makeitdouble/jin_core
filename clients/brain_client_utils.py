@@ -49,9 +49,6 @@ def get_brain_runtime_config():
 import re
 from xml.etree import ElementTree
 
-from rules.loop_rules import (
-    LOOP_RULES,
-)
 from rules.runtime import (
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_SAVE_SESSION,
@@ -72,48 +69,6 @@ from utils.runtime_actions import (
     get_create_active_memory_marker_fields,
     refresh_active_memory_runtime_metadata,
 )
-
-
-def get_enabled_runtime_actions(
-    runtime_actions=None,
-) -> tuple[str, ...]:
-
-    enabled_actions = []
-
-    action_flags = runtime_actions or {}
-
-    for action_name, config_key in (
-        (
-            RUNTIME_ACTION_WEB_SEARCH,
-            "CAN_WEB_SEARCH",
-        ),
-        (
-            RUNTIME_ACTION_SAVE_SESSION,
-            "CAN_SAVE_SESSION",
-        ),
-        (
-            RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
-            "CAN_SAVE_ACTIVE_MEMORY",
-        ),
-        (
-            RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
-            "CAN_SAVE_ACTIVE_MEMORY",
-        ),
-    ):
-
-        if bool(
-            action_flags.get(
-                config_key,
-                False,
-            )
-        ):
-            enabled_actions.append(
-                action_name
-            )
-
-    return tuple(
-        enabled_actions
-    )
 
 
 def should_execute_save_session(
@@ -1126,46 +1081,3 @@ def has_zero_diff_stall_alert(
     )
 
 
-def has_loop_rule_signal(
-    context=None,
-) -> bool:
-
-    if context is None:
-        return False
-
-    pattern_counter = getattr(
-        context,
-        "runtime_pattern_counter",
-        0,
-    )
-
-    try:
-        return int(
-            pattern_counter
-        ) > 1
-    except (
-        TypeError,
-        ValueError,
-    ):
-        return False
-
-
-
-def build_conditional_prompt_rules(
-    context=None,
-) -> str:
-
-    rules = [
-        ""
-    ]
-
-    if has_loop_rule_signal(
-        context
-    ):
-        rules.append(
-            LOOP_RULES
-        )
-
-    return "".join(
-        rules
-    )

@@ -24,10 +24,12 @@ from agent import (
 
 from clients import (
     build_brain_payload,
-    build_brain_system_prompt,
 )
 from clients.brain_client import (
     should_execute_save_session,
+)
+from rules.assembler import (
+    build_brain_system_prompt,
 )
 
 from clients.brain_client_utils import (

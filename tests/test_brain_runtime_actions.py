@@ -2,14 +2,16 @@ import asyncio
 import unittest
 from types import SimpleNamespace
 
-from clients import (
-    build_brain_system_prompt,
-    get_enabled_runtime_actions,
+from clients.brain_context_builder import (
+    build_brain_runtime_context,
 )
 from clients.brain_client import (
     ask_brain,
     ask_brain_stream,
-    build_brain_runtime_context,
+)
+from rules.assembler import (
+    build_brain_system_prompt,
+    get_enabled_runtime_actions,
 )
 from config_loader import (
     config,

@@ -11,20 +11,13 @@ from clients.errors import (
     format_client_error,
 )
 
-from clients.brain_context_builder import (
-    build_brain_runtime_context,
-)
-
 from rules.assembler import (
-    build_identity_context,
-    build_runtime_action_instructions,
+    build_brain_system_prompt,
+    get_enabled_runtime_actions,
 )
 
 from clients.brain_client_utils import (
     apply_runtime_action_calls,
-    build_conditional_prompt_rules,
-    get_enabled_runtime_actions,
-    has_zero_diff_stall_alert,
     log_runtime_action_marker_removals,
     should_execute_save_session,
 )
@@ -42,44 +35,6 @@ from utils.runtime_actions import (
     RuntimeActionStreamFilter,
     extract_runtime_actions,
 )
-
-
-
-
-def build_brain_system_prompt(
-    context=None,
-    runtime_actions=None,
-    user_input: str = "",
-    commit_active_memory_refresh: bool = False,
-) -> str:
-
-    enabled_actions = get_enabled_runtime_actions(
-        runtime_actions
-    )
-
-    zero_diff_stall_active = has_zero_diff_stall_alert(
-        context
-    )
-
-    prompt_prefix = (
-        f"{build_runtime_action_instructions(enabled_actions, context)}\n"
-        "\n"
-        f"{build_identity_context(context)}"
-        f"{build_conditional_prompt_rules(context)}"
-        "\n"
-    )
-
-    runtime_context = build_brain_runtime_context(
-        context,
-        runtime_actions,
-        commit_active_memory_refresh=commit_active_memory_refresh,
-    )
-
-    return (
-        f"{prompt_prefix}"
-        f"{runtime_context}"
-    )
-
 
 async def emit_active_memory_records_update_if_dirty(
     context,

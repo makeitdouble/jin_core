@@ -8,6 +8,7 @@ from app_settings import (
 from rules.assembler import (
     build_conversation_activity_instruction,
     build_zero_diff_stall_instruction,
+    get_enabled_runtime_actions,
 )
 from rules.runtime import (
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
@@ -17,7 +18,6 @@ from rules.runtime import (
 from clients.brain_client_utils import (
     get_conversation_activity_diff,
     get_conversation_activity_percent,
-    get_enabled_runtime_actions,
     indent_xml,
     strip_empty_results_xml,
 )

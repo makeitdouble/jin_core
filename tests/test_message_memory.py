@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import httpx
 
-from clients import (
+from rules.assembler import (
     build_brain_system_prompt,
 )
 from runtime import (

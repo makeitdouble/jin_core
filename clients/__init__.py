@@ -1,6 +1,8 @@
 from .brain_client import (
     apply_runtime_action_calls,
     build_brain_payload,
+)
+from rules.assembler import (
     build_brain_system_prompt,
     get_enabled_runtime_actions,
 )
