@@ -33,6 +33,11 @@ BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
         r"(?:\s*:\s*(?P<bracketed_query>[^\r\n>]*?))?"
         r"\s*>+"
         r"|"
+        r"<\s*INTERNAL_ACTION_"
+        r"(?P<bracketed_line_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY)"
+        r"(?:\s*:\s*(?P<bracketed_line_query>[^\r\n>]*))?"
+        r"[^\S\r\n]*(?=\r?\n)"
+        r"|"
         r"(?m:^\s*INTERNAL_ACTION_"
         r"(?P<bare_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY)"
         r"(?:\s*:\s*(?P<bare_query>[^\r\n]*))?"
@@ -1465,8 +1470,10 @@ def extract_runtime_actions(
         return handle_marker(
             match.group(0),
             match.group("bracketed_name")
+            or match.group("bracketed_line_name")
             or match.group("bare_name"),
             match.group("bracketed_query")
+            or match.group("bracketed_line_query")
             or match.group("bare_query")
             or "",
         )
@@ -1827,6 +1834,8 @@ def _unclosed_bracketed_internal_action_start(
     if (
         "<" in candidate
         or ">" in candidate
+        or "\n" in candidate
+        or "\r" in candidate
     ):
         return None
 
@@ -2008,6 +2017,8 @@ class RuntimeActionStreamFilter:
             and self.pending_is_action
             and "<" not in chunk
             and ">" not in chunk
+            and "\n" not in chunk
+            and "\r" not in chunk
         ):
             self.pending += chunk
 

@@ -90,6 +90,42 @@ class RuntimeActionTests(unittest.TestCase):
             ),
         )
 
+    def test_extracts_bracketed_web_search_marker_terminated_by_newline(self):
+
+        result = extract_runtime_actions(
+            (
+                "<INTERNAL_ACTION_WEB_SEARCH: house drawing ideas\n"
+                "\n"
+                "🏠\n"
+                "\n"
+                "Маленький уютный домик"
+            ),
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertNotIn(
+            "INTERNAL_ACTION_WEB_SEARCH",
+            result.text,
+        )
+        self.assertEqual(
+            result.text,
+            "🏠\n\nМаленький уютный домик",
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "house drawing ideas",
+            ),
+        )
+        self.assertEqual(
+            result.removed_markers,
+            (
+                "<INTERNAL_ACTION_WEB_SEARCH: house drawing ideas",
+            ),
+        )
+
     def test_extracts_tool_call_style_web_search_marker(self):
 
         result = extract_runtime_actions(
@@ -681,6 +717,44 @@ class RuntimeActionTests(unittest.TestCase):
             second.search_queries,
             (
                 "\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440",
+            ),
+        )
+        self.assertEqual(
+            stream_filter.flush(),
+            "",
+        )
+
+    def test_stream_filter_handles_split_bracketed_web_search_marker_terminated_by_newline(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "<INTERNAL_ACTION_WEB_SEARCH: house"
+        )
+        second = stream_filter.filter(
+            " drawing ideas\n\n🏠\n\nМаленький уютный домик"
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.count("WEB_SEARCH"),
+            0,
+        )
+        self.assertEqual(
+            second.text,
+            "🏠\n\nМаленький уютный домик",
+        )
+        self.assertEqual(
+            second.search_queries,
+            (
+                "house drawing ideas",
             ),
         )
         self.assertEqual(
