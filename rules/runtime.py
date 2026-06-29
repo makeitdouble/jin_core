@@ -51,8 +51,9 @@ CREATE_ACTIVE_MEMORY_RULES = (
 
 RESOLVE_ACTIVE_MEMORY_RULES = (
     "RESOLVE_ACTIVE_MEMORY:\n"
-    "ALWAYS EMIT FULFILLED MARKER when active memory slot conditions are met OR "
-    "if user explicitly want to cancel/clear/resolve active memory conditions:\n"
+    "You must emit fulfilled marker when user explicitly want to cancel/clear/resolve active memory conditions."
+    "You need manually resolve all pending active memory slots.\n"
+    "Emit fulfilled marker when active_memory slot CONDITIONS are met or resolved due timings, or elapsed time past conditions.\n"
     f"{INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY_MARKER}\n"
     "active_memory_id - is a placeholder, replace it with actual id required to resolve specific active_memory.\n"
 #    "STATUS: is a placeholder, replace it with current status, it must describe the new slot state, such as reminded, resolved, completed, cancelled, or still_pending.\n"

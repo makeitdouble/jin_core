@@ -16,6 +16,8 @@
 
   const pinnedRuntimeMemorySnapshotIndexes = new Set();
 
+  const autoFlashedRuntimeMemorySnapshots = new WeakSet();
+
   const runtimeDiffHistory = {
     diffs: [],
     stats: {},
@@ -492,7 +494,7 @@
         runtimeMemoryHistory.snapshots.length - 1;
   }
 
-  function renderRuntimeMemorySnapshot() {
+  function renderRuntimeMemorySnapshot(options = {}) {
     requireRuntimeMemoryHistory();
     clampRuntimeMemoryHistoryIndex();
     updateRuntimeMemoryTitleState();
@@ -532,19 +534,23 @@
     const persistGlow =
         isCurrentRuntimeMemorySnapshotPinned();
 
+    const flashMode =
+        options && options.flashMode || "auto";
+
+    const applyFlash =
+        shouldApplyRuntimeMemoryFlash(
+            sourceSnapshot,
+            flashMode,
+            persistGlow
+        );
+
     renderRuntimeMemoryLines(
         snapshot,
-        persistGlow
+        persistGlow,
+        {
+          applyFlash,
+        }
     );
-
-    if (
-        !persistGlow
-        && memoryModel.consumeRuntimeMemorySnapshotFlash
-    ) {
-      memoryModel.consumeRuntimeMemorySnapshotFlash(
-        sourceSnapshot
-      );
-    }
 
     if (runtimeMemoryPosition) {
       runtimeMemoryPosition.textContent =
@@ -645,7 +651,59 @@
     }, 1500);
   }
 
-  function renderRuntimeMemoryLines(snapshot, persistGlow = false) {
+  function runtimeMemoryLineHasFlashStatus(line) {
+    if (!line || typeof line !== "object") {
+      return false;
+    }
+
+    return [
+      line.status,
+      line.key_status,
+      line.value_status,
+    ].some((status) => (
+      status === "new"
+      || status === "changed"
+    ));
+  }
+
+  function runtimeMemorySnapshotHasFlashStatus(snapshot) {
+    return Boolean(
+        snapshot
+        && Array.isArray(snapshot.lines)
+        && snapshot.lines.some(runtimeMemoryLineHasFlashStatus)
+    );
+  }
+
+  function shouldApplyRuntimeMemoryFlash(
+      sourceSnapshot,
+      flashMode,
+      persistGlow
+  ) {
+    if (persistGlow || flashMode === "replay") {
+      return true;
+    }
+
+    if (
+        !sourceSnapshot
+        || typeof sourceSnapshot !== "object"
+        || !runtimeMemorySnapshotHasFlashStatus(sourceSnapshot)
+    ) {
+      return true;
+    }
+
+    if (autoFlashedRuntimeMemorySnapshots.has(sourceSnapshot)) {
+      return false;
+    }
+
+    autoFlashedRuntimeMemorySnapshots.add(sourceSnapshot);
+    return true;
+  }
+
+  function renderRuntimeMemoryLines(
+      snapshot,
+      persistGlow = false,
+      options = {}
+  ) {
     if (!runtimeMemoryText) {
       return;
     }
@@ -695,7 +753,10 @@
 
     appendRuntimeMemoryLineRows(
         lines,
-        persistGlow
+        persistGlow,
+        {
+          applyFlash: options.applyFlash !== false,
+        }
     );
 
     if (showLiveUserIdle) {
@@ -773,21 +834,23 @@
 
       runtimeMemoryText.appendChild(row);
 
-      applyRuntimeMemoryFlash(
-          keySpan,
-          keyStatus,
-          "key",
-          line.key_change_ratio,
-          persistGlow
-      );
+      if (options.applyFlash !== false) {
+        applyRuntimeMemoryFlash(
+            keySpan,
+            keyStatus,
+            "key",
+            line.key_change_ratio,
+            persistGlow
+        );
 
-      applyRuntimeMemoryFlash(
-          valueSpan,
-          valueStatus,
-          "value",
-          line.value_change_ratio,
-          persistGlow
-      );
+        applyRuntimeMemoryFlash(
+            valueSpan,
+            valueStatus,
+            "value",
+            line.value_change_ratio,
+            persistGlow
+        );
+      }
     });
   }
 
@@ -1145,7 +1208,9 @@
       if (runtimeMemoryHistory.index <= 0) return;
 
       runtimeMemoryHistory.index -= 1;
-      renderRuntimeMemorySnapshot();
+      renderRuntimeMemorySnapshot({
+        flashMode: "replay",
+      });
     });
 
     runtimeMemoryNext?.addEventListener("click", () => {
@@ -1157,7 +1222,9 @@
       ) return;
 
       runtimeMemoryHistory.index += 1;
-      renderRuntimeMemorySnapshot();
+      renderRuntimeMemorySnapshot({
+        flashMode: "replay",
+      });
     });
 
     runtimeMemoryPosition?.addEventListener("click", () => {
@@ -1184,7 +1251,9 @@
         );
       }
 
-      renderRuntimeMemorySnapshot();
+      renderRuntimeMemorySnapshot({
+        flashMode: "replay",
+      });
 
       if (wasPinned && runtimeMemoryText) {
         runtimeMemoryText
