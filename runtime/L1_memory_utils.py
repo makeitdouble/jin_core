@@ -2011,6 +2011,13 @@ def build_runtime_memory_snapshot(
     return {
         "session_id": getattr(context, "session_id", ""),
         "index": len(snapshots),
+        "turn_number": getattr(context, "turn_number", 0),
+        "user_message_count": getattr(context, "user_message_count", 0),
+        "assistant_message_count": getattr(
+            context,
+            "assistant_message_count",
+            0,
+        ),
         "raw_memory": display_memory,
         "lines": lines,
         "patch": patch_details["patch"],

@@ -463,6 +463,18 @@ class MessageMemoryTests(
             context.runtime_memory,
         )
 
+        self.assertEqual(
+            snapshot["turn_number"],
+            0,
+        )
+        self.assertEqual(
+            snapshot["user_message_count"],
+            0,
+        )
+        self.assertEqual(
+            snapshot["assistant_message_count"],
+            0,
+        )
         self.assertIn(
             f"note: {DEFAULT_RUNTIME_MEMORY}",
             snapshot["raw_memory"],
@@ -470,6 +482,41 @@ class MessageMemoryTests(
         self.assertIn(
             "user_idle: 2s",
             snapshot["raw_memory"],
+        )
+
+    def test_runtime_memory_snapshot_persists_session_counters(self):
+
+        context = RuntimeContext(
+            websocket=object(),
+            emitter=object(),
+            logger=object(),
+            clients={},
+        )
+        context.runtime_memory = "topic: reconnect counters"
+        context.turn_number = 14
+        context.user_message_count = 15
+        context.assistant_message_count = 14
+
+        snapshot = build_runtime_memory_snapshot(
+            context,
+            context.runtime_memory,
+        )
+
+        self.assertEqual(
+            snapshot["turn_number"],
+            14,
+        )
+        self.assertEqual(
+            snapshot["user_message_count"],
+            15,
+        )
+        self.assertEqual(
+            snapshot["assistant_message_count"],
+            14,
+        )
+        self.assertEqual(
+            snapshot["raw_memory"],
+            "topic: reconnect counters",
         )
 
     def test_runtime_memory_context_replaces_stale_user_idle(self):
@@ -3139,8 +3186,25 @@ class MessageMemoryTests(
             updated_memory,
             "decision: keep current",
         )
-        self.assertTrue(
+        self.assertFalse(
             context.runtime_save_session_requested,
+        )
+        self.assertFalse(
+            context.runtime_save_session_action_emitted,
+        )
+        calls_after_skip = len(
+            service_client.calls
+        )
+        repeated_memory = await maybe_summarize_runtime_session_memory(
+            context=context,
+        )
+        self.assertEqual(
+            repeated_memory,
+            "decision: keep current",
+        )
+        self.assertEqual(
+            len(service_client.calls),
+            calls_after_skip,
         )
         self.assertEqual(
             context.runtime_memory_snapshots,
@@ -3221,6 +3285,9 @@ class MessageMemoryTests(
             service_client.calls,
             [],
         )
+        self.assertFalse(
+            context.runtime_save_session_requested,
+        )
         self.assertEqual(
             context.emitter.events[-1],
             {
@@ -3300,7 +3367,7 @@ class MessageMemoryTests(
             updated_memory,
             "decision: keep current",
         )
-        self.assertTrue(
+        self.assertFalse(
             context.runtime_save_session_requested,
         )
         self.assertEqual(
@@ -3312,7 +3379,7 @@ class MessageMemoryTests(
             "[MEMORY:L3] L3 session memory update failed",
         )
 
-    async def test_l3_session_memory_no_snapshots_leaves_buffer_empty(self):
+    async def test_l3_session_memory_no_snapshots_clears_save_request(self):
 
         service_client = FakeServiceClient(
             "should not be called"
@@ -3356,7 +3423,7 @@ class MessageMemoryTests(
             context.runtime_memory_snapshots,
             [],
         )
-        self.assertTrue(
+        self.assertFalse(
             context.runtime_save_session_requested,
         )
         self.assertEqual(

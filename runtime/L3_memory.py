@@ -56,6 +56,17 @@ from runtime.memory_events import (
     emit_runtime_action_completed,
     emit_runtime_session_memory_update,
 )
+
+
+def complete_runtime_save_session_request(
+        context,
+) -> None:
+
+    context.runtime_save_session_armed = False
+    context.runtime_save_session_requested = False
+    context.runtime_save_session_action_emitted = False
+
+
 async def ask_runtime_session_memory_model(
         *,
         context=None,
@@ -198,6 +209,10 @@ async def maybe_summarize_runtime_session_memory(
     )
 
     if service_client is None:
+        complete_runtime_save_session_request(
+            context
+        )
+
         await emit_runtime_action_completed(
             context,
             action=L3_ACTION_SAVE_SESSION,
@@ -224,6 +239,10 @@ async def maybe_summarize_runtime_session_memory(
             level=L3_LOG_LEVEL,
             message=L3_SKIP_NO_SNAPSHOTS_MESSAGE,
             fallback_channel="runtime",
+        )
+
+        complete_runtime_save_session_request(
+            context
         )
 
         await emit_runtime_action_completed(
@@ -265,8 +284,9 @@ async def maybe_summarize_runtime_session_memory(
             fallback_channel="runtime",
         )
 
-        context.runtime_save_session_armed = False
-        context.runtime_save_session_requested = False
+        complete_runtime_save_session_request(
+            context
+        )
 
         await emit_runtime_action_completed(
             context,
@@ -351,6 +371,10 @@ async def maybe_summarize_runtime_session_memory(
                 fallback_channel="error",
             )
 
+            complete_runtime_save_session_request(
+                context
+            )
+
             await emit_runtime_action_completed(
                 context,
                 action=L3_ACTION_SAVE_SESSION,
@@ -392,8 +416,9 @@ async def maybe_summarize_runtime_session_memory(
                 )
                 + 1
             )
-            context.runtime_save_session_armed = False
-            context.runtime_save_session_requested = False
+            complete_runtime_save_session_request(
+                context
+            )
 
             runtime_snapshots = getattr(
                 context,
@@ -422,6 +447,10 @@ async def maybe_summarize_runtime_session_memory(
                 context,
                 persist_browser=True,
             )
+
+        complete_runtime_save_session_request(
+            context
+        )
 
         await emit_runtime_action_completed(
             context,
@@ -452,6 +481,10 @@ async def maybe_summarize_runtime_session_memory(
             fallback_channel="error",
         )
 
+        complete_runtime_save_session_request(
+            context
+        )
+
         await emit_runtime_action_completed(
             context,
             action=L3_ACTION_SAVE_SESSION,
@@ -474,6 +507,10 @@ async def maybe_summarize_runtime_session_memory(
                 traceback_text=formatted_traceback,
             ),
             fallback_channel="error",
+        )
+
+        complete_runtime_save_session_request(
+            context
         )
 
         await emit_runtime_action_completed(
