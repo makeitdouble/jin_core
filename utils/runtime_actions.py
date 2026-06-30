@@ -9,6 +9,7 @@ from rules import runtime as runtime_rules
 from rules.runtime import (
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
 )
@@ -19,6 +20,7 @@ KNOWN_RUNTIME_ACTIONS = tuple(
         (
             RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
             RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
+            RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
             RUNTIME_ACTION_WEB_SEARCH,
             RUNTIME_ACTION_SAVE_SESSION,
         )
@@ -34,12 +36,12 @@ BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
         r"\s*>+"
         r"|"
         r"<\s*INTERNAL_ACTION_"
-        r"(?P<bracketed_line_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY)"
+        r"(?P<bracketed_line_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT)"
         r"(?:\s*:\s*(?P<bracketed_line_query>[^\r\n>]*))?"
         r"[^\S\r\n]*(?=\r?\n)"
         r"|"
         r"(?m:^\s*INTERNAL_ACTION_"
-        r"(?P<bare_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY)"
+        r"(?P<bare_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT)"
         r"(?:\s*:\s*(?P<bare_query>[^\r\n]*))?"
         r"\s*$)"
         r")"
@@ -49,18 +51,42 @@ BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
 
 MALFORMED_CALL_INTERNAL_ACTION_PATTERN = re.compile(
     (
-        r"(?:"
+        r"(?:" 
         r"<\|?tool_call\>\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
-        r"(?P<tool_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY)"
+        r"(?P<tool_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT)"
         r"(?:\s*:\s*(?P<tool_call_query>[^\r\n>]*?))?"
         r"(?:\s*>+|[^\S\r\n]*(?=\r?\n|$))"
         r"|"
         r"(?m:^\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
-        r"(?P<bare_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY)"
+        r"(?P<bare_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT)"
         r"(?:\s*:\s*(?P<bare_call_query>[^\r\n]*))?"
         r"\s*$)"
         r")"
     ),
+    re.IGNORECASE,
+)
+
+DELAYED_MEMORY_CONTENT_BLOCK_RE = re.compile(
+    (
+        r"<\s*INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT\s*>"
+        r"[^\S\r\n]*(?:\r?\n)?"
+        r"(?P<payload>.*?)"
+        r"</\s*INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT\s*>+"
+    ),
+    re.IGNORECASE | re.DOTALL,
+)
+
+DELAYED_MEMORY_FIELD_RE = re.compile(
+    r"(?im)^[^\S\r\n]*(title|summary|tags|body)[^\S\r\n]*:[^\S\r\n]*(.*)$",
+)
+
+DELAYED_MEMORY_BLOCK_START_RE = re.compile(
+    r"<\s*INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT\s*>",
+    re.IGNORECASE,
+)
+
+DELAYED_MEMORY_BLOCK_END_RE = re.compile(
+    r"</\s*INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT\s*>+",
     re.IGNORECASE,
 )
 
@@ -1015,6 +1041,147 @@ def get_create_active_memory_placeholder_payload(
     )
 
 
+def slugify_delayed_memory_title(
+    title: str,
+) -> str:
+
+    slug = re.sub(
+        r"[^a-z0-9]+",
+        "_",
+        str(
+            title
+            or ""
+        ).casefold(),
+    ).strip(
+        "_"
+    )
+
+    return slug or "untitled_report"
+
+
+def parse_delayed_memory_content_payload(
+    payload: str,
+    *,
+    created_session_id: str = "",
+    created_time: str = "",
+) -> dict:
+
+    text = str(
+        payload
+        or ""
+    ).replace(
+        "\r\n",
+        "\n",
+    ).strip()
+
+    if not text:
+        return {}
+
+    field_matches = list(
+        DELAYED_MEMORY_FIELD_RE.finditer(
+            text
+        )
+    )
+
+    if not field_matches:
+        return {}
+
+    fields = {}
+
+    for index, match in enumerate(
+        field_matches
+    ):
+        field_name = match.group(
+            1
+        ).casefold()
+        inline_value = (
+            match.group(
+                2
+            )
+            or ""
+        ).strip()
+        next_start = (
+            field_matches[index + 1].start()
+            if index + 1 < len(field_matches)
+            else len(text)
+        )
+        block_value = text[
+            match.end():next_start
+        ].strip(
+            "\n"
+        )
+
+        if field_name == "body":
+            value = "\n".join(
+                part
+                for part in (
+                    inline_value,
+                    block_value,
+                )
+                if part
+            ).strip()
+        else:
+            value = inline_value
+
+        fields[field_name] = value
+
+    title = str(
+        fields.get(
+            "title",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if not title:
+        return {}
+
+    tags = [
+        tag.strip()
+        for tag in str(
+            fields.get(
+                "tags",
+                "",
+            )
+            or ""
+        ).split(",")
+        if tag.strip()
+    ]
+
+    key = slugify_delayed_memory_title(
+        title
+    )
+
+    return {
+        key: {
+            "title": title,
+            "summary": str(
+                fields.get(
+                    "summary",
+                    "",
+                )
+                or ""
+            ).strip(),
+            "tags": tags,
+            "body": str(
+                fields.get(
+                    "body",
+                    "",
+                )
+                or ""
+            ).strip(),
+            "created_session_id": str(
+                created_session_id
+                or ""
+            ).strip(),
+            "created_time": str(
+                created_time
+                or ""
+            ).strip(),
+        },
+    }
+
+
 @dataclass(frozen=True)
 class RuntimeActionCall:
     name: str
@@ -1094,6 +1261,8 @@ def normalize_runtime_action_name(
 
     aliases = {
         "SAVE_SESSION": RUNTIME_ACTION_SAVE_SESSION,
+        "SAVE_DELAYED_MEMORY": RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+        "SAVE_DELAYED_MEMORY_CONTENT": RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
         "SAVE_ACTIVE_MEMORY": RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
         "RESOLVE_ACTIVE_MEMORY": RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     }
@@ -1262,6 +1431,19 @@ def _build_internal_action_call(
             placeholder_payloads,
         ):
             return None
+
+    elif normalized_name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT:
+        report = parse_delayed_memory_content_payload(
+            query
+        )
+
+        if not report:
+            return None
+
+        payload = json.dumps(
+            report,
+            ensure_ascii=False,
+        )
 
     return RuntimeActionCall(
         name=normalized_name,
@@ -1489,8 +1671,23 @@ def extract_runtime_actions(
             or "",
         )
 
+    def replace_delayed_memory_content_marker(match):
+
+        return handle_marker(
+            match.group(0),
+            RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+            match.group("payload")
+            or "",
+        )
+
     clean_text = _replace_runtime_action_matches(
         text,
+        DELAYED_MEMORY_CONTENT_BLOCK_RE,
+        replace_delayed_memory_content_marker,
+    )
+
+    clean_text = _replace_runtime_action_matches(
+        clean_text,
         MALFORMED_CALL_INTERNAL_ACTION_PATTERN,
         replace_malformed_call_marker,
     )
@@ -1651,6 +1848,32 @@ def _enabled_action_start_markers(
         )
         markers.append(
             "call:SAVE_SESSION"
+        )
+
+    if RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT in enabled_action_names:
+        markers.append(
+            "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>"
+        )
+        markers.append(
+            "</INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>"
+        )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT"
+        )
+        markers.append(
+            "<tool_call>call:INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT"
+        )
+        markers.append(
+            "<|tool_call>call:SAVE_DELAYED_MEMORY_CONTENT"
+        )
+        markers.append(
+            "<tool_call>call:SAVE_DELAYED_MEMORY_CONTENT"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT"
+        )
+        markers.append(
+            "call:SAVE_DELAYED_MEMORY_CONTENT"
         )
 
     if RUNTIME_ACTION_CREATE_ACTIVE_MEMORY in enabled_action_names:
@@ -1932,11 +2155,41 @@ def _unclosed_tool_call_internal_action_start(
     return None
 
 
+def _unclosed_delayed_memory_content_block_start(
+    text: str,
+) -> int | None:
+
+    opening_match = None
+
+    for match in DELAYED_MEMORY_BLOCK_START_RE.finditer(
+        text
+    ):
+        opening_match = match
+
+    if opening_match is None:
+        return None
+
+    closing_match = None
+
+    for match in DELAYED_MEMORY_BLOCK_END_RE.finditer(
+        text,
+        opening_match.end(),
+    ):
+        closing_match = match
+        break
+
+    if closing_match is not None:
+        return None
+
+    return opening_match.start()
+
+
 def _unclosed_internal_action_request_start(
     text: str,
 ) -> int | None:
 
     for detector in (
+        _unclosed_delayed_memory_content_block_start,
         _unclosed_bracketed_internal_action_start,
         _unclosed_tool_call_internal_action_start,
     ):

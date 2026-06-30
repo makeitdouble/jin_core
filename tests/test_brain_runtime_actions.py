@@ -46,6 +46,9 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
     if bool(runtime_actions.get("CAN_SAVE_SESSION", False)):
         expected_actions.append("SAVE_SESSION")
 
+    if bool(runtime_actions.get("CAN_SAVE_DELAYED_MEMORY", False)):
+        expected_actions.append("SAVE_DELAYED_MEMORY_CONTENT")
+
     if bool(runtime_actions.get("CAN_SAVE_ACTIVE_MEMORY", False)):
         expected_actions.extend(
             (
@@ -413,6 +416,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         runtime_actions = {
             "CAN_WEB_SEARCH": True,
             "CAN_SAVE_SESSION": True,
+            "CAN_SAVE_DELAYED_MEMORY": True,
             "CAN_SAVE_ACTIVE_MEMORY": True,
         }
 
@@ -444,6 +448,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         for private_marker in (
             "<INTERNAL_ACTION_SAVE_SESSION>",
+            "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>",
             "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: CONDITIONS >",
             "Use WEB_SEARCH when freshness",
         ):

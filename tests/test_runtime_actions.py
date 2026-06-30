@@ -1,4 +1,5 @@
 import asyncio
+import json
 import unittest
 from unittest.mock import patch
 
@@ -17,6 +18,7 @@ from utils.runtime_actions import (
     extract_runtime_actions,
     get_create_active_memory_marker_fields,
     get_create_active_memory_placeholder_payload,
+    parse_delayed_memory_content_payload,
 )
 
 
@@ -330,6 +332,125 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             result.actions[0].payload,
             "remind later | tomorrow | coffee",
+        )
+
+    def test_parses_delayed_memory_content_payload(self):
+
+        report = parse_delayed_memory_content_payload(
+            (
+                "title: Radius of Influence Specs\n"
+                "summary: Three-zone data priority model for Kowloon Sandbox simulation.\n"
+                "tags: kowloon_sandbox, simulation, world_state, radius_of_influence\n"
+                "body:\n"
+                "### Radius of Influence Specs\n"
+                "\n"
+                "A complete, self-sufficient summary..."
+            ),
+            created_session_id="session-1",
+            created_time="2026-06-29T12:00:00",
+        )
+
+        self.assertEqual(
+            report,
+            {
+                "radius_of_influence_specs": {
+                    "title": "Radius of Influence Specs",
+                    "summary": (
+                        "Three-zone data priority model for Kowloon Sandbox simulation."
+                    ),
+                    "tags": [
+                        "kowloon_sandbox",
+                        "simulation",
+                        "world_state",
+                        "radius_of_influence",
+                    ],
+                    "body": (
+                        "### Radius of Influence Specs\n\n"
+                        "A complete, self-sufficient summary..."
+                    ),
+                    "created_session_id": "session-1",
+                    "created_time": "2026-06-29T12:00:00",
+                },
+            },
+        )
+
+    def test_extracts_delayed_memory_content_block(self):
+
+        result = extract_runtime_actions(
+            (
+                "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "title: Radius of Influence Specs\n"
+                "summary: Three-zone data priority model for Kowloon Sandbox simulation.\n"
+                "tags: kowloon_sandbox, simulation, world_state, radius_of_influence\n"
+                "body:\n"
+                "### Radius of Influence Specs\n"
+                "\n"
+                "A complete, self-sufficient summary...\n"
+                "</INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "\n"
+                "Done."
+            ),
+            enabled_actions=[
+                "CAN_SAVE_DELAYED_MEMORY",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "Done.",
+        )
+        self.assertEqual(
+            result.count("SAVE_DELAYED_MEMORY_CONTENT"),
+            1,
+        )
+        self.assertEqual(
+            json.loads(
+                result.actions[0].payload
+            )["radius_of_influence_specs"]["title"],
+            "Radius of Influence Specs",
+        )
+
+    def test_stream_filter_holds_split_delayed_memory_block(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_SAVE_DELAYED_MEMORY",
+            ],
+        )
+
+        first = stream_filter.filter(
+            (
+                "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "title: Radius"
+            )
+        )
+        second = stream_filter.filter(
+            (
+                " of Influence Specs\n"
+                "summary: Summary\n"
+                "tags: a, b\n"
+                "body:\n"
+                "Body\n"
+                "</INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "Saved."
+            )
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.actions,
+            (),
+        )
+        self.assertEqual(
+            second.text,
+            "Saved.",
+        )
+        self.assertEqual(
+            second.count("SAVE_DELAYED_MEMORY_CONTENT"),
+            1,
         )
 
     def test_dedupes_duplicate_runtime_action_markers_by_payload(self):
@@ -1386,6 +1507,82 @@ class RuntimeActionTests(unittest.TestCase):
                     "name": "create_active_memory",
                     "payload": "remind later",
                 }
+            ],
+        )
+
+    def test_apply_runtime_action_calls_saves_delayed_memory_report(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+        context.session_id = "session-1"
+        context.timestamp = "2026-06-29T12:00:00"
+
+        report_payload = json.dumps(
+            {
+                "radius_of_influence_specs": {
+                    "title": "Radius of Influence Specs",
+                    "summary": "Three-zone data priority model.",
+                    "tags": [
+                        "kowloon_sandbox",
+                        "simulation",
+                    ],
+                    "body": "### Radius of Influence Specs\n\nBody",
+                    "created_session_id": "",
+                    "created_time": "",
+                },
+            },
+            ensure_ascii=False,
+        )
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_DELAYED_MEMORY_CONTENT",
+                        payload=report_payload,
+                    ),
+                ),
+                user_message="please summarize and save this as delayed memory",
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertEqual(
+            context.delayed_memory_reports[
+                "radius_of_influence_specs"
+            ]["created_session_id"],
+            "session-1",
+        )
+        self.assertEqual(
+            context.delayed_memory_reports[
+                "radius_of_influence_specs"
+            ]["created_time"],
+            "2026-06-29T12:00:00",
+        )
+        self.assertEqual(
+            context.emitter.events,
+            [
+                {
+                    "type": "runtime_action",
+                    "action": "save_delayed_memory_content",
+                    "status": "completed",
+                    "text": "Saving delayed memory",
+                    "delayed_memory_report": context.delayed_memory_reports,
+                },
             ],
         )
 

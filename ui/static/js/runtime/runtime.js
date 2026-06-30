@@ -109,6 +109,9 @@ const {
   clearActiveMemoryRecords,
   appendActiveMemoryRecords: appendStoredActiveMemoryRecords,
   removeActiveMemoryRecordById: removeStoredActiveMemoryRecordById,
+  readDelayedMemoryReports,
+  writeDelayedMemoryReports,
+  appendDelayedMemoryReports: appendStoredDelayedMemoryReports,
 } = storage;
 
 const runtimeMemoryCount =
@@ -373,6 +376,7 @@ memoryView.init({
   buildDisplaySnapshot: buildRuntimeMemoryDisplaySnapshot,
   getActiveMemoryRecords: readActiveMemoryRecords,
   setActiveMemoryRecords: writeActiveMemoryRecords,
+  getDelayedMemoryReports: readDelayedMemoryReports,
   getDisplayMode: () => runtimeMemoryDisplayMode,
   setDisplayMode: (value) => {
     runtimeMemoryDisplayMode = value;
@@ -451,6 +455,22 @@ function removeActiveMemoryRecordByIdAndRender(
   renderRuntimeMemorySnapshot();
 
   return nextRecords;
+
+}
+
+
+function appendDelayedMemoryReports(
+  reports
+) {
+
+  const nextReports =
+    appendStoredDelayedMemoryReports(
+      reports
+    );
+
+  renderRuntimeMemorySnapshot();
+
+  return nextReports;
 
 }
 
@@ -685,6 +705,9 @@ window.JinRuntime.runtime = {
   replaceActiveMemoryRecords: replaceActiveMemoryRecordsAndRender,
   appendActiveMemoryRecords: appendActiveMemoryRecordsAndRender,
   removeActiveMemoryRecordById: removeActiveMemoryRecordByIdAndRender,
+  getDelayedMemoryReports: readDelayedMemoryReports,
+  replaceDelayedMemoryReports: writeDelayedMemoryReports,
+  appendDelayedMemoryReports,
 };
 
 window.JinRuntime.init = function () {

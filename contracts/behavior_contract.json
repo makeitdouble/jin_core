@@ -61,6 +61,59 @@
         "final_reply_mode": "short_closure"
       }
 
+    },
+    "save_summary": {
+      "description": "Allows the model to request saving the current session summary when the user wants to save it for later and continue in another tab.",
+      "runtime_action": "SAVE_DELAYED_MEMORY_CONTENT",
+      "private_marker": "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>",
+      "triggers": [
+        "save report",
+        "save summary",
+        "save delayed memory",
+        "save dm",
+        "summarize and save",
+        "summarize everything",
+        "summarize it all",
+        "make a summary and save",
+        "write a report and save",
+        "store this summary",
+        "save this as delayed memory",
+        "сохрани отчёт",
+        "резюмируй всё",
+        "резюмируй это всё",
+        "сохрани резюме",
+        "резюмируй и сохрани",
+        "сохрани это всё",
+        "сохрани дм",
+        "сохрани всё"
+      ],
+      "blockers": [
+        "покажи тег",
+        "напиши тег",
+        "полный тег",
+        "точный тег",
+        "пример тега",
+        "как выглядит тег",
+        "процитируй тег",
+        "show tag",
+        "write tag",
+        "exact tag",
+        "full tag",
+        "tag example",
+        "quote tag",
+        "сохрани это",
+        "сохранить это",
+        "сохрани как",
+        "сохрани это как",
+        "запомни это",
+        "запомни как"
+      ],
+      "effects": {
+        "save_delayed_memory": true,
+        "suppress_followup": true,
+        "suppress_offer": true
+      }
+
     }
   }
 }

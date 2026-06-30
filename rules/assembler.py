@@ -15,27 +15,31 @@ from .runtime import (
     RESOLVE_ACTIVE_MEMORY_RULES,
     INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER,
     INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY_MARKER,
+    INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_MARKER,
     INTERNAL_ACTION_SAVE_SESSION_MARKER,
     INTERNAL_ACTION_WEB_SEARCH_MARKER,
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
     SAVE_SESSION_RULES,
     WEB_SEARCH_RULES,
-    RUNTIME_ACTIONS_RULES,
+    RUNTIME_ACTIONS_RULES, SAVE_DELAYED_MEMORY_RULES,
 )
 
 
 SERVICE_AS_BRAIN_RUNTIME_ACTIONS = {
     "CAN_WEB_SEARCH": True,
     "CAN_SAVE_SESSION": True,
+    "CAN_SAVE_DELAYED_MEMORY": True,
     "CAN_SAVE_ACTIVE_MEMORY": True,
 }
 
 BRAIN_RUNTIME_ACTIONS = {
     "CAN_WEB_SEARCH": True,
     "CAN_SAVE_SESSION": True,
+    "CAN_SAVE_DELAYED_MEMORY": True,
     "CAN_SAVE_ACTIVE_MEMORY": True,
 }
 
@@ -69,6 +73,10 @@ def get_enabled_runtime_actions(
         (
             RUNTIME_ACTION_SAVE_SESSION,
             "CAN_SAVE_SESSION",
+        ),
+        (
+            RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+            "CAN_SAVE_DELAYED_MEMORY",
         ),
         (
             RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
@@ -193,6 +201,9 @@ def build_runtime_action_instructions(
 
     if _action_enabled(enabled_actions, RUNTIME_ACTION_SAVE_SESSION, "save_session"):
         instructions.append(SAVE_SESSION_RULES)
+
+    if _action_enabled(enabled_actions, RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT, "save_delayed_memory_content"):
+        instructions.append(SAVE_DELAYED_MEMORY_RULES)
 
     if _action_enabled(enabled_actions, RUNTIME_ACTION_CREATE_ACTIVE_MEMORY, "create_active_memory"):
         instructions.append(CREATE_ACTIVE_MEMORY_RULES)

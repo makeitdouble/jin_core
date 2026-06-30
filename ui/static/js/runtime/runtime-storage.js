@@ -20,6 +20,9 @@
   const activeMemoryStorageKey =
     "jin.activeMemory.v1";
 
+  const delayedMemoryReportsStorageKey =
+    "jin.delayedMemoryReports.v1";
+
   const savedRuntimeFallbackPath =
     "/saved_runtime.txt";
 
@@ -408,6 +411,113 @@
     );
 
     return kept;
+
+  }
+
+
+  function normalizeDelayedMemoryReports(
+    value
+  ) {
+
+    if (
+        !value
+        || typeof value !== "object"
+        || Array.isArray(value)
+    ) {
+      return {};
+    }
+
+    const reports = {};
+
+    Object.entries(value).forEach(
+      function ([key, report]) {
+        const normalizedKey =
+          String(key || "").trim();
+
+        if (
+            !normalizedKey
+            || !report
+            || typeof report !== "object"
+            || Array.isArray(report)
+        ) {
+          return;
+        }
+
+        const title =
+          String(report.title || "").trim();
+
+        if (!title) {
+          return;
+        }
+
+        reports[normalizedKey] = {
+          title,
+          summary:
+            String(report.summary || "").trim(),
+          tags:
+            Array.isArray(report.tags)
+              ? report.tags
+                  .map(tag => String(tag || "").trim())
+                  .filter(Boolean)
+              : String(report.tags || "")
+                  .split(",")
+                  .map(tag => tag.trim())
+                  .filter(Boolean),
+          body:
+            String(report.body || "").trim(),
+          created_session_id:
+            String(report.created_session_id || "").trim(),
+          created_time:
+            String(report.created_time || "").trim(),
+        };
+      }
+    );
+
+    return reports;
+
+  }
+
+
+  function readDelayedMemoryReports() {
+
+    return normalizeDelayedMemoryReports(
+      readBrowserMemory(
+        delayedMemoryReportsStorageKey
+      )
+    );
+
+  }
+
+
+  function writeDelayedMemoryReports(
+    reports
+  ) {
+
+    writeBrowserMemory(
+      delayedMemoryReportsStorageKey,
+      normalizeDelayedMemoryReports(
+        reports
+      )
+    );
+
+  }
+
+
+  function appendDelayedMemoryReports(
+    reports
+  ) {
+
+    const current =
+      readDelayedMemoryReports();
+
+    writeDelayedMemoryReports({
+      ...current,
+      ...normalizeDelayedMemoryReports(
+        reports
+      ),
+    });
+
+    return readDelayedMemoryReports();
 
   }
 
@@ -872,6 +982,7 @@
       latestRuntimeMemoryStorageKeyVersion,
       latestSavedRuntimeMemoryStorageKey,
       activeMemoryStorageKey,
+      delayedMemoryReportsStorageKey,
       savedRuntimeFallbackPath,
     },
     getRuntimeSessionId,
@@ -897,6 +1008,10 @@
     clearActiveMemoryRecords,
     appendActiveMemoryRecords,
     removeActiveMemoryRecordById,
+    normalizeDelayedMemoryReports,
+    readDelayedMemoryReports,
+    writeDelayedMemoryReports,
+    appendDelayedMemoryReports,
     buildPersistedRuntimeSnapshot,
     cloneRuntimeMemoryToCurrentSession,
     cloneRuntimeMemoryFromSessionId,

@@ -1,5 +1,6 @@
 RUNTIME_ACTION_WEB_SEARCH = "WEB_SEARCH"
 RUNTIME_ACTION_SAVE_SESSION = "SAVE_SESSION"
+RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT = "SAVE_DELAYED_MEMORY_CONTENT"
 RUNTIME_ACTION_CREATE_ACTIVE_MEMORY = "CREATE_ACTIVE_MEMORY"
 RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY = "RESOLVE_ACTIVE_MEMORY"
 
@@ -8,6 +9,27 @@ INTERNAL_ACTION_WEB_SEARCH_MARKER = "<INTERNAL_ACTION_WEB_SEARCH: plain text que
 INTERNAL_ACTION_SAVE_SESSION_MARKER = "<INTERNAL_ACTION_SAVE_SESSION>"
 INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER = "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: CONDITIONS >"
 INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY_MARKER = "<INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY: active_memory_id >"
+
+INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_MARKER = "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>"
+INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_EMPTY_EXAMPLE = """
+<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>
+title:
+summary:
+tags:
+body:
+</INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>
+"""
+INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_FULL_EXAMPLE = """
+<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>
+title: Radius of Influence Specs
+summary: Three-zone data priority model for Kowloon Sandbox simulation.
+tags: kowloon_sandbox, simulation, world_state, radius_of_influence
+body:
+### Radius of Influence Specs
+
+A complete, self-sufficient summary...
+</INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>
+"""
 
 INTERNAL_ACTIONS_WITH_PAYLOAD = [ INTERNAL_ACTION_WEB_SEARCH_MARKER, INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER, INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY_MARKER ]
 
@@ -20,6 +42,7 @@ RUNTIME_ACTIONS_RULES = (
     "Emit markers only in situations listed in core rules below in specific cases."
     "DO NOT invent internal markers.\n"
     "ALWAYS check all active_memory slots BEFORE analyzing the context.\n"
+    "If you decide to emit internal action by yourself always notify user with brief acknowledgement and purpose.\n"
 )
 
 WEB_SEARCH_RULES = (
@@ -42,7 +65,7 @@ SAVE_SESSION_RULES = (
 
 CREATE_ACTIVE_MEMORY_RULES = (
     "CREATE_ACTIVE_MEMORY:\n"
-    f"When user asks to remind or remember ANYTHING - I MUST emit in my final response "
+    f"When user asks to remind or remember anything - I must emit in my final response "
     f"{INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER}.\n"
     "CONDITIONS - is a placeholder word, replace it with description, value, or conditions.\n"
     "ALL remeber/store/save/timing/tracking/remind/delayed requests MUST be handled by emitting fulfilled marker.\n"
@@ -62,4 +85,14 @@ RESOLVE_ACTIVE_MEMORY_RULES = (
 #    "If an active_memory condition is already met according to runtime state, emit RESOLVE_ACTIVE_MEMORY before answering the current user request.\n"
 #    "Do not violate active_memory core conditions. Must wait for the core conditions to be met before resolving pending memory.\n"
 #    "When RESOLVE_ACTIVE_MEMORY resolves a reminder, the user-facing text must explicitly remind the user of the original task, not merely comment on it.\n"
+)
+
+
+SAVE_DELAYED_MEMORY_RULES = (
+    "SAVE_DELAYED_MEMORY:\n"
+    f"When user asks to make or save summary/save report/save resume/save delayed memory/save dm/summarize everything "
+    f"I must place it between markers and fulfill exactly this form:\n"
+    f"{INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_EMPTY_EXAMPLE}\n"
+    "The correct example may look like:\n"
+    f"{INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_FULL_EXAMPLE}\n"
 )

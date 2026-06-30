@@ -9,6 +9,7 @@
   let buildDisplaySnapshot = null;
   let getActiveMemoryRecords = null;
   let setActiveMemoryRecords = null;
+  let getDelayedMemoryReports = null;
   let getDisplayMode = null;
   let setDisplayMode = null;
 
@@ -87,6 +88,28 @@
       : [];
   }
 
+  function getDelayedMemoryReportRecords() {
+    const reports =
+        typeof getDelayedMemoryReports === "function"
+          ? getDelayedMemoryReports()
+          : {};
+
+    if (
+        !reports
+        || typeof reports !== "object"
+        || Array.isArray(reports)
+    ) {
+      return [];
+    }
+
+    return Object.values(reports)
+        .filter(report => (
+          report
+          && typeof report === "object"
+          && !Array.isArray(report)
+        ));
+  }
+
   function setActiveMemoryRecordTexts(records) {
     if (typeof setActiveMemoryRecords === "function") {
       setActiveMemoryRecords(
@@ -103,20 +126,25 @@
     const hasActiveMemory =
         getActiveMemoryRecordTexts().length > 0;
 
-    const isActiveMode =
-        getRuntimeMemoryDisplayMode() === "active";
+    const hasDelayedMemory =
+        getDelayedMemoryReportRecords().length > 0;
+
+    const displayMode =
+        getRuntimeMemoryDisplayMode();
 
     runtimeMemoryTitle.textContent =
-        isActiveMode
+        displayMode === "active"
           ? "[ active memory ]"
-          : "[ runtime memory ]";
+          : displayMode === "delayed"
+            ? "[ delayed memory ]"
+            : "[ runtime memory ]";
 
     runtimeMemoryTitle.classList.toggle(
         "runtime-memory-title-clickable",
-        hasActiveMemory
+        hasActiveMemory || hasDelayedMemory
     );
 
-    if (hasActiveMemory) {
+    if (hasActiveMemory || hasDelayedMemory) {
       runtimeMemoryTitle.setAttribute(
           "role",
           "button"
@@ -340,7 +368,7 @@
       return;
     }
 
-    if (getRuntimeMemoryDisplayMode() === "active") {
+    if (getRuntimeMemoryDisplayMode() !== "runtime") {
       runtimeMemoryPosition.classList.remove(
           "runtime-memory-position-pinned"
       );
@@ -501,6 +529,11 @@
 
     if (getRuntimeMemoryDisplayMode() === "active") {
       renderActiveMemoryRecords();
+      return;
+    }
+
+    if (getRuntimeMemoryDisplayMode() === "delayed") {
+      renderDelayedMemoryReports();
       return;
     }
 
@@ -1051,6 +1084,89 @@
     );
   }
 
+  function renderDelayedMemoryReports() {
+    const reports =
+        getDelayedMemoryReportRecords();
+
+    if (!reports.length) {
+      setRuntimeMemoryDisplayMode(
+          "runtime"
+      );
+      renderRuntimeMemorySnapshot();
+      return;
+    }
+
+    if (runtimeMemoryText) {
+      runtimeMemoryText.innerHTML = "";
+      runtimeMemoryText.classList.remove(
+          "runtime-memory-text-pinned"
+      );
+      runtimeMemoryText.removeAttribute(
+          "title"
+      );
+
+      reports.forEach((report) => {
+        const title =
+            String(report.title || "").trim();
+
+        const summary =
+            String(report.summary || "").trim();
+
+        const row =
+            document.createElement("div");
+
+        row.className =
+            "runtime-memory-line";
+
+        const keySpan =
+            document.createElement("span");
+
+        keySpan.className =
+            "runtime-memory-key";
+
+        keySpan.textContent =
+            `${title}:`;
+
+        const valueSpan =
+            document.createElement("span");
+
+        valueSpan.className =
+            "runtime-memory-value";
+
+        valueSpan.textContent =
+            ` ${summary}`;
+
+        row.title =
+            `${title}: ${summary}`.trim();
+        valueSpan.title =
+            row.title;
+
+        row.appendChild(
+            keySpan
+        );
+        row.appendChild(
+            valueSpan
+        );
+
+        runtimeMemoryText.appendChild(
+            row
+        );
+      });
+    }
+
+    if (runtimeMemoryPosition) {
+      runtimeMemoryPosition.textContent =
+          String(reports.length);
+    }
+
+    userIdleValueNode = null;
+    idle.stop();
+    updateRuntimeMemoryTitleMetrics(null);
+    updateRuntimeMemoryArrows();
+    updateRuntimeMemoryPinGlow();
+    updateRuntimeMemoryTitleState();
+  }
+
   function renderActiveMemoryRecords() {
     const records =
         getActiveMemoryRecordTexts();
@@ -1141,7 +1257,7 @@
       return;
     }
 
-    if (getRuntimeMemoryDisplayMode() === "active") {
+    if (getRuntimeMemoryDisplayMode() !== "runtime") {
       runtimeMemoryPrev.disabled = true;
       runtimeMemoryNext.disabled = true;
 
@@ -1184,14 +1300,44 @@
   }
 
   function toggleRuntimeMemoryDisplayMode() {
-    if (!getActiveMemoryRecordTexts().length) {
+    const hasActiveMemory =
+        getActiveMemoryRecordTexts().length > 0;
+
+    const hasDelayedMemory =
+        getDelayedMemoryReportRecords().length > 0;
+
+    if (
+        !hasActiveMemory
+        && !hasDelayedMemory
+    ) {
       return;
     }
 
+    const modes =
+        ["runtime"];
+
+    if (hasActiveMemory) {
+      modes.push(
+          "active"
+      );
+    }
+
+    if (hasDelayedMemory) {
+      modes.push(
+          "delayed"
+      );
+    }
+
+    const currentMode =
+        getRuntimeMemoryDisplayMode();
+
+    const currentIndex =
+        modes.indexOf(currentMode);
+
     setRuntimeMemoryDisplayMode(
-        getRuntimeMemoryDisplayMode() === "active"
-          ? "runtime"
-          : "active"
+        modes[
+            (currentIndex + 1) % modes.length
+        ]
     );
 
     renderRuntimeMemorySnapshot();
@@ -1230,7 +1376,7 @@
     runtimeMemoryPosition?.addEventListener("click", () => {
       requireRuntimeMemoryHistory();
 
-      if (getRuntimeMemoryDisplayMode() === "active") {
+      if (getRuntimeMemoryDisplayMode() !== "runtime") {
         return;
       }
 
@@ -1323,6 +1469,7 @@
     buildDisplaySnapshot = options.buildDisplaySnapshot || null;
     getActiveMemoryRecords = options.getActiveMemoryRecords || null;
     setActiveMemoryRecords = options.setActiveMemoryRecords || null;
+    getDelayedMemoryReports = options.getDelayedMemoryReports || null;
     getDisplayMode = options.getDisplayMode || null;
     setDisplayMode = options.setDisplayMode || null;
 

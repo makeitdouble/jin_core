@@ -348,6 +348,47 @@ async def ask_brain_stream(
         #preserve_action_text=True
     )
     stop_for_runtime_action = False
+    delayed_memory_bubble_started = False
+
+    async def emit_delayed_memory_bubble_started():
+
+        nonlocal delayed_memory_bubble_started
+
+        if delayed_memory_bubble_started:
+            return
+
+        pending = str(
+            getattr(
+                content_filter,
+                "pending",
+                "",
+            )
+            or ""
+        ).upper()
+
+        if "INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT" not in pending:
+            return
+
+        delayed_memory_bubble_started = True
+
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is not None:
+            await emit({
+                "type": "runtime_action",
+                "action": "save_delayed_memory_content",
+                "status": "started",
+                "text": "Saving delayed memory report",
+            })
 
     async def filter_runtime_action_chunk(
         action_chunk,
@@ -374,6 +415,8 @@ async def ask_brain_stream(
                 "",
             )
         )
+
+        await emit_delayed_memory_bubble_started()
 
         await log_runtime_action_marker_removals(
             context,
