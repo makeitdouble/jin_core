@@ -62,7 +62,7 @@
       }
 
     },
-    "save_summary": {
+    "save_delayed_memory": {
       "description": "Allows the model to request saving the current session summary when the user wants to save it for later and continue in another tab.",
       "runtime_action": "SAVE_DELAYED_MEMORY_CONTENT",
       "private_marker": "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>",

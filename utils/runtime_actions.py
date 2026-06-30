@@ -1614,19 +1614,29 @@ def extract_runtime_actions(
         query: str = "",
     ) -> str:
 
-        if not preserve_action_text:
-            removed_markers.append(
-                raw_marker
-            )
+        normalized_action_name = normalize_runtime_action_name(
+            action_name
+        )
+        action_enabled = (
+            normalized_action_name in enabled_action_names
+        )
+
+        if not action_enabled:
+            return raw_marker
 
         action = _build_internal_action_call(
             action_name,
             query,
         )
 
+        if not preserve_action_text:
+            removed_markers.append(
+                raw_marker
+            )
+
         if (
             action is not None
-            and action.name in enabled_action_names
+            and action_enabled
         ):
             action_key = (
                 action.name,
@@ -2186,6 +2196,7 @@ def _unclosed_delayed_memory_content_block_start(
 
 def _unclosed_internal_action_request_start(
     text: str,
+    enabled_actions=None,
 ) -> int | None:
 
     for detector in (
@@ -2198,7 +2209,24 @@ def _unclosed_internal_action_request_start(
         )
 
         if marker_start is not None:
-            return marker_start
+            candidate = text[
+                marker_start:
+            ].upper()
+
+            for marker in _enabled_action_start_markers(
+                enabled_actions
+            ):
+                normalized_marker = marker.upper()
+
+                if (
+                    candidate.startswith(
+                        normalized_marker
+                    )
+                    or normalized_marker.startswith(
+                        candidate
+                    )
+                ):
+                    return marker_start
 
     return None
 
@@ -2282,7 +2310,8 @@ class RuntimeActionStreamFilter:
         self.pending_is_action = False
 
         unclosed_start = _unclosed_internal_action_request_start(
-            combined
+            combined,
+            enabled_actions=self.enabled_actions,
         )
 
         if unclosed_start is not None:
@@ -2340,7 +2369,8 @@ class RuntimeActionStreamFilter:
             )
 
         if _unclosed_internal_action_request_start(
-            pending
+            pending,
+            enabled_actions=self.enabled_actions,
         ) == 0:
             result = extract_runtime_actions(
                 pending,

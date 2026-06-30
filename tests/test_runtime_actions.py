@@ -286,7 +286,7 @@ class RuntimeActionTests(unittest.TestCase):
             ),
         )
 
-    def test_logs_marker_removal_even_when_action_disabled(self):
+    def test_preserves_marker_when_action_disabled(self):
 
         result = extract_runtime_actions(
             "before <INTERNAL_ACTION_SAVE_SESSION> after",
@@ -295,7 +295,7 @@ class RuntimeActionTests(unittest.TestCase):
 
         self.assertEqual(
             result.text,
-            "before  after",
+            "before <INTERNAL_ACTION_SAVE_SESSION> after",
         )
         self.assertEqual(
             result.actions,
@@ -303,9 +303,35 @@ class RuntimeActionTests(unittest.TestCase):
         )
         self.assertEqual(
             result.removed_markers,
-            (
-                "<INTERNAL_ACTION_SAVE_SESSION>",
-            ),
+            (),
+        )
+
+    def test_preserves_delayed_memory_marker_when_action_disabled(self):
+
+        text = (
+            "before\n"
+            "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>\n"
+            '{"demo": {"summary": "quoted marker"}}\n'
+            "</INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>\n"
+            "after"
+        )
+
+        result = extract_runtime_actions(
+            text,
+            enabled_actions=[],
+        )
+
+        self.assertEqual(
+            result.text,
+            text,
+        )
+        self.assertEqual(
+            result.actions,
+            (),
+        )
+        self.assertEqual(
+            result.removed_markers,
+            (),
         )
 
     def test_extracts_bracketed_create_active_memory_marker(self):
@@ -1178,6 +1204,36 @@ class RuntimeActionTests(unittest.TestCase):
             (
                 "blue tomato",
             ),
+        )
+
+    def test_stream_filter_preserves_disabled_action_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[],
+        )
+
+        first = stream_filter.filter(
+            "quoted <INTERNAL_ACTION_SAVE_SESSION"
+        )
+        second = stream_filter.filter(
+            "> marker"
+        )
+
+        self.assertEqual(
+            first.text,
+            "quoted <INTERNAL_ACTION_SAVE_SESSION",
+        )
+        self.assertEqual(
+            second.text,
+            "> marker",
+        )
+        self.assertEqual(
+            first.actions,
+            (),
+        )
+        self.assertEqual(
+            second.actions,
+            (),
         )
 
     def test_stream_filter_handles_short_end_tag_closed_active_memory_marker(self):

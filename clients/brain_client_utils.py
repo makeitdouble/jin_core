@@ -83,11 +83,11 @@ def should_execute_save_session(
     )
 
 
-def should_execute_save_summary(
+def should_execute_save_delayed_memory(
     user_message: str,
 ) -> bool:
     return should_execute_action_guard(
-        "save_summary",
+        "save_delayed_memory",
         user_message
     )
 
@@ -735,7 +735,7 @@ async def apply_runtime_action_calls(
             if save_delayed_memory_seen:
                 continue
 
-            if not should_execute_save_summary(
+            if not should_execute_save_delayed_memory(
                 resolved_user_message
             ):
                 continue

@@ -82,10 +82,10 @@ class BehaviorContractTests(unittest.TestCase):
                 blockers,
             )
 
-    def test_save_summary_triggers_include_english_phrases(self):
+    def test_save_delayed_memory_triggers_include_english_phrases(self):
 
         triggers = get_action_guard_triggers(
-            "save_summary"
+            "save_delayed_memory"
         )
 
         for phrase in (
@@ -99,17 +99,17 @@ class BehaviorContractTests(unittest.TestCase):
                 triggers,
             )
 
-    def test_should_execute_save_summary_matches_english_request(self):
+    def test_should_execute_save_delayed_memory_matches_english_request(self):
 
         self.assertTrue(
             should_execute_action_guard(
-                "save_summary",
+                "save_delayed_memory",
                 "please summarize and save this as delayed memory",
             )
         )
         self.assertFalse(
             should_execute_action_guard(
-                "save_summary",
+                "save_delayed_memory",
                 "show exact tag for saving delayed memory",
             )
         )

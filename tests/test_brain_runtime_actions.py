@@ -170,6 +170,112 @@ class BrainRuntimeActionTests(unittest.TestCase):
             )
         )
 
+    def test_non_stream_preserves_save_session_marker_without_user_request(self):
+
+        class FakeBrainClient:
+            async def ask(self, **_kwargs):
+                return {
+                    "model": config.BRAIN_MODEL_UID,
+                    "choices": [
+                        {
+                            "message": {
+                                "reasoning": "",
+                                "content": (
+                                    "The literal marker is "
+                                    "<INTERNAL_ACTION_SAVE_SESSION>."
+                                ),
+                            },
+                        },
+                    ],
+                }
+
+        class Context:
+            pass
+
+        context = Context()
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            answer = asyncio.run(
+                ask_brain(
+                    client=FakeBrainClient(),
+                    text="what marker saves the session?",
+                    context=context,
+                    runtime_actions={
+                        "CAN_SAVE_SESSION": True,
+                    },
+                )
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        self.assertEqual(
+            answer,
+            "The literal marker is <INTERNAL_ACTION_SAVE_SESSION>.",
+        )
+        self.assertFalse(
+            hasattr(
+                context,
+                "runtime_save_session_requested",
+            )
+        )
+
+    def test_non_stream_preserves_delayed_memory_marker_without_user_request(self):
+
+        marker_text = (
+            "Example:\n"
+            "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>\n"
+            '{"demo": {"summary": "quoted marker"}}\n'
+            "</INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>"
+        )
+
+        class FakeBrainClient:
+            async def ask(self, **_kwargs):
+                return {
+                    "model": config.BRAIN_MODEL_UID,
+                    "choices": [
+                        {
+                            "message": {
+                                "reasoning": "",
+                                "content": marker_text,
+                            },
+                        },
+                    ],
+                }
+
+        class Context:
+            pass
+
+        context = Context()
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            answer = asyncio.run(
+                ask_brain(
+                    client=FakeBrainClient(),
+                    text="how does delayed memory marker look?",
+                    context=context,
+                    runtime_actions={
+                        "CAN_SAVE_DELAYED_MEMORY": True,
+                    },
+                )
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        self.assertEqual(
+            answer,
+            marker_text,
+        )
+        self.assertFalse(
+            hasattr(
+                context,
+                "delayed_memory_reports",
+            )
+        )
+
     def test_non_stream_ignores_save_session_marker_in_reasoning(self):
 
         class FakeBrainClient:

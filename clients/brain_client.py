@@ -4,6 +4,8 @@ from config_loader import (
     config,
 )
 from rules.runtime import (
+    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+    RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
 )
 
@@ -19,6 +21,7 @@ from rules.assembler import (
 from clients.brain_client_utils import (
     apply_runtime_action_calls,
     log_runtime_action_marker_removals,
+    should_execute_save_delayed_memory,
     should_execute_save_session,
 )
 
@@ -35,6 +38,45 @@ from utils.runtime_actions import (
     RuntimeActionStreamFilter,
     extract_runtime_actions,
 )
+
+
+def get_response_enabled_runtime_actions(
+    runtime_actions=None,
+    user_message: str = "",
+) -> tuple[str, ...]:
+
+    enabled_actions = list(
+        get_enabled_runtime_actions(
+            runtime_actions
+        )
+    )
+
+    if (
+        RUNTIME_ACTION_SAVE_SESSION
+        in enabled_actions
+        and not should_execute_save_session(
+            user_message
+        )
+    ):
+        enabled_actions.remove(
+            RUNTIME_ACTION_SAVE_SESSION
+        )
+
+    if (
+        RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+        in enabled_actions
+        and not should_execute_save_delayed_memory(
+            user_message
+        )
+    ):
+        enabled_actions.remove(
+            RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+        )
+
+    return tuple(
+        enabled_actions
+    )
+
 
 async def emit_active_memory_records_update_if_dirty(
     context,
@@ -156,8 +198,9 @@ async def ask_brain(
                 )
             )
 
-            enabled_actions = get_enabled_runtime_actions(
-                runtime_actions
+            enabled_actions = get_response_enabled_runtime_actions(
+                runtime_actions,
+                text,
             )
 
             content_actions = (
@@ -249,8 +292,9 @@ async def ask_brain(
             )
         )
 
-        enabled_actions = get_enabled_runtime_actions(
-            runtime_actions
+        enabled_actions = get_response_enabled_runtime_actions(
+            runtime_actions,
+            text,
         )
 
         content_actions = extract_runtime_actions(
@@ -339,8 +383,9 @@ async def ask_brain_stream(
             context
         )
 
-    enabled_actions = get_enabled_runtime_actions(
-        runtime_actions
+    enabled_actions = get_response_enabled_runtime_actions(
+        runtime_actions,
+        text,
     )
 
     content_filter = RuntimeActionStreamFilter(
