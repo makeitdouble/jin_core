@@ -181,6 +181,46 @@ def build_delayed_memory_report(
     return enriched_report
 
 
+def deduplicate_delayed_memory_report_keys(
+    existing_reports: dict,
+    report: dict,
+) -> dict:
+
+    if not isinstance(
+        report,
+        dict,
+    ):
+        return {}
+
+    used_keys = set(
+        existing_reports
+        if isinstance(
+            existing_reports,
+            dict,
+        )
+        else {}
+    )
+    deduplicated_report = {}
+
+    for key, value in report.items():
+        next_key = key
+        suffix = 2
+
+        while (
+            next_key in used_keys
+            or next_key in deduplicated_report
+        ):
+            next_key = f"{key}_{suffix}"
+            suffix += 1
+
+        deduplicated_report[next_key] = value
+        used_keys.add(
+            next_key
+        )
+
+    return deduplicated_report
+
+
 
 def split_active_memory_payload(
     payload: str,
@@ -1006,6 +1046,11 @@ async def apply_runtime_action_calls(
                     "delayed_memory_reports",
                     delayed_memory_reports,
                 )
+
+            report = deduplicate_delayed_memory_report_keys(
+                delayed_memory_reports,
+                report,
+            )
 
             delayed_memory_reports.update(
                 report

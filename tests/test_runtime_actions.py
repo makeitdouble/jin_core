@@ -1586,6 +1586,83 @@ class RuntimeActionTests(unittest.TestCase):
             ],
         )
 
+    def test_apply_runtime_action_calls_suffixes_duplicate_delayed_memory_key(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+        context.session_id = "session-1"
+        context.timestamp = "2026-06-29T12:00:00"
+        context.delayed_memory_reports = {
+            "kowloon_sandbox_architecture_contextual_status": {
+                "title": "Kowloon Sandbox Architecture & Contextual Status",
+                "summary": "Existing report.",
+            },
+        }
+
+        report_payload = json.dumps(
+            {
+                "kowloon_sandbox_architecture_contextual_status": {
+                    "title": "Kowloon Sandbox Architecture & Contextual Status",
+                    "summary": "New report.",
+                    "tags": [],
+                    "body": "Updated context.",
+                    "created_session_id": "",
+                    "created_time": "",
+                },
+            },
+            ensure_ascii=False,
+        )
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_DELAYED_MEMORY_CONTENT",
+                        payload=report_payload,
+                    ),
+                ),
+                user_message="please summarize and save this as delayed memory",
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertEqual(
+            context.delayed_memory_reports[
+                "kowloon_sandbox_architecture_contextual_status"
+            ]["summary"],
+            "Existing report.",
+        )
+        self.assertEqual(
+            context.delayed_memory_reports[
+                "kowloon_sandbox_architecture_contextual_status_2"
+            ]["summary"],
+            "New report.",
+        )
+        self.assertEqual(
+            context.emitter.events[0]["delayed_memory_report"],
+            {
+                "kowloon_sandbox_architecture_contextual_status_2": (
+                    context.delayed_memory_reports[
+                        "kowloon_sandbox_architecture_contextual_status_2"
+                    ]
+                ),
+            },
+        )
+
     def test_apply_runtime_action_calls_emits_create_active_memory_bubble(self):
 
         class Emitter:
