@@ -1360,6 +1360,27 @@
             user-select: none;
         }
 
+        .runtime-memory-delayed-row {
+            cursor: pointer;
+            border-radius: 4px;
+            padding: 2px 3px;
+            transition:
+                    background-color 0.18s ease,
+                    color 0.18s ease;
+        }
+
+        .runtime-memory-delayed-row:hover,
+        .runtime-memory-delayed-row:focus-visible {
+            outline: none;
+        }
+
+        .runtime-memory-delayed-row:hover .runtime-memory-key,
+        .runtime-memory-delayed-row:hover .runtime-memory-value,
+        .runtime-memory-delayed-row:focus-visible .runtime-memory-key,
+        .runtime-memory-delayed-row:focus-visible .runtime-memory-value {
+            color: rgba(244, 244, 245, 0.86);
+        }
+
         .runtime-memory-active-row[data-active-memory-status="paused"] {
             opacity: 0.5;
         }
@@ -1431,6 +1452,56 @@
             color: rgba(167,243,208,0.98);
             text-shadow:
                     0 0 8px rgba(16,185,129,0.35);
+        }
+
+        .delayed-memory-modal-panel {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        }
+
+        .delayed-memory-modal-content {
+            overflow-wrap: anywhere;
+        }
+
+        .delayed-memory-modal-fields {
+            display: grid;
+            gap: 10px;
+        }
+
+        .delayed-memory-modal-field {
+            display: grid;
+            grid-template-columns: minmax(78px, 0.18fr) minmax(0, 1fr);
+            gap: 12px;
+            border-bottom: 1px solid rgba(39, 39, 42, 0.86);
+            padding-bottom: 10px;
+        }
+
+        .delayed-memory-modal-label,
+        .delayed-memory-modal-section-title {
+            color: rgba(161, 161, 170, 0.88);
+            font-size: 10px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .delayed-memory-modal-value {
+            min-width: 0;
+            white-space: pre-wrap;
+            color: rgba(244, 244, 245, 0.86);
+        }
+
+        .delayed-memory-modal-section {
+            margin-top: 18px;
+        }
+
+        .delayed-memory-modal-body {
+            margin-top: 8px;
+            max-width: none;
+            white-space: pre-wrap;
+            word-break: break-word;
+            border: 1px solid rgba(39, 39, 42, 0.92);
+            background: rgba(9, 9, 11, 0.55);
+            padding: 14px;
+            color: rgba(244, 244, 245, 0.88);
         }
 
 
@@ -3196,7 +3267,7 @@
 <script src="/static/js/runtime/runtime-feedback.js?v=runtime-feedback-1"></script>
 <script src="/static/js/runtime/runtime-session.js?v=runtime-session-2"></script>
 <script src="/static/js/runtime/runtime-panel.js?v=runtime-panel-1"></script>
-<script src="/static/js/runtime/runtime-memory-view.js?v=runtime-memory-view-2"></script>
+<script src="/static/js/runtime/runtime-memory-view.js?v=runtime-memory-view-4"></script>
 <script src="/static/js/runtime/runtime.js?v=runtime-facade-5"></script>
 <script src="/static/js/status.js?v=status-check-4"></script>
 <script src="/static/js/dragdrop.js?v=context-panel-5"></script>

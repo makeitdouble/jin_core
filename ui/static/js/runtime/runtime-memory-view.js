@@ -19,6 +19,11 @@
 
   const autoFlashedRuntimeMemorySnapshots = new WeakSet();
 
+  let delayedMemoryModal = null;
+  let delayedMemoryModalPanel = null;
+  let delayedMemoryModalTitle = null;
+  let delayedMemoryModalContent = null;
+
   const runtimeDiffHistory = {
     diffs: [],
     stats: {},
@@ -111,12 +116,22 @@
       return [];
     }
 
-    return Object.values(reports)
-        .filter(report => (
-          report
-          && typeof report === "object"
-          && !Array.isArray(report)
-        ));
+    return Object.entries(reports)
+        .map(([key, report]) => {
+          if (
+              !report
+              || typeof report !== "object"
+              || Array.isArray(report)
+          ) {
+            return null;
+          }
+
+          return {
+            _storage_key: key,
+            ...report,
+          };
+        })
+        .filter(Boolean);
   }
 
   function setActiveMemoryRecordTexts(records) {
@@ -1123,7 +1138,17 @@
             document.createElement("div");
 
         row.className =
-            "runtime-memory-line";
+            "runtime-memory-line runtime-memory-delayed-row";
+
+        row.setAttribute(
+            "role",
+            "button"
+        );
+
+        row.setAttribute(
+            "tabindex",
+            "0"
+        );
 
         const keySpan =
             document.createElement("span");
@@ -1155,6 +1180,26 @@
             valueSpan
         );
 
+        row.addEventListener("click", () => {
+          openDelayedMemoryReportModal(
+              report
+          );
+        });
+
+        row.addEventListener("keydown", (event) => {
+          if (
+              event.key !== "Enter"
+              && event.key !== " "
+          ) {
+            return;
+          }
+
+          event.preventDefault();
+          openDelayedMemoryReportModal(
+              report
+          );
+        });
+
         runtimeMemoryText.appendChild(
             row
         );
@@ -1172,6 +1217,387 @@
     updateRuntimeMemoryArrows();
     updateRuntimeMemoryPinGlow();
     updateRuntimeMemoryTitleState();
+  }
+
+  function normalizeDelayedMemoryDisplayText(value) {
+    return String(value || "")
+        .replace(/\r\n/g, "\n")
+        .replace(/\\r\\n/g, "\n")
+        .replace(/\\n/g, "\n")
+        .replace(/\\t/g, "  ")
+        .trim();
+  }
+
+  function padDelayedMemoryDatePart(value) {
+    return String(value).padStart(
+        2,
+        "0"
+    );
+  }
+
+  function formatDelayedMemoryTime(value) {
+    const raw =
+        normalizeDelayedMemoryDisplayText(value);
+
+    if (!raw) {
+      return "";
+    }
+
+    const date =
+        new Date(raw);
+
+    if (Number.isNaN(date.getTime())) {
+      return raw;
+    }
+
+    const year =
+        date.getFullYear();
+
+    const month =
+        padDelayedMemoryDatePart(
+            date.getMonth() + 1
+        );
+
+    const day =
+        padDelayedMemoryDatePart(
+            date.getDate()
+        );
+
+    const hours =
+        padDelayedMemoryDatePart(
+            date.getHours()
+        );
+
+    const minutes =
+        padDelayedMemoryDatePart(
+            date.getMinutes()
+        );
+
+    const weekday =
+        new Intl.DateTimeFormat(
+            "en-US",
+            {
+              weekday: "long",
+            }
+        ).format(date);
+
+    return `${year}-${month}-${day} ${hours}:${minutes}, ${weekday}`;
+  }
+
+  function closeDelayedMemoryReportModal() {
+    if (!delayedMemoryModal) {
+      return;
+    }
+
+    delayedMemoryModal.classList.add(
+        "hidden"
+    );
+
+    delayedMemoryModal.classList.remove(
+        "flex"
+    );
+  }
+
+  function ensureDelayedMemoryModal() {
+    if (delayedMemoryModal) {
+      return;
+    }
+
+    delayedMemoryModal =
+        document.createElement("div");
+
+    delayedMemoryModal.className =
+        "fixed inset-0 z-50 hidden items-center justify-center bg-black/70 p-4";
+
+    delayedMemoryModalPanel =
+        document.createElement("div");
+
+    delayedMemoryModalPanel.className =
+        "delayed-memory-modal-panel w-full max-w-4xl max-h-[86vh] rounded border border-zinc-700 bg-zinc-950 shadow-2xl flex flex-col";
+
+    const header =
+        document.createElement("div");
+
+    header.className =
+        "h-11 shrink-0 border-b border-zinc-800 px-4 flex items-center justify-between gap-4";
+
+    delayedMemoryModalTitle =
+        document.createElement("div");
+
+    delayedMemoryModalTitle.className =
+        "min-w-0 truncate text-xs uppercase tracking-widest text-zinc-300";
+
+    const closeButton =
+        document.createElement("button");
+
+    closeButton.type =
+        "button";
+
+    closeButton.className =
+        "text-xs text-zinc-400 hover:text-zinc-100 transition";
+
+    closeButton.textContent =
+        "close";
+
+    delayedMemoryModalContent =
+        document.createElement("div");
+
+    delayedMemoryModalContent.className =
+        "delayed-memory-modal-content min-h-0 flex-1 overflow-auto p-4 text-[12px] leading-relaxed text-zinc-200";
+
+    header.appendChild(
+        delayedMemoryModalTitle
+    );
+
+    header.appendChild(
+        closeButton
+    );
+
+    delayedMemoryModalPanel.appendChild(
+        header
+    );
+
+    delayedMemoryModalPanel.appendChild(
+        delayedMemoryModalContent
+    );
+
+    delayedMemoryModal.appendChild(
+        delayedMemoryModalPanel
+    );
+
+    document.body.appendChild(
+        delayedMemoryModal
+    );
+
+    closeButton.addEventListener(
+        "click",
+        closeDelayedMemoryReportModal
+    );
+
+    delayedMemoryModal.addEventListener("click", (event) => {
+      if (event.target === delayedMemoryModal) {
+        closeDelayedMemoryReportModal();
+      }
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (
+          event.key === "Escape"
+          && delayedMemoryModal
+          && !delayedMemoryModal.classList.contains("hidden")
+      ) {
+        closeDelayedMemoryReportModal();
+      }
+    });
+  }
+
+  function appendDelayedMemoryModalField(parent, label, value) {
+    const normalizedValue =
+        Array.isArray(value)
+          ? value
+              .map((item) => normalizeDelayedMemoryDisplayText(item))
+              .filter(Boolean)
+              .join(", ")
+          : normalizeDelayedMemoryDisplayText(value);
+
+    if (!normalizedValue) {
+      return;
+    }
+
+    const row =
+        document.createElement("div");
+
+    row.className =
+        "delayed-memory-modal-field";
+
+    const key =
+        document.createElement("div");
+
+    key.className =
+        "delayed-memory-modal-label";
+
+    key.textContent =
+        label;
+
+    const text =
+        document.createElement("div");
+
+    text.className =
+        "delayed-memory-modal-value";
+
+    text.textContent =
+        normalizedValue;
+
+    row.appendChild(
+        key
+    );
+
+    row.appendChild(
+        text
+    );
+
+    parent.appendChild(
+        row
+    );
+  }
+
+  function appendDelayedMemoryModalBody(parent, body) {
+    const normalizedBody =
+        normalizeDelayedMemoryDisplayText(body);
+
+    if (!normalizedBody) {
+      return;
+    }
+
+    const section =
+        document.createElement("section");
+
+    section.className =
+        "delayed-memory-modal-section";
+
+    const heading =
+        document.createElement("div");
+
+    heading.className =
+        "delayed-memory-modal-section-title";
+
+    heading.textContent =
+        "Body";
+
+    const pre =
+        document.createElement("pre");
+
+    pre.className =
+        "delayed-memory-modal-body";
+
+    pre.textContent =
+        normalizedBody;
+
+    section.appendChild(
+        heading
+    );
+
+    section.appendChild(
+        pre
+    );
+
+    parent.appendChild(
+        section
+    );
+  }
+
+  function appendDelayedMemoryModalExtraFields(parent, report) {
+    const shownKeys =
+        new Set([
+          "_storage_key",
+          "title",
+          "summary",
+          "created_time",
+          "created_session_id",
+          "tags",
+          "body",
+        ]);
+
+    Object.entries(report || {}).forEach(([key, value]) => {
+      if (
+          shownKeys.has(key)
+          || value === null
+          || typeof value === "undefined"
+      ) {
+        return;
+      }
+
+      const normalizedValue =
+          typeof value === "object"
+            ? JSON.stringify(
+                value,
+                null,
+                2
+              )
+            : value;
+
+      appendDelayedMemoryModalField(
+          parent,
+          key,
+          normalizedValue
+      );
+    });
+  }
+
+  function openDelayedMemoryReportModal(report) {
+    ensureDelayedMemoryModal();
+
+    delayedMemoryModalTitle.textContent =
+        normalizeDelayedMemoryDisplayText(report.title)
+        || "Delayed memory";
+
+    delayedMemoryModalContent.innerHTML = "";
+
+    const fields =
+        document.createElement("section");
+
+    fields.className =
+        "delayed-memory-modal-fields";
+
+    appendDelayedMemoryModalField(
+        fields,
+        "Title",
+        report.title
+    );
+
+    appendDelayedMemoryModalField(
+        fields,
+        "Summary",
+        report.summary
+    );
+
+    appendDelayedMemoryModalField(
+        fields,
+        "Time",
+        formatDelayedMemoryTime(
+            report.created_time
+        )
+    );
+
+    appendDelayedMemoryModalField(
+        fields,
+        "Tags",
+        report.tags
+    );
+
+    appendDelayedMemoryModalField(
+        fields,
+        "ID",
+        report._storage_key
+    );
+
+    appendDelayedMemoryModalField(
+        fields,
+        "Session",
+        report.created_session_id
+    );
+
+    appendDelayedMemoryModalExtraFields(
+        fields,
+        report
+    );
+
+    delayedMemoryModalContent.appendChild(
+        fields
+    );
+
+    appendDelayedMemoryModalBody(
+        delayedMemoryModalContent,
+        report.body
+    );
+
+    delayedMemoryModal.classList.remove(
+        "hidden"
+    );
+
+    delayedMemoryModal.classList.add(
+        "flex"
+    );
   }
 
   function renderActiveMemoryRecords() {
