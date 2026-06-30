@@ -851,6 +851,7 @@
         savedRuntimeSnapshot,
       ];
       history.index = 0;
+      history.displayIndexOffset = 1;
 
       if (runtimeMemoryCount) {
         runtimeMemoryCount.textContent =
@@ -965,6 +966,10 @@
           : null;
       history.snapshots = [displaySnapshot];
       history.index = 0;
+      history.displayIndexOffset =
+        displaySnapshot.restored_from_session_save
+          ? 1
+          : 0;
 
       rememberStableRuntimeSnapshot(
         displaySnapshot

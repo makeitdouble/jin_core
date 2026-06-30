@@ -129,6 +129,7 @@ const sessionStartedRuntimeMemoryText =
 const runtimeMemoryHistory = {
   snapshots: [],
   index: -1,
+  displayIndexOffset: 0,
 };
 
 let runtimeMemoryDisplayMode = "runtime";

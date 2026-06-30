@@ -82,6 +82,15 @@
     }
   }
 
+  function getRuntimeMemorySnapshotDisplayIndex(snapshot) {
+    if (typeof snapshot.index !== "number") {
+      return runtimeMemoryHistory.index + 1;
+    }
+
+    return snapshot.index
+      + Number(runtimeMemoryHistory.displayIndexOffset || 0);
+  }
+
   function getActiveMemoryRecordTexts() {
     return typeof getActiveMemoryRecords === "function"
       ? getActiveMemoryRecords()
@@ -588,9 +597,7 @@
     if (runtimeMemoryPosition) {
       runtimeMemoryPosition.textContent =
           String(
-              typeof snapshot.index === "number"
-                ? snapshot.index
-                : runtimeMemoryHistory.index + 1
+              getRuntimeMemorySnapshotDisplayIndex(snapshot)
           );
     }
 
