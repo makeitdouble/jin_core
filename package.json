@@ -6,6 +6,6 @@
     "tests": "npm test",
     "translation_tests": "python tests/run_translation_tests.py",
     "behavior_probe_tests": "set PYTHONUNBUFFERED=1&& set JIN_RUN_BEHAVIOR_PROBE=1&& python -u -m unittest discover -s tests -p \"test_behavior_probe*.py\" -v",
-    "probe": "node -e \"const name = process.argv[1]; const probes = new Set(['ascii', 'movie', 'word', 'marker', 'save']); if (!probes.has(name)) { console.error('Usage: npm run probe <ascii|movie|word|marker|save>'); process.exit(1); } const { spawnSync } = require('child_process'); const result = spawnSync('python', ['-u', '-m', 'unittest', 'discover', '-s', 'tests', '-p', `test_behavior_probe_${name}.py`, '-v'], { stdio: 'inherit', env: { ...process.env, JIN_RUN_BEHAVIOR_PROBE: '1', PYTHONUNBUFFERED: '1' } }); process.exit(result.status ?? 1);\""
+    "probe": "node -e \"const name = process.argv[1]; const probes = new Set(['ascii', 'movie', 'word', 'marker', 'save', 'delayed']); if (!probes.has(name)) { console.error('Usage: npm run probe <ascii|movie|word|marker|save|delayed>'); process.exit(1); } const { spawnSync } = require('child_process'); const result = spawnSync('python', ['-u', '-m', 'unittest', 'discover', '-s', 'tests', '-p', `test_behavior_probe_${name}.py`, '-v'], { stdio: 'inherit', env: { ...process.env, JIN_RUN_BEHAVIOR_PROBE: '1', PYTHONUNBUFFERED: '1' } }); process.exit(result.status ?? 1);\""
   }
 }

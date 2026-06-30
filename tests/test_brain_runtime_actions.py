@@ -62,6 +62,57 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
 
 class BrainRuntimeActionTests(unittest.TestCase):
 
+    def test_brain_system_prompt_keeps_runtime_rule_sentences_separated(self):
+
+        context = SimpleNamespace(
+            runtime_memory="",
+            runtime_memory_stable="",
+            active_memory_records=[
+                "active_memory_1: Check whether this should resolve",
+            ],
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_WEB_SEARCH": True,
+                "CAN_SAVE_SESSION": True,
+                "CAN_SAVE_DELAYED_MEMORY": True,
+                "CAN_SAVE_ACTIVE_MEMORY": True,
+            },
+        )
+
+        assert_not_contains_text(
+            self,
+            prompt,
+            "final answer.Emit markers",
+        )
+        assert_not_contains_text(
+            self,
+            prompt,
+            "specific cases.DO NOT invent",
+        )
+        assert_not_contains_text(
+            self,
+            prompt,
+            "memory conditions.You need",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "final answer.\nEmit markers",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "specific cases.\nDO NOT invent",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "memory conditions.\nYou need",
+        )
+
     def test_non_stream_blocks_save_session_meta_request_in_reasoning(self):
 
         class FakeBrainClient:

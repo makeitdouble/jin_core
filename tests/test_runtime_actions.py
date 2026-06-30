@@ -334,6 +334,37 @@ class RuntimeActionTests(unittest.TestCase):
             "remind later | tomorrow | coffee",
         )
 
+    def test_extracts_create_active_memory_marker_closed_with_short_end_tag(self):
+
+        result = extract_runtime_actions(
+            (
+                "before "
+                "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: remember the word coffee "
+                "and ask for a guess later.</>"
+                " after"
+            ),
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "before  after",
+        )
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name="CREATE_ACTIVE_MEMORY",
+                    payload=(
+                        "remember the word coffee "
+                        "and ask for a guess later."
+                    ),
+                ),
+            ),
+        )
+
     def test_parses_delayed_memory_content_payload(self):
 
         report = parse_delayed_memory_content_payload(
@@ -1147,6 +1178,49 @@ class RuntimeActionTests(unittest.TestCase):
             (
                 "blue tomato",
             ),
+        )
+
+    def test_stream_filter_handles_short_end_tag_closed_active_memory_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: remember"
+        )
+        middle = stream_filter.filter(
+            " the word coffee and ask for a guess later.</"
+        )
+        final = stream_filter.filter(
+            ">"
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            middle.text,
+            "",
+        )
+        self.assertEqual(
+            final.actions,
+            (
+                RuntimeActionCall(
+                    name="CREATE_ACTIVE_MEMORY",
+                    payload=(
+                        "remember the word coffee "
+                        "and ask for a guess later."
+                    ),
+                ),
+            ),
+        )
+        self.assertEqual(
+            stream_filter.flush(),
+            "",
         )
 
     def test_stream_filter_handles_split_bare_create_active_memory_marker(self):

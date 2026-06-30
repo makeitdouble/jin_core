@@ -32,8 +32,8 @@ BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
         r"(?:"
         r"<\s*INTERNAL_ACTION_"
         r"(?P<bracketed_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY)"
-        r"(?:\s*:\s*(?P<bracketed_query>[^\r\n>]*?))?"
-        r"\s*>+"
+        r"(?:\s*:\s*(?P<bracketed_query>(?:(?!</\s*>)[^\r\n>])*?))?"
+        r"(?:\s*</\s*>+|\s*>+)"
         r"|"
         r"<\s*INTERNAL_ACTION_"
         r"(?P<bracketed_line_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT)"
@@ -54,8 +54,8 @@ MALFORMED_CALL_INTERNAL_ACTION_PATTERN = re.compile(
         r"(?:" 
         r"<\|?tool_call\>\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
         r"(?P<tool_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT)"
-        r"(?:\s*:\s*(?P<tool_call_query>[^\r\n>]*?))?"
-        r"(?:\s*>+|[^\S\r\n]*(?=\r?\n|$))"
+        r"(?:\s*:\s*(?P<tool_call_query>(?:(?!</\s*>)[^\r\n>])*?))?"
+        r"(?:\s*</\s*>+|\s*>+|[^\S\r\n]*(?=\r?\n|$))"
         r"|"
         r"(?m:^\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
         r"(?P<bare_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT)"
@@ -93,7 +93,7 @@ DELAYED_MEMORY_BLOCK_END_RE = re.compile(
 CREATE_ACTIVE_MEMORY_MARKER_RE = re.compile(
     (
         r"^\s*<?\s*INTERNAL_ACTION_CREATE_ACTIVE_MEMORY"
-        r"\s*:\s*(?P<fields>.*?)\s*>+\s*$"
+        r"\s*:\s*(?P<fields>(?:(?!</\s*>).)*?)\s*(?:</\s*>+|>+)\s*$"
         r"|"
         r"^\s*INTERNAL_ACTION_CREATE_ACTIVE_MEMORY"
         r"\s*:\s*(?P<bare_fields>[^\r\n]*)\s*$"
@@ -104,7 +104,7 @@ CREATE_ACTIVE_MEMORY_MARKER_RE = re.compile(
 INTERNAL_ACTION_WITH_PAYLOAD_MARKER_RE = re.compile(
     (
         r"^\s*<?\s*INTERNAL_ACTION_[A-Z_]+"
-        r"\s*:\s*(?P<payload>.*?)\s*>+\s*$"
+        r"\s*:\s*(?P<payload>(?:(?!</\s*>).)*?)\s*(?:</\s*>+|>+)\s*$"
         r"|"
         r"^\s*INTERNAL_ACTION_[A-Z_]+"
         r"\s*:\s*(?P<bare_payload>[^\r\n]*)\s*$"
@@ -2268,7 +2268,6 @@ class RuntimeActionStreamFilter:
         if (
             self.pending
             and self.pending_is_action
-            and "<" not in chunk
             and ">" not in chunk
             and "\n" not in chunk
             and "\r" not in chunk

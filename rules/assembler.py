@@ -25,7 +25,7 @@ from .runtime import (
     RUNTIME_ACTION_WEB_SEARCH,
     SAVE_SESSION_RULES,
     WEB_SEARCH_RULES,
-    RUNTIME_ACTIONS_RULES, SAVE_DELAYED_MEMORY_RULES,
+    RUNTIME_ACTIONS_RULES, SAVE_DELAYED_MEMORY_RULES, INTERNAL_ACTION_ROUTER_RULES
 )
 
 
@@ -215,6 +215,8 @@ def build_runtime_action_instructions(
 
     if not enabled_actions:
         instructions = ["No runtime actions are currently enabled."]
+
+    instructions.append(INTERNAL_ACTION_ROUTER_RULES)
 
     return "\n".join(instructions)
 
