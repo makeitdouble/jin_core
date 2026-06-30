@@ -51,7 +51,7 @@ BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
 
 MALFORMED_CALL_INTERNAL_ACTION_PATTERN = re.compile(
     (
-        r"(?:" 
+        r"(?:"
         r"<\|?tool_call\>\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
         r"(?P<tool_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT)"
         r"(?:\s*:\s*(?P<tool_call_query>(?:(?!</\s*>)[^\r\n>])*?))?"
