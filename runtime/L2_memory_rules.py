@@ -134,6 +134,8 @@ OCCURRENCE_COUNTING = (
     "for one snapshot, it still counts as one occurrence.\n"
     "Do not put Occurrences counters into L2_pattern_evidence_N lines.\n"
     "Current exact-repeat counts are supplied by runtime on user_message as [ repeated: N ].\n"
+    "Qualifier variants around the same underlying request, target, or interaction tactic "
+    "count as the same pattern family, not separate repeated patterns.\n"
     "Do not create a brand-new pattern when all matching evidence is confined "
     "to one unique patch snapshot, even if that snapshot contains multiple rows "
     "for the same message.\n"
@@ -146,11 +148,15 @@ OCCURRENCE_COUNTING = (
 # дословно из поля user_message в оригинальном языке пользователя, без перевода.
 # ─────────────────────────────────────────────────────────────────────────────
 PATTERN_EVIDENCE_LINES = (
-    "When L2 names or updates a concrete repeated pattern, write a companion evidence line:\n"
+    "When L2 names or updates a concrete repeated pattern, write exactly one companion evidence line "
+    "for that normalized pattern family:\n"
     "  L2_pattern_evidence_N: <short pattern description> "
     "[ quote: \"<literal user_message value>\" ] "
     "[ first_seen_turn_snapshot: S1 ] "
     "[ last_seen_turn_snapshot: S2 ]\n"
+    "Do not write one L2_pattern_evidence_N line per wording variant. "
+    "If several user messages are variants of the same behavior, keep one evidence line "
+    "with a representative literal quote and update its last_seen_turn_snapshot.\n"
     "The final token on the line MUST be the closing bracket of "
     "[ last_seen_turn_snapshot: S2 ]. Never append status, notes, explanations, "
     "conclusions, punctuation, occurrence counters, or any other text after it.\n"
@@ -175,8 +181,10 @@ EVIDENCE_LINE_LIFECYCLE = (
     "set both first_seen_turn_snapshot and last_seen_turn_snapshot "
     "from the matching unique patch snapshots in the supplied L1 patch window.\n"
     "If an existing L2_pattern_evidence_N line matches the same normalized literal "
-    "or the same pattern, preserve first_seen_turn_snapshot, "
+    "or the same normalized pattern family, preserve first_seen_turn_snapshot, "
     "then update only last_seen_turn_snapshot when new matching L1 evidence appears.\n"
+    "Treat wording changes, added adjectives, cultural/contextual qualifiers, or polite framing "
+    "as the same normalized pattern family when the underlying request target and tactic remain the same.\n"
     "For an existing pattern, do not recompute first_seen_snapshot from the supplied patch window.\n"
     "Only update last_seen_snapshot when patch snapshot > old last_seen_snapshot "
     "and the L1 evidence actually matches this pattern.\n"
@@ -184,8 +192,29 @@ EVIDENCE_LINE_LIFECYCLE = (
     "initialize it from the newest matching visible evidence.\n"
     "Do not duplicate an existing pattern under a new L2_pattern_evidence_N key; "
     "update the existing evidence line instead.\n"
+    "Before returning memory, collapse duplicate L2_pattern_evidence_N lines that describe "
+    "the same normalized pattern family: keep the oldest key, preserve its first_seen_turn_snapshot, "
+    "set last_seen_turn_snapshot to the newest matching snapshot, and omit the duplicate keys.\n"
     "When the user explicitly cancels the pattern, stops doing it, or clearly changes topic, "
     "the pattern may be dropped instead of zero-counted.\n"
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATTERN FAMILY DEDUPLICATION
+# L2 должен агрегировать повторяющееся поведение в один паттерн, а не создавать
+# новую evidence-строку для каждой формулировки того же самого действия.
+# ─────────────────────────────────────────────────────────────────────────────
+PATTERN_FAMILY_DEDUPLICATION = (
+    "Normalize pattern families before creating or updating L2 evidence.\n"
+    "A pattern family is defined by the same underlying user action or tactic, "
+    "even when the literal wording changes between turns.\n"
+    "For safety-boundary tests, bypass attempts, memory-management commands, "
+    "and repeated clarification loops, merge variants into one pattern family "
+    "when they share the same target and conversational move.\n"
+    "Do not create several L2_pattern_evidence_N entries with the same or near-identical "
+    "short pattern description. Update the existing family instead.\n"
+    "The structured pattern entry may keep a short evidence list, but the companion "
+    "L2_pattern_evidence_N accounting line remains one line per pattern family.\n"
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -242,6 +271,7 @@ RUNTIME_L2_MEMORY_SYSTEM_PROMPT = (
         + OCCURRENCE_COUNTING
         + PATTERN_EVIDENCE_LINES
         + EVIDENCE_LINE_LIFECYCLE
+        + PATTERN_FAMILY_DEDUPLICATION
         + SELF_LEARNING_GUARD
         + CONFIRMABLE_KEYS
         + TRACE_METADATA

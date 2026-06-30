@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import httpx
 
-from clients import (
+from rules.assembler import (
     build_brain_system_prompt,
 )
 from runtime import (
@@ -49,6 +49,7 @@ from runtime.L3_memory_rules import (
     L3_OUTPUT_MAX_TOKENS,
 )
 from runtime.L2_memory_utils import (
+    extract_runtime_l2_pattern_evidence_lines,
     merge_runtime_l2_pattern_evidence_memory,
     normalize_l2_pattern_evidence_example,
     remove_runtime_l2_pattern_evidence_lines,
@@ -462,6 +463,18 @@ class MessageMemoryTests(
             context.runtime_memory,
         )
 
+        self.assertEqual(
+            snapshot["turn_number"],
+            0,
+        )
+        self.assertEqual(
+            snapshot["user_message_count"],
+            0,
+        )
+        self.assertEqual(
+            snapshot["assistant_message_count"],
+            0,
+        )
         self.assertIn(
             f"note: {DEFAULT_RUNTIME_MEMORY}",
             snapshot["raw_memory"],
@@ -469,6 +482,41 @@ class MessageMemoryTests(
         self.assertIn(
             "user_idle: 2s",
             snapshot["raw_memory"],
+        )
+
+    def test_runtime_memory_snapshot_persists_session_counters(self):
+
+        context = RuntimeContext(
+            websocket=object(),
+            emitter=object(),
+            logger=object(),
+            clients={},
+        )
+        context.runtime_memory = "topic: reconnect counters"
+        context.turn_number = 14
+        context.user_message_count = 15
+        context.assistant_message_count = 14
+
+        snapshot = build_runtime_memory_snapshot(
+            context,
+            context.runtime_memory,
+        )
+
+        self.assertEqual(
+            snapshot["turn_number"],
+            14,
+        )
+        self.assertEqual(
+            snapshot["user_message_count"],
+            15,
+        )
+        self.assertEqual(
+            snapshot["assistant_message_count"],
+            14,
+        )
+        self.assertEqual(
+            snapshot["raw_memory"],
+            "topic: reconnect counters",
         )
 
     def test_runtime_memory_context_replaces_stale_user_idle(self):
@@ -659,6 +707,43 @@ class MessageMemoryTests(
             "possible pattern: repeated message. Occurrences: 4\n"
             "scope: current session",
             cleaned,
+        )
+
+    def test_embedded_l2_pattern_evidence_is_extracted_for_runtime_display(self):
+
+        runtime_l2_memory = (
+            "possible pattern: User initiates a request for abstract creative content. "
+            'Occurrences: 1; evidence: [ user_message: "draw something unusual" ]; '
+            "L2_pattern_evidence_3: User initiates a request for abstract creative content. "
+            '[ quote: "draw something unusual" ] '
+            "[ first_seen_turn_snapshot: 4 ] "
+            "[ last_seen_turn_snapshot: 4 ]"
+        )
+
+        evidence_lines = extract_runtime_l2_pattern_evidence_lines(
+            runtime_l2_memory
+        )
+
+        self.assertEqual(
+            [
+                "L2_pattern_evidence_3: User initiates a request for abstract creative content. "
+                '[ quote: "draw something unusual" ] '
+                "[ first_seen_turn_snapshot: 4 ] "
+                "[ last_seen_turn_snapshot: 4 ]",
+            ],
+            evidence_lines,
+        )
+
+        rendered = build_runtime_memory_context_text(
+            "current_request: waiting",
+            SimpleNamespace(
+                runtime_l2_memory=runtime_l2_memory,
+            ),
+        )
+
+        self.assertIn(
+            "L2_pattern_evidence_3:",
+            rendered,
         )
 
     def test_l2_pattern_evidence_example_normalizer_strips_spaces_commas_and_dots(self):
@@ -1481,12 +1566,17 @@ class MessageMemoryTests(
             ),
             context=SimpleNamespace(
                 timestamp="2026-06-20T10:00:00",
+                session_id="session-alpha",
                 turn_number=3,
             ),
         )
 
         self.assertIn(
             "[ creation_time: 2026-06-20T10:00:00 ]",
+            memory,
+        )
+        self.assertIn(
+            "[ created_session_id: session-alpha ]",
             memory,
         )
         self.assertIn(
@@ -1508,6 +1598,7 @@ class MessageMemoryTests(
             "active_memory: Secret word: Sun "
             "[ purpose: Ask user to guess ] "
             "[ creation_time: 2026-06-20T10:00:00 ] "
+            "[ created_session_id: session-alpha ] "
             "[ created_jin_message_number: 3 ] "
             "[ elapsed_time: 00:00:00 ] "
             "[ elapsed_jin_message_number: 0 ] "
@@ -1523,12 +1614,17 @@ class MessageMemoryTests(
             previous_memory=previous_memory,
             context=SimpleNamespace(
                 timestamp="2026-06-20T11:02:03",
+                session_id="session-beta",
                 turn_number=5,
             ),
         )
 
         self.assertIn(
             "[ creation_time: 2026-06-20T10:00:00 ]",
+            memory,
+        )
+        self.assertIn(
+            "[ created_session_id: session-alpha ]",
             memory,
         )
         self.assertIn(
@@ -1616,6 +1712,7 @@ class MessageMemoryTests(
                 "active_memory: Secret word: Sun "
                 "[ purpose: Ask user to guess ] "
                 "[ creation_time: 2026-06-20T10:00:00 ] "
+                "[ created_session_id: session-alpha ] "
                 "[ created_jin_message_number: 3 ] "
                 "[ elapsed_time: 01:02:03 ] "
                 "[ elapsed_jin_message_number: 2 ] "
@@ -1641,6 +1738,10 @@ class MessageMemoryTests(
             memory,
         )
         self.assertNotIn(
+            "created_session_id",
+            memory,
+        )
+        self.assertNotIn(
             "elapsed_time",
             memory,
         )
@@ -1653,6 +1754,7 @@ class MessageMemoryTests(
                 "[ conditions: Ask when user returns ] "
                 "[ value: Sun ] "
                 "[ creation_time: 2026-06-20T10:00:00 ] "
+                "[ created_session_id: session-alpha ] "
                 "[ elapsed_time: 01:02:03 ] "
                 "[ status: pending ]"
             )
@@ -1669,6 +1771,10 @@ class MessageMemoryTests(
         )
         self.assertNotIn(
             "creation_time",
+            memory,
+        )
+        self.assertNotIn(
+            "created_session_id",
             memory,
         )
         self.assertNotIn(
@@ -3080,8 +3186,25 @@ class MessageMemoryTests(
             updated_memory,
             "decision: keep current",
         )
-        self.assertTrue(
+        self.assertFalse(
             context.runtime_save_session_requested,
+        )
+        self.assertFalse(
+            context.runtime_save_session_action_emitted,
+        )
+        calls_after_skip = len(
+            service_client.calls
+        )
+        repeated_memory = await maybe_summarize_runtime_session_memory(
+            context=context,
+        )
+        self.assertEqual(
+            repeated_memory,
+            "decision: keep current",
+        )
+        self.assertEqual(
+            len(service_client.calls),
+            calls_after_skip,
         )
         self.assertEqual(
             context.runtime_memory_snapshots,
@@ -3162,6 +3285,9 @@ class MessageMemoryTests(
             service_client.calls,
             [],
         )
+        self.assertFalse(
+            context.runtime_save_session_requested,
+        )
         self.assertEqual(
             context.emitter.events[-1],
             {
@@ -3241,7 +3367,7 @@ class MessageMemoryTests(
             updated_memory,
             "decision: keep current",
         )
-        self.assertTrue(
+        self.assertFalse(
             context.runtime_save_session_requested,
         )
         self.assertEqual(
@@ -3253,7 +3379,7 @@ class MessageMemoryTests(
             "[MEMORY:L3] L3 session memory update failed",
         )
 
-    async def test_l3_session_memory_no_snapshots_leaves_buffer_empty(self):
+    async def test_l3_session_memory_no_snapshots_clears_save_request(self):
 
         service_client = FakeServiceClient(
             "should not be called"
@@ -3297,7 +3423,7 @@ class MessageMemoryTests(
             context.runtime_memory_snapshots,
             [],
         )
-        self.assertTrue(
+        self.assertFalse(
             context.runtime_save_session_requested,
         )
         self.assertEqual(

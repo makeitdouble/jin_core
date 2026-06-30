@@ -21,7 +21,7 @@ function ensureTraceModal() {
     document.createElement("div");
 
   panel.className =
-    "w-full max-w-5xl max-h-[86vh] rounded border border-zinc-700 bg-zinc-950 shadow-2xl flex flex-col";
+    "delayed-memory-modal-panel w-full max-w-5xl max-h-[86vh] rounded border border-zinc-700 bg-zinc-950 shadow-2xl flex flex-col";
 
   const header =
     document.createElement("div");
@@ -63,7 +63,7 @@ function ensureTraceModal() {
     document.createElement("div");
 
   traceModalContent.className =
-    "min-h-0 flex-1 overflow-auto p-4 text-[12px] leading-relaxed text-zinc-200";
+    "delayed-memory-modal-content min-h-0 flex-1 overflow-auto p-4 text-[12px] leading-relaxed text-zinc-200";
 
   traceModalContent.style.overflowWrap =
     "anywhere";
@@ -186,11 +186,264 @@ function appendTraceSection(
   );
 }
 
-function renderTraceDetails(details) {
+function normalizeTraceModalDisplayText(value) {
+  if (value === null || typeof value === "undefined") {
+    return "";
+  }
+
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeTraceModalDisplayText(item))
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(
+        value,
+        null,
+        2
+      );
+    } catch (_error) {
+      return String(value);
+    }
+  }
+
+  return String(value);
+}
+
+function appendTraceModalField(
+  parent,
+  label,
+  value,
+) {
+  const normalizedValue =
+    normalizeTraceModalDisplayText(value);
+
+  if (!normalizedValue) {
+    return;
+  }
+
+  const row =
+    document.createElement("div");
+
+  row.className =
+    "delayed-memory-modal-field";
+
+  const key =
+    document.createElement("div");
+
+  key.className =
+    "delayed-memory-modal-label";
+
+  key.textContent =
+    label;
+
+  const text =
+    document.createElement("div");
+
+  text.className =
+    "delayed-memory-modal-value";
+
+  text.textContent =
+    normalizedValue;
+
+  row.appendChild(
+    key
+  );
+
+  row.appendChild(
+    text
+  );
+
+  parent.appendChild(
+    row
+  );
+}
+
+function appendTraceModalBody(
+  parent,
+  title,
+  content,
+) {
+  const normalizedBody =
+    normalizeTraceModalDisplayText(content);
+
+  if (!normalizedBody) {
+    return;
+  }
+
+  const section =
+    document.createElement("section");
+
+  section.className =
+    "delayed-memory-modal-section";
+
+  const heading =
+    document.createElement("div");
+
+  heading.className =
+    "delayed-memory-modal-section-title";
+
+  heading.textContent =
+    title;
+
+  const pre =
+    document.createElement("pre");
+
+  pre.className =
+    "delayed-memory-modal-body";
+
+  pre.textContent =
+    normalizedBody;
+
+  section.appendChild(
+    heading
+  );
+
+  section.appendChild(
+    pre
+  );
+
+  parent.appendChild(
+    section
+  );
+}
+
+function isSummarizerRequestPayload(parsed) {
+  return Boolean(
+    parsed
+    && typeof parsed === "object"
+    && Array.isArray(parsed.messages)
+    && parsed.messages.some((message) => {
+      return (
+        message
+        && typeof message === "object"
+        && typeof message.role === "string"
+        && Object.prototype.hasOwnProperty.call(
+          message,
+          "content"
+        )
+      );
+    })
+  );
+}
+
+function renderSummarizerRequestTrace(
+  parsed,
+  title,
+) {
+  const fields =
+    document.createElement("section");
+
+  fields.className =
+    "delayed-memory-modal-fields";
+
+  appendTraceModalField(
+    fields,
+    "Title",
+    title
+  );
+
+  appendTraceModalField(
+    fields,
+    "Model",
+    parsed.model
+  );
+
+  appendTraceModalField(
+    fields,
+    "Temperature",
+    parsed.temperature
+  );
+
+  appendTraceModalField(
+    fields,
+    "Max tokens",
+    parsed.max_tokens
+  );
+
+  appendTraceModalField(
+    fields,
+    "Stream",
+    parsed.stream
+  );
+
+  appendTraceModalField(
+    fields,
+    "Messages",
+    parsed.messages.length
+  );
+
+  traceModalContent.appendChild(
+    fields
+  );
+
+  parsed.messages.forEach((message, index) => {
+    const role =
+      normalizeTraceModalDisplayText(message.role)
+      || `message ${index + 1}`;
+
+    appendTraceModalBody(
+      traceModalContent,
+      `${role} message`,
+      message.content
+    );
+  });
+
+  const extra = {};
+
+  Object.entries(parsed).forEach(([key, value]) => {
+    if (
+        [
+          "model",
+          "messages",
+          "temperature",
+          "max_tokens",
+          "stream",
+        ].includes(key)
+    ) {
+      return;
+    }
+
+    extra[key] = value;
+  });
+
+  if (Object.keys(extra).length) {
+    appendTraceModalBody(
+      traceModalContent,
+      "Extra request options",
+      extra
+    );
+  }
+}
+
+function renderTraceDetails(
+  details,
+  title = "Trace",
+) {
   traceModalContent.replaceChildren();
 
   const parsed =
     parseTraceJson(details);
+
+  if (isSummarizerRequestPayload(parsed)) {
+    renderSummarizerRequestTrace(
+      parsed,
+      title
+    );
+
+    return;
+  }
 
   if (
       parsed
@@ -276,6 +529,10 @@ function getTraceTitle(
     return "Summarizer response";
   }
 
+  if (isSummarizerRequestPayload(parsed)) {
+    return fallbackTitle || "Summarizer request";
+  }
+
   return fallbackTitle;
 }
 
@@ -306,7 +563,8 @@ function showTrace(
   }
 
   renderTraceDetails(
-    details
+    details,
+    title
   );
 
   traceModal.classList.remove(
@@ -1270,7 +1528,7 @@ function appendLog(
               : tag.includes("ACTIVE_MEMORY")
               ? "Active memory payload"
               : isSummarizer
-              ? "Summarizer payload"
+              ? normalized.message || "Summarizer payload"
               : "Trace"
           ),
           reason

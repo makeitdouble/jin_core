@@ -2,14 +2,16 @@ import asyncio
 import unittest
 from types import SimpleNamespace
 
-from clients import (
-    build_brain_system_prompt,
-    get_enabled_runtime_actions,
+from clients.brain_context_builder import (
+    build_brain_runtime_context,
 )
 from clients.brain_client import (
     ask_brain,
     ask_brain_stream,
-    build_brain_runtime_context,
+)
+from rules.assembler import (
+    build_brain_system_prompt,
+    get_enabled_runtime_actions,
 )
 from config_loader import (
     config,
@@ -44,6 +46,9 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
     if bool(runtime_actions.get("CAN_SAVE_SESSION", False)):
         expected_actions.append("SAVE_SESSION")
 
+    if bool(runtime_actions.get("CAN_SAVE_DELAYED_MEMORY", False)):
+        expected_actions.append("SAVE_DELAYED_MEMORY_CONTENT")
+
     if bool(runtime_actions.get("CAN_SAVE_ACTIVE_MEMORY", False)):
         expected_actions.extend(
             (
@@ -56,6 +61,57 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
 
 
 class BrainRuntimeActionTests(unittest.TestCase):
+
+    def test_brain_system_prompt_keeps_runtime_rule_sentences_separated(self):
+
+        context = SimpleNamespace(
+            runtime_memory="",
+            runtime_memory_stable="",
+            active_memory_records=[
+                "active_memory_1: Check whether this should resolve",
+            ],
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_WEB_SEARCH": True,
+                "CAN_SAVE_SESSION": True,
+                "CAN_SAVE_DELAYED_MEMORY": True,
+                "CAN_SAVE_ACTIVE_MEMORY": True,
+            },
+        )
+
+        assert_not_contains_text(
+            self,
+            prompt,
+            "final answer.Emit markers",
+        )
+        assert_not_contains_text(
+            self,
+            prompt,
+            "specific cases.DO NOT invent",
+        )
+        assert_not_contains_text(
+            self,
+            prompt,
+            "memory conditions.You need",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "final answer.\nEmit markers",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "specific cases.\nDO NOT invent",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "memory conditions.\nYou need",
+        )
 
     def test_non_stream_blocks_save_session_meta_request_in_reasoning(self):
 
@@ -111,6 +167,112 @@ class BrainRuntimeActionTests(unittest.TestCase):
             hasattr(
                 context,
                 "runtime_save_session_requested",
+            )
+        )
+
+    def test_non_stream_preserves_save_session_marker_without_user_request(self):
+
+        class FakeBrainClient:
+            async def ask(self, **_kwargs):
+                return {
+                    "model": config.BRAIN_MODEL_UID,
+                    "choices": [
+                        {
+                            "message": {
+                                "reasoning": "",
+                                "content": (
+                                    "The literal marker is "
+                                    "<INTERNAL_ACTION_SAVE_SESSION>."
+                                ),
+                            },
+                        },
+                    ],
+                }
+
+        class Context:
+            pass
+
+        context = Context()
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            answer = asyncio.run(
+                ask_brain(
+                    client=FakeBrainClient(),
+                    text="what marker saves the session?",
+                    context=context,
+                    runtime_actions={
+                        "CAN_SAVE_SESSION": True,
+                    },
+                )
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        self.assertEqual(
+            answer,
+            "The literal marker is <INTERNAL_ACTION_SAVE_SESSION>.",
+        )
+        self.assertFalse(
+            hasattr(
+                context,
+                "runtime_save_session_requested",
+            )
+        )
+
+    def test_non_stream_preserves_delayed_memory_marker_without_user_request(self):
+
+        marker_text = (
+            "Example:\n"
+            "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>\n"
+            '{"demo": {"summary": "quoted marker"}}\n'
+            "</INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>"
+        )
+
+        class FakeBrainClient:
+            async def ask(self, **_kwargs):
+                return {
+                    "model": config.BRAIN_MODEL_UID,
+                    "choices": [
+                        {
+                            "message": {
+                                "reasoning": "",
+                                "content": marker_text,
+                            },
+                        },
+                    ],
+                }
+
+        class Context:
+            pass
+
+        context = Context()
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            answer = asyncio.run(
+                ask_brain(
+                    client=FakeBrainClient(),
+                    text="how does delayed memory marker look?",
+                    context=context,
+                    runtime_actions={
+                        "CAN_SAVE_DELAYED_MEMORY": True,
+                    },
+                )
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        self.assertEqual(
+            answer,
+            marker_text,
+        )
+        self.assertFalse(
+            hasattr(
+                context,
+                "delayed_memory_reports",
             )
         )
 
@@ -258,6 +420,64 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
+    def test_stream_applies_save_session_marker_from_content_tail(self):
+
+        class FakeBrainClient:
+            async def stream(self, **_kwargs):
+                yield {
+                    "type": "content",
+                    "content": "<INTERNAL_ACTION_SAVE_SESSION>",
+                }
+
+        class Context:
+            pass
+
+        async def collect(context):
+            chunks = []
+
+            async for chunk in ask_brain_stream(
+                client=FakeBrainClient(),
+                text="save session",
+                context=context,
+                runtime_actions={
+                    "CAN_SAVE_SESSION": True,
+                },
+            ):
+                chunks.append(
+                    chunk
+                )
+
+            return chunks
+
+        context = Context()
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            chunks = asyncio.run(
+                collect(
+                    context
+                )
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        self.assertEqual(
+            chunks,
+            [],
+        )
+        self.assertTrue(
+            context.runtime_save_session_requested,
+        )
+        self.assertEqual(
+            context.runtime_action_events,
+            [
+                {
+                    "name": "save_session",
+                },
+            ],
+        )
+
     def test_stream_ignores_web_search_internal_action_in_thinking(self):
 
         class FakeBrainClient:
@@ -353,6 +573,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         runtime_actions = {
             "CAN_WEB_SEARCH": True,
             "CAN_SAVE_SESSION": True,
+            "CAN_SAVE_DELAYED_MEMORY": True,
             "CAN_SAVE_ACTIVE_MEMORY": True,
         }
 
@@ -384,6 +605,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         for private_marker in (
             "<INTERNAL_ACTION_SAVE_SESSION>",
+            "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>",
             "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: CONDITIONS >",
             "Use WEB_SEARCH when freshness",
         ):

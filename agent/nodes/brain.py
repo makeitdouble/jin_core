@@ -7,8 +7,10 @@ from runtime.stream import (
 from clients.brain_client import (
     ask_brain_stream,
     build_brain_payload,
-    build_brain_system_prompt,
     emit_active_memory_records_update_if_dirty,
+)
+from rules.assembler import (
+    build_brain_system_prompt,
 )
 
 from clients.search_client import (

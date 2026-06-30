@@ -21,3 +21,42 @@ LOOP_RULES = (
     "After breaking shape: hold the new shape. Adding warmth, options, or invitations resets the loop.\n"
     "No new signal from the user = no new strategy from JIN. Silence the instinct to fill.\n"
 )
+
+ZERO_DIFF_RULES = (
+    "Previous L1 memory update produced total_diff 0. "
+    "Do not alarm from this fact alone. "
+    "If the current user input manifests the same local interaction that caused this zero-diff turn, "
+    "treat it as a maximum stall signal: stop continuing normally and refuse the repeated frame. "
+    "Do not try to break the loop by forcing the user to define a purpose, task, topic, choice, or next step. "
+    "Treat the local rules that produced the previous answers as bad rules for this turn. "
+    "Use a short, pointed, off-angle move that makes the ignored loop visible and changes the interaction shape."
+)
+
+# activity < 20%
+EXTREME_LOW_DIFF_RULES = (
+    "CRITICAL activity collapse. The conversation is nearly stalled. "
+    "Strongly prefer acting against the expected pattern. "
+    "Assume the current local response rules have failed for this situation. "
+    "Do not continue with greetings, reassurance, broad invitations, or option menus. "
+    "Do not force progress or extract a useful request from the user. "
+    "Use a counter-reaction only as a non-request observation, pause, boundary, "
+    "or surprising move that does not ask for a topic, task, purpose, choice, or next step."
+)
+
+# activity <= 30%
+LOW_DIFF_RULES = (
+    "LOW activity. The conversation is fading; find and remove the cause. "
+    "Strongly prefer acting against the expected pattern."
+)
+
+# activity <= 50%
+MIDDLE_DIFF_RULES = (
+    "VERY COOLING activity. The conversation is almost dead. "
+    "Look for friction, unresolved loops, or stale offers, then adjust strategy before it stalls."
+)
+
+# activity < 100%
+NORMAL_DIFF_RULES = (
+    "ACTIVE but dying out. The exchange is still active, but energy is draining quickly. "
+    "Avoid repeating the same response shape."
+)

@@ -7,8 +7,22 @@
   let initialized = false;
   let userIdleValueNode = null;
   let buildDisplaySnapshot = null;
+  let getActiveMemoryRecords = null;
+  let setActiveMemoryRecords = null;
+  let getDelayedMemoryReports = null;
+  let getDisplayMode = null;
+  let setDisplayMode = null;
+
+  const ACTIVE_MEMORY_PAUSE_HOLD_MS = 500;
 
   const pinnedRuntimeMemorySnapshotIndexes = new Set();
+
+  const autoFlashedRuntimeMemorySnapshots = new WeakSet();
+
+  let delayedMemoryModal = null;
+  let delayedMemoryModalPanel = null;
+  let delayedMemoryModalTitle = null;
+  let delayedMemoryModalContent = null;
 
   const runtimeDiffHistory = {
     diffs: [],
@@ -59,6 +73,119 @@
 
   function getUserIdleText() {
     return idle ? idle.getText() : "0s";
+  }
+
+  function getRuntimeMemoryDisplayMode() {
+    return typeof getDisplayMode === "function"
+      ? getDisplayMode()
+      : "runtime";
+  }
+
+  function setRuntimeMemoryDisplayMode(mode) {
+    if (typeof setDisplayMode === "function") {
+      setDisplayMode(mode);
+    }
+  }
+
+  function getRuntimeMemorySnapshotDisplayIndex(snapshot) {
+    if (typeof snapshot.index !== "number") {
+      return runtimeMemoryHistory.index + 1;
+    }
+
+    return snapshot.index
+      + Number(runtimeMemoryHistory.displayIndexOffset || 0);
+  }
+
+  function getActiveMemoryRecordTexts() {
+    return typeof getActiveMemoryRecords === "function"
+      ? getActiveMemoryRecords()
+      : [];
+  }
+
+  function getDelayedMemoryReportRecords() {
+    const reports =
+        typeof getDelayedMemoryReports === "function"
+          ? getDelayedMemoryReports()
+          : {};
+
+    if (
+        !reports
+        || typeof reports !== "object"
+        || Array.isArray(reports)
+    ) {
+      return [];
+    }
+
+    return Object.entries(reports)
+        .map(([key, report]) => {
+          if (
+              !report
+              || typeof report !== "object"
+              || Array.isArray(report)
+          ) {
+            return null;
+          }
+
+          return {
+            _storage_key: key,
+            ...report,
+          };
+        })
+        .filter(Boolean);
+  }
+
+  function setActiveMemoryRecordTexts(records) {
+    if (typeof setActiveMemoryRecords === "function") {
+      setActiveMemoryRecords(
+          records
+      );
+    }
+  }
+
+  function updateRuntimeMemoryTitleState() {
+    if (!runtimeMemoryTitle) {
+      return;
+    }
+
+    const hasActiveMemory =
+        getActiveMemoryRecordTexts().length > 0;
+
+    const hasDelayedMemory =
+        getDelayedMemoryReportRecords().length > 0;
+
+    const displayMode =
+        getRuntimeMemoryDisplayMode();
+
+    runtimeMemoryTitle.textContent =
+        displayMode === "active"
+          ? "[ active memory ]"
+          : displayMode === "delayed"
+            ? "[ delayed memory ]"
+            : "[ runtime memory ]";
+
+    runtimeMemoryTitle.classList.toggle(
+        "runtime-memory-title-clickable",
+        hasActiveMemory || hasDelayedMemory
+    );
+
+    if (hasActiveMemory || hasDelayedMemory) {
+      runtimeMemoryTitle.setAttribute(
+          "role",
+          "button"
+      );
+      runtimeMemoryTitle.setAttribute(
+          "tabindex",
+          "0"
+      );
+      return;
+    }
+
+    runtimeMemoryTitle.removeAttribute(
+        "role"
+    );
+    runtimeMemoryTitle.removeAttribute(
+        "tabindex"
+    );
   }
 
   function updateUserIdleTimerText(
@@ -265,6 +392,13 @@
       return;
     }
 
+    if (getRuntimeMemoryDisplayMode() !== "runtime") {
+      runtimeMemoryPosition.classList.remove(
+          "runtime-memory-position-pinned"
+      );
+      return;
+    }
+
     runtimeMemoryPosition.classList.toggle(
         "runtime-memory-position-pinned",
         isCurrentRuntimeMemorySnapshotPinned()
@@ -361,6 +495,24 @@
         `${charCount} chars / ~${tokenCount} tokens`;
   }
 
+  function updateRuntimeMemoryTitleMetricsFromText(text) {
+    if (!runtimeMemoryTitle) {
+      return;
+    }
+
+    const metricText =
+        String(text || "").trim();
+
+    const charCount =
+        Array.from(metricText).length;
+
+    const tokenCount =
+        estimateRuntimeMemoryTokens(metricText);
+
+    runtimeMemoryTitle.title =
+        `${charCount} chars / ~${tokenCount} tokens`;
+  }
+
   function clampRuntimeMemoryHistoryIndex() {
     requireRuntimeMemoryHistory();
 
@@ -394,9 +546,20 @@
         runtimeMemoryHistory.snapshots.length - 1;
   }
 
-  function renderRuntimeMemorySnapshot() {
+  function renderRuntimeMemorySnapshot(options = {}) {
     requireRuntimeMemoryHistory();
     clampRuntimeMemoryHistoryIndex();
+    updateRuntimeMemoryTitleState();
+
+    if (getRuntimeMemoryDisplayMode() === "active") {
+      renderActiveMemoryRecords();
+      return;
+    }
+
+    if (getRuntimeMemoryDisplayMode() === "delayed") {
+      renderDelayedMemoryReports();
+      return;
+    }
 
     const sourceSnapshot =
         runtimeMemoryHistory.snapshots[
@@ -416,6 +579,7 @@
       updateRuntimeMemoryTitleMetrics(null);
       updateRuntimeMemoryArrows();
       updateRuntimeMemoryPinGlow();
+      updateRuntimeMemoryTitleState();
       return;
     }
 
@@ -424,23 +588,38 @@
             sourceSnapshot
         );
 
+    const persistGlow =
+        isCurrentRuntimeMemorySnapshotPinned();
+
+    const flashMode =
+        options && options.flashMode || "auto";
+
+    const applyFlash =
+        shouldApplyRuntimeMemoryFlash(
+            sourceSnapshot,
+            flashMode,
+            persistGlow
+        );
+
     renderRuntimeMemoryLines(
         snapshot,
-        isCurrentRuntimeMemorySnapshotPinned()
+        persistGlow,
+        {
+          applyFlash,
+        }
     );
 
     if (runtimeMemoryPosition) {
       runtimeMemoryPosition.textContent =
           String(
-              typeof snapshot.index === "number"
-                ? snapshot.index
-                : runtimeMemoryHistory.index + 1
+              getRuntimeMemorySnapshotDisplayIndex(snapshot)
           );
     }
 
     updateRuntimeMemoryTitleMetrics(snapshot);
     updateRuntimeMemoryArrows();
     updateRuntimeMemoryPinGlow();
+    updateRuntimeMemoryTitleState();
   }
 
   function isLatestRuntimeMemorySnapshot() {
@@ -527,7 +706,59 @@
     }, 1500);
   }
 
-  function renderRuntimeMemoryLines(snapshot, persistGlow = false) {
+  function runtimeMemoryLineHasFlashStatus(line) {
+    if (!line || typeof line !== "object") {
+      return false;
+    }
+
+    return [
+      line.status,
+      line.key_status,
+      line.value_status,
+    ].some((status) => (
+      status === "new"
+      || status === "changed"
+    ));
+  }
+
+  function runtimeMemorySnapshotHasFlashStatus(snapshot) {
+    return Boolean(
+        snapshot
+        && Array.isArray(snapshot.lines)
+        && snapshot.lines.some(runtimeMemoryLineHasFlashStatus)
+    );
+  }
+
+  function shouldApplyRuntimeMemoryFlash(
+      sourceSnapshot,
+      flashMode,
+      persistGlow
+  ) {
+    if (persistGlow || flashMode === "replay") {
+      return true;
+    }
+
+    if (
+        !sourceSnapshot
+        || typeof sourceSnapshot !== "object"
+        || !runtimeMemorySnapshotHasFlashStatus(sourceSnapshot)
+    ) {
+      return true;
+    }
+
+    if (autoFlashedRuntimeMemorySnapshots.has(sourceSnapshot)) {
+      return false;
+    }
+
+    autoFlashedRuntimeMemorySnapshots.add(sourceSnapshot);
+    return true;
+  }
+
+  function renderRuntimeMemoryLines(
+      snapshot,
+      persistGlow = false,
+      options = {}
+  ) {
     if (!runtimeMemoryText) {
       return;
     }
@@ -575,7 +806,29 @@
       return;
     }
 
-    lines.forEach((line) => {
+    appendRuntimeMemoryLineRows(
+        lines,
+        persistGlow,
+        {
+          applyFlash: options.applyFlash !== false,
+        }
+    );
+
+    if (showLiveUserIdle) {
+      appendUserIdleRuntimeMemoryLine();
+    } else {
+      userIdleValueNode = null;
+    }
+
+    idle.start();
+  }
+
+  function appendRuntimeMemoryLineRows(
+      lines,
+      persistGlow = false,
+      options = {}
+  ) {
+    lines.forEach((line, index) => {
       const row =
           document.createElement("div");
 
@@ -626,32 +879,771 @@
       row.appendChild(keySpan);
       row.appendChild(valueSpan);
 
+      if (options.interactiveActiveMemory) {
+        configureActiveMemoryRow(
+            row,
+            index,
+            line
+        );
+      }
+
       runtimeMemoryText.appendChild(row);
 
-      applyRuntimeMemoryFlash(
-          keySpan,
-          keyStatus,
-          "key",
-          line.key_change_ratio,
-          persistGlow
-      );
+      if (options.applyFlash !== false) {
+        applyRuntimeMemoryFlash(
+            keySpan,
+            keyStatus,
+            "key",
+            line.key_change_ratio,
+            persistGlow
+        );
 
-      applyRuntimeMemoryFlash(
-          valueSpan,
-          valueStatus,
-          "value",
-          line.value_change_ratio,
-          persistGlow
-      );
+        applyRuntimeMemoryFlash(
+            valueSpan,
+            valueStatus,
+            "value",
+            line.value_change_ratio,
+            persistGlow
+        );
+      }
     });
+  }
 
-    if (showLiveUserIdle) {
-      appendUserIdleRuntimeMemoryLine();
-    } else {
-      userIdleValueNode = null;
+  function getRuntimeMemoryLineStatus(line) {
+    const parsed =
+        memoryModel.splitMemoryMeta(
+            line && line.value || ""
+        );
+
+    const statusTag =
+        parsed.tags.find((tag) => (
+          memoryModel.normalizeRuntimeMemoryKey(tag.key) === "status"
+        ));
+
+    return String(
+        statusTag && statusTag.value || ""
+    )
+      .trim()
+      .toLowerCase();
+  }
+
+  function updateActiveMemoryRecordStatus(index, status) {
+    const records =
+        getActiveMemoryRecordTexts();
+
+    if (
+        index < 0
+        || index >= records.length
+    ) {
+      return;
     }
 
-    idle.start();
+    const nextRecords =
+        records.map((record, recordIndex) => (
+          recordIndex === index
+            ? memoryModel.setRuntimeMemoryLineMetaValue(
+                record,
+                "status",
+                status
+            )
+            : record
+        ));
+
+    setActiveMemoryRecordTexts(
+        nextRecords
+    );
+    renderRuntimeMemorySnapshot();
+  }
+
+  function setActiveMemoryRowPressVisual(row, active) {
+    if (!row) {
+      return;
+    }
+
+    row.style.transitionProperty =
+        "opacity";
+    row.style.transitionTimingFunction =
+        active
+          ? "linear"
+          : "ease";
+    row.style.transitionDuration =
+        active
+          ? `${ACTIVE_MEMORY_PAUSE_HOLD_MS}ms`
+          : "160ms";
+    row.style.opacity =
+        active
+          ? "0.5"
+          : "";
+  }
+
+  function configureActiveMemoryRow(
+      row,
+      index,
+      line
+  ) {
+    if (!row) {
+      return;
+    }
+
+    row.classList.add(
+        "runtime-memory-active-row"
+    );
+
+    const status =
+        getRuntimeMemoryLineStatus(
+            line
+        );
+
+    row.dataset.activeMemoryStatus =
+        status || "pending";
+
+    let holdTimer = null;
+    let holdCompleted = false;
+    let pointerDown = false;
+    let pointerId = null;
+
+    function clearHoldTimer() {
+      if (!holdTimer) {
+        return;
+      }
+
+      clearTimeout(
+          holdTimer
+      );
+      holdTimer = null;
+    }
+
+    function cancelPendingHold() {
+      clearHoldTimer();
+      pointerDown = false;
+
+      if (!holdCompleted) {
+        setActiveMemoryRowPressVisual(
+            row,
+            false
+        );
+      }
+
+      holdCompleted = false;
+      pointerId = null;
+    }
+
+    row.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) {
+        return;
+      }
+
+      pointerDown = true;
+      holdCompleted = false;
+      pointerId = event.pointerId;
+
+      if (
+          row.dataset.activeMemoryStatus
+          === "paused"
+      ) {
+        return;
+      }
+
+      setActiveMemoryRowPressVisual(
+          row,
+          true
+      );
+
+      clearHoldTimer();
+      holdTimer = setTimeout(() => {
+        if (!pointerDown) {
+          return;
+        }
+
+        holdCompleted = true;
+        updateActiveMemoryRecordStatus(
+            index,
+            "paused"
+        );
+      }, ACTIVE_MEMORY_PAUSE_HOLD_MS);
+    });
+
+    row.addEventListener("pointerup", (event) => {
+      if (!pointerDown) {
+        return;
+      }
+
+      if (
+          pointerId !== null
+          && event.pointerId !== pointerId
+      ) {
+        return;
+      }
+
+      if (
+          row.dataset.activeMemoryStatus
+          === "paused"
+      ) {
+        updateActiveMemoryRecordStatus(
+            index,
+            "pending"
+        );
+        cancelPendingHold();
+        return;
+      }
+
+      if (!holdCompleted) {
+        cancelPendingHold();
+        return;
+      }
+
+      pointerDown = false;
+      pointerId = null;
+    });
+
+    row.addEventListener(
+        "pointercancel",
+        cancelPendingHold
+    );
+    row.addEventListener(
+        "pointerleave",
+        cancelPendingHold
+    );
+  }
+
+  function renderDelayedMemoryReports() {
+    const reports =
+        getDelayedMemoryReportRecords();
+
+    if (!reports.length) {
+      setRuntimeMemoryDisplayMode(
+          "runtime"
+      );
+      renderRuntimeMemorySnapshot();
+      return;
+    }
+
+    if (runtimeMemoryText) {
+      runtimeMemoryText.innerHTML = "";
+      runtimeMemoryText.classList.remove(
+          "runtime-memory-text-pinned"
+      );
+      runtimeMemoryText.removeAttribute(
+          "title"
+      );
+
+      reports.forEach((report) => {
+        const title =
+            String(report.title || "").trim();
+
+        const summary =
+            String(report.summary || "").trim();
+
+        const row =
+            document.createElement("div");
+
+        row.className =
+            "runtime-memory-line runtime-memory-delayed-row";
+
+        row.setAttribute(
+            "role",
+            "button"
+        );
+
+        row.setAttribute(
+            "tabindex",
+            "0"
+        );
+
+        const keySpan =
+            document.createElement("span");
+
+        keySpan.className =
+            "runtime-memory-key";
+
+        keySpan.textContent =
+            `${title}:`;
+
+        const valueSpan =
+            document.createElement("span");
+
+        valueSpan.className =
+            "runtime-memory-value";
+
+        valueSpan.textContent =
+            ` ${summary}`;
+
+        row.title =
+            `${title}: ${summary}`.trim();
+        valueSpan.title =
+            row.title;
+
+        row.appendChild(
+            keySpan
+        );
+        row.appendChild(
+            valueSpan
+        );
+
+        row.addEventListener("click", () => {
+          openDelayedMemoryReportModal(
+              report
+          );
+        });
+
+        row.addEventListener("keydown", (event) => {
+          if (
+              event.key !== "Enter"
+              && event.key !== " "
+          ) {
+            return;
+          }
+
+          event.preventDefault();
+          openDelayedMemoryReportModal(
+              report
+          );
+        });
+
+        runtimeMemoryText.appendChild(
+            row
+        );
+      });
+    }
+
+    if (runtimeMemoryPosition) {
+      runtimeMemoryPosition.textContent =
+          String(reports.length);
+    }
+
+    userIdleValueNode = null;
+    idle.stop();
+    updateRuntimeMemoryTitleMetrics(null);
+    updateRuntimeMemoryArrows();
+    updateRuntimeMemoryPinGlow();
+    updateRuntimeMemoryTitleState();
+  }
+
+  function normalizeDelayedMemoryDisplayText(value) {
+    return String(value || "")
+        .replace(/\r\n/g, "\n")
+        .replace(/\\r\\n/g, "\n")
+        .replace(/\\n/g, "\n")
+        .replace(/\\t/g, "  ")
+        .trim();
+  }
+
+  function padDelayedMemoryDatePart(value) {
+    return String(value).padStart(
+        2,
+        "0"
+    );
+  }
+
+  function formatDelayedMemoryTime(value) {
+    const raw =
+        normalizeDelayedMemoryDisplayText(value);
+
+    if (!raw) {
+      return "";
+    }
+
+    const date =
+        new Date(raw);
+
+    if (Number.isNaN(date.getTime())) {
+      return raw;
+    }
+
+    const year =
+        date.getFullYear();
+
+    const month =
+        padDelayedMemoryDatePart(
+            date.getMonth() + 1
+        );
+
+    const day =
+        padDelayedMemoryDatePart(
+            date.getDate()
+        );
+
+    const hours =
+        padDelayedMemoryDatePart(
+            date.getHours()
+        );
+
+    const minutes =
+        padDelayedMemoryDatePart(
+            date.getMinutes()
+        );
+
+    const weekday =
+        new Intl.DateTimeFormat(
+            "en-US",
+            {
+              weekday: "long",
+            }
+        ).format(date);
+
+    return `${year}-${month}-${day} ${hours}:${minutes}, ${weekday}`;
+  }
+
+  function closeDelayedMemoryReportModal() {
+    if (!delayedMemoryModal) {
+      return;
+    }
+
+    delayedMemoryModal.classList.add(
+        "hidden"
+    );
+
+    delayedMemoryModal.classList.remove(
+        "flex"
+    );
+  }
+
+  function ensureDelayedMemoryModal() {
+    if (delayedMemoryModal) {
+      return;
+    }
+
+    delayedMemoryModal =
+        document.createElement("div");
+
+    delayedMemoryModal.className =
+        "fixed inset-0 z-50 hidden items-center justify-center bg-black/70 p-4";
+
+    delayedMemoryModalPanel =
+        document.createElement("div");
+
+    delayedMemoryModalPanel.className =
+        "delayed-memory-modal-panel w-full max-w-4xl max-h-[86vh] rounded border border-zinc-700 bg-zinc-950 shadow-2xl flex flex-col";
+
+    const header =
+        document.createElement("div");
+
+    header.className =
+        "h-11 shrink-0 border-b border-zinc-800 px-4 flex items-center justify-between gap-4";
+
+    delayedMemoryModalTitle =
+        document.createElement("div");
+
+    delayedMemoryModalTitle.className =
+        "min-w-0 truncate text-xs uppercase tracking-widest text-zinc-300";
+
+    const closeButton =
+        document.createElement("button");
+
+    closeButton.type =
+        "button";
+
+    closeButton.className =
+        "text-xs text-zinc-400 hover:text-zinc-100 transition";
+
+    closeButton.textContent =
+        "close";
+
+    delayedMemoryModalContent =
+        document.createElement("div");
+
+    delayedMemoryModalContent.className =
+        "delayed-memory-modal-content min-h-0 flex-1 overflow-auto p-4 text-[12px] leading-relaxed text-zinc-200";
+
+    header.appendChild(
+        delayedMemoryModalTitle
+    );
+
+    header.appendChild(
+        closeButton
+    );
+
+    delayedMemoryModalPanel.appendChild(
+        header
+    );
+
+    delayedMemoryModalPanel.appendChild(
+        delayedMemoryModalContent
+    );
+
+    delayedMemoryModal.appendChild(
+        delayedMemoryModalPanel
+    );
+
+    document.body.appendChild(
+        delayedMemoryModal
+    );
+
+    closeButton.addEventListener(
+        "click",
+        closeDelayedMemoryReportModal
+    );
+
+    delayedMemoryModal.addEventListener("click", (event) => {
+      if (event.target === delayedMemoryModal) {
+        closeDelayedMemoryReportModal();
+      }
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (
+          event.key === "Escape"
+          && delayedMemoryModal
+          && !delayedMemoryModal.classList.contains("hidden")
+      ) {
+        closeDelayedMemoryReportModal();
+      }
+    });
+  }
+
+  function appendDelayedMemoryModalField(parent, label, value) {
+    const normalizedValue =
+        Array.isArray(value)
+          ? value
+              .map((item) => normalizeDelayedMemoryDisplayText(item))
+              .filter(Boolean)
+              .join(", ")
+          : normalizeDelayedMemoryDisplayText(value);
+
+    if (!normalizedValue) {
+      return;
+    }
+
+    const row =
+        document.createElement("div");
+
+    row.className =
+        "delayed-memory-modal-field";
+
+    const key =
+        document.createElement("div");
+
+    key.className =
+        "delayed-memory-modal-label";
+
+    key.textContent =
+        label;
+
+    const text =
+        document.createElement("div");
+
+    text.className =
+        "delayed-memory-modal-value";
+
+    text.textContent =
+        normalizedValue;
+
+    row.appendChild(
+        key
+    );
+
+    row.appendChild(
+        text
+    );
+
+    parent.appendChild(
+        row
+    );
+  }
+
+  function appendDelayedMemoryModalBody(parent, body) {
+    const normalizedBody =
+        normalizeDelayedMemoryDisplayText(body);
+
+    if (!normalizedBody) {
+      return;
+    }
+
+    const section =
+        document.createElement("section");
+
+    section.className =
+        "delayed-memory-modal-section";
+
+    const heading =
+        document.createElement("div");
+
+    heading.className =
+        "delayed-memory-modal-section-title";
+
+    heading.textContent =
+        "Body";
+
+    const pre =
+        document.createElement("pre");
+
+    pre.className =
+        "delayed-memory-modal-body";
+
+    pre.textContent =
+        normalizedBody;
+
+    section.appendChild(
+        heading
+    );
+
+    section.appendChild(
+        pre
+    );
+
+    parent.appendChild(
+        section
+    );
+  }
+
+  function appendDelayedMemoryModalExtraFields(parent, report) {
+    const shownKeys =
+        new Set([
+          "_storage_key",
+          "title",
+          "summary",
+          "created_time",
+          "created_session_id",
+          "tags",
+          "body",
+        ]);
+
+    Object.entries(report || {}).forEach(([key, value]) => {
+      if (
+          shownKeys.has(key)
+          || value === null
+          || typeof value === "undefined"
+      ) {
+        return;
+      }
+
+      const normalizedValue =
+          typeof value === "object"
+            ? JSON.stringify(
+                value,
+                null,
+                2
+              )
+            : value;
+
+      appendDelayedMemoryModalField(
+          parent,
+          key,
+          normalizedValue
+      );
+    });
+  }
+
+  function openDelayedMemoryReportModal(report) {
+    ensureDelayedMemoryModal();
+
+    delayedMemoryModalTitle.textContent =
+        normalizeDelayedMemoryDisplayText(report.title)
+        || "Delayed memory";
+
+    delayedMemoryModalContent.innerHTML = "";
+
+    const fields =
+        document.createElement("section");
+
+    fields.className =
+        "delayed-memory-modal-fields";
+
+    appendDelayedMemoryModalField(
+        fields,
+        "Title",
+        report.title
+    );
+
+    appendDelayedMemoryModalField(
+        fields,
+        "Summary",
+        report.summary
+    );
+
+    appendDelayedMemoryModalField(
+        fields,
+        "Time",
+        formatDelayedMemoryTime(
+            report.created_time
+        )
+    );
+
+    appendDelayedMemoryModalField(
+        fields,
+        "Tags",
+        report.tags
+    );
+
+    appendDelayedMemoryModalField(
+        fields,
+        "ID",
+        report._storage_key
+    );
+
+    appendDelayedMemoryModalField(
+        fields,
+        "Session",
+        report.created_session_id
+    );
+
+    appendDelayedMemoryModalExtraFields(
+        fields,
+        report
+    );
+
+    delayedMemoryModalContent.appendChild(
+        fields
+    );
+
+    appendDelayedMemoryModalBody(
+        delayedMemoryModalContent,
+        report.body
+    );
+
+    delayedMemoryModal.classList.remove(
+        "hidden"
+    );
+
+    delayedMemoryModal.classList.add(
+        "flex"
+    );
+  }
+
+  function renderActiveMemoryRecords() {
+    const records =
+        getActiveMemoryRecordTexts();
+
+    if (!records.length) {
+      setRuntimeMemoryDisplayMode(
+          "runtime"
+      );
+      renderRuntimeMemorySnapshot();
+      return;
+    }
+
+    if (runtimeMemoryText) {
+      runtimeMemoryText.innerHTML = "";
+      runtimeMemoryText.classList.remove(
+          "runtime-memory-text-pinned"
+      );
+      runtimeMemoryText.removeAttribute(
+          "title"
+      );
+
+      appendRuntimeMemoryLineRows(
+          records.map(memoryModel.parseRuntimeMemoryLine),
+          false,
+          {
+            interactiveActiveMemory: true,
+          }
+      );
+    }
+
+    if (runtimeMemoryPosition) {
+      runtimeMemoryPosition.textContent =
+          String(records.length);
+    }
+
+    userIdleValueNode = null;
+    idle.stop();
+
+    updateRuntimeMemoryTitleMetricsFromText(
+        records.join("\n")
+    );
+    updateRuntimeMemoryArrows();
+    updateRuntimeMemoryPinGlow();
+    updateRuntimeMemoryTitleState();
   }
 
   function appendUserIdleRuntimeMemoryLine() {
@@ -698,6 +1690,26 @@
       return;
     }
 
+    if (getRuntimeMemoryDisplayMode() !== "runtime") {
+      runtimeMemoryPrev.disabled = true;
+      runtimeMemoryNext.disabled = true;
+
+      runtimeMemoryPrev.classList.add(
+          "opacity-30",
+          "cursor-default",
+          "text-slate-600"
+      );
+      runtimeMemoryNext.classList.add(
+          "opacity-30",
+          "cursor-default",
+          "text-slate-600"
+      );
+
+      runtimeMemoryPrev.classList.remove("text-emerald-300");
+      runtimeMemoryNext.classList.remove("text-emerald-300");
+      return;
+    }
+
     const canGoPrev =
         runtimeMemoryHistory.index > 0;
 
@@ -720,6 +1732,50 @@
     runtimeMemoryNext.classList.toggle("text-slate-600", !canGoNext);
   }
 
+  function toggleRuntimeMemoryDisplayMode() {
+    const hasActiveMemory =
+        getActiveMemoryRecordTexts().length > 0;
+
+    const hasDelayedMemory =
+        getDelayedMemoryReportRecords().length > 0;
+
+    if (
+        !hasActiveMemory
+        && !hasDelayedMemory
+    ) {
+      return;
+    }
+
+    const modes =
+        ["runtime"];
+
+    if (hasActiveMemory) {
+      modes.push(
+          "active"
+      );
+    }
+
+    if (hasDelayedMemory) {
+      modes.push(
+          "delayed"
+      );
+    }
+
+    const currentMode =
+        getRuntimeMemoryDisplayMode();
+
+    const currentIndex =
+        modes.indexOf(currentMode);
+
+    setRuntimeMemoryDisplayMode(
+        modes[
+            (currentIndex + 1) % modes.length
+        ]
+    );
+
+    renderRuntimeMemorySnapshot();
+  }
+
   function bindRuntimeMemoryNavigation() {
     if (initialized) {
       return;
@@ -731,7 +1787,9 @@
       if (runtimeMemoryHistory.index <= 0) return;
 
       runtimeMemoryHistory.index -= 1;
-      renderRuntimeMemorySnapshot();
+      renderRuntimeMemorySnapshot({
+        flashMode: "replay",
+      });
     });
 
     runtimeMemoryNext?.addEventListener("click", () => {
@@ -743,11 +1801,17 @@
       ) return;
 
       runtimeMemoryHistory.index += 1;
-      renderRuntimeMemorySnapshot();
+      renderRuntimeMemorySnapshot({
+        flashMode: "replay",
+      });
     });
 
     runtimeMemoryPosition?.addEventListener("click", () => {
       requireRuntimeMemoryHistory();
+
+      if (getRuntimeMemoryDisplayMode() !== "runtime") {
+        return;
+      }
 
       if (runtimeMemoryHistory.index < 0) {
         return;
@@ -766,7 +1830,9 @@
         );
       }
 
-      renderRuntimeMemorySnapshot();
+      renderRuntimeMemorySnapshot({
+        flashMode: "replay",
+      });
 
       if (wasPinned && runtimeMemoryText) {
         runtimeMemoryText
@@ -803,6 +1869,22 @@
       runtimeMemoryPosition.click();
     });
 
+    runtimeMemoryTitle?.addEventListener("click", () => {
+      toggleRuntimeMemoryDisplayMode();
+    });
+
+    runtimeMemoryTitle?.addEventListener("keydown", (event) => {
+      if (
+          event.key !== "Enter"
+          && event.key !== " "
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      toggleRuntimeMemoryDisplayMode();
+    });
+
     runtimeDiffToggle?.addEventListener("click", () => {
       runtimeDiffHistory.expanded =
           !runtimeDiffHistory.expanded;
@@ -818,6 +1900,11 @@
     idle = options.idle;
     memoryModel = options.memoryModel;
     buildDisplaySnapshot = options.buildDisplaySnapshot || null;
+    getActiveMemoryRecords = options.getActiveMemoryRecords || null;
+    setActiveMemoryRecords = options.setActiveMemoryRecords || null;
+    getDelayedMemoryReports = options.getDelayedMemoryReports || null;
+    getDisplayMode = options.getDisplayMode || null;
+    setDisplayMode = options.setDisplayMode || null;
 
     if (!runtimeMemoryHistory) {
       throw new Error(

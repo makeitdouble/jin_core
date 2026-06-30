@@ -69,6 +69,10 @@ class RuntimeContext:
         default_factory=list
     )
 
+    delayed_memory_reports: dict = field(
+        default_factory=dict
+    )
+
     runtime_usage_events: list[dict] = field(
         default_factory=list
     )

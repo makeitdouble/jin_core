@@ -1,4 +1,5 @@
 import asyncio
+import json
 import unittest
 from unittest.mock import patch
 
@@ -17,6 +18,7 @@ from utils.runtime_actions import (
     extract_runtime_actions,
     get_create_active_memory_marker_fields,
     get_create_active_memory_placeholder_payload,
+    parse_delayed_memory_content_payload,
 )
 
 
@@ -90,6 +92,152 @@ class RuntimeActionTests(unittest.TestCase):
             ),
         )
 
+    def test_extracts_bracketed_web_search_marker_terminated_by_newline(self):
+
+        result = extract_runtime_actions(
+            (
+                "<INTERNAL_ACTION_WEB_SEARCH: house drawing ideas\n"
+                "\n"
+                "🏠\n"
+                "\n"
+                "Маленький уютный домик"
+            ),
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertNotIn(
+            "INTERNAL_ACTION_WEB_SEARCH",
+            result.text,
+        )
+        self.assertEqual(
+            result.text,
+            "🏠\n\nМаленький уютный домик",
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "house drawing ideas",
+            ),
+        )
+        self.assertEqual(
+            result.removed_markers,
+            (
+                "<INTERNAL_ACTION_WEB_SEARCH: house drawing ideas",
+            ),
+        )
+
+    def test_extracts_tool_call_style_web_search_marker(self):
+
+        result = extract_runtime_actions(
+            "<|tool_call>call:INTERNAL_ACTION_WEB_SEARCH: \u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u043d\u0430 From (\u0441\u0435\u0440\u0438\u0430\u043b) >",
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "\u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u043d\u0430 From (\u0441\u0435\u0440\u0438\u0430\u043b)",
+            ),
+        )
+        self.assertEqual(
+            result.removed_markers,
+            (
+                "<|tool_call>call:INTERNAL_ACTION_WEB_SEARCH: \u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u043d\u0430 From (\u0441\u0435\u0440\u0438\u0430\u043b) >",
+            ),
+        )
+
+    def test_extracts_tool_call_style_web_search_marker_without_internal_prefix(self):
+
+        result = extract_runtime_actions(
+            "<tool_call>call:WEB_SEARCH: Gemma 4 differences between e2b and e4b versions",
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "Gemma 4 differences between e2b and e4b versions",
+            ),
+        )
+        self.assertEqual(
+            result.removed_markers,
+            (
+                "<tool_call>call:WEB_SEARCH: Gemma 4 differences between e2b and e4b versions",
+            ),
+        )
+
+    def test_extracts_bare_call_style_web_search_marker_line(self):
+
+        result = extract_runtime_actions(
+            "call:INTERNAL_ACTION_WEB_SEARCH: \u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u043d\u0430 From (\u0441\u0435\u0440\u0438\u0430\u043b)",
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "\u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u043d\u0430 From (\u0441\u0435\u0440\u0438\u0430\u043b)",
+            ),
+        )
+
+    def test_extracts_bare_call_style_web_search_marker_without_internal_prefix(self):
+
+        result = extract_runtime_actions(
+            "call:WEB_SEARCH: blue tomato",
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "blue tomato",
+            ),
+        )
+
+    def test_does_not_extract_inline_bare_call_style_marker(self):
+
+        result = extract_runtime_actions(
+            "before call:INTERNAL_ACTION_WEB_SEARCH: blue tomato after",
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "before call:INTERNAL_ACTION_WEB_SEARCH: blue tomato after",
+        )
+        self.assertEqual(
+            result.actions,
+            (),
+        )
+
     def test_ignores_placeholder_bracketed_web_search_marker(self):
 
         for marker in (
@@ -138,7 +286,7 @@ class RuntimeActionTests(unittest.TestCase):
             ),
         )
 
-    def test_logs_marker_removal_even_when_action_disabled(self):
+    def test_preserves_marker_when_action_disabled(self):
 
         result = extract_runtime_actions(
             "before <INTERNAL_ACTION_SAVE_SESSION> after",
@@ -147,7 +295,7 @@ class RuntimeActionTests(unittest.TestCase):
 
         self.assertEqual(
             result.text,
-            "before  after",
+            "before <INTERNAL_ACTION_SAVE_SESSION> after",
         )
         self.assertEqual(
             result.actions,
@@ -155,9 +303,35 @@ class RuntimeActionTests(unittest.TestCase):
         )
         self.assertEqual(
             result.removed_markers,
-            (
-                "<INTERNAL_ACTION_SAVE_SESSION>",
-            ),
+            (),
+        )
+
+    def test_preserves_delayed_memory_marker_when_action_disabled(self):
+
+        text = (
+            "before\n"
+            "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>\n"
+            '{"demo": {"summary": "quoted marker"}}\n'
+            "</INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>\n"
+            "after"
+        )
+
+        result = extract_runtime_actions(
+            text,
+            enabled_actions=[],
+        )
+
+        self.assertEqual(
+            result.text,
+            text,
+        )
+        self.assertEqual(
+            result.actions,
+            (),
+        )
+        self.assertEqual(
+            result.removed_markers,
+            (),
         )
 
     def test_extracts_bracketed_create_active_memory_marker(self):
@@ -184,6 +358,156 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             result.actions[0].payload,
             "remind later | tomorrow | coffee",
+        )
+
+    def test_extracts_create_active_memory_marker_closed_with_short_end_tag(self):
+
+        result = extract_runtime_actions(
+            (
+                "before "
+                "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: remember the word coffee "
+                "and ask for a guess later.</>"
+                " after"
+            ),
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "before  after",
+        )
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name="CREATE_ACTIVE_MEMORY",
+                    payload=(
+                        "remember the word coffee "
+                        "and ask for a guess later."
+                    ),
+                ),
+            ),
+        )
+
+    def test_parses_delayed_memory_content_payload(self):
+
+        report = parse_delayed_memory_content_payload(
+            (
+                "title: Radius of Influence Specs\n"
+                "summary: Three-zone data priority model for Kowloon Sandbox simulation.\n"
+                "tags: kowloon_sandbox, simulation, world_state, radius_of_influence\n"
+                "body:\n"
+                "### Radius of Influence Specs\n"
+                "\n"
+                "A complete, self-sufficient summary..."
+            ),
+            created_session_id="session-1",
+            created_time="2026-06-29T12:00:00",
+        )
+
+        self.assertEqual(
+            report,
+            {
+                "radius_of_influence_specs": {
+                    "title": "Radius of Influence Specs",
+                    "summary": (
+                        "Three-zone data priority model for Kowloon Sandbox simulation."
+                    ),
+                    "tags": [
+                        "kowloon_sandbox",
+                        "simulation",
+                        "world_state",
+                        "radius_of_influence",
+                    ],
+                    "body": (
+                        "### Radius of Influence Specs\n\n"
+                        "A complete, self-sufficient summary..."
+                    ),
+                    "created_session_id": "session-1",
+                    "created_time": "2026-06-29T12:00:00",
+                },
+            },
+        )
+
+    def test_extracts_delayed_memory_content_block(self):
+
+        result = extract_runtime_actions(
+            (
+                "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "title: Radius of Influence Specs\n"
+                "summary: Three-zone data priority model for Kowloon Sandbox simulation.\n"
+                "tags: kowloon_sandbox, simulation, world_state, radius_of_influence\n"
+                "body:\n"
+                "### Radius of Influence Specs\n"
+                "\n"
+                "A complete, self-sufficient summary...\n"
+                "</INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "\n"
+                "Done."
+            ),
+            enabled_actions=[
+                "CAN_SAVE_DELAYED_MEMORY",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "Done.",
+        )
+        self.assertEqual(
+            result.count("SAVE_DELAYED_MEMORY_CONTENT"),
+            1,
+        )
+        self.assertEqual(
+            json.loads(
+                result.actions[0].payload
+            )["radius_of_influence_specs"]["title"],
+            "Radius of Influence Specs",
+        )
+
+    def test_stream_filter_holds_split_delayed_memory_block(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_SAVE_DELAYED_MEMORY",
+            ],
+        )
+
+        first = stream_filter.filter(
+            (
+                "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "title: Radius"
+            )
+        )
+        second = stream_filter.filter(
+            (
+                " of Influence Specs\n"
+                "summary: Summary\n"
+                "tags: a, b\n"
+                "body:\n"
+                "Body\n"
+                "</INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "Saved."
+            )
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.actions,
+            (),
+        )
+        self.assertEqual(
+            second.text,
+            "Saved.",
+        )
+        self.assertEqual(
+            second.count("SAVE_DELAYED_MEMORY_CONTENT"),
+            1,
         )
 
     def test_dedupes_duplicate_runtime_action_markers_by_payload(self):
@@ -578,6 +902,212 @@ class RuntimeActionTests(unittest.TestCase):
             "",
         )
 
+    def test_stream_filter_handles_split_bracketed_web_search_marker_terminated_by_newline(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "<INTERNAL_ACTION_WEB_SEARCH: house"
+        )
+        second = stream_filter.filter(
+            " drawing ideas\n\n🏠\n\nМаленький уютный домик"
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.count("WEB_SEARCH"),
+            0,
+        )
+        self.assertEqual(
+            second.text,
+            "🏠\n\nМаленький уютный домик",
+        )
+        self.assertEqual(
+            second.search_queries,
+            (
+                "house drawing ideas",
+            ),
+        )
+        self.assertEqual(
+            stream_filter.flush(),
+            "",
+        )
+
+    def test_stream_filter_handles_split_tool_call_style_web_search_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "<|tool"
+        )
+        second = stream_filter.filter(
+            "_call>call:INTERNAL_ACTION_WEB_SEARCH: blue"
+        )
+        final = stream_filter.filter(
+            " tomato>"
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.count("WEB_SEARCH"),
+            0,
+        )
+        self.assertEqual(
+            second.text,
+            "",
+        )
+        self.assertEqual(
+            second.count("WEB_SEARCH"),
+            0,
+        )
+        self.assertEqual(
+            final.text,
+            "",
+        )
+        self.assertEqual(
+            final.search_queries,
+            (
+                "blue tomato",
+            ),
+        )
+        self.assertEqual(
+            stream_filter.flush(),
+            "",
+        )
+
+    def test_stream_filter_handles_split_tool_call_style_web_search_without_internal_prefix(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "<tool"
+        )
+        second = stream_filter.filter(
+            "_call>call:WEB_SEARCH: blue"
+        )
+        final = stream_filter.filter(
+            " tomato>"
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.count("WEB_SEARCH"),
+            0,
+        )
+        self.assertEqual(
+            second.text,
+            "",
+        )
+        self.assertEqual(
+            second.count("WEB_SEARCH"),
+            0,
+        )
+        self.assertEqual(
+            final.text,
+            "",
+        )
+        self.assertEqual(
+            final.search_queries,
+            (
+                "blue tomato",
+            ),
+        )
+        self.assertEqual(
+            stream_filter.flush(),
+            "",
+        )
+
+    def test_stream_filter_flush_extracts_unclosed_tool_call_style_web_search_without_internal_prefix(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        result = stream_filter.filter(
+            "<tool_call>call:WEB_SEARCH: blue tomato"
+        )
+        flushed = stream_filter.flush_result()
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.count("WEB_SEARCH"),
+            0,
+        )
+        self.assertEqual(
+            flushed.text,
+            "",
+        )
+        self.assertEqual(
+            flushed.search_queries,
+            (
+                "blue tomato",
+            ),
+        )
+
+    def test_stream_filter_handles_split_bare_call_style_web_search_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "call:"
+        )
+        second = stream_filter.filter(
+            "INTERNAL_ACTION_WEB_SEARCH: blue tomato\n"
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.count("WEB_SEARCH"),
+            0,
+        )
+        self.assertEqual(
+            second.text,
+            "",
+        )
+        self.assertEqual(
+            second.search_queries,
+            (
+                "blue tomato",
+            ),
+        )
+        self.assertEqual(
+            stream_filter.flush(),
+            "",
+        )
+
     def test_stream_filter_preserves_thinking_marker_text_when_requested(self):
 
         stream_filter = RuntimeActionStreamFilter(
@@ -674,6 +1204,79 @@ class RuntimeActionTests(unittest.TestCase):
             (
                 "blue tomato",
             ),
+        )
+
+    def test_stream_filter_preserves_disabled_action_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[],
+        )
+
+        first = stream_filter.filter(
+            "quoted <INTERNAL_ACTION_SAVE_SESSION"
+        )
+        second = stream_filter.filter(
+            "> marker"
+        )
+
+        self.assertEqual(
+            first.text,
+            "quoted <INTERNAL_ACTION_SAVE_SESSION",
+        )
+        self.assertEqual(
+            second.text,
+            "> marker",
+        )
+        self.assertEqual(
+            first.actions,
+            (),
+        )
+        self.assertEqual(
+            second.actions,
+            (),
+        )
+
+    def test_stream_filter_handles_short_end_tag_closed_active_memory_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: remember"
+        )
+        middle = stream_filter.filter(
+            " the word coffee and ask for a guess later.</"
+        )
+        final = stream_filter.filter(
+            ">"
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            middle.text,
+            "",
+        )
+        self.assertEqual(
+            final.actions,
+            (
+                RuntimeActionCall(
+                    name="CREATE_ACTIVE_MEMORY",
+                    payload=(
+                        "remember the word coffee "
+                        "and ask for a guess later."
+                    ),
+                ),
+            ),
+        )
+        self.assertEqual(
+            stream_filter.flush(),
+            "",
         )
 
     def test_stream_filter_handles_split_bare_create_active_memory_marker(self):
@@ -1037,6 +1640,159 @@ class RuntimeActionTests(unittest.TestCase):
             ],
         )
 
+    def test_apply_runtime_action_calls_saves_delayed_memory_report(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+        context.session_id = "session-1"
+        context.timestamp = "2026-06-29T12:00:00"
+
+        report_payload = json.dumps(
+            {
+                "radius_of_influence_specs": {
+                    "title": "Radius of Influence Specs",
+                    "summary": "Three-zone data priority model.",
+                    "tags": [
+                        "kowloon_sandbox",
+                        "simulation",
+                    ],
+                    "body": "### Radius of Influence Specs\n\nBody",
+                    "created_session_id": "",
+                    "created_time": "",
+                },
+            },
+            ensure_ascii=False,
+        )
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_DELAYED_MEMORY_CONTENT",
+                        payload=report_payload,
+                    ),
+                ),
+                user_message="please summarize and save this as delayed memory",
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertEqual(
+            context.delayed_memory_reports[
+                "radius_of_influence_specs"
+            ]["created_session_id"],
+            "session-1",
+        )
+        self.assertEqual(
+            context.delayed_memory_reports[
+                "radius_of_influence_specs"
+            ]["created_time"],
+            "2026-06-29T12:00:00",
+        )
+        self.assertEqual(
+            context.emitter.events,
+            [
+                {
+                    "type": "runtime_action",
+                    "action": "save_delayed_memory_content",
+                    "status": "completed",
+                    "text": "Saving delayed memory",
+                    "delayed_memory_report": context.delayed_memory_reports,
+                },
+            ],
+        )
+
+    def test_apply_runtime_action_calls_suffixes_duplicate_delayed_memory_key(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+        context.session_id = "session-1"
+        context.timestamp = "2026-06-29T12:00:00"
+        context.delayed_memory_reports = {
+            "kowloon_sandbox_architecture_contextual_status": {
+                "title": "Kowloon Sandbox Architecture & Contextual Status",
+                "summary": "Existing report.",
+            },
+        }
+
+        report_payload = json.dumps(
+            {
+                "kowloon_sandbox_architecture_contextual_status": {
+                    "title": "Kowloon Sandbox Architecture & Contextual Status",
+                    "summary": "New report.",
+                    "tags": [],
+                    "body": "Updated context.",
+                    "created_session_id": "",
+                    "created_time": "",
+                },
+            },
+            ensure_ascii=False,
+        )
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_DELAYED_MEMORY_CONTENT",
+                        payload=report_payload,
+                    ),
+                ),
+                user_message="please summarize and save this as delayed memory",
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertEqual(
+            context.delayed_memory_reports[
+                "kowloon_sandbox_architecture_contextual_status"
+            ]["summary"],
+            "Existing report.",
+        )
+        self.assertEqual(
+            context.delayed_memory_reports[
+                "kowloon_sandbox_architecture_contextual_status_2"
+            ]["summary"],
+            "New report.",
+        )
+        self.assertEqual(
+            context.emitter.events[0]["delayed_memory_report"],
+            {
+                "kowloon_sandbox_architecture_contextual_status_2": (
+                    context.delayed_memory_reports[
+                        "kowloon_sandbox_architecture_contextual_status_2"
+                    ]
+                ),
+            },
+        )
+
     def test_apply_runtime_action_calls_emits_create_active_memory_bubble(self):
 
         class Emitter:
@@ -1052,6 +1808,7 @@ class RuntimeActionTests(unittest.TestCase):
         context = Context()
         context.emitter = Emitter()
         context.timestamp = "2026-06-20T10:00:00"
+        context.session_id = "test-session"
         context.turn_number = 3
 
         applied_count = asyncio.run(
@@ -1097,6 +1854,7 @@ class RuntimeActionTests(unittest.TestCase):
                 r"\[ active_memory_id: [a-z0-9]{6} \] "
                 r"\[ conditions: remind later \] "
                 r"\[ creation_time: 2026-06-20T10:00:00 \] "
+                r"\[ created_session_id: test-session \] "
                 r"\[ created_jin_message_number: 3 \] "
                 r"\[ elapsed_time: 00:00:00 \] "
                 r"\[ elapsed_jin_message_number: 0 \] "
@@ -1123,6 +1881,7 @@ class RuntimeActionTests(unittest.TestCase):
         context = Context()
         context.emitter = Emitter()
         context.timestamp = "2026-06-24T15:00:00"
+        context.session_id = "tab-session"
         context.turn_number = 7
         context.runtime_memory = "session_status: active"
         context.runtime_memory_updates = 0
@@ -1162,6 +1921,7 @@ class RuntimeActionTests(unittest.TestCase):
                 r"\[ active_memory_id: [a-z0-9]{6} \] "
                 r"\[ conditions: Drink coffee \| Trigger in 5 minutes \| coffee \] "
                 r"\[ creation_time: 2026-06-24T15:00:00 \] "
+                r"\[ created_session_id: tab-session \] "
                 r"\[ created_jin_message_number: 7 \] "
                 r"\[ elapsed_time: 00:00:00 \] "
                 r"\[ elapsed_jin_message_number: 0 \] "

@@ -24,10 +24,12 @@ from agent import (
 
 from clients import (
     build_brain_payload,
-    build_brain_system_prompt,
 )
 from clients.brain_client import (
     should_execute_save_session,
+)
+from rules.assembler import (
+    build_brain_system_prompt,
 )
 
 from clients.brain_client_utils import (
@@ -901,6 +903,53 @@ def _raise_runtime_counter_floor(
     )
 
 
+def hydrate_runtime_counters_from_bootstrap_metadata(
+    context,
+    message_data: dict,
+):
+
+    if not isinstance(
+        message_data,
+        dict,
+    ):
+        return
+
+    runtime_snapshot = message_data.get(
+        "runtime_snapshot",
+        {},
+    )
+
+    snapshot_data = (
+        runtime_snapshot
+        if isinstance(
+            runtime_snapshot,
+            dict,
+        )
+        else {}
+    )
+
+    for field_name in (
+        "turn_number",
+        "user_message_count",
+        "assistant_message_count",
+    ):
+        floor = parse_bootstrap_counter(
+            message_data.get(
+                field_name,
+                snapshot_data.get(
+                    field_name,
+                    0,
+                ),
+            )
+        )
+
+        _raise_runtime_counter_floor(
+            context,
+            field_name,
+            floor,
+        )
+
+
 def hydrate_runtime_counters_from_active_memory(
     context,
     runtime_memory: str,
@@ -996,6 +1045,11 @@ def apply_runtime_resume(
         )
     ):
         return False
+
+    hydrate_runtime_counters_from_bootstrap_metadata(
+        context,
+        message_data,
+    )
 
     runtime_memory_updates = parse_bootstrap_counter(
         message_data.get(
@@ -1153,6 +1207,25 @@ def apply_session_bootstrap(
             )
         )
         runtime_memory_is_snapshot_fallback = True
+
+    has_bootstrap_content = bool(
+        session_memory
+        or runtime_memory
+        or (
+            session_event_snapshots
+            if isinstance(
+                session_event_snapshots,
+                list,
+            )
+            else []
+        )
+    )
+
+    if has_bootstrap_content:
+        hydrate_runtime_counters_from_bootstrap_metadata(
+            context,
+            message_data,
+        )
 
     session_memory_updates = parse_bootstrap_counter(
         message_data.get(

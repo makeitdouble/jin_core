@@ -269,6 +269,36 @@ function memoryLogIncludes(data, text) {
   );
 }
 
+function memoryLogLevelIs(data, level) {
+  const normalizedLevel = String(level || "").toUpperCase();
+
+  return Boolean(
+    data
+    && (
+      String(data.memory_level || "").toUpperCase() === normalizedLevel
+      || String(data.tag || "").includes(`[MEMORY:${normalizedLevel}]`)
+      || String(data.message || "").includes(`[MEMORY:${normalizedLevel}]`)
+    )
+  );
+}
+
+function memoryLogEventIs(data, event) {
+  return Boolean(
+    data
+    && String(data.memory_event || "") === event
+  );
+}
+
+function memoryLogMessageHasOutcome(data) {
+  const message = String(data && data.message || "");
+
+  return (
+    message.includes("updated")
+    || message.includes("skipped")
+    || message.includes("failed")
+  );
+}
+
 let activeMemoryGlowStage = "";
 let memoryGlowPulseTimer = null;
 let memoryGlowFadeTimer = null;
@@ -611,6 +641,302 @@ function scheduleWebSocketReconnect() {
  * @property {string=} message
  * @property {string=} details
  */
+
+
+const delayedMemoryClientFilterState = {
+  pendingByMessageId: new Map(),
+  activeMessageIds: new Set(),
+};
+
+const delayedMemoryOpenTag =
+  "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>";
+
+const delayedMemoryCloseTag =
+  "</INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>";
+
+
+function startDelayedMemoryRuntimeBubble(
+  messageId
+) {
+
+  const key =
+    String(messageId || "__default__");
+
+  if (
+      delayedMemoryClientFilterState.activeMessageIds.has(key)
+  ) {
+    return;
+  }
+
+  delayedMemoryClientFilterState.activeMessageIds.add(
+    key
+  );
+
+  if (window.appendRuntimeAction) {
+    window.appendRuntimeAction(
+      "save_delayed_memory_content",
+      "Saving delayed memory report"
+    );
+  }
+
+}
+
+
+function completeDelayedMemoryRuntimeBubble(
+  messageId
+) {
+
+  const key =
+    String(messageId || "__default__");
+
+  delayedMemoryClientFilterState.activeMessageIds.delete(
+    key
+  );
+
+  if (window.fadeRuntimeAction) {
+    window.fadeRuntimeAction(
+      "save_delayed_memory_content"
+    );
+  }
+
+}
+
+
+function slugifyDelayedMemoryTitle(
+  title
+) {
+
+  const slug =
+    String(title || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+
+  return slug || "untitled_report";
+
+}
+
+
+function parseDelayedMemoryReportPayload(
+  payload
+) {
+
+  const text =
+    String(payload || "")
+      .replace(/\r\n/g, "\n")
+      .trim();
+
+  if (!text) {
+    return {};
+  }
+
+  const fieldPattern =
+    /^[^\S\r\n]*(title|summary|tags|body)[^\S\r\n]*:[^\S\r\n]*(.*)$/gim;
+
+  const matches = [];
+  let match = fieldPattern.exec(text);
+
+  while (match) {
+    matches.push({
+      name: String(match[1] || "").toLowerCase(),
+      inline: String(match[2] || "").trim(),
+      start: match.index,
+      end: fieldPattern.lastIndex,
+    });
+
+    match = fieldPattern.exec(text);
+  }
+
+  if (!matches.length) {
+    return {};
+  }
+
+  const fields = {};
+
+  matches.forEach(
+    function (
+      field,
+      index,
+    ) {
+      const nextStart =
+        index + 1 < matches.length
+          ? matches[index + 1].start
+          : text.length;
+
+      const blockValue =
+        text.slice(
+          field.end,
+          nextStart
+        ).replace(/^\n+|\n+$/g, "");
+
+      fields[field.name] =
+        field.name === "body"
+          ? [field.inline, blockValue]
+              .filter(Boolean)
+              .join("\n")
+              .trim()
+          : field.inline;
+    }
+  );
+
+  const title =
+    String(fields.title || "").trim();
+
+  if (!title) {
+    return {};
+  }
+
+  const key =
+    slugifyDelayedMemoryTitle(
+      title
+    );
+
+  return {
+    [key]: {
+      title,
+      summary:
+        String(fields.summary || "").trim(),
+      tags:
+        String(fields.tags || "")
+          .split(",")
+          .map(tag => tag.trim())
+          .filter(Boolean),
+      body:
+        String(fields.body || "").trim(),
+      created_session_id:
+        String(window.jinRuntimeSessionId || websocketClientId || "").trim(),
+      created_time:
+        new Date().toISOString(),
+    },
+  };
+
+}
+
+
+function appendDelayedMemoryReportFromClientFallback(
+  payload
+) {
+
+  const report =
+    parseDelayedMemoryReportPayload(
+      payload
+    );
+
+  if (
+      !Object.keys(report).length
+      || !window.JinRuntime
+      || !window.JinRuntime.runtime
+      || !window.JinRuntime.runtime.appendDelayedMemoryReports
+  ) {
+    return false;
+  }
+
+  window.JinRuntime.runtime.appendDelayedMemoryReports(
+    report
+  );
+
+  return true;
+
+}
+
+
+function filterDelayedMemoryContentFromChunk(
+  messageId,
+  chunk
+) {
+
+  const key =
+    String(messageId || "__default__");
+
+  let source =
+    String(
+      delayedMemoryClientFilterState.pendingByMessageId.get(key) || ""
+    ) + String(chunk || "");
+
+  let visible = "";
+
+  while (source) {
+    const openIndex =
+      source.indexOf(
+        delayedMemoryOpenTag
+      );
+
+    if (openIndex < 0) {
+      visible += source;
+      source = "";
+      break;
+    }
+
+    visible += source.slice(
+      0,
+      openIndex
+    );
+
+    startDelayedMemoryRuntimeBubble(
+      key
+    );
+
+    const payloadStart =
+      openIndex + delayedMemoryOpenTag.length;
+
+    const closeIndex =
+      source.indexOf(
+        delayedMemoryCloseTag,
+        payloadStart
+      );
+
+    if (closeIndex < 0) {
+      delayedMemoryClientFilterState.pendingByMessageId.set(
+        key,
+        source.slice(openIndex)
+      );
+
+      return visible;
+    }
+
+    appendDelayedMemoryReportFromClientFallback(
+      source.slice(
+        payloadStart,
+        closeIndex
+      )
+    );
+
+    completeDelayedMemoryRuntimeBubble(
+      key
+    );
+
+    source =
+      source.slice(
+        closeIndex + delayedMemoryCloseTag.length
+      );
+  }
+
+  delayedMemoryClientFilterState.pendingByMessageId.delete(
+    key
+  );
+
+  return visible;
+
+}
+
+
+function clearDelayedMemoryContentFilter(
+  messageId
+) {
+
+  const key =
+    String(messageId || "__default__");
+
+  delayedMemoryClientFilterState.pendingByMessageId.delete(
+    key
+  );
+
+  delayedMemoryClientFilterState.activeMessageIds.delete(
+    key
+  );
+
+}
 
 
 // --------------------------------------------------
@@ -1008,33 +1334,43 @@ function handleSocketMessage(event) {
 
     if (
         isMemoryLog(data)
-        && memoryLogIncludes(data, "L1 summarizer request")
+        && memoryLogLevelIs(data, "L1")
+        && (
+            memoryLogEventIs(data, "summarizer_request")
+            || memoryLogIncludes(data, "L1 summarizer request")
+        )
     ) {
       startMemoryGlow();
     }
 
     if (
         isMemoryLog(data)
-        && memoryLogIncludes(data, "L2 summarizer request")
+        && memoryLogLevelIs(data, "L2")
+        && (
+            memoryLogEventIs(data, "summarizer_request")
+            || memoryLogIncludes(data, "L2 summarizer request")
+        )
     ) {
       startL2MemoryGlow();
     }
 
     if (
         isMemoryLog(data)
-        && memoryLogIncludes(data, "L3 session summarizer request")
+        && memoryLogLevelIs(data, "L3")
+        && (
+            memoryLogEventIs(data, "summarizer_request")
+            || memoryLogIncludes(data, "L3 session summarizer request")
+        )
     ) {
       startL3MemoryGlow();
     }
 
     if (
         isMemoryLog(data)
-        && !memoryLogIncludes(data, "L2 memory")
-        && !memoryLogIncludes(data, "L3 session memory")
+        && memoryLogLevelIs(data, "L1")
         && (
-            data.message.includes("updated")
-            || data.message.includes("skipped")
-            || data.message.includes("failed")
+            memoryLogEventIs(data, "summarizer_result")
+            || memoryLogMessageHasOutcome(data)
         )
     ) {
       stopMemoryGlow();
@@ -1042,11 +1378,10 @@ function handleSocketMessage(event) {
 
     if (
         isMemoryLog(data)
-        && memoryLogIncludes(data, "L2 memory")
+        && memoryLogLevelIs(data, "L2")
         && (
-            data.message.includes("updated")
-            || data.message.includes("skipped")
-            || data.message.includes("failed")
+            memoryLogEventIs(data, "summarizer_result")
+            || memoryLogMessageHasOutcome(data)
         )
     ) {
       stopL2MemoryGlow();
@@ -1054,11 +1389,10 @@ function handleSocketMessage(event) {
 
     if (
         isMemoryLog(data)
-        && memoryLogIncludes(data, "L3 session memory")
+        && memoryLogLevelIs(data, "L3")
         && (
-            data.message.includes("updated")
-            || data.message.includes("skipped")
-            || data.message.includes("failed")
+            memoryLogEventIs(data, "summarizer_result")
+            || memoryLogMessageHasOutcome(data)
         )
     ) {
       stopL3MemoryGlow();
@@ -1103,9 +1437,23 @@ function handleSocketMessage(event) {
     const role =
       resolveMessageRole(data);
 
+    const filteredText =
+      filterDelayedMemoryContentFromChunk(
+        data.message_id || "message",
+        data.text
+      );
+
+    clearDelayedMemoryContentFilter(
+      data.message_id || "message"
+    );
+
+    if (!String(filteredText || "").trim()) {
+      return;
+    }
+
     appendChatMessage(
       role,
-      data.text,
+      filteredText,
       data.context || null
     );
 
@@ -1159,6 +1507,18 @@ function handleSocketMessage(event) {
     ) {
       window.JinRuntime.runtime.removeActiveMemoryRecordById(
         data.id
+      );
+    }
+
+    if (
+      action === "save_delayed_memory_content"
+      && data.delayed_memory_report
+      && window.JinRuntime
+      && window.JinRuntime.runtime
+      && window.JinRuntime.runtime.appendDelayedMemoryReports
+    ) {
+      window.JinRuntime.runtime.appendDelayedMemoryReports(
+        data.delayed_memory_report
       );
     }
 
@@ -1298,9 +1658,19 @@ function handleSocketMessage(event) {
     === "message_chunk"
   ) {
 
+    const filteredChunk =
+      filterDelayedMemoryContentFromChunk(
+        data.message_id,
+        data.chunk
+      );
+
+    if (!filteredChunk) {
+      return;
+    }
+
     appendStreamChunk(
       data.message_id,
-      data.chunk
+      filteredChunk
     );
 
     return;
@@ -1315,6 +1685,10 @@ function handleSocketMessage(event) {
     data.type
     === "message_end"
   ) {
+
+    clearDelayedMemoryContentFilter(
+      data.message_id
+    );
 
     finishStreamMessage(
       data.message_id
@@ -1338,6 +1712,10 @@ function handleSocketMessage(event) {
     data.type
     === "message_error"
   ) {
+
+    clearDelayedMemoryContentFilter(
+      data.message_id
+    );
 
     setGenerationState(
       false

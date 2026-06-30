@@ -109,6 +109,9 @@ const {
   clearActiveMemoryRecords,
   appendActiveMemoryRecords: appendStoredActiveMemoryRecords,
   removeActiveMemoryRecordById: removeStoredActiveMemoryRecordById,
+  readDelayedMemoryReports,
+  writeDelayedMemoryReports,
+  appendDelayedMemoryReports: appendStoredDelayedMemoryReports,
 } = storage;
 
 const runtimeMemoryCount =
@@ -126,6 +129,7 @@ const sessionStartedRuntimeMemoryText =
 const runtimeMemoryHistory = {
   snapshots: [],
   index: -1,
+  displayIndexOffset: 0,
 };
 
 let runtimeMemoryDisplayMode = "runtime";
@@ -204,43 +208,7 @@ function buildRuntimeMemoryDisplaySnapshot(
   snapshot
 ) {
 
-  if (!snapshot || typeof snapshot !== "object") {
-    return snapshot;
-  }
-
-  const latestSnapshot =
-    runtimeMemoryHistory.snapshots[
-      runtimeMemoryHistory.snapshots.length - 1
-    ];
-
-  if (snapshot !== latestSnapshot) {
-    return snapshot;
-  }
-
-  const activeRecords =
-    readActiveMemoryRecords();
-
-  if (!activeRecords.length) {
-    return snapshot;
-  }
-
-  const activeLines = activeRecords
-    .map(parseRuntimeMemoryLine);
-
-  return {
-    ...snapshot,
-    raw_memory: [
-      String(snapshot.raw_memory || "").trim(),
-      activeRecords.join("\n"),
-    ].filter(Boolean).join("\n"),
-    lines: [
-      ...(Array.isArray(snapshot.lines)
-        ? snapshot.lines
-        : splitMemoryTextLines(snapshot.raw_memory || "")
-          .map(parseRuntimeMemoryLine)),
-      ...activeLines,
-    ],
-  };
+  return snapshot;
 
 }
 
@@ -407,6 +375,13 @@ memoryView.init({
   idle,
   memoryModel,
   buildDisplaySnapshot: buildRuntimeMemoryDisplaySnapshot,
+  getActiveMemoryRecords: readActiveMemoryRecords,
+  setActiveMemoryRecords: writeActiveMemoryRecords,
+  getDelayedMemoryReports: readDelayedMemoryReports,
+  getDisplayMode: () => runtimeMemoryDisplayMode,
+  setDisplayMode: (value) => {
+    runtimeMemoryDisplayMode = value;
+  },
 });
 
 function renderRuntimeMemorySnapshot() {
@@ -481,6 +456,22 @@ function removeActiveMemoryRecordByIdAndRender(
   renderRuntimeMemorySnapshot();
 
   return nextRecords;
+
+}
+
+
+function appendDelayedMemoryReports(
+  reports
+) {
+
+  const nextReports =
+    appendStoredDelayedMemoryReports(
+      reports
+    );
+
+  renderRuntimeMemorySnapshot();
+
+  return nextReports;
 
 }
 
@@ -715,6 +706,9 @@ window.JinRuntime.runtime = {
   replaceActiveMemoryRecords: replaceActiveMemoryRecordsAndRender,
   appendActiveMemoryRecords: appendActiveMemoryRecordsAndRender,
   removeActiveMemoryRecordById: removeActiveMemoryRecordByIdAndRender,
+  getDelayedMemoryReports: readDelayedMemoryReports,
+  replaceDelayedMemoryReports: writeDelayedMemoryReports,
+  appendDelayedMemoryReports,
 };
 
 window.JinRuntime.init = function () {

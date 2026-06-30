@@ -46,14 +46,13 @@ def get_brain_runtime_config():
     }
 
 
+import json
 import re
 from xml.etree import ElementTree
 
-from rules.loop_rules import (
-    LOOP_RULES,
-)
 from rules.runtime import (
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
@@ -70,50 +69,9 @@ from utils.runtime_actions import (
     generate_active_memory_slot_id,
     generate_active_memory_slot_key,
     get_create_active_memory_marker_fields,
+    parse_delayed_memory_content_payload,
     refresh_active_memory_runtime_metadata,
 )
-
-
-def get_enabled_runtime_actions(
-    runtime_actions=None,
-) -> tuple[str, ...]:
-
-    enabled_actions = []
-
-    action_flags = runtime_actions or {}
-
-    for action_name, config_key in (
-        (
-            RUNTIME_ACTION_WEB_SEARCH,
-            "CAN_WEB_SEARCH",
-        ),
-        (
-            RUNTIME_ACTION_SAVE_SESSION,
-            "CAN_SAVE_SESSION",
-        ),
-        (
-            RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
-            "CAN_SAVE_ACTIVE_MEMORY",
-        ),
-        (
-            RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
-            "CAN_SAVE_ACTIVE_MEMORY",
-        ),
-    ):
-
-        if bool(
-            action_flags.get(
-                config_key,
-                False,
-            )
-        ):
-            enabled_actions.append(
-                action_name
-            )
-
-    return tuple(
-        enabled_actions
-    )
 
 
 def should_execute_save_session(
@@ -123,6 +81,144 @@ def should_execute_save_session(
         "save_session",
         user_message
     )
+
+
+def should_execute_save_delayed_memory(
+    user_message: str,
+) -> bool:
+    return should_execute_action_guard(
+        "save_delayed_memory",
+        user_message
+    )
+
+
+def build_delayed_memory_report(
+    context,
+    payload: str,
+) -> dict:
+
+    try:
+        report = json.loads(
+            str(
+                payload
+                or ""
+            )
+        )
+    except json.JSONDecodeError:
+        report = parse_delayed_memory_content_payload(
+            payload
+        )
+
+    if not isinstance(
+        report,
+        dict,
+    ):
+        return {}
+
+    created_session_id = str(
+        getattr(
+            context,
+            "session_id",
+            "",
+        )
+        or ""
+    ).strip()
+    created_time = str(
+        getattr(
+            context,
+            "timestamp",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if not created_time:
+        from datetime import datetime
+
+        created_time = datetime.now().isoformat()
+
+    enriched_report = {}
+
+    for key, value in report.items():
+        if not isinstance(
+            value,
+            dict,
+        ):
+            continue
+
+        normalized_key = str(
+            key
+            or ""
+        ).strip()
+
+        if not normalized_key:
+            continue
+
+        enriched_report[normalized_key] = {
+            **value,
+            "created_session_id": (
+                str(
+                    value.get(
+                        "created_session_id",
+                        "",
+                    )
+                    or ""
+                ).strip()
+                or created_session_id
+            ),
+            "created_time": (
+                str(
+                    value.get(
+                        "created_time",
+                        "",
+                    )
+                    or ""
+                ).strip()
+                or created_time
+            ),
+        }
+
+    return enriched_report
+
+
+def deduplicate_delayed_memory_report_keys(
+    existing_reports: dict,
+    report: dict,
+) -> dict:
+
+    if not isinstance(
+        report,
+        dict,
+    ):
+        return {}
+
+    used_keys = set(
+        existing_reports
+        if isinstance(
+            existing_reports,
+            dict,
+        )
+        else {}
+    )
+    deduplicated_report = {}
+
+    for key, value in report.items():
+        next_key = key
+        suffix = 2
+
+        while (
+            next_key in used_keys
+            or next_key in deduplicated_report
+        ):
+            next_key = f"{key}_{suffix}"
+            suffix += 1
+
+        deduplicated_report[next_key] = value
+        used_keys.add(
+            next_key
+        )
+
+    return deduplicated_report
 
 
 
@@ -597,6 +693,7 @@ async def apply_runtime_action_calls(
         )
     )
     resolve_active_memory_seen = False
+    save_delayed_memory_seen = False
     resolved_user_message = resolve_runtime_action_user_message(
         context,
         user_message,
@@ -626,6 +723,30 @@ async def apply_runtime_action_calls(
 
             save_session_seen = True
             save_session_action_emitted = True
+            accepted_action_names.add(
+                action_event_name
+            )
+            filtered_actions.append(
+                action
+            )
+            continue
+
+        if action.name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT:
+            if save_delayed_memory_seen:
+                continue
+
+            if not should_execute_save_delayed_memory(
+                resolved_user_message
+            ):
+                continue
+
+            if not build_delayed_memory_report(
+                context,
+                action.payload,
+            ):
+                continue
+
+            save_delayed_memory_seen = True
             accepted_action_names.add(
                 action_event_name
             )
@@ -754,6 +875,12 @@ async def apply_runtime_action_calls(
         for action in filtered_actions
         if action.name == RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
     )
+
+    save_delayed_memory_actions = [
+        action
+        for action in filtered_actions
+        if action.name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+    ]
 
     search_queries = [
         query
@@ -886,6 +1013,74 @@ async def apply_runtime_action_calls(
                     "active_memory": active_memory_line,
                 })
 
+    saved_delayed_memory_reports = []
+
+    if save_delayed_memory_actions:
+        if log_runtime is not None:
+            await log_runtime(
+                "[RUNTIME ACTION] save_delayed_memory requested"
+            )
+
+        for action in save_delayed_memory_actions:
+            report = build_delayed_memory_report(
+                context,
+                action.payload,
+            )
+
+            if not report:
+                continue
+
+            delayed_memory_reports = getattr(
+                context,
+                "delayed_memory_reports",
+                None,
+            )
+
+            if not isinstance(
+                delayed_memory_reports,
+                dict,
+            ):
+                delayed_memory_reports = {}
+                setattr(
+                    context,
+                    "delayed_memory_reports",
+                    delayed_memory_reports,
+                )
+
+            report = deduplicate_delayed_memory_report_keys(
+                delayed_memory_reports,
+                report,
+            )
+
+            delayed_memory_reports.update(
+                report
+            )
+
+            saved_delayed_memory_reports.append(
+                report
+            )
+
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is not None:
+            for report in saved_delayed_memory_reports:
+                await emit({
+                    "type": "runtime_action",
+                    "action": "save_delayed_memory_content",
+                    "status": "completed",
+                    "text": "Saving delayed memory",
+                    "delayed_memory_report": report,
+                })
+
     resolved_active_memory_count = 0
 
     if resolve_active_memory_count:
@@ -941,6 +1136,9 @@ async def apply_runtime_action_calls(
         )
         + len(
             created_active_memory_texts
+        )
+        + len(
+            saved_delayed_memory_reports
         )
         + resolved_active_memory_count
     )
@@ -1126,46 +1324,3 @@ def has_zero_diff_stall_alert(
     )
 
 
-def has_loop_rule_signal(
-    context=None,
-) -> bool:
-
-    if context is None:
-        return False
-
-    pattern_counter = getattr(
-        context,
-        "runtime_pattern_counter",
-        0,
-    )
-
-    try:
-        return int(
-            pattern_counter
-        ) > 1
-    except (
-        TypeError,
-        ValueError,
-    ):
-        return False
-
-
-
-def build_conditional_prompt_rules(
-    context=None,
-) -> str:
-
-    rules = [
-        ""
-    ]
-
-    if has_loop_rule_signal(
-        context
-    ):
-        rules.append(
-            LOOP_RULES
-        )
-
-    return "".join(
-        rules
-    )

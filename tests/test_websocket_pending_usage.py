@@ -364,6 +364,9 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
                 "runtime_memory_updates": 7,
                 "runtime_snapshot": {
                     "index": 4,
+                    "turn_number": 14,
+                    "user_message_count": 15,
+                    "assistant_message_count": 14,
                     "raw_memory": "topic: restored runtime state",
                 },
             },
@@ -383,6 +386,22 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             context.runtime_memory_snapshots[0]["raw_memory"],
             "topic: restored runtime state",
+        )
+        self.assertEqual(
+            context.turn_number,
+            14,
+        )
+        self.assertEqual(
+            context.user_message_count,
+            15,
+        )
+        self.assertEqual(
+            context.assistant_message_count,
+            14,
+        )
+        self.assertEqual(
+            context.runtime_memory_snapshots[0]["turn_number"],
+            14,
         )
         self.assertEqual(
             len(context.runtime_memory_snapshots),

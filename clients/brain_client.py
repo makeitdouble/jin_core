@@ -4,6 +4,8 @@ from config_loader import (
     config,
 )
 from rules.runtime import (
+    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+    RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
 )
 
@@ -11,21 +13,15 @@ from clients.errors import (
     format_client_error,
 )
 
-from clients.brain_context_builder import (
-    build_brain_runtime_context,
-)
-
 from rules.assembler import (
-    build_identity_context,
-    build_runtime_action_instructions,
+    build_brain_system_prompt,
+    get_enabled_runtime_actions,
 )
 
 from clients.brain_client_utils import (
     apply_runtime_action_calls,
-    build_conditional_prompt_rules,
-    get_enabled_runtime_actions,
-    has_zero_diff_stall_alert,
     log_runtime_action_marker_removals,
+    should_execute_save_delayed_memory,
     should_execute_save_session,
 )
 
@@ -44,40 +40,41 @@ from utils.runtime_actions import (
 )
 
 
-
-
-def build_brain_system_prompt(
-    context=None,
+def get_response_enabled_runtime_actions(
     runtime_actions=None,
-    user_input: str = "",
-    commit_active_memory_refresh: bool = False,
-) -> str:
+    user_message: str = "",
+) -> tuple[str, ...]:
 
-    enabled_actions = get_enabled_runtime_actions(
-        runtime_actions
+    enabled_actions = list(
+        get_enabled_runtime_actions(
+            runtime_actions
+        )
     )
 
-    zero_diff_stall_active = has_zero_diff_stall_alert(
-        context
-    )
+    if (
+        RUNTIME_ACTION_SAVE_SESSION
+        in enabled_actions
+        and not should_execute_save_session(
+            user_message
+        )
+    ):
+        enabled_actions.remove(
+            RUNTIME_ACTION_SAVE_SESSION
+        )
 
-    prompt_prefix = (
-        f"{build_runtime_action_instructions(enabled_actions, context)}\n"
-        "\n"
-        f"{build_identity_context(context)}"
-        f"{build_conditional_prompt_rules(context)}"
-        "\n"
-    )
+    if (
+        RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+        in enabled_actions
+        and not should_execute_save_delayed_memory(
+            user_message
+        )
+    ):
+        enabled_actions.remove(
+            RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+        )
 
-    runtime_context = build_brain_runtime_context(
-        context,
-        runtime_actions,
-        commit_active_memory_refresh=commit_active_memory_refresh,
-    )
-
-    return (
-        f"{prompt_prefix}"
-        f"{runtime_context}"
+    return tuple(
+        enabled_actions
     )
 
 
@@ -201,8 +198,9 @@ async def ask_brain(
                 )
             )
 
-            enabled_actions = get_enabled_runtime_actions(
-                runtime_actions
+            enabled_actions = get_response_enabled_runtime_actions(
+                runtime_actions,
+                text,
             )
 
             content_actions = (
@@ -294,8 +292,9 @@ async def ask_brain(
             )
         )
 
-        enabled_actions = get_enabled_runtime_actions(
-            runtime_actions
+        enabled_actions = get_response_enabled_runtime_actions(
+            runtime_actions,
+            text,
         )
 
         content_actions = extract_runtime_actions(
@@ -384,8 +383,9 @@ async def ask_brain_stream(
             context
         )
 
-    enabled_actions = get_enabled_runtime_actions(
-        runtime_actions
+    enabled_actions = get_response_enabled_runtime_actions(
+        runtime_actions,
+        text,
     )
 
     content_filter = RuntimeActionStreamFilter(
@@ -393,6 +393,47 @@ async def ask_brain_stream(
         #preserve_action_text=True
     )
     stop_for_runtime_action = False
+    delayed_memory_bubble_started = False
+
+    async def emit_delayed_memory_bubble_started():
+
+        nonlocal delayed_memory_bubble_started
+
+        if delayed_memory_bubble_started:
+            return
+
+        pending = str(
+            getattr(
+                content_filter,
+                "pending",
+                "",
+            )
+            or ""
+        ).upper()
+
+        if "INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT" not in pending:
+            return
+
+        delayed_memory_bubble_started = True
+
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is not None:
+            await emit({
+                "type": "runtime_action",
+                "action": "save_delayed_memory_content",
+                "status": "started",
+                "text": "Saving delayed memory report",
+            })
 
     async def filter_runtime_action_chunk(
         action_chunk,
@@ -420,27 +461,17 @@ async def ask_brain_stream(
             )
         )
 
+        await emit_delayed_memory_bubble_started()
+
         await log_runtime_action_marker_removals(
             context,
             result,
             source="brain stream content",
         )
 
-        runtime_action_calls = tuple(
-            result.actions
-        )
-
-        if runtime_action_calls:
-            await apply_runtime_action_calls(
-                context,
-                runtime_action_calls,
-                user_message=text,
-            )
-
-            stop_for_runtime_action = any(
-                action.name == RUNTIME_ACTION_WEB_SEARCH
-                for action in runtime_action_calls
-            )
+        if await apply_runtime_action_result(
+            result
+        ):
 
             if not stop_for_runtime_action:
                 if not result.text:
@@ -460,6 +491,33 @@ async def ask_brain_stream(
             **action_chunk,
             "content": result.text,
         }
+
+    async def apply_runtime_action_result(
+        result,
+    ) -> bool:
+
+        nonlocal stop_for_runtime_action
+
+        runtime_action_calls = tuple(
+            result.actions
+        )
+
+        if not runtime_action_calls:
+            return False
+
+        await apply_runtime_action_calls(
+            context,
+            runtime_action_calls,
+            user_message=text,
+        )
+
+        if any(
+            action.name == RUNTIME_ACTION_WEB_SEARCH
+            for action in runtime_action_calls
+        ):
+            stop_for_runtime_action = True
+
+        return True
 
     # -----------------------------------------------------
     # SERVICE AS BRAIN
@@ -508,6 +566,10 @@ async def ask_brain_stream(
                 context,
                 tail_result,
                 source="brain stream tail",
+            )
+
+            await apply_runtime_action_result(
+                tail_result
             )
 
             content_tail = tail_result.text
@@ -582,6 +644,10 @@ async def ask_brain_stream(
             context,
             tail_result,
             source="brain stream tail",
+        )
+
+        await apply_runtime_action_result(
+            tail_result
         )
 
         content_tail = tail_result.text
