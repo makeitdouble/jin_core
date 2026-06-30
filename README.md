@@ -14,7 +14,7 @@ JIN uses short-term continuity to dynamically guide conversation strategy:
 * **L1 (Live Facts):** Actionable session state kept in active process memory.
 * **L2 (Patterns):** Tracks interaction loops and repetition counters to adapt prompts on the fly.
 * **L3 (Digest):** Compressed session snapshots serialized to browser `localStorage` and replayed on reconnect.
-* **Active Memory:** Runtime-owned pending contracts for reminders, delayed asks, and recall games.
+* **Active Memory:** Runtime-owned pending contracts for reminders, ask-later conditions, and recall games.
 
 *Every memory update is captured as a versioned snapshot with diff highlights, fully inspectable in the right-side timeline panel.*
 
@@ -49,7 +49,8 @@ Runtime memory snapshots can be stepped through visually, with new or changed fa
 - Inspectable memory timeline: step through snapshots and see which facts or patterns were added instead of guessing what the assistant remembered.
 - Think citation highlighting: rule fragments, runtime memory, and restored session context are softly highlighted after a thinking block completes, then reappear on hover.
 - Session save and restore: natural closing phrases trigger a compact L3 memory digest, stored locally and replayed on reconnect.
-- Active-memory contracts: reminders, delayed asks, and recall games live outside normal L1 summarization until JIN resolves them.
+- Active-memory contracts: reminders, ask-later conditions, and recall games live outside normal L1 summarization until JIN resolves them.
+- Delayed memory reports: explicit requests to save a summary, digest, recap, or session summary for later become structured reports stored in browser `localStorage`, shown in the delayed-memory view, and kept separate from pending reminders or L1 facts.
 - Pattern and loop detection: repeated exchanges can change strategy instead of producing the same polite answer again.
 - Context pressure telemetry: model status, token usage, context pressure, runtime memory, and live logs stay visible in the right sidebar.
 - Local OpenAI-compatible routing: use separate brain, service, and translator runtimes, or collapse to one service model for a simpler setup.
@@ -641,8 +642,6 @@ The frontend uses vanilla JavaScript and Tailwind from CDN. The current input be
 ## Future Features
 
 The following capabilities are planned but not yet implemented.
-
-**Paused and delayed memory control.** A separate user-controlled memory layer for temporarily removing noisy runtime memory lines and holding future-facing thoughts outside active L1 memory. Long-pressing a runtime memory line moves it into `paused_memory`, stored separately in browser `localStorage` and available across sessions; paused lines are never injected into the prompt automatically, but can be restored before the next message or deleted permanently from the paused panel. The same direction extends into `delayed_memory_snapshot`: a soft “thought for later” layer for reminders, check-ins, follow-ups, revisits, and small social obligations, with creation metadata, summary, kind, intent, time hint, status, and linked session ids. Together these features give the user direct control over memory noise and future-facing context without rebooting the session or promoting everything into permanent long-term facts.
 
 **Long-term facts layer (L4).** A cross-session key-fact store extracted from completed turns by the service model, stored as JSON, and retrieved via keyword scoring before each brain call. Facts carry category, relevance, confidence, and mention count. A deduplication pass prevents drift from accumulating near-duplicate entries. The top-N retrieved facts are injected into the brain prompt as low-priority background context. No vector search or embedding index; heuristic scoring only for MVP.
 
