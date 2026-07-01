@@ -684,6 +684,62 @@ class BrainRuntimeActionTests(unittest.TestCase):
             "active_memory",
         )
 
+    def test_runtime_context_omits_paused_active_memory_records(self):
+
+        context = SimpleNamespace(
+            runtime_memory="session_status: active",
+            runtime_memory_stable="session_status: active",
+            runtime_l2_memory="",
+            active_memory_records=[
+                (
+                    "active_memory_1: remember cuckoo "
+                    "[ active_memory_id: 5fdg4g ] [ status: pending ]"
+                ),
+                (
+                    "active_memory_2: paused reminder "
+                    "[ active_memory_id: abc123 ] [ status: paused ]"
+                ),
+            ],
+        )
+
+        runtime_context = build_brain_runtime_context(
+            context=context,
+            runtime_actions={
+                "CAN_SAVE_ACTIVE_MEMORY": True,
+            },
+            commit_active_memory_refresh=True,
+        )
+
+        assert_contains_text(
+            self,
+            runtime_context,
+            "5fdg4g",
+        )
+        assert_not_contains_text(
+            self,
+            runtime_context,
+            "abc123",
+        )
+        assert_not_contains_text(
+            self,
+            runtime_context,
+            "paused reminder",
+        )
+        self.assertEqual(
+            len(context.active_memory_records),
+            2,
+        )
+        assert_contains_text(
+            self,
+            "\n".join(context.active_memory_records),
+            "abc123",
+        )
+        assert_contains_text(
+            self,
+            "\n".join(context.active_memory_records),
+            "[ status: paused ]",
+        )
+
     def test_prompt_omits_resolve_active_memory_rules_without_active_records(self):
 
         context = SimpleNamespace(

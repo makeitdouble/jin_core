@@ -69,6 +69,7 @@ from utils.runtime_actions import (
     generate_active_memory_slot_id,
     generate_active_memory_slot_key,
     get_create_active_memory_marker_fields,
+    is_active_memory_record_paused,
     parse_delayed_memory_content_payload,
     refresh_active_memory_runtime_metadata,
 )
@@ -384,6 +385,14 @@ def remove_active_memory_slot_from_text(
                 line
             )
         ):
+            if is_active_memory_record_paused(
+                line
+            ):
+                kept_lines.append(
+                    line
+                )
+                continue
+
             removed = True
             continue
 

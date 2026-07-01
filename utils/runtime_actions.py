@@ -392,6 +392,19 @@ def _parse_active_memory_suffix(
     ).strip()
 
 
+def is_active_memory_record_paused(
+    value: str,
+) -> bool:
+
+    return (
+        _parse_active_memory_suffix(
+            value,
+            "status",
+        ).casefold()
+        == "paused"
+    )
+
+
 def _parse_active_memory_created_jin_message_suffix(
     value: str,
 ) -> str:

@@ -50,7 +50,7 @@ RUNTIME_ACTIONS_RULES = (
     "Emit markers only in situations listed in core rules below in specific cases.\n"
     "DO NOT invent internal markers.\n"
     "ALWAYS check all active_memory slots BEFORE analyzing the context.\n"
-    "If you decide to emit internal action by yourself always notify user with brief acknowledgement and purpose.\n"
+    "After internal action marker, in the next line, provide a short visible user-facing explanation of what was done and why.\n"
 )
 
 WEB_SEARCH_RULES = (

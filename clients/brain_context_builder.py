@@ -33,6 +33,7 @@ from runtime.L1_memory_utils import (
 )
 from utils.runtime_actions import (
     refresh_active_memory_runtime_metadata,
+    is_active_memory_record_paused,
     remove_active_memory_entries,
 )
 
@@ -198,7 +199,7 @@ def append_L1_runtime_memory(
             "</RUNTIME_MEMORY>"
         )
 
-    active_memory_records = [
+    stored_active_memory_records = [
         str(record or "").strip()
         for record in getattr(
             context,
@@ -208,7 +209,7 @@ def append_L1_runtime_memory(
         if str(record or "").strip()
     ]
 
-    if active_memory_records:
+    if stored_active_memory_records:
         active_memory_refresh_turn = (
             getattr(
                 context,
@@ -231,7 +232,7 @@ def append_L1_runtime_memory(
             == active_memory_refresh_turn
         )
         previous_active_memory_text = "\n".join(
-            active_memory_records
+            stored_active_memory_records
         )
         active_memory_text = (
             previous_active_memory_text
@@ -254,13 +255,24 @@ def append_L1_runtime_memory(
                 if line.strip()
             ]
 
-            if refreshed_records != active_memory_records:
+            if refreshed_records != stored_active_memory_records:
                 context.active_memory_records = refreshed_records
                 context.runtime_active_memory_records_dirty = True
 
+        active_memory_context_text = "\n".join(
+            line
+            for line in active_memory_text.splitlines()
+            if not is_active_memory_record_paused(
+                line
+            )
+        ).strip()
+
+        if not active_memory_context_text:
+            return
+
         parts.append(
             "<ACTIVE_MEMORY priority=\"active_runtime_contracts\">\n"
-            f"{indent_xml(escape(canonicalize_runtime_memory_text(active_memory_text)))}\n"
+            f"{indent_xml(escape(canonicalize_runtime_memory_text(active_memory_context_text)))}\n"
             "</ACTIVE_MEMORY>"
         )
 

@@ -2021,6 +2021,72 @@ class RuntimeActionTests(unittest.TestCase):
             ],
         )
 
+    def test_apply_runtime_action_calls_does_not_resolve_paused_active_memory(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+        context.runtime_memory = (
+            "session_status: active\n"
+            "active_memory_1: respond only in Russian "
+            "[ active_memory_id: one111 ] [ status: pending ]\n"
+            "active_memory_2: remember cuckoo "
+            "[ active_memory_id: two222 ] [ status: paused ]"
+        )
+        context.runtime_memory_stable = context.runtime_memory
+        context.active_memory_records = [
+            (
+                "active_memory_1: respond only in Russian "
+                "[ active_memory_id: one111 ] [ status: pending ]"
+            ),
+            (
+                "active_memory_2: remember cuckoo "
+                "[ active_memory_id: two222 ] [ status: paused ]"
+            ),
+        ]
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="RESOLVE_ACTIVE_MEMORY",
+                        payload="active_memory_id: two222",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            0,
+        )
+        self.assertEqual(
+            len(context.active_memory_records),
+            2,
+        )
+        self.assertIn(
+            "two222",
+            "\n".join(context.active_memory_records),
+        )
+        self.assertIn(
+            "two222",
+            context.runtime_memory,
+        )
+        self.assertEqual(
+            context.emitter.events,
+            [],
+        )
+
     def test_apply_runtime_action_calls_allows_multiple_create_active_memory_turns(self):
 
         class Context:
