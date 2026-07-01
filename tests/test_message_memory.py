@@ -25,6 +25,9 @@ from runtime import (
     summarize_runtime_memory,
 )
 from runtime.L1_memory import (
+    apply_runtime_response_feedback,
+    build_runtime_response_feedback_value,
+    normalize_runtime_response_feedback,
     ask_runtime_memory_model,
     summarize_runtime_memory_pending_turns,
 )
@@ -360,7 +363,7 @@ class MessageMemoryTests(
             prompt,
         )
 
-    def test_runtime_memory_user_prompt_uses_filtered_hot_traces(self):
+    def test_runtime_memory_user_prompt_omits_hot_traces(self):
 
         prompt = build_runtime_memory_user_prompt(
             current_memory="user_message: hello",
@@ -378,8 +381,8 @@ class MessageMemoryTests(
             ]),
         )
 
-        self.assertIn(
-            "hot_traces: user_message",
+        self.assertNotIn(
+            "hot_traces:",
             prompt,
         )
         self.assertNotIn(
@@ -835,6 +838,147 @@ class MessageMemoryTests(
         self.assertIn(
             "last_jin_response: Offered a short poem about rain.",
             prompt,
+        )
+
+    def test_brain_prompt_places_user_feedback_before_trusted_runtime(self):
+
+        context = SimpleNamespace(
+            runtime_memory=(
+                "last_jin_response: Offered a short poem about rain."
+            ),
+            runtime_last_response_feedback={
+                "rating": "disliked",
+            },
+            turn_number=57,
+            user_message_count=58,
+            assistant_message_count=57,
+            deep_thought_count=0,
+            runtime_search_result="",
+            runtime_search_result_id="",
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_WEB_SEARCH": False,
+            },
+        )
+
+        session_state = prompt.split(
+            "<CURRENT_SESSION_STATE>",
+            1,
+        )[1].split(
+            "</CURRENT_SESSION_STATE>",
+            1,
+        )[0]
+        user_feedback = prompt.split(
+            "<USER_FEEDBACK>",
+            1,
+        )[1].split(
+            "</USER_FEEDBACK>",
+            1,
+        )[0]
+        runtime_memory = prompt.split(
+            "<RUNTIME_MEMORY>",
+            1,
+        )[1].split(
+            "</RUNTIME_MEMORY>",
+            1,
+        )[0]
+
+        self.assertIn(
+            "User disliked your last response. "
+            "Before answering, find and understand why it failed using context or memory, "
+            "then start the next reply with a brief acknowledgement of that miss, "
+            "then continue with a concrete corrected answer.",
+            user_feedback,
+        )
+        self.assertLess(
+            prompt.index("<USER_FEEDBACK>"),
+            prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
+        )
+        self.assertNotIn(
+            "User feedback:",
+            prompt,
+        )
+        self.assertNotIn(
+            "User disliked your last response.",
+            session_state,
+        )
+        self.assertNotIn(
+            "<USER_FEEDBACK>",
+            runtime_memory,
+        )
+        self.assertNotIn(
+            "User disliked your last response.",
+            runtime_memory,
+        )
+
+    async def test_runtime_response_feedback_does_not_write_runtime_memory(self):
+
+        context = SimpleNamespace(
+            runtime_memory=(
+                "session_status: active\n"
+                "JIN_LAST_RESPONSE_USER_FEEDBACK: stale"
+            ),
+            runtime_last_response_feedback=None,
+        )
+
+        result = await apply_runtime_response_feedback(
+            context,
+            {
+                "rating": "disliked",
+            },
+        )
+
+        self.assertEqual(
+            "session_status: active",
+            context.runtime_memory,
+        )
+        self.assertEqual(
+            {
+                "rating": "disliked",
+            },
+            context.runtime_last_response_feedback,
+        )
+        self.assertEqual(
+            "session_status: active",
+            result["runtime_memory"],
+        )
+        self.assertNotIn(
+            "JIN_LAST_RESPONSE_USER_FEEDBACK",
+            context.runtime_memory,
+        )
+
+    def test_runtime_response_feedback_preserves_clicks_count_suffix(self):
+
+        feedback = normalize_runtime_response_feedback(
+            {
+                "rating": "liked",
+                "clicks_count": "9",
+            }
+        )
+
+        self.assertEqual(
+            feedback,
+            {
+                "rating": "liked",
+                "clicks_count": 9,
+            },
+        )
+
+        value = build_runtime_response_feedback_value(
+            feedback
+        )
+
+        self.assertIn(
+            "User liked your last response.",
+            value,
+        )
+        self.assertTrue(
+            value.endswith(
+                "[ clicks_count: 9 ]"
+            )
         )
 
     def test_brain_prompt_places_session_memory_above_runtime_memory(self):

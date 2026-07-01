@@ -25,10 +25,12 @@ from runtime.runtime_context import (
     ContextContract,
     RECENT_MESSAGE_MAX_CHARS,
     RECENT_MESSAGES_MAX_PAIRS,
+    format_user_feedback,
     format_session_state,
 )
 from runtime.L1_memory_utils import (
     build_runtime_memory_context_text,
+    build_runtime_response_feedback_value,
     canonicalize_runtime_memory_text,
 )
 from utils.runtime_actions import (
@@ -110,6 +112,40 @@ def append_session_state(
                 "assistant_message_count",
                 0,
             ),
+        )
+    )
+
+
+def append_user_feedback(
+    parts: list[str],
+    context=None,
+) -> None:
+
+    if context is None:
+        return
+
+    runtime_response_feedback = getattr(
+        context,
+        "runtime_last_response_feedback",
+        None,
+    )
+
+    if not isinstance(
+        runtime_response_feedback,
+        dict,
+    ):
+        return
+
+    user_feedback = build_runtime_response_feedback_value(
+        runtime_response_feedback
+    )
+
+    if not user_feedback:
+        return
+
+    parts.append(
+        format_user_feedback(
+            user_feedback
         )
     )
 
@@ -557,12 +593,19 @@ def build_brain_runtime_context(
     commit_active_memory_refresh: bool = False,
 ) -> str:
 
-    parts = [
+    parts = []
+
+    append_user_feedback(
+        parts,
+        context,
+    )
+
+    parts.append(
         build_runtime_xml(
             context,
             runtime_actions,
         )
-    ]
+    )
 
     append_session_state(
         parts,

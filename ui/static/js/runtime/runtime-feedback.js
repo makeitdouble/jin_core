@@ -158,6 +158,24 @@
         }
       });
 
+    if (
+        pendingRuntimeResponseFeedback
+        && Number(
+          pendingRuntimeResponseFeedback.ratingGateGeneration || 0
+        ) === jinAnswerRatingL1Gate.readyGeneration
+    ) {
+      pendingRuntimeResponseFeedback = {
+        ...pendingRuntimeResponseFeedback,
+        runtimeSnapshotIndex:
+          resolvedSnapshotIndex !== null
+            ? resolvedSnapshotIndex
+            : getLatestSnapshotIndexForMutation(),
+      };
+
+      // Feedback is sent with the next user message and rendered in the
+      // trusted runtime context, not in the runtime memory snapshot.
+    }
+
     window.dispatchEvent(
       new CustomEvent(
         "jin:l1-rating-gate-ready",
@@ -239,16 +257,40 @@
     );
   }
 
-  function buildValue(feedback) {
-    if (feedback.rating === "disliked") {
-      return runtimeResponseFeedbackDislikedValue;
+  function normalizeClicksCount(value) {
+    const count =
+      Number(value || 0);
+
+    if (!Number.isFinite(count) || count <= 0) {
+      return null;
     }
+
+    return Math.trunc(count);
+  }
+
+  function buildValue(feedback) {
+    let value = runtimeResponseFeedbackNeutralValue;
 
     if (feedback.rating === "liked") {
-      return runtimeResponseFeedbackLikedValue;
+      value = runtimeResponseFeedbackLikedValue;
+    } else if (feedback.rating === "disliked") {
+      value = runtimeResponseFeedbackDislikedValue;
     }
 
-    return runtimeResponseFeedbackNeutralValue;
+    const clicksCount =
+      normalizeClicksCount(
+        feedback && (
+          feedback.clicks_count
+          ?? feedback.clicksCount
+          ?? feedback.activeRatingClickCount
+        )
+      );
+
+    if (clicksCount !== null) {
+      return `${value} [ clicks_count: ${clicksCount} ]`;
+    }
+
+    return value;
   }
 
   // In-place rating mutation: rating clicks are part of the current L1 page,
@@ -534,8 +576,8 @@
     }
 
     // Feedback is a transient one-turn alert for the next JIN response.
-    // Keep it visible in the current UI snapshot, but do not save it as
-    // stable runtime memory and do not persist it to localStorage.
+    // The current rating flow sends it with the next user message instead of
+    // displaying it in runtime memory snapshots.
     if (typeof runtimeDeps.renderRuntimeMemorySnapshot === "function") {
       runtimeDeps.renderRuntimeMemorySnapshot();
     }
@@ -573,14 +615,29 @@
 
     pendingRuntimeResponseFeedback = {
       rating,
+      clicks_count: normalizeClicksCount(
+        detail && (
+          detail.clicks_count
+          ?? detail.clicksCount
+          ?? detail.activeRatingClickCount
+          ?? detail.bubbleClickCount
+        )
+      ),
+      ratingGateGeneration:
+        incomingGeneration || null,
       runtimeSnapshotIndex: resolveFeedbackSnapshotIndex(
         detail
       ),
     };
 
-    return applyToCurrentSnapshot(
-      pendingRuntimeResponseFeedback
-    );
+    if (
+        incomingGeneration > 0
+        && !isReadyForGateGeneration(incomingGeneration)
+    ) {
+      return null;
+    }
+
+    return pendingRuntimeResponseFeedback;
   }
 
   function clearPendingRating(detail = null) {
@@ -590,11 +647,7 @@
 
     pendingRuntimeResponseFeedback = null;
 
-    return applyToCurrentSnapshot({
-      runtimeSnapshotIndex: resolveFeedbackSnapshotIndex(
-        detail
-      ),
-    });
+    return null;
   }
 
   function getPendingRating() {

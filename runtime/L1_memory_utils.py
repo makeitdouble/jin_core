@@ -17,7 +17,10 @@ from runtime.L1_memory_rules import (
     RUNTIME_MEMORY_NUMBERED_KEY_PATTERN,
     RUNTIME_MEMORY_PLACEHOLDER_VALUES,
     RUNTIME_MEMORY_REPEATED_SLOT_SUFFIX_PATTERN,
+    RUNTIME_RESPONSE_FEEDBACK_DISLIKED_VALUE,
     RUNTIME_RESPONSE_FEEDBACK_KEY,
+    RUNTIME_RESPONSE_FEEDBACK_LIKED_VALUE,
+    RUNTIME_RESPONSE_FEEDBACK_NEUTRAL_VALUE,
     RUNTIME_USER_IDLE_KEY,
     STRENGTH_BOOST,
     STRENGTH_DECAY,
@@ -784,6 +787,35 @@ def remove_runtime_response_feedback_text(
     ).strip()
 
 
+def build_runtime_response_feedback_value(
+        feedback: dict,
+) -> str:
+
+    rating = feedback.get(
+        "rating",
+        "neutral",
+    )
+
+    if rating == "disliked":
+        value = RUNTIME_RESPONSE_FEEDBACK_DISLIKED_VALUE
+    elif rating == "liked":
+        value = RUNTIME_RESPONSE_FEEDBACK_LIKED_VALUE
+    else:
+        value = RUNTIME_RESPONSE_FEEDBACK_NEUTRAL_VALUE
+
+    clicks_count = feedback.get(
+        "clicks_count",
+    )
+
+    if isinstance(
+        clicks_count,
+        int,
+    ) and clicks_count > 0:
+        return f"{value} [ clicks_count: {clicks_count} ]"
+
+    return value
+
+
 def canonicalize_runtime_memory_entry(
         key: str,
         value: str,
@@ -1093,19 +1125,10 @@ def build_runtime_memory_user_prompt(
         strength_zones: dict | None = None,
 ) -> str:
 
-    hot_traces = ""
-    if strength_zones:
-        hot_items = strength_zones.get("hot", [])
-        if hot_items:
-            hot_traces = (
-                f"hot_traces: {', '.join(hot_items)}\n\n"
-            )
-
     return (
         build_l1_current_memory_prompt_block(
             current_memory
         )
-        + f"{hot_traces}"
         + "Latest user message:\n"
         + f"{user_message.strip()}\n\n"
         + "Latest JIN answer:\n"
@@ -1132,14 +1155,6 @@ def build_runtime_memory_batch_user_prompt(
             current_memory_text,
             "",
         ])
-
-    if strength_zones:
-        hot_items = strength_zones.get("hot", [])
-        if hot_items:
-            lines.extend([
-                f"hot_traces: {', '.join(hot_items)}",
-                "",
-            ])
 
     for index, turn in enumerate(
             turns,

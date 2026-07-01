@@ -247,13 +247,29 @@ def format_session_state(
     assistant_message_count: int | None,
 ) -> str:
 
-    return "\n".join([
+    lines = [
         "<CURRENT_SESSION_STATE>",
+    ]
+
+    lines.extend([
         f"    Total turns count:      {turn_number if turn_number is not None else 0}",
         f"    User messages count:    {user_message_count if user_message_count is not None else 0}",
         f"    JIN messages count:     {assistant_message_count if assistant_message_count is not None else 0}",
         "</CURRENT_SESSION_STATE>",
     ])
+
+    return "\n".join(lines)
+
+
+def format_user_feedback(
+    user_feedback: str,
+) -> str:
+
+    return (
+        "<USER_FEEDBACK priority=HIGH_PRIORITY>\n"
+        f"{escape(str(user_feedback))}\n"
+        "</USER_FEEDBACK>"
+    )
 
 
 @dataclass(frozen=True)

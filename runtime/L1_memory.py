@@ -11,10 +11,6 @@ from runtime.fact_check import (
     ensure_confirmable_memory_markers,
 )
 from runtime.L1_memory_rules import (
-    RUNTIME_RESPONSE_FEEDBACK_DISLIKED_VALUE,
-    RUNTIME_RESPONSE_FEEDBACK_KEY,
-    RUNTIME_RESPONSE_FEEDBACK_LIKED_VALUE,
-    RUNTIME_RESPONSE_FEEDBACK_NEUTRAL_VALUE,
     RUNTIME_RESPONSE_FEEDBACK_RATINGS,
     build_runtime_memory_system_prompt,
 )
@@ -44,6 +40,7 @@ from runtime.memory_events import (
 )
 from runtime.L1_memory_utils import (
     build_interrupted_assistant_message,
+    build_runtime_response_feedback_value,
     build_runtime_memory_batch_user_prompt,
     build_runtime_memory_snapshot,
     build_runtime_memory_user_prompt,
@@ -61,7 +58,6 @@ from runtime.L1_memory_utils import (
     remove_runtime_memory_placeholder_lines,
     remove_runtime_response_feedback_text,
     remove_runtime_user_idle_lines,
-    upsert_runtime_memory_entry_text,
 )
 from utils.runtime_actions import (
     refresh_active_memory_runtime_metadata,
@@ -86,28 +82,25 @@ def normalize_runtime_response_feedback(feedback) -> dict | None:
     if rating is None:
         return None
 
-    return {
+    normalized = {
         "rating": rating,
     }
 
+    try:
+        clicks_count = int(
+            feedback.get("clicks_count")
+            or feedback.get("clicksCount")
+            or feedback.get("activeRatingClickCount")
+            or feedback.get("bubbleClickCount")
+            or 0
+        )
+    except (TypeError, ValueError):
+        clicks_count = 0
 
-def build_runtime_response_feedback_value(feedback: dict) -> str:
+    if clicks_count > 0:
+        normalized["clicks_count"] = clicks_count
 
-    rating = feedback.get(
-        "rating",
-        "neutral",
-    )
-
-    if rating == "disliked":
-        return RUNTIME_RESPONSE_FEEDBACK_DISLIKED_VALUE
-
-    if rating == "liked":
-        return RUNTIME_RESPONSE_FEEDBACK_LIKED_VALUE
-
-    return RUNTIME_RESPONSE_FEEDBACK_NEUTRAL_VALUE
-
-
-
+    return normalized
 
 
 def build_runtime_memory_system_prompt_for_turn(
@@ -198,10 +191,6 @@ async def apply_runtime_response_feedback(
     if normalized_feedback is None:
         return None
 
-    value = build_runtime_response_feedback_value(
-        normalized_feedback
-    )
-
     current_memory = getattr(
         context,
         "runtime_memory",
@@ -212,28 +201,15 @@ async def apply_runtime_response_feedback(
         current_memory
     )
 
-    updated_memory = upsert_runtime_memory_entry_text(
-        cleaned_memory,
-        RUNTIME_RESPONSE_FEEDBACK_KEY,
-        value,
-    )
-
-    if updated_memory == current_memory:
-        context.runtime_last_response_feedback = normalized_feedback
-        return None
-
-    context.runtime_memory = updated_memory
     context.runtime_last_response_feedback = normalized_feedback
 
-    # Rating clicks are an in-place mutation of the current L1 snapshot.
-    # Do not increment runtime_memory_updates and do not emit
-    # runtime_memory_update here, otherwise the UI creates a new runtime page.
-    # This is a transient next-turn alert, not durable L1 memory.
-    # Keep runtime_memory_stable clean so L1 cannot preserve it.
+    if cleaned_memory != current_memory:
+        context.runtime_memory = cleaned_memory
+
     return {
         "applied": True,
         "rating": normalized_feedback["rating"],
-        "runtime_memory": updated_memory,
+        "runtime_memory": cleaned_memory,
     }
 
 async def ask_runtime_memory_model(
