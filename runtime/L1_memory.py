@@ -11,8 +11,10 @@ from runtime.fact_check import (
     ensure_confirmable_memory_markers,
 )
 from runtime.L1_memory_rules import (
-    RUNTIME_RESPONSE_FEEDBACK_RATINGS,
     build_runtime_memory_system_prompt,
+)
+from rules.signal import (
+    RUNTIME_RESPONSE_FEEDBACK_RATINGS,
 )
 from runtime.L2_memory import (
     maybe_summarize_runtime_l2_memory,

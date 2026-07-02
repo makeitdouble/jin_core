@@ -31,6 +31,7 @@ from runtime.L3_memory_rules import (
 from runtime.L3_memory_utils import (
     L3PromptBudgetExceeded,
     build_budgeted_l3_session_user_prompt,
+    format_l3_session_saved_at,
     build_l3_session_memory_max_tokens,
     build_runtime_session_memory_system_prompt,
     parse_l3_session_snapshot_metadata,
@@ -387,6 +388,23 @@ async def maybe_summarize_runtime_session_memory(
                 updated_session_memory,
                 previous_session_memory=current_session_memory,
                 runtime_memory_snapshots=unsaved_snapshots,
+                session_saved_at=format_l3_session_saved_at(
+                    current_date=getattr(
+                        context,
+                        "current_date",
+                        "",
+                    ),
+                    current_time=getattr(
+                        context,
+                        "current_time",
+                        "",
+                    ),
+                    weekday=getattr(
+                        context,
+                        "weekday",
+                        "",
+                    ),
+                ),
             )
             session_metadata = parse_l3_session_snapshot_metadata(
                 updated_session_memory

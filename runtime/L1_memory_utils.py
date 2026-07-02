@@ -17,15 +17,17 @@ from runtime.L1_memory_rules import (
     RUNTIME_MEMORY_NUMBERED_KEY_PATTERN,
     RUNTIME_MEMORY_PLACEHOLDER_VALUES,
     RUNTIME_MEMORY_REPEATED_SLOT_SUFFIX_PATTERN,
-    RUNTIME_RESPONSE_FEEDBACK_DISLIKED_VALUE,
     RUNTIME_RESPONSE_FEEDBACK_KEY,
-    RUNTIME_RESPONSE_FEEDBACK_LIKED_VALUE,
-    RUNTIME_RESPONSE_FEEDBACK_NEUTRAL_VALUE,
     RUNTIME_USER_IDLE_KEY,
     STRENGTH_BOOST,
     STRENGTH_DECAY,
     STRENGTH_NEW_KEY,
     STRENGTH_PRESENCE_BOOST,
+)
+from rules.signal import (
+    RUNTIME_RESPONSE_FEEDBACK_DISLIKED_VALUE,
+    RUNTIME_RESPONSE_FEEDBACK_LIKED_VALUE,
+    RUNTIME_RESPONSE_FEEDBACK_NEUTRAL_VALUE,
 )
 from runtime.L2_memory_utils import (
     extract_runtime_l2_pattern_evidence_lines,
@@ -53,6 +55,12 @@ NUMBERED_MEMORY_KEY_RE = re.compile(
 
 RUNTIME_USER_MESSAGE_KEY = "user_message"
 RUNTIME_LAST_JIN_RESPONSE_KEY = "last_jin_response"
+
+RUNTIME_RESPONSE_FEEDBACK_CLICK_COUNT_KEYS = {
+    "disliked": "dislike_clicks_count",
+    "neutral": "neutral_clicks_count",
+    "liked": "like_clicks_count",
+}
 
 RUNTIME_MEMORY_KEY_PREFIX_RE = re.compile(
     r"^\s*-?\s*[A-Za-z][A-Za-z0-9_ #]{0,80}\s*:",
@@ -811,7 +819,12 @@ def build_runtime_response_feedback_value(
         clicks_count,
         int,
     ) and clicks_count > 0:
-        return f"{value} [ clicks_count: {clicks_count} ]"
+        clicks_count_key = RUNTIME_RESPONSE_FEEDBACK_CLICK_COUNT_KEYS.get(
+            rating,
+            "neutral_clicks_count",
+        )
+
+        return f"{value} [ {clicks_count_key}: {clicks_count} ]"
 
     return value
 

@@ -201,6 +201,10 @@ def parse_l3_session_snapshot_metadata(
         if key not in L3_SESSION_META_KEYS:
             continue
 
+        if key == "session_saved_at":
+            metadata[key] = value.strip()
+            continue
+
         metadata[key] = _parse_int(
             value,
         )
@@ -216,6 +220,29 @@ def get_l3_session_previous_last_turn(
         memory
     ).get(
         "session_snapshot_last_turn"
+    )
+
+
+def format_l3_session_saved_at(
+        *,
+        current_date: str = "",
+        current_time: str = "",
+        weekday: str = "",
+) -> str:
+
+    time_value = str(
+        current_time
+        or ""
+    )
+    time_minutes = (
+        time_value[:5]
+        if len(time_value) >= 5
+        else time_value
+    )
+
+    return (
+        f"{current_date} {time_minutes}, {weekday}"
+        .strip()
     )
 
 
@@ -244,6 +271,7 @@ def prepend_l3_session_snapshot_metadata(
         *,
         previous_session_memory: str,
         runtime_memory_snapshots: list[dict],
+        session_saved_at: str = "",
 ) -> str:
 
     valid_snapshots = [
@@ -287,10 +315,17 @@ def prepend_l3_session_snapshot_metadata(
         else runtime_first_turn
     )
 
-    lines = [
+    lines = []
+
+    if session_saved_at:
+        lines.append(
+            f"session_saved_at: {session_saved_at}"
+        )
+
+    lines.extend([
         f"session_snapshot_first_turn: {session_first_turn}",
         f"session_snapshot_last_turn: {runtime_last_turn}",
-    ]
+    ])
 
     clean_memory = strip_l3_session_snapshot_metadata(
         memory

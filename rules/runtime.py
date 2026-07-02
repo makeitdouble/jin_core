@@ -89,7 +89,6 @@ RESOLVE_ACTIVE_MEMORY_RULES = (
     "active_memory_id - is a placeholder, replace it with actual id required to resolve specific active_memory.\n"
 )
 
-SAVE_DELAYED_MEMORY_RULES_ = ""
 SAVE_DELAYED_MEMORY_RULES = (
     "SAVE_DELAYED_MEMORY_CONTENT:\n"
     "Use this marker ONLY when the user explicitly asks to save a summary, digest, recap, or session summary.\n"

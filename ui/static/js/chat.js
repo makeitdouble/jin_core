@@ -1233,7 +1233,7 @@ function getRoleConfig(role) {
       return {
         avatar: "SV",
         bubbleClass:
-          "jin-chat-bubble jin-chat-bubble-service",
+          "jin-chat-bubble jin-chat-bubble-service jin-chat-bubble-rateable",
         avatarClass:
           "jin-chat-avatar-service"
       };
@@ -1252,7 +1252,7 @@ function getRoleConfig(role) {
       return {
         avatar: "BR",
         bubbleClass:
-          "jin-chat-bubble jin-chat-bubble-brain",
+          "jin-chat-bubble jin-chat-bubble-brain jin-chat-bubble-rateable",
         avatarClass:
           "jin-chat-avatar-brain"
       };

@@ -950,7 +950,7 @@ class MessageMemoryTests(
             context.runtime_memory,
         )
 
-    def test_runtime_response_feedback_preserves_clicks_count_suffix(self):
+    def test_runtime_response_feedback_uses_rating_clicks_count_suffix(self):
 
         feedback = normalize_runtime_response_feedback(
             {
@@ -972,12 +972,38 @@ class MessageMemoryTests(
         )
 
         self.assertIn(
-            "User liked your last response.",
+            "liked",
             value,
         )
         self.assertTrue(
             value.endswith(
-                "[ clicks_count: 9 ]"
+                "[ like_clicks_count: 9 ]"
+            )
+        )
+
+        disliked_value = build_runtime_response_feedback_value(
+            {
+                "rating": "disliked",
+                "clicks_count": 64,
+            }
+        )
+
+        self.assertTrue(
+            disliked_value.endswith(
+                "[ dislike_clicks_count: 64 ]"
+            )
+        )
+
+        neutral_value = build_runtime_response_feedback_value(
+            {
+                "rating": "neutral",
+                "clicks_count": 3,
+            }
+        )
+
+        self.assertTrue(
+            neutral_value.endswith(
+                "[ neutral_clicks_count: 3 ]"
             )
         )
 
@@ -3064,6 +3090,12 @@ class MessageMemoryTests(
             "Continue session memory implementation",
             updated_memory,
         )
+        self.assertTrue(
+            updated_memory.startswith(
+                "session_saved_at: 2026-06-05 13:38, Friday\n"
+                "session_snapshot_first_turn: 0\n"
+            )
+        )
         self.assertEqual(
             context.runtime_session_memory_updates,
             1,
@@ -3266,6 +3298,12 @@ class MessageMemoryTests(
         self.assertIn(
             "session_snapshot_first_turn: 0",
             updated_memory,
+        )
+        self.assertTrue(
+            updated_memory.startswith(
+                "session_saved_at: 2026-06-05 13:38, Friday\n"
+                "session_snapshot_first_turn: 0\n"
+            )
         )
         self.assertIn(
             "session_snapshot_last_turn: 20",

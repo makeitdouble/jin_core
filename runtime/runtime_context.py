@@ -266,9 +266,9 @@ def format_user_feedback(
 ) -> str:
 
     return (
-        "<USER_FEEDBACK priority=HIGH_PRIORITY>\n"
+        "<LATEST_USER_FEEDBACK priority=HIGH_PRIORITY>\n"
         f"{escape(str(user_feedback))}\n"
-        "</USER_FEEDBACK>"
+        "</LATEST_USER_FEEDBACK>"
     )
 
 

@@ -36,6 +36,7 @@ MAX_SESSION_LINE_CHARS = 220
 
 # Lists metadata keys written at the top of every L3 session snapshot.
 L3_SESSION_META_KEYS = (
+    "session_saved_at",
     "session_snapshot_first_turn",
     "session_snapshot_last_turn",
 )

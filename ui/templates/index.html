@@ -1017,7 +1017,7 @@
            Важно: сам бабл больше не трансформируется, чтобы hit-zone не ездила под курсором.
            ========================= */
 
-        .jin-chat-bubble-service {
+        .jin-chat-bubble-rateable {
             --jin-rating-glow-alpha: 0.115;
             --jin-rating-inner-alpha: 0.060;
             --jin-rating-text-alpha: 0.080;
@@ -1039,7 +1039,7 @@
             will-change: box-shadow, filter;
         }
 
-        .jin-chat-bubble-service .jin-rating-hover-zones {
+        .jin-chat-bubble-rateable .jin-rating-hover-zones {
             position: absolute;
             inset: 0;
             z-index: 5;
@@ -1050,24 +1050,24 @@
             pointer-events: none;
         }
 
-        .jin-chat-bubble-service .jin-rating-zone {
+        .jin-chat-bubble-rateable .jin-rating-zone {
             pointer-events: auto;
             background: transparent;
         }
 
-        .jin-chat-bubble-service.jin-rating-l1-waiting .jin-rating-zone {
+        .jin-chat-bubble-rateable.jin-rating-l1-waiting .jin-rating-zone {
             cursor: pointer;
         }
 
-        .jin-chat-bubble-service.jin-rating-interaction-blocked .jin-rating-zone {
+        .jin-chat-bubble-rateable.jin-rating-interaction-blocked .jin-rating-zone {
             cursor: default;
         }
 
-        .jin-chat-bubble-service.jin-rating-l1-waiting {
+        .jin-chat-bubble-rateable.jin-rating-l1-waiting {
             filter: saturate(0.92);
         }
 
-        .jin-chat-bubble-service .jin-chat-pre {
+        .jin-chat-bubble-rateable .jin-chat-pre {
             position: relative;
             z-index: 2;
             transition:
@@ -1077,8 +1077,8 @@
             will-change: transform, text-shadow;
         }
 
-        .jin-chat-bubble-service::before,
-        .jin-chat-bubble-service::after {
+        .jin-chat-bubble-rateable::before,
+        .jin-chat-bubble-rateable::after {
             content: "";
             position: absolute;
             inset: 0;
@@ -1092,7 +1092,7 @@
                     box-shadow 0.22s ease;
         }
 
-        .jin-chat-bubble-service::before {
+        .jin-chat-bubble-rateable::before {
             background:
                     linear-gradient(90deg,
                             rgba(248, 113, 113, var(--jin-rating-edge-strong-alpha, 0.155)) 0%,
@@ -1105,7 +1105,7 @@
                     -6px 0 18px rgba(248, 113, 113, var(--jin-rating-glow-alpha, 0.115));
         }
 
-        .jin-chat-bubble-service::after {
+        .jin-chat-bubble-rateable::after {
             background:
                     linear-gradient(270deg,
                             rgba(74, 222, 128, var(--jin-rating-edge-strong-alpha, 0.155)) 0%,
@@ -1118,7 +1118,7 @@
                     6px 0 18px rgba(74, 222, 128, var(--jin-rating-glow-alpha, 0.115));
         }
 
-        .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-minus:hover) {
+        .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-minus:hover) {
             box-shadow:
                     0 14px 42px rgba(0, 0, 0, 0.25),
                     0 0 24px rgba(248, 113, 113, 0.050),
@@ -1129,15 +1129,15 @@
             filter: saturate(1.015);
         }
 
-        .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-minus:hover)::before {
+        .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-minus:hover)::before {
             opacity: 1;
         }
 
-        .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-minus:hover) .jin-chat-pre {
+        .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-minus:hover) .jin-chat-pre {
             transform: translateX(-2px) skewY(-0.18deg);
         }
 
-        .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-neutral:hover) {
+        .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-neutral:hover) {
             box-shadow:
                     0 14px 42px rgba(0, 0, 0, 0.24),
                     0 0 30px rgba(226, 232, 240, 0.070),
@@ -1148,13 +1148,13 @@
             filter: brightness(1.03);
         }
 
-        .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-neutral:hover) .jin-chat-pre {
+        .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-neutral:hover) .jin-chat-pre {
             text-shadow:
                     0 0 10px rgba(226, 232, 240, 0.070),
                     0 0 14px rgba(103, 232, 249, 0.018);
         }
 
-        .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-plus:hover) {
+        .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-plus:hover) {
             box-shadow:
                     0 14px 42px rgba(0, 0, 0, 0.25),
                     0 0 24px rgba(74, 222, 128, 0.055),
@@ -1165,11 +1165,11 @@
             filter: saturate(1.015);
         }
 
-        .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-plus:hover)::after {
+        .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-plus:hover)::after {
             opacity: 1;
         }
 
-        .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-plus:hover) .jin-chat-pre {
+        .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-plus:hover) .jin-chat-pre {
             transform: translateX(2px) skewY(0.18deg);
         }
 
@@ -1263,7 +1263,7 @@
             }
         }
 
-        .jin-chat-bubble-service.jin-rating-press-neutral {
+        .jin-chat-bubble-rateable.jin-rating-press-neutral {
             box-shadow:
                     0 14px 42px rgba(0, 0, 0, 0.24),
                     0 0 34px rgba(226, 232, 240, var(--jin-rating-glow-alpha, 0.075)),
@@ -1273,48 +1273,48 @@
                     inset 0 0 30px rgba(103, 232, 249, 0.010);
         }
 
-        .jin-chat-bubble-service.jin-rating-press-minus::before {
+        .jin-chat-bubble-rateable.jin-rating-press-minus::before {
             opacity: 1;
             animation: jinRatingClickEdgeMinus 0.62s ease-out forwards;
         }
 
-        .jin-chat-bubble-service.jin-rating-press-plus::after {
+        .jin-chat-bubble-rateable.jin-rating-press-plus::after {
             opacity: 1;
             animation: jinRatingClickEdgePlus 0.62s ease-out forwards;
         }
 
-        .jin-chat-bubble-service.jin-rating-press-minus .jin-chat-pre {
+        .jin-chat-bubble-rateable.jin-rating-press-minus .jin-chat-pre {
             animation: jinRatingClickPreMinus 0.42s cubic-bezier(0.18, 0.92, 0.22, 1.00);
         }
 
-        .jin-chat-bubble-service.jin-rating-press-neutral .jin-chat-pre {
+        .jin-chat-bubble-rateable.jin-rating-press-neutral .jin-chat-pre {
             animation: jinRatingClickPreNeutral 0.44s ease-out;
         }
 
-        .jin-chat-bubble-service.jin-rating-press-plus .jin-chat-pre {
+        .jin-chat-bubble-rateable.jin-rating-press-plus .jin-chat-pre {
             animation: jinRatingClickPrePlus 0.42s cubic-bezier(0.18, 0.92, 0.22, 1.00);
         }
 
 
-        .jin-chat-bubble-service.jin-rating-committed::before,
-        .jin-chat-bubble-service.jin-rating-committed::after {
+        .jin-chat-bubble-rateable.jin-rating-committed::before,
+        .jin-chat-bubble-rateable.jin-rating-committed::after {
             animation: none !important;
         }
 
-        .jin-chat-bubble-service.jin-rating-committed {
+        .jin-chat-bubble-rateable.jin-rating-committed {
             cursor: default;
         }
 
-        .jin-chat-bubble-service.jin-rating-committed .jin-rating-zone {
+        .jin-chat-bubble-rateable.jin-rating-committed .jin-rating-zone {
             pointer-events: none;
             cursor: default;
         }
 
-        .jin-chat-bubble-service.jin-rating-selected-active .jin-rating-zone {
+        .jin-chat-bubble-rateable.jin-rating-selected-active .jin-rating-zone {
             cursor: pointer;
         }
 
-        .jin-chat-bubble-service.jin-rating-selected-minus {
+        .jin-chat-bubble-rateable.jin-rating-selected-minus {
             box-shadow:
                     0 14px 42px rgba(0, 0, 0, 0.25),
                     0 0 28px rgba(248, 113, 113, var(--jin-rating-glow-alpha, 0.085)),
@@ -1327,15 +1327,15 @@
                     brightness(var(--jin-rating-brightness, 1.01));
         }
 
-        .jin-chat-bubble-service.jin-rating-selected-minus::before {
+        .jin-chat-bubble-rateable.jin-rating-selected-minus::before {
             opacity: var(--jin-rating-edge-opacity, 0.42);
         }
 
-        .jin-chat-bubble-service.jin-rating-selected-minus .jin-chat-pre {
+        .jin-chat-bubble-rateable.jin-rating-selected-minus .jin-chat-pre {
             transform: translateX(-2px) skewY(-0.18deg);
         }
 
-        .jin-chat-bubble-service.jin-rating-selected-neutral {
+        .jin-chat-bubble-rateable.jin-rating-selected-neutral {
             box-shadow:
                     0 14px 42px rgba(0, 0, 0, 0.24),
                     0 0 34px rgba(226, 232, 240, var(--jin-rating-glow-alpha, 0.095)),
@@ -1348,14 +1348,14 @@
                     brightness(var(--jin-rating-brightness, 1.04));
         }
 
-        .jin-chat-bubble-service.jin-rating-selected-neutral .jin-chat-pre {
+        .jin-chat-bubble-rateable.jin-rating-selected-neutral .jin-chat-pre {
             transform: none;
             text-shadow:
                     0 0 10px rgba(226, 232, 240, var(--jin-rating-text-alpha, 0.070)),
                     0 0 14px rgba(103, 232, 249, 0.018);
         }
 
-        .jin-chat-bubble-service.jin-rating-selected-plus {
+        .jin-chat-bubble-rateable.jin-rating-selected-plus {
             box-shadow:
                     0 14px 42px rgba(0, 0, 0, 0.25),
                     0 0 28px rgba(74, 222, 128, var(--jin-rating-glow-alpha, 0.092)),
@@ -1368,11 +1368,11 @@
                     brightness(var(--jin-rating-brightness, 1.01));
         }
 
-        .jin-chat-bubble-service.jin-rating-selected-plus::after {
+        .jin-chat-bubble-rateable.jin-rating-selected-plus::after {
             opacity: var(--jin-rating-edge-opacity, 0.42);
         }
 
-        .jin-chat-bubble-service.jin-rating-selected-plus .jin-chat-pre {
+        .jin-chat-bubble-rateable.jin-rating-selected-plus .jin-chat-pre {
             transform: translateX(2px) skewY(0.18deg);
         }
 
@@ -2329,8 +2329,8 @@
             clip-path: none;
         }
 
-        body.theme-win95 .jin-chat-bubble:not(.jin-chat-bubble-service),
-        body.theme-win95 .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-press-minus):not(.jin-rating-press-neutral):not(.jin-rating-press-plus):not(:has(.jin-rating-zone:hover)) {
+        body.theme-win95 .jin-chat-bubble:not(.jin-chat-bubble-service):not(.jin-chat-bubble-brain),
+        body.theme-win95 .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-press-minus):not(.jin-rating-press-neutral):not(.jin-rating-press-plus):not(:has(.jin-rating-zone:hover)) {
             box-shadow:
                     1px 1px 0 var(--win95-text),
                     0 8px 18px rgba(0, 0, 0, 0.16);
@@ -2370,22 +2370,22 @@
             text-shadow: none;
         }
 
-        body.theme-win95 .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-minus:hover),
-        body.theme-win95 .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-neutral:hover),
-        body.theme-win95 .jin-chat-bubble-service:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-plus:hover),
-        body.theme-win95 .jin-chat-bubble-service.jin-rating-press-minus,
-        body.theme-win95 .jin-chat-bubble-service.jin-rating-press-neutral,
-        body.theme-win95 .jin-chat-bubble-service.jin-rating-press-plus,
-        body.theme-win95 .jin-chat-bubble-service.jin-rating-selected-minus,
-        body.theme-win95 .jin-chat-bubble-service.jin-rating-selected-neutral,
-        body.theme-win95 .jin-chat-bubble-service.jin-rating-selected-plus {
+        body.theme-win95 .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-minus:hover),
+        body.theme-win95 .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-neutral:hover),
+        body.theme-win95 .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-plus:hover),
+        body.theme-win95 .jin-chat-bubble-rateable.jin-rating-press-minus,
+        body.theme-win95 .jin-chat-bubble-rateable.jin-rating-press-neutral,
+        body.theme-win95 .jin-chat-bubble-rateable.jin-rating-press-plus,
+        body.theme-win95 .jin-chat-bubble-rateable.jin-rating-selected-minus,
+        body.theme-win95 .jin-chat-bubble-rateable.jin-rating-selected-neutral,
+        body.theme-win95 .jin-chat-bubble-rateable.jin-rating-selected-plus {
             box-shadow: none;
         }
 
-        body.theme-win95 .jin-chat-bubble-service.jin-rating-l1-waiting,
-        body.theme-win95 .jin-chat-bubble-service.jin-rating-l1-waiting .jin-rating-zone,
-        body.theme-win95 .jin-chat-bubble-service.jin-rating-committed,
-        body.theme-win95 .jin-chat-bubble-service.jin-rating-committed .jin-rating-zone {
+        body.theme-win95 .jin-chat-bubble-rateable.jin-rating-l1-waiting,
+        body.theme-win95 .jin-chat-bubble-rateable.jin-rating-l1-waiting .jin-rating-zone,
+        body.theme-win95 .jin-chat-bubble-rateable.jin-rating-committed,
+        body.theme-win95 .jin-chat-bubble-rateable.jin-rating-committed .jin-rating-zone {
             cursor: default;
         }
 
@@ -2962,6 +2962,12 @@
             "jin-rating-press-neutral",
             "jin-rating-press-plus",
         ];
+        const ratingBubbleSelector =
+            ".jin-chat-bubble-rateable, .jin-chat-bubble-service, .jin-chat-bubble-brain";
+        const activeRatingBubbleSelector =
+            ".jin-chat-bubble-rateable.jin-rating-selected-active:not(.jin-rating-committed), "
+            + ".jin-chat-bubble-service.jin-rating-selected-active:not(.jin-rating-committed), "
+            + ".jin-chat-bubble-brain.jin-rating-selected-active:not(.jin-rating-committed)";
 
         function isRatingInteractionBlocked() {
             return Boolean(
@@ -3145,7 +3151,9 @@
         function addRatingHoverZones(root) {
             const scope = root instanceof Element ? root : document;
 
-            scope.querySelectorAll(".jin-chat-bubble-service").forEach((bubble) => {
+            scope.querySelectorAll(ratingBubbleSelector).forEach((bubble) => {
+                bubble.classList.add("jin-chat-bubble-rateable");
+
                 if (bubble.querySelector(":scope > .jin-rating-hover-zones")) {
                     markBubbleRatingL1State(bubble);
                     return;
@@ -3279,27 +3287,27 @@
 
         window.addEventListener("jin:generation-state-changed", () => {
             document
-                .querySelectorAll(".jin-chat-bubble-service")
+                .querySelectorAll(ratingBubbleSelector)
                 .forEach(markBubbleRatingL1State);
         });
 
         addRatingHoverZones(document);
 
         document.addEventListener("click", (event) => {
-            if (event.target.closest(".jin-chat-bubble-service")) {
+            if (event.target.closest(ratingBubbleSelector)) {
                 return;
             }
 
             const answerRow = event.target.closest(".jin-message-row");
             if (
                 !answerRow
-                || !answerRow.querySelector(".jin-chat-bubble-service")
+                || !answerRow.querySelector(ratingBubbleSelector)
             ) {
                 return;
             }
 
             answerRow
-                .querySelectorAll(".jin-chat-bubble-service.jin-rating-selected-active:not(.jin-rating-committed)")
+                .querySelectorAll(activeRatingBubbleSelector)
                 .forEach((bubble) => clearBubbleRating(bubble, "answer-row-outside-bubble"));
         });
 
@@ -3307,7 +3315,7 @@
         if (chatForm) {
             chatForm.addEventListener("submit", () => {
                 document
-                    .querySelectorAll(".jin-chat-bubble-service.jin-rating-selected-active:not(.jin-rating-committed)")
+                    .querySelectorAll(activeRatingBubbleSelector)
                     .forEach((bubble) => {
                         bubble.classList.remove("jin-rating-selected-active");
                         bubble.classList.add("jin-rating-committed");

@@ -23,6 +23,10 @@
     neutral: "neutral",
     liked: "liked",
   };
+  const ratingBubbleWithGateSelector =
+    ".jin-chat-bubble-rateable[data-rating-gate-generation], "
+    + ".jin-chat-bubble-service[data-rating-gate-generation], "
+    + ".jin-chat-bubble-brain[data-rating-gate-generation]";
 
   // UI buttons can still use visual button names. Convert them only at the
   // browser event boundary. Runtime memory and server payloads stay canonical:
@@ -31,6 +35,11 @@
     minus: "disliked",
     zero: "neutral",
     plus: "liked",
+  };
+  const runtimeResponseFeedbackClickCountKeys = {
+    disliked: "dislike_clicks_count",
+    neutral: "neutral_clicks_count",
+    liked: "like_clicks_count",
   };
 
   let deps = null;
@@ -138,7 +147,7 @@
 
     document
       .querySelectorAll(
-        ".jin-chat-bubble-service[data-rating-gate-generation]"
+        ratingBubbleWithGateSelector
       )
       .forEach((bubble) => {
         if (
@@ -209,7 +218,7 @@
     if (typeof document !== "undefined") {
       document
         .querySelectorAll(
-          ".jin-chat-bubble-service[data-rating-gate-generation]"
+          ratingBubbleWithGateSelector
         )
         .forEach((bubble) => {
           const bubbleGen = Number(
@@ -287,7 +296,11 @@
       );
 
     if (clicksCount !== null) {
-      return `${value} [ clicks_count: ${clicksCount} ]`;
+      const clicksCountKey =
+        runtimeResponseFeedbackClickCountKeys[feedback.rating]
+        || "neutral_clicks_count";
+
+      return `${value} [ ${clicksCountKey}: ${clicksCount} ]`;
     }
 
     return value;

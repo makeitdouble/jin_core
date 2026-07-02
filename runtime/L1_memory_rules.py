@@ -175,35 +175,6 @@ INTERRUPTED_ASSISTANT_MEMORY_TEMPLATE = (
     "{assistant_message}"
 )
 
-# Describes how to react after the user disliked the last response.
-RUNTIME_RESPONSE_FEEDBACK_DISLIKED_VALUE = (
-    "User disliked your last response. "
-    "Before answering, find and understand why it failed using context or memory, "
-    "then start the next reply with a brief acknowledgement of that miss, "
-    "then continue with a concrete corrected answer."
-)
-
-# Describes how to react after the user gave neutral feedback.
-RUNTIME_RESPONSE_FEEDBACK_NEUTRAL_VALUE = (
-    "User gave neutral feedback to your last response. "
-    "Continue carefully without changing course too much "
-    "and treat it as a signal for response improvement."
-)
-
-# Describes how to react after the user liked the last response.
-RUNTIME_RESPONSE_FEEDBACK_LIKED_VALUE = (
-    "User liked your last response. "
-    "Keep the current direction."
-)
-
-# Maps accepted feedback rating values to normalized rating names.
-RUNTIME_RESPONSE_FEEDBACK_RATINGS = {
-    "disliked": "disliked",
-    "neutral": "neutral",
-    "liked": "liked",
-}
-
-
 # -------------------------------------------------------------------
 # --------------------------- BASIC RULES ---------------------------
 
