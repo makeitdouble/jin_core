@@ -7,16 +7,14 @@
     "JIN_LAST_RESPONSE_USER_FEEDBACK";
 
   const runtimeResponseFeedbackDislikedValue =
-    "User disliked your last response. "
-    + "Before answering, find and understand why it failed using context or memory, then start the next reply with a brief acknowledgement of that miss, then continue with a concrete corrected answer.";
+    "Last response was disliked. First sentence of your reply must acknowledge the miss, then give corrected answer. Non-negotiable.\n";
 
   const runtimeResponseFeedbackNeutralValue =
-    "User gave neutral feedback to your last response. "
-    + "Continue carefully without changing course too much.";
+    "Last response got neutral feedback. Do not acknowledge it explicitly, do not change tone or structure. "
+    + "Treat it as a weak signal: if the same neutral signal repeats, gradually adjust; on first occurrence, ignore. ";
 
   const runtimeResponseFeedbackLikedValue =
-    "User liked your last response. "
-    + "Keep the current direction.";
+    "Last response was liked. Do not mention this feedback explicitly. Keep the same structure, tone, and depth.";
 
   const runtimeResponseFeedbackRatings = {
     disliked: "disliked",

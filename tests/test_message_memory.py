@@ -872,10 +872,10 @@ class MessageMemoryTests(
             1,
         )[0]
         user_feedback = prompt.split(
-            "<USER_FEEDBACK>",
+            "<LATEST_USER_FEEDBACK priority=HIGH_PRIORITY>",
             1,
         )[1].split(
-            "</USER_FEEDBACK>",
+            "</LATEST_USER_FEEDBACK>",
             1,
         )[0]
         runtime_memory = prompt.split(
@@ -887,14 +887,12 @@ class MessageMemoryTests(
         )[0]
 
         self.assertIn(
-            "User disliked your last response. "
-            "Before answering, find and understand why it failed using context or memory, "
-            "then start the next reply with a brief acknowledgement of that miss, "
-            "then continue with a concrete corrected answer.",
+            "Last response was disliked. First sentence of your reply must acknowledge the miss, "
+            "then give corrected answer. Non-negotiable.",
             user_feedback,
         )
         self.assertLess(
-            prompt.index("<USER_FEEDBACK>"),
+            prompt.index("<LATEST_USER_FEEDBACK priority=HIGH_PRIORITY>"),
             prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
         )
         self.assertNotIn(
@@ -902,15 +900,15 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertNotIn(
-            "User disliked your last response.",
+            "Last response was disliked.",
             session_state,
         )
         self.assertNotIn(
-            "<USER_FEEDBACK>",
+            "<LATEST_USER_FEEDBACK",
             runtime_memory,
         )
         self.assertNotIn(
-            "User disliked your last response.",
+            "Last response was disliked.",
             runtime_memory,
         )
 

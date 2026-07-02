@@ -16,6 +16,9 @@ from rules.assembler import (
 from config_loader import (
     config,
 )
+from app_settings import (
+    settings,
+)
 from rules.assembler import (
     BRAIN_RUNTIME_ACTIONS,
     SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
@@ -814,7 +817,11 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "<MODE>SERVICE as BRAIN</MODE>",
+            (
+                "<MODE>SERVICE as BRAIN</MODE>"
+                if settings.USE_SERVICE_AS_BRAIN
+                else "<MODE>BRAIN</MODE>"
+            ),
             prompt,
         )
 
