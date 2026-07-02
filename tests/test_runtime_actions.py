@@ -1,6 +1,9 @@
 import asyncio
+import contextlib
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from clients import (
@@ -10,6 +13,9 @@ from clients.brain_client import (
     should_execute_save_session,
 )
 from rules import runtime as runtime_rules
+from utils.assets_service import (
+    run_asset_action,
+)
 from utils.runtime_actions import (
     RuntimeActionCall,
     RuntimeActionStreamFilter,
@@ -23,6 +29,18 @@ from utils.runtime_actions import (
 
 
 class RuntimeActionTests(unittest.TestCase):
+
+    def patch_asset_roots(self, root: Path):
+        assets_root = root / "assets"
+        return (
+            patch("utils.assets_service.PROJECT_ROOT", root),
+            patch("utils.assets_service.ASSETS_ROOT", assets_root),
+            patch("utils.assets_service.SKILLS_ROOT", assets_root / "skills"),
+            patch("utils.assets_service.WILDCARDS_ROOT", assets_root / "wildcards"),
+            patch("utils.assets_service.PROMPTS_ROOT", assets_root / "prompts"),
+            patch("utils.assets_service.TEMPLATES_ROOT", assets_root / "templates"),
+            patch("utils.assets_service.OUTPUTS_ROOT", assets_root / "outputs"),
+        )
 
     def test_extract_runtime_actions_handles_none_text(self):
 
@@ -284,6 +302,123 @@ class RuntimeActionTests(unittest.TestCase):
             (
                 "<INTERNAL_ACTION_SAVE_SESSION>",
             ),
+        )
+
+    def test_extracts_list_skills_marker(self):
+
+        result = extract_runtime_actions(
+            "<INTERNAL_ACTION_LIST_SKILLS:wildcards>",
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name="LIST_SKILLS",
+                    payload="wildcards",
+                ),
+            ),
+        )
+
+    def test_extracts_asset_action_block(self):
+
+        result = extract_runtime_actions(
+            (
+                "<INTERNAL_ACTION_ASSET_ACTION>\n"
+                '{"action":"list_wildcards"}\n'
+                "</INTERNAL_ACTION_ASSET_ACTION>\n"
+                "Done."
+            ),
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "Done.",
+        )
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name="ASSET_ACTION",
+                    payload='{"action":"list_wildcards"}',
+                ),
+            ),
+        )
+
+    def test_extracts_asset_action_block_with_args_payload(self):
+
+        result = extract_runtime_actions(
+            (
+                "<INTERNAL_ACTION_ASSET_ACTION>\n"
+                '{"action":"create_wildcard_file","args":{"path":"clothing/test_tops","content":"cropped tank top\\nlace camisole"}}\n'
+                "</INTERNAL_ACTION_ASSET_ACTION>\n"
+                "Создал файл."
+            ),
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "Создал файл.",
+        )
+        self.assertEqual(
+            result.count("ASSET_ACTION"),
+            1,
+        )
+        self.assertNotIn(
+            "INTERNAL_ACTION_ASSET_ACTION",
+            result.text,
+        )
+
+    def test_stream_filter_strips_asset_action_block(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+        )
+
+        first = stream_filter.filter(
+            (
+                "<INTERNAL_ACTION_ASSET_ACTION>\n"
+                '{"action":"create_wildcard_file","args":{"path":"clothing/test_tops",'
+            )
+        )
+        second = stream_filter.filter(
+            (
+                '"content":"cropped tank top\\nlace camisole"}}\n'
+                "</INTERNAL_ACTION_ASSET_ACTION>\n"
+                "Создал файл."
+            )
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.actions,
+            (),
+        )
+        self.assertEqual(
+            second.text,
+            "Создал файл.",
+        )
+        self.assertEqual(
+            second.count("ASSET_ACTION"),
+            1,
         )
 
     def test_preserves_marker_when_action_disabled(self):
@@ -1639,6 +1774,359 @@ class RuntimeActionTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_apply_runtime_action_calls_lists_skills(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                context = Context()
+                context.emitter = Emitter()
+
+                applied_count = asyncio.run(
+                    apply_runtime_action_calls(
+                        context,
+                        (
+                            RuntimeActionCall(
+                                name="LIST_SKILLS",
+                                payload="wildcards",
+                            ),
+                        ),
+                    )
+                )
+
+                self.assertEqual(
+                    applied_count,
+                    1,
+                )
+                self.assertEqual(
+                    context.runtime_asset_results[0]["action"],
+                    "list_skills",
+                )
+                self.assertEqual(
+                    context.runtime_asset_results[0]["skills"][0]["name"],
+                    "wildcards",
+                )
+                self.assertTrue(
+                    (root / "assets" / "skills" / "wildcards.txt").exists()
+                )
+                self.assertEqual(
+                    context.emitter.events[0]["action"],
+                    "list_skills",
+                )
+
+    def test_apply_runtime_action_calls_runs_asset_action(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                context = Context()
+                context.emitter = Emitter()
+                payload = json.dumps(
+                    {
+                        "action": "create_wildcard_file",
+                        "path": "clothing/test_tops",
+                        "lines": [
+                            "linen shirt",
+                            "wool sweater",
+                        ],
+                    }
+                )
+
+                applied_count = asyncio.run(
+                    apply_runtime_action_calls(
+                        context,
+                        (
+                            RuntimeActionCall(
+                                name="ASSET_ACTION",
+                                payload=payload,
+                            ),
+                        ),
+                    )
+                )
+
+                self.assertEqual(
+                    applied_count,
+                    1,
+                )
+                output_path = (
+                    root
+                    / "assets"
+                    / "wildcards"
+                    / "clothing"
+                    / "test_tops.txt"
+                )
+                self.assertEqual(
+                    output_path.read_text(encoding="utf-8"),
+                    "linen shirt\nwool sweater\n",
+                )
+                self.assertEqual(
+                    context.runtime_asset_results[0]["line_count"],
+                    2,
+                )
+                self.assertEqual(
+                    context.emitter.events[0]["action"],
+                    "asset_action",
+                )
+
+    def test_apply_runtime_action_calls_runs_asset_action_args_payload(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                context = Context()
+                context.emitter = Emitter()
+                payload = json.dumps(
+                    {
+                        "action": "create_wildcard_file",
+                        "args": {
+                            "path": "clothing/test_tops",
+                            "content": "cropped tank top\nlace camisole",
+                        },
+                    }
+                )
+
+                applied_count = asyncio.run(
+                    apply_runtime_action_calls(
+                        context,
+                        (
+                            RuntimeActionCall(
+                                name="ASSET_ACTION",
+                                payload=payload,
+                            ),
+                        ),
+                    )
+                )
+
+                self.assertEqual(
+                    applied_count,
+                    1,
+                )
+                output_path = (
+                    root
+                    / "assets"
+                    / "wildcards"
+                    / "clothing"
+                    / "test_tops.txt"
+                )
+                self.assertEqual(
+                    output_path.read_text(encoding="utf-8"),
+                    "cropped tank top\nlace camisole\n",
+                )
+
+    def test_apply_runtime_action_calls_repairs_backslash_separated_content(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                context = Context()
+                context.emitter = Emitter()
+                payload = (
+                    r'{"action":"create_wildcard_file","args":{"path":"clothing/test_tops",'
+                    r'"content":"crop top\tank top\bsleeveless blouse\mesh bodysuit\nstrappy camisole"}}'
+                )
+
+                applied_count = asyncio.run(
+                    apply_runtime_action_calls(
+                        context,
+                        (
+                            RuntimeActionCall(
+                                name="ASSET_ACTION",
+                                payload=payload,
+                            ),
+                        ),
+                    )
+                )
+
+                self.assertEqual(
+                    applied_count,
+                    1,
+                )
+                output_path = (
+                    root
+                    / "assets"
+                    / "wildcards"
+                    / "clothing"
+                    / "test_tops.txt"
+                )
+                self.assertEqual(
+                    output_path.read_text(encoding="utf-8"),
+                    (
+                        "crop top\n"
+                        "tank top\n"
+                        "sleeveless blouse\n"
+                        "mesh bodysuit\n"
+                        "strappy camisole\n"
+                    ),
+                )
+
+    def test_generate_prompt_batch_expands_wildcards_and_accepts_assets_prompts_path(self):
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                run_asset_action(json.dumps({
+                    "action": "create_wildcard_file",
+                    "path": "clothing/test_tops",
+                    "lines": [
+                        "linen shirt",
+                    ],
+                }))
+                run_asset_action(json.dumps({
+                    "action": "create_wildcard_file",
+                    "path": "clothing/test_bottoms",
+                    "lines": [
+                        "black skirt",
+                    ],
+                }))
+
+                result = run_asset_action(json.dumps({
+                    "action": "generate_prompt_batch",
+                    "count": 2,
+                    "template": "woman wearing __clothing/test_tops__ and __clothing/test_bottoms__, studio lighting.",
+                    "output_file": "assets/prompts/test_prompts.txt",
+                }))
+
+                self.assertTrue(
+                    result.get("ok"),
+                    result,
+                )
+                output_path = (
+                    root
+                    / "assets"
+                    / "prompts"
+                    / "test_prompts.txt"
+                )
+                self.assertTrue(
+                    output_path.exists(),
+                )
+                self.assertFalse(
+                    (root / "assets" / "prompts" / "assets").exists(),
+                )
+                self.assertFalse(
+                    (root / "assets" / "wildcards" / "assets").exists(),
+                )
+                content = output_path.read_text(encoding="utf-8")
+                self.assertEqual(
+                    content,
+                    (
+                        "woman wearing linen shirt and black skirt, studio lighting.\n"
+                        "woman wearing linen shirt and black skirt, studio lighting.\n"
+                    ),
+                )
+                self.assertNotIn(
+                    "__clothing/",
+                    content,
+                )
+
+    def test_generate_prompt_batch_reports_missing_wildcards(self):
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                result = run_asset_action(json.dumps({
+                    "action": "generate_prompt_batch",
+                    "count": 2,
+                    "template": "woman wearing __clothing/missing_tops__",
+                    "output_file": "assets/prompts/test_prompts.txt",
+                }))
+
+                self.assertFalse(
+                    result.get("ok"),
+                )
+                self.assertEqual(
+                    result.get("error"),
+                    "missing_wildcards",
+                )
+                self.assertEqual(
+                    result.get("missing", [])[0].get("wildcard"),
+                    "clothing/missing_tops",
+                )
+
+    def test_create_wildcard_file_rejects_assets_prompts_path(self):
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                result = run_asset_action(json.dumps({
+                    "action": "create_wildcard_file",
+                    "path": "assets/prompts/test_prompts.txt",
+                    "lines": [
+                        "bad prompt",
+                    ],
+                }))
+
+                self.assertFalse(
+                    result.get("ok"),
+                )
+                self.assertEqual(
+                    result.get("error"),
+                    "ValueError",
+                )
+                self.assertFalse(
+                    (root / "assets" / "wildcards" / "assets").exists(),
+                )
 
     def test_apply_runtime_action_calls_saves_delayed_memory_report(self):
 

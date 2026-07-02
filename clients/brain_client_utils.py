@@ -51,7 +51,9 @@ import re
 from xml.etree import ElementTree
 
 from rules.runtime import (
+    RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
@@ -59,6 +61,11 @@ from rules.runtime import (
 )
 from runtime.behavior_contract import (
     should_execute_action_guard,
+)
+from utils.assets_service import (
+    ensure_assets_tree,
+    list_skills,
+    run_asset_action,
 )
 from utils.runtime_actions import (
     build_runtime_action_id,
@@ -590,6 +597,33 @@ def build_runtime_action_marker_preview(
     )[:limit]
 
 
+def append_asset_runtime_result(
+    context,
+    result: dict,
+) -> None:
+
+    asset_results = getattr(
+        context,
+        "runtime_asset_results",
+        None,
+    )
+
+    if not isinstance(
+        asset_results,
+        list,
+    ):
+        asset_results = []
+        setattr(
+            context,
+            "runtime_asset_results",
+            asset_results,
+        )
+
+    asset_results.append(
+        result
+    )
+
+
 async def log_runtime_action_marker_removals(
     context,
     result,
@@ -676,6 +710,8 @@ async def apply_runtime_action_calls(
     ):
         context.runtime_search_calls = []
 
+    ensure_assets_tree()
+
     search_action_count = sum(
         1
         for event in context.runtime_action_events
@@ -703,6 +739,7 @@ async def apply_runtime_action_calls(
     )
     resolve_active_memory_seen = False
     save_delayed_memory_seen = False
+    list_skills_seen = False
     resolved_user_message = resolve_runtime_action_user_message(
         context,
         user_message,
@@ -809,6 +846,12 @@ async def apply_runtime_action_calls(
 
             search_query_seen = True
 
+        if action.name == RUNTIME_ACTION_LIST_SKILLS:
+            if list_skills_seen:
+                continue
+
+            list_skills_seen = True
+
         accepted_action_names.add(
             action_event_name
         )
@@ -891,6 +934,18 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
     ]
 
+    list_skill_actions = [
+        action
+        for action in filtered_actions
+        if action.name == RUNTIME_ACTION_LIST_SKILLS
+    ]
+
+    asset_actions = [
+        action
+        for action in filtered_actions
+        if action.name == RUNTIME_ACTION_ASSET_ACTION
+    ]
+
     search_queries = [
         query
         for query in (
@@ -937,6 +992,89 @@ async def apply_runtime_action_calls(
             "[RUNTIME ACTION] "
             f"search x{len(search_queries)}"
         )
+
+    saved_asset_results = []
+
+    if list_skill_actions:
+        if log_runtime is not None:
+            await log_runtime(
+                "[RUNTIME ACTION] list_skills requested"
+            )
+
+        for action in list_skill_actions:
+            result = list_skills(
+                action.payload
+            )
+            append_asset_runtime_result(
+                context,
+                result,
+            )
+            saved_asset_results.append(
+                result
+            )
+
+    if asset_actions:
+        if log_runtime is not None:
+            await log_runtime(
+                "[RUNTIME ACTION] asset_action requested"
+            )
+
+        for action in asset_actions:
+            result = run_asset_action(
+                action.payload
+            )
+            append_asset_runtime_result(
+                context,
+                result,
+            )
+            saved_asset_results.append(
+                result
+            )
+
+    if saved_asset_results:
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is not None:
+            for result in saved_asset_results:
+                result_action = str(
+                    result.get(
+                        "action",
+                        "assets",
+                    )
+                    or "assets"
+                )
+                action_name = (
+                    "list_skills"
+                    if result_action == "list_skills"
+                    else "asset_action"
+                )
+                text = (
+                    "Reading skills"
+                    if result_action == "list_skills"
+                    else f"Assets: {result_action}"
+                )
+                await emit({
+                    "type": "runtime_action",
+                    "action": action_name,
+                    "text": text,
+                    "asset_result": result,
+                })
+                await emit({
+                    "type": "runtime_action",
+                    "action": action_name,
+                    "status": "completed",
+                    "text": text,
+                    "asset_result": result,
+                })
 
     if save_session_count:
         context.runtime_save_session_armed = False
@@ -1138,6 +1276,9 @@ async def apply_runtime_action_calls(
     return (
         len(
             search_queries
+        )
+        + len(
+            saved_asset_results
         )
         + min(
             save_session_count,

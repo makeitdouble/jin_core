@@ -61,6 +61,10 @@ class RuntimeContext:
 
     runtime_search_result_id: str = ""
 
+    runtime_asset_results: list[dict] = field(
+        default_factory=list
+    )
+
     runtime_action_events: list[dict] = field(
         default_factory=list
     )
@@ -281,6 +285,7 @@ class ContextContract:
     runtime_mode: str = ""
     service_model_uid: str = ""
     can_web_search: bool = True
+    can_use_assets: bool = False
     can_save_session: bool = False
     can_create_active_memory: bool = False
 

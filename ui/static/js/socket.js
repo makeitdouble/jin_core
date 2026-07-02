@@ -1437,11 +1437,17 @@ function handleSocketMessage(event) {
     const role =
       resolveMessageRole(data);
 
-    const filteredText =
+    let filteredText =
       filterDelayedMemoryContentFromChunk(
         data.message_id || "message",
         data.text
       );
+
+    if (window.stripInternalActionMarkers) {
+      filteredText = window.stripInternalActionMarkers(
+        filteredText
+      );
+    }
 
     clearDelayedMemoryContentFilter(
       data.message_id || "message"

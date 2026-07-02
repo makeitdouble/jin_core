@@ -11,7 +11,9 @@ from rules.assembler import (
     get_enabled_runtime_actions,
 )
 from rules.runtime import (
+    RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
 )
@@ -72,6 +74,12 @@ def build_runtime_xml(
             service_model_uid=settings.SERVICE_MODEL_UID,
             can_web_search=(
                 RUNTIME_ACTION_WEB_SEARCH
+                in enabled_actions
+            ),
+            can_use_assets=(
+                RUNTIME_ACTION_LIST_SKILLS
+                in enabled_actions
+                or RUNTIME_ACTION_ASSET_ACTION
                 in enabled_actions
             ),
             can_save_session=(
@@ -586,6 +594,35 @@ def append_tool_results(
     )
 
 
+def append_asset_results(
+    parts: list[str],
+    context=None,
+) -> None:
+
+    if context is None:
+        return
+
+    asset_results = list(
+        getattr(
+            context,
+            "runtime_asset_results",
+            [],
+        )
+        or []
+    )
+
+    if not asset_results:
+        return
+
+    parts.append(
+        '<TOOL_RESULTS type="internal_trusted_assets">\n'
+        '    <TOOL_RESULT name="ASSETS">\n'
+        f"{indent_xml(escape(json.dumps(asset_results[-5:], ensure_ascii=False, indent=2)))}\n"
+        "    </TOOL_RESULT>\n"
+        "</TOOL_RESULTS>"
+    )
+
+
 def build_brain_runtime_context(
     context=None,
     runtime_actions=None,
@@ -637,6 +674,10 @@ def build_brain_runtime_context(
         context,
     )
     append_tool_results(
+        parts,
+        context,
+    )
+    append_asset_results(
         parts,
         context,
     )

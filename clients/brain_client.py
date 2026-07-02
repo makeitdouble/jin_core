@@ -4,6 +4,7 @@ from config_loader import (
     config,
 )
 from rules.runtime import (
+    RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
@@ -512,7 +513,10 @@ async def ask_brain_stream(
         )
 
         if any(
-            action.name == RUNTIME_ACTION_WEB_SEARCH
+            action.name in (
+                RUNTIME_ACTION_WEB_SEARCH,
+                RUNTIME_ACTION_LIST_SKILLS,
+            )
             for action in runtime_action_calls
         ):
             stop_for_runtime_action = True

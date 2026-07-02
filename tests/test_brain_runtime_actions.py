@@ -49,6 +49,14 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
     if bool(runtime_actions.get("CAN_SAVE_SESSION", False)):
         expected_actions.append("SAVE_SESSION")
 
+    if bool(runtime_actions.get("CAN_USE_ASSETS", False)):
+        expected_actions.extend(
+            (
+                "LIST_SKILLS",
+                "ASSET_ACTION",
+            )
+        )
+
     if bool(runtime_actions.get("CAN_SAVE_DELAYED_MEMORY", False)):
         expected_actions.append("SAVE_DELAYED_MEMORY_CONTENT")
 
@@ -622,6 +630,30 @@ class BrainRuntimeActionTests(unittest.TestCase):
             self,
             runtime_context,
             "<CURRENT_TRUSTED_RUNTIME_VARIABLES>",
+        )
+
+    def test_prompt_routes_uncertain_operational_tasks_to_skills(self):
+
+        prompt = build_brain_system_prompt(
+            runtime_actions={
+                "CAN_USE_ASSETS": True,
+            }
+        )
+
+        assert_contains_text(
+            self,
+            prompt,
+            "SKILL ROUTING:",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "At the first sign of uncertainty",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "<INTERNAL_ACTION_LIST_SKILLS: wildcards >",
         )
 
     def test_prompt_adds_resolve_active_memory_rules_from_active_records_only(self):

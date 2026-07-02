@@ -1572,6 +1572,10 @@ function appendRuntimeAction(
   icon.textContent =
     action === "web_search"
       ? "🔍"
+      : action === "list_skills"
+        ? "📘"
+        : action === "asset_action"
+          ? "▣"
       : "●";
 
   const label =
@@ -2017,6 +2021,14 @@ function stripInternalActionMarkers(
       "$1"
     )
     .replace(
+      /(^|\n)[^\S\r\n]*<INTERNAL_ACTION_LIST_SKILLS(?::[^>\n]*)?>[^\S\r\n]*(?=\n|$)/gi,
+      "$1"
+    )
+    .replace(
+      /(^|\n)[^\S\r\n]*<INTERNAL_ACTION_ASSET_ACTION>[\s\S]*?<\/INTERNAL_ACTION_ASSET_ACTION>[^\S\r\n]*(?=\n|$)/gi,
+      "$1"
+    )
+    .replace(
       /\n{3,}/g,
       "\n\n"
     );
@@ -2209,6 +2221,9 @@ window.queueRuntimeActionAfterNextResponse =
 
 window.fadeRuntimeAction =
   fadeRuntimeAction;
+
+window.stripInternalActionMarkers =
+  stripInternalActionMarkers;
 
 window.startStreamMessage =
   startStreamMessage;

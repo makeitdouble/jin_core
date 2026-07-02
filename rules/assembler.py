@@ -14,23 +14,30 @@ from .runtime import (
     CREATE_ACTIVE_MEMORY_RULES,
     RESOLVE_ACTIVE_MEMORY_RULES,
     INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER,
+    INTERNAL_ACTION_ASSET_ACTION_MARKER,
+    INTERNAL_ACTION_LIST_SKILLS_MARKER,
     INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY_MARKER,
     INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_MARKER,
     INTERNAL_ACTION_SAVE_SESSION_MARKER,
     INTERNAL_ACTION_WEB_SEARCH_MARKER,
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_ASSET_ACTION,
+    RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
     SAVE_SESSION_RULES,
     WEB_SEARCH_RULES,
+    ASSETS_RULES,
+    SKILL_ROUTING_RULES,
     RUNTIME_ACTIONS_RULES, SAVE_DELAYED_MEMORY_RULES, INTERNAL_ACTION_ROUTER_RULES
 )
 
 
 SERVICE_AS_BRAIN_RUNTIME_ACTIONS = {
     "CAN_WEB_SEARCH": True,
+    "CAN_USE_ASSETS": True,
     "CAN_SAVE_SESSION": True,
     "CAN_SAVE_DELAYED_MEMORY": True,
     "CAN_SAVE_ACTIVE_MEMORY": True,
@@ -38,6 +45,7 @@ SERVICE_AS_BRAIN_RUNTIME_ACTIONS = {
 
 BRAIN_RUNTIME_ACTIONS = {
     "CAN_WEB_SEARCH": True,
+    "CAN_USE_ASSETS": True,
     "CAN_SAVE_SESSION": True,
     "CAN_SAVE_DELAYED_MEMORY": True,
     "CAN_SAVE_ACTIVE_MEMORY": True,
@@ -73,6 +81,14 @@ def get_enabled_runtime_actions(
         (
             RUNTIME_ACTION_SAVE_SESSION,
             "CAN_SAVE_SESSION",
+        ),
+        (
+            RUNTIME_ACTION_LIST_SKILLS,
+            "CAN_USE_ASSETS",
+        ),
+        (
+            RUNTIME_ACTION_ASSET_ACTION,
+            "CAN_USE_ASSETS",
         ),
         (
             RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
@@ -138,6 +154,12 @@ def _build_allowed_markers(
     if _action_enabled(enabled_actions, RUNTIME_ACTION_WEB_SEARCH, "web_search"):
         markers.append(INTERNAL_ACTION_WEB_SEARCH_MARKER)
 
+    if _action_enabled(enabled_actions, RUNTIME_ACTION_LIST_SKILLS, "list_skills"):
+        markers.append(INTERNAL_ACTION_LIST_SKILLS_MARKER)
+
+    if _action_enabled(enabled_actions, RUNTIME_ACTION_ASSET_ACTION, "asset_action"):
+        markers.append(INTERNAL_ACTION_ASSET_ACTION_MARKER)
+
     if _action_enabled(enabled_actions, RUNTIME_ACTION_SAVE_SESSION, "save_session"):
         markers.append(INTERNAL_ACTION_SAVE_SESSION_MARKER)
 
@@ -198,6 +220,15 @@ def build_runtime_action_instructions(
 
     if _action_enabled(enabled_actions, RUNTIME_ACTION_WEB_SEARCH, "web_search"):
         instructions.append(WEB_SEARCH_RULES)
+
+    if _action_enabled(enabled_actions, RUNTIME_ACTION_LIST_SKILLS, "list_skills"):
+        instructions.append(SKILL_ROUTING_RULES)
+
+    if (
+        _action_enabled(enabled_actions, RUNTIME_ACTION_LIST_SKILLS, "list_skills")
+        or _action_enabled(enabled_actions, RUNTIME_ACTION_ASSET_ACTION, "asset_action")
+    ):
+        instructions.append(ASSETS_RULES)
 
     if _action_enabled(enabled_actions, RUNTIME_ACTION_SAVE_SESSION, "save_session"):
         instructions.append(SAVE_SESSION_RULES)
