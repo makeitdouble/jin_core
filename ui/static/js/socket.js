@@ -220,6 +220,123 @@ function buildActiveMemoryDetails(
 }
 
 
+function findActiveMemoryRecordById(
+  activeMemoryId
+) {
+
+  const needle =
+    String(activeMemoryId || "")
+      .trim()
+      .toLowerCase();
+
+  if (!needle) {
+    return {
+      record: "",
+      index: -1,
+    };
+  }
+
+  const records =
+    getActiveMemoryRecordsForStartupLog();
+
+  const index =
+    records.findIndex(function (record) {
+      return String(record || "")
+        .toLowerCase()
+        .includes(needle);
+    });
+
+  return {
+    record:
+      index >= 0
+        ? String(records[index] || "")
+        : "",
+    index,
+  };
+
+}
+
+
+function getActiveMemoryRecordSlotNumber(
+  record,
+  index
+) {
+
+  const match =
+    String(record || "").match(
+      /^\s*active_memory(?:_(\d+))?\s*:/i
+    );
+
+  if (
+    match
+    && match[1]
+  ) {
+    return match[1];
+  }
+
+  if (index >= 0) {
+    return String(index + 1);
+  }
+
+  return "";
+
+}
+
+
+function getActiveMemoryRecordTitle(
+  record
+) {
+
+  return String(record || "")
+    .replace(
+      /^\s*active_memory(?:_\d+)?\s*:\s*/i,
+      ""
+    )
+    .replace(
+      /\s*\[[^\]]+\]\s*/g,
+      " "
+    )
+    .replace(
+      /\s+/g,
+      " "
+    )
+    .trim();
+
+}
+
+
+function buildResolveActiveMemoryRuntimeActionText(
+  data,
+  fallbackText
+) {
+
+  const match =
+    findActiveMemoryRecordById(
+      data && data.id
+    );
+
+  const title =
+    getActiveMemoryRecordTitle(
+      match.record
+    );
+
+  if (!title) {
+    return String(fallbackText || "");
+  }
+
+  const slotNumber =
+    getActiveMemoryRecordSlotNumber(
+      match.record,
+      match.index
+    );
+
+  return slotNumber
+    ? `Resolved #${slotNumber} - ${title}`
+    : `Resolved - ${title}`;
+
+}
+
+
 function logActiveMemoryRecords() {
 
   if (activeMemoryRecordsLogged) {
@@ -1491,6 +1608,14 @@ function handleSocketMessage(event) {
         data.text || ""
       );
 
+    const displayText =
+      action === "resolve_active_memory"
+        ? buildResolveActiveMemoryRuntimeActionText(
+          data,
+          text
+        )
+        : text;
+
     if (
       action === "create_active_memory"
       && data.active_memory
@@ -1542,13 +1667,13 @@ function handleSocketMessage(event) {
       return;
     }
 
-    if (!text.trim()) {
+    if (!displayText.trim()) {
       return;
     }
 
     const appended = appendRuntimeAction(
       action,
-      text,
+      displayText,
       {
         id: data.id || "",
       }

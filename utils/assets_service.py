@@ -397,6 +397,7 @@ def list_skills(skill: str = "") -> dict:
     return {
         "ok": True,
         "action": "list_skills",
+        "requested": requested,
         "skills": items,
     }
 

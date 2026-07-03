@@ -603,6 +603,21 @@ class BrainNode(BaseNode):
                 )
                 break
 
+            requested_skill = str(
+                latest_asset_result.get(
+                    "requested",
+                    "",
+                )
+                if isinstance(
+                    latest_asset_result,
+                    dict,
+                )
+                else ""
+            ).strip()
+            emit_list_skills_followup_to_chat = (
+                not requested_skill
+            )
+
             followup_runtime_actions = {
                 **runtime_actions,
                 "CAN_WEB_SEARCH": False,
@@ -610,6 +625,11 @@ class BrainNode(BaseNode):
                 "CAN_SAVE_DELAYED_MEMORY": False,
                 "CAN_SAVE_ACTIVE_MEMORY": False,
             }
+
+            if emit_list_skills_followup_to_chat:
+                followup_runtime_actions[
+                    "CAN_USE_ASSETS"
+                ] = False
 
             followup_system_prompt = (
                 build_brain_system_prompt(
@@ -623,14 +643,24 @@ class BrainNode(BaseNode):
                 context
             )
 
-            followup_payload = (
-                "User request:\n"
-                f"{state.translated_input}\n\n"
-                "Continue using the ASSETS tool result from trusted runtime context. "
-                "The latest result is list_skills: follow the retrieved skill and emit ASSET_ACTION when filesystem work is needed. "
-                "This is a tool-call step, not a user-facing final answer. "
-                "Do not emit memory/session/save actions."
-            )
+            if emit_list_skills_followup_to_chat:
+                followup_payload = (
+                    "User request:\n"
+                    f"{state.translated_input}\n\n"
+                    "Answer the user using the ASSETS list_skills result "
+                    "from trusted runtime context. "
+                    "This is a user-facing final answer. "
+                    "Do not emit ASSET_ACTION or other runtime actions."
+                )
+            else:
+                followup_payload = (
+                    "User request:\n"
+                    f"{state.translated_input}\n\n"
+                    "Continue using the ASSETS tool result from trusted runtime context. "
+                    "The latest result is list_skills: follow the retrieved skill and emit ASSET_ACTION when filesystem work is needed. "
+                    "This is a tool-call step, not a user-facing final answer. "
+                    "Do not emit memory/session/save actions."
+                )
 
             text, reasoning = await self.run_brain_stream(
                 state=state,
@@ -640,9 +670,30 @@ class BrainNode(BaseNode):
                 system_prompt=followup_system_prompt,
                 brain_payload=followup_payload,
                 runtime_actions=followup_runtime_actions,
-                emit_content_to_chat=False,
+                emit_content_to_chat=(
+                    emit_list_skills_followup_to_chat
+                    and not state.translate_response
+                ),
             )
 
             followup_count += 1
+
+            if (
+                    len(asset_results) <= asset_result_offset
+                    and text.strip()
+            ):
+                if emit_list_skills_followup_to_chat:
+                    break
+
+                text, reasoning = await self.emit_brain_text(
+                    state=state,
+                    context=context,
+                    brain_runtime=brain_runtime,
+                    text=text,
+                    emit_content_to_chat=(
+                        not state.translate_response
+                    ),
+                )
+                break
 
         state.brain_response = text or ""

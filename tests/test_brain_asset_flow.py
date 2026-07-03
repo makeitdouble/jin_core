@@ -8,6 +8,118 @@ from agent.state import AgentState
 
 class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
+    async def test_list_skills_followup_text_is_emitted_when_no_asset_action_follows(self):
+
+        calls = []
+        emitted_reports = []
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+            context = kwargs["context"]
+
+            if len(calls) == 1:
+                context.runtime_asset_results.append({
+                    "ok": True,
+                    "action": "list_skills",
+                    "requested": "",
+                    "skills": [
+                        {
+                            "name": "image_prompt_generator",
+                            "content": "I can build image prompts.",
+                        },
+                        {
+                            "name": "wildcards",
+                            "content": "I can manage wildcard files.",
+                        },
+                    ],
+                })
+                return "", ""
+
+            if len(calls) == 2:
+                self.assertTrue(
+                    kwargs["emit_content_to_chat"],
+                )
+                self.assertFalse(
+                    kwargs["runtime_actions"].get("CAN_USE_ASSETS"),
+                )
+                return (
+                    "I have two skills: image_prompt_generator and wildcards.",
+                    "",
+                )
+
+            self.fail("Brain model was called again after list_skills answer")
+
+        async def fake_emit_brain_text(**kwargs):
+            emitted_reports.append(kwargs["text"])
+            return kwargs["text"], ""
+
+        context = SimpleNamespace(
+            logger=SimpleNamespace(),
+            clients={"brain": object()},
+            runtime_search_queries=[],
+            runtime_search_calls=[],
+            runtime_asset_results=[],
+            runtime_action_events=[],
+        )
+
+        state = AgentState(
+            user_input="what skills do you have?",
+        )
+        state.translated_input = state.user_input
+
+        brain_runtime = {
+            "runtime_id": "brain-model",
+            "label": "brain",
+            "context_window": 8192,
+            "log_method": "log_brain",
+            "runtime_actions": {
+                "CAN_WEB_SEARCH": True,
+                "CAN_USE_ASSETS": True,
+                "CAN_SAVE_SESSION": True,
+                "CAN_SAVE_DELAYED_MEMORY": True,
+                "CAN_SAVE_ACTIVE_MEMORY": True,
+            },
+        }
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=brain_runtime,
+        ), patch(
+            "agent.nodes.brain.build_brain_system_prompt",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.build_brain_payload",
+            return_value="brain payload",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ), patch.object(
+            BrainNode,
+            "emit_brain_text",
+            staticmethod(fake_emit_brain_text),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            len(calls),
+            2,
+        )
+        self.assertEqual(
+            emitted_reports,
+            [],
+        )
+        self.assertEqual(
+            state.brain_response,
+            "I have two skills: image_prompt_generator and wildcards.",
+        )
+
     async def test_asset_operation_result_is_reported_without_second_model_followup(self):
 
         calls = []
@@ -21,6 +133,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 context.runtime_asset_results.append({
                     "ok": True,
                     "action": "list_skills",
+                    "requested": "wildcards",
                     "skills": [
                         {
                             "name": "wildcards",
