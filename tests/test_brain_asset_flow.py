@@ -34,6 +34,25 @@ def _context():
     )
 
 
+def _assert_initial_request_payload(test_case, payload, user_input):
+    test_case.assertEqual(
+        payload,
+        f"Initial user request:\n{user_input}",
+    )
+    test_case.assertNotIn(
+        "Continue using",
+        payload,
+    )
+    test_case.assertNotIn(
+        "Latest tool result summary:",
+        payload,
+    )
+    test_case.assertNotIn(
+        "APPENDED_SKILLS",
+        payload,
+    )
+
+
 class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_list_skills_followup_text_is_emitted_when_no_asset_action_follows(self):
@@ -191,11 +210,12 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(
                     kwargs["emit_content_to_chat"],
                 )
-                self.assertIn(
-                    "Latest tool result summary:",
+                _assert_initial_request_payload(
+                    self,
                     kwargs["brain_payload"],
+                    state.translated_input,
                 )
-                self.assertIn(
+                self.assertNotIn(
                     "assets/wildcards/clothing/test_bottoms.txt",
                     kwargs["brain_payload"],
                 )
@@ -293,9 +313,10 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 return "", ""
 
             if len(calls) == 3:
-                self.assertIn(
-                    "APPENDED_SKILLS",
+                _assert_initial_request_payload(
+                    self,
                     kwargs["brain_payload"],
+                    state.translated_input,
                 )
                 return (
                     "Ready to use the wildcard skill.",
@@ -444,7 +465,12 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 return "", ""
 
             if len(calls) == 3:
-                self.assertIn(
+                _assert_initial_request_payload(
+                    self,
+                    kwargs["brain_payload"],
+                    state.translated_input,
+                )
+                self.assertNotIn(
                     "assets/wildcards/clothing/shoes.txt",
                     kwargs["brain_payload"],
                 )
@@ -466,7 +492,12 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 return "", ""
 
             if len(calls) == 4:
-                self.assertIn(
+                _assert_initial_request_payload(
+                    self,
+                    kwargs["brain_payload"],
+                    state.translated_input,
+                )
+                self.assertNotIn(
                     "assets/prompts/test_prompts.txt",
                     kwargs["brain_payload"],
                 )
@@ -594,7 +625,12 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 return "", ""
 
             if len(calls) == 4:
-                self.assertIn(
+                _assert_initial_request_payload(
+                    self,
+                    kwargs["brain_payload"],
+                    state.translated_input,
+                )
+                self.assertNotIn(
                     "assets/prompts/test_prompts.txt",
                     kwargs["brain_payload"],
                 )

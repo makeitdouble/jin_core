@@ -78,7 +78,8 @@ RUNTIME_ACTIONS_RULES = (
     "Emit markers only in situations listed in core rules below in specific cases.\n"
     "DO NOT invent internal markers.\n"
     "ALWAYS check all active_memory slots BEFORE analyzing the context.\n"
-#    "After internal action marker, in the next line, provide a short visible user-facing explanation of what was done and why.\n"
+    "You may emit actions one by one while performing a task. "
+    "Treat the original user request in past tense: The user asked for X - What have I already done to satisfy X?\n"
 )
 
 WEB_SEARCH_RULES = (
@@ -97,7 +98,7 @@ ASSETS_RULES = (
     f"Emit {INTERNAL_ACTION_APPEND_SKILL_MARKER} to place a specific skill's full instructions into APPENDED_SKILLS.\n"
     f"Emit {INTERNAL_ACTION_REMOVE_SKILL_MARKER} to remove a skill from APPENDED_SKILLS when it is no longer needed.\n"
     "Append multiple skills only with multiple APPEND_SKILL markers, one skill per marker.\n"
-    "After the relevant skill appears in APPENDED_SKILLS, follow its instructions.\n"
+    "After the relevant skill appears in APPENDED_SKILLS, DO NOT follow its instructions, only by user request.\n"
 )
 
 SAVE_SESSION_RULES = (

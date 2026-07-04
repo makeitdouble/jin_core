@@ -813,6 +813,118 @@ class MessageMemoryTests(
             prompt,
         )
 
+    def test_brain_prompt_places_runtime_state_before_session_actions_history(self):
+
+        context = SimpleNamespace(
+            runtime_memory="",
+            deep_thought_count=0,
+            runtime_search_result="",
+            runtime_search_result_id="",
+            turn_number=1,
+            user_message_count=2,
+            assistant_message_count=1,
+            runtime_appended_skills=[
+                {
+                    "name": "wildcards",
+                },
+            ],
+            runtime_session_action_history=[
+                "Reading skills",
+                "Appended skill: wildcards",
+                "Assets: list_wildcards",
+            ],
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_WEB_SEARCH": False,
+                "CAN_USE_ASSETS": True,
+            },
+        )
+
+        self.assertTrue(
+            prompt.startswith(
+                "<CURRENT_TRUSTED_RUNTIME_VARIABLES>"
+            ),
+        )
+        self.assertLess(
+            prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
+            prompt.index("<CURRENT_SESSION_STATE>"),
+        )
+        self.assertLess(
+            prompt.index("<CURRENT_SESSION_STATE>"),
+            prompt.index("<CURRENT_APPENDED_SKILLS>"),
+        )
+        self.assertLess(
+            prompt.index("<CURRENT_APPENDED_SKILLS>"),
+            prompt.index("<SESSION_ACTIONS_HISTORY>"),
+        )
+        self.assertIn(
+            "Total turns count:      2",
+            prompt,
+        )
+        self.assertIn(
+            "<CURRENT_APPENDED_SKILLS>\n    1. wildcards\n</CURRENT_APPENDED_SKILLS>",
+            prompt,
+        )
+        self.assertIn(
+            "1. Reading skills",
+            prompt,
+        )
+        self.assertIn(
+            "2. Appended skill: wildcards",
+            prompt,
+        )
+        self.assertIn(
+            "3. Assets: list_wildcards",
+            prompt,
+        )
+        self.assertLess(
+            prompt.index("<SESSION_ACTIONS_HISTORY>"),
+            prompt.index("I identify as JIN"),
+        )
+
+    def test_brain_prompt_counts_current_turn_runtime_actions_and_pending_answer(self):
+
+        context = SimpleNamespace(
+            runtime_memory="",
+            deep_thought_count=0,
+            runtime_search_result="",
+            runtime_search_result_id="",
+            turn_number=0,
+            user_message_count=1,
+            assistant_message_count=0,
+            runtime_action_events=[
+                {
+                    "name": "list_skills",
+                },
+                {
+                    "name": "append_skill",
+                },
+            ],
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_WEB_SEARCH": False,
+            },
+        )
+
+        session_state = prompt.split(
+            "<CURRENT_SESSION_STATE>",
+            1,
+        )[1].split(
+            "</CURRENT_SESSION_STATE>",
+            1,
+        )[0]
+
+        self.assertIn(
+            "JIN messages count:     3",
+            session_state,
+        )
+
     def test_brain_prompt_anchors_short_feedback_to_last_jin_response(self):
 
         context = SimpleNamespace(
@@ -840,7 +952,7 @@ class MessageMemoryTests(
             prompt,
         )
 
-    def test_brain_prompt_places_user_feedback_before_trusted_runtime(self):
+    def test_brain_prompt_keeps_user_feedback_out_of_runtime_state(self):
 
         context = SimpleNamespace(
             runtime_memory=(
@@ -891,9 +1003,14 @@ class MessageMemoryTests(
             "then give corrected answer. Non-negotiable.",
             user_feedback,
         )
+        self.assertTrue(
+            prompt.startswith(
+                "<CURRENT_TRUSTED_RUNTIME_VARIABLES>"
+            ),
+        )
         self.assertLess(
+            prompt.index("<CURRENT_SESSION_STATE>"),
             prompt.index("<LATEST_USER_FEEDBACK priority=HIGH_PRIORITY>"),
-            prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
         )
         self.assertNotIn(
             "User feedback:",

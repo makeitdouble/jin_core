@@ -1939,6 +1939,16 @@ class RuntimeActionTests(unittest.TestCase):
                     context.emitter.events[0]["action"],
                     "list_skills",
                 )
+                self.assertEqual(
+                    context.emitter.events[0]["text"],
+                    "Reading skills",
+                )
+                self.assertEqual(
+                    context.runtime_session_action_history,
+                    [
+                        "Reading skills",
+                    ],
+                )
 
     def test_apply_runtime_action_calls_appends_and_removes_skill(self):
 
@@ -2014,7 +2024,7 @@ class RuntimeActionTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "Appending skill: image_prompt_generator",
+                    "Appended skill: image_prompt_generator",
                 )
                 self.assertEqual(
                     context.emitter.events[2]["action"],
@@ -2022,7 +2032,7 @@ class RuntimeActionTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[2]["text"],
-                    "Removing skill: wildcards",
+                    "Removed skill: wildcards",
                 )
 
     def test_list_skills_normalizes_name_from_filename(self):
@@ -2135,12 +2145,26 @@ class RuntimeActionTests(unittest.TestCase):
                     "create_wildcard_file_001",
                 )
                 self.assertEqual(
+                    context.emitter.events[0]["text"],
+                    "Assets: create_wildcard_file - assets/wildcards/clothing/test_tops.txt",
+                )
+                self.assertEqual(
                     context.emitter.events[1]["status"],
                     "completed",
                 )
                 self.assertEqual(
+                    context.emitter.events[1]["text"],
+                    context.emitter.events[0]["text"],
+                )
+                self.assertEqual(
                     context.emitter.events[1]["id"],
                     context.emitter.events[0]["id"],
+                )
+                self.assertEqual(
+                    context.runtime_session_action_history,
+                    [
+                        "Assets: create_wildcard_file - assets/wildcards/clothing/test_tops.txt",
+                    ],
                 )
 
     def test_apply_runtime_action_calls_runs_asset_action_args_payload(self):
@@ -2320,6 +2344,65 @@ class RuntimeActionTests(unittest.TestCase):
                 self.assertNotIn(
                     "__clothing/",
                     content,
+                )
+
+    def test_generate_prompt_batch_overwrites_existing_prompt_file_by_default(self):
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                run_asset_action(json.dumps({
+                    "action": "create_wildcard_file",
+                    "path": "clothing/test_tops",
+                    "lines": [
+                        "linen shirt",
+                    ],
+                }))
+
+                output_path = (
+                    root
+                    / "assets"
+                    / "prompts"
+                    / "test_prompts.txt"
+                )
+                output_path.parent.mkdir(
+                    parents=True,
+                    exist_ok=True,
+                )
+                output_path.write_text(
+                    "old prompt\n",
+                    encoding="utf-8",
+                )
+
+                result = run_asset_action(json.dumps({
+                    "action": "generate_prompt_batch",
+                    "count": 1,
+                    "template": "woman wearing __clothing/test_tops__",
+                    "path": "assets/prompts/test_prompts.txt",
+                }))
+
+                self.assertTrue(
+                    result.get("ok"),
+                    result,
+                )
+                self.assertEqual(
+                    result.get("path"),
+                    "assets/prompts/test_prompts.txt",
+                )
+                self.assertEqual(
+                    output_path.read_text(encoding="utf-8"),
+                    "woman wearing linen shirt\n",
+                )
+                self.assertFalse(
+                    (
+                        root
+                        / "assets"
+                        / "prompts"
+                        / "test_prompts_002.txt"
+                    ).exists(),
                 )
 
     def test_generate_prompt_batch_still_accepts_output_file_alias(self):

@@ -283,6 +283,8 @@ def build_brain_system_prompt(
 
     from clients.brain_context_builder import (
         build_brain_runtime_context,
+        build_brain_top_runtime_context,
+        build_session_actions_history_context,
         build_tool_results_context,
     )
 
@@ -297,8 +299,29 @@ def build_brain_system_prompt(
         if tool_results_context
         else ""
     )
+    session_actions_history_context = (
+        build_session_actions_history_context(
+            context
+        )
+    )
+    session_actions_history_section = (
+        f"{session_actions_history_context}\n\n"
+        if session_actions_history_context
+        else ""
+    )
+    top_runtime_context = build_brain_top_runtime_context(
+        context,
+        runtime_actions,
+    )
+    top_runtime_section = (
+        f"{top_runtime_context}\n\n"
+        if top_runtime_context
+        else ""
+    )
 
     prompt_prefix = (
+        f"{top_runtime_section}"
+        f"{session_actions_history_section}"
         f"{build_runtime_action_instructions(enabled_actions, context)}\n"
         "\n"
         f"{tool_results_section}"
@@ -312,6 +335,7 @@ def build_brain_system_prompt(
         context,
         runtime_actions,
         commit_active_memory_refresh=commit_active_memory_refresh,
+        include_top_runtime_context=False,
     )
 
     return (

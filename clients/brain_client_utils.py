@@ -84,6 +84,10 @@ from utils.runtime_actions import (
     parse_delayed_memory_content_payload,
     refresh_active_memory_runtime_metadata,
 )
+from utils.session_actions_history import (
+    build_asset_action_history_text,
+    record_session_action_history,
+)
 
 
 def should_execute_save_session(
@@ -1172,7 +1176,23 @@ async def apply_runtime_action_calls(
                 result
             )
 
-    if saved_asset_results:
+    saved_asset_result_texts = [
+        (
+            result,
+            build_asset_action_history_text(
+                result
+            ),
+        )
+        for result in saved_asset_results
+    ]
+
+    for _result, text in saved_asset_result_texts:
+        record_session_action_history(
+            context,
+            text,
+        )
+
+    if saved_asset_result_texts:
         emitter = getattr(
             context,
             "emitter",
@@ -1216,9 +1236,9 @@ async def apply_runtime_action_calls(
                     else "asset_action"
                 )
                 text = (
-                    "Reading skills"
-                    if result_action == "list_skills"
-                    else f"Assets: {result_action}"
+                    saved_asset_result_texts[
+                        result_index - 1
+                    ][1]
                 )
                 action_id = build_runtime_action_id(
                     result_action
@@ -1247,6 +1267,39 @@ async def apply_runtime_action_calls(
         + removed_skill_results
     )
 
+    skill_state_result_texts = []
+
+    for result in skill_state_results:
+        result_action = str(
+            result.get(
+                "action",
+                "skill",
+            )
+            or "skill"
+        )
+        requested_skill = str(
+            result.get(
+                "requested",
+                "",
+            )
+            or ""
+        )
+        text = (
+            f"Appended skill: {requested_skill}"
+            if result_action == "append_skill"
+            else f"Removed skill: {requested_skill}"
+        )
+        skill_state_result_texts.append(
+            (
+                result,
+                text,
+            )
+        )
+        record_session_action_history(
+            context,
+            text,
+        )
+
     if skill_state_results:
         emitter = getattr(
             context,
@@ -1260,8 +1313,8 @@ async def apply_runtime_action_calls(
         )
 
         if emit is not None:
-            for result_index, result in enumerate(
-                skill_state_results,
+            for result_index, (result, text) in enumerate(
+                skill_state_result_texts,
                 start=1,
             ):
                 result_action = str(
@@ -1271,22 +1324,10 @@ async def apply_runtime_action_calls(
                     )
                     or "skill"
                 )
-                requested_skill = str(
-                    result.get(
-                        "requested",
-                        "",
-                    )
-                    or ""
-                )
                 action_id = build_runtime_action_id(
                     result_action,
                     len(context.runtime_action_events)
                     + result_index,
-                )
-                text = (
-                    f"Appending skill: {requested_skill}"
-                    if result_action == "append_skill"
-                    else f"Removing skill: {requested_skill}"
                 )
                 await emit(with_action_context({
                     "type": "runtime_action",

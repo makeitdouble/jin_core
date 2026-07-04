@@ -624,12 +624,8 @@ class BrainNode(BaseNode):
                 )
 
                 followup_payload = (
-                    "User request:\n"
-                    f"{state.translated_input}\n\n"
-                    "Continue using the current APPENDED_SKILLS context. "
-                    "If the needed skill is present, follow it and emit the next required runtime action. "
-                    "If the user request is complete, answer the user and do not emit another runtime action. "
-                    "Do not emit memory/session/save actions."
+                    "Initial user request:\n"
+                    f"{state.translated_input}"
                 )
 
                 text, reasoning = await self.run_brain_stream(
@@ -658,7 +654,6 @@ class BrainNode(BaseNode):
             if len(asset_results) <= asset_result_offset:
                 break
 
-            latest_asset_result = asset_results[-1]
             asset_result_offset = len(
                 asset_results
             )
@@ -682,21 +677,9 @@ class BrainNode(BaseNode):
                 context
             )
 
-            tool_result_summary = self.build_asset_result_report(
-                latest_asset_result,
-                user_text=state.user_input,
-            )
-
             followup_payload = (
-                "User request:\n"
-                f"{state.translated_input}\n\n"
-                "Continue using the latest ASSETS tool result from trusted runtime context.\n\n"
-                "Latest tool result summary:\n"
-                f"{tool_result_summary}\n\n"
-                "If the latest result is LIST_SKILLS, append the relevant skill before using its instructions. "
-                "If more filesystem work is needed after the relevant skill is present, emit the next ASSET_ACTION. "
-                "If the entire user request is complete, answer the user with the final result and do not emit another runtime action. "
-                "Do not emit memory/session/save actions."
+                "Initial user request:\n"
+                f"{state.translated_input}"
             )
 
             text, reasoning = await self.run_brain_stream(

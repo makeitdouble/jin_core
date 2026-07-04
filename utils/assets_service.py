@@ -14,6 +14,8 @@ PROMPTS_ROOT = ASSETS_ROOT / "prompts"
 TEMPLATES_ROOT = ASSETS_ROOT / "templates"
 OUTPUTS_ROOT = ASSETS_ROOT / "outputs"
 
+PROMPT_BATCH_OVERWRITE_EXISTING = True
+
 DEFAULT_WILDCARD_SKILL = """wildcards
 
 Purpose:
@@ -42,8 +44,9 @@ Wildcard syntax:
 Safe behavior:
 - Create folders and .txt files inside assets when useful.
 - Append existing wildcard files when the user asks to expand them.
-- Do not delete or overwrite existing files unless the user explicitly asks.
-- On name conflict, prefer a new numbered file or report the conflict.
+- Use an existing wildcard file by default when it already fits the request.
+- Use create_wildcard_file only when the needed wildcard file does not exist.
+- Do not recreate, delete, or overwrite existing wildcard files unless the user explicitly asks to replace their contents.
 
 Action workflow:
 1. Use LIST_SKILLS to retrieve this skill before a wildcard workflow.
@@ -832,13 +835,14 @@ def generate_prompt_batch(payload: dict) -> dict:
         output_file,
         default_suffix=".txt",
     )
-    path = _next_available_path(
-        path
-    )
+    if not PROMPT_BATCH_OVERWRITE_EXISTING:
+        path = _next_available_path(
+            path
+        )
     result = _write_text_file(
         path,
         prompts,
-        overwrite=False,
+        overwrite=PROMPT_BATCH_OVERWRITE_EXISTING,
     )
     result["action"] = "generate_prompt_batch"
     result["examples"] = prompts[:5]

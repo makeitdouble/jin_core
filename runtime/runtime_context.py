@@ -73,6 +73,10 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_session_action_history: list[str] = field(
+        default_factory=list
+    )
+
     active_memory_records: list[str] = field(
         default_factory=list
     )
