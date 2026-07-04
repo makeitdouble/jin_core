@@ -7,10 +7,12 @@ from datetime import datetime
 
 from rules import runtime as runtime_rules
 from rules.runtime import (
+    RUNTIME_ACTION_APPEND_SKILL,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_LIST_SKILLS,
+    RUNTIME_ACTION_REMOVE_SKILL,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
@@ -25,6 +27,8 @@ KNOWN_RUNTIME_ACTIONS = tuple(
             RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
             RUNTIME_ACTION_WEB_SEARCH,
             RUNTIME_ACTION_LIST_SKILLS,
+            RUNTIME_ACTION_APPEND_SKILL,
+            RUNTIME_ACTION_REMOVE_SKILL,
             RUNTIME_ACTION_ASSET_ACTION,
             RUNTIME_ACTION_SAVE_SESSION,
         )
@@ -35,17 +39,17 @@ BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
     (
         r"(?:"
         r"<\s*INTERNAL_ACTION_"
-        r"(?P<bracketed_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|LIST_SKILLS)"
+        r"(?P<bracketed_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL)"
         r"(?:\s*:\s*(?P<bracketed_query>(?:(?!</\s*>)[^\r\n>])*?))?"
         r"(?:\s*</\s*>+|\s*>+)"
         r"|"
         r"<\s*INTERNAL_ACTION_"
-        r"(?P<bracketed_line_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS)"
+        r"(?P<bracketed_line_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL)"
         r"(?:\s*:\s*(?P<bracketed_line_query>[^\r\n>]*))?"
         r"[^\S\r\n]*(?=\r?\n)"
         r"|"
         r"(?m:^\s*INTERNAL_ACTION_"
-        r"(?P<bare_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS)"
+        r"(?P<bare_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL)"
         r"(?:\s*:\s*(?P<bare_query>[^\r\n]*))?"
         r"\s*$)"
         r")"
@@ -57,12 +61,12 @@ MALFORMED_CALL_INTERNAL_ACTION_PATTERN = re.compile(
     (
         r"(?:"
         r"<\|?tool_call\>\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
-        r"(?P<tool_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS)"
+        r"(?P<tool_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL)"
         r"(?:\s*:\s*(?P<tool_call_query>(?:(?!</\s*>)[^\r\n>])*?))?"
         r"(?:\s*</\s*>+|\s*>+|[^\S\r\n]*(?=\r?\n|$))"
         r"|"
         r"(?m:^\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
-        r"(?P<bare_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS)"
+        r"(?P<bare_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL)"
         r"(?:\s*:\s*(?P<bare_call_query>[^\r\n]*))?"
         r"\s*$)"
         r")"
@@ -1304,6 +1308,8 @@ def normalize_runtime_action_name(
         "RESOLVE_ACTIVE_MEMORY": RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
         "USE_ASSETS": RUNTIME_ACTION_ASSET_ACTION,
         "LIST_SKILLS": RUNTIME_ACTION_LIST_SKILLS,
+        "APPEND_SKILL": RUNTIME_ACTION_APPEND_SKILL,
+        "REMOVE_SKILL": RUNTIME_ACTION_REMOVE_SKILL,
         "ASSET_ACTION": RUNTIME_ACTION_ASSET_ACTION,
     }
 
@@ -1355,6 +1361,12 @@ def normalize_runtime_action_names(
         if normalized_name == RUNTIME_ACTION_ASSET_ACTION:
             normalized_names.append(
                 RUNTIME_ACTION_LIST_SKILLS
+            )
+            normalized_names.append(
+                RUNTIME_ACTION_APPEND_SKILL
+            )
+            normalized_names.append(
+                RUNTIME_ACTION_REMOVE_SKILL
             )
 
         if (
@@ -1492,6 +1504,8 @@ def _build_internal_action_call(
 
     elif normalized_name in (
         RUNTIME_ACTION_LIST_SKILLS,
+        RUNTIME_ACTION_APPEND_SKILL,
+        RUNTIME_ACTION_REMOVE_SKILL,
         RUNTIME_ACTION_ASSET_ACTION,
     ):
         payload = _clean_internal_action_query(
@@ -1499,7 +1513,11 @@ def _build_internal_action_call(
         )
 
         if (
-            normalized_name == RUNTIME_ACTION_ASSET_ACTION
+            normalized_name in (
+                RUNTIME_ACTION_ASSET_ACTION,
+                RUNTIME_ACTION_APPEND_SKILL,
+                RUNTIME_ACTION_REMOVE_SKILL,
+            )
             and _is_placeholder_internal_query(
                 payload,
                 placeholder_payloads,
@@ -2090,6 +2108,58 @@ def _enabled_action_start_markers(
             "call:LIST_SKILLS:"
         )
 
+    if RUNTIME_ACTION_APPEND_SKILL in enabled_action_names:
+        markers.append(
+            "<INTERNAL_ACTION_APPEND_SKILL:"
+        )
+        markers.append(
+            "INTERNAL_ACTION_APPEND_SKILL:"
+        )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_APPEND_SKILL:"
+        )
+        markers.append(
+            "<tool_call>call:INTERNAL_ACTION_APPEND_SKILL:"
+        )
+        markers.append(
+            "<|tool_call>call:APPEND_SKILL:"
+        )
+        markers.append(
+            "<tool_call>call:APPEND_SKILL:"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_APPEND_SKILL:"
+        )
+        markers.append(
+            "call:APPEND_SKILL:"
+        )
+
+    if RUNTIME_ACTION_REMOVE_SKILL in enabled_action_names:
+        markers.append(
+            "<INTERNAL_ACTION_REMOVE_SKILL:"
+        )
+        markers.append(
+            "INTERNAL_ACTION_REMOVE_SKILL:"
+        )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_REMOVE_SKILL:"
+        )
+        markers.append(
+            "<tool_call>call:INTERNAL_ACTION_REMOVE_SKILL:"
+        )
+        markers.append(
+            "<|tool_call>call:REMOVE_SKILL:"
+        )
+        markers.append(
+            "<tool_call>call:REMOVE_SKILL:"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_REMOVE_SKILL:"
+        )
+        markers.append(
+            "call:REMOVE_SKILL:"
+        )
+
     return tuple(
         markers
     )
@@ -2127,6 +2197,15 @@ def _trailing_marker_prefix_length(
     ):
 
         for marker in upper_markers:
+
+            if length > len(marker):
+                continue
+
+            if (
+                length == len(marker)
+                and marker.startswith("</")
+            ):
+                continue
 
             if upper_text.endswith(
                 marker[:length]

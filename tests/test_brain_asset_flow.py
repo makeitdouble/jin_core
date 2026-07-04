@@ -29,6 +29,7 @@ def _context():
         runtime_search_queries=[],
         runtime_search_calls=[],
         runtime_asset_results=[],
+        runtime_appended_skills=[],
         runtime_action_events=[],
     )
 
@@ -253,6 +254,156 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             state.brain_response,
             "Created `assets/wildcards/clothing/test_bottoms.txt` with 2 lines.",
+        )
+
+    async def test_append_skill_result_continues_with_appended_skill_context(self):
+
+        calls = []
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+            context = kwargs["context"]
+
+            if len(calls) == 1:
+                context.runtime_asset_results.append({
+                    "ok": True,
+                    "action": "list_skills",
+                    "requested": "",
+                    "skills": [
+                        {
+                            "name": "wildcards",
+                            "path": "assets/skills/wildcards.txt",
+                            "line_count": 39,
+                        },
+                    ],
+                })
+                return "", ""
+
+            if len(calls) == 2:
+                context.runtime_action_events.append({
+                    "name": "append_skill",
+                    "payload": "wildcards",
+                })
+                context.runtime_appended_skills.append({
+                    "name": "wildcards",
+                    "path": "assets/skills/wildcards.txt",
+                    "line_count": 39,
+                    "content": "Use ASSET_ACTION for wildcard files.",
+                })
+                return "", ""
+
+            if len(calls) == 3:
+                self.assertIn(
+                    "APPENDED_SKILLS",
+                    kwargs["brain_payload"],
+                )
+                return (
+                    "Ready to use the wildcard skill.",
+                    "",
+                )
+
+            self.fail("Brain model kept running after appended skill answer")
+
+        context = _context()
+        state = AgentState(
+            user_input="create a wildcard file",
+        )
+        state.translated_input = state.user_input
+        brain_runtime = _brain_runtime()
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=brain_runtime,
+        ), patch(
+            "agent.nodes.brain.build_brain_system_prompt",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.build_brain_payload",
+            return_value="brain payload",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            len(calls),
+            3,
+        )
+        self.assertEqual(
+            state.brain_response,
+            "Ready to use the wildcard skill.",
+        )
+
+    async def test_append_skill_visible_answer_does_not_trigger_followup(self):
+
+        calls = []
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+            context = kwargs["context"]
+
+            if len(calls) == 1:
+                context.runtime_action_events.append({
+                    "name": "append_skill",
+                    "payload": "wildcards",
+                })
+                context.runtime_appended_skills.append({
+                    "name": "wildcards",
+                    "path": "assets/skills/wildcards.txt",
+                    "line_count": 39,
+                    "content": "Use ASSET_ACTION for wildcard files.",
+                })
+                return (
+                    "I've loaded the wildcards skill. Ready to test.",
+                    "",
+                )
+
+            self.fail("Brain model was called again after visible append answer")
+
+        context = _context()
+        state = AgentState(
+            user_input="load the wildcards skill",
+        )
+        state.translated_input = state.user_input
+        brain_runtime = _brain_runtime()
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=brain_runtime,
+        ), patch(
+            "agent.nodes.brain.build_brain_system_prompt",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.build_brain_payload",
+            return_value="brain payload",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            len(calls),
+            1,
+        )
+        self.assertEqual(
+            state.brain_response,
+            "I've loaded the wildcards skill. Ready to test.",
         )
 
     async def test_asset_workflow_can_continue_after_create_file_to_prompt_batch(self):

@@ -475,6 +475,7 @@ class BrainNode(BaseNode):
         )
 
         asset_result_offset = 0
+        skill_state_event_offset = 0
         followup_count = 0
         max_followups = 12
 
@@ -579,6 +580,75 @@ class BrainNode(BaseNode):
                 followup_count += 1
                 continue
 
+            runtime_action_events = getattr(
+                context,
+                "runtime_action_events",
+                [],
+            )
+            new_skill_state_events = [
+                event
+                for event in runtime_action_events[
+                    skill_state_event_offset:
+                ]
+                if event.get("name") in {
+                    "append_skill",
+                    "remove_skill",
+                }
+            ]
+            skill_state_event_offset = len(
+                runtime_action_events
+            )
+
+            if new_skill_state_events:
+                if text.strip():
+                    break
+
+                followup_runtime_actions = {
+                    **runtime_actions,
+                    "CAN_WEB_SEARCH": False,
+                    "CAN_SAVE_SESSION": False,
+                    "CAN_SAVE_DELAYED_MEMORY": False,
+                    "CAN_SAVE_ACTIVE_MEMORY": False,
+                }
+
+                followup_system_prompt = (
+                    build_brain_system_prompt(
+                        context,
+                        runtime_actions=followup_runtime_actions,
+                        commit_active_memory_refresh=True,
+                    )
+                )
+
+                await emit_active_memory_records_update_if_dirty(
+                    context
+                )
+
+                followup_payload = (
+                    "User request:\n"
+                    f"{state.translated_input}\n\n"
+                    "Continue using the current APPENDED_SKILLS context. "
+                    "If the needed skill is present, follow it and emit the next required runtime action. "
+                    "If the user request is complete, answer the user and do not emit another runtime action. "
+                    "Do not emit memory/session/save actions."
+                )
+
+                text, reasoning = await self.run_brain_stream(
+                    state=state,
+                    context=context,
+                    brain_runtime=brain_runtime,
+                    brain_client=brain_client,
+                    system_prompt=followup_system_prompt,
+                    brain_payload=followup_payload,
+                    runtime_actions=followup_runtime_actions,
+                    emit_content_to_chat=(
+                        not state.translate_response
+                    ),
+                    filter_runtime_actions=True,
+                )
+
+                followup_count += 1
+                continue
+
             asset_results = getattr(
                 context,
                 "runtime_asset_results",
@@ -623,7 +693,8 @@ class BrainNode(BaseNode):
                 "Continue using the latest ASSETS tool result from trusted runtime context.\n\n"
                 "Latest tool result summary:\n"
                 f"{tool_result_summary}\n\n"
-                "If more filesystem work is needed to finish the user request, emit the next ASSET_ACTION. "
+                "If the latest result is LIST_SKILLS, append the relevant skill before using its instructions. "
+                "If more filesystem work is needed after the relevant skill is present, emit the next ASSET_ACTION. "
                 "If the entire user request is complete, answer the user with the final result and do not emit another runtime action. "
                 "Do not emit memory/session/save actions."
             )

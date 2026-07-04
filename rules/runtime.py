@@ -4,6 +4,8 @@ RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT = "SAVE_DELAYED_MEMORY_CONTENT"
 RUNTIME_ACTION_CREATE_ACTIVE_MEMORY = "CREATE_ACTIVE_MEMORY"
 RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY = "RESOLVE_ACTIVE_MEMORY"
 RUNTIME_ACTION_LIST_SKILLS = "LIST_SKILLS"
+RUNTIME_ACTION_APPEND_SKILL = "APPEND_SKILL"
+RUNTIME_ACTION_REMOVE_SKILL = "REMOVE_SKILL"
 RUNTIME_ACTION_ASSET_ACTION = "ASSET_ACTION"
 
 
@@ -12,6 +14,8 @@ INTERNAL_ACTION_SAVE_SESSION_MARKER = "<INTERNAL_ACTION_SAVE_SESSION>"
 INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER = "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: CONDITIONS >"
 INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY_MARKER = "<INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY: active_memory_id >"
 INTERNAL_ACTION_LIST_SKILLS_MARKER = "<INTERNAL_ACTION_LIST_SKILLS>"
+INTERNAL_ACTION_APPEND_SKILL_MARKER = "<INTERNAL_ACTION_APPEND_SKILL: name of skill >"
+INTERNAL_ACTION_REMOVE_SKILL_MARKER = "<INTERNAL_ACTION_REMOVE_SKILL: name of skill >"
 INTERNAL_ACTION_ASSET_ACTION_MARKER = "<INTERNAL_ACTION_ASSET_ACTION>"
 
 INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_MARKER = "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>"
@@ -39,10 +43,12 @@ INTERNAL_ACTIONS_WITH_PAYLOAD = [
     INTERNAL_ACTION_WEB_SEARCH_MARKER,
     INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER,
     INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY_MARKER,
+    INTERNAL_ACTION_APPEND_SKILL_MARKER,
+    INTERNAL_ACTION_REMOVE_SKILL_MARKER,
 ]
 
 INTERNAL_ACTION_ROUTER_RULES = (
-    "Choose at most ONE internal action for the latest user request.\n"
+    "Choose at most ONE internal action for the latest user request, except APPEND_SKILL and REMOVE_SKILL may appear multiple times when each marker names a different skill.\n"
     "Priority:\n"
     "0. Use LIST_SKILLS before doing an operational task when you are unsure which project workflow, asset operation, file format, or skill procedure applies.\n"
     "1. Use CREATE_ACTIVE_MEMORY for pending live-session tasks: remember, remind, track, ask later, recall tests, secret values, or conditions tied to next messages/turns/time.\n"
@@ -55,7 +61,11 @@ SKILL_ROUTING_RULES = (
     "When the user asks you to list your skills or to do extended work (create, generate, write, save, inspect, check, expand, assemble, modify, or run a workflow), do not guess the procedure if you are uncertain.\n"
     "At the first sign of uncertainty about the right workflow, file format, action payload, target folder, naming convention, or available project capability, emit LIST_SKILLS before doing the work.\n"
     f"Use {INTERNAL_ACTION_LIST_SKILLS_MARKER} to retrieve the available project skills.\n"
-    "After LIST_SKILLS returns, follow the retrieved skill and then continue with the appropriate runtime action.\n"
+    f"After LIST_SKILLS returns, append each skill you need with {INTERNAL_ACTION_APPEND_SKILL_MARKER} before following it.\n"
+    "You may append multiple skills, but each skill requires a separate APPEND_SKILL marker.\n"
+    f"For two skills, emit two markers, for example:\n{INTERNAL_ACTION_APPEND_SKILL_MARKER.replace('name of skill', 'image_prompt_generator')}\n{INTERNAL_ACTION_APPEND_SKILL_MARKER.replace('name of skill', 'wildcards')}\n"
+    f"When a skill is no longer needed for the current task, remove it with {INTERNAL_ACTION_REMOVE_SKILL_MARKER}.\n"
+    "Use APPENDED_SKILLS as the active skill instruction context.\n"
     "Do not use LIST_SKILLS for simple conversation, direct factual answers, or tasks whose project workflow is already clear from current TOOL_RESULTS.\n"
 )
 
@@ -68,7 +78,7 @@ RUNTIME_ACTIONS_RULES = (
     "Emit markers only in situations listed in core rules below in specific cases.\n"
     "DO NOT invent internal markers.\n"
     "ALWAYS check all active_memory slots BEFORE analyzing the context.\n"
-    "After internal action marker, in the next line, provide a short visible user-facing explanation of what was done and why.\n"
+#    "After internal action marker, in the next line, provide a short visible user-facing explanation of what was done and why.\n"
 )
 
 WEB_SEARCH_RULES = (
@@ -82,9 +92,12 @@ WEB_SEARCH_RULES = (
 
 ASSETS_RULES = (
     "PROJECT SKILLS:\n"
-    f"Emit {INTERNAL_ACTION_LIST_SKILLS_MARKER} when an operational task may require a project skill and the relevant skill is not already present in TOOL_RESULTS.\n"
-    "LIST_SKILLS retrieves the available short project skill files from assets/skills.\n"
-    "After LIST_SKILLS returns, follow the retrieved skill instructions.\n"
+    f"Emit {INTERNAL_ACTION_LIST_SKILLS_MARKER} when an operational task may require a project skill and the relevant skill is not already present in APPENDED_SKILLS.\n"
+    "LIST_SKILLS retrieves the available short project skill index from assets/skills, not the active instructions.\n"
+    f"Emit {INTERNAL_ACTION_APPEND_SKILL_MARKER} to place a specific skill's full instructions into APPENDED_SKILLS.\n"
+    f"Emit {INTERNAL_ACTION_REMOVE_SKILL_MARKER} to remove a skill from APPENDED_SKILLS when it is no longer needed.\n"
+    "Append multiple skills only with multiple APPEND_SKILL markers, one skill per marker.\n"
+    "After the relevant skill appears in APPENDED_SKILLS, follow its instructions.\n"
 )
 
 SAVE_SESSION_RULES = (

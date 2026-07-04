@@ -65,6 +65,10 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_appended_skills: list[dict] = field(
+        default_factory=list
+    )
+
     runtime_action_events: list[dict] = field(
         default_factory=list
     )

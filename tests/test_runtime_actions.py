@@ -14,6 +14,7 @@ from clients.brain_client import (
 )
 from rules import runtime as runtime_rules
 from utils.assets_service import (
+    list_skills,
     run_asset_action,
 )
 from utils.runtime_actions import (
@@ -327,6 +328,36 @@ class RuntimeActionTests(unittest.TestCase):
             ),
         )
 
+    def test_extracts_append_and_remove_skill_markers(self):
+
+        result = extract_runtime_actions(
+            (
+                "<INTERNAL_ACTION_APPEND_SKILL: image_prompt_generator>\n"
+                "<INTERNAL_ACTION_REMOVE_SKILL: wildcards>"
+            ),
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name="APPEND_SKILL",
+                    payload="image_prompt_generator",
+                ),
+                RuntimeActionCall(
+                    name="REMOVE_SKILL",
+                    payload="wildcards",
+                ),
+            ),
+        )
+
     def test_extracts_asset_action_block(self):
 
         result = extract_runtime_actions(
@@ -420,6 +451,79 @@ class RuntimeActionTests(unittest.TestCase):
             second.count("ASSET_ACTION"),
             1,
         )
+
+    def test_stream_filter_strips_asset_action_block_boundary_variants(self):
+
+        variants = [
+            [
+                (
+                    "<INTERNAL_ACTION_ASSET_ACTION>\n"
+                    '{"action":"create_wildcard_file","args":{"path":"clothing/shoes","content":"sneakers\\nboots"}}\n'
+                    "</INTERNAL_ACTION_ASSET_ACTION>"
+                ),
+            ],
+            [
+                "<INTERNAL_ACTION_AS",
+                "SET_ACTION>\n",
+                '{"action":"create_wildcard_file","args":{"path":"clothing/shoes","content":"sneakers\\nboots"}}\n',
+                "</INTERNAL_ACTION_ASSET_ACTION>",
+            ],
+            [
+                "\n\n  <INTERNAL_ACTION_ASSET_ACTION>\n",
+                '{\n  "action": "create_wildcard_file",\n  "args": {\n    "path": "clothing/shoes",\n    "content": "sneakers\\nboots"\n  }\n}\n',
+                "</INTERNAL_ACTION_ASSET_ACTION>\n",
+            ],
+        ]
+
+        for chunks in variants:
+            with self.subTest(chunks=chunks):
+                stream_filter = RuntimeActionStreamFilter(
+                    enabled_actions=[
+                        "CAN_USE_ASSETS",
+                    ],
+                )
+                visible_text = []
+                actions = []
+
+                for chunk in chunks:
+                    result = stream_filter.filter(
+                        chunk
+                    )
+                    visible_text.append(
+                        result.text
+                    )
+                    actions.extend(
+                        result.actions
+                    )
+
+                tail = stream_filter.flush_result()
+                visible_text.append(
+                    tail.text
+                )
+                actions.extend(
+                    tail.actions
+                )
+
+                joined_visible_text = "".join(
+                    visible_text
+                )
+
+                self.assertNotIn(
+                    "INTERNAL_ACTION_ASSET_ACTION",
+                    joined_visible_text,
+                )
+                self.assertEqual(
+                    joined_visible_text.strip(),
+                    "",
+                )
+                self.assertEqual(
+                    len(actions),
+                    1,
+                )
+                self.assertEqual(
+                    actions[0].name,
+                    "ASSET_ACTION",
+                )
 
     def test_preserves_marker_when_action_disabled(self):
 
@@ -1824,12 +1928,140 @@ class RuntimeActionTests(unittest.TestCase):
                     context.runtime_asset_results[0]["skills"][0]["name"],
                     "wildcards",
                 )
+                self.assertNotIn(
+                    "content",
+                    context.runtime_asset_results[0]["skills"][0],
+                )
                 self.assertTrue(
                     (root / "assets" / "skills" / "wildcards.txt").exists()
                 )
                 self.assertEqual(
                     context.emitter.events[0]["action"],
                     "list_skills",
+                )
+
+    def test_apply_runtime_action_calls_appends_and_removes_skill(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                skill_path = (
+                    root
+                    / "assets"
+                    / "skills"
+                    / "Image Prompt Generator.txt"
+                )
+                skill_path.parent.mkdir(
+                    parents=True,
+                    exist_ok=True,
+                )
+                skill_path.write_text(
+                    "image_prompt_generator\nDescribe images.",
+                    encoding="utf-8",
+                )
+
+                context = Context()
+                context.emitter = Emitter()
+
+                applied_count = asyncio.run(
+                    apply_runtime_action_calls(
+                        context,
+                        (
+                            RuntimeActionCall(
+                                name="APPEND_SKILL",
+                                payload="Image Prompt Generator.txt",
+                            ),
+                            RuntimeActionCall(
+                                name="REMOVE_SKILL",
+                                payload="wildcards",
+                            ),
+                        ),
+                    )
+                )
+
+                self.assertEqual(
+                    applied_count,
+                    2,
+                )
+                self.assertEqual(
+                    context.runtime_appended_skills[0]["name"],
+                    "image_prompt_generator",
+                )
+                self.assertEqual(
+                    context.runtime_appended_skills[0]["path"],
+                    "assets/skills/Image Prompt Generator.txt",
+                )
+                self.assertIn(
+                    "Describe images.",
+                    context.runtime_appended_skills[0]["content"],
+                )
+                self.assertEqual(
+                    context.emitter.events[0]["action"],
+                    "append_skill",
+                )
+                self.assertEqual(
+                    context.emitter.events[0]["text"],
+                    "Appending skill: image_prompt_generator",
+                )
+                self.assertEqual(
+                    context.emitter.events[2]["action"],
+                    "remove_skill",
+                )
+                self.assertEqual(
+                    context.emitter.events[2]["text"],
+                    "Removing skill: wildcards",
+                )
+
+    def test_list_skills_normalizes_name_from_filename(self):
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                skill_path = (
+                    root
+                    / "assets"
+                    / "skills"
+                    / "Image Prompt Generator.txt"
+                )
+                skill_path.parent.mkdir(
+                    parents=True,
+                    exist_ok=True,
+                )
+                skill_path.write_text(
+                    "ignored title\nSkill body.",
+                    encoding="utf-8",
+                )
+
+                result = list_skills()
+
+                names = [
+                    skill["name"]
+                    for skill in result["skills"]
+                ]
+
+                self.assertIn(
+                    "image_prompt_generator",
+                    names,
+                )
+                self.assertNotIn(
+                    "ignored title",
+                    names,
                 )
 
     def test_apply_runtime_action_calls_runs_asset_action(self):

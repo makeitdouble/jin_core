@@ -15,14 +15,18 @@ from .runtime import (
     RESOLVE_ACTIVE_MEMORY_RULES,
     INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER,
     INTERNAL_ACTION_ASSET_ACTION_MARKER,
+    INTERNAL_ACTION_APPEND_SKILL_MARKER,
     INTERNAL_ACTION_LIST_SKILLS_MARKER,
+    INTERNAL_ACTION_REMOVE_SKILL_MARKER,
     INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY_MARKER,
     INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_MARKER,
     INTERNAL_ACTION_SAVE_SESSION_MARKER,
     INTERNAL_ACTION_WEB_SEARCH_MARKER,
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_ASSET_ACTION,
+    RUNTIME_ACTION_APPEND_SKILL,
     RUNTIME_ACTION_LIST_SKILLS,
+    RUNTIME_ACTION_REMOVE_SKILL,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
@@ -84,6 +88,14 @@ def get_enabled_runtime_actions(
         ),
         (
             RUNTIME_ACTION_LIST_SKILLS,
+            "CAN_USE_ASSETS",
+        ),
+        (
+            RUNTIME_ACTION_APPEND_SKILL,
+            "CAN_USE_ASSETS",
+        ),
+        (
+            RUNTIME_ACTION_REMOVE_SKILL,
             "CAN_USE_ASSETS",
         ),
         (
@@ -156,6 +168,12 @@ def _build_allowed_markers(
 
     if _action_enabled(enabled_actions, RUNTIME_ACTION_LIST_SKILLS, "list_skills"):
         markers.append(INTERNAL_ACTION_LIST_SKILLS_MARKER)
+
+    if _action_enabled(enabled_actions, RUNTIME_ACTION_APPEND_SKILL, "append_skill"):
+        markers.append(INTERNAL_ACTION_APPEND_SKILL_MARKER)
+
+    if _action_enabled(enabled_actions, RUNTIME_ACTION_REMOVE_SKILL, "remove_skill"):
+        markers.append(INTERNAL_ACTION_REMOVE_SKILL_MARKER)
 
     if _action_enabled(enabled_actions, RUNTIME_ACTION_ASSET_ACTION, "asset_action"):
         markers.append(INTERNAL_ACTION_ASSET_ACTION_MARKER)

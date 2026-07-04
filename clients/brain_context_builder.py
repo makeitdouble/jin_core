@@ -655,6 +655,33 @@ def append_asset_results(
     )
 
 
+def append_appended_skills(
+    parts: list[str],
+    context=None,
+) -> None:
+
+    if context is None:
+        return
+
+    appended_skills = list(
+        getattr(
+            context,
+            "runtime_appended_skills",
+            [],
+        )
+        or []
+    )
+
+    if not appended_skills:
+        return
+
+    parts.append(
+        "<APPENDED_SKILLS>\n"
+        f"{indent_xml(escape(format_tool_result_payload(appended_skills)))}\n"
+        "</APPENDED_SKILLS>"
+    )
+
+
 def build_tool_results_context(
     context=None,
 ) -> str:
@@ -666,6 +693,10 @@ def build_tool_results_context(
         context,
     )
     append_asset_results(
+        parts,
+        context,
+    )
+    append_appended_skills(
         parts,
         context,
     )

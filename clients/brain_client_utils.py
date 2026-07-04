@@ -51,9 +51,11 @@ import re
 from xml.etree import ElementTree
 
 from rules.runtime import (
+    RUNTIME_ACTION_APPEND_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_LIST_SKILLS,
+    RUNTIME_ACTION_REMOVE_SKILL,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
@@ -65,6 +67,8 @@ from runtime.behavior_contract import (
 from utils.assets_service import (
     ensure_assets_tree,
     list_skills,
+    load_skill,
+    normalize_skill_name,
     run_asset_action,
 )
 from utils.runtime_actions import (
@@ -711,6 +715,12 @@ async def apply_runtime_action_calls(
     ):
         context.runtime_search_calls = []
 
+    if not hasattr(
+        context,
+        "runtime_appended_skills",
+    ):
+        context.runtime_appended_skills = []
+
     action_context_snapshot = (
         dict(context_snapshot)
         if isinstance(context_snapshot, dict)
@@ -868,6 +878,15 @@ async def apply_runtime_action_calls(
 
             list_skills_seen = True
 
+        if action.name in (
+            RUNTIME_ACTION_APPEND_SKILL,
+            RUNTIME_ACTION_REMOVE_SKILL,
+        ):
+            if not normalize_skill_name(
+                action.payload
+            ):
+                continue
+
         accepted_action_names.add(
             action_event_name
         )
@@ -957,6 +976,18 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_LIST_SKILLS
     ]
 
+    append_skill_actions = [
+        action
+        for action in filtered_actions
+        if action.name == RUNTIME_ACTION_APPEND_SKILL
+    ]
+
+    remove_skill_actions = [
+        action
+        for action in filtered_actions
+        if action.name == RUNTIME_ACTION_REMOVE_SKILL
+    ]
+
     asset_actions = [
         action
         for action in filtered_actions
@@ -1029,6 +1060,99 @@ async def apply_runtime_action_calls(
             saved_asset_results.append(
                 result
             )
+
+    appended_skill_results = []
+
+    if append_skill_actions:
+        if log_runtime is not None:
+            await log_runtime(
+                "[RUNTIME ACTION] append_skill requested"
+            )
+
+        current_skills = list(
+            getattr(
+                context,
+                "runtime_appended_skills",
+                [],
+            )
+            or []
+        )
+
+        for action in append_skill_actions:
+            result = load_skill(
+                action.payload
+            )
+            skill = result.get(
+                "skill",
+            )
+
+            if result.get("ok") and isinstance(skill, dict):
+                skill_name = normalize_skill_name(
+                    skill.get(
+                        "name",
+                        "",
+                    )
+                )
+                current_skills = [
+                    existing
+                    for existing in current_skills
+                    if normalize_skill_name(
+                        existing.get(
+                            "name",
+                            "",
+                        )
+                    ) != skill_name
+                ]
+                current_skills.append(
+                    skill
+                )
+                context.runtime_appended_skills = current_skills
+
+            appended_skill_results.append(
+                result
+            )
+
+    removed_skill_results = []
+
+    if remove_skill_actions:
+        if log_runtime is not None:
+            await log_runtime(
+                "[RUNTIME ACTION] remove_skill requested"
+            )
+
+        current_skills = list(
+            getattr(
+                context,
+                "runtime_appended_skills",
+                [],
+            )
+            or []
+        )
+
+        for action in remove_skill_actions:
+            requested = normalize_skill_name(
+                action.payload
+            )
+            before_count = len(
+                current_skills
+            )
+            current_skills = [
+                skill
+                for skill in current_skills
+                if normalize_skill_name(
+                    skill.get(
+                        "name",
+                        "",
+                    )
+                ) != requested
+            ]
+            context.runtime_appended_skills = current_skills
+            removed_skill_results.append({
+                "ok": True,
+                "action": "remove_skill",
+                "requested": requested,
+                "removed": len(current_skills) < before_count,
+            })
 
     if asset_actions:
         if log_runtime is not None:
@@ -1116,6 +1240,68 @@ async def apply_runtime_action_calls(
                     "status": "completed",
                     "text": text,
                     "asset_result": result,
+                })
+
+    skill_state_results = (
+        appended_skill_results
+        + removed_skill_results
+    )
+
+    if skill_state_results:
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is not None:
+            for result_index, result in enumerate(
+                skill_state_results,
+                start=1,
+            ):
+                result_action = str(
+                    result.get(
+                        "action",
+                        "skill",
+                    )
+                    or "skill"
+                )
+                requested_skill = str(
+                    result.get(
+                        "requested",
+                        "",
+                    )
+                    or ""
+                )
+                action_id = build_runtime_action_id(
+                    result_action,
+                    len(context.runtime_action_events)
+                    + result_index,
+                )
+                text = (
+                    f"Appending skill: {requested_skill}"
+                    if result_action == "append_skill"
+                    else f"Removing skill: {requested_skill}"
+                )
+                await emit(with_action_context({
+                    "type": "runtime_action",
+                    "action": result_action,
+                    "id": action_id,
+                    "text": text,
+                    "skill_result": result,
+                }))
+                await emit({
+                    "type": "runtime_action",
+                    "action": result_action,
+                    "id": action_id,
+                    "status": "completed",
+                    "text": text,
+                    "skill_result": result,
                 })
 
     if save_session_count:
@@ -1321,6 +1507,12 @@ async def apply_runtime_action_calls(
         )
         + len(
             saved_asset_results
+        )
+        + len(
+            appended_skill_results
+        )
+        + len(
+            removed_skill_results
         )
         + min(
             save_session_count,

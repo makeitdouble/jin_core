@@ -369,36 +369,109 @@ def _next_available_path(path: Path) -> Path:
         index += 1
 
 
+def normalize_skill_name(
+    name: str,
+) -> str:
+
+    normalized = str(
+        name
+        or ""
+    ).strip()
+
+    if normalized.lower().endswith(
+        ".txt"
+    ):
+        normalized = normalized[:-4]
+
+    normalized = re.sub(
+        r"[^A-Za-z0-9]+",
+        "_",
+        normalized,
+    ).strip(
+        "_"
+    ).lower()
+
+    normalized = re.sub(
+        r"_+",
+        "_",
+        normalized,
+    )
+
+    return normalized
+
+
+def _skill_item(
+    path: Path,
+    *,
+    include_content: bool = False,
+) -> dict:
+
+    lines = _read_lines(
+        path
+    )
+    item = {
+        "name": normalize_skill_name(
+            path.stem
+        ),
+        "path": _relative(
+            path
+        ),
+        "line_count": len(
+            lines
+        ),
+    }
+
+    if include_content:
+        item["content"] = path.read_text(
+            encoding="utf-8",
+        ).strip()
+
+    return item
+
+
+def _find_skill_path(
+    skill: str,
+) -> Path | None:
+
+    requested = normalize_skill_name(
+        skill
+    )
+
+    if not requested:
+        return None
+
+    for path in sorted(
+        SKILLS_ROOT.glob("*.txt")
+    ):
+        if normalize_skill_name(
+            path.stem
+        ) == requested:
+            return path
+
+    return None
+
+
 def list_skills(skill: str = "") -> dict:
     ensure_assets_tree()
 
-    requested = str(
+    requested = normalize_skill_name(
         skill
-        or ""
-    ).strip().casefold()
+    )
 
     items = []
     for path in sorted(
         SKILLS_ROOT.glob("*.txt")
     ):
-        name = path.stem
-        lines = _read_lines(path)
-        item = {
-            "name": name,
-            "path": _relative(path),
-            "line_count": len(lines),
-        }
-
         if (
-            not requested
-            or requested == name.casefold()
+            requested
+            and requested != normalize_skill_name(path.stem)
         ):
-            item["content"] = path.read_text(
-                encoding="utf-8",
-            ).strip()
+            continue
 
         items.append(
-            item
+            _skill_item(
+                path
+            )
         )
 
     return {
@@ -406,6 +479,40 @@ def list_skills(skill: str = "") -> dict:
         "action": "list_skills",
         "requested": requested,
         "skills": items,
+    }
+
+
+def load_skill(
+    skill: str,
+) -> dict:
+
+    ensure_assets_tree()
+
+    requested = normalize_skill_name(
+        skill
+    )
+    path = _find_skill_path(
+        requested
+    )
+
+    if path is None:
+        return {
+            "ok": False,
+            "action": "append_skill",
+            "requested": requested,
+            "error": "skill_not_found",
+        }
+
+    item = _skill_item(
+        path,
+        include_content=True,
+    )
+
+    return {
+        "ok": True,
+        "action": "append_skill",
+        "requested": requested,
+        "skill": item,
     }
 
 
