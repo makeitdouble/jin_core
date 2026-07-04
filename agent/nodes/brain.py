@@ -272,6 +272,7 @@ class BrainNode(BaseNode):
             brain_runtime,
             text: str,
             emit_content_to_chat: bool = True,
+            context_snapshot: dict | None = None,
     ) -> tuple[str, str]:
 
         async def generator():
@@ -304,11 +305,14 @@ class BrainNode(BaseNode):
             enable_validator=True,
             emit_to_chat=True,
             emit_content_to_chat=emit_content_to_chat,
-            context_snapshot={
-                "context_role": "brain",
-                "system_prompt": "deterministic asset result report",
-                "user_prompt": text,
-            },
+            context_snapshot=(
+                context_snapshot
+                or getattr(
+                    state,
+                    "visible_response_context",
+                    None,
+                )
+            ),
             runtime_actions={},
         )
 
@@ -332,6 +336,7 @@ class BrainNode(BaseNode):
             brain_payload: str,
             runtime_actions: dict,
             emit_content_to_chat: bool = True,
+            filter_runtime_actions: bool = True,
     ) -> tuple[str, str]:
 
         logger = context.logger
@@ -372,6 +377,7 @@ class BrainNode(BaseNode):
             emit_content_to_chat=emit_content_to_chat,
             context_snapshot=context_snapshot,
             runtime_actions=runtime_actions,
+            filter_runtime_actions=filter_runtime_actions,
         )
 
         generator = ask_brain_stream(
@@ -381,6 +387,7 @@ class BrainNode(BaseNode):
             system_prompt=system_prompt,
             brain_payload=brain_payload,
             runtime_actions=runtime_actions,
+            filter_runtime_actions=filter_runtime_actions,
         )
 
         text = await runtime.run(
@@ -469,8 +476,9 @@ class BrainNode(BaseNode):
 
         asset_result_offset = 0
         followup_count = 0
+        max_followups = 12
 
-        while followup_count < 4:
+        while followup_count < max_followups:
 
             if context.runtime_search_queries:
 
@@ -504,6 +512,9 @@ class BrainNode(BaseNode):
                         f'Searching for "{query}"'
                     ),
                     "query": query,
+                    "context": search_call.get(
+                        "context",
+                    ),
                 })
 
                 search_result = await self.run_search_action(
@@ -581,43 +592,6 @@ class BrainNode(BaseNode):
             asset_result_offset = len(
                 asset_results
             )
-            latest_action = (
-                latest_asset_result.get("action", "")
-                if isinstance(latest_asset_result, dict)
-                else ""
-            )
-
-            if latest_action != "list_skills":
-                text = self.build_asset_result_report(
-                    latest_asset_result,
-                    user_text=state.user_input,
-                )
-                text, reasoning = await self.emit_brain_text(
-                    state=state,
-                    context=context,
-                    brain_runtime=brain_runtime,
-                    text=text,
-                    emit_content_to_chat=(
-                        not state.translate_response
-                    ),
-                )
-                break
-
-            requested_skill = str(
-                latest_asset_result.get(
-                    "requested",
-                    "",
-                )
-                if isinstance(
-                    latest_asset_result,
-                    dict,
-                )
-                else ""
-            ).strip()
-            emit_list_skills_followup_to_chat = (
-                not requested_skill
-            )
-
             followup_runtime_actions = {
                 **runtime_actions,
                 "CAN_WEB_SEARCH": False,
@@ -625,11 +599,6 @@ class BrainNode(BaseNode):
                 "CAN_SAVE_DELAYED_MEMORY": False,
                 "CAN_SAVE_ACTIVE_MEMORY": False,
             }
-
-            if emit_list_skills_followup_to_chat:
-                followup_runtime_actions[
-                    "CAN_USE_ASSETS"
-                ] = False
 
             followup_system_prompt = (
                 build_brain_system_prompt(
@@ -643,24 +612,21 @@ class BrainNode(BaseNode):
                 context
             )
 
-            if emit_list_skills_followup_to_chat:
-                followup_payload = (
-                    "User request:\n"
-                    f"{state.translated_input}\n\n"
-                    "Answer the user using the ASSETS list_skills result "
-                    "from trusted runtime context. "
-                    "This is a user-facing final answer. "
-                    "Do not emit ASSET_ACTION or other runtime actions."
-                )
-            else:
-                followup_payload = (
-                    "User request:\n"
-                    f"{state.translated_input}\n\n"
-                    "Continue using the ASSETS tool result from trusted runtime context. "
-                    "The latest result is list_skills: follow the retrieved skill and emit ASSET_ACTION when filesystem work is needed. "
-                    "This is a tool-call step, not a user-facing final answer. "
-                    "Do not emit memory/session/save actions."
-                )
+            tool_result_summary = self.build_asset_result_report(
+                latest_asset_result,
+                user_text=state.user_input,
+            )
+
+            followup_payload = (
+                "User request:\n"
+                f"{state.translated_input}\n\n"
+                "Continue using the latest ASSETS tool result from trusted runtime context.\n\n"
+                "Latest tool result summary:\n"
+                f"{tool_result_summary}\n\n"
+                "If more filesystem work is needed to finish the user request, emit the next ASSET_ACTION. "
+                "If the entire user request is complete, answer the user with the final result and do not emit another runtime action. "
+                "Do not emit memory/session/save actions."
+            )
 
             text, reasoning = await self.run_brain_stream(
                 state=state,
@@ -671,9 +637,9 @@ class BrainNode(BaseNode):
                 brain_payload=followup_payload,
                 runtime_actions=followup_runtime_actions,
                 emit_content_to_chat=(
-                    emit_list_skills_followup_to_chat
-                    and not state.translate_response
+                    not state.translate_response
                 ),
+                filter_runtime_actions=True,
             )
 
             followup_count += 1
@@ -682,18 +648,6 @@ class BrainNode(BaseNode):
                     len(asset_results) <= asset_result_offset
                     and text.strip()
             ):
-                if emit_list_skills_followup_to_chat:
-                    break
-
-                text, reasoning = await self.emit_brain_text(
-                    state=state,
-                    context=context,
-                    brain_runtime=brain_runtime,
-                    text=text,
-                    emit_content_to_chat=(
-                        not state.translate_response
-                    ),
-                )
                 break
 
         state.brain_response = text or ""

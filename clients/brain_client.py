@@ -36,6 +36,7 @@ from clients.response_extractor import (
 )
 
 from utils.runtime_actions import (
+    RuntimeActionResult,
     RuntimeActionStreamFilter,
     extract_runtime_actions,
 )
@@ -166,6 +167,12 @@ async def ask_brain(
         context
     )
 
+    action_context_snapshot = {
+        "context_role": "brain",
+        "system_prompt": system_prompt,
+        "user_prompt": brain_payload,
+    }
+
     # -----------------------------------------------------
     # SERVICE AS BRAIN
     # -----------------------------------------------------
@@ -221,6 +228,7 @@ async def ask_brain(
                 context,
                 content_actions.actions,
                 user_message=text,
+                context_snapshot=action_context_snapshot,
             )
 
             return content_actions.text
@@ -313,6 +321,7 @@ async def ask_brain(
             context,
             content_actions.actions,
             user_message=text,
+            context_snapshot=action_context_snapshot,
         )
 
         if content_actions.text:
@@ -359,6 +368,7 @@ async def ask_brain_stream(
     system_prompt: str | None = None,
     brain_payload: str | None = None,
     runtime_actions=None,
+    filter_runtime_actions: bool = True,
 ):
 
     resolved_brain_payload: str = (
@@ -395,6 +405,11 @@ async def ask_brain_stream(
     )
     stop_for_runtime_action = False
     delayed_memory_bubble_started = False
+    action_context_snapshot = {
+        "context_role": "brain",
+        "system_prompt": resolved_system_prompt,
+        "user_prompt": resolved_brain_payload,
+    }
 
     async def emit_delayed_memory_bubble_started():
 
@@ -455,6 +470,9 @@ async def ask_brain_stream(
         if chunk_type == "thinking":
             return action_chunk
 
+        if not filter_runtime_actions:
+            return action_chunk
+
         result = content_filter.filter(
             action_chunk.get(
                 "content",
@@ -510,6 +528,7 @@ async def ask_brain_stream(
             context,
             runtime_action_calls,
             user_message=text,
+            context_snapshot=action_context_snapshot,
         )
 
         if any(
@@ -564,7 +583,11 @@ async def ask_brain_stream(
                 if stop_for_runtime_action:
                     break
 
-            tail_result = content_filter.flush_result()
+            tail_result = (
+                content_filter.flush_result()
+                if filter_runtime_actions
+                else RuntimeActionResult(text="")
+            )
 
             await log_runtime_action_marker_removals(
                 context,
@@ -642,7 +665,11 @@ async def ask_brain_stream(
             if stop_for_runtime_action:
                 break
 
-        tail_result = content_filter.flush_result()
+        tail_result = (
+            content_filter.flush_result()
+            if filter_runtime_actions
+            else RuntimeActionResult(text="")
+        )
 
         await log_runtime_action_marker_removals(
             context,

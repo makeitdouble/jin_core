@@ -32,8 +32,15 @@ Safe behavior:
 Action workflow:
 1. Use LIST_SKILLS to retrieve this skill before a wildcard workflow.
 2. Use ASSET_ACTION with JSON payload for list_wildcards, create_wildcard_file, append_wildcard_file, sample_wildcard, expand_template, generate_prompt_batch, check_duplicates, or preview_file.
-3. Use create_wildcard_file only for files under assets/wildcards. Do not use it to save ready prompt batches.
-4. Use generate_prompt_batch when the user asks to create N prompts from a template or wildcards and save them to assets/prompts or assets/outputs.
-5. Prompt batch outputs must contain fully expanded prompts. Never write unresolved __category/file__ tokens as final prompt lines.
-6. If a required wildcard file from the template is missing, stop and report the missing wildcard path, unless the user explicitly asked to create that wildcard first.
-7. After ASSET_ACTION completes, report paths, counts, and 3-5 examples when useful. Do not paste huge generated lists into chat.
+3. Emit ASSET_ACTION as a JSON block:
+<INTERNAL_ACTION_ASSET_ACTION>
+{"action":"list_wildcards"}
+</INTERNAL_ACTION_ASSET_ACTION>
+4. Payload fields may be top-level or nested under args, for example {"action":"create_wildcard_file","args":{"path":"clothing/test_tops","content":"line one\nline two"}}.
+5. Use create_wildcard_library with files when creating several wildcard files at once.
+6. Use create_wildcard_file only for files under assets/wildcards. Do not use it to save ready prompt batches.
+7. Use generate_prompt_batch when the user asks to create N prompts from a template or wildcards and save them to assets/prompts or assets/outputs.
+   Schema: {"action":"generate_prompt_batch","template":"...","count":20,"path":"assets/prompts/test_prompts.txt"}.
+8. Prompt batch outputs must contain fully expanded prompts. Never write unresolved __category/file__ tokens as final prompt lines.
+9. If a required wildcard file from the template is missing, stop and report the missing wildcard path, unless the user explicitly asked to create that wildcard first.
+10. After ASSET_ACTION completes, report paths, counts, and 3-5 examples when useful. Do not paste huge generated lists into chat.

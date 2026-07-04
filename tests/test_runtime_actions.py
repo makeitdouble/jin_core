@@ -307,7 +307,7 @@ class RuntimeActionTests(unittest.TestCase):
     def test_extracts_list_skills_marker(self):
 
         result = extract_runtime_actions(
-            "<INTERNAL_ACTION_LIST_SKILLS:wildcards>",
+            "<INTERNAL_ACTION_LIST_SKILLS>",
             enabled_actions=[
                 "CAN_USE_ASSETS",
             ],
@@ -322,7 +322,7 @@ class RuntimeActionTests(unittest.TestCase):
             (
                 RuntimeActionCall(
                     name="LIST_SKILLS",
-                    payload="wildcards",
+                    payload="",
                 ),
             ),
         )
@@ -1802,7 +1802,7 @@ class RuntimeActionTests(unittest.TestCase):
                         (
                             RuntimeActionCall(
                                 name="LIST_SKILLS",
-                                payload="wildcards",
+                                payload="",
                             ),
                         ),
                     )
@@ -1815,6 +1815,10 @@ class RuntimeActionTests(unittest.TestCase):
                 self.assertEqual(
                     context.runtime_asset_results[0]["action"],
                     "list_skills",
+                )
+                self.assertEqual(
+                    context.runtime_asset_results[0]["requested"],
+                    "",
                 )
                 self.assertEqual(
                     context.runtime_asset_results[0]["skills"][0]["name"],
@@ -1893,6 +1897,18 @@ class RuntimeActionTests(unittest.TestCase):
                 self.assertEqual(
                     context.emitter.events[0]["action"],
                     "asset_action",
+                )
+                self.assertEqual(
+                    context.emitter.events[0]["id"],
+                    "create_wildcard_file_001",
+                )
+                self.assertEqual(
+                    context.emitter.events[1]["status"],
+                    "completed",
+                )
+                self.assertEqual(
+                    context.emitter.events[1]["id"],
+                    context.emitter.events[0]["id"],
                 )
 
     def test_apply_runtime_action_calls_runs_asset_action_args_payload(self):
@@ -2039,7 +2055,7 @@ class RuntimeActionTests(unittest.TestCase):
                     "action": "generate_prompt_batch",
                     "count": 2,
                     "template": "woman wearing __clothing/test_tops__ and __clothing/test_bottoms__, studio lighting.",
-                    "output_file": "assets/prompts/test_prompts.txt",
+                    "path": "assets/prompts/test_prompts.txt",
                 }))
 
                 self.assertTrue(
@@ -2074,6 +2090,38 @@ class RuntimeActionTests(unittest.TestCase):
                     content,
                 )
 
+    def test_generate_prompt_batch_still_accepts_output_file_alias(self):
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                run_asset_action(json.dumps({
+                    "action": "create_wildcard_file",
+                    "path": "clothing/test_tops",
+                    "lines": [
+                        "linen shirt",
+                    ],
+                }))
+
+                result = run_asset_action(json.dumps({
+                    "action": "generate_prompt_batch",
+                    "count": 1,
+                    "template": "woman wearing __clothing/test_tops__",
+                    "output_file": "assets/prompts/legacy_prompts.txt",
+                }))
+
+                self.assertTrue(
+                    result.get("ok"),
+                    result,
+                )
+                self.assertEqual(
+                    result.get("path"),
+                    "assets/prompts/legacy_prompts.txt",
+                )
+
     def test_generate_prompt_batch_reports_missing_wildcards(self):
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2086,7 +2134,7 @@ class RuntimeActionTests(unittest.TestCase):
                     "action": "generate_prompt_batch",
                     "count": 2,
                     "template": "woman wearing __clothing/missing_tops__",
-                    "output_file": "assets/prompts/test_prompts.txt",
+                    "path": "assets/prompts/test_prompts.txt",
                 }))
 
                 self.assertFalse(

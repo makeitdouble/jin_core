@@ -18,8 +18,8 @@ let thinkRuleCitationWorker = null;
 let thinkRuleCitationRegistryPromise = null;
 let nextThinkRuntimeCitationIndex = 0;
 const deferredRuntimeActionsAfterResponse = [];
-const visibleRuntimeActionKeys = new Set();
 const activeThinkRuleCitationJobs = new Map();
+let runtimeActionRowCounter = 0;
 
 const jinInputLoopState = {
   previousInput: "",
@@ -1326,6 +1326,32 @@ function formatContextTitle(
 
 }
 
+function formatRuntimeActionContextTitle(
+  action,
+  contextSnapshot
+) {
+
+  const actionName =
+    String(
+      action || "runtime_action"
+    ).toUpperCase();
+
+  const contextRole =
+    String(
+      (
+        contextSnapshot
+        && contextSnapshot.context_role
+      )
+      || "unknown"
+    ).toUpperCase();
+
+  return (
+    `ACTION: ${actionName} `
+    + `| CONTEXT: ${contextRole}`
+  );
+
+}
+
 
 function createAvatarElement(
   role,
@@ -1504,7 +1530,9 @@ function buildRuntimeActionVisibleKey(
     return `${actionName}:${actionId}`;
   }
 
-  return `${jinConversationTurnCounter}:${actionName}`;
+  runtimeActionRowCounter += 1;
+
+  return `${jinConversationTurnCounter}:${actionName}:${runtimeActionRowCounter}`;
 
 }
 
@@ -1529,21 +1557,6 @@ function appendRuntimeAction(
       options
     );
 
-  if (
-    actionKey
-    && visibleRuntimeActionKeys.has(
-      actionKey
-    )
-  ) {
-    return false;
-  }
-
-  if (actionKey) {
-    visibleRuntimeActionKeys.add(
-      actionKey
-    );
-  }
-
   if (options.activateScene !== false) {
     syncSceneSearchScreenForRuntimeAction(
       action,
@@ -1564,7 +1577,16 @@ function appendRuntimeAction(
     actionKey || "";
 
   const icon =
-    document.createElement("div");
+    document.createElement(
+      options.contextSnapshot
+        ? "button"
+        : "div"
+    );
+
+  if (options.contextSnapshot) {
+    icon.type =
+      "button";
+  }
 
   icon.className =
     "h-6 w-6 rounded bg-cyan-950/70 border border-cyan-700 flex items-center justify-center text-[12px] shrink-0";
@@ -1577,6 +1599,34 @@ function appendRuntimeAction(
         : action === "asset_action"
           ? "▣"
       : "●";
+
+  if (options.contextSnapshot) {
+    icon.className +=
+      " cursor-help hover:bg-cyan-900/70 transition";
+
+    icon.title =
+      "show action context";
+
+    icon.addEventListener(
+      "click",
+      function () {
+        if (!window.showTrace) {
+          return;
+        }
+
+        window.showTrace(
+          formatContextSnapshot(
+            "action",
+            options.contextSnapshot
+          ),
+          formatRuntimeActionContextTitle(
+            action,
+            options.contextSnapshot
+          )
+        );
+      }
+    );
+  }
 
   const label =
     document.createElement("div");
@@ -1627,6 +1677,8 @@ function queueRuntimeActionAfterNextResponse(
       action || "",
     text: actionText,
     id: options.id || "",
+    contextSnapshot:
+      options.contextSnapshot || null,
     completed: false,
   });
 
@@ -1667,6 +1719,8 @@ function flushRuntimeActionsAfterResponse(
       entry.text,
       {
         id: entry.id || "",
+        contextSnapshot:
+          entry.contextSnapshot || null,
         activateScene: !entry.completed,
       }
     );
@@ -1682,11 +1736,26 @@ function flushRuntimeActionsAfterResponse(
 
 
 function fadeRuntimeAction(
-  action
+  action,
+  options = {}
 ) {
 
+  const actionKey =
+    options.id
+      ? buildRuntimeActionVisibleKey(
+        action,
+        options
+      )
+      : "";
+
   deferredRuntimeActionsAfterResponse.forEach((entry) => {
-    if (entry.action === action) {
+    if (
+      entry.action === action
+      && (
+        !options.id
+        || entry.id === options.id
+      )
+    ) {
       entry.completed = true;
     }
   });
@@ -1697,9 +1766,13 @@ function fadeRuntimeAction(
   );
 
   const rows =
-    chatHistory.querySelectorAll(
-      `[data-runtime-action="${action}"]`
-    );
+    actionKey
+      ? chatHistory.querySelectorAll(
+        `[data-runtime-action-key="${actionKey}"]`
+      )
+      : chatHistory.querySelectorAll(
+        `[data-runtime-action="${action}"]`
+      );
 
   rows.forEach((row) => {
     row.classList.add(
@@ -1707,7 +1780,7 @@ function fadeRuntimeAction(
     );
 
     row
-      .querySelectorAll("div")
+      .querySelectorAll("div, button")
       .forEach((element) => {
         element.classList.add(
           "border-zinc-700/50",

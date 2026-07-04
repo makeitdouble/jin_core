@@ -653,7 +653,81 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "<INTERNAL_ACTION_LIST_SKILLS: wildcards >",
+            "<INTERNAL_ACTION_LIST_SKILLS>",
+        )
+        assert_not_contains_text(
+            self,
+            prompt,
+            "list_wildcards",
+        )
+        assert_not_contains_text(
+            self,
+            prompt,
+            "create_wildcard_file",
+        )
+        assert_not_contains_text(
+            self,
+            prompt,
+            "assets/wildcards",
+        )
+
+    def test_prompt_places_tool_results_before_identity(self):
+
+        context = SimpleNamespace(
+            runtime_memory="session_status: active",
+            runtime_memory_stable="session_status: active",
+            runtime_l2_memory="",
+            active_memory_records=[],
+            runtime_asset_results=[
+                {
+                    "ok": True,
+                    "action": "list_skills",
+                    "skills": [
+                        {
+                            "name": "wildcards",
+                            "content": "first line\nsecond line",
+                        },
+                    ],
+                },
+            ],
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_USE_ASSETS": True,
+            },
+        )
+        runtime_context = build_brain_runtime_context(
+            context=context,
+            runtime_actions={
+                "CAN_USE_ASSETS": True,
+            },
+        )
+
+        self.assertLess(
+            prompt.index("Choose at most ONE internal action"),
+            prompt.index("<TOOL_RESULTS"),
+        )
+        self.assertLess(
+            prompt.index("<TOOL_RESULTS"),
+            prompt.index("<Identity>"),
+        )
+        self.assertNotIn(
+            "first line\\nsecond line",
+            prompt,
+        )
+        self.assertIn(
+            "first line\n",
+            prompt,
+        )
+        self.assertIn(
+            "second line",
+            prompt,
+        )
+        self.assertNotIn(
+            "<TOOL_RESULTS",
+            runtime_context,
         )
 
     def test_prompt_adds_resolve_active_memory_rules_from_active_records_only(self):

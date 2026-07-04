@@ -265,15 +265,25 @@ def build_brain_system_prompt(
 
     from clients.brain_context_builder import (
         build_brain_runtime_context,
+        build_tool_results_context,
     )
 
     enabled_actions = get_enabled_runtime_actions(
         runtime_actions
     )
+    tool_results_context = build_tool_results_context(
+        context
+    )
+    tool_results_section = (
+        f"{tool_results_context}\n\n"
+        if tool_results_context
+        else ""
+    )
 
     prompt_prefix = (
         f"{build_runtime_action_instructions(enabled_actions, context)}\n"
         "\n"
+        f"{tool_results_section}"
         f"{IDENTITY}"
         "\n"
         f"{build_conditional_prompt_rules(context)}"

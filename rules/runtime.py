@@ -11,7 +11,7 @@ INTERNAL_ACTION_WEB_SEARCH_MARKER = "<INTERNAL_ACTION_WEB_SEARCH: plain text que
 INTERNAL_ACTION_SAVE_SESSION_MARKER = "<INTERNAL_ACTION_SAVE_SESSION>"
 INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER = "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: CONDITIONS >"
 INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY_MARKER = "<INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY: active_memory_id >"
-INTERNAL_ACTION_LIST_SKILLS_MARKER = "<INTERNAL_ACTION_LIST_SKILLS: wildcards >"
+INTERNAL_ACTION_LIST_SKILLS_MARKER = "<INTERNAL_ACTION_LIST_SKILLS>"
 INTERNAL_ACTION_ASSET_ACTION_MARKER = "<INTERNAL_ACTION_ASSET_ACTION>"
 
 INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_MARKER = "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>"
@@ -39,7 +39,6 @@ INTERNAL_ACTIONS_WITH_PAYLOAD = [
     INTERNAL_ACTION_WEB_SEARCH_MARKER,
     INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER,
     INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY_MARKER,
-    INTERNAL_ACTION_LIST_SKILLS_MARKER,
 ]
 
 INTERNAL_ACTION_ROUTER_RULES = (
@@ -55,7 +54,7 @@ SKILL_ROUTING_RULES = (
     "SKILL ROUTING:\n"
     "When the user asks you to list your skills or to do extended work (create, generate, write, save, inspect, check, expand, assemble, modify, or run a workflow), do not guess the procedure if you are uncertain.\n"
     "At the first sign of uncertainty about the right workflow, file format, action payload, target folder, naming convention, or available project capability, emit LIST_SKILLS before doing the work.\n"
-    f"Use {INTERNAL_ACTION_LIST_SKILLS_MARKER} or replace wildcards with a more relevant skill name if the user request clearly names another skill.\n"
+    f"Use {INTERNAL_ACTION_LIST_SKILLS_MARKER} to retrieve the available project skills.\n"
     "After LIST_SKILLS returns, follow the retrieved skill and then continue with the appropriate runtime action.\n"
     "Do not use LIST_SKILLS for simple conversation, direct factual answers, or tasks whose project workflow is already clear from current TOOL_RESULTS.\n"
 )
@@ -82,23 +81,10 @@ WEB_SEARCH_RULES = (
 )
 
 ASSETS_RULES = (
-    "ASSETS / SKILLS:\n"
-    f"Emit {INTERNAL_ACTION_LIST_SKILLS_MARKER} when the user asks to create, inspect, expand, or use assets/wildcards and the wildcard skill is not already present in TOOL_RESULTS.\n"
-    "LIST_SKILLS retrieves short project skill files from assets/skills. For wildcard workflows, request wildcards.\n"
-    "After LIST_SKILLS returns, follow that skill and use ASSET_ACTION for filesystem work inside assets.\n"
-    f"Emit ASSET_ACTION as a JSON block:\n{INTERNAL_ACTION_ASSET_ACTION_MARKER}\n"
-    "{\"action\":\"list_wildcards\"}\n"
-    "</INTERNAL_ACTION_ASSET_ACTION>\n"
-    "Payload fields may be top-level or nested under args, for example {\"action\":\"create_wildcard_file\",\"args\":{\"path\":\"clothing/test_tops\",\"content\":\"line one\\nline two\"}}.\n"
-    "Allowed ASSET_ACTION names: list_wildcards, create_wildcard_file, append_wildcard_file, create_wildcard_library, sample_wildcard, expand_template, generate_prompt_batch, check_duplicates, preview_file.\n"
-    "Use create_wildcard_library with files when creating several wildcard files at once.\n"
-    "Use create_wildcard_file only for files under assets/wildcards. Never use create_wildcard_file to save ready prompt batches.\n"
-    "Use generate_prompt_batch when the user asks to create N prompts from a wildcard template and save them to assets/prompts or assets/outputs.\n"
-    "Prompt batch outputs must contain fully expanded prompts. Never save unresolved __category/file__ wildcard tokens as final prompt lines.\n"
-    "If a template references a missing wildcard file, report the missing path or create that wildcard first only when the user explicitly asked for it.\n"
-    "Use one line per prompt fragment in wildcard files. Do not include markdown, numbering, JSON, comments, or decorative headings inside wildcard file content.\n"
-    "Do not delete or overwrite existing asset files unless the user explicitly asks.\n"
-    "Do not paste large generated lists into chat; write them to assets and report paths, line counts, and a few examples.\n"
+    "PROJECT SKILLS:\n"
+    f"Emit {INTERNAL_ACTION_LIST_SKILLS_MARKER} when an operational task may require a project skill and the relevant skill is not already present in TOOL_RESULTS.\n"
+    "LIST_SKILLS retrieves the available short project skill files from assets/skills.\n"
+    "After LIST_SKILLS returns, follow the retrieved skill instructions.\n"
 )
 
 SAVE_SESSION_RULES = (

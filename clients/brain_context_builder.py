@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime
 from xml.sax.saxutils import escape
 
@@ -594,6 +595,37 @@ def append_tool_results(
     )
 
 
+def format_tool_result_payload(
+    payload,
+) -> str:
+
+    formatted = json.dumps(
+        payload,
+        ensure_ascii=False,
+        indent=2,
+    )
+
+    lines = []
+
+    for line in formatted.splitlines():
+        indent = re.match(
+            r"\s*",
+            line,
+        ).group(0)
+        lines.append(
+            line.replace(
+                "\\n",
+                "\n"
+                + indent
+                + "    ",
+            )
+        )
+
+    return "\n".join(
+        lines
+    )
+
+
 def append_asset_results(
     parts: list[str],
     context=None,
@@ -617,9 +649,29 @@ def append_asset_results(
     parts.append(
         '<TOOL_RESULTS type="internal_trusted_assets">\n'
         '    <TOOL_RESULT name="ASSETS">\n'
-        f"{indent_xml(escape(json.dumps(asset_results[-5:], ensure_ascii=False, indent=2)))}\n"
+        f"{indent_xml(escape(format_tool_result_payload(asset_results[-5:])))}\n"
         "    </TOOL_RESULT>\n"
         "</TOOL_RESULTS>"
+    )
+
+
+def build_tool_results_context(
+    context=None,
+) -> str:
+
+    parts = []
+
+    append_tool_results(
+        parts,
+        context,
+    )
+    append_asset_results(
+        parts,
+        context,
+    )
+
+    return "\n".join(
+        parts
     )
 
 
@@ -670,14 +722,6 @@ def build_brain_runtime_context(
         context,
     )
     append_zero_diff_alert(
-        parts,
-        context,
-    )
-    append_tool_results(
-        parts,
-        context,
-    )
-    append_asset_results(
         parts,
         context,
     )

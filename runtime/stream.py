@@ -40,6 +40,7 @@ class RuntimeStream:
             emit_content_to_chat: bool | None = None,
             context_snapshot: dict | None = None,
             runtime_actions=None,
+            filter_runtime_actions: bool = True,
     ):
 
         self.context = context
@@ -62,6 +63,7 @@ class RuntimeStream:
         )
         self.context_snapshot = context_snapshot or {}
         self.runtime_actions = runtime_actions or {}
+        self.filter_runtime_actions_enabled = filter_runtime_actions
         self.action_filter = RuntimeActionStreamFilter(
             enabled_actions=self.runtime_actions,
         )
@@ -265,6 +267,9 @@ class RuntimeStream:
         content: str,
     ) -> str | None:
 
+        if not self.filter_runtime_actions_enabled:
+            return content
+
         result = self.action_filter.filter(
             content
         )
@@ -292,6 +297,7 @@ class RuntimeStream:
             await apply_runtime_action_calls(
                 self.context,
                 result.actions,
+                context_snapshot=self.context_snapshot,
             )
 
         if not result.text:
@@ -302,6 +308,9 @@ class RuntimeStream:
     async def flush_runtime_action_content(
         self,
     ) -> str | None:
+
+        if not self.filter_runtime_actions_enabled:
+            return None
 
         result = self.action_filter.flush_result()
 

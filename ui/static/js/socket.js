@@ -1660,7 +1660,10 @@ function handleSocketMessage(event) {
     ) {
       if (window.fadeRuntimeAction) {
         window.fadeRuntimeAction(
-          action
+          action,
+          {
+            id: data.id || "",
+          }
         );
       }
 
@@ -1676,6 +1679,8 @@ function handleSocketMessage(event) {
       displayText,
       {
         id: data.id || "",
+        contextSnapshot:
+          data.context || null,
       }
     );
 

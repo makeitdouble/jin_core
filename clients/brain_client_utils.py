@@ -690,6 +690,7 @@ async def apply_runtime_action_calls(
     context,
     actions,
     user_message: str | None = None,
+    context_snapshot: dict | None = None,
 ) -> int:
 
     if (
@@ -709,6 +710,21 @@ async def apply_runtime_action_calls(
         "runtime_search_calls",
     ):
         context.runtime_search_calls = []
+
+    action_context_snapshot = (
+        dict(context_snapshot)
+        if isinstance(context_snapshot, dict)
+        else None
+    )
+
+    def with_action_context(payload: dict) -> dict:
+        if not action_context_snapshot:
+            return payload
+
+        return {
+            **payload,
+            "context": action_context_snapshot,
+        }
 
     ensure_assets_tree()
 
@@ -896,6 +912,7 @@ async def apply_runtime_action_calls(
             search_calls.append({
                 "id": tool_call_id,
                 "query": query,
+                "context": action_context_snapshot,
             })
 
         elif action.payload:
@@ -1044,7 +1061,24 @@ async def apply_runtime_action_calls(
         )
 
         if emit is not None:
-            for result in saved_asset_results:
+            first_asset_result_index = max(
+                len(
+                    getattr(
+                        context,
+                        "runtime_asset_results",
+                        [],
+                    )
+                )
+                - len(
+                    saved_asset_results
+                ),
+                0,
+            )
+
+            for result_index, result in enumerate(
+                saved_asset_results,
+                start=1,
+            ):
                 result_action = str(
                     result.get(
                         "action",
@@ -1062,15 +1096,23 @@ async def apply_runtime_action_calls(
                     if result_action == "list_skills"
                     else f"Assets: {result_action}"
                 )
-                await emit({
+                action_id = build_runtime_action_id(
+                    result_action
+                    or action_name,
+                    first_asset_result_index
+                    + result_index,
+                )
+                await emit(with_action_context({
                     "type": "runtime_action",
                     "action": action_name,
+                    "id": action_id,
                     "text": text,
                     "asset_result": result,
-                })
+                }))
                 await emit({
                     "type": "runtime_action",
                     "action": action_name,
+                    "id": action_id,
                     "status": "completed",
                     "text": text,
                     "asset_result": result,
@@ -1098,11 +1140,11 @@ async def apply_runtime_action_calls(
         )
 
         if emit is not None:
-            await emit({
+            await emit(with_action_context({
                 "type": "runtime_action",
                 "action": "save_session",
                 "text": "Saving session",
-            })
+            }))
 
     created_active_memory_texts = []
 
@@ -1153,12 +1195,12 @@ async def apply_runtime_action_calls(
                 active_memory_line = (
                     getattr(context, "active_memory_records", []) or []
                 )[-1] if getattr(context, "active_memory_records", []) else ""
-                await emit({
+                await emit(with_action_context({
                     "type": "runtime_action",
                     "action": "create_active_memory",
                     "text": f"Saving: {active_memory_text}",
                     "active_memory": active_memory_line,
-                })
+                }))
 
     saved_delayed_memory_reports = []
 
@@ -1266,12 +1308,12 @@ async def apply_runtime_action_calls(
             emit is not None
             and record_resolved
         ):
-            await emit({
+            await emit(with_action_context({
                 "type": "runtime_action",
                 "action": "resolve_active_memory",
                 "id": active_memory_id,
                 "text": "Active memory resolved",
-            })
+            }))
 
     return (
         len(
