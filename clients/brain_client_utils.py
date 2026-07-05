@@ -798,6 +798,32 @@ async def apply_runtime_action_calls(
         RUNTIME_ACTION_RESOLVE_TODO,
         RUNTIME_ACTION_CHECK_TODO,
     }
+    appended_skill_names = {
+        normalize_skill_name(
+            skill.get(
+                "name",
+                "",
+            )
+        )
+        for skill in (
+            getattr(
+                context,
+                "runtime_appended_skills",
+                [],
+            )
+            or []
+        )
+        if isinstance(
+            skill,
+            dict,
+        )
+        and normalize_skill_name(
+            skill.get(
+                "name",
+                "",
+            )
+        )
+    }
     has_skill_state_action = any(
         action.name in skill_state_action_names
         for action in actions
@@ -934,14 +960,30 @@ async def apply_runtime_action_calls(
 
             list_skills_seen = True
 
-        if action.name in (
-            RUNTIME_ACTION_APPEND_SKILL,
-            RUNTIME_ACTION_REMOVE_SKILL,
-        ):
-            if not normalize_skill_name(
+        if action.name == RUNTIME_ACTION_APPEND_SKILL:
+            requested_skill = normalize_skill_name(
                 action.payload
-            ):
+            )
+            if not requested_skill:
                 continue
+
+            if requested_skill in appended_skill_names:
+                continue
+
+            appended_skill_names.add(
+                requested_skill
+            )
+
+        if action.name == RUNTIME_ACTION_REMOVE_SKILL:
+            requested_skill = normalize_skill_name(
+                action.payload
+            )
+            if not requested_skill:
+                continue
+
+            appended_skill_names.discard(
+                requested_skill
+            )
 
         accepted_action_names.add(
             action_event_name

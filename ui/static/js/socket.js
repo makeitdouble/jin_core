@@ -1912,7 +1912,7 @@ if (factCheckTrigger) {
 
 chatForm.addEventListener(
   "submit",
-  function (e) {
+  async function (e) {
 
     // -----------------------------------------
     // BLOCK SUBMIT WHEN STREAMING
@@ -1933,7 +1933,12 @@ chatForm.addEventListener(
     const text =
       userInput.value.trim();
 
-    if (!text) {
+    const hasAttachments =
+      window.hasJinAttachments
+        ? window.hasJinAttachments()
+        : false;
+
+    if (!text && !hasAttachments) {
       return;
     }
 
@@ -1965,6 +1970,11 @@ chatForm.addEventListener(
 
     }
 
+    const attachments =
+      window.prepareJinAttachments
+        ? await window.prepareJinAttachments()
+        : [];
+
     if (window.prepareRuntimeMemoryForUserMessage) {
       window.prepareRuntimeMemoryForUserMessage(
         text
@@ -1977,7 +1987,9 @@ chatForm.addEventListener(
 
     appendChatMessage(
       "user",
-      text
+      text,
+      null,
+      attachments
     );
 
     if (window.markSessionActivityDirty) {
@@ -1996,6 +2008,11 @@ chatForm.addEventListener(
     const payload = {
       text: text,
     };
+
+    if (attachments.length) {
+      payload.attachments =
+        attachments;
+    }
 
     const inputLoopContext =
       window.updateJinInputLoopCounter
@@ -2049,7 +2066,16 @@ chatForm.addEventListener(
         window.JinRuntime.runtime.getActiveMemoryRecords();
     }
 
-    sendSocketMessage(payload);
+    const sent =
+      sendSocketMessage(payload);
+
+    if (
+        sent
+        && attachments.length
+        && window.clearJinAttachments
+    ) {
+      window.clearJinAttachments();
+    }
 
     if (window.jinFreezeUserIdleTimerAtSeconds) {
       window.jinFreezeUserIdleTimerAtSeconds(

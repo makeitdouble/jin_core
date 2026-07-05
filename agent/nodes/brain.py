@@ -38,16 +38,34 @@ class BrainNode(BaseNode):
             system_prompt: str,
             initial_user_request: str,
             *,
+            context=None,
             instruction: str = "",
     ) -> str:
 
         sections = [
             (
-                "<INITIAL_USER_REQUEST>\n"
+                "<LATEST_USER_REQUEST>\n"
                 f"{str(initial_user_request or '').strip()}\n"
-                "</INITIAL_USER_REQUEST>"
+                "</LATEST_USER_REQUEST>"
             )
         ]
+
+        if context is not None:
+            from clients.brain_context_builder import (
+                build_previous_chat_messages_context,
+            )
+
+            previous_chat_messages_context = (
+                build_previous_chat_messages_context(
+                    context,
+                    extra_user_message=initial_user_request,
+                )
+            )
+
+            if previous_chat_messages_context:
+                sections.append(
+                    previous_chat_messages_context
+                )
 
         if instruction.strip():
             sections.append(
@@ -587,10 +605,12 @@ class BrainNode(BaseNode):
                             context,
                             runtime_actions=followup_runtime_actions,
                             commit_active_memory_refresh=True,
+                            include_previous_chat_messages=False,
                         ),
                         state.translated_input,
+                        context=context,
                         instruction=(
-                            "Answer the initial user request using the "
+                            "Answer the latest user request using the "
                             "WEB_SEARCH tool result from trusted runtime "
                             "context. Mention the quoted source data when "
                             "it helps. Do not emit another WEB_SEARCH "
@@ -660,8 +680,10 @@ class BrainNode(BaseNode):
                             context,
                             runtime_actions=followup_runtime_actions,
                             commit_active_memory_refresh=True,
+                            include_previous_chat_messages=False,
                         ),
                         state.translated_input,
+                        context=context,
                     )
                 )
 
@@ -714,8 +736,10 @@ class BrainNode(BaseNode):
                         context,
                         runtime_actions=followup_runtime_actions,
                         commit_active_memory_refresh=True,
+                        include_previous_chat_messages=False,
                     ),
                     state.translated_input,
+                    context=context,
                 )
             )
 

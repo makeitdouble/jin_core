@@ -1486,10 +1486,61 @@ function createMessageElement(
 
 // NORMAL MESSAGE
 
+function createMessageAttachmentChips(
+  attachments = []
+) {
+  if (!Array.isArray(attachments) || !attachments.length) {
+    return null;
+  }
+
+  const container =
+    document.createElement("div");
+
+  container.className =
+    "mt-3 flex flex-wrap gap-2";
+
+  attachments.forEach((attachment) => {
+    const chip =
+      document.createElement("div");
+
+    chip.className =
+      "max-w-full rounded border border-sky-400/25 bg-sky-950/35 px-2 py-1 font-mono text-[11px] text-sky-100";
+
+    const name =
+      attachment && attachment.name
+        ? attachment.name
+        : "attachment";
+
+    const details = [
+      attachment && attachment.kind
+        ? attachment.kind
+        : "file",
+      attachment && attachment.size_label
+        ? attachment.size_label
+        : "",
+      attachment && attachment.width && attachment.height
+        ? `${attachment.width}x${attachment.height}`
+        : "",
+    ].filter(Boolean);
+
+    chip.textContent =
+      details.length
+        ? `${name} - ${details.join(", ")}`
+        : name;
+
+    container.appendChild(
+      chip
+    );
+  });
+
+  return container;
+}
+
 function appendChatMessage(
   role,
   text,
-  contextSnapshot = null
+  contextSnapshot = null,
+  attachments = []
 ) {
 
   const pre =
@@ -1500,6 +1551,19 @@ function appendChatMessage(
 
   pre.innerHTML =
     escapeHtml(text);
+
+  if (role === "user") {
+    const chips =
+      createMessageAttachmentChips(
+        attachments
+      );
+
+    if (chips && pre.parentElement) {
+      pre.parentElement.appendChild(
+        chips
+      );
+    }
+  }
 
   if (role === "user") {
     jinConversationTurnCounter += 1;

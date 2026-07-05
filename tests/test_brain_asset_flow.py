@@ -34,7 +34,7 @@ def _context():
     )
 
 
-def _assert_initial_request_payload(test_case, call_kwargs, user_input):
+def _assert_latest_request_payload(test_case, call_kwargs, user_input):
     payload = call_kwargs["brain_payload"]
     system_prompt = call_kwargs["system_prompt"]
 
@@ -48,8 +48,11 @@ def _assert_initial_request_payload(test_case, call_kwargs, user_input):
     )
     test_case.assertTrue(
         system_prompt.startswith(
-            f"<INITIAL_USER_REQUEST>\n{user_input}\n"
-            "</INITIAL_USER_REQUEST>\n\n"
+            f"<LATEST_USER_REQUEST>\n{user_input}\n"
+            "</LATEST_USER_REQUEST>\n\n"
+            "<PREVIOUS_CHAT_MESSAGES>\n"
+            f"<USER>{user_input}\n"
+            "</PREVIOUS_CHAT_MESSAGES>\n\n"
         ),
         system_prompt,
     )
@@ -224,7 +227,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(
                     kwargs["emit_content_to_chat"],
                 )
-                _assert_initial_request_payload(
+                _assert_latest_request_payload(
                     self,
                     kwargs,
                     state.translated_input,
@@ -327,7 +330,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 return "", ""
 
             if len(calls) == 3:
-                _assert_initial_request_payload(
+                _assert_latest_request_payload(
                     self,
                     kwargs,
                     state.translated_input,
@@ -402,7 +405,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 )
 
             if len(calls) == 2:
-                _assert_initial_request_payload(
+                _assert_latest_request_payload(
                     self,
                     kwargs,
                     state.translated_input,
@@ -490,7 +493,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 return "", ""
 
             if len(calls) == 3:
-                _assert_initial_request_payload(
+                _assert_latest_request_payload(
                     self,
                     kwargs,
                     state.translated_input,
@@ -517,7 +520,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 return "", ""
 
             if len(calls) == 4:
-                _assert_initial_request_payload(
+                _assert_latest_request_payload(
                     self,
                     kwargs,
                     state.translated_input,
@@ -650,7 +653,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 return "", ""
 
             if len(calls) == 4:
-                _assert_initial_request_payload(
+                _assert_latest_request_payload(
                     self,
                     kwargs,
                     state.translated_input,

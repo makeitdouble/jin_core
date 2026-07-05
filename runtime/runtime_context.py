@@ -177,6 +177,10 @@ class RuntimeContext:
 
     runtime_turn_user_message: str = ""
 
+    runtime_turn_attachments: list[dict] = field(
+        default_factory=list
+    )
+
     runtime_turn_assistant_response: str = ""
 
     runtime_turn_interrupted: bool = False

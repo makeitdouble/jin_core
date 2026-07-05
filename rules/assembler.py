@@ -313,11 +313,13 @@ def build_brain_system_prompt(
     user_input: str = "",
     commit_active_memory_refresh: bool = False,
     include_runtime_action_instructions: bool = True,
+    include_previous_chat_messages: bool = True,
 ) -> str:
 
     from clients.brain_context_builder import (
         build_brain_runtime_context,
         build_brain_top_runtime_context,
+        build_previous_chat_messages_context,
         build_session_actions_history_context,
         build_tool_results_context,
     )
@@ -331,6 +333,18 @@ def build_brain_system_prompt(
     tool_results_section = (
         f"{tool_results_context}\n\n"
         if tool_results_context
+        else ""
+    )
+    previous_chat_messages_context = (
+        build_previous_chat_messages_context(
+            context
+        )
+        if include_previous_chat_messages
+        else ""
+    )
+    previous_chat_messages_section = (
+        f"{previous_chat_messages_context}\n\n"
+        if previous_chat_messages_context
         else ""
     )
     session_actions_history_context = (
@@ -361,6 +375,7 @@ def build_brain_system_prompt(
 
     prompt_prefix = (
         f"{top_runtime_section}"
+        f"{previous_chat_messages_section}"
         f"{session_actions_history_section}"
         f"{runtime_action_instructions_section}"
         f"{tool_results_section}"

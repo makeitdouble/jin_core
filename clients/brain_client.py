@@ -139,6 +139,67 @@ def build_brain_payload(
     return text
 
 
+def build_brain_user_prompt_content(
+    text: str,
+    context=None,
+):
+
+    content = [
+        {
+            "type": "text",
+            "text": text,
+        },
+    ]
+
+    for attachment in (
+        getattr(
+            context,
+            "runtime_turn_attachments",
+            [],
+        )
+        or []
+    ):
+
+        if not isinstance(
+            attachment,
+            dict,
+        ):
+            continue
+
+        if (
+            attachment.get(
+                "kind",
+            )
+            != "image"
+        ):
+            continue
+
+        data_url = str(
+            attachment.get(
+                "data_url",
+                "",
+            )
+            or ""
+        )
+
+        if not data_url.startswith(
+            "data:image/",
+        ):
+            continue
+
+        content.append({
+            "type": "image_url",
+            "image_url": {
+                "url": data_url,
+            },
+        })
+
+    if len(content) == 1:
+        return text
+
+    return content
+
+
 def build_brain_context_snapshot(
     *,
     context=None,
@@ -201,6 +262,11 @@ async def ask_brain(
         context
     )
 
+    model_user_prompt = build_brain_user_prompt_content(
+        brain_payload,
+        context=context,
+    )
+
     action_context_snapshot = build_brain_context_snapshot(
         context=context,
         system_prompt=system_prompt,
@@ -218,7 +284,7 @@ async def ask_brain(
 
             result = await ask_service_model(
                 client=client,
-                user_prompt=brain_payload,
+                user_prompt=model_user_prompt,
                 system_prompt=system_prompt,
                 temperature=(
                     config.BRAIN_TEMPERATURE
@@ -291,7 +357,7 @@ async def ask_brain(
 
         result = await client.ask(
             system_prompt=system_prompt,
-            user_prompt=brain_payload,
+            user_prompt=model_user_prompt,
             temperature=(
                 config
                 .BRAIN_TEMPERATURE
@@ -432,6 +498,11 @@ async def ask_brain_stream(
     enabled_actions = get_response_enabled_runtime_actions(
         runtime_actions,
         text,
+    )
+
+    model_user_prompt = build_brain_user_prompt_content(
+        resolved_brain_payload,
+        context=context,
     )
 
     content_filter = RuntimeActionStreamFilter(
@@ -592,7 +663,7 @@ async def ask_brain_stream(
                     context=context,
                     client=client,
                     user_prompt=(
-                        resolved_brain_payload
+                        model_user_prompt
                     ),
                     system_prompt=(
                         resolved_system_prompt
@@ -678,7 +749,7 @@ async def ask_brain_stream(
                 system_prompt=(
                     resolved_system_prompt
                 ),
-                user_prompt=resolved_brain_payload,
+                user_prompt=model_user_prompt,
                 temperature=(
                     config
                     .BRAIN_TEMPERATURE

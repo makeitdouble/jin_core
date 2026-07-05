@@ -614,8 +614,10 @@ def crop_recent_message_text(
     )
 
 
-def build_recent_turns_context_text(
+def build_previous_chat_messages_context_text(
     recent_turns: list[dict] | None,
+    *,
+    extra_user_message: str = "",
 ) -> str:
 
     turns = list(
@@ -624,8 +626,9 @@ def build_recent_turns_context_text(
     )[-RECENT_MESSAGES_MAX_PAIRS:]
 
     lines = [
-        "<recent_turns>",
+        "<PREVIOUS_CHAT_MESSAGES>",
     ]
+    last_user_text = ""
 
     for turn in turns:
         if not isinstance(
@@ -648,17 +651,30 @@ def build_recent_turns_context_text(
         )
 
         if user_text:
+            last_user_text = user_text
             lines.append(
-                f"user: {user_text}"
+                f"<USER>{escape(user_text)}"
             )
 
         if jin_text:
             lines.append(
-                f"jin: {jin_text}"
+                f"<JIN>{escape(jin_text)}"
             )
 
+    extra_user_text = crop_recent_message_text(
+        extra_user_message
+    )
+
+    if (
+            extra_user_text
+            and extra_user_text != last_user_text
+    ):
+        lines.append(
+            f"<USER>{escape(extra_user_text)}"
+        )
+
     lines.append(
-        "</recent_turns>"
+        "</PREVIOUS_CHAT_MESSAGES>"
     )
 
     return "\n".join(
@@ -666,27 +682,46 @@ def build_recent_turns_context_text(
     )
 
 
-def append_recent_turns(
-    parts: list[str],
+def build_previous_chat_messages_context(
     context=None,
-) -> None:
+    *,
+    extra_user_message: str = "",
+) -> str:
 
-    if context is None:
-        return
+    if context is None and not extra_user_message:
+        return ""
 
     recent_turns = getattr(
         context,
         "runtime_recent_turns",
         [],
+    ) if context is not None else []
+
+    if not recent_turns and not extra_user_message:
+        return ""
+
+    return build_previous_chat_messages_context_text(
+        recent_turns,
+        extra_user_message=extra_user_message,
     )
 
-    if not recent_turns:
+
+def append_previous_chat_messages(
+    parts: list[str],
+    context=None,
+) -> None:
+
+    previous_chat_messages_context = (
+        build_previous_chat_messages_context(
+            context
+        )
+    )
+
+    if not previous_chat_messages_context:
         return
 
     parts.append(
-        build_recent_turns_context_text(
-            recent_turns
-        )
+        previous_chat_messages_context
     )
 
 
@@ -978,10 +1013,6 @@ def build_brain_runtime_context(
         commit_active_memory_refresh=commit_active_memory_refresh,
     )
     append_L2_runtime_memory(
-        parts,
-        context,
-    )
-    append_recent_turns(
         parts,
         context,
     )
