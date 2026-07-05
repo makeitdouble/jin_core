@@ -77,6 +77,10 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_todo: list[dict] = field(
+        default_factory=list
+    )
+
     active_memory_records: list[str] = field(
         default_factory=list
     )

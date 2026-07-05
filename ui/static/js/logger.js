@@ -837,12 +837,24 @@ function getInternalActionPayload(data) {
     return null;
   }
 
-  if (data.payload !== undefined && data.payload !== null && data.payload !== "") {
-    return data.payload;
-  }
+  const payloadKeys = [
+    "payload",
+    "action_payload",
+    "runtime_action_payload",
+    "asset_result",
+    "skill_result",
+    "runtime_todo_result",
+    "delayed_memory_report",
+    "details",
+  ];
 
-  if (data.details !== undefined && data.details !== null && data.details !== "") {
-    return data.details;
+  for (const key of payloadKeys) {
+    const value =
+      data[key];
+
+    if (value !== undefined && value !== null && value !== "") {
+      return value;
+    }
   }
 
   return null;

@@ -64,6 +64,8 @@ class RuntimeStream:
         self.context_snapshot = context_snapshot or {}
         self.runtime_actions = runtime_actions or {}
         self.filter_runtime_actions_enabled = filter_runtime_actions
+        if self.filter_runtime_actions_enabled:
+            self.context.runtime_skill_state_barrier_active = False
         self.action_filter = RuntimeActionStreamFilter(
             enabled_actions=self.runtime_actions,
         )

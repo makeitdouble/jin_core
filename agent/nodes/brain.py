@@ -6,6 +6,7 @@ from runtime.stream import (
 
 from clients.brain_client import (
     ask_brain_stream,
+    build_brain_context_snapshot,
     build_brain_payload,
     emit_active_memory_records_update_if_dirty,
 )
@@ -27,7 +28,39 @@ from utils.language import (
 )
 
 
+FOLLOWUP_USER_MESSAGE = "No new messages, multi-task in progress"
+
+
 class BrainNode(BaseNode):
+
+    @staticmethod
+    def build_followup_system_prompt(
+            system_prompt: str,
+            initial_user_request: str,
+            *,
+            instruction: str = "",
+    ) -> str:
+
+        sections = [
+            (
+                "<INITIAL_USER_REQUEST>\n"
+                f"{str(initial_user_request or '').strip()}\n"
+                "</INITIAL_USER_REQUEST>"
+            )
+        ]
+
+        if instruction.strip():
+            sections.append(
+                instruction.strip()
+            )
+
+        sections.append(
+            system_prompt
+        )
+
+        return "\n\n".join(
+            sections
+        )
 
     @staticmethod
     async def run_search_action(
@@ -341,11 +374,12 @@ class BrainNode(BaseNode):
 
         logger = context.logger
 
-        context_snapshot = {
-            "context_role": "brain",
-            "system_prompt": system_prompt,
-            "user_prompt": brain_payload,
-        }
+        context_snapshot = build_brain_context_snapshot(
+            context=context,
+            system_prompt=system_prompt,
+            user_prompt=brain_payload,
+            runtime_actions=runtime_actions,
+        )
 
         state.visible_response_context = (
             context_snapshot
@@ -461,6 +495,15 @@ class BrainNode(BaseNode):
             )
         )
 
+        runtime_action_event_offset = len(
+            getattr(
+                context,
+                "runtime_action_events",
+                [],
+            )
+            or []
+        )
+
         text, reasoning = await self.run_brain_stream(
             state=state,
             context=context,
@@ -475,7 +518,7 @@ class BrainNode(BaseNode):
         )
 
         asset_result_offset = 0
-        skill_state_event_offset = 0
+        skill_state_event_offset = runtime_action_event_offset
         followup_count = 0
         max_followups = 12
 
@@ -539,10 +582,20 @@ class BrainNode(BaseNode):
                 }
 
                 followup_system_prompt = (
-                    build_brain_system_prompt(
-                        context,
-                        runtime_actions=followup_runtime_actions,
-                        commit_active_memory_refresh=True,
+                    self.build_followup_system_prompt(
+                        build_brain_system_prompt(
+                            context,
+                            runtime_actions=followup_runtime_actions,
+                            commit_active_memory_refresh=True,
+                        ),
+                        state.translated_input,
+                        instruction=(
+                            "Answer the initial user request using the "
+                            "WEB_SEARCH tool result from trusted runtime "
+                            "context. Mention the quoted source data when "
+                            "it helps. Do not emit another WEB_SEARCH "
+                            "runtime action."
+                        ),
                     )
                 )
 
@@ -550,14 +603,7 @@ class BrainNode(BaseNode):
                     context
                 )
 
-                followup_payload = (
-                    "User request:\n"
-                    f"{state.translated_input}\n\n"
-                    "Answer the user request using the WEB_SEARCH tool result "
-                    "from trusted runtime context. "
-                    "Mention the quoted source data when it helps. "
-                    "Do not emit another WEB_SEARCH runtime action."
-                )
+                followup_payload = FOLLOWUP_USER_MESSAGE
 
                 text, reasoning = await self.run_brain_stream(
                     state=state,
@@ -600,9 +646,6 @@ class BrainNode(BaseNode):
             )
 
             if new_skill_state_events:
-                if text.strip():
-                    break
-
                 followup_runtime_actions = {
                     **runtime_actions,
                     "CAN_WEB_SEARCH": False,
@@ -612,10 +655,13 @@ class BrainNode(BaseNode):
                 }
 
                 followup_system_prompt = (
-                    build_brain_system_prompt(
-                        context,
-                        runtime_actions=followup_runtime_actions,
-                        commit_active_memory_refresh=True,
+                    self.build_followup_system_prompt(
+                        build_brain_system_prompt(
+                            context,
+                            runtime_actions=followup_runtime_actions,
+                            commit_active_memory_refresh=True,
+                        ),
+                        state.translated_input,
                     )
                 )
 
@@ -623,10 +669,7 @@ class BrainNode(BaseNode):
                     context
                 )
 
-                followup_payload = (
-                    "Initial user request:\n"
-                    f"{state.translated_input}"
-                )
+                followup_payload = FOLLOWUP_USER_MESSAGE
 
                 text, reasoning = await self.run_brain_stream(
                     state=state,
@@ -666,10 +709,13 @@ class BrainNode(BaseNode):
             }
 
             followup_system_prompt = (
-                build_brain_system_prompt(
-                    context,
-                    runtime_actions=followup_runtime_actions,
-                    commit_active_memory_refresh=True,
+                self.build_followup_system_prompt(
+                    build_brain_system_prompt(
+                        context,
+                        runtime_actions=followup_runtime_actions,
+                        commit_active_memory_refresh=True,
+                    ),
+                    state.translated_input,
                 )
             )
 
@@ -677,10 +723,7 @@ class BrainNode(BaseNode):
                 context
             )
 
-            followup_payload = (
-                "Initial user request:\n"
-                f"{state.translated_input}"
-            )
+            followup_payload = FOLLOWUP_USER_MESSAGE
 
             text, reasoning = await self.run_brain_stream(
                 state=state,

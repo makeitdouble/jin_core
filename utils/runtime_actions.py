@@ -11,8 +11,11 @@ from rules.runtime import (
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_ASSET_ACTION,
+    RUNTIME_ACTION_CHECK_TODO,
+    RUNTIME_ACTION_CREATE_TODO_LIST,
     RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_REMOVE_SKILL,
+    RUNTIME_ACTION_RESOLVE_TODO,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
@@ -30,6 +33,9 @@ KNOWN_RUNTIME_ACTIONS = tuple(
             RUNTIME_ACTION_APPEND_SKILL,
             RUNTIME_ACTION_REMOVE_SKILL,
             RUNTIME_ACTION_ASSET_ACTION,
+            RUNTIME_ACTION_CREATE_TODO_LIST,
+            RUNTIME_ACTION_RESOLVE_TODO,
+            RUNTIME_ACTION_CHECK_TODO,
             RUNTIME_ACTION_SAVE_SESSION,
         )
     )
@@ -39,17 +45,17 @@ BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
     (
         r"(?:"
         r"<\s*INTERNAL_ACTION_"
-        r"(?P<bracketed_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL)"
+        r"(?P<bracketed_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<bracketed_query>(?:(?!</\s*>)[^\r\n>])*?))?"
         r"(?:\s*</\s*>+|\s*>+)"
         r"|"
         r"<\s*INTERNAL_ACTION_"
-        r"(?P<bracketed_line_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL)"
+        r"(?P<bracketed_line_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<bracketed_line_query>[^\r\n>]*))?"
         r"[^\S\r\n]*(?=\r?\n)"
         r"|"
         r"(?m:^\s*INTERNAL_ACTION_"
-        r"(?P<bare_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL)"
+        r"(?P<bare_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<bare_query>[^\r\n]*))?"
         r"\s*$)"
         r")"
@@ -61,12 +67,12 @@ MALFORMED_CALL_INTERNAL_ACTION_PATTERN = re.compile(
     (
         r"(?:"
         r"<\|?tool_call\>\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
-        r"(?P<tool_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL)"
+        r"(?P<tool_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<tool_call_query>(?:(?!</\s*>)[^\r\n>])*?))?"
         r"(?:\s*</\s*>+|\s*>+|[^\S\r\n]*(?=\r?\n|$))"
         r"|"
         r"(?m:^\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
-        r"(?P<bare_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL)"
+        r"(?P<bare_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<bare_call_query>[^\r\n]*))?"
         r"\s*$)"
         r")"
@@ -94,6 +100,16 @@ ASSET_ACTION_BLOCK_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+CREATE_TODO_BLOCK_RE = re.compile(
+    (
+        r"<\s*(?:TODO_LIST|INTERNAL_ACTION_TODO_LIST|INTERNAL_ACTION_CREATE_TODO_LIST)\s*>"
+        r"[^\S\r\n]*(?:\r?\n)?"
+        r"(?P<payload>.*?)"
+        r"</\s*(?:TODO_LIST|INTERNAL_ACTION_TODO_LIST|INTERNAL_ACTION_CREATE_TODO_LIST)\s*>+"
+    ),
+    re.IGNORECASE | re.DOTALL,
+)
+
 DELAYED_MEMORY_FIELD_RE = re.compile(
     r"(?im)^[^\S\r\n]*(title|summary|tags|body)[^\S\r\n]*:[^\S\r\n]*(.*)$",
 )
@@ -110,6 +126,16 @@ ASSET_ACTION_BLOCK_START_RE = re.compile(
 
 ASSET_ACTION_BLOCK_END_RE = re.compile(
     r"</\s*INTERNAL_ACTION_ASSET_ACTION\s*>+",
+    re.IGNORECASE,
+)
+
+CREATE_TODO_BLOCK_START_RE = re.compile(
+    r"<\s*(?:TODO_LIST|INTERNAL_ACTION_TODO_LIST|INTERNAL_ACTION_CREATE_TODO_LIST)\s*>",
+    re.IGNORECASE,
+)
+
+CREATE_TODO_BLOCK_END_RE = re.compile(
+    r"</\s*(?:TODO_LIST|INTERNAL_ACTION_TODO_LIST|INTERNAL_ACTION_CREATE_TODO_LIST)\s*>+",
     re.IGNORECASE,
 )
 
@@ -1311,6 +1337,12 @@ def normalize_runtime_action_name(
         "APPEND_SKILL": RUNTIME_ACTION_APPEND_SKILL,
         "REMOVE_SKILL": RUNTIME_ACTION_REMOVE_SKILL,
         "ASSET_ACTION": RUNTIME_ACTION_ASSET_ACTION,
+        "TODO_LIST": RUNTIME_ACTION_CREATE_TODO_LIST,
+        "INTERNAL_ACTION_TODO_LIST": RUNTIME_ACTION_CREATE_TODO_LIST,
+        "CREATE_TODO_LIST": RUNTIME_ACTION_CREATE_TODO_LIST,
+        "INTERNAL_ACTION_CREATE_TODO_LIST": RUNTIME_ACTION_CREATE_TODO_LIST,
+        "RESOLVE_TODO": RUNTIME_ACTION_RESOLVE_TODO,
+        "CHECK_TODO": RUNTIME_ACTION_CHECK_TODO,
     }
 
     return aliases.get(
@@ -1479,6 +1511,28 @@ def _build_internal_action_call(
             return None
 
     elif normalized_name == RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY:
+        payload = _clean_internal_action_query(
+            query
+        )
+
+        if _is_placeholder_internal_query(
+            payload,
+            placeholder_payloads,
+        ):
+            return None
+
+    elif normalized_name == RUNTIME_ACTION_CREATE_TODO_LIST:
+        payload = _clean_internal_action_query(
+            query
+        )
+
+        if not payload:
+            return None
+
+    elif normalized_name in (
+        RUNTIME_ACTION_RESOLVE_TODO,
+        RUNTIME_ACTION_CHECK_TODO,
+    ):
         payload = _clean_internal_action_query(
             query
         )
@@ -1779,8 +1833,23 @@ def extract_runtime_actions(
             or "",
         )
 
+    def replace_create_todo_marker(match):
+
+        return handle_marker(
+            match.group(0),
+            RUNTIME_ACTION_CREATE_TODO_LIST,
+            match.group("payload")
+            or "",
+        )
+
     clean_text = _replace_runtime_action_matches(
         text,
+        CREATE_TODO_BLOCK_RE,
+        replace_create_todo_marker,
+    )
+
+    clean_text = _replace_runtime_action_matches(
+        clean_text,
         ASSET_ACTION_BLOCK_RE,
         replace_asset_action_marker,
     )
@@ -1953,6 +2022,105 @@ def _enabled_action_start_markers(
         )
         markers.append(
             "call:SAVE_SESSION"
+        )
+
+    if RUNTIME_ACTION_CREATE_TODO_LIST in enabled_action_names:
+        markers.append(
+            "<TODO_LIST>"
+        )
+        markers.append(
+            "</TODO_LIST>"
+        )
+        markers.append(
+            "<INTERNAL_ACTION_TODO_LIST>"
+        )
+        markers.append(
+            "</INTERNAL_ACTION_TODO_LIST>"
+        )
+        markers.append(
+            "<INTERNAL_ACTION_CREATE_TODO_LIST>"
+        )
+        markers.append(
+            "</INTERNAL_ACTION_CREATE_TODO_LIST>"
+        )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_TODO_LIST"
+        )
+        markers.append(
+            "<tool_call>call:INTERNAL_ACTION_TODO_LIST"
+        )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_CREATE_TODO_LIST"
+        )
+        markers.append(
+            "<tool_call>call:INTERNAL_ACTION_CREATE_TODO_LIST"
+        )
+        markers.append(
+            "<|tool_call>call:CREATE_TODO_LIST"
+        )
+        markers.append(
+            "<tool_call>call:CREATE_TODO_LIST"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_TODO_LIST"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_CREATE_TODO_LIST"
+        )
+        markers.append(
+            "call:CREATE_TODO_LIST"
+        )
+
+    if RUNTIME_ACTION_RESOLVE_TODO in enabled_action_names:
+        markers.append(
+            "<INTERNAL_ACTION_RESOLVE_TODO:"
+        )
+        markers.append(
+            "INTERNAL_ACTION_RESOLVE_TODO:"
+        )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_RESOLVE_TODO:"
+        )
+        markers.append(
+            "<tool_call>call:INTERNAL_ACTION_RESOLVE_TODO:"
+        )
+        markers.append(
+            "<|tool_call>call:RESOLVE_TODO:"
+        )
+        markers.append(
+            "<tool_call>call:RESOLVE_TODO:"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_RESOLVE_TODO:"
+        )
+        markers.append(
+            "call:RESOLVE_TODO:"
+        )
+
+    if RUNTIME_ACTION_CHECK_TODO in enabled_action_names:
+        markers.append(
+            "<INTERNAL_ACTION_CHECK_TODO:"
+        )
+        markers.append(
+            "INTERNAL_ACTION_CHECK_TODO:"
+        )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_CHECK_TODO:"
+        )
+        markers.append(
+            "<tool_call>call:INTERNAL_ACTION_CHECK_TODO:"
+        )
+        markers.append(
+            "<|tool_call>call:CHECK_TODO:"
+        )
+        markers.append(
+            "<tool_call>call:CHECK_TODO:"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_CHECK_TODO:"
+        )
+        markers.append(
+            "call:CHECK_TODO:"
         )
 
     if RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT in enabled_action_names:
@@ -2222,10 +2390,12 @@ def _action_text_may_contain_marker(
     if not text:
         return False
 
+    upper_text = text.upper()
+
     return (
-        "INTERNAL_ACTION_"
-        in text.upper()
-        or "CALL:" in text.upper()
+        "INTERNAL_ACTION_" in upper_text
+        or "CALL:" in upper_text
+        or "TODO_LIST" in upper_text
     )
 
 
@@ -2431,12 +2601,42 @@ def _unclosed_asset_action_block_start(
     return opening_match.start()
 
 
+def _unclosed_create_todo_block_start(
+    text: str,
+) -> int | None:
+
+    opening_match = None
+
+    for match in CREATE_TODO_BLOCK_START_RE.finditer(
+        text
+    ):
+        opening_match = match
+
+    if opening_match is None:
+        return None
+
+    closing_match = None
+
+    for match in CREATE_TODO_BLOCK_END_RE.finditer(
+        text,
+        opening_match.end(),
+    ):
+        closing_match = match
+        break
+
+    if closing_match is not None:
+        return None
+
+    return opening_match.start()
+
+
 def _unclosed_internal_action_request_start(
     text: str,
     enabled_actions=None,
 ) -> int | None:
 
     for detector in (
+        _unclosed_create_todo_block_start,
         _unclosed_asset_action_block_start,
         _unclosed_delayed_memory_content_block_start,
         _unclosed_bracketed_internal_action_start,

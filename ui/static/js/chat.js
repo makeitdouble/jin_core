@@ -146,8 +146,10 @@ function updateJinInputLoopCounter(text) {
 /**
  * @typedef {Object} ContextSnapshot
  * @property {string=} system_prompt
+ * @property {string=} visible_system_prompt
  * @property {string=} user_prompt
  * @property {string=} context_role
+ * @property {boolean=} hide_internal_action_rules
  */
 
 
@@ -1274,8 +1276,17 @@ function formatContextSnapshot(
     return "";
   }
 
+  const hideInternalActionRules =
+    Boolean(
+      snapshot.hide_internal_action_rules
+    );
+
   const systemPrompt =
-    snapshot.system_prompt
+    (
+      hideInternalActionRules
+      && snapshot.visible_system_prompt
+    )
+    || snapshot.system_prompt
     || "";
 
   const userPrompt =
@@ -1283,7 +1294,9 @@ function formatContextSnapshot(
     || "";
 
   return [
-    "SYSTEM PROMPT",
+    hideInternalActionRules
+      ? "SYSTEM PROMPT (INTERNAL ACTION RULES HIDDEN)"
+      : "SYSTEM PROMPT",
     "-------------",
     systemPrompt || "(empty)",
     "",

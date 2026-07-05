@@ -17,6 +17,9 @@ from utils.assets_service import (
     list_skills,
     run_asset_action,
 )
+from utils.runtime_todo import (
+    create_runtime_todo,
+)
 from utils.runtime_actions import (
     RuntimeActionCall,
     RuntimeActionStreamFilter,
@@ -2035,6 +2038,103 @@ class RuntimeActionTests(unittest.TestCase):
                     "Removed skill: wildcards",
                 )
 
+    def test_append_skill_blocks_other_actions_in_same_stream(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                skill_path = (
+                    root
+                    / "assets"
+                    / "skills"
+                    / "wildcards.txt"
+                )
+                skill_path.parent.mkdir(
+                    parents=True,
+                    exist_ok=True,
+                )
+                skill_path.write_text(
+                    "wildcards\nUse ASSET_ACTION for wildcard files.",
+                    encoding="utf-8",
+                )
+
+                context = Context()
+                context.emitter = Emitter()
+                payload = json.dumps(
+                    {
+                        "action": "create_wildcard_file",
+                        "path": "clothing/test_tops",
+                        "lines": [
+                            "linen shirt",
+                        ],
+                    }
+                )
+
+                applied_count = asyncio.run(
+                    apply_runtime_action_calls(
+                        context,
+                        (
+                            RuntimeActionCall(
+                                name="APPEND_SKILL",
+                                payload="wildcards",
+                            ),
+                            RuntimeActionCall(
+                                name="ASSET_ACTION",
+                                payload=payload,
+                            ),
+                        ),
+                    )
+                )
+
+                self.assertEqual(
+                    applied_count,
+                    1,
+                )
+                self.assertEqual(
+                    context.runtime_appended_skills[0]["name"],
+                    "wildcards",
+                )
+                self.assertTrue(
+                    context.runtime_skill_state_barrier_active,
+                )
+                self.assertEqual(
+                    [
+                        event["name"]
+                        for event in context.runtime_action_events
+                    ],
+                    [
+                        "append_skill",
+                    ],
+                )
+                self.assertFalse(
+                    hasattr(
+                        context,
+                        "runtime_asset_results",
+                    )
+                )
+                self.assertFalse(
+                    (
+                        root
+                        / "assets"
+                        / "wildcards"
+                        / "clothing"
+                        / "test_tops.txt"
+                    ).exists()
+                )
+
     def test_list_skills_normalizes_name_from_filename(self):
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2165,6 +2265,68 @@ class RuntimeActionTests(unittest.TestCase):
                     [
                         "Assets: create_wildcard_file - assets/wildcards/clothing/test_tops.txt",
                     ],
+                )
+
+
+    def test_asset_action_writes_actual_path_back_to_runtime_todo(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                context = Context()
+                context.emitter = Emitter()
+                create_runtime_todo(
+                    context,
+                    "1. Создать новый файл-вайлдкард `assets/wildcards/shoes/` с 10 видами обуви.",
+                )
+
+                payload = json.dumps(
+                    {
+                        "action": "create_wildcard_file",
+                        "path": "assets/wildcards/shoes/",
+                        "lines": [
+                            "sneakers",
+                            "boots",
+                        ],
+                    }
+                )
+
+                asyncio.run(
+                    apply_runtime_action_calls(
+                        context,
+                        (
+                            RuntimeActionCall(
+                                name="ASSET_ACTION",
+                                payload=payload,
+                            ),
+                        ),
+                    )
+                )
+
+                self.assertEqual(
+                    context.runtime_todo[0]["status"],
+                    "resolved",
+                )
+                self.assertEqual(
+                    context.runtime_todo[0]["result_path"],
+                    "assets/wildcards/shoes.txt",
+                )
+                self.assertEqual(
+                    context.runtime_asset_results[0]["runtime_todo_item"]["result_path"],
+                    "assets/wildcards/shoes.txt",
                 )
 
     def test_apply_runtime_action_calls_runs_asset_action_args_payload(self):
@@ -2462,6 +2624,68 @@ class RuntimeActionTests(unittest.TestCase):
                 self.assertEqual(
                     result.get("missing", [])[0].get("wildcard"),
                     "clothing/missing_tops",
+                )
+
+    def test_failed_generate_prompt_batch_runtime_bubble_shows_failed(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                context = Context()
+                context.emitter = Emitter()
+                payload = json.dumps({
+                    "action": "generate_prompt_batch",
+                    "count": 2,
+                    "template": "woman wearing __clothing/missing_tops__",
+                    "path": "assets/prompts/test_prompts.txt",
+                })
+
+                applied_count = asyncio.run(
+                    apply_runtime_action_calls(
+                        context,
+                        (
+                            RuntimeActionCall(
+                                name="ASSET_ACTION",
+                                payload=payload,
+                            ),
+                        ),
+                    )
+                )
+
+                self.assertEqual(
+                    applied_count,
+                    1,
+                )
+                self.assertEqual(
+                    context.emitter.events[0]["text"],
+                    "Assets: generate_prompt_batch - failed",
+                )
+                self.assertEqual(
+                    context.emitter.events[1]["status"],
+                    "failed",
+                )
+                self.assertEqual(
+                    context.emitter.events[1]["text"],
+                    "Assets: generate_prompt_batch - failed",
+                )
+                self.assertEqual(
+                    context.runtime_session_action_history,
+                    [
+                        "Assets: generate_prompt_batch - failed",
+                    ],
                 )
 
     def test_create_wildcard_file_rejects_assets_prompts_path(self):

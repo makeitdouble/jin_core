@@ -53,9 +53,12 @@ from xml.etree import ElementTree
 from rules.runtime import (
     RUNTIME_ACTION_APPEND_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
+    RUNTIME_ACTION_CHECK_TODO,
+    RUNTIME_ACTION_CREATE_TODO_LIST,
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_REMOVE_SKILL,
+    RUNTIME_ACTION_RESOLVE_TODO,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
@@ -87,6 +90,18 @@ from utils.runtime_actions import (
 from utils.session_actions_history import (
     build_asset_action_history_text,
     record_session_action_history,
+)
+from utils.runtime_todo import (
+    apply_runtime_todo_action_result,
+    attach_runtime_todo_item_to_result,
+    build_runtime_todo_history_text,
+    check_runtime_todo_item,
+    create_runtime_todo,
+    has_active_runtime_todo,
+    mark_next_runtime_todo_item_resolved,
+    normalize_file_exists_for_runtime_todo,
+    parse_runtime_todo_item_id,
+    resolve_runtime_todo_item,
 )
 
 
@@ -774,6 +789,34 @@ async def apply_runtime_action_calls(
         context,
         user_message,
     )
+    skill_state_action_names = {
+        RUNTIME_ACTION_APPEND_SKILL,
+        RUNTIME_ACTION_REMOVE_SKILL,
+    }
+    todo_action_names = {
+        RUNTIME_ACTION_CREATE_TODO_LIST,
+        RUNTIME_ACTION_RESOLVE_TODO,
+        RUNTIME_ACTION_CHECK_TODO,
+    }
+    has_skill_state_action = any(
+        action.name in skill_state_action_names
+        for action in actions
+    )
+
+    if (
+        has_skill_state_action
+        or getattr(
+            context,
+            "runtime_skill_state_barrier_active",
+            False,
+        )
+    ):
+        actions = [
+            action
+            for action in actions
+            if action.name in skill_state_action_names
+            or action.name in todo_action_names
+        ]
 
     for action in actions:
 
@@ -858,6 +901,15 @@ async def apply_runtime_action_calls(
             )
             continue
 
+        if action.name in todo_action_names:
+            accepted_action_names.add(
+                action_event_name
+            )
+            filtered_actions.append(
+                action
+            )
+            continue
+
         if action.name == RUNTIME_ACTION_WEB_SEARCH:
             query = extract_search_query(
                 action.payload
@@ -900,6 +952,55 @@ async def apply_runtime_action_calls(
 
     if not filtered_actions:
         return 0
+
+    runtime_todo_results = []
+    runtime_todo_action_items = {}
+
+    for action in filtered_actions:
+        if action.name == RUNTIME_ACTION_CREATE_TODO_LIST:
+            result = create_runtime_todo(
+                context,
+                action.payload,
+            )
+            runtime_todo_results.append(
+                result
+            )
+            continue
+
+        if action.name == RUNTIME_ACTION_RESOLVE_TODO:
+            result = resolve_runtime_todo_item(
+                context,
+                parse_runtime_todo_item_id(
+                    action.payload
+                ),
+            )
+            runtime_todo_results.append(
+                result
+            )
+            continue
+
+        if action.name == RUNTIME_ACTION_CHECK_TODO:
+            result = check_runtime_todo_item(
+                context,
+                parse_runtime_todo_item_id(
+                    action.payload
+                ),
+            )
+            runtime_todo_results.append(
+                result
+            )
+            continue
+
+        if has_active_runtime_todo(
+            context
+        ):
+            todo_item = mark_next_runtime_todo_item_resolved(
+                context
+            )
+            if todo_item is not None:
+                runtime_todo_action_items[action] = dict(
+                    todo_item
+                )
 
     for action in filtered_actions:
 
@@ -1045,6 +1146,46 @@ async def apply_runtime_action_calls(
             f"search x{len(search_queries)}"
         )
 
+    if runtime_todo_results:
+        if log_runtime is not None:
+            await log_runtime(
+                "[RUNTIME ACTION] runtime_todo updated"
+            )
+
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        for result in runtime_todo_results:
+            text = build_runtime_todo_history_text(
+                result
+            )
+            record_session_action_history(
+                context,
+                text,
+            )
+            if emit is not None:
+                await emit(with_action_context({
+                    "type": "runtime_action",
+                    "action": str(
+                        result.get(
+                            "action",
+                            "runtime_todo",
+                        )
+                        or "runtime_todo"
+                    ),
+                    "status": "completed" if result.get("ok") else "blocked",
+                    "text": text,
+                    "runtime_todo_result": result,
+                }))
+
     saved_asset_results = []
 
     if list_skill_actions:
@@ -1056,6 +1197,15 @@ async def apply_runtime_action_calls(
         for action in list_skill_actions:
             result = list_skills(
                 action.payload
+            )
+            todo_item = apply_runtime_todo_action_result(
+                context,
+                runtime_todo_action_items.get(action),
+                result,
+            ) or runtime_todo_action_items.get(action)
+            result = attach_runtime_todo_item_to_result(
+                result,
+                todo_item,
             )
             append_asset_runtime_result(
                 context,
@@ -1112,6 +1262,15 @@ async def apply_runtime_action_calls(
                 )
                 context.runtime_appended_skills = current_skills
 
+            todo_item = apply_runtime_todo_action_result(
+                context,
+                runtime_todo_action_items.get(action),
+                result,
+            ) or runtime_todo_action_items.get(action)
+            result = attach_runtime_todo_item_to_result(
+                result,
+                todo_item,
+            )
             appended_skill_results.append(
                 result
             )
@@ -1158,6 +1317,12 @@ async def apply_runtime_action_calls(
                 "removed": len(current_skills) < before_count,
             })
 
+    if (
+        appended_skill_results
+        or removed_skill_results
+    ):
+        context.runtime_skill_state_barrier_active = True
+
     if asset_actions:
         if log_runtime is not None:
             await log_runtime(
@@ -1167,6 +1332,19 @@ async def apply_runtime_action_calls(
         for action in asset_actions:
             result = run_asset_action(
                 action.payload
+            )
+            result = normalize_file_exists_for_runtime_todo(
+                result,
+                context,
+            )
+            todo_item = apply_runtime_todo_action_result(
+                context,
+                runtime_todo_action_items.get(action),
+                result,
+            ) or runtime_todo_action_items.get(action)
+            result = attach_runtime_todo_item_to_result(
+                result,
+                todo_item,
             )
             append_asset_runtime_result(
                 context,
@@ -1257,7 +1435,11 @@ async def apply_runtime_action_calls(
                     "type": "runtime_action",
                     "action": action_name,
                     "id": action_id,
-                    "status": "completed",
+                    "status": (
+                        "completed"
+                        if result.get("ok")
+                        else "failed"
+                    ),
                     "text": text,
                     "asset_result": result,
                 })

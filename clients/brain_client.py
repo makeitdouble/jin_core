@@ -41,6 +41,9 @@ from utils.runtime_actions import (
     RuntimeActionStreamFilter,
     extract_runtime_actions,
 )
+from utils.runtime_todo import (
+    has_active_runtime_todo,
+)
 
 
 def get_response_enabled_runtime_actions(
@@ -136,6 +139,36 @@ def build_brain_payload(
     return text
 
 
+def build_brain_context_snapshot(
+    *,
+    context=None,
+    system_prompt: str,
+    user_prompt: str,
+    runtime_actions=None,
+) -> dict:
+
+    snapshot = {
+        "context_role": "brain",
+        "system_prompt": system_prompt,
+        "user_prompt": user_prompt,
+    }
+
+    if not has_active_runtime_todo(
+        context
+    ):
+        return snapshot
+
+    snapshot["hide_internal_action_rules"] = True
+    snapshot["visible_system_prompt"] = build_brain_system_prompt(
+        context,
+        runtime_actions,
+        user_input=user_prompt,
+        include_runtime_action_instructions=False,
+    )
+
+    return snapshot
+
+
 # ---------------------------------------------------------
 # NORMAL REQUEST
 # ---------------------------------------------------------
@@ -168,11 +201,12 @@ async def ask_brain(
         context
     )
 
-    action_context_snapshot = {
-        "context_role": "brain",
-        "system_prompt": system_prompt,
-        "user_prompt": brain_payload,
-    }
+    action_context_snapshot = build_brain_context_snapshot(
+        context=context,
+        system_prompt=system_prompt,
+        user_prompt=brain_payload,
+        runtime_actions=runtime_actions,
+    )
 
     # -----------------------------------------------------
     # SERVICE AS BRAIN
@@ -406,11 +440,12 @@ async def ask_brain_stream(
     )
     stop_for_runtime_action = False
     delayed_memory_bubble_started = False
-    action_context_snapshot = {
-        "context_role": "brain",
-        "system_prompt": resolved_system_prompt,
-        "user_prompt": resolved_brain_payload,
-    }
+    action_context_snapshot = build_brain_context_snapshot(
+        context=context,
+        system_prompt=resolved_system_prompt,
+        user_prompt=resolved_brain_payload,
+        runtime_actions=runtime_actions,
+    )
 
     async def emit_delayed_memory_bubble_started():
 

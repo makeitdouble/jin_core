@@ -34,6 +34,9 @@ def build_asset_action_history_text(
     if path:
         text = f"{text} - {path}"
 
+    if result.get("ok") is False:
+        text = f"{text} - failed"
+
     return text
 
 

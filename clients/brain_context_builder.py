@@ -41,6 +41,9 @@ from utils.runtime_actions import (
     is_active_memory_record_paused,
     remove_active_memory_entries,
 )
+from utils.runtime_todo import (
+    format_runtime_todo_xml,
+)
 
 
 def get_brain_runtime_mode() -> str:
@@ -327,6 +330,30 @@ def build_session_actions_history_context(
     )
 
 
+def append_current_runtime_todo(
+    parts: list[str],
+    context=None,
+) -> None:
+
+    if context is None:
+        return
+
+    runtime_todo_xml = format_runtime_todo_xml(
+        getattr(
+            context,
+            "runtime_todo",
+            [],
+        )
+    )
+
+    if not runtime_todo_xml:
+        return
+
+    parts.append(
+        runtime_todo_xml
+    )
+
+
 def build_brain_top_runtime_context(
     context=None,
     runtime_actions=None,
@@ -341,6 +368,10 @@ def build_brain_top_runtime_context(
         )
     )
     append_visible_session_state(
+        parts,
+        context,
+    )
+    append_current_runtime_todo(
         parts,
         context,
     )

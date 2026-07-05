@@ -34,10 +34,24 @@ def _context():
     )
 
 
-def _assert_initial_request_payload(test_case, payload, user_input):
+def _assert_initial_request_payload(test_case, call_kwargs, user_input):
+    payload = call_kwargs["brain_payload"]
+    system_prompt = call_kwargs["system_prompt"]
+
     test_case.assertEqual(
         payload,
-        f"Initial user request:\n{user_input}",
+        "No new messages, multi-task in progress",
+    )
+    test_case.assertNotIn(
+        user_input,
+        payload,
+    )
+    test_case.assertTrue(
+        system_prompt.startswith(
+            f"<INITIAL_USER_REQUEST>\n{user_input}\n"
+            "</INITIAL_USER_REQUEST>\n\n"
+        ),
+        system_prompt,
     )
     test_case.assertNotIn(
         "Continue using",
@@ -212,7 +226,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 )
                 _assert_initial_request_payload(
                     self,
-                    kwargs["brain_payload"],
+                    kwargs,
                     state.translated_input,
                 )
                 self.assertNotIn(
@@ -315,7 +329,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             if len(calls) == 3:
                 _assert_initial_request_payload(
                     self,
-                    kwargs["brain_payload"],
+                    kwargs,
                     state.translated_input,
                 )
                 return (
@@ -363,7 +377,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "Ready to use the wildcard skill.",
         )
 
-    async def test_append_skill_visible_answer_does_not_trigger_followup(self):
+    async def test_append_skill_visible_answer_triggers_followup(self):
 
         calls = []
 
@@ -387,7 +401,18 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     "",
                 )
 
-            self.fail("Brain model was called again after visible append answer")
+            if len(calls) == 2:
+                _assert_initial_request_payload(
+                    self,
+                    kwargs,
+                    state.translated_input,
+                )
+                return (
+                    "Ready to test with the wildcards skill loaded.",
+                    "",
+                )
+
+            self.fail("Brain model kept running after visible append answer")
 
         context = _context()
         state = AgentState(
@@ -420,11 +445,11 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             len(calls),
-            1,
+            2,
         )
         self.assertEqual(
             state.brain_response,
-            "I've loaded the wildcards skill. Ready to test.",
+            "Ready to test with the wildcards skill loaded.",
         )
 
     async def test_asset_workflow_can_continue_after_create_file_to_prompt_batch(self):
@@ -467,7 +492,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             if len(calls) == 3:
                 _assert_initial_request_payload(
                     self,
-                    kwargs["brain_payload"],
+                    kwargs,
                     state.translated_input,
                 )
                 self.assertNotIn(
@@ -494,7 +519,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             if len(calls) == 4:
                 _assert_initial_request_payload(
                     self,
-                    kwargs["brain_payload"],
+                    kwargs,
                     state.translated_input,
                 )
                 self.assertNotIn(
@@ -627,7 +652,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             if len(calls) == 4:
                 _assert_initial_request_payload(
                     self,
-                    kwargs["brain_payload"],
+                    kwargs,
                     state.translated_input,
                 )
                 self.assertNotIn(
