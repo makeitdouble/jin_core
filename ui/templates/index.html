@@ -1386,9 +1386,14 @@
             line-height: 1.5;
         }
 
-        .runtime-memory-active-row {
+        .runtime-memory-active-row,
+        .runtime-memory-removable-row {
             cursor: pointer;
             user-select: none;
+        }
+
+        .runtime-memory-removable-row {
+            border-radius: 4px;
         }
 
         .runtime-memory-delayed-row {

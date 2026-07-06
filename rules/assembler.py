@@ -42,7 +42,7 @@ from .runtime import (
     ASSETS_RULES,
     RUNTIME_TODO_RULES,
     SKILL_ROUTING_RULES,
-    RUNTIME_ACTIONS_RULES, SAVE_DELAYED_MEMORY_RULES, INTERNAL_ACTION_ROUTER_RULES
+    RUNTIME_ACTIONS_RULES, SAVE_DELAYED_MEMORY_RULES,
 )
 
 
@@ -52,7 +52,7 @@ SERVICE_AS_BRAIN_RUNTIME_ACTIONS = {
     "CAN_SAVE_SESSION": True,
     "CAN_SAVE_DELAYED_MEMORY": True,
     "CAN_SAVE_ACTIVE_MEMORY": True,
-    "CAN_RUNTIME_TODO": True,
+    "CAN_RUNTIME_TODO": False,
 }
 
 BRAIN_RUNTIME_ACTIONS = {
@@ -61,7 +61,7 @@ BRAIN_RUNTIME_ACTIONS = {
     "CAN_SAVE_SESSION": True,
     "CAN_SAVE_DELAYED_MEMORY": True,
     "CAN_SAVE_ACTIVE_MEMORY": True,
-    "CAN_RUNTIME_TODO": True,
+    "CAN_RUNTIME_TODO": False,
 }
 
 
@@ -297,8 +297,6 @@ def build_runtime_action_instructions(
 
     if not enabled_actions:
         instructions = ["No runtime actions are currently enabled."]
-
-    instructions.append(INTERNAL_ACTION_ROUTER_RULES)
 
     return "\n".join(instructions)
 

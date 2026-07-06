@@ -74,8 +74,13 @@ from runtime import (
     schedule_runtime_memory_update,
     send_telemetry,
 )
+from runtime.memory_events import (
+    emit_runtime_memory_snapshot_refresh,
+    rebuild_latest_runtime_memory_snapshot,
+)
 from runtime.L1_memory_utils import (
     build_runtime_memory_context_text,
+    canonicalize_runtime_memory_key,
     remove_runtime_user_idle_lines,
 )
 from utils.runtime_actions import (
@@ -170,6 +175,133 @@ def active_memory_records_text(context) -> str:
         )
         if str(record or "").strip()
     )
+
+
+def remove_runtime_memory_slot_by_key(
+        memory: str,
+        key: str,
+) -> tuple[str, bool]:
+
+    normalized_key = canonicalize_runtime_memory_key(
+        str(key or "")
+    )
+
+    if not normalized_key:
+        return str(memory or "").strip(), False
+
+    kept_lines = []
+    removed = False
+
+    for raw_line in str(memory or "").splitlines():
+        line = raw_line.strip().lstrip("-").strip()
+
+        if not line:
+            continue
+
+        if ":" not in line:
+            kept_lines.append(raw_line)
+            continue
+
+        line_key, _ = line.split(":", 1)
+
+        if (
+                canonicalize_runtime_memory_key(line_key)
+                == normalized_key
+        ):
+            removed = True
+            continue
+
+        kept_lines.append(raw_line)
+
+    return "\n".join(
+        line.strip()
+        for line in kept_lines
+        if str(line).strip()
+    ).strip(), removed
+
+
+async def apply_runtime_memory_slot_delete(
+        context,
+        message_data: dict,
+) -> bool:
+
+    key = str(
+        message_data.get("key", "")
+    ).strip()
+
+    normalized_key = canonicalize_runtime_memory_key(
+        key
+    )
+
+    if (
+            not normalized_key
+            or normalized_key == "user_idle"
+            or is_active_memory_key(normalized_key)
+    ):
+        return False
+
+    current_memory = str(
+        getattr(
+            context,
+            "runtime_memory",
+            "",
+        )
+        or ""
+    )
+
+    next_memory, removed = remove_runtime_memory_slot_by_key(
+        current_memory,
+        key,
+    )
+
+    if not removed or next_memory == current_memory.strip():
+        return False
+
+    context.runtime_memory = next_memory
+    context.runtime_memory_stable = next_memory
+    context.runtime_memory_updates = int(
+        getattr(
+            context,
+            "runtime_memory_updates",
+            0,
+        )
+        or 0
+    ) + 1
+
+    snapshot = rebuild_latest_runtime_memory_snapshot(
+        context
+    )
+
+    if snapshot is None:
+        snapshot = build_runtime_memory_snapshot(
+            context,
+            context.runtime_memory,
+        )
+        context.runtime_memory_snapshots = [snapshot]
+        context.runtime_memory_snapshot_index = snapshot.get(
+            "index",
+            0,
+        )
+
+    snapshot["runtime_memory_updates"] = (
+        context.runtime_memory_updates
+    )
+    snapshot["local_runtime_memory_delete"] = True
+    snapshot["deleted_runtime_memory_key"] = normalized_key
+
+    await emit_runtime_memory_snapshot_refresh(
+        context,
+        snapshot,
+    )
+    await emit_runtime_l1_diff_update(
+        context
+    )
+
+    await context.logger.log_system(
+        f"[RUNTIME MEMORY] slot deleted: {normalized_key}"
+    )
+
+    return True
 
 
 def clean_bootstrap_memory(
@@ -2408,6 +2540,13 @@ async def websocket_endpoint(
             # -------------------------------------------------
             # RESTORE BROWSER SESSION MEMORY
             # -------------------------------------------------
+
+            if message_type == "runtime_memory_delete_slot":
+                await apply_runtime_memory_slot_delete(
+                    context,
+                    message_data,
+                )
+                continue
 
             if message_type == "session_bootstrap":
 

@@ -669,6 +669,30 @@ function sendSocketMessage(
 
 }
 
+window.sendRuntimeMemoryDeleteSlot = function (payload) {
+  const key = String(
+    payload
+    && payload.key || ""
+  ).trim();
+
+  if (!key) {
+    return false;
+  }
+
+  return sendSocketMessage({
+    type: "runtime_memory_delete_slot",
+    key,
+    line: String(
+      payload
+      && payload.line || ""
+    ).trim(),
+    index: Number(
+      payload
+      && payload.index || 0
+    ),
+  });
+};
+
 function triggerManualFactCheck() {
 
   if (!isWebSocketOpen()) {
