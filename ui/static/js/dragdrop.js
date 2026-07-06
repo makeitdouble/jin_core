@@ -28,6 +28,7 @@ const TEXT_EXTENSIONS = new Set([
 let droppedFiles = [];
 let dragDepth = 0;
 let dropOverlay = null;
+const fileObjectUrls = new WeakMap();
 
 function escapeHtml(text) {
   return String(text || "")
@@ -76,6 +77,114 @@ function isTextLikeFile(file) {
     || type.includes("xml")
     || TEXT_EXTENSIONS.has(getFileExtension(file))
   );
+}
+
+function getFileKind(file) {
+  const type =
+    String(file.type || "").toLowerCase();
+
+  if (type.startsWith("image/")) {
+    return "image";
+  }
+
+  return isTextLikeFile(file)
+    ? "text"
+    : "binary";
+}
+
+function getFileObjectUrl(file) {
+  if (!fileObjectUrls.has(file)) {
+    fileObjectUrls.set(
+      file,
+      URL.createObjectURL(file)
+    );
+  }
+
+  return fileObjectUrls.get(file);
+}
+
+function releaseFileObjectUrl(file) {
+  const url =
+    fileObjectUrls.get(file);
+
+  if (!url) {
+    return;
+  }
+
+  URL.revokeObjectURL(url);
+  fileObjectUrls.delete(file);
+}
+
+function readBlobAsText(blob) {
+  if (blob && typeof blob.text === "function") {
+    return blob.text();
+  }
+
+  return new Promise((resolve) => {
+    const reader =
+      new FileReader();
+
+    reader.onload = () => {
+      resolve(
+        typeof reader.result === "string"
+          ? reader.result
+          : ""
+      );
+    };
+
+    reader.onerror = () => {
+      resolve("");
+    };
+
+    reader.readAsText(blob);
+  });
+}
+
+function createLocalAttachment(file) {
+  const kind =
+    getFileKind(file);
+  const attachment = {
+    name: file.name || "attachment",
+    type: file.type || "application/octet-stream",
+    size_bytes: file.size || 0,
+    size_label: formatBytes(file.size),
+    last_modified: file.lastModified
+      ? new Date(file.lastModified).toISOString()
+      : null,
+    kind,
+  };
+
+  if (kind === "image") {
+    attachment.object_url =
+      getFileObjectUrl(file);
+  }
+
+  attachment.resolve_modal_attachment =
+    async () => {
+      const resolved =
+        {
+          ...attachment,
+        };
+
+      if (kind === "image") {
+        const dimensions =
+          await readImageDimensions(file);
+
+        resolved.width =
+          dimensions.width;
+        resolved.height =
+          dimensions.height;
+      }
+
+      if (kind === "text") {
+        resolved.text_content =
+          await readBlobAsText(file);
+      }
+
+      return resolved;
+    };
+
+  return attachment;
 }
 
 function hasDraggedFiles(event) {
@@ -154,9 +263,11 @@ function renderFiles() {
 
   droppedFiles.forEach((file, index) => {
     const item = document.createElement("div");
+    const attachment =
+      createLocalAttachment(file);
 
     item.className =
-      "flex max-w-full items-center gap-2 rounded border border-sky-500/25 bg-sky-950/35 px-3 py-2 text-xs text-sky-50 shadow";
+      "flex max-w-full items-center gap-2 rounded border border-sky-500/25 bg-sky-950/35 px-3 py-2 text-xs text-sky-50 shadow transition hover:border-sky-300/50 hover:bg-sky-900/45";
 
     item.innerHTML = `
       <span class="truncate max-w-[220px]">
@@ -175,14 +286,27 @@ function renderFiles() {
       </button>
     `;
 
+    if (window.bindJinAttachmentBubble) {
+      window.bindJinAttachmentBubble(
+        item,
+        attachment
+      );
+    }
+
     attachedFiles.appendChild(item);
   });
 
   attachedFiles.querySelectorAll("button").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
       const index = Number(btn.dataset.index);
+      const file =
+        droppedFiles[index];
 
       droppedFiles.splice(index, 1);
+      releaseFileObjectUrl(file);
 
       syncFileInput();
       renderFiles();
@@ -214,6 +338,10 @@ function addFiles(fileList) {
 }
 
 function clearFiles() {
+  droppedFiles.forEach((file) => {
+    releaseFileObjectUrl(file);
+  });
+
   droppedFiles = [];
 
   syncFileInput();
@@ -267,6 +395,8 @@ function readFileAsDataUrl(file) {
 
 async function buildAttachmentPayload(file, index) {
   const type = file.type || "application/octet-stream";
+  const kind =
+    getFileKind(file);
   const attachment = {
     id: `attachment-${Date.now()}-${index}`,
     name: file.name || `attachment-${index + 1}`,
@@ -276,11 +406,7 @@ async function buildAttachmentPayload(file, index) {
     last_modified: file.lastModified
       ? new Date(file.lastModified).toISOString()
       : null,
-    kind: type.startsWith("image/")
-      ? "image"
-      : isTextLikeFile(file)
-        ? "text"
-        : "binary",
+    kind,
   };
 
   if (attachment.kind === "image") {
@@ -298,8 +424,12 @@ async function buildAttachmentPayload(file, index) {
 
   if (attachment.kind === "text") {
     const previewBlob = file.slice(0, TEXT_PREVIEW_LIMIT * 4);
-    const rawPreview = await previewBlob.text();
+    const rawPreview = await readBlobAsText(
+      previewBlob
+    );
     const preview = rawPreview.slice(0, TEXT_PREVIEW_LIMIT);
+    const textContent =
+      await readBlobAsText(file);
 
     attachment.preview_chars = preview.length;
     attachment.preview_limit = TEXT_PREVIEW_LIMIT;
@@ -307,6 +437,7 @@ async function buildAttachmentPayload(file, index) {
       rawPreview.length > TEXT_PREVIEW_LIMIT
       || file.size > previewBlob.size;
     attachment.text_preview = preview;
+    attachment.text_content = textContent;
   }
 
   return attachment;

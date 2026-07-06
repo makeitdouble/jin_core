@@ -51,6 +51,7 @@ Runtime memory snapshots can be stepped through visually, with new or changed fa
 - Session save and restore: natural closing phrases trigger a compact L3 memory digest, stored locally and replayed on reconnect.
 - Active-memory contracts: reminders, ask-later conditions, and recall games live outside normal L1 summarization until JIN resolves them.
 - Delayed memory reports: explicit requests to save a summary, digest, recap, or session summary for later become structured reports stored in browser `localStorage`, shown in the delayed-memory view, and kept separate from pending reminders or L1 facts.
+- Runtime action pipeline: skill loading, asset actions, delayed-memory saves, active-memory updates, session saves, and web search are parsed as structured actions and fed back into the runtime.
 - Pattern and loop detection: repeated exchanges can change strategy instead of producing the same polite answer again.
 - Context pressure telemetry: model status, token usage, context pressure, runtime memory, and live logs stay visible in the right sidebar.
 - Local OpenAI-compatible routing: use separate brain, service, and translator runtimes, or collapse to one service model for a simpler setup.
@@ -60,6 +61,8 @@ Runtime memory snapshots can be stepped through visually, with new or changed fa
 - Streaming chat: answers appear as they are written, with thinking visually separated from the final reply.
 - Stop generation control: the input turns into a stop control while JIN is working, so a drifting answer can be interrupted immediately.
 - Built-in web-search action: the model can ask the runtime to search the web, then answer from returned evidence without rendering raw tool syntax.
+- Asset workflows: reusable skills, wildcard lists, prompt templates, prompt batches, and generated outputs live under `assets/`, with runtime actions for listing, previewing, sampling, expanding templates, generating prompt batches, and checking duplicates.
+- File attachments: drag, drop, paste, or pick images and text files; image chips support hover previews and modal previews, while text chips open their full content in the standard modal.
 - Multilingual input path: Cyrillic input can be translated internally when translation is enabled, while the visible conversation remains natural.
 - Keyboard-first writing flow: Enter sends, Ctrl/Shift+Enter inserts a newline.
 - Deploy-friendly configuration: use a local `config.py` while experimenting, then switch to environment variables when running elsewhere.
@@ -627,7 +630,7 @@ The UI is served directly by FastAPI:
 - `ui/static/js/status.js` updates provider online/offline indicators.
 - `ui/static/js/logger.js` renders the runtime console.
 - `ui/static/js/think-rule-worker.js` scans completed thinking blocks for trusted-context citations.
-- `ui/static/js/dragdrop.js` handles file and image attachment UI shell.
+- `ui/static/js/dragdrop.js` handles file and image attachment collection, previews, modals, and removal.
 - `ui/static/js/runtime/runtime-storage.js` wraps browser storage for runtime/session/active memory.
 - `ui/static/js/runtime/runtime-session.js` handles L3 session persistence and bootstrap memory.
 - `ui/static/js/runtime/runtime-memory-model.js` parses and normalizes runtime memory lines.
@@ -654,9 +657,3 @@ The following capabilities are planned but not yet implemented.
 **Night Brain — cross-session consolidation.** An offline background process that reads completed session snapshots, identifies durable patterns versus one-time events, proposes permanent memory updates, and prepares a morning brief. The first iteration operates on session snapshots only; it does not touch raw message logs. Night Brain also drives a watchlist: observations flagged by intent analysis are checked once during a low-traffic window. Allowed actions are `observe` and `analyze` only; nothing is posted or modified without explicit user approval.
 
 **Background LLM job queue.** A non-blocking `BackgroundLLMJob` model and in-memory worker that moves heavy service-model calls (L3 session saves, memory consolidation, future night-brain tasks) out of the interactive chat path. The worker runs as an `asyncio` task inside the existing `lifespan` hook, respects a concurrency semaphore, and logs through the existing `log_memory_event` channel. Disabled by default via `BACKGROUND_LLM_ENABLED = False`. A Stage 2 adds fair scheduling across job sources to prevent one session from starving other background work.
-
-**Image and file attachments (multimodal pipeline).** The attachment UI already collects files via drag-and-drop and the file picker, but they are not yet sent through the WebSocket or passed to the model. The planned work covers: base64 serialization of images in the socket payload, multimodal content format in `RuntimeClient` (`image_url` blocks alongside text), backend state propagation through `AgentState` and `RuntimeContext`, and conditional injection of the vision rule block into the brain prompt when images are present. Non-image files will be metadata-only on first iteration.
-
-**Shared Folder file snapshots.** A local shared-folder layer that lets the user drop files into a watched directory and make them available to JIN without injecting the files directly into chat context. The scanner creates compact `F1` file snapshots with path, type, human title, summary, keywords, important entities, parser status, and `open_when` hints. JIN first sees lightweight file cards and only requests the fuller snapshot or source file when the current conversation makes it relevant. This keeps file retrieval explainable and debuggable without requiring vector search for the MVP.
-
-**Pending facts and open loops.** A lightweight `pending_fact` key in L1 memory that tracks unresolved external outcomes — moderation status, waiting for a reply, a deployment in progress. Each entry carries a trusted timestamp. When the pending outcome is older than roughly one day and still open, the brain may tactfully surface it. On resolution the entry is renamed to `resolved_fact` and moved to archive memory.

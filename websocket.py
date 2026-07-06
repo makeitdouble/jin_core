@@ -2112,6 +2112,14 @@ def redacted_attachment_for_log(
             f"{len(str(redacted.get('data_url') or ''))} chars>"
         )
 
+    if redacted.get(
+        "text_content",
+    ):
+        redacted["text_content"] = (
+            f"<redacted text attachment content; "
+            f"{len(str(redacted.get('text_content') or ''))} chars>"
+        )
+
     return redacted
 
 
