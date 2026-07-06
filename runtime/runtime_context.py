@@ -61,7 +61,23 @@ class RuntimeContext:
 
     runtime_search_result_id: str = ""
 
+    runtime_asset_results: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_appended_skills: list[dict] = field(
+        default_factory=list
+    )
+
     runtime_action_events: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_session_action_history: list[str] = field(
+        default_factory=list
+    )
+
+    runtime_todo: list[dict] = field(
         default_factory=list
     )
 
@@ -160,6 +176,10 @@ class RuntimeContext:
     )
 
     runtime_turn_user_message: str = ""
+
+    runtime_turn_attachments: list[dict] = field(
+        default_factory=list
+    )
 
     runtime_turn_assistant_response: str = ""
 
@@ -281,6 +301,7 @@ class ContextContract:
     runtime_mode: str = ""
     service_model_uid: str = ""
     can_web_search: bool = True
+    can_use_assets: bool = False
     can_save_session: bool = False
     can_create_active_memory: bool = False
 

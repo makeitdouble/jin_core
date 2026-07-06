@@ -377,6 +377,7 @@ memoryView.init({
   buildDisplaySnapshot: buildRuntimeMemoryDisplaySnapshot,
   getActiveMemoryRecords: readActiveMemoryRecords,
   setActiveMemoryRecords: writeActiveMemoryRecords,
+  deleteRuntimeMemoryLine: deleteRuntimeMemoryLineAndRender,
   getDelayedMemoryReports: readDelayedMemoryReports,
   getDisplayMode: () => runtimeMemoryDisplayMode,
   setDisplayMode: (value) => {
@@ -408,6 +409,129 @@ function showLatestRuntimeMemorySnapshot() {
 
 function renderRuntimeDiffs() {
   memoryView.renderDiffs();
+}
+
+function buildRuntimeMemoryLineText(line) {
+  if (!line || typeof line !== "object") {
+    return "";
+  }
+
+  const key =
+      String(line.key || "").trim();
+
+  if (!key) {
+    return "";
+  }
+
+  return `${key}: ${String(line.value || "").trim()}`;
+}
+
+function rebuildRuntimeMemorySnapshotLines(
+  snapshot,
+  runtimeMemory
+) {
+  if (!snapshot || typeof snapshot !== "object") {
+    return;
+  }
+
+  snapshot.lines = splitMemoryTextLines(
+      runtimeMemory
+    )
+    .map(parseRuntimeMemoryLine)
+    .map(memoryModel.resetRuntimeMemoryLineFlashState);
+}
+
+function getNextLocalRuntimeMemoryUpdateCount(snapshot) {
+  return Math.max(
+    Number(
+      runtimeMemoryCount
+      && runtimeMemoryCount.textContent || 0
+    ),
+    Number(
+      snapshot
+      && snapshot.runtime_memory_updates || 0
+    ),
+    0
+  ) + 1;
+}
+
+function deleteRuntimeMemoryLineAndRender(
+  index,
+  line
+) {
+  const snapshot =
+      runtimeMemoryHistory.snapshots[
+        runtimeMemoryHistory.index
+      ];
+
+  if (
+      !snapshot
+      || runtimeMemoryHistory.index
+          !== runtimeMemoryHistory.snapshots.length - 1
+      || !line
+      || !line.key
+      || isUserIdleRuntimeMemoryLine(line)
+      || isActiveMemoryRuntimeMemoryLine(line)
+  ) {
+    return false;
+  }
+
+  const key =
+      String(line.key || "").trim();
+
+  const currentMemory =
+      String(snapshot.raw_memory || "").trim();
+
+  const nextMemory =
+      removeRuntimeMemoryLineByKey(
+          currentMemory,
+          key
+      );
+
+  if (nextMemory === currentMemory) {
+    return false;
+  }
+
+  const nextUpdates =
+      getNextLocalRuntimeMemoryUpdateCount(
+          snapshot
+      );
+
+  snapshot.raw_memory = nextMemory;
+  snapshot.runtime_memory_updates = nextUpdates;
+  snapshot.local_runtime_memory_delete = true;
+  snapshot.deleted_runtime_memory_line =
+      buildRuntimeMemoryLineText(line);
+
+  rebuildRuntimeMemorySnapshotLines(
+      snapshot,
+      nextMemory
+  );
+
+  if (runtimeMemoryCount) {
+    runtimeMemoryCount.textContent =
+        String(nextUpdates);
+  }
+
+  persistRuntimeMemorySnapshot({
+    memory: nextMemory,
+    updates: nextUpdates,
+    snapshot,
+  });
+
+  if (
+      window.sendRuntimeMemoryDeleteSlot
+      && typeof window.sendRuntimeMemoryDeleteSlot === "function"
+  ) {
+    window.sendRuntimeMemoryDeleteSlot({
+      key,
+      line: buildRuntimeMemoryLineText(line),
+      index: Number(index),
+    });
+  }
+
+  renderRuntimeMemorySnapshot();
+  return true;
 }
 
 function appendActiveMemoryRecordsAndRender(

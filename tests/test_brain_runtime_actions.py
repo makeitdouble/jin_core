@@ -1,6 +1,10 @@
 import asyncio
+import contextlib
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from clients.brain_context_builder import (
     build_brain_runtime_context,
@@ -49,6 +53,25 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
     if bool(runtime_actions.get("CAN_SAVE_SESSION", False)):
         expected_actions.append("SAVE_SESSION")
 
+    if bool(runtime_actions.get("CAN_USE_ASSETS", False)):
+        expected_actions.extend(
+            (
+                "LIST_SKILLS",
+                "APPEND_SKILL",
+                "REMOVE_SKILL",
+                "ASSET_ACTION",
+            )
+        )
+
+    if bool(runtime_actions.get("CAN_RUNTIME_TODO", False)):
+        expected_actions.extend(
+            (
+                "CREATE_TODO_LIST",
+                "RESOLVE_TODO",
+                "CHECK_TODO",
+            )
+        )
+
     if bool(runtime_actions.get("CAN_SAVE_DELAYED_MEMORY", False)):
         expected_actions.append("SAVE_DELAYED_MEMORY_CONTENT")
 
@@ -64,6 +87,18 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
 
 
 class BrainRuntimeActionTests(unittest.TestCase):
+
+    def patch_asset_roots(self, root: Path):
+        assets_root = root / "assets"
+        return (
+            patch("utils.assets_service.PROJECT_ROOT", root),
+            patch("utils.assets_service.ASSETS_ROOT", assets_root),
+            patch("utils.assets_service.SKILLS_ROOT", assets_root / "skills"),
+            patch("utils.assets_service.WILDCARDS_ROOT", assets_root / "wildcards"),
+            patch("utils.assets_service.PROMPTS_ROOT", assets_root / "prompts"),
+            patch("utils.assets_service.TEMPLATES_ROOT", assets_root / "templates"),
+            patch("utils.assets_service.OUTPUTS_ROOT", assets_root / "outputs"),
+        )
 
     def test_brain_system_prompt_keeps_runtime_rule_sentences_separated(self):
 
@@ -551,6 +586,103 @@ class BrainRuntimeActionTests(unittest.TestCase):
             chunks,
         )
 
+    def test_stream_asset_action_is_runtime_boundary(self):
+
+        class FakeBrainClient:
+            async def stream(self, **_kwargs):
+                yield {
+                    "type": "content",
+                    "content": (
+                        "\n<INTERNAL_ACTION_ASSET_ACTION>\n"
+                        "{\n"
+                        '  "action": "create_wildcard_file",\n'
+                        '  "args": {\n'
+                        '    "path": "clothing/shoes",\n'
+                        '    "content": "sneakers\\nboots\\nheels"\n'
+                        "  }\n"
+                        "}\n"
+                        "</INTERNAL_ACTION_ASSET_ACTION>\n"
+                        "This should not be visible."
+                    ),
+                }
+
+        class Context:
+            pass
+
+        async def collect(context):
+            chunks = []
+
+            async for chunk in ask_brain_stream(
+                client=FakeBrainClient(),
+                text="create shoes wildcard",
+                context=context,
+                system_prompt="system prompt",
+                brain_payload="brain payload",
+                runtime_actions={
+                    "CAN_USE_ASSETS": True,
+                },
+            ):
+                chunks.append(
+                    chunk
+                )
+
+            return chunks
+
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                with contextlib.ExitStack() as stack:
+                    for patcher in self.patch_asset_roots(root):
+                        stack.enter_context(patcher)
+
+                    context = Context()
+
+                    chunks = asyncio.run(
+                        collect(
+                            context
+                        )
+                    )
+
+                    visible_text = "".join(
+                        chunk.get(
+                            "content",
+                            "",
+                        )
+                        for chunk in chunks
+                        if chunk.get("type") == "content"
+                    )
+
+                    self.assertEqual(
+                        visible_text,
+                        "",
+                    )
+                    self.assertNotIn(
+                        "INTERNAL_ACTION_ASSET_ACTION",
+                        visible_text,
+                    )
+                    self.assertEqual(
+                        context.runtime_action_events[0]["name"],
+                        "asset_action",
+                    )
+                    self.assertEqual(
+                        context.runtime_asset_results[0]["action"],
+                        "create_wildcard_file",
+                    )
+                    self.assertTrue(
+                        (
+                            root
+                            / "assets"
+                            / "wildcards"
+                            / "clothing"
+                            / "shoes.txt"
+                        ).exists()
+                    )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
     def test_agent_runtime_action_flags_follow_assembler_constants(self):
 
         self.assertEqual(
@@ -622,6 +754,130 @@ class BrainRuntimeActionTests(unittest.TestCase):
             self,
             runtime_context,
             "<CURRENT_TRUSTED_RUNTIME_VARIABLES>",
+        )
+
+    def test_prompt_routes_uncertain_operational_tasks_to_skills(self):
+
+        prompt = build_brain_system_prompt(
+            runtime_actions={
+                "CAN_USE_ASSETS": True,
+            }
+        )
+
+        assert_contains_text(
+            self,
+            prompt,
+            "SKILL ROUTING:",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "at the first sign of uncertainty",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "<INTERNAL_ACTION_LIST_SKILLS>",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "<INTERNAL_ACTION_APPEND_SKILL: name of skill >",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "<INTERNAL_ACTION_REMOVE_SKILL: name of skill >",
+        )
+        assert_not_contains_text(
+            self,
+            prompt,
+            "list_wildcards",
+        )
+        assert_not_contains_text(
+            self,
+            prompt,
+            "create_wildcard_file",
+        )
+        assert_not_contains_text(
+            self,
+            prompt,
+            "assets/wildcards",
+        )
+
+    def test_prompt_places_tool_results_before_identity(self):
+
+        context = SimpleNamespace(
+            runtime_memory="session_status: active",
+            runtime_memory_stable="session_status: active",
+            runtime_l2_memory="",
+            active_memory_records=[],
+            runtime_asset_results=[
+                {
+                    "ok": True,
+                    "action": "list_skills",
+                    "skills": [
+                        {
+                            "name": "wildcards",
+                            "content": "first line\nsecond line",
+                        },
+                    ],
+                },
+            ],
+            runtime_appended_skills=[
+                {
+                    "name": "wildcards",
+                    "path": "assets/skills/wildcards.txt",
+                    "line_count": 2,
+                    "content": "first line\nsecond line",
+                },
+            ],
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_USE_ASSETS": True,
+            },
+        )
+        runtime_context = build_brain_runtime_context(
+            context=context,
+            runtime_actions={
+                "CAN_USE_ASSETS": True,
+            },
+        )
+
+        self.assertLess(
+            prompt.index("Runtime Actions are internal mechanics"),
+            prompt.index("<TOOL_RESULTS"),
+        )
+        self.assertLess(
+            prompt.index("<TOOL_RESULTS"),
+            prompt.index("<APPENDED_SKILLS>"),
+        )
+        self.assertLess(
+            prompt.index("<APPENDED_SKILLS>"),
+            prompt.index("<Identity>"),
+        )
+        self.assertNotIn(
+            "first line\\nsecond line",
+            prompt,
+        )
+        self.assertIn(
+            "first line\n",
+            prompt,
+        )
+        self.assertIn(
+            "second line",
+            prompt,
+        )
+        self.assertIn(
+            "<APPENDED_SKILLS>",
+            prompt,
+        )
+        self.assertNotIn(
+            "<TOOL_RESULTS",
+            runtime_context,
         )
 
     def test_prompt_adds_resolve_active_memory_rules_from_active_records_only(self):

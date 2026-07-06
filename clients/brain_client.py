@@ -4,6 +4,8 @@ from config_loader import (
     config,
 )
 from rules.runtime import (
+    RUNTIME_ACTION_ASSET_ACTION,
+    RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
@@ -35,8 +37,12 @@ from clients.response_extractor import (
 )
 
 from utils.runtime_actions import (
+    RuntimeActionResult,
     RuntimeActionStreamFilter,
     extract_runtime_actions,
+)
+from utils.runtime_todo import (
+    has_active_runtime_todo,
 )
 
 
@@ -133,6 +139,97 @@ def build_brain_payload(
     return text
 
 
+def build_brain_user_prompt_content(
+    text: str,
+    context=None,
+):
+
+    content = [
+        {
+            "type": "text",
+            "text": text,
+        },
+    ]
+
+    for attachment in (
+        getattr(
+            context,
+            "runtime_turn_attachments",
+            [],
+        )
+        or []
+    ):
+
+        if not isinstance(
+            attachment,
+            dict,
+        ):
+            continue
+
+        if (
+            attachment.get(
+                "kind",
+            )
+            != "image"
+        ):
+            continue
+
+        data_url = str(
+            attachment.get(
+                "data_url",
+                "",
+            )
+            or ""
+        )
+
+        if not data_url.startswith(
+            "data:image/",
+        ):
+            continue
+
+        content.append({
+            "type": "image_url",
+            "image_url": {
+                "url": data_url,
+            },
+        })
+
+    if len(content) == 1:
+        return text
+
+    return content
+
+
+def build_brain_context_snapshot(
+    *,
+    context=None,
+    system_prompt: str,
+    user_prompt: str,
+    runtime_actions=None,
+) -> dict:
+
+    snapshot = {
+        "context_role": "brain",
+        "system_prompt": system_prompt,
+        "user_prompt": user_prompt,
+    }
+
+    if not has_active_runtime_todo(
+        context
+    ):
+        return snapshot
+
+    snapshot["hide_internal_action_rules"] = True
+    snapshot["visible_system_prompt"] = build_brain_system_prompt(
+        context,
+        runtime_actions,
+        user_input=user_prompt,
+        include_runtime_action_instructions=False,
+    )
+
+    return snapshot
+
+
 # ---------------------------------------------------------
 # NORMAL REQUEST
 # ---------------------------------------------------------
@@ -165,6 +262,18 @@ async def ask_brain(
         context
     )
 
+    model_user_prompt = build_brain_user_prompt_content(
+        brain_payload,
+        context=context,
+    )
+
+    action_context_snapshot = build_brain_context_snapshot(
+        context=context,
+        system_prompt=system_prompt,
+        user_prompt=brain_payload,
+        runtime_actions=runtime_actions,
+    )
+
     # -----------------------------------------------------
     # SERVICE AS BRAIN
     # -----------------------------------------------------
@@ -175,7 +284,7 @@ async def ask_brain(
 
             result = await ask_service_model(
                 client=client,
-                user_prompt=brain_payload,
+                user_prompt=model_user_prompt,
                 system_prompt=system_prompt,
                 temperature=(
                     config.BRAIN_TEMPERATURE
@@ -220,6 +329,7 @@ async def ask_brain(
                 context,
                 content_actions.actions,
                 user_message=text,
+                context_snapshot=action_context_snapshot,
             )
 
             return content_actions.text
@@ -247,7 +357,7 @@ async def ask_brain(
 
         result = await client.ask(
             system_prompt=system_prompt,
-            user_prompt=brain_payload,
+            user_prompt=model_user_prompt,
             temperature=(
                 config
                 .BRAIN_TEMPERATURE
@@ -312,6 +422,7 @@ async def ask_brain(
             context,
             content_actions.actions,
             user_message=text,
+            context_snapshot=action_context_snapshot,
         )
 
         if content_actions.text:
@@ -358,6 +469,7 @@ async def ask_brain_stream(
     system_prompt: str | None = None,
     brain_payload: str | None = None,
     runtime_actions=None,
+    filter_runtime_actions: bool = True,
 ):
 
     resolved_brain_payload: str = (
@@ -388,12 +500,23 @@ async def ask_brain_stream(
         text,
     )
 
+    model_user_prompt = build_brain_user_prompt_content(
+        resolved_brain_payload,
+        context=context,
+    )
+
     content_filter = RuntimeActionStreamFilter(
         enabled_actions=enabled_actions,
         #preserve_action_text=True
     )
     stop_for_runtime_action = False
     delayed_memory_bubble_started = False
+    action_context_snapshot = build_brain_context_snapshot(
+        context=context,
+        system_prompt=resolved_system_prompt,
+        user_prompt=resolved_brain_payload,
+        runtime_actions=runtime_actions,
+    )
 
     async def emit_delayed_memory_bubble_started():
 
@@ -454,6 +577,9 @@ async def ask_brain_stream(
         if chunk_type == "thinking":
             return action_chunk
 
+        if not filter_runtime_actions:
+            return action_chunk
+
         result = content_filter.filter(
             action_chunk.get(
                 "content",
@@ -509,10 +635,15 @@ async def ask_brain_stream(
             context,
             runtime_action_calls,
             user_message=text,
+            context_snapshot=action_context_snapshot,
         )
 
         if any(
-            action.name == RUNTIME_ACTION_WEB_SEARCH
+            action.name in (
+                RUNTIME_ACTION_ASSET_ACTION,
+                RUNTIME_ACTION_WEB_SEARCH,
+                RUNTIME_ACTION_LIST_SKILLS,
+            )
             for action in runtime_action_calls
         ):
             stop_for_runtime_action = True
@@ -532,7 +663,7 @@ async def ask_brain_stream(
                     context=context,
                     client=client,
                     user_prompt=(
-                        resolved_brain_payload
+                        model_user_prompt
                     ),
                     system_prompt=(
                         resolved_system_prompt
@@ -560,7 +691,11 @@ async def ask_brain_stream(
                 if stop_for_runtime_action:
                     break
 
-            tail_result = content_filter.flush_result()
+            tail_result = (
+                content_filter.flush_result()
+                if filter_runtime_actions
+                else RuntimeActionResult(text="")
+            )
 
             await log_runtime_action_marker_removals(
                 context,
@@ -614,7 +749,7 @@ async def ask_brain_stream(
                 system_prompt=(
                     resolved_system_prompt
                 ),
-                user_prompt=resolved_brain_payload,
+                user_prompt=model_user_prompt,
                 temperature=(
                     config
                     .BRAIN_TEMPERATURE
@@ -638,7 +773,11 @@ async def ask_brain_stream(
             if stop_for_runtime_action:
                 break
 
-        tail_result = content_filter.flush_result()
+        tail_result = (
+            content_filter.flush_result()
+            if filter_runtime_actions
+            else RuntimeActionResult(text="")
+        )
 
         await log_runtime_action_marker_removals(
             context,

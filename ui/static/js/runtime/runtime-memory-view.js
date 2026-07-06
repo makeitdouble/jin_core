@@ -9,11 +9,13 @@
   let buildDisplaySnapshot = null;
   let getActiveMemoryRecords = null;
   let setActiveMemoryRecords = null;
+  let deleteRuntimeMemoryLine = null;
   let getDelayedMemoryReports = null;
   let getDisplayMode = null;
   let setDisplayMode = null;
 
   const ACTIVE_MEMORY_PAUSE_HOLD_MS = 500;
+  const MEMORY_DELETE_HOLD_MS = 1500;
 
   const pinnedRuntimeMemorySnapshotIndexes = new Set();
 
@@ -811,6 +813,7 @@
         persistGlow,
         {
           applyFlash: options.applyFlash !== false,
+          interactiveRuntimeMemory: showLiveUserIdle,
         }
     );
 
@@ -885,6 +888,12 @@
             index,
             line
         );
+      } else if (options.interactiveRuntimeMemory) {
+        configureRuntimeMemoryRow(
+            row,
+            index,
+            line
+        );
       }
 
       runtimeMemoryText.appendChild(row);
@@ -935,7 +944,7 @@
         index < 0
         || index >= records.length
     ) {
-      return;
+      return false;
     }
 
     const nextRecords =
@@ -953,9 +962,30 @@
         nextRecords
     );
     renderRuntimeMemorySnapshot();
+    return true;
   }
 
-  function setActiveMemoryRowPressVisual(row, active) {
+  function deleteActiveMemoryRecord(index) {
+    const records =
+        getActiveMemoryRecordTexts();
+
+    if (
+        index < 0
+        || index >= records.length
+    ) {
+      return false;
+    }
+
+    setActiveMemoryRecordTexts(
+        records.filter((_, recordIndex) => (
+          recordIndex !== index
+        ))
+    );
+    renderRuntimeMemorySnapshot();
+    return true;
+  }
+
+  function setMemoryRowPressVisual(row, active, durationMs, opacity) {
     if (!row) {
       return;
     }
@@ -968,12 +998,30 @@
           : "ease";
     row.style.transitionDuration =
         active
-          ? `${ACTIVE_MEMORY_PAUSE_HOLD_MS}ms`
+          ? `${durationMs}ms`
           : "160ms";
     row.style.opacity =
         active
-          ? "0.5"
+          ? String(opacity)
           : "";
+  }
+
+  function setActiveMemoryRowPressVisual(row, active) {
+    setMemoryRowPressVisual(
+        row,
+        active,
+        MEMORY_DELETE_HOLD_MS,
+        0
+    );
+  }
+
+  function setRuntimeMemoryRowPressVisual(row, active) {
+    setMemoryRowPressVisual(
+        row,
+        active,
+        MEMORY_DELETE_HOLD_MS,
+        0
+    );
   }
 
   function configureActiveMemoryRow(
@@ -997,34 +1045,44 @@
     row.dataset.activeMemoryStatus =
         status || "pending";
 
-    let holdTimer = null;
-    let holdCompleted = false;
+    let pauseTimer = null;
+    let deleteTimer = null;
+    let pauseReached = false;
+    let deleteCompleted = false;
     let pointerDown = false;
     let pointerId = null;
+    let startedPaused = false;
 
-    function clearHoldTimer() {
-      if (!holdTimer) {
-        return;
+    function clearHoldTimers() {
+      if (pauseTimer) {
+        clearTimeout(
+            pauseTimer
+        );
+        pauseTimer = null;
       }
 
-      clearTimeout(
-          holdTimer
-      );
-      holdTimer = null;
+      if (deleteTimer) {
+        clearTimeout(
+            deleteTimer
+        );
+        deleteTimer = null;
+      }
     }
 
     function cancelPendingHold() {
-      clearHoldTimer();
+      clearHoldTimers();
       pointerDown = false;
 
-      if (!holdCompleted) {
+      if (!deleteCompleted) {
         setActiveMemoryRowPressVisual(
             row,
             false
         );
       }
 
-      holdCompleted = false;
+      pauseReached = false;
+      deleteCompleted = false;
+      startedPaused = false;
       pointerId = null;
     }
 
@@ -1034,33 +1092,38 @@
       }
 
       pointerDown = true;
-      holdCompleted = false;
+      pauseReached = false;
+      deleteCompleted = false;
       pointerId = event.pointerId;
-
-      if (
-          row.dataset.activeMemoryStatus
-          === "paused"
-      ) {
-        return;
-      }
+      startedPaused = (
+        row.dataset.activeMemoryStatus === "paused"
+      );
 
       setActiveMemoryRowPressVisual(
           row,
           true
       );
 
-      clearHoldTimer();
-      holdTimer = setTimeout(() => {
+      clearHoldTimers();
+      pauseTimer = setTimeout(() => {
         if (!pointerDown) {
           return;
         }
 
-        holdCompleted = true;
-        updateActiveMemoryRecordStatus(
-            index,
-            "paused"
-        );
+        pauseReached = true;
       }, ACTIVE_MEMORY_PAUSE_HOLD_MS);
+
+      deleteTimer = setTimeout(() => {
+        if (!pointerDown) {
+          return;
+        }
+
+        deleteCompleted = true;
+        pointerDown = false;
+        deleteActiveMemoryRecord(
+            index
+        );
+      }, MEMORY_DELETE_HOLD_MS);
     });
 
     row.addEventListener("pointerup", (event) => {
@@ -1075,10 +1138,12 @@
         return;
       }
 
-      if (
-          row.dataset.activeMemoryStatus
-          === "paused"
-      ) {
+      if (deleteCompleted) {
+        cancelPendingHold();
+        return;
+      }
+
+      if (startedPaused) {
         updateActiveMemoryRecordStatus(
             index,
             "pending"
@@ -1087,13 +1152,16 @@
         return;
       }
 
-      if (!holdCompleted) {
+      if (pauseReached) {
+        updateActiveMemoryRecordStatus(
+            index,
+            "paused"
+        );
         cancelPendingHold();
         return;
       }
 
-      pointerDown = false;
-      pointerId = null;
+      cancelPendingHold();
     });
 
     row.addEventListener(
@@ -1103,6 +1171,112 @@
     row.addEventListener(
         "pointerleave",
         cancelPendingHold
+    );
+  }
+
+  function configureRuntimeMemoryRow(
+      row,
+      index,
+      line
+  ) {
+    if (
+        !row
+        || !line
+        || memoryModel.isUserIdleRuntimeMemoryLine(line)
+        || memoryModel.isActiveMemoryRuntimeMemoryLine(line)
+    ) {
+      return;
+    }
+
+    row.classList.add(
+        "runtime-memory-removable-row"
+    );
+
+    let deleteTimer = null;
+    let deleteCompleted = false;
+    let pointerDown = false;
+    let pointerId = null;
+
+    function clearDeleteTimer() {
+      if (!deleteTimer) {
+        return;
+      }
+
+      clearTimeout(
+          deleteTimer
+      );
+      deleteTimer = null;
+    }
+
+    function cancelPendingDelete() {
+      clearDeleteTimer();
+      pointerDown = false;
+
+      if (!deleteCompleted) {
+        setRuntimeMemoryRowPressVisual(
+            row,
+            false
+        );
+      }
+
+      deleteCompleted = false;
+      pointerId = null;
+    }
+
+    row.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) {
+        return;
+      }
+
+      pointerDown = true;
+      deleteCompleted = false;
+      pointerId = event.pointerId;
+
+      setRuntimeMemoryRowPressVisual(
+          row,
+          true
+      );
+
+      clearDeleteTimer();
+      deleteTimer = setTimeout(() => {
+        if (!pointerDown) {
+          return;
+        }
+
+        deleteCompleted = true;
+        pointerDown = false;
+
+        if (typeof deleteRuntimeMemoryLine === "function") {
+          deleteRuntimeMemoryLine(
+              index,
+              line
+          );
+        }
+      }, MEMORY_DELETE_HOLD_MS);
+    });
+
+    row.addEventListener("pointerup", (event) => {
+      if (!pointerDown) {
+        return;
+      }
+
+      if (
+          pointerId !== null
+          && event.pointerId !== pointerId
+      ) {
+        return;
+      }
+
+      cancelPendingDelete();
+    });
+
+    row.addEventListener(
+        "pointercancel",
+        cancelPendingDelete
+    );
+    row.addEventListener(
+        "pointerleave",
+        cancelPendingDelete
     );
   }
 
@@ -1902,6 +2076,7 @@
     buildDisplaySnapshot = options.buildDisplaySnapshot || null;
     getActiveMemoryRecords = options.getActiveMemoryRecords || null;
     setActiveMemoryRecords = options.setActiveMemoryRecords || null;
+    deleteRuntimeMemoryLine = options.deleteRuntimeMemoryLine || null;
     getDelayedMemoryReports = options.getDelayedMemoryReports || null;
     getDisplayMode = options.getDisplayMode || null;
     setDisplayMode = options.setDisplayMode || null;

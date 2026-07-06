@@ -638,11 +638,11 @@ class SearchFlowTests(
         )
         self.assertIn(
             "WEB_SEARCH tool result",
-            brain_client.prompts[1]["user_prompt"],
+            brain_client.prompts[1]["system_prompt"],
         )
         self.assertIn(
-            "User request:\nsearch tesla car price",
-            brain_client.prompts[1]["user_prompt"],
+            "<LATEST_USER_REQUEST>\nsearch tesla car price",
+            brain_client.prompts[1]["system_prompt"],
         )
         self.assertNotIn(
             "\u043f\u043e\u0438\u0449\u0438",

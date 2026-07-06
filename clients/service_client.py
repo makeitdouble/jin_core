@@ -4,7 +4,7 @@ import asyncio
 async def ask_service_model(
     *,
     client,
-    user_prompt: str,
+    user_prompt,
     system_prompt: str = "",
     temperature: float,
     max_tokens: int,
@@ -30,7 +30,7 @@ async def ask_service_model_stream(
     *,
     context,
     client,
-    user_prompt: str,
+    user_prompt,
     system_prompt: str = "",
     temperature: float,
     max_tokens: int,

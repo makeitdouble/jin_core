@@ -18,8 +18,8 @@ let thinkRuleCitationWorker = null;
 let thinkRuleCitationRegistryPromise = null;
 let nextThinkRuntimeCitationIndex = 0;
 const deferredRuntimeActionsAfterResponse = [];
-const visibleRuntimeActionKeys = new Set();
 const activeThinkRuleCitationJobs = new Map();
+let runtimeActionRowCounter = 0;
 
 const jinInputLoopState = {
   previousInput: "",
@@ -146,8 +146,10 @@ function updateJinInputLoopCounter(text) {
 /**
  * @typedef {Object} ContextSnapshot
  * @property {string=} system_prompt
+ * @property {string=} visible_system_prompt
  * @property {string=} user_prompt
  * @property {string=} context_role
+ * @property {boolean=} hide_internal_action_rules
  */
 
 
@@ -160,6 +162,553 @@ function escapeHtml(text) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 
+}
+
+const ATTACHMENT_IMAGE_PREVIEW_MAX_PX = 200;
+
+let attachmentHoverPreview = null;
+let attachmentHoverPreviewImage = null;
+let attachmentModal = null;
+let attachmentModalTitle = null;
+let attachmentModalContent = null;
+
+function normalizeAttachmentValue(value) {
+  return String(
+    value === null || value === undefined
+      ? ""
+      : value
+  );
+}
+
+function getAttachmentKind(attachment) {
+  return normalizeAttachmentValue(
+    attachment && attachment.kind
+      ? attachment.kind
+      : "file"
+  ).toLowerCase();
+}
+
+function getAttachmentName(attachment) {
+  return normalizeAttachmentValue(
+    attachment && attachment.name
+      ? attachment.name
+      : "attachment"
+  );
+}
+
+function getAttachmentImageSource(attachment) {
+  return normalizeAttachmentValue(
+    attachment && (
+      attachment.data_url
+      || attachment.object_url
+      || attachment.url
+    )
+  );
+}
+
+function getAttachmentTextContent(attachment) {
+  if (!attachment) {
+    return "";
+  }
+
+  if (attachment.text_content !== undefined) {
+    return normalizeAttachmentValue(
+      attachment.text_content
+    );
+  }
+
+  if (attachment.text !== undefined) {
+    return normalizeAttachmentValue(
+      attachment.text
+    );
+  }
+
+  if (attachment.text_preview !== undefined) {
+    return normalizeAttachmentValue(
+      attachment.text_preview
+    );
+  }
+
+  return "";
+}
+
+function getAttachmentDetailParts(attachment) {
+  if (!attachment) {
+    return [
+      "file",
+    ];
+  }
+
+  return [
+    attachment.kind
+      ? normalizeAttachmentValue(attachment.kind)
+      : "file",
+    attachment.type
+      ? normalizeAttachmentValue(attachment.type)
+      : "",
+    attachment.size_label
+      ? normalizeAttachmentValue(attachment.size_label)
+      : "",
+    attachment.width && attachment.height
+      ? `${attachment.width}x${attachment.height}`
+      : "",
+  ].filter(Boolean);
+}
+
+function formatAttachmentChipLabel(attachment) {
+  const name =
+    getAttachmentName(
+      attachment
+    );
+
+  const details =
+    getAttachmentDetailParts(
+      attachment
+    ).filter((part) => {
+      return (
+        !attachment
+        || !attachment.type
+        || part !== normalizeAttachmentValue(
+          attachment.type
+        )
+      );
+    });
+
+  return details.length
+    ? `${name} - ${details.join(", ")}`
+    : name;
+}
+
+function ensureAttachmentHoverPreview() {
+  if (attachmentHoverPreview) {
+    return attachmentHoverPreview;
+  }
+
+  attachmentHoverPreview =
+    document.createElement("div");
+  attachmentHoverPreview.className =
+    "jin-attachment-hover-preview hidden";
+
+  attachmentHoverPreviewImage =
+    document.createElement("img");
+  attachmentHoverPreviewImage.alt = "";
+  attachmentHoverPreviewImage.draggable = false;
+
+  attachmentHoverPreview.appendChild(
+    attachmentHoverPreviewImage
+  );
+
+  document.body.appendChild(
+    attachmentHoverPreview
+  );
+
+  return attachmentHoverPreview;
+}
+
+function positionAttachmentHoverPreview(event) {
+  const preview =
+    ensureAttachmentHoverPreview();
+
+  if (!event) {
+    return;
+  }
+
+  const offset = 14;
+  const rect =
+    preview.getBoundingClientRect();
+  const width =
+    rect.width || ATTACHMENT_IMAGE_PREVIEW_MAX_PX;
+  const height =
+    rect.height || ATTACHMENT_IMAGE_PREVIEW_MAX_PX;
+  const viewportWidth =
+    window.innerWidth || document.documentElement.clientWidth || width;
+  const viewportHeight =
+    window.innerHeight || document.documentElement.clientHeight || height;
+
+  let left = event.clientX + offset;
+  let top = event.clientY + offset;
+
+  if (left + width + offset > viewportWidth) {
+    left = event.clientX - width - offset;
+  }
+
+  if (top + height + offset > viewportHeight) {
+    top = event.clientY - height - offset;
+  }
+
+  preview.style.left =
+    `${Math.max(offset, left)}px`;
+  preview.style.top =
+    `${Math.max(offset, top)}px`;
+}
+
+function showAttachmentHoverPreview(attachment, event) {
+  if (
+      getAttachmentKind(attachment) !== "image"
+  ) {
+    return;
+  }
+
+  const source =
+    getAttachmentImageSource(
+      attachment
+    );
+
+  if (!source) {
+    return;
+  }
+
+  const preview =
+    ensureAttachmentHoverPreview();
+
+  attachmentHoverPreviewImage.src =
+    source;
+
+  positionAttachmentHoverPreview(
+    event
+  );
+
+  preview.classList.remove(
+    "hidden"
+  );
+}
+
+function hideAttachmentHoverPreview() {
+  if (!attachmentHoverPreview) {
+    return;
+  }
+
+  attachmentHoverPreview.classList.add(
+    "hidden"
+  );
+
+  if (attachmentHoverPreviewImage) {
+    attachmentHoverPreviewImage.removeAttribute(
+      "src"
+    );
+  }
+}
+
+function closeJinAttachmentModal() {
+  if (!attachmentModal) {
+    return;
+  }
+
+  attachmentModal.classList.add(
+    "hidden"
+  );
+  attachmentModal.classList.remove(
+    "flex"
+  );
+}
+
+function ensureJinAttachmentModal() {
+  if (attachmentModal) {
+    return attachmentModal;
+  }
+
+  attachmentModal =
+    document.createElement("div");
+  attachmentModal.id =
+    "jin-attachment-modal";
+  attachmentModal.className =
+    "fixed inset-0 z-50 hidden items-center justify-center bg-black/70 px-4 py-6 backdrop-blur-sm";
+
+  const panel =
+    document.createElement("div");
+  panel.className =
+    "delayed-memory-modal-panel w-full max-w-4xl max-h-[86vh] rounded border border-zinc-700 bg-zinc-950 shadow-2xl flex flex-col";
+
+  const header =
+    document.createElement("div");
+  header.className =
+    "flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3";
+
+  attachmentModalTitle =
+    document.createElement("div");
+  attachmentModalTitle.className =
+    "min-w-0 truncate text-[12px] font-semibold uppercase tracking-[0.16em] text-zinc-100";
+
+  const closeButton =
+    document.createElement("button");
+  closeButton.type =
+    "button";
+  closeButton.className =
+    "shrink-0 rounded border border-zinc-700 px-2 py-1 text-[11px] text-zinc-300 transition hover:border-red-300/50 hover:text-red-200";
+  closeButton.textContent =
+    "x";
+
+  closeButton.addEventListener(
+    "click",
+    closeJinAttachmentModal
+  );
+
+  attachmentModalContent =
+    document.createElement("div");
+  attachmentModalContent.className =
+    "delayed-memory-modal-content min-h-0 flex-1 overflow-auto p-4 text-[12px] leading-relaxed text-zinc-200";
+
+  header.appendChild(
+    attachmentModalTitle
+  );
+  header.appendChild(
+    closeButton
+  );
+  panel.appendChild(
+    header
+  );
+  panel.appendChild(
+    attachmentModalContent
+  );
+  attachmentModal.appendChild(
+    panel
+  );
+  document.body.appendChild(
+    attachmentModal
+  );
+
+  attachmentModal.addEventListener(
+    "click",
+    (event) => {
+      if (event.target === attachmentModal) {
+        closeJinAttachmentModal();
+      }
+    }
+  );
+
+  document.addEventListener(
+    "keydown",
+    (event) => {
+      if (
+          event.key === "Escape"
+          && attachmentModal
+          && !attachmentModal.classList.contains("hidden")
+      ) {
+        closeJinAttachmentModal();
+      }
+    }
+  );
+
+  return attachmentModal;
+}
+
+function createAttachmentInfoElement(attachment) {
+  const info =
+    document.createElement("div");
+
+  info.className =
+    "jin-attachment-modal-info";
+  info.textContent =
+    getAttachmentDetailParts(
+      attachment
+    ).join(" - ");
+
+  return info;
+}
+
+function renderAttachmentImageModal(attachment) {
+  const source =
+    getAttachmentImageSource(
+      attachment
+    );
+
+  if (!source) {
+    return false;
+  }
+
+  const wrapper =
+    document.createElement("div");
+  wrapper.className =
+    "jin-attachment-modal-image-wrap";
+
+  const image =
+    document.createElement("img");
+  image.className =
+    "jin-attachment-modal-image";
+  image.alt =
+    getAttachmentName(
+      attachment
+    );
+  image.src =
+    source;
+  image.draggable =
+    false;
+
+  wrapper.appendChild(
+    image
+  );
+  wrapper.appendChild(
+    createAttachmentInfoElement(
+      attachment
+    )
+  );
+
+  attachmentModalContent.appendChild(
+    wrapper
+  );
+
+  return true;
+}
+
+function renderAttachmentTextModal(attachment) {
+  const info =
+    createAttachmentInfoElement(
+      attachment
+    );
+  const text =
+    document.createElement("pre");
+
+  text.className =
+    "jin-attachment-modal-text";
+  text.textContent =
+    getAttachmentTextContent(
+      attachment
+    );
+
+  attachmentModalContent.appendChild(
+    info
+  );
+  attachmentModalContent.appendChild(
+    text
+  );
+}
+
+function renderAttachmentFallbackModal(attachment) {
+  const info =
+    createAttachmentInfoElement(
+      attachment
+    );
+
+  attachmentModalContent.appendChild(
+    info
+  );
+}
+
+async function resolveAttachmentForModal(attachment) {
+  if (
+      attachment
+      && typeof attachment.resolve_modal_attachment === "function"
+  ) {
+    return attachment.resolve_modal_attachment();
+  }
+
+  return attachment;
+}
+
+async function openJinAttachmentModal(attachment) {
+  const resolvedAttachment =
+    await resolveAttachmentForModal(
+      attachment
+    );
+
+  ensureJinAttachmentModal();
+
+  attachmentModalTitle.textContent =
+    getAttachmentName(
+      resolvedAttachment
+    );
+  attachmentModalContent.replaceChildren();
+
+  const kind =
+    getAttachmentKind(
+      resolvedAttachment
+    );
+
+  if (kind === "image") {
+    if (!renderAttachmentImageModal(resolvedAttachment)) {
+      renderAttachmentFallbackModal(resolvedAttachment);
+    }
+  } else if (kind === "text") {
+    renderAttachmentTextModal(
+      resolvedAttachment
+    );
+  } else {
+    renderAttachmentFallbackModal(
+      resolvedAttachment
+    );
+  }
+
+  attachmentModal.classList.remove(
+    "hidden"
+  );
+  attachmentModal.classList.add(
+    "flex"
+  );
+}
+
+function bindJinAttachmentBubble(element, attachment) {
+  if (!element || !attachment) {
+    return;
+  }
+
+  element.classList.add(
+    "jin-attachment-bubble"
+  );
+
+  if (!element.hasAttribute("tabindex")) {
+    element.tabIndex = 0;
+  }
+
+  if (!element.hasAttribute("role")) {
+    element.setAttribute(
+      "role",
+      "button"
+    );
+  }
+
+  element.addEventListener(
+    "mouseenter",
+    (event) => {
+      showAttachmentHoverPreview(
+        attachment,
+        event
+      );
+    }
+  );
+
+  element.addEventListener(
+    "mousemove",
+    (event) => {
+      if (
+          attachmentHoverPreview
+          && !attachmentHoverPreview.classList.contains("hidden")
+      ) {
+        positionAttachmentHoverPreview(
+          event
+        );
+      }
+    }
+  );
+
+  element.addEventListener(
+    "mouseleave",
+    hideAttachmentHoverPreview
+  );
+
+  element.addEventListener(
+    "click",
+    (event) => {
+      event.preventDefault();
+      openJinAttachmentModal(
+        attachment
+      );
+    }
+  );
+
+  element.addEventListener(
+    "keydown",
+    (event) => {
+      if (
+          event.key === "Enter"
+          || event.key === " "
+      ) {
+        event.preventDefault();
+        openJinAttachmentModal(
+          attachment
+        );
+      }
+    }
+  );
 }
 
 function isStreamDebugEnabled() {
@@ -1274,8 +1823,17 @@ function formatContextSnapshot(
     return "";
   }
 
+  const hideInternalActionRules =
+    Boolean(
+      snapshot.hide_internal_action_rules
+    );
+
   const systemPrompt =
-    snapshot.system_prompt
+    (
+      hideInternalActionRules
+      && snapshot.visible_system_prompt
+    )
+    || snapshot.system_prompt
     || "";
 
   const userPrompt =
@@ -1283,7 +1841,9 @@ function formatContextSnapshot(
     || "";
 
   return [
-    "SYSTEM PROMPT",
+    hideInternalActionRules
+      ? "SYSTEM PROMPT (INTERNAL ACTION RULES HIDDEN)"
+      : "SYSTEM PROMPT",
     "-------------",
     systemPrompt || "(empty)",
     "",
@@ -1321,6 +1881,32 @@ function formatContextTitle(
 
   return (
     `MESSAGE: ${messageRole} `
+    + `| CONTEXT: ${contextRole}`
+  );
+
+}
+
+function formatRuntimeActionContextTitle(
+  action,
+  contextSnapshot
+) {
+
+  const actionName =
+    String(
+      action || "runtime_action"
+    ).toUpperCase();
+
+  const contextRole =
+    String(
+      (
+        contextSnapshot
+        && contextSnapshot.context_role
+      )
+      || "unknown"
+    ).toUpperCase();
+
+  return (
+    `ACTION: ${actionName} `
     + `| CONTEXT: ${contextRole}`
   );
 
@@ -1447,10 +2033,51 @@ function createMessageElement(
 
 // NORMAL MESSAGE
 
+function createMessageAttachmentChips(
+  attachments = []
+) {
+  if (!Array.isArray(attachments) || !attachments.length) {
+    return null;
+  }
+
+  const container =
+    document.createElement("div");
+
+  container.className =
+    "mt-3 flex flex-wrap gap-2";
+
+  attachments.forEach((attachment) => {
+    const chip =
+      document.createElement("button");
+
+    chip.type =
+      "button";
+    chip.className =
+      "max-w-full rounded border border-sky-400/25 bg-sky-950/35 px-2 py-1 text-left font-mono text-[11px] text-sky-100 transition hover:border-sky-300/50 hover:bg-sky-900/45";
+
+    chip.textContent =
+      formatAttachmentChipLabel(
+        attachment
+      );
+
+    bindJinAttachmentBubble(
+      chip,
+      attachment
+    );
+
+    container.appendChild(
+      chip
+    );
+  });
+
+  return container;
+}
+
 function appendChatMessage(
   role,
   text,
-  contextSnapshot = null
+  contextSnapshot = null,
+  attachments = []
 ) {
 
   const pre =
@@ -1463,6 +2090,19 @@ function appendChatMessage(
     escapeHtml(text);
 
   if (role === "user") {
+    const chips =
+      createMessageAttachmentChips(
+        attachments
+      );
+
+    if (chips && pre.parentElement) {
+      pre.parentElement.appendChild(
+        chips
+      );
+    }
+  }
+
+  if (role === "user") {
     jinConversationTurnCounter += 1;
     window.jinConversationTurnCounter =
       jinConversationTurnCounter;
@@ -1473,6 +2113,13 @@ function appendChatMessage(
   );
 
 }
+
+window.bindJinAttachmentBubble =
+  bindJinAttachmentBubble;
+window.openJinAttachmentModal =
+  openJinAttachmentModal;
+window.formatJinAttachmentChipLabel =
+  formatAttachmentChipLabel;
 
 
 // RUNTIME ACTION
@@ -1504,7 +2151,9 @@ function buildRuntimeActionVisibleKey(
     return `${actionName}:${actionId}`;
   }
 
-  return `${jinConversationTurnCounter}:${actionName}`;
+  runtimeActionRowCounter += 1;
+
+  return `${jinConversationTurnCounter}:${actionName}:${runtimeActionRowCounter}`;
 
 }
 
@@ -1529,21 +2178,6 @@ function appendRuntimeAction(
       options
     );
 
-  if (
-    actionKey
-    && visibleRuntimeActionKeys.has(
-      actionKey
-    )
-  ) {
-    return false;
-  }
-
-  if (actionKey) {
-    visibleRuntimeActionKeys.add(
-      actionKey
-    );
-  }
-
   if (options.activateScene !== false) {
     syncSceneSearchScreenForRuntimeAction(
       action,
@@ -1564,7 +2198,16 @@ function appendRuntimeAction(
     actionKey || "";
 
   const icon =
-    document.createElement("div");
+    document.createElement(
+      options.contextSnapshot
+        ? "button"
+        : "div"
+    );
+
+  if (options.contextSnapshot) {
+    icon.type =
+      "button";
+  }
 
   icon.className =
     "h-6 w-6 rounded bg-cyan-950/70 border border-cyan-700 flex items-center justify-center text-[12px] shrink-0";
@@ -1572,7 +2215,39 @@ function appendRuntimeAction(
   icon.textContent =
     action === "web_search"
       ? "🔍"
+      : action === "list_skills"
+        ? "📘"
+        : action === "asset_action"
+          ? "▣"
       : "●";
+
+  if (options.contextSnapshot) {
+    icon.className +=
+      " cursor-help hover:bg-cyan-900/70 transition";
+
+    icon.title =
+      "show action context";
+
+    icon.addEventListener(
+      "click",
+      function () {
+        if (!window.showTrace) {
+          return;
+        }
+
+        window.showTrace(
+          formatContextSnapshot(
+            "action",
+            options.contextSnapshot
+          ),
+          formatRuntimeActionContextTitle(
+            action,
+            options.contextSnapshot
+          )
+        );
+      }
+    );
+  }
 
   const label =
     document.createElement("div");
@@ -1623,6 +2298,8 @@ function queueRuntimeActionAfterNextResponse(
       action || "",
     text: actionText,
     id: options.id || "",
+    contextSnapshot:
+      options.contextSnapshot || null,
     completed: false,
   });
 
@@ -1663,6 +2340,8 @@ function flushRuntimeActionsAfterResponse(
       entry.text,
       {
         id: entry.id || "",
+        contextSnapshot:
+          entry.contextSnapshot || null,
         activateScene: !entry.completed,
       }
     );
@@ -1678,11 +2357,26 @@ function flushRuntimeActionsAfterResponse(
 
 
 function fadeRuntimeAction(
-  action
+  action,
+  options = {}
 ) {
 
+  const actionKey =
+    options.id
+      ? buildRuntimeActionVisibleKey(
+        action,
+        options
+      )
+      : "";
+
   deferredRuntimeActionsAfterResponse.forEach((entry) => {
-    if (entry.action === action) {
+    if (
+      entry.action === action
+      && (
+        !options.id
+        || entry.id === options.id
+      )
+    ) {
       entry.completed = true;
     }
   });
@@ -1693,9 +2387,13 @@ function fadeRuntimeAction(
   );
 
   const rows =
-    chatHistory.querySelectorAll(
-      `[data-runtime-action="${action}"]`
-    );
+    actionKey
+      ? chatHistory.querySelectorAll(
+        `[data-runtime-action-key="${actionKey}"]`
+      )
+      : chatHistory.querySelectorAll(
+        `[data-runtime-action="${action}"]`
+      );
 
   rows.forEach((row) => {
     row.classList.add(
@@ -1703,7 +2401,7 @@ function fadeRuntimeAction(
     );
 
     row
-      .querySelectorAll("div")
+      .querySelectorAll("div, button")
       .forEach((element) => {
         element.classList.add(
           "border-zinc-700/50",
@@ -2017,6 +2715,14 @@ function stripInternalActionMarkers(
       "$1"
     )
     .replace(
+      /(^|\n)[^\S\r\n]*<INTERNAL_ACTION_LIST_SKILLS(?::[^>\n]*)?>[^\S\r\n]*(?=\n|$)/gi,
+      "$1"
+    )
+    .replace(
+      /(^|\n)[^\S\r\n]*<INTERNAL_ACTION_ASSET_ACTION>[\s\S]*?<\/INTERNAL_ACTION_ASSET_ACTION>[^\S\r\n]*(?=\n|$)/gi,
+      "$1"
+    )
+    .replace(
       /\n{3,}/g,
       "\n\n"
     );
@@ -2209,6 +2915,9 @@ window.queueRuntimeActionAfterNextResponse =
 
 window.fadeRuntimeAction =
   fadeRuntimeAction;
+
+window.stripInternalActionMarkers =
+  stripInternalActionMarkers;
 
 window.startStreamMessage =
   startStreamMessage;

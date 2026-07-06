@@ -7,8 +7,15 @@ from datetime import datetime
 
 from rules import runtime as runtime_rules
 from rules.runtime import (
+    RUNTIME_ACTION_APPEND_SKILL,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_ASSET_ACTION,
+    RUNTIME_ACTION_CHECK_TODO,
+    RUNTIME_ACTION_CREATE_TODO_LIST,
+    RUNTIME_ACTION_LIST_SKILLS,
+    RUNTIME_ACTION_REMOVE_SKILL,
+    RUNTIME_ACTION_RESOLVE_TODO,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
@@ -22,6 +29,13 @@ KNOWN_RUNTIME_ACTIONS = tuple(
             RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
             RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
             RUNTIME_ACTION_WEB_SEARCH,
+            RUNTIME_ACTION_LIST_SKILLS,
+            RUNTIME_ACTION_APPEND_SKILL,
+            RUNTIME_ACTION_REMOVE_SKILL,
+            RUNTIME_ACTION_ASSET_ACTION,
+            RUNTIME_ACTION_CREATE_TODO_LIST,
+            RUNTIME_ACTION_RESOLVE_TODO,
+            RUNTIME_ACTION_CHECK_TODO,
             RUNTIME_ACTION_SAVE_SESSION,
         )
     )
@@ -31,17 +45,17 @@ BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
     (
         r"(?:"
         r"<\s*INTERNAL_ACTION_"
-        r"(?P<bracketed_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY)"
+        r"(?P<bracketed_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<bracketed_query>(?:(?!</\s*>)[^\r\n>])*?))?"
         r"(?:\s*</\s*>+|\s*>+)"
         r"|"
         r"<\s*INTERNAL_ACTION_"
-        r"(?P<bracketed_line_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT)"
+        r"(?P<bracketed_line_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<bracketed_line_query>[^\r\n>]*))?"
         r"[^\S\r\n]*(?=\r?\n)"
         r"|"
         r"(?m:^\s*INTERNAL_ACTION_"
-        r"(?P<bare_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT)"
+        r"(?P<bare_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<bare_query>[^\r\n]*))?"
         r"\s*$)"
         r")"
@@ -53,12 +67,12 @@ MALFORMED_CALL_INTERNAL_ACTION_PATTERN = re.compile(
     (
         r"(?:"
         r"<\|?tool_call\>\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
-        r"(?P<tool_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT)"
+        r"(?P<tool_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<tool_call_query>(?:(?!</\s*>)[^\r\n>])*?))?"
         r"(?:\s*</\s*>+|\s*>+|[^\S\r\n]*(?=\r?\n|$))"
         r"|"
         r"(?m:^\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
-        r"(?P<bare_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT)"
+        r"(?P<bare_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<bare_call_query>[^\r\n]*))?"
         r"\s*$)"
         r")"
@@ -76,12 +90,52 @@ DELAYED_MEMORY_CONTENT_BLOCK_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+ASSET_ACTION_BLOCK_RE = re.compile(
+    (
+        r"<\s*INTERNAL_ACTION_ASSET_ACTION\s*>"
+        r"[^\S\r\n]*(?:\r?\n)?"
+        r"(?P<payload>.*?)"
+        r"</\s*INTERNAL_ACTION_ASSET_ACTION\s*>+"
+    ),
+    re.IGNORECASE | re.DOTALL,
+)
+
+CREATE_TODO_BLOCK_RE = re.compile(
+    (
+        r"<\s*(?:TODO_LIST|INTERNAL_ACTION_TODO_LIST|INTERNAL_ACTION_CREATE_TODO_LIST)\s*>"
+        r"[^\S\r\n]*(?:\r?\n)?"
+        r"(?P<payload>.*?)"
+        r"</\s*(?:TODO_LIST|INTERNAL_ACTION_TODO_LIST|INTERNAL_ACTION_CREATE_TODO_LIST)\s*>+"
+    ),
+    re.IGNORECASE | re.DOTALL,
+)
+
 DELAYED_MEMORY_FIELD_RE = re.compile(
     r"(?im)^[^\S\r\n]*(title|summary|tags|body)[^\S\r\n]*:[^\S\r\n]*(.*)$",
 )
 
 DELAYED_MEMORY_BLOCK_START_RE = re.compile(
     r"<\s*INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT\s*>",
+    re.IGNORECASE,
+)
+
+ASSET_ACTION_BLOCK_START_RE = re.compile(
+    r"<\s*INTERNAL_ACTION_ASSET_ACTION\s*>",
+    re.IGNORECASE,
+)
+
+ASSET_ACTION_BLOCK_END_RE = re.compile(
+    r"</\s*INTERNAL_ACTION_ASSET_ACTION\s*>+",
+    re.IGNORECASE,
+)
+
+CREATE_TODO_BLOCK_START_RE = re.compile(
+    r"<\s*(?:TODO_LIST|INTERNAL_ACTION_TODO_LIST|INTERNAL_ACTION_CREATE_TODO_LIST)\s*>",
+    re.IGNORECASE,
+)
+
+CREATE_TODO_BLOCK_END_RE = re.compile(
+    r"</\s*(?:TODO_LIST|INTERNAL_ACTION_TODO_LIST|INTERNAL_ACTION_CREATE_TODO_LIST)\s*>+",
     re.IGNORECASE,
 )
 
@@ -1278,6 +1332,17 @@ def normalize_runtime_action_name(
         "SAVE_DELAYED_MEMORY_CONTENT": RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
         "SAVE_ACTIVE_MEMORY": RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
         "RESOLVE_ACTIVE_MEMORY": RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
+        "USE_ASSETS": RUNTIME_ACTION_ASSET_ACTION,
+        "LIST_SKILLS": RUNTIME_ACTION_LIST_SKILLS,
+        "APPEND_SKILL": RUNTIME_ACTION_APPEND_SKILL,
+        "REMOVE_SKILL": RUNTIME_ACTION_REMOVE_SKILL,
+        "ASSET_ACTION": RUNTIME_ACTION_ASSET_ACTION,
+        "TODO_LIST": RUNTIME_ACTION_CREATE_TODO_LIST,
+        "INTERNAL_ACTION_TODO_LIST": RUNTIME_ACTION_CREATE_TODO_LIST,
+        "CREATE_TODO_LIST": RUNTIME_ACTION_CREATE_TODO_LIST,
+        "INTERNAL_ACTION_CREATE_TODO_LIST": RUNTIME_ACTION_CREATE_TODO_LIST,
+        "RESOLVE_TODO": RUNTIME_ACTION_RESOLVE_TODO,
+        "CHECK_TODO": RUNTIME_ACTION_CHECK_TODO,
     }
 
     return aliases.get(
@@ -1323,6 +1388,17 @@ def normalize_runtime_action_names(
         if normalized_name == RUNTIME_ACTION_CREATE_ACTIVE_MEMORY:
             normalized_names.append(
                 RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+            )
+
+        if normalized_name == RUNTIME_ACTION_ASSET_ACTION:
+            normalized_names.append(
+                RUNTIME_ACTION_LIST_SKILLS
+            )
+            normalized_names.append(
+                RUNTIME_ACTION_APPEND_SKILL
+            )
+            normalized_names.append(
+                RUNTIME_ACTION_REMOVE_SKILL
             )
 
         if (
@@ -1445,6 +1521,28 @@ def _build_internal_action_call(
         ):
             return None
 
+    elif normalized_name == RUNTIME_ACTION_CREATE_TODO_LIST:
+        payload = _clean_internal_action_query(
+            query
+        )
+
+        if not payload:
+            return None
+
+    elif normalized_name in (
+        RUNTIME_ACTION_RESOLVE_TODO,
+        RUNTIME_ACTION_CHECK_TODO,
+    ):
+        payload = _clean_internal_action_query(
+            query
+        )
+
+        if _is_placeholder_internal_query(
+            payload,
+            placeholder_payloads,
+        ):
+            return None
+
     elif normalized_name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT:
         report = parse_delayed_memory_content_payload(
             query
@@ -1457,6 +1555,29 @@ def _build_internal_action_call(
             report,
             ensure_ascii=False,
         )
+
+    elif normalized_name in (
+        RUNTIME_ACTION_LIST_SKILLS,
+        RUNTIME_ACTION_APPEND_SKILL,
+        RUNTIME_ACTION_REMOVE_SKILL,
+        RUNTIME_ACTION_ASSET_ACTION,
+    ):
+        payload = _clean_internal_action_query(
+            query
+        )
+
+        if (
+            normalized_name in (
+                RUNTIME_ACTION_ASSET_ACTION,
+                RUNTIME_ACTION_APPEND_SKILL,
+                RUNTIME_ACTION_REMOVE_SKILL,
+            )
+            and _is_placeholder_internal_query(
+                payload,
+                placeholder_payloads,
+            )
+        ):
+            return None
 
     return RuntimeActionCall(
         name=normalized_name,
@@ -1703,8 +1824,38 @@ def extract_runtime_actions(
             or "",
         )
 
+    def replace_asset_action_marker(match):
+
+        return handle_marker(
+            match.group(0),
+            RUNTIME_ACTION_ASSET_ACTION,
+            match.group("payload")
+            or "",
+        )
+
+    def replace_create_todo_marker(match):
+
+        return handle_marker(
+            match.group(0),
+            RUNTIME_ACTION_CREATE_TODO_LIST,
+            match.group("payload")
+            or "",
+        )
+
     clean_text = _replace_runtime_action_matches(
         text,
+        CREATE_TODO_BLOCK_RE,
+        replace_create_todo_marker,
+    )
+
+    clean_text = _replace_runtime_action_matches(
+        clean_text,
+        ASSET_ACTION_BLOCK_RE,
+        replace_asset_action_marker,
+    )
+
+    clean_text = _replace_runtime_action_matches(
+        clean_text,
         DELAYED_MEMORY_CONTENT_BLOCK_RE,
         replace_delayed_memory_content_marker,
     )
@@ -1873,6 +2024,105 @@ def _enabled_action_start_markers(
             "call:SAVE_SESSION"
         )
 
+    if RUNTIME_ACTION_CREATE_TODO_LIST in enabled_action_names:
+        markers.append(
+            "<TODO_LIST>"
+        )
+        markers.append(
+            "</TODO_LIST>"
+        )
+        markers.append(
+            "<INTERNAL_ACTION_TODO_LIST>"
+        )
+        markers.append(
+            "</INTERNAL_ACTION_TODO_LIST>"
+        )
+        markers.append(
+            "<INTERNAL_ACTION_CREATE_TODO_LIST>"
+        )
+        markers.append(
+            "</INTERNAL_ACTION_CREATE_TODO_LIST>"
+        )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_TODO_LIST"
+        )
+        markers.append(
+            "<tool_call>call:INTERNAL_ACTION_TODO_LIST"
+        )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_CREATE_TODO_LIST"
+        )
+        markers.append(
+            "<tool_call>call:INTERNAL_ACTION_CREATE_TODO_LIST"
+        )
+        markers.append(
+            "<|tool_call>call:CREATE_TODO_LIST"
+        )
+        markers.append(
+            "<tool_call>call:CREATE_TODO_LIST"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_TODO_LIST"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_CREATE_TODO_LIST"
+        )
+        markers.append(
+            "call:CREATE_TODO_LIST"
+        )
+
+    if RUNTIME_ACTION_RESOLVE_TODO in enabled_action_names:
+        markers.append(
+            "<INTERNAL_ACTION_RESOLVE_TODO:"
+        )
+        markers.append(
+            "INTERNAL_ACTION_RESOLVE_TODO:"
+        )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_RESOLVE_TODO:"
+        )
+        markers.append(
+            "<tool_call>call:INTERNAL_ACTION_RESOLVE_TODO:"
+        )
+        markers.append(
+            "<|tool_call>call:RESOLVE_TODO:"
+        )
+        markers.append(
+            "<tool_call>call:RESOLVE_TODO:"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_RESOLVE_TODO:"
+        )
+        markers.append(
+            "call:RESOLVE_TODO:"
+        )
+
+    if RUNTIME_ACTION_CHECK_TODO in enabled_action_names:
+        markers.append(
+            "<INTERNAL_ACTION_CHECK_TODO:"
+        )
+        markers.append(
+            "INTERNAL_ACTION_CHECK_TODO:"
+        )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_CHECK_TODO:"
+        )
+        markers.append(
+            "<tool_call>call:INTERNAL_ACTION_CHECK_TODO:"
+        )
+        markers.append(
+            "<|tool_call>call:CHECK_TODO:"
+        )
+        markers.append(
+            "<tool_call>call:CHECK_TODO:"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_CHECK_TODO:"
+        )
+        markers.append(
+            "call:CHECK_TODO:"
+        )
+
     if RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT in enabled_action_names:
         markers.append(
             "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>"
@@ -1897,6 +2147,32 @@ def _enabled_action_start_markers(
         )
         markers.append(
             "call:SAVE_DELAYED_MEMORY_CONTENT"
+        )
+
+    if RUNTIME_ACTION_ASSET_ACTION in enabled_action_names:
+        markers.append(
+            "<INTERNAL_ACTION_ASSET_ACTION>"
+        )
+        markers.append(
+            "</INTERNAL_ACTION_ASSET_ACTION>"
+        )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_ASSET_ACTION"
+        )
+        markers.append(
+            "<tool_call>call:INTERNAL_ACTION_ASSET_ACTION"
+        )
+        markers.append(
+            "<|tool_call>call:ASSET_ACTION"
+        )
+        markers.append(
+            "<tool_call>call:ASSET_ACTION"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_ASSET_ACTION"
+        )
+        markers.append(
+            "call:ASSET_ACTION"
         )
 
     if RUNTIME_ACTION_CREATE_ACTIVE_MEMORY in enabled_action_names:
@@ -1974,6 +2250,84 @@ def _enabled_action_start_markers(
             "call:WEB_SEARCH:"
         )
 
+    if RUNTIME_ACTION_LIST_SKILLS in enabled_action_names:
+        markers.append(
+            "<INTERNAL_ACTION_LIST_SKILLS:"
+        )
+        markers.append(
+            "<INTERNAL_ACTION_LIST_SKILLS>"
+        )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_LIST_SKILLS:"
+        )
+        markers.append(
+            "<tool_call>call:INTERNAL_ACTION_LIST_SKILLS:"
+        )
+        markers.append(
+            "<|tool_call>call:LIST_SKILLS:"
+        )
+        markers.append(
+            "<tool_call>call:LIST_SKILLS:"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_LIST_SKILLS:"
+        )
+        markers.append(
+            "call:LIST_SKILLS:"
+        )
+
+    if RUNTIME_ACTION_APPEND_SKILL in enabled_action_names:
+        markers.append(
+            "<INTERNAL_ACTION_APPEND_SKILL:"
+        )
+        markers.append(
+            "INTERNAL_ACTION_APPEND_SKILL:"
+        )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_APPEND_SKILL:"
+        )
+        markers.append(
+            "<tool_call>call:INTERNAL_ACTION_APPEND_SKILL:"
+        )
+        markers.append(
+            "<|tool_call>call:APPEND_SKILL:"
+        )
+        markers.append(
+            "<tool_call>call:APPEND_SKILL:"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_APPEND_SKILL:"
+        )
+        markers.append(
+            "call:APPEND_SKILL:"
+        )
+
+    if RUNTIME_ACTION_REMOVE_SKILL in enabled_action_names:
+        markers.append(
+            "<INTERNAL_ACTION_REMOVE_SKILL:"
+        )
+        markers.append(
+            "INTERNAL_ACTION_REMOVE_SKILL:"
+        )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_REMOVE_SKILL:"
+        )
+        markers.append(
+            "<tool_call>call:INTERNAL_ACTION_REMOVE_SKILL:"
+        )
+        markers.append(
+            "<|tool_call>call:REMOVE_SKILL:"
+        )
+        markers.append(
+            "<tool_call>call:REMOVE_SKILL:"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_REMOVE_SKILL:"
+        )
+        markers.append(
+            "call:REMOVE_SKILL:"
+        )
+
     return tuple(
         markers
     )
@@ -2012,6 +2366,15 @@ def _trailing_marker_prefix_length(
 
         for marker in upper_markers:
 
+            if length > len(marker):
+                continue
+
+            if (
+                length == len(marker)
+                and marker.startswith("</")
+            ):
+                continue
+
             if upper_text.endswith(
                 marker[:length]
             ):
@@ -2027,10 +2390,12 @@ def _action_text_may_contain_marker(
     if not text:
         return False
 
+    upper_text = text.upper()
+
     return (
-        "INTERNAL_ACTION_"
-        in text.upper()
-        or "CALL:" in text.upper()
+        "INTERNAL_ACTION_" in upper_text
+        or "CALL:" in upper_text
+        or "TODO_LIST" in upper_text
     )
 
 
@@ -2207,12 +2572,72 @@ def _unclosed_delayed_memory_content_block_start(
     return opening_match.start()
 
 
+def _unclosed_asset_action_block_start(
+    text: str,
+) -> int | None:
+
+    opening_match = None
+
+    for match in ASSET_ACTION_BLOCK_START_RE.finditer(
+        text
+    ):
+        opening_match = match
+
+    if opening_match is None:
+        return None
+
+    closing_match = None
+
+    for match in ASSET_ACTION_BLOCK_END_RE.finditer(
+        text,
+        opening_match.end(),
+    ):
+        closing_match = match
+        break
+
+    if closing_match is not None:
+        return None
+
+    return opening_match.start()
+
+
+def _unclosed_create_todo_block_start(
+    text: str,
+) -> int | None:
+
+    opening_match = None
+
+    for match in CREATE_TODO_BLOCK_START_RE.finditer(
+        text
+    ):
+        opening_match = match
+
+    if opening_match is None:
+        return None
+
+    closing_match = None
+
+    for match in CREATE_TODO_BLOCK_END_RE.finditer(
+        text,
+        opening_match.end(),
+    ):
+        closing_match = match
+        break
+
+    if closing_match is not None:
+        return None
+
+    return opening_match.start()
+
+
 def _unclosed_internal_action_request_start(
     text: str,
     enabled_actions=None,
 ) -> int | None:
 
     for detector in (
+        _unclosed_create_todo_block_start,
+        _unclosed_asset_action_block_start,
         _unclosed_delayed_memory_content_block_start,
         _unclosed_bracketed_internal_action_start,
         _unclosed_tool_call_internal_action_start,

@@ -1,6 +1,10 @@
 import unittest
 import asyncio
+import contextlib
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from runtime import (
     RuntimeStream,
@@ -124,7 +128,32 @@ async def fake_prompt_only_usage_generator():
     }
 
 
+async def fake_raw_asset_action_generator():
+
+    yield {
+        "type": "content",
+        "content": (
+            "<INTERNAL_ACTION_ASSET_ACTION>\n"
+            '{"action":"create_wildcard_file","args":{"path":"clothing/test_tops","content":"silk camisole\\ncrochet halter top"}}\n'
+            "</INTERNAL_ACTION_ASSET_ACTION>\n"
+            "Создал wildcard файл."
+        ),
+    }
+
+
 class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
+
+    def patch_asset_roots(self, root: Path):
+        assets_root = root / "assets"
+        return (
+            patch("utils.assets_service.PROJECT_ROOT", root),
+            patch("utils.assets_service.ASSETS_ROOT", assets_root),
+            patch("utils.assets_service.SKILLS_ROOT", assets_root / "skills"),
+            patch("utils.assets_service.WILDCARDS_ROOT", assets_root / "wildcards"),
+            patch("utils.assets_service.PROMPTS_ROOT", assets_root / "prompts"),
+            patch("utils.assets_service.TEMPLATES_ROOT", assets_root / "templates"),
+            patch("utils.assets_service.OUTPUTS_ROOT", assets_root / "outputs"),
+        )
 
     async def test_runtime_context_counter_grows_during_stream(self):
 
@@ -385,6 +414,78 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                 last_error=original_state["last_error"],
                 status=original_state["status"],
             )
+
+    async def test_runtime_stream_filters_raw_asset_action_before_emit(self):
+
+        runtime_id = settings.SERVICE_MODEL_UID
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                context = SimpleNamespace(
+                    websocket=FakeWebSocket(),
+                    logger=FakeLogger(),
+                    emitter=FakeEmitter(),
+                    runtime_action_events=[],
+                    runtime_usage_events=[],
+                    runtime_asset_results=[],
+                    active_memory_records=[],
+                )
+
+                stream = RuntimeStream(
+                    context=context,
+                    runtime_id=runtime_id,
+                    role="service",
+                    context_window=(
+                        settings.SERVICE_CONTEXT_WINDOW
+                    ),
+                    log_method=(
+                        context.logger.log_service
+                    ),
+                    context_snapshot={
+                        "context_role": "brain",
+                        "system_prompt": "system prompt",
+                        "user_prompt": "user payload",
+                    },
+                    runtime_actions={
+                        "CAN_USE_ASSETS": True,
+                    },
+                )
+
+                await stream.run(
+                    fake_raw_asset_action_generator()
+                )
+
+                emitted_text = "\n".join(
+                    str(message.get("chunk", ""))
+                    for message in context.websocket.messages
+                    if message.get("type") == "message_chunk"
+                )
+
+                self.assertNotIn(
+                    "INTERNAL_ACTION_ASSET_ACTION",
+                    emitted_text,
+                )
+                self.assertIn(
+                    "Создал wildcard файл.",
+                    emitted_text,
+                )
+                self.assertEqual(
+                    context.runtime_action_events[0]["name"],
+                    "asset_action",
+                )
+                self.assertTrue(
+                    (
+                        root
+                        / "assets"
+                        / "wildcards"
+                        / "clothing"
+                        / "test_tops.txt"
+                    ).exists()
+                )
 
 
 if __name__ == "__main__":

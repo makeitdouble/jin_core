@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime
 from xml.sax.saxutils import escape
 
@@ -11,7 +12,9 @@ from rules.assembler import (
     get_enabled_runtime_actions,
 )
 from rules.runtime import (
+    RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
 )
@@ -37,6 +40,9 @@ from utils.runtime_actions import (
     refresh_active_memory_runtime_metadata,
     is_active_memory_record_paused,
     remove_active_memory_entries,
+)
+from utils.runtime_todo import (
+    format_runtime_todo_xml,
 )
 
 
@@ -74,6 +80,12 @@ def build_runtime_xml(
                 RUNTIME_ACTION_WEB_SEARCH
                 in enabled_actions
             ),
+            can_use_assets=(
+                RUNTIME_ACTION_LIST_SKILLS
+                in enabled_actions
+                or RUNTIME_ACTION_ASSET_ACTION
+                in enabled_actions
+            ),
             can_save_session=(
                 RUNTIME_ACTION_SAVE_SESSION
                 in enabled_actions
@@ -95,7 +107,81 @@ def build_runtime_xml(
     )
 
 
-def append_session_state(
+def get_visible_assistant_message_count(
+    context=None,
+) -> int:
+
+    if context is None:
+        return 0
+
+    assistant_message_count = int(
+        getattr(
+            context,
+            "assistant_message_count",
+            0,
+        )
+        or 0
+    )
+    runtime_action_count = len(
+        getattr(
+            context,
+            "runtime_action_events",
+            [],
+        )
+        or []
+    )
+    user_message_count = int(
+        getattr(
+            context,
+            "user_message_count",
+            0,
+        )
+        or 0
+    )
+    pending_response_count = (
+        1
+        if user_message_count > assistant_message_count
+        else 0
+    )
+
+    return (
+        assistant_message_count
+        + runtime_action_count
+        + pending_response_count
+    )
+
+
+def get_visible_turn_count(
+    context=None,
+) -> int:
+
+    if context is None:
+        return 0
+
+    turn_number = int(
+        getattr(
+            context,
+            "turn_number",
+            0,
+        )
+        or 0
+    )
+    user_message_count = int(
+        getattr(
+            context,
+            "user_message_count",
+            0,
+        )
+        or 0
+    )
+
+    return max(
+        turn_number,
+        user_message_count,
+    )
+
+
+def append_visible_session_state(
     parts: list[str],
     context=None,
 ) -> None:
@@ -105,12 +191,12 @@ def append_session_state(
 
     parts.append(
         format_session_state(
-            turn_number=getattr(context, "turn_number", 0),
+            turn_number=get_visible_turn_count(
+                context
+            ),
             user_message_count=getattr(context, "user_message_count", 0),
-            assistant_message_count=getattr(
-                context,
-                "assistant_message_count",
-                0,
+            assistant_message_count=get_visible_assistant_message_count(
+                context
             ),
         )
     )
@@ -147,6 +233,161 @@ def append_user_feedback(
         format_user_feedback(
             user_feedback
         )
+    )
+
+
+def build_current_appended_skills_context(
+    context=None,
+) -> str:
+
+    if context is None:
+        return ""
+
+    appended_skills = list(
+        getattr(
+            context,
+            "runtime_appended_skills",
+            [],
+        )
+        or []
+    )
+    skill_names = []
+
+    for skill in appended_skills:
+        if isinstance(
+            skill,
+            dict,
+        ):
+            name = str(
+                skill.get(
+                    "name",
+                    "",
+                )
+                or ""
+            ).strip()
+        else:
+            name = str(
+                skill
+                or ""
+            ).strip()
+
+        if name:
+            skill_names.append(
+                name
+            )
+
+    if not skill_names:
+        return ""
+
+    lines = [
+        f"{index}. {name}"
+        for index, name in enumerate(
+            skill_names,
+            start=1,
+        )
+    ]
+
+    return (
+        "<CURRENT_APPENDED_SKILLS>\n"
+        f"{indent_xml(escape(chr(10).join(lines)), spaces=4)}\n"
+        "</CURRENT_APPENDED_SKILLS>"
+    )
+
+
+def build_session_actions_history_context(
+    context=None,
+) -> str:
+
+    if context is None:
+        return ""
+
+    history = [
+        str(item or "").strip()
+        for item in getattr(
+            context,
+            "runtime_session_action_history",
+            [],
+        )
+        or []
+        if str(item or "").strip()
+    ]
+
+    if not history:
+        return ""
+
+    lines = [
+        f"{index}. {item}"
+        for index, item in enumerate(
+            history,
+            start=1,
+        )
+    ]
+
+    return (
+        "<SESSION_ACTIONS_HISTORY>\n"
+        f"{indent_xml(escape(chr(10).join(lines)), spaces=4)}\n"
+        "</SESSION_ACTIONS_HISTORY>"
+    )
+
+
+def append_current_runtime_todo(
+    parts: list[str],
+    context=None,
+) -> None:
+
+    if context is None:
+        return
+
+    runtime_todo_xml = format_runtime_todo_xml(
+        getattr(
+            context,
+            "runtime_todo",
+            [],
+        )
+    )
+
+    if not runtime_todo_xml:
+        return
+
+    parts.append(
+        runtime_todo_xml
+    )
+
+
+def build_brain_top_runtime_context(
+    context=None,
+    runtime_actions=None,
+) -> str:
+
+    parts = []
+
+    parts.append(
+        build_runtime_xml(
+            context,
+            runtime_actions,
+        )
+    )
+    append_visible_session_state(
+        parts,
+        context,
+    )
+    append_current_runtime_todo(
+        parts,
+        context,
+    )
+    current_appended_skills_context = (
+        build_current_appended_skills_context(
+            context
+        )
+    )
+
+    if current_appended_skills_context:
+        parts.append(
+            current_appended_skills_context
+        )
+
+    return "\n".join(
+        parts
     )
 
 
@@ -373,8 +614,10 @@ def crop_recent_message_text(
     )
 
 
-def build_recent_turns_context_text(
+def build_previous_chat_messages_context_text(
     recent_turns: list[dict] | None,
+    *,
+    extra_user_message: str = "",
 ) -> str:
 
     turns = list(
@@ -383,8 +626,9 @@ def build_recent_turns_context_text(
     )[-RECENT_MESSAGES_MAX_PAIRS:]
 
     lines = [
-        "<recent_turns>",
+        "<PREVIOUS_CHAT_MESSAGES>",
     ]
+    last_user_text = ""
 
     for turn in turns:
         if not isinstance(
@@ -407,17 +651,30 @@ def build_recent_turns_context_text(
         )
 
         if user_text:
+            last_user_text = user_text
             lines.append(
-                f"user: {user_text}"
+                f"<USER>{escape(user_text)}"
             )
 
         if jin_text:
             lines.append(
-                f"jin: {jin_text}"
+                f"<JIN>{escape(jin_text)}"
             )
 
+    extra_user_text = crop_recent_message_text(
+        extra_user_message
+    )
+
+    if (
+            extra_user_text
+            and extra_user_text != last_user_text
+    ):
+        lines.append(
+            f"<USER>{escape(extra_user_text)}"
+        )
+
     lines.append(
-        "</recent_turns>"
+        "</PREVIOUS_CHAT_MESSAGES>"
     )
 
     return "\n".join(
@@ -425,27 +682,46 @@ def build_recent_turns_context_text(
     )
 
 
-def append_recent_turns(
-    parts: list[str],
+def build_previous_chat_messages_context(
     context=None,
-) -> None:
+    *,
+    extra_user_message: str = "",
+) -> str:
 
-    if context is None:
-        return
+    if context is None and not extra_user_message:
+        return ""
 
     recent_turns = getattr(
         context,
         "runtime_recent_turns",
         [],
+    ) if context is not None else []
+
+    if not recent_turns and not extra_user_message:
+        return ""
+
+    return build_previous_chat_messages_context_text(
+        recent_turns,
+        extra_user_message=extra_user_message,
     )
 
-    if not recent_turns:
+
+def append_previous_chat_messages(
+    parts: list[str],
+    context=None,
+) -> None:
+
+    previous_chat_messages_context = (
+        build_previous_chat_messages_context(
+            context
+        )
+    )
+
+    if not previous_chat_messages_context:
         return
 
     parts.append(
-        build_recent_turns_context_text(
-            recent_turns
-        )
+        previous_chat_messages_context
     )
 
 
@@ -586,11 +862,123 @@ def append_tool_results(
     )
 
 
+def format_tool_result_payload(
+    payload,
+) -> str:
+
+    formatted = json.dumps(
+        payload,
+        ensure_ascii=False,
+        indent=2,
+    )
+
+    lines = []
+
+    for line in formatted.splitlines():
+        indent = re.match(
+            r"\s*",
+            line,
+        ).group(0)
+        lines.append(
+            line.replace(
+                "\\n",
+                "\n"
+                + indent
+                + "    ",
+            )
+        )
+
+    return "\n".join(
+        lines
+    )
+
+
+def append_asset_results(
+    parts: list[str],
+    context=None,
+) -> None:
+
+    if context is None:
+        return
+
+    asset_results = list(
+        getattr(
+            context,
+            "runtime_asset_results",
+            [],
+        )
+        or []
+    )
+
+    if not asset_results:
+        return
+
+    parts.append(
+        '<TOOL_RESULTS type="internal_trusted_assets">\n'
+        '    <TOOL_RESULT name="ASSETS">\n'
+        f"{indent_xml(escape(format_tool_result_payload(asset_results[-5:])))}\n"
+        "    </TOOL_RESULT>\n"
+        "</TOOL_RESULTS>"
+    )
+
+
+def append_appended_skills(
+    parts: list[str],
+    context=None,
+) -> None:
+
+    if context is None:
+        return
+
+    appended_skills = list(
+        getattr(
+            context,
+            "runtime_appended_skills",
+            [],
+        )
+        or []
+    )
+
+    if not appended_skills:
+        return
+
+    parts.append(
+        "<APPENDED_SKILLS>\n"
+        f"{indent_xml(escape(format_tool_result_payload(appended_skills)))}\n"
+        "</APPENDED_SKILLS>"
+    )
+
+
+def build_tool_results_context(
+    context=None,
+) -> str:
+
+    parts = []
+
+    append_tool_results(
+        parts,
+        context,
+    )
+    append_asset_results(
+        parts,
+        context,
+    )
+    append_appended_skills(
+        parts,
+        context,
+    )
+
+    return "\n".join(
+        parts
+    )
+
+
 def build_brain_runtime_context(
     context=None,
     runtime_actions=None,
     *,
     commit_active_memory_refresh: bool = False,
+    include_top_runtime_context: bool = True,
 ) -> str:
 
     parts = []
@@ -600,17 +988,17 @@ def build_brain_runtime_context(
         context,
     )
 
-    parts.append(
-        build_runtime_xml(
-            context,
-            runtime_actions,
+    if include_top_runtime_context:
+        parts.append(
+            build_runtime_xml(
+                context,
+                runtime_actions,
+            )
         )
-    )
-
-    append_session_state(
-        parts,
-        context,
-    )
+        append_visible_session_state(
+            parts,
+            context,
+        )
     append_L3_session_memory(
         parts,
         context,
@@ -628,15 +1016,7 @@ def build_brain_runtime_context(
         parts,
         context,
     )
-    append_recent_turns(
-        parts,
-        context,
-    )
     append_zero_diff_alert(
-        parts,
-        context,
-    )
-    append_tool_results(
         parts,
         context,
     )

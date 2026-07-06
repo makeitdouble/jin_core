@@ -20,6 +20,9 @@ from utils.tokens import (
     estimate_stream_input_tokens,
     estimate_stream_live_tokens,
 )
+from utils.runtime_actions import (
+    RuntimeActionStreamFilter,
+)
 
 
 class RuntimeStream:
@@ -36,6 +39,8 @@ class RuntimeStream:
             emit_to_chat: bool = True,
             emit_content_to_chat: bool | None = None,
             context_snapshot: dict | None = None,
+            runtime_actions=None,
+            filter_runtime_actions: bool = True,
     ):
 
         self.context = context
@@ -57,6 +62,13 @@ class RuntimeStream:
             else emit_content_to_chat
         )
         self.context_snapshot = context_snapshot or {}
+        self.runtime_actions = runtime_actions or {}
+        self.filter_runtime_actions_enabled = filter_runtime_actions
+        if self.filter_runtime_actions_enabled:
+            self.context.runtime_skill_state_barrier_active = False
+        self.action_filter = RuntimeActionStreamFilter(
+            enabled_actions=self.runtime_actions,
+        )
 
         self.stream = StreamHandler(
             self.websocket,
@@ -252,6 +264,62 @@ class RuntimeStream:
             self.stream.response
         )
 
+    async def filter_runtime_action_content(
+        self,
+        content: str,
+    ) -> str | None:
+
+        if not self.filter_runtime_actions_enabled:
+            return content
+
+        result = self.action_filter.filter(
+            content
+        )
+
+        return await self.apply_runtime_action_filter_result(
+            result,
+        )
+
+    async def apply_runtime_action_filter_result(
+        self,
+        result,
+    ) -> str | None:
+
+        if result.actions:
+            from clients.brain_client_utils import (
+                apply_runtime_action_calls,
+                log_runtime_action_marker_removals,
+            )
+
+            await log_runtime_action_marker_removals(
+                self.context,
+                result,
+                source="runtime stream content",
+            )
+            await apply_runtime_action_calls(
+                self.context,
+                result.actions,
+                context_snapshot=self.context_snapshot,
+            )
+
+        if not result.text:
+            return None
+
+        return result.text
+
+    async def flush_runtime_action_content(
+        self,
+    ) -> str | None:
+
+        if not self.filter_runtime_actions_enabled:
+            return None
+
+        result = self.action_filter.flush_result()
+
+        return await self.apply_runtime_action_filter_result(
+            result,
+        )
+
     def build_action_log(
         self,
         action_event_offset: int,
@@ -373,12 +441,19 @@ class RuntimeStream:
 
                 if chunk_type == "content":
 
+                    content = await self.filter_runtime_action_content(
+                        chunk.get(
+                            "content",
+                            "",
+                        )
+                    )
+
+                    if content is None:
+                        continue
+
                     is_valid = (
                         await self.stream.send_content(
-                            chunk.get(
-                                "content",
-                                "",
-                            ),
+                            content,
                             emit=(
                                 self.emit_to_chat
                                 and self.emit_content_to_chat
@@ -400,6 +475,16 @@ class RuntimeStream:
 
                     await self.refresh_token_usage()
                     self.capture_runtime_turn_response()
+
+            content_tail = await self.flush_runtime_action_content()
+            if content_tail:
+                await self.stream.send_content(
+                    content_tail,
+                    emit=(
+                        self.emit_to_chat
+                        and self.emit_content_to_chat
+                    ),
+                )
 
             await self.stream.finish(
                 emit=self.emit_to_chat

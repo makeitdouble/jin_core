@@ -220,6 +220,123 @@ function buildActiveMemoryDetails(
 }
 
 
+function findActiveMemoryRecordById(
+  activeMemoryId
+) {
+
+  const needle =
+    String(activeMemoryId || "")
+      .trim()
+      .toLowerCase();
+
+  if (!needle) {
+    return {
+      record: "",
+      index: -1,
+    };
+  }
+
+  const records =
+    getActiveMemoryRecordsForStartupLog();
+
+  const index =
+    records.findIndex(function (record) {
+      return String(record || "")
+        .toLowerCase()
+        .includes(needle);
+    });
+
+  return {
+    record:
+      index >= 0
+        ? String(records[index] || "")
+        : "",
+    index,
+  };
+
+}
+
+
+function getActiveMemoryRecordSlotNumber(
+  record,
+  index
+) {
+
+  const match =
+    String(record || "").match(
+      /^\s*active_memory(?:_(\d+))?\s*:/i
+    );
+
+  if (
+    match
+    && match[1]
+  ) {
+    return match[1];
+  }
+
+  if (index >= 0) {
+    return String(index + 1);
+  }
+
+  return "";
+
+}
+
+
+function getActiveMemoryRecordTitle(
+  record
+) {
+
+  return String(record || "")
+    .replace(
+      /^\s*active_memory(?:_\d+)?\s*:\s*/i,
+      ""
+    )
+    .replace(
+      /\s*\[[^\]]+\]\s*/g,
+      " "
+    )
+    .replace(
+      /\s+/g,
+      " "
+    )
+    .trim();
+
+}
+
+
+function buildResolveActiveMemoryRuntimeActionText(
+  data,
+  fallbackText
+) {
+
+  const match =
+    findActiveMemoryRecordById(
+      data && data.id
+    );
+
+  const title =
+    getActiveMemoryRecordTitle(
+      match.record
+    );
+
+  if (!title) {
+    return String(fallbackText || "");
+  }
+
+  const slotNumber =
+    getActiveMemoryRecordSlotNumber(
+      match.record,
+      match.index
+    );
+
+  return slotNumber
+    ? `Resolved #${slotNumber} - ${title}`
+    : `Resolved - ${title}`;
+
+}
+
+
 function logActiveMemoryRecords() {
 
   if (activeMemoryRecordsLogged) {
@@ -551,6 +668,30 @@ function sendSocketMessage(
   return true;
 
 }
+
+window.sendRuntimeMemoryDeleteSlot = function (payload) {
+  const key = String(
+    payload
+    && payload.key || ""
+  ).trim();
+
+  if (!key) {
+    return false;
+  }
+
+  return sendSocketMessage({
+    type: "runtime_memory_delete_slot",
+    key,
+    line: String(
+      payload
+      && payload.line || ""
+    ).trim(),
+    index: Number(
+      payload
+      && payload.index || 0
+    ),
+  });
+};
 
 function triggerManualFactCheck() {
 
@@ -1437,11 +1578,17 @@ function handleSocketMessage(event) {
     const role =
       resolveMessageRole(data);
 
-    const filteredText =
+    let filteredText =
       filterDelayedMemoryContentFromChunk(
         data.message_id || "message",
         data.text
       );
+
+    if (window.stripInternalActionMarkers) {
+      filteredText = window.stripInternalActionMarkers(
+        filteredText
+      );
+    }
 
     clearDelayedMemoryContentFilter(
       data.message_id || "message"
@@ -1484,6 +1631,14 @@ function handleSocketMessage(event) {
       String(
         data.text || ""
       );
+
+    const displayText =
+      action === "resolve_active_memory"
+        ? buildResolveActiveMemoryRuntimeActionText(
+          data,
+          text
+        )
+        : text;
 
     if (
       action === "create_active_memory"
@@ -1529,22 +1684,27 @@ function handleSocketMessage(event) {
     ) {
       if (window.fadeRuntimeAction) {
         window.fadeRuntimeAction(
-          action
+          action,
+          {
+            id: data.id || "",
+          }
         );
       }
 
       return;
     }
 
-    if (!text.trim()) {
+    if (!displayText.trim()) {
       return;
     }
 
     const appended = appendRuntimeAction(
       action,
-      text,
+      displayText,
       {
         id: data.id || "",
+        contextSnapshot:
+          data.context || null,
       }
     );
 
@@ -1776,7 +1936,7 @@ if (factCheckTrigger) {
 
 chatForm.addEventListener(
   "submit",
-  function (e) {
+  async function (e) {
 
     // -----------------------------------------
     // BLOCK SUBMIT WHEN STREAMING
@@ -1797,7 +1957,12 @@ chatForm.addEventListener(
     const text =
       userInput.value.trim();
 
-    if (!text) {
+    const hasAttachments =
+      window.hasJinAttachments
+        ? window.hasJinAttachments()
+        : false;
+
+    if (!text && !hasAttachments) {
       return;
     }
 
@@ -1829,6 +1994,11 @@ chatForm.addEventListener(
 
     }
 
+    const attachments =
+      window.prepareJinAttachments
+        ? await window.prepareJinAttachments()
+        : [];
+
     if (window.prepareRuntimeMemoryForUserMessage) {
       window.prepareRuntimeMemoryForUserMessage(
         text
@@ -1841,7 +2011,9 @@ chatForm.addEventListener(
 
     appendChatMessage(
       "user",
-      text
+      text,
+      null,
+      attachments
     );
 
     if (window.markSessionActivityDirty) {
@@ -1860,6 +2032,11 @@ chatForm.addEventListener(
     const payload = {
       text: text,
     };
+
+    if (attachments.length) {
+      payload.attachments =
+        attachments;
+    }
 
     const inputLoopContext =
       window.updateJinInputLoopCounter
@@ -1913,7 +2090,16 @@ chatForm.addEventListener(
         window.JinRuntime.runtime.getActiveMemoryRecords();
     }
 
-    sendSocketMessage(payload);
+    const sent =
+      sendSocketMessage(payload);
+
+    if (
+        sent
+        && attachments.length
+        && window.clearJinAttachments
+    ) {
+      window.clearJinAttachments();
+    }
 
     if (window.jinFreezeUserIdleTimerAtSeconds) {
       window.jinFreezeUserIdleTimerAtSeconds(

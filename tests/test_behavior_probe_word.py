@@ -129,11 +129,11 @@ WAIT_FOR_MEMORY_UPDATE_AFTER_EACH_TURN = True
 # Keep False for heatmap/probe mode. Set True when this becomes a regression test.
 STRICT_TEXT_ASSERTIONS = False
 
-PRINT_PRETTY_REPORT = True
+PRINT_PRETTY_REPORT = sys.stdout.isatty()
 PRINT_JSON_REPORT = False
 PRINT_WEBSOCKET_MESSAGES = False
-LIVE_STREAM_MODEL_OUTPUT = True
-LIVE_PRINT_TURN_RESULTS = True
+LIVE_STREAM_MODEL_OUTPUT = sys.stdout.isatty()
+LIVE_PRINT_TURN_RESULTS = sys.stdout.isatty()
 PRINT_ACTIVE_MEMORY_DEBUG = True
 
 USE_ANSI_COLORS = True

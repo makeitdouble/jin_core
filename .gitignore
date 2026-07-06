@@ -18,3 +18,9 @@ repomix-output.xml
 init.py
 saved_runtime.txt
 *.patch
+
+assets/*
+!assets/skills/
+!assets/skills/**
+
+.gitkeep

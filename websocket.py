@@ -74,8 +74,13 @@ from runtime import (
     schedule_runtime_memory_update,
     send_telemetry,
 )
+from runtime.memory_events import (
+    emit_runtime_memory_snapshot_refresh,
+    rebuild_latest_runtime_memory_snapshot,
+)
 from runtime.L1_memory_utils import (
     build_runtime_memory_context_text,
+    canonicalize_runtime_memory_key,
     remove_runtime_user_idle_lines,
 )
 from utils.runtime_actions import (
@@ -170,6 +175,133 @@ def active_memory_records_text(context) -> str:
         )
         if str(record or "").strip()
     )
+
+
+def remove_runtime_memory_slot_by_key(
+        memory: str,
+        key: str,
+) -> tuple[str, bool]:
+
+    normalized_key = canonicalize_runtime_memory_key(
+        str(key or "")
+    )
+
+    if not normalized_key:
+        return str(memory or "").strip(), False
+
+    kept_lines = []
+    removed = False
+
+    for raw_line in str(memory or "").splitlines():
+        line = raw_line.strip().lstrip("-").strip()
+
+        if not line:
+            continue
+
+        if ":" not in line:
+            kept_lines.append(raw_line)
+            continue
+
+        line_key, _ = line.split(":", 1)
+
+        if (
+                canonicalize_runtime_memory_key(line_key)
+                == normalized_key
+        ):
+            removed = True
+            continue
+
+        kept_lines.append(raw_line)
+
+    return "\n".join(
+        line.strip()
+        for line in kept_lines
+        if str(line).strip()
+    ).strip(), removed
+
+
+async def apply_runtime_memory_slot_delete(
+        context,
+        message_data: dict,
+) -> bool:
+
+    key = str(
+        message_data.get("key", "")
+    ).strip()
+
+    normalized_key = canonicalize_runtime_memory_key(
+        key
+    )
+
+    if (
+            not normalized_key
+            or normalized_key == "user_idle"
+            or is_active_memory_key(normalized_key)
+    ):
+        return False
+
+    current_memory = str(
+        getattr(
+            context,
+            "runtime_memory",
+            "",
+        )
+        or ""
+    )
+
+    next_memory, removed = remove_runtime_memory_slot_by_key(
+        current_memory,
+        key,
+    )
+
+    if not removed or next_memory == current_memory.strip():
+        return False
+
+    context.runtime_memory = next_memory
+    context.runtime_memory_stable = next_memory
+    context.runtime_memory_updates = int(
+        getattr(
+            context,
+            "runtime_memory_updates",
+            0,
+        )
+        or 0
+    ) + 1
+
+    snapshot = rebuild_latest_runtime_memory_snapshot(
+        context
+    )
+
+    if snapshot is None:
+        snapshot = build_runtime_memory_snapshot(
+            context,
+            context.runtime_memory,
+        )
+        context.runtime_memory_snapshots = [snapshot]
+        context.runtime_memory_snapshot_index = snapshot.get(
+            "index",
+            0,
+        )
+
+    snapshot["runtime_memory_updates"] = (
+        context.runtime_memory_updates
+    )
+    snapshot["local_runtime_memory_delete"] = True
+    snapshot["deleted_runtime_memory_key"] = normalized_key
+
+    await emit_runtime_memory_snapshot_refresh(
+        context,
+        snapshot,
+    )
+    await emit_runtime_l1_diff_update(
+        context
+    )
+
+    await context.logger.log_system(
+        f"[RUNTIME MEMORY] slot deleted: {normalized_key}"
+    )
+
+    return True
 
 
 def clean_bootstrap_memory(
@@ -1820,6 +1952,235 @@ def format_runtime_memory_user_message(
     return f"{json.dumps(user_text, ensure_ascii=False)} [ repeated: {repeated} ]"
 
 
+def has_message_attachments(
+    message_data: dict,
+) -> bool:
+
+    attachments = message_data.get(
+        "attachments",
+    )
+
+    return isinstance(
+        attachments,
+        list,
+    ) and bool(
+        attachments,
+    )
+
+
+def format_attachment_context(
+    message_data: dict,
+) -> str:
+
+    attachments = message_data.get(
+        "attachments",
+    )
+
+    if not isinstance(
+        attachments,
+        list,
+    ):
+        return ""
+
+    lines = [
+        "Attached context:",
+    ]
+
+    included = 0
+
+    for index, attachment in enumerate(
+        attachments,
+        start=1,
+    ):
+
+        if not isinstance(
+            attachment,
+            dict,
+        ):
+            continue
+
+        included += 1
+
+        name = str(
+            attachment.get(
+                "name",
+                f"attachment-{index}",
+            )
+        )
+        kind = str(
+            attachment.get(
+                "kind",
+                "file",
+            )
+        )
+        mime_type = str(
+            attachment.get(
+                "type",
+                "application/octet-stream",
+            )
+        )
+        size_label = str(
+            attachment.get(
+                "size_label",
+                "",
+            )
+        )
+
+        detail_parts = [
+            kind,
+            mime_type,
+        ]
+
+        if size_label:
+            detail_parts.append(
+                size_label
+            )
+
+        width = attachment.get(
+            "width",
+        )
+        height = attachment.get(
+            "height",
+        )
+
+        if width and height:
+            detail_parts.append(
+                f"{width}x{height}"
+            )
+
+        lines.append(
+            f"- {name}: {', '.join(detail_parts)}"
+        )
+
+        text_preview = attachment.get(
+            "text_preview",
+        )
+
+        if text_preview is not None:
+            preview = str(
+                text_preview
+            )
+            preview_limit = int(
+                attachment.get(
+                    "preview_limit",
+                    len(
+                        preview
+                    ),
+                )
+                or 0
+            )
+            truncated = bool(
+                attachment.get(
+                    "truncated",
+                    False,
+                )
+            )
+            status = (
+                f"first {preview_limit} chars sent"
+                if truncated
+                else f"{len(preview)} chars sent"
+            )
+
+            lines.append(
+                f"  text_preview ({status}):"
+            )
+            lines.append(
+                preview
+            )
+
+    if not included:
+        return ""
+
+    return "\n".join(
+        lines,
+    ).strip()
+
+
+def redacted_attachment_for_log(
+    attachment: dict,
+) -> dict:
+
+    redacted = dict(
+        attachment
+    )
+
+    if redacted.get(
+        "data_url",
+    ):
+        redacted["data_url"] = (
+            f"<redacted image data url; "
+            f"{len(str(redacted.get('data_url') or ''))} chars>"
+        )
+
+    if redacted.get(
+        "text_content",
+    ):
+        redacted["text_content"] = (
+            f"<redacted text attachment content; "
+            f"{len(str(redacted.get('text_content') or ''))} chars>"
+        )
+
+    return redacted
+
+
+def redacted_message_data_for_log(
+    message_data: dict,
+) -> dict:
+
+    redacted = dict(
+        message_data
+    )
+
+    attachments = redacted.get(
+        "attachments",
+    )
+
+    if isinstance(
+        attachments,
+        list,
+    ):
+        redacted["attachments"] = [
+            redacted_attachment_for_log(
+                attachment
+            )
+            if isinstance(
+                attachment,
+                dict,
+            )
+            else attachment
+            for attachment in attachments
+        ]
+
+    return redacted
+
+
+def build_user_text_with_attachments(
+    message_data: dict,
+) -> str:
+
+    user_text = str(
+        message_data.get(
+            "text",
+            "",
+        )
+    ).strip()
+
+    attachment_context = format_attachment_context(
+        message_data,
+    )
+
+    if not attachment_context:
+        return user_text
+
+    if not user_text:
+        return attachment_context
+
+    return "\n\n".join([
+        user_text,
+        attachment_context,
+    ])
+
+
 async def process_message(
     context,
     message_data: dict,
@@ -1830,13 +2191,25 @@ async def process_message(
     try:
 
         user_text = (
-            message_data.get(
-                "text",
-                "",
+            build_user_text_with_attachments(
+                message_data,
             )
         )
 
         context.runtime_turn_user_message = user_text
+        context.runtime_turn_attachments = (
+            message_data.get(
+                "attachments",
+                [],
+            )
+            if isinstance(
+                message_data.get(
+                    "attachments",
+                ),
+                list,
+            )
+            else []
+        )
         context.runtime_turn_assistant_response = ""
         context.runtime_turn_interrupted = False
         await arm_save_session_from_user_text(
@@ -2056,9 +2429,11 @@ async def websocket_endpoint(
             try:
 
                 user_text = (
-                    message_data.get(
-                        "text",
-                        "",
+                    str(
+                        message_data.get(
+                            "text",
+                            "",
+                        )
                     ).strip()
                 )
 
@@ -2174,6 +2549,13 @@ async def websocket_endpoint(
             # RESTORE BROWSER SESSION MEMORY
             # -------------------------------------------------
 
+            if message_type == "runtime_memory_delete_slot":
+                await apply_runtime_memory_slot_delete(
+                    context,
+                    message_data,
+                )
+                continue
+
             if message_type == "session_bootstrap":
 
                 await logger.log(
@@ -2218,7 +2600,9 @@ async def websocket_endpoint(
                     )
                 ),
                 details=json.dumps(
-                    message_data,
+                    redacted_message_data_for_log(
+                        message_data
+                    ),
                     ensure_ascii=False,
                     indent=2,
                 ),
@@ -2286,13 +2670,20 @@ async def websocket_endpoint(
             # -------------------------------------------------
 
             user_text = (
-                message_data.get(
-                    "text",
-                    "",
+                str(
+                    message_data.get(
+                        "text",
+                        "",
+                    )
                 ).strip()
             )
 
-            if not user_text:
+            if (
+                not user_text
+                and not has_message_attachments(
+                    message_data
+                )
+            ):
 
                 await logger.log_error(
                     "Received empty message."
