@@ -63,6 +63,15 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
             )
         )
 
+    if bool(runtime_actions.get("CAN_RUNTIME_TODO", False)):
+        expected_actions.extend(
+            (
+                "CREATE_TODO_LIST",
+                "RESOLVE_TODO",
+                "CHECK_TODO",
+            )
+        )
+
     if bool(runtime_actions.get("CAN_SAVE_DELAYED_MEMORY", False)):
         expected_actions.append("SAVE_DELAYED_MEMORY_CONTENT")
 
@@ -763,7 +772,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "At the first sign of uncertainty",
+            "at the first sign of uncertainty",
         )
         assert_contains_text(
             self,
@@ -839,7 +848,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertLess(
-            prompt.index("Choose at most ONE internal action"),
+            prompt.index("Runtime Actions are internal mechanics"),
             prompt.index("<TOOL_RESULTS"),
         )
         self.assertLess(

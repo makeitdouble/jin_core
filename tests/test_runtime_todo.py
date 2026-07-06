@@ -25,8 +25,16 @@ class DummyContext:
 
 
 class RuntimeTodoTests(unittest.TestCase):
+    def enabled_actions_with_runtime_todo(self):
+        return (
+            *get_enabled_runtime_actions(BRAIN_RUNTIME_ACTIONS),
+            "CREATE_TODO_LIST",
+            "RESOLVE_TODO",
+            "CHECK_TODO",
+        )
+
     def test_extract_create_todo_block_with_next_action(self):
-        enabled_actions = get_enabled_runtime_actions(BRAIN_RUNTIME_ACTIONS)
+        enabled_actions = self.enabled_actions_with_runtime_todo()
         result = extract_runtime_actions(
             "<TODO_LIST>\n"
             "1. LIST_SKILLS\n"
@@ -48,7 +56,7 @@ class RuntimeTodoTests(unittest.TestCase):
 
 
     def test_extract_internal_action_todo_list_alias_block(self):
-        enabled_actions = get_enabled_runtime_actions(BRAIN_RUNTIME_ACTIONS)
+        enabled_actions = self.enabled_actions_with_runtime_todo()
         result = extract_runtime_actions(
             "<INTERNAL_ACTION_TODO_LIST>\n"
             "1. Create wildcard file assets/wildcards/clothing/shoes.txt with 10 shoe types.\n"
@@ -75,7 +83,7 @@ class RuntimeTodoTests(unittest.TestCase):
 
 
     def test_stream_filter_extracts_plain_todo_list_block(self):
-        enabled_actions = get_enabled_runtime_actions(BRAIN_RUNTIME_ACTIONS)
+        enabled_actions = self.enabled_actions_with_runtime_todo()
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=enabled_actions,
         )
@@ -104,7 +112,7 @@ class RuntimeTodoTests(unittest.TestCase):
         )
 
     def test_stream_filter_extracts_plain_todo_list_across_chunks(self):
-        enabled_actions = get_enabled_runtime_actions(BRAIN_RUNTIME_ACTIONS)
+        enabled_actions = self.enabled_actions_with_runtime_todo()
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=enabled_actions,
         )
