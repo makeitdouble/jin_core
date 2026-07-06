@@ -41,6 +41,7 @@ from runtime.memory_events import (
     emit_runtime_memory_update,
 )
 from runtime.L1_memory_utils import (
+    build_empty_assistant_message,
     build_interrupted_assistant_message,
     build_runtime_response_feedback_value,
     build_runtime_memory_batch_user_prompt,
@@ -885,12 +886,15 @@ def schedule_runtime_memory_update(
         assistant_message: str,
 ) -> asyncio.Task | None:
 
-    # Normal turns without a visible assistant answer do not produce
-    # enough signal for L1 and can be skipped. A confirmed session-save
-    # action is different: the visible answer may be intentionally empty
-    # because the brain emitted only the private remember-session marker.
-    # In that case still enqueue the turn so the standard L1 -> optional
-    # L2 -> L3 save pipeline remains intact.
+    # Normal turns without a visible assistant answer, a confirmed
+    # session-save request, or a created active-memory record carry no
+    # textual signal of their own. Previously such turns were skipped
+    # outright — but "the model produced nothing" is itself a fact
+    # (e.g. the user explicitly asked for a blank/empty reply and got
+    # one), and silently dropping the turn means L1 never learns the
+    # request happened at all. Instead of skipping, such turns are still
+    # enqueued with an explicit placeholder describing the emptiness, so
+    # L1 records the exchange as resolved rather than losing it.
     if (
             not assistant_message.strip()
             and not getattr(
@@ -898,8 +902,19 @@ def schedule_runtime_memory_update(
                 "runtime_save_session_requested",
                 False,
             )
+            and not getattr(
+                context,
+                "runtime_active_memory_created_this_turn",
+                False,
+            )
     ):
-        return None
+
+        if not user_message.strip():
+            return None
+
+        assistant_message = build_empty_assistant_message(
+            user_message=user_message,
+        )
 
     context.runtime_memory_pending_turns.append({
         "user_message": user_message,

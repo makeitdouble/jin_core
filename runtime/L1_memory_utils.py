@@ -7,6 +7,7 @@ from runtime.L1_memory_rules import (
     DURABLE_FLOOR,
     DURABLE_MEMORY_KEY_TOKENS,
     DURABLE_MEMORY_NEGATION_MARKERS,
+    EMPTY_ASSISTANT_REPLY_MEMORY_TEMPLATE,
     GENERIC_MEMORY_MATCH_KEYS,
     GENERIC_MEMORY_VALUE_SIMILARITY_MIN,
     HOT_THRESHOLD,
@@ -1214,6 +1215,16 @@ def build_interrupted_assistant_message(
     return INTERRUPTED_ASSISTANT_MEMORY_TEMPLATE.format(
         user_message=user_message.strip(),
         assistant_message=partial_text,
+    )
+
+
+def build_empty_assistant_message(
+        *,
+        user_message: str,
+) -> str:
+
+    return EMPTY_ASSISTANT_REPLY_MEMORY_TEMPLATE.format(
+        user_message=user_message.strip(),
     )
 
 

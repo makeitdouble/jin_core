@@ -492,6 +492,12 @@ class BrainNode(BaseNode):
         else:
             context.runtime_asset_results.clear()
 
+        # Reset per-turn signal for schedule_runtime_memory_update(): it
+        # needs to know whether CREATE_ACTIVE_MEMORY actually wrote a
+        # record this turn even when the visible assistant text is empty
+        # (e.g. the user explicitly asked JIN to emit only the marker).
+        context.runtime_active_memory_created_this_turn = False
+
         system_prompt = (
             build_brain_system_prompt(
                 context,

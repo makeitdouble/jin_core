@@ -175,6 +175,16 @@ INTERRUPTED_ASSISTANT_MEMORY_TEMPLATE = (
     "{assistant_message}"
 )
 
+# Template used to pass turns where JIN produced no visible reply and no
+# runtime action into L1 memory (e.g. the user explicitly asked for a
+# blank/empty response and got one). Without this, such turns had no
+# textual signal at all and were silently dropped before ever reaching
+# L1, so the fact that the request was made — and answered with nothing —
+# was lost.
+EMPTY_ASSISTANT_REPLY_MEMORY_TEMPLATE = (
+    ""
+)
+
 # -------------------------------------------------------------------
 # --------------------------- BASIC RULES ---------------------------
 

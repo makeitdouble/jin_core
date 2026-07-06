@@ -1630,6 +1630,13 @@ async def apply_runtime_action_calls(
                     "[RUNTIME ACTION] active_memory record created"
                 )
 
+        if created_active_memory_texts:
+            # Tells schedule_runtime_memory_update() that this turn is
+            # meaningful for L1 even if the visible assistant text ends up
+            # empty (e.g. the model was instructed to only emit the
+            # marker and say nothing else).
+            context.runtime_active_memory_created_this_turn = True
+
         emitter = getattr(
             context,
             "emitter",

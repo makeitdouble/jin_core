@@ -448,6 +448,20 @@ class RuntimeStream:
                         )
                     )
 
+                    # `filter_runtime_action_content` may parse and apply a
+                    # runtime action marker (e.g. CREATE_ACTIVE_MEMORY,
+                    # APPEND_SKILL) from *this* chunk. `action_seen` above
+                    # only reflects actions from *previous* chunks, so it
+                    # must be refreshed here too — otherwise a marker that
+                    # lands in the same chunk as trailing content gets its
+                    # side effect applied (memory created / skill state
+                    # written) but the gate below still sees
+                    # `action_seen=False` and aborts the turn, dropping the
+                    # follow-up tick that was supposed to run next (e.g.
+                    # the L1 dirty-flush never fires).
+                    if len(getattr(self.context, "runtime_action_events", [])) > action_event_offset:
+                        action_seen = True
+
                     if content is None:
                         continue
 
