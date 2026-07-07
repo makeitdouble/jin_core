@@ -2,6 +2,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import (
     FastAPI,
+    HTTPException,
+    Query,
     Request,
 )
 
@@ -47,6 +49,9 @@ from runtime.behavior_contract import (
 )
 from utils.rule_citations import (
     get_rule_citation_registry,
+)
+from utils.assets_service import (
+    read_asset_text_preview,
 )
 
 STATUS_CHECK_TIMEOUT = getattr(
@@ -298,6 +303,34 @@ async def api_status():
 async def api_behavior_contract():
 
     return get_behavior_contract()
+
+
+@app.get("/api/assets/text-preview")
+async def api_asset_text_preview(
+    path: str = Query(...),
+    max_chars: int = Query(60000),
+):
+
+    try:
+        return read_asset_text_preview({
+            "path": path,
+            "max_chars": max_chars,
+        })
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=str(error),
+        ) from error
+    except UnicodeDecodeError as error:
+        raise HTTPException(
+            status_code=415,
+            detail="asset is not readable as utf-8 text",
+        ) from error
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
 
 
 @app.get("/api/debug/rule-citations")

@@ -772,7 +772,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "at the first sign of uncertainty",
+            "If unsure about skill capabilities",
         )
         assert_contains_text(
             self,
@@ -819,6 +819,18 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     "skills": [
                         {
                             "name": "wildcards",
+                            "path": "assets/skills/wildcards.txt",
+                            "content": "first line\nsecond line",
+                        },
+                    ],
+                },
+                {
+                    "ok": True,
+                    "action": "list_skills",
+                    "skills": [
+                        {
+                            "name": "wildcards",
+                            "path": "assets/skills/wildcards.txt",
                             "content": "first line\nsecond line",
                         },
                     ],
@@ -872,12 +884,84 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
         self.assertIn(
+            '<TOOL_RESULT name="SKILLS">',
+            prompt,
+        )
+        self.assertEqual(
+            prompt.count(
+                '<TOOL_RESULT name="SKILLS">'
+            ),
+            1,
+        )
+        self.assertNotIn(
+            '<TOOL_RESULT name="ASSETS">',
+            prompt,
+        )
+        self.assertNotIn(
+            "All available skills:",
+            prompt,
+        )
+        self.assertIn(
+            "1. wildcards (appended) - assets/skills/wildcards.txt",
+            prompt,
+        )
+        self.assertNotIn(
+            '"action": "list_skills"',
+            prompt,
+        )
+        self.assertNotIn(
+            '"skills":',
+            prompt,
+        )
+        self.assertIn(
             "<APPENDED_SKILLS>",
             prompt,
         )
         self.assertNotIn(
             "<TOOL_RESULTS",
             runtime_context,
+        )
+
+    def test_prompt_formats_missing_skill_as_skill_error_tool_result(self):
+
+        context = SimpleNamespace(
+            runtime_memory="session_status: active",
+            runtime_memory_stable="session_status: active",
+            runtime_l2_memory="",
+            active_memory_records=[],
+            runtime_asset_results=[
+                {
+                    "ok": False,
+                    "action": "append_skill",
+                    "requested": "file_writer",
+                    "error": "skill_not_found",
+                },
+            ],
+            runtime_appended_skills=[],
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_USE_ASSETS": True,
+            },
+        )
+
+        self.assertIn(
+            '<TOOL_RESULT name="SKILL_ERROR">',
+            prompt,
+        )
+        self.assertIn(
+            "You attempted to append a skill that does not exist: file_writer",
+            prompt,
+        )
+        self.assertNotIn(
+            '"action": "append_skill"',
+            prompt,
+        )
+        self.assertNotIn(
+            "skill_not_found",
+            prompt,
         )
 
     def test_prompt_adds_resolve_active_memory_rules_from_active_records_only(self):

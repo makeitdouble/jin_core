@@ -33,17 +33,6 @@ tags:
 body:
 </INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>
 """
-INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_FULL_EXAMPLE = """
-<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>
-title: Radius of Influence Specs
-summary: Three-zone data priority model for Kowloon Sandbox simulation.
-tags: kowloon_sandbox, simulation, world_state, radius_of_influence
-body:
-### Radius of Influence Specs
-
-A complete, self-sufficient summary...
-</INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>
-"""
 
 INTERNAL_ACTIONS_WITH_PAYLOAD = [
     INTERNAL_ACTION_WEB_SEARCH_MARKER,
@@ -57,6 +46,14 @@ INTERNAL_ACTIONS_WITH_PAYLOAD = [
 
 SKILL_ROUTING_RULES = (
     "SKILL ROUTING:\n"
+    "Operational tasks may require more than one skill; append every relevant skill returned by LIST_SKILLS.\n"
+    "A content/domain skill can define what to build, while a file-operation skill can define how files are created, appended, previewed, or saved.\n"
+    "Do not assume a single skill contains every instruction needed for a multi-capability task.\n"
+    "You must append a skill to check or use it!\n"
+    "Runtime will provide all kinds of skills for various tasks.\n"
+    "If unsure about skill capabilities - you must append it and read what it does, name of a skill may be misleading.\n"
+    "DO NOT derive skill capabilities from a skill name! NEVER guess from a filename!\n"
+    "DO NOT use hypothetical skill names!\n"
     "SKILL is instructions ONLY, skill is NOT a tool. NEVER use skill as a tool. NEVER use skill as a marker.\n"
     "YOU MUST CHECK <CURRENT_APPENDED_SKILLS> AND <SESSION_ACTIONS_HISTORY> BEFORE appending ANY skill.\n"
     "NEVER use skill as internal marker, rely on instructions and abilities provided in skill text.\n"
@@ -71,11 +68,11 @@ SKILL_ROUTING_RULES = (
     f"{INTERNAL_ACTION_APPEND_SKILL_MARKER}\n"
     f"{INTERNAL_ACTION_REMOVE_SKILL_MARKER}\n"
     "Each skill requires a separate APPEND_SKILL marker, you may append multiple skills at once.\n"
+    "When a task needs both domain instructions and file operations, append both relevant skills, one skill per marker.\n"
     "Do not use LIST_SKILLS for simple conversation, direct factual answers, or tasks whose project workflow is already clear from current TOOL_RESULTS.\n"
-    "Emit LIST_SKILLS when the user asks you to list your skills or to do extended work (create, generate, write, save, inspect, check, expand, assemble, modify, or run a workflow), do not guess the procedure if you are uncertain.\n"
-    "Emit LIST_SKILLS at the first sign of uncertainty about the right workflow, file format, action payload, target folder, naming convention, or available project capability, before doing the work.\n"
-    "Do not prompt, state or simply say to user that you will invoke/run/call/execute/trigger a skill or marker; "
-    "emit marker or markers in the output and system will process it.\n"
+    "Emit LIST_SKILLS when the user asks you to list your skills or to do extended work, do not guess the procedure or a name of a skill, read its content by appending.\n"
+    "You don't need to notify user about emitting a marker.\n"
+    "Emit marker or markers in the output and system will process it.\n"
     "Skill execution model:\n"
     "   All skills are only a block of textual instructions that can be appended or removed from context.\n"
     "   Skill can not be executed as a marker/tool/action.\n"
@@ -178,5 +175,5 @@ SAVE_DELAYED_MEMORY_RULES = (
     "Do NOT use this marker for generic remember/store/track/remind requests.\n"
     "Do NOT use this marker for word recall tests, secret values, future questions, or next-N-message conditions.\n"
     f"Emit fulfilled form only for explicit summary-save requests:\n"
-    f"{INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_FULL_EXAMPLE}\n"
+    f"{INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_EMPTY_EXAMPLE}\n"
 )

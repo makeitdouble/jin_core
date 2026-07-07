@@ -16,56 +16,6 @@ OUTPUTS_ROOT = ASSETS_ROOT / "outputs"
 
 PROMPT_BATCH_OVERWRITE_EXISTING = True
 
-DEFAULT_WILDCARD_SKILL = """wildcards
-
-Purpose:
-Use project assets as external reusable resources for prompt generation. Assets are files, not memory and not identity.
-
-When to use:
-- When the user asks to create wildcard lists, prompt fragments, prompt batches, style libraries, clothing lists, pose lists, camera lists, lighting lists, templates, or reusable generation fragments.
-- Use assets instead of pasting huge lists into chat.
-
-Folder layout:
-- assets/wildcards/ contains reusable prompt fragment lists.
-- assets/prompts/ contains ready prompt batches.
-- assets/templates/ contains prompt templates.
-- assets/outputs/ contains generated or assembled outputs.
-
-Wildcard files:
-- Plain .txt only.
-- One line equals one reusable prompt fragment.
-- No markdown, numbering, JSON, comments, quotes, or decorative headings inside wildcard files.
-- Read only the needed file or a small sample. Do not inline large wildcard libraries into chat context.
-
-Wildcard syntax:
-- __category/file__ means read one random line from assets/wildcards/category/file.txt.
-- Example: __clothing/women_tops__ reads assets/wildcards/clothing/women_tops.txt.
-
-Safe behavior:
-- Create folders and .txt files inside assets when useful.
-- Append existing wildcard files when the user asks to expand them.
-- Use an existing wildcard file by default when it already fits the request.
-- Use create_wildcard_file only when the needed wildcard file does not exist.
-- Do not recreate, delete, or overwrite existing wildcard files unless the user explicitly asks to replace their contents.
-
-Action workflow:
-1. Use LIST_SKILLS to retrieve this skill before a wildcard workflow.
-2. Use ASSET_ACTION with JSON payload for list_wildcards, create_wildcard_file, append_wildcard_file, sample_wildcard, expand_template, generate_prompt_batch, check_duplicates, or preview_file.
-3. Emit ASSET_ACTION as a JSON block:
-<INTERNAL_ACTION_ASSET_ACTION>
-{"action":"list_wildcards"}
-</INTERNAL_ACTION_ASSET_ACTION>
-4. Payload fields may be top-level or nested under args, for example {"action":"create_wildcard_file","args":{"path":"clothing/test_tops","content":"line one\nline two"}}.
-5. Use create_wildcard_library with files when creating several wildcard files at once.
-6. Use create_wildcard_file only for files under assets/wildcards. Do not use it to save ready prompt batches.
-7. Use generate_prompt_batch when the user asks to create N prompts from a template or wildcards and save them to assets/prompts or assets/outputs.
-   Schema: {"action":"generate_prompt_batch","template":"...","count":20,"path":"assets/prompts/test_prompts.txt"}.
-8. Prompt batch outputs must contain fully expanded prompts. Never write unresolved __category/file__ tokens as final prompt lines.
-9. If a required wildcard file from the template is missing, stop and report the missing wildcard path, unless the user explicitly asked to create that wildcard first.
-10. After ASSET_ACTION completes, report paths, counts, and 3-5 examples when useful. Do not paste huge generated lists into chat.
-"""
-
-
 DEFAULT_WILDCARD_CATEGORIES = (
     "clothing",
     "style",
@@ -91,13 +41,6 @@ def ensure_assets_tree() -> None:
         path.mkdir(
             parents=True,
             exist_ok=True,
-        )
-
-    skill_file = SKILLS_ROOT / "wildcards.txt"
-    if not skill_file.exists():
-        skill_file.write_text(
-            DEFAULT_WILDCARD_SKILL,
-            encoding="utf-8",
         )
 
 
@@ -696,6 +639,108 @@ def preview_file(payload: dict) -> dict:
     }
 
 
+def read_asset_text_preview(
+    payload: dict,
+) -> dict:
+    path = _asset_path(
+        ASSETS_ROOT,
+        str(payload.get("path", "")),
+        default_suffix=".txt",
+    )
+    max_chars = int(
+        payload.get("max_chars", 60000)
+        or 60000
+    )
+    max_chars = max(
+        1,
+        min(
+            max_chars,
+            250000,
+        ),
+    )
+
+    if not path.exists():
+        raise FileNotFoundError(str(path.relative_to(PROJECT_ROOT)))
+
+    if not path.is_file():
+        raise ValueError("path must point to a file")
+
+    content = path.read_text(
+        encoding="utf-8",
+    )
+    preview = content[:max_chars]
+
+    return {
+        "ok": True,
+        "action": "asset_text_preview",
+        "path": _relative(path),
+        "name": _relative(path),
+        "kind": "text",
+        "type": "text/plain",
+        "size_bytes": path.stat().st_size,
+        "line_count": len(content.splitlines()),
+        "preview_chars": len(preview),
+        "preview_limit": max_chars,
+        "truncated": len(content) > max_chars,
+        "text_content": preview,
+    }
+
+
+def create_asset_file(payload: dict) -> dict:
+    path = _asset_path(
+        ASSETS_ROOT,
+        str(payload.get("path", "")),
+        default_suffix=".txt",
+    )
+    lines = _clean_lines(
+        payload.get("lines")
+        or payload.get("content")
+    )
+    overwrite = bool(
+        payload.get("overwrite", False)
+    )
+
+    result = _write_text_file(
+        path,
+        lines,
+        overwrite=overwrite,
+    )
+    result["action"] = "create_asset_file"
+    return result
+
+
+def append_asset_file(payload: dict) -> dict:
+    path = _asset_path(
+        ASSETS_ROOT,
+        str(payload.get("path", "")),
+        default_suffix=".txt",
+    )
+    lines = _clean_lines(
+        payload.get("lines")
+        or payload.get("content")
+    )
+
+    path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    existing_lines = _read_lines(path) if path.exists() else []
+    merged_lines = existing_lines + lines
+    path.write_text(
+        "\n".join(merged_lines).strip() + ("\n" if merged_lines else ""),
+        encoding="utf-8",
+    )
+
+    return {
+        "ok": True,
+        "action": "append_asset_file",
+        "path": _relative(path),
+        "appended_count": len(lines),
+        "line_count": len(merged_lines),
+        "examples": merged_lines[:5],
+    }
+
+
 def _wildcard_path(name: str) -> Path:
     return _asset_path(
         WILDCARDS_ROOT,
@@ -917,6 +962,8 @@ def _run_single_asset_action(payload: dict) -> dict:
         "generate_prompt_batch": generate_prompt_batch,
         "check_duplicates": check_duplicates,
         "preview_file": preview_file,
+        "create_asset_file": create_asset_file,
+        "append_asset_file": append_asset_file,
     }
 
     handler = handlers.get(

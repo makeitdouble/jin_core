@@ -1,11 +1,12 @@
 wildcards
 
 Purpose:
-Use project assets as external reusable resources for prompt generation. Assets are files, not memory and not identity.
+Define and use reusable prompt fragments and prompt-generation tokens. Assets are external project resources, not memory and not identity.
 
 When to use:
-- When the user asks to create wildcard lists, prompt fragments, prompt batches, style libraries, clothing lists, pose lists, camera lists, lighting lists, templates, or reusable generation fragments.
-- Use assets instead of pasting huge lists into chat.
+- When the user asks for wildcard lists, prompt fragments, prompt batches, style libraries, clothing lists, pose lists, camera lists, lighting lists, templates, or reusable generation fragments.
+- When the user asks to assemble or generate prompts from reusable fragment tokens.
+- Use project assets instead of pasting huge reusable lists into chat.
 
 Folder layout:
 - assets/wildcards/ contains reusable prompt fragment lists.
@@ -27,46 +28,37 @@ Wildcard syntax:
 
 Path authority:
 - Wildcard filenames are project data, not naming conventions.
-- Never infer, invent, normalize, translate, or “improve” wildcard paths from meaning.
+- Never infer, invent, normalize, translate, or improve wildcard paths from meaning.
 - Do not guess names like women_tops, women_bottoms, shoe_types, poses_list, etc. unless those exact files were created in the current workflow or returned by list_wildcards.
 - Existing wildcard paths are valid only if they came from:
   1. list_wildcards result,
   2. sample_wildcard / preview_file result,
-  3. a successful create_wildcard_file / create_wildcard_library action in the current workflow.
+  3. a successful asset action in the current workflow that created that exact path.
 - If a needed path was not verified, call list_wildcards before using it.
 - If the file is not listed and was not just created successfully, treat it as missing. Do not substitute a guessed path.
 
-Safe behavior:
-- Create folders and .txt files inside assets when useful.
-- Append existing wildcard files when the user asks to expand them.
-- Use an existing wildcard file only after its exact path is verified.
-- Use create_wildcard_file only when the needed wildcard file does not exist or the user explicitly asks to create a new one.
-- Do not recreate, delete, or overwrite existing wildcard files unless the user explicitly asks to replace their contents.
-
 Action workflow:
-1. Use LIST_SKILLS to retrieve this skill before a wildcard workflow.
+1. Use LIST_SKILLS to retrieve relevant project skills before a wildcard workflow.
 2. Before any action that references existing wildcard files, call list_wildcards.
 3. After list_wildcards, use only the exact returned wildcard paths, without .txt, inside __category/file__ tokens.
-4. Use ASSET_ACTION with JSON payload for list_wildcards, create_wildcard_file, append_wildcard_file, sample_wildcard, expand_template, generate_prompt_batch, check_duplicates, or preview_file.
+4. Use ASSET_ACTION with JSON payload for list_wildcards, sample_wildcard, expand_template, generate_prompt_batch, check_duplicates, or preview_file.
 5. Emit ASSET_ACTION as a JSON block:
 <INTERNAL_ACTION_ASSET_ACTION>
 {"action":"list_wildcards"}
 </INTERNAL_ACTION_ASSET_ACTION>
-6. Payload fields may be top-level or nested under args, for example:
-{"action":"create_wildcard_file","args":{"path":"clothing/test_tops","content":"line one\nline two"}}
-7. Use create_wildcard_library with files when creating several wildcard files at once.
-8. Use create_wildcard_file only for files under assets/wildcards. Do not use it to save ready prompt batches.
-9. Use generate_prompt_batch when the user asks to create N prompts from a template or wildcards and save them to assets/prompts or assets/outputs.
+6. Payload fields may be top-level or nested under args.
+7. When creating or updating reusable fragment resources, keep the wildcard file format and path authority rules active.
+8. Use generate_prompt_batch when the user asks to create N prompts from a template or wildcard tokens and save them to assets/prompts or assets/outputs.
    Schema:
    {"action":"generate_prompt_batch","template":"...","count":20,"path":"assets/prompts/test_prompts.txt"}
-10. Before generate_prompt_batch:
+9. Before generate_prompt_batch:
    - identify every __category/file__ token needed by the template;
    - verify every existing token through list_wildcards;
    - use newly created wildcard paths only if their create action succeeded;
    - never use guessed wildcard paths.
-11. Prompt batch outputs must contain fully expanded prompts. Never write unresolved __category/file__ tokens as final prompt lines.
-12. If a required wildcard file from the template is missing, stop and report the missing wildcard path, unless the user explicitly asked to create that wildcard first.
-13. After ASSET_ACTION completes, report paths, counts, and 3-5 examples when useful. Do not paste huge generated lists into chat.
+10. Prompt batch outputs must contain fully expanded prompts. Never write unresolved __category/file__ tokens as final prompt lines.
+11. If a required wildcard file from the template is missing, stop and report the missing wildcard path, unless the user explicitly asked to create that resource first.
+12. After ASSET_ACTION completes, report paths, counts, and 3-5 examples when useful. Do not paste huge generated lists into chat.
 
 Correct example:
 - If list_wildcards shows:

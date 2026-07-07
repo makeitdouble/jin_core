@@ -1316,6 +1316,14 @@ async def apply_runtime_action_calls(
             appended_skill_results.append(
                 result
             )
+            if (
+                result.get("ok") is False
+                and result.get("error") == "skill_not_found"
+            ):
+                append_asset_runtime_result(
+                    context,
+                    result,
+                )
 
     removed_skill_results = []
 
@@ -1470,13 +1478,6 @@ async def apply_runtime_action_calls(
                     "type": "runtime_action",
                     "action": action_name,
                     "id": action_id,
-                    "text": text,
-                    "asset_result": result,
-                }))
-                await emit({
-                    "type": "runtime_action",
-                    "action": action_name,
-                    "id": action_id,
                     "status": (
                         "completed"
                         if result.get("ok")
@@ -1484,7 +1485,7 @@ async def apply_runtime_action_calls(
                     ),
                     "text": text,
                     "asset_result": result,
-                })
+                }))
 
     skill_state_results = (
         appended_skill_results
@@ -1513,6 +1514,13 @@ async def apply_runtime_action_calls(
             if result_action == "append_skill"
             else f"Removed skill: {requested_skill}"
         )
+        if (
+            result_action == "append_skill"
+            and result.get("ok") is False
+            and result.get("error") == "skill_not_found"
+        ):
+            text = f"{text} ( does not exist )"
+
         skill_state_result_texts.append(
             (
                 result,
@@ -1564,7 +1572,11 @@ async def apply_runtime_action_calls(
                     "type": "runtime_action",
                     "action": result_action,
                     "id": action_id,
-                    "status": "completed",
+                    "status": (
+                        "completed"
+                        if result.get("ok") is not False
+                        else "failed"
+                    ),
                     "text": text,
                     "skill_result": result,
                 })

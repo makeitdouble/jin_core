@@ -165,6 +165,17 @@ function escapeHtml(text) {
 }
 
 const ATTACHMENT_IMAGE_PREVIEW_MAX_PX = 200;
+const ASSET_TEXT_PREVIEW_ENDPOINT = "/api/assets/text-preview";
+const ASSET_TEXT_PREVIEW_MAX_CHARS = 60000;
+const ASSET_TEXT_PREVIEW_EXTENSIONS = new Set([
+  ".txt",
+  ".md",
+  ".csv",
+  ".json",
+  ".jsonl",
+  ".yaml",
+  ".yml",
+]);
 
 let attachmentHoverPreview = null;
 let attachmentHoverPreviewImage = null;
@@ -708,6 +719,197 @@ function bindJinAttachmentBubble(element, attachment) {
         );
       }
     }
+  );
+}
+
+function getAssetResultPath(assetResult) {
+  return normalizeAttachmentValue(
+    assetResult
+    && assetResult.path
+  ).trim();
+}
+
+function getAssetPathExtension(path) {
+  const match =
+    String(path || "").toLowerCase().match(/\.[a-z0-9]+$/);
+
+  return match
+    ? match[0]
+    : ".txt";
+}
+
+function isPreviewableTextAssetResult(assetResult) {
+  const path =
+    getAssetResultPath(
+      assetResult
+    );
+
+  const isExistingFileResult =
+    assetResult
+    && assetResult.ok === false
+    && assetResult.error === "file_exists";
+
+  if (
+      !assetResult
+      || (
+        assetResult.ok === false
+        && !isExistingFileResult
+      )
+      || !path
+      || !path.startsWith("assets/")
+  ) {
+    return false;
+  }
+
+  return ASSET_TEXT_PREVIEW_EXTENSIONS.has(
+    getAssetPathExtension(
+      path
+    )
+  );
+}
+
+function formatAssetBytes(bytes) {
+  const value =
+    Number(bytes || 0);
+
+  if (!Number.isFinite(value) || value <= 0) {
+    return "";
+  }
+
+  const units = [
+    "B",
+    "KB",
+    "MB",
+    "GB",
+  ];
+  let size = value;
+  let unitIndex = 0;
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${size.toFixed(unitIndex ? 1 : 0)} ${units[unitIndex]}`;
+}
+
+async function fetchAssetTextPreview(path) {
+  const url =
+    new URL(
+      ASSET_TEXT_PREVIEW_ENDPOINT,
+      window.location.origin
+    );
+
+  url.searchParams.set(
+    "path",
+    path
+  );
+  url.searchParams.set(
+    "max_chars",
+    String(ASSET_TEXT_PREVIEW_MAX_CHARS)
+  );
+
+  const response =
+    await fetch(
+      url,
+      {
+        cache: "no-store",
+      }
+    );
+
+  if (!response.ok) {
+    throw new Error(
+      `Asset preview failed: ${response.status}`
+    );
+  }
+
+  const result =
+    await response.json();
+  const text =
+    normalizeAttachmentValue(
+      result.text_content
+    );
+  const truncatedNote =
+    result.truncated
+      ? `\n\n[preview truncated at ${result.preview_limit || ASSET_TEXT_PREVIEW_MAX_CHARS} chars]`
+      : "";
+
+  return {
+    name:
+      result.name || result.path || path,
+    type:
+      result.type || "text/plain",
+    kind: "text",
+    size_bytes:
+      result.size_bytes || 0,
+    size_label:
+      formatAssetBytes(
+        result.size_bytes
+      ),
+    text_content:
+      text + truncatedNote,
+  };
+}
+
+function createAssetTextAttachment(assetResult) {
+  if (!isPreviewableTextAssetResult(assetResult)) {
+    return null;
+  }
+
+  const path =
+    getAssetResultPath(
+      assetResult
+    );
+
+  const attachment = {
+    name: path,
+    type: "text/plain",
+    kind: "text",
+    line_count:
+      assetResult.line_count || 0,
+    text_preview:
+      Array.isArray(assetResult.examples)
+        ? assetResult.examples.join("\n")
+        : "",
+  };
+
+  attachment.resolve_modal_attachment =
+    async () => {
+      try {
+        return {
+          ...attachment,
+          ...await fetchAssetTextPreview(
+            path
+          ),
+        };
+      } catch (error) {
+        return {
+          ...attachment,
+          text_content:
+            `Unable to load asset preview for ${path}.\n\n${error && error.message ? error.message : error}`,
+        };
+      }
+    };
+
+  return attachment;
+}
+
+function bindAssetResultPreview(element, assetResult) {
+  const attachment =
+    createAssetTextAttachment(
+      assetResult
+    );
+
+  if (!attachment) {
+    return;
+  }
+
+  element.title =
+    `Preview ${attachment.name}`;
+
+  bindJinAttachmentBubble(
+    element,
+    attachment
   );
 }
 
@@ -2258,6 +2460,13 @@ function appendRuntimeAction(
   label.textContent =
     actionText;
 
+  if (action === "asset_action") {
+    bindAssetResultPreview(
+      label,
+      options.assetResult || null
+    );
+  }
+
   row.appendChild(
     icon
   );
@@ -2300,6 +2509,8 @@ function queueRuntimeActionAfterNextResponse(
     id: options.id || "",
     contextSnapshot:
       options.contextSnapshot || null,
+    assetResult:
+      options.assetResult || null,
     completed: false,
   });
 
@@ -2342,6 +2553,8 @@ function flushRuntimeActionsAfterResponse(
         id: entry.id || "",
         contextSnapshot:
           entry.contextSnapshot || null,
+        assetResult:
+          entry.assetResult || null,
         activateScene: !entry.completed,
       }
     );

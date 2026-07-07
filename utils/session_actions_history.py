@@ -1,3 +1,6 @@
+import time
+
+
 MAX_SESSION_ACTION_HISTORY_ITEMS = 200
 
 
@@ -74,7 +77,10 @@ def record_session_action_history(
         )
 
     history.append(
-        normalized_text
+        {
+            "text": normalized_text,
+            "created_at": time.time(),
+        }
     )
 
     if len(history) > MAX_SESSION_ACTION_HISTORY_ITEMS:

@@ -1,5 +1,6 @@
 import json
 import re
+import time
 from datetime import datetime
 from xml.sax.saxutils import escape
 
@@ -301,16 +302,59 @@ def build_session_actions_history_context(
     if context is None:
         return ""
 
-    history = [
-        str(item or "").strip()
-        for item in getattr(
+    history_items = list(
+        getattr(
             context,
             "runtime_session_action_history",
             [],
         )
         or []
-        if str(item or "").strip()
-    ]
+    )
+
+    now = time.time()
+    history = []
+
+    for item in history_items:
+        created_at = None
+
+        if isinstance(
+            item,
+            dict,
+        ):
+            text = str(
+                item.get(
+                    "text",
+                    "",
+                )
+                or ""
+            ).strip()
+            raw_created_at = item.get(
+                "created_at"
+            )
+            if isinstance(
+                raw_created_at,
+                (int, float),
+            ):
+                created_at = float(
+                    raw_created_at
+                )
+        else:
+            text = str(
+                item
+                or ""
+            ).strip()
+
+        if not text:
+            continue
+
+        if created_at is not None:
+            text = (
+                f"{text} ( {format_session_action_age(now - created_at)} ago )"
+            )
+
+        history.append(
+            text
+        )
 
     if not history:
         return ""
@@ -328,6 +372,32 @@ def build_session_actions_history_context(
         f"{indent_xml(escape(chr(10).join(lines)), spaces=4)}\n"
         "</SESSION_ACTIONS_HISTORY>"
     )
+
+
+def format_session_action_age(
+    elapsed_seconds,
+) -> str:
+
+    seconds = max(
+        0,
+        int(
+            elapsed_seconds
+        ),
+    )
+
+    if seconds < 60:
+        return f"{seconds}s"
+
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes}m"
+
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours}h"
+
+    days = hours // 24
+    return f"{days}d"
 
 
 def append_current_runtime_todo(
@@ -893,6 +963,285 @@ def format_tool_result_payload(
     )
 
 
+def _normalize_skill_status_name(
+    name,
+) -> str:
+
+    normalized = str(
+        name
+        or ""
+    ).strip()
+
+    if normalized.lower().endswith(
+        ".txt"
+    ):
+        normalized = normalized[:-4]
+
+    normalized = re.sub(
+        r"[^A-Za-z0-9]+",
+        "_",
+        normalized,
+    ).strip(
+        "_"
+    ).lower()
+
+    return re.sub(
+        r"_+",
+        "_",
+        normalized,
+    )
+
+
+def _appended_skill_names(
+    context=None,
+) -> set[str]:
+
+    appended_skills = list(
+        getattr(
+            context,
+            "runtime_appended_skills",
+            [],
+        )
+        or []
+    )
+    names = set()
+
+    for skill in appended_skills:
+        if isinstance(
+            skill,
+            dict,
+        ):
+            raw_name = skill.get(
+                "name",
+                "",
+            )
+        else:
+            raw_name = skill
+
+        name = _normalize_skill_status_name(
+            raw_name
+        )
+        if name:
+            names.add(
+                name
+            )
+
+    return names
+
+
+def format_list_skills_result(
+    result: dict,
+    context=None,
+) -> str:
+
+    lines = []
+
+    skills = [
+        skill
+        for skill in result.get(
+            "skills",
+            [],
+        )
+        or []
+        if isinstance(
+            skill,
+            dict,
+        )
+    ]
+
+    if not skills:
+        lines.append(
+            "No skills found."
+        )
+        return "\n".join(
+            lines
+        )
+
+    appended_names = _appended_skill_names(
+        context
+    )
+
+    for index, skill in enumerate(
+        skills,
+        start=1,
+    ):
+        name = str(
+            skill.get(
+                "name",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if not name:
+            name = "(unnamed skill)"
+
+        status = ""
+        if _normalize_skill_status_name(
+            name
+        ) in appended_names:
+            status = " (appended)"
+
+        path = str(
+            skill.get(
+                "path",
+                "",
+            )
+            or ""
+        ).strip()
+        path_suffix = (
+            f" - {path}"
+            if path
+            else ""
+        )
+
+        lines.append(
+            f"{index}. {name}{status}{path_suffix}"
+        )
+
+    return "\n".join(
+        lines
+    )
+
+
+def format_missing_skill_result(
+    result: dict,
+) -> str:
+
+    requested = str(
+        result.get(
+            "requested",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if not requested:
+        requested = "unknown"
+
+    return (
+        "You attempted to append a skill that does not exist: "
+        f"{requested}"
+    )
+
+
+def format_asset_result_sections(
+    payload,
+    context=None,
+) -> list[tuple[str, str]]:
+
+    if not isinstance(
+        payload,
+        list,
+    ):
+        return [
+            (
+                "ASSETS",
+                format_tool_result_payload(
+                    payload
+                ),
+            ),
+        ]
+
+    sections = []
+    pending_results = []
+    latest_list_skills_index = None
+
+    for index, result in enumerate(
+        payload,
+    ):
+        if (
+            isinstance(
+                result,
+                dict,
+            )
+            and result.get(
+                "action"
+            )
+            == "list_skills"
+        ):
+            latest_list_skills_index = index
+
+    def flush_pending_results() -> None:
+        if not pending_results:
+            return
+
+        sections.append(
+            (
+                "ASSETS",
+                format_tool_result_payload(
+                    list(
+                        pending_results
+                    )
+                ),
+            )
+        )
+        pending_results.clear()
+
+    for index, result in enumerate(
+        payload,
+    ):
+        if (
+            isinstance(
+                result,
+                dict,
+            )
+            and result.get(
+                "action"
+            )
+            == "append_skill"
+            and result.get("ok") is False
+            and result.get("error") == "skill_not_found"
+        ):
+            flush_pending_results()
+            sections.append(
+                (
+                    "SKILL_ERROR",
+                    format_missing_skill_result(
+                        result
+                    ),
+                )
+            )
+            continue
+
+        if (
+            isinstance(
+                result,
+                dict,
+            )
+            and result.get(
+                "action"
+            )
+            == "list_skills"
+        ):
+            if index != latest_list_skills_index:
+                continue
+
+            flush_pending_results()
+            sections.append(
+                (
+                    "SKILLS",
+                    format_list_skills_result(
+                        result,
+                        context,
+                    ),
+                )
+            )
+            continue
+
+        pending_results.append(
+            result
+        )
+
+    flush_pending_results()
+
+    return [
+        section
+        for section in sections
+        if section[1]
+    ]
+
+
 def append_asset_results(
     parts: list[str],
     context=None,
@@ -913,11 +1262,20 @@ def append_asset_results(
     if not asset_results:
         return
 
+    tool_result_blocks = []
+    for name, payload in format_asset_result_sections(
+        asset_results[-5:],
+        context,
+    ):
+        tool_result_blocks.append(
+            f'    <TOOL_RESULT name="{escape(name)}">\n'
+            f"{indent_xml(escape(payload))}\n"
+            "    </TOOL_RESULT>"
+        )
+
     parts.append(
-        '<TOOL_RESULTS type="internal_trusted_assets">\n'
-        '    <TOOL_RESULT name="ASSETS">\n'
-        f"{indent_xml(escape(format_tool_result_payload(asset_results[-5:])))}\n"
-        "    </TOOL_RESULT>\n"
+        '<TOOL_RESULTS>\n'
+        f"{chr(10).join(tool_result_blocks)}\n"
         "</TOOL_RESULTS>"
     )
 

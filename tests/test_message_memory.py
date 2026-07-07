@@ -1,5 +1,6 @@
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import httpx
 
@@ -829,19 +830,32 @@ class MessageMemoryTests(
                 },
             ],
             runtime_session_action_history=[
-                "Reading skills",
-                "Appended skill: wildcards",
-                "Assets: list_wildcards",
+                {
+                    "text": "Reading skills",
+                    "created_at": 40.0,
+                },
+                {
+                    "text": "Appended skill: wildcards",
+                    "created_at": 940.0,
+                },
+                {
+                    "text": "Assets: list_wildcards",
+                    "created_at": 998.0,
+                },
             ],
         )
 
-        prompt = build_brain_system_prompt(
-            context=context,
-            runtime_actions={
-                "CAN_WEB_SEARCH": False,
-                "CAN_USE_ASSETS": True,
-            },
-        )
+        with patch(
+            "clients.brain_context_builder.time.time",
+            return_value=1000.0,
+        ):
+            prompt = build_brain_system_prompt(
+                context=context,
+                runtime_actions={
+                    "CAN_WEB_SEARCH": False,
+                    "CAN_USE_ASSETS": True,
+                },
+            )
 
         self.assertTrue(
             prompt.startswith(
@@ -869,15 +883,15 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertIn(
-            "1. Reading skills",
+            "1. Reading skills ( 16m ago )",
             prompt,
         )
         self.assertIn(
-            "2. Appended skill: wildcards",
+            "2. Appended skill: wildcards ( 1m ago )",
             prompt,
         )
         self.assertIn(
-            "3. Assets: list_wildcards",
+            "3. Assets: list_wildcards ( 2s ago )",
             prompt,
         )
         self.assertLess(

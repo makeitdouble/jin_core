@@ -1682,6 +1682,36 @@ function handleSocketMessage(event) {
       || status === "complete"
       || status === "done"
     ) {
+      if (
+        (
+          action === "asset_action"
+          || action === "list_skills"
+        )
+        && displayText.trim()
+      ) {
+        const appended = appendRuntimeAction(
+          action,
+          displayText,
+          {
+            id: data.id || "",
+            contextSnapshot:
+              data.context || null,
+            assetResult:
+              data.asset_result || null,
+          }
+        );
+
+        if (
+          appended
+          && window.log_internal_action
+        ) {
+          window.log_internal_action(
+            action,
+            data
+          );
+        }
+      }
+
       if (window.fadeRuntimeAction) {
         window.fadeRuntimeAction(
           action,
@@ -1705,6 +1735,8 @@ function handleSocketMessage(event) {
         id: data.id || "",
         contextSnapshot:
           data.context || null,
+        assetResult:
+          data.asset_result || null,
       }
     );
 
@@ -1715,6 +1747,18 @@ function handleSocketMessage(event) {
       window.log_internal_action(
         action,
         data
+      );
+    }
+
+    if (
+      status === "failed"
+      && window.fadeRuntimeAction
+    ) {
+      window.fadeRuntimeAction(
+        action,
+        {
+          id: data.id || "",
+        }
       );
     }
 
