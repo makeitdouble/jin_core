@@ -1,4 +1,6 @@
 import json
+from datetime import datetime
+import re
 
 from config_loader import (
     config,
@@ -182,6 +184,39 @@ def _parse_int(value, default=None):
         return default
 
 
+L3_DIFF_IGNORED_KEY_NAMES = {
+    "active memory temporal continuity",
+    "last jin response",
+    "user idle",
+    "user message",
+}
+
+
+def normalize_l3_diff_key(
+        key,
+) -> str:
+
+    return " ".join(
+        re.sub(
+            r"[^a-z0-9]+",
+            " ",
+            str(
+                key
+                or ""
+            ).casefold(),
+        ).split()
+    )
+
+
+def is_l3_diff_noise_key(
+        key,
+) -> bool:
+
+    return normalize_l3_diff_key(
+        key
+    ) in L3_DIFF_IGNORED_KEY_NAMES
+
+
 def parse_l3_session_snapshot_metadata(
         memory: str,
 ) -> dict:
@@ -225,10 +260,40 @@ def get_l3_session_previous_last_turn(
 
 def format_l3_session_saved_at(
         *,
+        timestamp: str = "",
         current_date: str = "",
         current_time: str = "",
         weekday: str = "",
 ) -> str:
+
+    now = None
+
+    if timestamp:
+        try:
+            now = datetime.fromisoformat(
+                str(timestamp).replace(
+                    "Z",
+                    "+00:00",
+                )
+            )
+        except ValueError:
+            now = None
+
+    if now is None:
+        now = datetime.now()
+
+    current_date = str(
+        current_date
+        or now.date().isoformat()
+    )
+    current_time = str(
+        current_time
+        or now.strftime("%H:%M:%S")
+    )
+    weekday = str(
+        weekday
+        or now.strftime("%A")
+    )
 
     time_value = str(
         current_time
@@ -244,6 +309,48 @@ def format_l3_session_saved_at(
         f"{current_date} {time_minutes}, {weekday}"
         .strip()
     )
+
+
+def resolve_l3_session_snapshot_range(
+        *,
+        context,
+        previous_session_memory: str,
+        runtime_memory_snapshots: list[dict],
+) -> tuple[int | None, int | None]:
+
+    runtime_updates = _parse_int(
+        getattr(
+            context,
+            "runtime_memory_updates",
+            None,
+        )
+    )
+
+    if runtime_updates is None or runtime_updates <= 0:
+        return None, None
+
+    previous_metadata = parse_l3_session_snapshot_metadata(
+        previous_session_memory
+    )
+    previous_first_turn = previous_metadata.get(
+        "session_snapshot_first_turn"
+    )
+    saved_runtime_snapshot_index = getattr(
+        context,
+        "runtime_l3_saved_runtime_snapshot_index",
+        None,
+    )
+
+    session_first_turn = (
+        previous_first_turn
+        if (
+            previous_first_turn is not None
+            and saved_runtime_snapshot_index is not None
+        )
+        else 1
+    )
+
+    return session_first_turn, runtime_updates
 
 
 def strip_l3_session_snapshot_metadata(
@@ -272,6 +379,8 @@ def prepend_l3_session_snapshot_metadata(
         previous_session_memory: str,
         runtime_memory_snapshots: list[dict],
         session_saved_at: str = "",
+        session_first_turn: int | None = None,
+        session_last_turn: int | None = None,
 ) -> str:
 
     valid_snapshots = [
@@ -308,11 +417,19 @@ def prepend_l3_session_snapshot_metadata(
         return str(memory or "").strip()
 
     runtime_first_turn = min(runtime_indexes)
-    runtime_last_turn = max(runtime_indexes)
+    runtime_last_turn = (
+        session_last_turn
+        if session_last_turn is not None
+        else max(runtime_indexes)
+    )
     session_first_turn = (
-        previous_first_turn
-        if previous_first_turn is not None
-        else runtime_first_turn
+        session_first_turn
+        if session_first_turn is not None
+        else (
+            previous_first_turn
+            if previous_first_turn is not None
+            else runtime_first_turn
+        )
     )
 
     lines = []
@@ -687,7 +804,13 @@ def compact_l3_diff_entry(entry: dict) -> dict:
         return [
             str(item.get(name, ""))
             for item in (items or [])[:8]
-            if isinstance(item, dict) and item.get(name)
+            if (
+                isinstance(item, dict)
+                and item.get(name)
+                and not is_l3_diff_noise_key(
+                    item.get(name)
+                )
+            )
         ]
 
     return {
@@ -698,6 +821,28 @@ def compact_l3_diff_entry(entry: dict) -> dict:
         "changed_keys": keys(changes.get("changed", []), "current_key"),
         "removed_keys": keys(changes.get("removed", []), "key"),
     }
+
+
+def l3_compact_diff_has_signal(
+        diff: dict,
+) -> bool:
+
+    if not isinstance(
+        diff,
+        dict,
+    ):
+        return False
+
+    return any(
+        diff.get(
+            key
+        )
+        for key in (
+            "added_keys",
+            "changed_keys",
+            "removed_keys",
+        )
+    )
 
 
 def build_l3_session_digest(
@@ -784,20 +929,25 @@ def build_l3_session_digest(
         for event in valid_events[-event_count:]
     ]
 
-    selected_diffs = [
-        entry
-        for entry in (diff_history or [])
-        if isinstance(entry, dict)
-    ][-diff_count:]
+    useful_diffs = [
+        diff
+        for diff in (
+            compact_l3_diff_entry(entry)
+            for entry in (diff_history or [])
+            if isinstance(entry, dict)
+        )
+        if l3_compact_diff_has_signal(diff)
+    ]
+    selected_diffs = useful_diffs[-diff_count:]
     compact_diffs = [
-        compact_l3_diff_entry(entry)
+        entry
         for entry in selected_diffs
     ]
 
     omitted_event_count = max(0, len(valid_events) - len(compact_events))
     omitted_diff_count = max(
         0,
-        len(diff_history or []) - len(selected_diffs),
+        len(useful_diffs) - len(selected_diffs),
     )
 
     return {

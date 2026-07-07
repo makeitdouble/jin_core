@@ -36,6 +36,7 @@ from runtime.L3_memory_utils import (
     build_runtime_session_memory_system_prompt,
     parse_l3_session_snapshot_metadata,
     prepend_l3_session_snapshot_metadata,
+    resolve_l3_session_snapshot_range,
     select_l3_unsaved_diff_history,
     select_l3_unsaved_runtime_snapshots,
     select_l3_unsaved_session_events,
@@ -384,11 +385,24 @@ async def maybe_summarize_runtime_session_memory(
             return current_session_memory
 
         if updated_session_memory.strip():
+            (
+                session_first_turn,
+                session_last_turn,
+            ) = resolve_l3_session_snapshot_range(
+                context=context,
+                previous_session_memory=current_session_memory,
+                runtime_memory_snapshots=unsaved_snapshots,
+            )
             updated_session_memory = prepend_l3_session_snapshot_metadata(
                 updated_session_memory,
                 previous_session_memory=current_session_memory,
                 runtime_memory_snapshots=unsaved_snapshots,
                 session_saved_at=format_l3_session_saved_at(
+                    timestamp=getattr(
+                        context,
+                        "timestamp",
+                        "",
+                    ),
                     current_date=getattr(
                         context,
                         "current_date",
@@ -405,6 +419,8 @@ async def maybe_summarize_runtime_session_memory(
                         "",
                     ),
                 ),
+                session_first_turn=session_first_turn,
+                session_last_turn=session_last_turn,
             )
             session_metadata = parse_l3_session_snapshot_metadata(
                 updated_session_memory

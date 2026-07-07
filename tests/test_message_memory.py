@@ -2895,6 +2895,13 @@ class MessageMemoryTests(
                 {
                     "snapshot_index": 1,
                     "total_diff": 80,
+                    "changes": {
+                        "added": [
+                            {
+                                "key": "decision",
+                            }
+                        ],
+                    },
                 },
             ],
         )
@@ -2959,6 +2966,13 @@ class MessageMemoryTests(
                 {
                     "snapshot_index": index,
                     "total_diff": index,
+                    "changes": {
+                        "changed": [
+                            {
+                                "current_key": f"decision_{index}",
+                            }
+                        ],
+                    },
                 }
                 for index in range(40)
             ],
@@ -3063,6 +3077,104 @@ class MessageMemoryTests(
         )
         self.assertIn(
             "omitted_older_diffs:",
+            prompt,
+        )
+
+    def test_l3_session_memory_prompt_filters_noisy_l1_diff_keys(self):
+
+        prompt = build_runtime_session_memory_user_prompt(
+            current_session_memory="decision: old handoff",
+            runtime_memory_snapshots=[
+                {
+                    "index": 1,
+                    "raw_memory": "decision: keep useful snapshot",
+                    "total_diff": 80,
+                },
+            ],
+            diff_history=[
+                {
+                    "snapshot_index": 1,
+                    "total_diff": 240.95,
+                    "changes": {
+                        "added": [
+                            {
+                                "key": "last_jin_response",
+                            },
+                            {
+                                "key": "user_name",
+                            },
+                            {
+                                "key": "active_memory_temporal_continuity",
+                            },
+                        ],
+                        "changed": [
+                            {
+                                "current_key": "user_message",
+                            },
+                            {
+                                "current_key": "user_idle",
+                            },
+                        ],
+                        "removed": [
+                            {
+                                "key": "last_jin_response",
+                            },
+                        ],
+                    },
+                },
+                {
+                    "snapshot_index": 2,
+                    "total_diff": 172.2,
+                    "changes": {
+                        "added": [
+                            {
+                                "key": "last_jin_response",
+                            },
+                        ],
+                        "changed": [
+                            {
+                                "current_key": "active_memory_temporal_continuity",
+                            },
+                            {
+                                "current_key": "user_idle",
+                            },
+                        ],
+                        "removed": [
+                            {
+                                "key": "last_jin_response",
+                            },
+                        ],
+                    },
+                },
+            ],
+        )
+
+        self.assertIn(
+            '"user_name"',
+            prompt,
+        )
+        self.assertNotIn(
+            "last_jin_response",
+            prompt,
+        )
+        self.assertNotIn(
+            "active_memory_temporal_continuity",
+            prompt,
+        )
+        self.assertNotIn(
+            "user_message",
+            prompt,
+        )
+        self.assertNotIn(
+            "user_idle",
+            prompt,
+        )
+        self.assertIn(
+            '"snapshot_index": 1',
+            prompt,
+        )
+        self.assertNotIn(
+            '"snapshot_index": 2',
             prompt,
         )
 
@@ -3316,6 +3428,150 @@ class MessageMemoryTests(
                 "action": "save_session",
                 "status": "completed",
             },
+        )
+
+    async def test_l3_session_memory_uses_timestamp_when_date_fields_are_empty(self):
+
+        service_client = FakeServiceClient(
+            "decision: Continue restored session"
+        )
+        logger = FakeLogger()
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            emitter=SimpleNamespace(
+                events=[],
+                emit=None,
+            ),
+            logger=logger,
+            runtime_save_session_requested=True,
+            runtime_l3_session_memory="",
+            session_memory="",
+            session_memory_source="",
+            runtime_session_memory_updates=0,
+            runtime_session_event_snapshots=[],
+            runtime_l2_memory="",
+            timestamp="2026-06-05T13:38:50",
+            current_date="",
+            current_time="",
+            weekday="",
+            year=2026,
+            runtime_l1_diff_history=[],
+            runtime_memory_snapshot_index=1,
+            runtime_memory_snapshots=[
+                {
+                    "index": 1,
+                    "raw_memory": "decision: restored tail",
+                    "total_diff": 80,
+                },
+            ],
+        )
+
+        async def emit(event):
+            context.emitter.events.append(
+                event
+            )
+
+        context.emitter.emit = emit
+
+        updated_memory = await maybe_summarize_runtime_session_memory(
+            context=context,
+        )
+
+        self.assertTrue(
+            updated_memory.startswith(
+                "session_saved_at: 2026-06-05 13:38, Friday\n"
+            )
+        )
+        self.assertNotIn(
+            "session_saved_at: ,",
+            updated_memory,
+        )
+
+    async def test_l3_session_memory_uses_current_runtime_update_steps_after_restore(self):
+
+        service_client = FakeServiceClient(
+            "decision: Continue restored current session"
+        )
+        logger = FakeLogger()
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            emitter=SimpleNamespace(
+                events=[],
+                emit=None,
+            ),
+            logger=logger,
+            runtime_save_session_requested=True,
+            runtime_l3_session_memory=(
+                "session_saved_at: 2026-06-01 09:00, Monday\n"
+                "session_snapshot_first_turn: 42\n"
+                "session_snapshot_last_turn: 99\n"
+                "decision: restored previous session handoff"
+            ),
+            session_memory_source="browser_localStorage",
+            session_memory="",
+            runtime_session_memory_updates=1,
+            runtime_l3_saved_runtime_snapshot_index=None,
+            runtime_session_event_snapshots=[],
+            runtime_l2_memory="",
+            timestamp="2026-06-05T13:38:50",
+            current_date="",
+            current_time="",
+            weekday="",
+            year=2026,
+            turn_number=97,
+            user_message_count=97,
+            assistant_message_count=108,
+            runtime_memory_updates=13,
+            runtime_l1_diff_history=[
+                {
+                    "snapshot_index": 1,
+                    "total_diff": 80,
+                },
+            ],
+            runtime_memory_snapshot_index=1,
+            runtime_memory_snapshots=[
+                {
+                    "index": 1,
+                    "raw_memory": "decision: current restored session tail",
+                    "total_diff": 80,
+                },
+            ],
+        )
+
+        async def emit(event):
+            context.emitter.events.append(
+                event
+            )
+
+        context.emitter.emit = emit
+
+        updated_memory = await maybe_summarize_runtime_session_memory(
+            context=context,
+        )
+
+        self.assertIn(
+            "session_saved_at: 2026-06-05 13:38, Friday",
+            updated_memory,
+        )
+        self.assertIn(
+            "session_snapshot_first_turn: 1",
+            updated_memory,
+        )
+        self.assertIn(
+            "session_snapshot_last_turn: 13",
+            updated_memory,
+        )
+        self.assertEqual(
+            context.runtime_l3_session_first_turn,
+            1,
+        )
+        self.assertEqual(
+            context.runtime_l3_session_last_turn,
+            13,
         )
 
     async def test_l3_session_memory_merges_previous_snapshot_with_unsaved_tail_only(self):
