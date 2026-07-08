@@ -713,6 +713,51 @@ function splitInlineTrace(
   };
 }
 
+function parseValidatorLogPayload(
+  message,
+  details,
+) {
+  const payloadLines = [];
+  const visibleLines = [];
+
+  String(message || "")
+    .split(/\r?\n/)
+    .forEach((line) => {
+      const payloadMatch =
+        line.match(
+          /^(Preview|Raw chunk|Safe chunk):\s*"([\s\S]*)"$/
+        );
+
+      if (payloadMatch) {
+        payloadLines.push(
+          `${payloadMatch[1]}:\n${payloadMatch[2]}`
+        );
+        return;
+      }
+
+      if (
+          line.trim()
+          && line.trim() !== "Payload available."
+      ) {
+        visibleLines.push(
+          line
+        );
+      }
+    });
+
+  const explicitDetails =
+    details !== null
+    && details !== undefined
+    && String(details).trim()
+      ? String(details)
+      : "";
+
+  return {
+    message: visibleLines.join("\n").trim(),
+    payload: explicitDetails || payloadLines.join("\n\n").trim(),
+  };
+}
+
 function findLiveFlowLog(
   flowId,
 ) {
@@ -1220,6 +1265,9 @@ function appendLog(
   } else if (normalizedTag.includes("USER")) {
     logKind =
       "user";
+  } else if (normalizedTag.includes("VALIDATOR")) {
+    logKind =
+      "validator";
   } else if (normalizedTag.includes("SYSTEM")) {
     logKind =
       "system";
@@ -1364,6 +1412,21 @@ function appendLog(
       "text-emerald-500";
   }
 
+  if (tag.includes("VALIDATOR")) {
+    tagClass =
+      "text-amber-300 font-bold";
+
+    logDiv.classList.add(
+      "font-mono",
+      "text-[12px]",
+      "bg-amber-500/5",
+      "p-2",
+      "rounded",
+      "border",
+      "border-amber-500/10",
+    );
+  }
+
   if (tag.includes("FLOW TELEMETRY")) {
     tagClass =
       "text-purple-400";
@@ -1436,14 +1499,69 @@ function appendLog(
   messageSpan.style.overflowWrap =
     "anywhere";
 
+  const validatorPayload =
+    tag.includes("VALIDATOR")
+      ? parseValidatorLogPayload(
+          normalized.message,
+          normalized.details
+        )
+      : null;
+
   messageSpan.textContent =
-    normalized.message;
+    validatorPayload
+      ? validatorPayload.message
+      : normalized.message;
 
-  logDiv.appendChild(
-    messageSpan
-  );
+  if (messageSpan.textContent) {
+    logDiv.appendChild(
+      messageSpan
+    );
+  }
 
-  if (normalized.details) {
+  if (
+      validatorPayload
+      && validatorPayload.payload
+  ) {
+    const actions =
+      document.createElement("div");
+
+    actions.className =
+      "mt-2 flex flex-wrap items-center gap-2";
+
+    const payloadButton =
+      document.createElement("button");
+
+    payloadButton.type =
+      "button";
+
+    payloadButton.className =
+      "inline-flex items-center rounded border border-amber-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-amber-300 hover:bg-amber-500/10 transition";
+
+    payloadButton.textContent =
+      "payload";
+
+    payloadButton.addEventListener(
+      "click",
+      function () {
+        showTrace(
+          prettifyTraceDetails(
+            validatorPayload.payload
+          ),
+          "Validator payload"
+        );
+      }
+    );
+
+    actions.appendChild(
+      payloadButton
+    );
+
+    logDiv.appendChild(
+      actions
+    );
+  }
+
+  if (normalized.details && !validatorPayload) {
     const isSummarizer =
       tag.includes("SUMMARIZER")
       || tag.includes("MEMORY:")

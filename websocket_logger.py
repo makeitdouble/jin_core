@@ -136,5 +136,13 @@ class WebSocketLogger:
             flow_event="agent_route",
         )
 
-    async def log_validator(self, message: str):
-        await self.log("[VALIDATOR]", message)
+    async def log_validator(
+            self,
+            message: str,
+            details: str | None = None,
+    ):
+        await self.log(
+            "[VALIDATOR]",
+            message,
+            details=details,
+        )

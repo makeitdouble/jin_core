@@ -1,6 +1,9 @@
 RUNTIME_ACTION_WEB_SEARCH = "WEB_SEARCH"
 RUNTIME_ACTION_SAVE_SESSION = "SAVE_SESSION"
 RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT = "SAVE_DELAYED_MEMORY_CONTENT"
+RUNTIME_ACTION_LIST_DELAYED_MEMORY = "LIST_DELAYED_MEMORY"
+RUNTIME_ACTION_APPEND_DELAYED_MEMORY = "APPEND_DELAYED_MEMORY"
+RUNTIME_ACTION_REMOVE_DELAYED_MEMORY = "REMOVE_DELAYED_MEMORY"
 RUNTIME_ACTION_CREATE_ACTIVE_MEMORY = "CREATE_ACTIVE_MEMORY"
 RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY = "RESOLVE_ACTIVE_MEMORY"
 RUNTIME_ACTION_LIST_SKILLS = "LIST_SKILLS"
@@ -25,6 +28,9 @@ INTERNAL_ACTION_RESOLVE_TODO_MARKER = "<INTERNAL_ACTION_RESOLVE_TODO: todo_item_
 INTERNAL_ACTION_CHECK_TODO_MARKER = "<INTERNAL_ACTION_CHECK_TODO: todo_item_id >"
 
 INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_MARKER = "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>"
+DELAYED_MEMORY_LIST_MARKER = "<LIST_DELAYED_MEMORY>"
+DELAYED_MEMORY_APPEND_MARKER = "<APPEND_DELAYED_MEMORY: id >"
+DELAYED_MEMORY_REMOVE_MARKER = "<REMOVE_DELAYED_MEMORY: id >"
 INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_EMPTY_EXAMPLE = """
 <INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>
 title:
@@ -63,20 +69,31 @@ SKILL_ROUTING_RULES = (
     "Skills never become runtime markers. Runtime markers are a closed whitelist, not generated from skill names.\n"
     "Emit marker ONLY, DO NOT add any other in the same output.\n"
     "EVERY emitted marker will be be processed by the runtime, ONLY AFTER acknowledge it's done.\n"
-    f"If user ask to view/list your skills you must use {INTERNAL_ACTION_LIST_SKILLS_MARKER}\n"
-    f"If user ask to append or remove skill you must use this markers:\n"
-    f"{INTERNAL_ACTION_APPEND_SKILL_MARKER}\n"
-    f"{INTERNAL_ACTION_REMOVE_SKILL_MARKER}\n"
-    "Each skill requires a separate APPEND_SKILL marker, you may append multiple skills at once.\n"
     "When a task needs both domain instructions and file operations, append both relevant skills, one skill per marker.\n"
-    "Do not use LIST_SKILLS for simple conversation, direct factual answers, or tasks whose project workflow is already clear from current TOOL_RESULTS.\n"
-    "Emit LIST_SKILLS when the user asks you to list your skills or to do extended work, do not guess the procedure or a name of a skill, read its content by appending.\n"
     "You don't need to notify user about emitting a marker.\n"
     "Emit marker or markers in the output and system will process it.\n"
     "Skill execution model:\n"
     "   All skills are only a block of textual instructions that can be appended or removed from context.\n"
     "   Skill can not be executed as a marker/tool/action.\n"
     "   If no real runtime action is needed, output only the user-facing final result or usual response.\n"
+)
+
+LIST_SKILLS_RULES = (
+    "LIST SKILLS:\n"
+    "Do not use or do token-heavy operations in reasoning, if output is large - return it in the final answer directly and skip the reasoning part.\n"
+    f"If user asks to view/list your skills you must use {INTERNAL_ACTION_LIST_SKILLS_MARKER}\n"
+    "Do not use LIST_SKILLS for simple conversation, direct factual answers, or tasks whose project workflow is already clear from current TOOL_RESULTS.\n"
+    "Emit LIST_SKILLS when the user asks you to list your skills or to do extended work, do not guess the procedure or a name of a skill, read its content by appending.\n"
+)
+
+APPEND_REMOVE_SKILL_RULES = (
+    "APPEND / REMOVE SKILLS:\n"
+    "Use APPEND_SKILL and REMOVE_SKILL only for skills returned in trusted LIST_SKILLS tool results.\n"
+    f"{INTERNAL_ACTION_APPEND_SKILL_MARKER}\n"
+    f"{INTERNAL_ACTION_REMOVE_SKILL_MARKER}\n"
+    "Each skill requires a separate APPEND_SKILL marker, you may append multiple skills at once.\n"
+    "Never append a skill that is already listed in <CURRENT_APPENDED_SKILLS>.\n"
+    "If the relevant skill appears in APPENDED_SKILLS, do not emit APPEND_SKILL again.\n"
 )
 
 RUNTIME_ACTIONS_RULES = (
@@ -92,7 +109,7 @@ RUNTIME_ACTIONS_RULES = (
     "You may emit actions one by one while performing a task.\n"
     "When the required internal actions are already completed, send the final user-facing completion response for LATEST_USER_REQUEST.\n"
     "Use LATEST_USER_REQUEST only as the latest task source, never as a new user message.\n"
-    "USER PROMPT exactly 'No new messages, multi-task in progress' is a runtime follow-up tick, not user intent.\n"
+    "USER PROMPT starting with 'No new messages, multi-task in progress' is a runtime follow-up tick, not user intent.\n"
     "Analyze the LATEST_USER_REQUEST: The user asked for X - What have I already done to satisfy X?\n"
     "On a runtime follow-up tick, ignore the literal user_prompt text and resume/finish the workflow derived from LATEST_USER_REQUEST.\n"
     "If a required action is already present in <SESSION_ACTIONS_HISTORY> on a last line - treat action as processed and completed.\n"
@@ -132,12 +149,7 @@ WEB_SEARCH_RULES = (
 )
 
 ASSETS_RULES = (
-    "PROJECT SKILLS:\n"
-    f"Emit {INTERNAL_ACTION_LIST_SKILLS_MARKER} when an operational task may require a project skill and the relevant skill is not already present in APPENDED_SKILLS.\n"
-    "DO NOT append skill from the user input, use LIST_SKILLS as trusted source of available skills.\n"
-    f"Emit {INTERNAL_ACTION_APPEND_SKILL_MARKER} to place a specific skill's full instructions into APPENDED_SKILLS.\n"
-    f"Emit {INTERNAL_ACTION_REMOVE_SKILL_MARKER} to remove a skill from APPENDED_SKILLS when it is no longer needed.\n"
-    "Append multiple skills only with multiple APPEND_SKILL markers, one skill per marker.\n"
+    "PROJECT ASSETS:\n"
     "After the relevant skill appears in APPENDED_SKILLS, DO NOT follow its instructions, only by user request.\n"
 )
 
@@ -170,10 +182,22 @@ RESOLVE_ACTIVE_MEMORY_RULES = (
 
 SAVE_DELAYED_MEMORY_RULES = (
     "SAVE_DELAYED_MEMORY_CONTENT:\n"
-    "Use this marker ONLY when the user explicitly asks to save a summary, digest, recap, or session summary.\n"
+    "Use this marker ONLY when the user explicitly asks to save a summary/digest/recap/report of the current state.\n"
     "DO NOT ask for clarification, save all current runtime data available at the moment as structured summary.\n"
     "Do NOT use this marker for generic remember/store/track/remind requests.\n"
     "Do NOT use this marker for word recall tests, secret values, future questions, or next-N-message conditions.\n"
     f"Emit fulfilled form only for explicit summary-save requests:\n"
     f"{INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_EMPTY_EXAMPLE}\n"
+    "When saving a summary/report NEVER skip form fields; you must fulfill all fields of delayed memory form so it will be valid for processing by runtime.\n"
+)
+
+DELAYED_MEMORY_ACTION_RULES = (
+    "DELAYED MEMORY ACTIONS:\n"
+    "Use delayed memory actions only for already saved delayed memory reports.\n"
+    f"Emit {DELAYED_MEMORY_LIST_MARKER} when you need the current saved delayed memory report ids before choosing one.\n"
+    "Runtime returns delayed memory lists as trusted TOOL_RESULTS type='delayed_memory'.\n"
+    f"Emit {DELAYED_MEMORY_APPEND_MARKER} to append one saved delayed memory, use when user asks to include or append summary/report into the session context.\n"
+    f"Emit {DELAYED_MEMORY_REMOVE_MARKER} only when the user explicitly asks to remove a saved delayed memory from the current session context; it never deletes the saved report from storage.\n"
+    "id is a placeholder; replace it with an actual 6-character delayed memory id from TOOL_RESULTS.\n"
+    "After APPEND_DELAYED_MEMORY returns the report, use its content to answer the latest user request.\n"
 )

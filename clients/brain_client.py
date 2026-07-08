@@ -4,8 +4,12 @@ from config_loader import (
     config,
 )
 from rules.runtime import (
+    RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
+    RUNTIME_ACTION_APPEND_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
+    RUNTIME_ACTION_LIST_DELAYED_MEMORY,
     RUNTIME_ACTION_LIST_SKILLS,
+    RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
@@ -37,12 +41,16 @@ from clients.response_extractor import (
 )
 
 from utils.runtime_actions import (
+    RuntimeActionRepetitionGuard,
     RuntimeActionResult,
     RuntimeActionStreamFilter,
     extract_runtime_actions,
 )
 from utils.runtime_todo import (
     has_active_runtime_todo,
+)
+from utils.assets_service import (
+    normalize_skill_name,
 )
 
 
@@ -505,8 +513,59 @@ async def ask_brain_stream(
         context=context,
     )
 
+    appended_skill_marker_names = {
+        normalize_skill_name(
+            skill.get(
+                "name",
+                "",
+            )
+            if isinstance(
+                skill,
+                dict,
+            )
+            else skill
+        )
+        for skill in (
+            getattr(
+                context,
+                "runtime_appended_skills",
+                [],
+            )
+            or []
+        )
+    }
+    appended_skill_marker_names.discard(
+        ""
+    )
+
+    def preserve_duplicate_append_skill_marker(
+        _raw_marker,
+        action,
+    ) -> bool:
+
+        if action.name != RUNTIME_ACTION_APPEND_SKILL:
+            return False
+
+        requested_skill = normalize_skill_name(
+            action.payload
+        )
+
+        if not requested_skill:
+            return False
+
+        if requested_skill in appended_skill_marker_names:
+            return True
+
+        appended_skill_marker_names.add(
+            requested_skill
+        )
+
+        return False
+
     content_filter = RuntimeActionStreamFilter(
         enabled_actions=enabled_actions,
+        preserve_action_marker=preserve_duplicate_append_skill_marker,
+        repetition_guard=RuntimeActionRepetitionGuard(),
         #preserve_action_text=True
     )
     stop_for_runtime_action = False
@@ -595,6 +654,11 @@ async def ask_brain_stream(
             source="brain stream content",
         )
 
+        if await stop_on_marker_repetition(
+            result
+        ):
+            return None
+
         if await apply_runtime_action_result(
             result
         ):
@@ -617,6 +681,47 @@ async def ask_brain_stream(
             **action_chunk,
             "content": result.text,
         }
+
+    async def stop_on_marker_repetition(
+        result,
+    ) -> bool:
+
+        nonlocal stop_for_runtime_action
+
+        if not getattr(
+            result,
+            "marker_repetition_exceeded",
+            False,
+        ):
+            return False
+
+        stop_for_runtime_action = True
+        reason = (
+            getattr(
+                result,
+                "marker_repetition_reason",
+                "",
+            )
+            or "runtime action marker repetition limit exceeded"
+        )
+        logger = getattr(
+            context,
+            "logger",
+            None,
+        )
+        log_runtime = getattr(
+            logger,
+            "log_runtime",
+            None,
+        )
+
+        if log_runtime is not None:
+            await log_runtime(
+                "[RUNTIME ACTION] marker repetition guard interrupted stream: "
+                f"{reason}"
+            )
+
+        return True
 
     async def apply_runtime_action_result(
         result,
@@ -641,8 +746,11 @@ async def ask_brain_stream(
         if any(
             action.name in (
                 RUNTIME_ACTION_ASSET_ACTION,
+                RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
+                RUNTIME_ACTION_LIST_DELAYED_MEMORY,
                 RUNTIME_ACTION_WEB_SEARCH,
                 RUNTIME_ACTION_LIST_SKILLS,
+                RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
             )
             for action in runtime_action_calls
         ):
@@ -702,6 +810,11 @@ async def ask_brain_stream(
                 tail_result,
                 source="brain stream tail",
             )
+
+            if await stop_on_marker_repetition(
+                tail_result
+            ):
+                return
 
             await apply_runtime_action_result(
                 tail_result
@@ -784,6 +897,11 @@ async def ask_brain_stream(
             tail_result,
             source="brain stream tail",
         )
+
+        if await stop_on_marker_repetition(
+            tail_result
+        ):
+            return
 
         await apply_runtime_action_result(
             tail_result

@@ -48,6 +48,46 @@
   }
 
 
+  function generateShortRuntimeId(
+    existingIds
+  ) {
+
+    const alphabet =
+      "abcdefghijklmnopqrstuvwxyz0123456789";
+    const used =
+      new Set(
+        Array.from(existingIds || [])
+          .map(id => String(id || "").trim().toLowerCase())
+          .filter(id => /^[a-z0-9]{6}$/.test(id))
+      );
+
+    for (let attempt = 0; attempt < 1000; attempt += 1) {
+      let id = "";
+      const randomValues =
+        window.crypto && window.crypto.getRandomValues
+          ? window.crypto.getRandomValues(new Uint8Array(6))
+          : null;
+
+      for (let index = 0; index < 6; index += 1) {
+        const value =
+          randomValues
+            ? randomValues[index]
+            : Math.floor(Math.random() * 256);
+
+        id +=
+          alphabet[value % alphabet.length];
+      }
+
+      if (!used.has(id)) {
+        return id;
+      }
+    }
+
+    return Math.random().toString(36).slice(2, 8).padEnd(6, "0");
+
+  }
+
+
   function createRuntimeSessionId() {
 
     try {
@@ -428,11 +468,12 @@
     }
 
     const reports = {};
+    const usedKeys = new Set();
 
     Object.entries(value).forEach(
       function ([key, report]) {
-        const normalizedKey =
-          String(key || "").trim();
+        let normalizedKey =
+          String(key || "").trim().toLowerCase();
 
         if (
             !normalizedKey
@@ -449,6 +490,20 @@
         if (!title) {
           return;
         }
+
+        if (
+            !/^[a-z0-9]{6}$/.test(normalizedKey)
+            || usedKeys.has(normalizedKey)
+        ) {
+          normalizedKey =
+            generateShortRuntimeId(
+              usedKeys
+            );
+        }
+
+        usedKeys.add(
+          normalizedKey
+        );
 
         reports[normalizedKey] = {
           title,
@@ -480,11 +535,28 @@
 
   function readDelayedMemoryReports() {
 
-    return normalizeDelayedMemoryReports(
+    const rawReports =
       readBrowserMemory(
         delayedMemoryReportsStorageKey
-      )
-    );
+      );
+    const reports =
+      normalizeDelayedMemoryReports(
+        rawReports
+      );
+
+    if (
+        rawReports
+        && typeof rawReports === "object"
+        && !Array.isArray(rawReports)
+        && JSON.stringify(rawReports) !== JSON.stringify(reports)
+    ) {
+      writeBrowserMemory(
+        delayedMemoryReportsStorageKey,
+        reports
+      );
+    }
+
+    return reports;
 
   }
 

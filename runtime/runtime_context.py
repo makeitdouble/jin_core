@@ -65,6 +65,14 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_delayed_memory_results: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_appended_delayed_memory: dict = field(
+        default_factory=dict
+    )
+
     runtime_appended_skills: list[dict] = field(
         default_factory=list
     )

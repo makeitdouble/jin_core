@@ -21,7 +21,14 @@ from utils.tokens import (
     estimate_stream_live_tokens,
 )
 from utils.runtime_actions import (
+    RuntimeActionRepetitionGuard,
     RuntimeActionStreamFilter,
+)
+from rules.runtime import (
+    RUNTIME_ACTION_APPEND_SKILL,
+)
+from utils.assets_service import (
+    normalize_skill_name,
 )
 
 
@@ -66,8 +73,13 @@ class RuntimeStream:
         self.filter_runtime_actions_enabled = filter_runtime_actions
         if self.filter_runtime_actions_enabled:
             self.context.runtime_skill_state_barrier_active = False
+        self.append_skill_marker_names = self.build_appended_skill_name_set()
+        self.repetition_guard = RuntimeActionRepetitionGuard()
+        self.marker_repetition_aborted = False
         self.action_filter = RuntimeActionStreamFilter(
             enabled_actions=self.runtime_actions,
+            preserve_action_marker=self.should_preserve_action_marker,
+            repetition_guard=self.repetition_guard,
         )
 
         self.stream = StreamHandler(
@@ -81,6 +93,65 @@ class RuntimeStream:
                 context_snapshot
             ),
         )
+
+    def build_appended_skill_name_set(self) -> set[str]:
+
+        names = set()
+
+        for skill in (
+            getattr(
+                self.context,
+                "runtime_appended_skills",
+                [],
+            )
+            or []
+        ):
+            if isinstance(
+                skill,
+                dict,
+            ):
+                name = skill.get(
+                    "name",
+                    "",
+                )
+            else:
+                name = skill
+
+            normalized_name = normalize_skill_name(
+                name
+            )
+
+            if normalized_name:
+                names.add(
+                    normalized_name
+                )
+
+        return names
+
+    def should_preserve_action_marker(
+        self,
+        raw_marker: str,
+        action,
+    ) -> bool:
+
+        if action.name != RUNTIME_ACTION_APPEND_SKILL:
+            return False
+
+        requested_skill = normalize_skill_name(
+            action.payload
+        )
+
+        if not requested_skill:
+            return False
+
+        if requested_skill in self.append_skill_marker_names:
+            return True
+
+        self.append_skill_marker_names.add(
+            requested_skill
+        )
+
+        return False
 
     def build_input_prompt_text(self) -> str:
 
@@ -302,6 +373,22 @@ class RuntimeStream:
                 context_snapshot=self.context_snapshot,
             )
 
+        if getattr(
+            result,
+            "marker_repetition_exceeded",
+            False,
+        ):
+            self.marker_repetition_aborted = True
+            reason = getattr(
+                result,
+                "marker_repetition_reason",
+                "",
+            ) or "runtime action marker repetition limit exceeded"
+            await self.logger.log_runtime(
+                "[RUNTIME ACTION] marker repetition guard interrupted stream: "
+                f"{reason}"
+            )
+
         if not result.text:
             return None
 
@@ -462,6 +549,12 @@ class RuntimeStream:
                     if len(getattr(self.context, "runtime_action_events", [])) > action_event_offset:
                         action_seen = True
 
+                    if (
+                            content is None
+                            and self.marker_repetition_aborted
+                    ):
+                        break
+
                     if content is None:
                         continue
 
@@ -490,7 +583,14 @@ class RuntimeStream:
                     await self.refresh_token_usage()
                     self.capture_runtime_turn_response()
 
-            content_tail = await self.flush_runtime_action_content()
+                    if self.marker_repetition_aborted:
+                        break
+
+            content_tail = (
+                None
+                if self.marker_repetition_aborted
+                else await self.flush_runtime_action_content()
+            )
             if content_tail:
                 await self.stream.send_content(
                     content_tail,

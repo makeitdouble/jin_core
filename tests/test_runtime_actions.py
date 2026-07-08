@@ -9,12 +9,17 @@ from unittest.mock import patch
 from clients import (
     apply_runtime_action_calls,
 )
+from clients.brain_context_builder import (
+    build_appended_delayed_memory_context,
+    build_tool_results_context,
+)
 from clients.brain_client import (
     should_execute_save_session,
 )
 from rules import runtime as runtime_rules
 from utils.assets_service import (
     list_skills,
+    normalize_skill_name,
     read_asset_text_preview,
     run_asset_action,
 )
@@ -23,6 +28,7 @@ from utils.runtime_todo import (
 )
 from utils.runtime_actions import (
     RuntimeActionCall,
+    RuntimeActionRepetitionGuard,
     RuntimeActionStreamFilter,
     extract_active_memory_resolve_slot_id,
     extract_search_query,
@@ -439,6 +445,62 @@ class RuntimeActionTests(unittest.TestCase):
             result.text,
         )
 
+    def test_extracts_asset_action_block_closed_by_repeated_open_tag(self):
+
+        result = extract_runtime_actions(
+            (
+                "<INTERNAL_ACTION_ASSET_ACTION>\n"
+                '{"action":"append_asset_file","path":"assets/outputs/posing_woman_prompts.txt","content":"\\nBatch 1 complete."}\n'
+                "<INTERNAL_ACTION_ASSET_ACTION>\n"
+                "Done."
+            ),
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "Done.",
+        )
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name="ASSET_ACTION",
+                    payload='{"action":"append_asset_file","path":"assets/outputs/posing_woman_prompts.txt","content":"\\nBatch 1 complete."}',
+                ),
+            ),
+        )
+
+    def test_extracts_asset_action_block_with_spaced_closing_tag(self):
+
+        result = extract_runtime_actions(
+            (
+                "< INTERNAL_ACTION_ASSET_ACTION >\n"
+                '{"action":"append_asset_file","path":"assets/outputs/woman_prompts.txt","content":"Batch 1"}\n'
+                "< /INTERNAL_ACTION_ASSET_ACTION >\n"
+                "Done."
+            ),
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "Done.",
+        )
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name="ASSET_ACTION",
+                    payload='{"action":"append_asset_file","path":"assets/outputs/woman_prompts.txt","content":"Batch 1"}',
+                ),
+            ),
+        )
+
     def test_stream_filter_strips_asset_action_block(self):
 
         stream_filter = RuntimeActionStreamFilter(
@@ -498,6 +560,21 @@ class RuntimeActionTests(unittest.TestCase):
                 "\n\n  <INTERNAL_ACTION_ASSET_ACTION>\n",
                 '{\n  "action": "create_wildcard_file",\n  "args": {\n    "path": "clothing/shoes",\n    "content": "sneakers\\nboots"\n  }\n}\n',
                 "</INTERNAL_ACTION_ASSET_ACTION>\n",
+            ],
+            [
+                "<INTERNAL_ACTION_ASSET_ACTION>\n",
+                '{"action":"create_wildcard_file","args":{"path":"clothing/shoes","content":"sneakers\\nboots"}}\n',
+                "<INTERNAL_ACTION_ASSET_ACTION>\n",
+            ],
+            [
+                "< INTERNAL_ACTION_ASSET_ACTION >\n",
+                '{"action":"create_wildcard_file","args":{"path":"clothing/shoes","content":"sneakers\\nboots"}}\n',
+                "< / INTERNAL_ACTION_ASSET_ACTION >\n",
+            ],
+            [
+                "<INTERNAL_ACTION_ASSET_ACTION>\n",
+                '{"action":"create_wildcard_file","args":{"path":"clothing/shoes","content":"sneakers\\nboots"}}\n',
+                "< /INTERNAL_ACTION_ASSET_ACTION>\n",
             ],
         ]
 
@@ -673,26 +750,35 @@ class RuntimeActionTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            report,
+            len(report),
+            1,
+        )
+        report_id, report_value = next(
+            iter(report.items())
+        )
+        self.assertRegex(
+            report_id,
+            r"^[a-z0-9]{6}$",
+        )
+        self.assertEqual(
+            report_value,
             {
-                "radius_of_influence_specs": {
-                    "title": "Radius of Influence Specs",
-                    "summary": (
-                        "Three-zone data priority model for Kowloon Sandbox simulation."
-                    ),
-                    "tags": [
-                        "kowloon_sandbox",
-                        "simulation",
-                        "world_state",
-                        "radius_of_influence",
-                    ],
-                    "body": (
-                        "### Radius of Influence Specs\n\n"
-                        "A complete, self-sufficient summary..."
-                    ),
-                    "created_session_id": "session-1",
-                    "created_time": "2026-06-29T12:00:00",
-                },
+                "title": "Radius of Influence Specs",
+                "summary": (
+                    "Three-zone data priority model for Kowloon Sandbox simulation."
+                ),
+                "tags": [
+                    "kowloon_sandbox",
+                    "simulation",
+                    "world_state",
+                    "radius_of_influence",
+                ],
+                "body": (
+                    "### Radius of Influence Specs\n\n"
+                    "A complete, self-sufficient summary..."
+                ),
+                "created_session_id": "session-1",
+                "created_time": "2026-06-29T12:00:00",
             },
         )
 
@@ -725,11 +811,132 @@ class RuntimeActionTests(unittest.TestCase):
             result.count("SAVE_DELAYED_MEMORY_CONTENT"),
             1,
         )
+        report = json.loads(
+            result.actions[0].payload
+        )
         self.assertEqual(
-            json.loads(
-                result.actions[0].payload
-            )["radius_of_influence_specs"]["title"],
+            len(report),
+            1,
+        )
+        report_id, report_value = next(
+            iter(report.items())
+        )
+        self.assertRegex(
+            report_id,
+            r"^[a-z0-9]{6}$",
+        )
+        self.assertEqual(
+            report_value["title"],
             "Radius of Influence Specs",
+        )
+
+    def test_extracts_delayed_memory_action_markers(self):
+
+        result = extract_runtime_actions(
+            (
+                "<LIST_DELAYED_MEMORY>\n"
+                "<APPEND_DELAYED_MEMORY: a1b2c3>\n"
+                "<REMOVE_DELAYED_MEMORY: d4e5f6>\n"
+            ),
+            enabled_actions=[
+                "CAN_SAVE_DELAYED_MEMORY",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name="LIST_DELAYED_MEMORY",
+                    payload="",
+                ),
+                RuntimeActionCall(
+                    name="APPEND_DELAYED_MEMORY",
+                    payload="a1b2c3",
+                ),
+                RuntimeActionCall(
+                    name="REMOVE_DELAYED_MEMORY",
+                    payload="d4e5f6",
+                ),
+            ),
+        )
+
+    def test_stream_filter_holds_split_delayed_memory_action_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_SAVE_DELAYED_MEMORY",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "<APPEND_DELAYED_MEMORY: h"
+        )
+        second = stream_filter.filter(
+            "0qa49>"
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.actions,
+            (),
+        )
+        self.assertEqual(
+            second.text,
+            "",
+        )
+        self.assertEqual(
+            second.actions,
+            (
+                RuntimeActionCall(
+                    name="APPEND_DELAYED_MEMORY",
+                    payload="h0qa49",
+                ),
+            ),
+        )
+
+    def test_stream_filter_holds_split_internal_delayed_memory_action_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_SAVE_DELAYED_MEMORY",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "<INTERNAL_ACTION_REMOVE_DELAYED_MEMORY: k"
+        )
+        second = stream_filter.filter(
+            "dhpjo>\nRemoved it from the session."
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.actions,
+            (),
+        )
+        self.assertEqual(
+            second.text,
+            "Removed it from the session.",
+        )
+        self.assertEqual(
+            second.actions,
+            (
+                RuntimeActionCall(
+                    name="REMOVE_DELAYED_MEMORY",
+                    payload="kdhpjo",
+                ),
+            ),
         )
 
     def test_stream_filter_holds_split_delayed_memory_block(self):
@@ -1617,6 +1824,198 @@ class RuntimeActionTests(unittest.TestCase):
             (),
         )
 
+    def test_duplicate_append_skill_markers_are_preserved_as_text(self):
+
+        appended_skill_names = set()
+
+        def preserve_duplicate_append_skill(_raw_marker, action):
+            if action.name != "APPEND_SKILL":
+                return False
+
+            requested_skill = normalize_skill_name(
+                action.payload
+            )
+
+            if requested_skill in appended_skill_names:
+                return True
+
+            appended_skill_names.add(
+                requested_skill
+            )
+            return False
+
+        text = (
+            "<INTERNAL_ACTION_SAVE_SESSION>\n"
+            "<INTERNAL_ACTION_APPEND_SKILL: file_manager >\n"
+            "<INTERNAL_ACTION_APPEND_SKILL: image_prompt_generator >\n"
+            "<INTERNAL_ACTION_APPEND_SKILL: wildcards >\n"
+            "<INTERNAL_ACTION_APPEND_SKILL: porn >\n"
+            "<INTERNAL_ACTION_APPEND_SKILL: file_manager >\n"
+            "<INTERNAL_ACTION_APPEND_SKILL: image_prompt_generator >"
+        )
+
+        result = extract_runtime_actions(
+            text,
+            enabled_actions=[
+                "CAN_SAVE_SESSION",
+                "CAN_USE_ASSETS",
+            ],
+            preserve_action_marker=preserve_duplicate_append_skill,
+        )
+
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name="SAVE_SESSION",
+                ),
+                RuntimeActionCall(
+                    name="APPEND_SKILL",
+                    payload="file_manager",
+                ),
+                RuntimeActionCall(
+                    name="APPEND_SKILL",
+                    payload="image_prompt_generator",
+                ),
+                RuntimeActionCall(
+                    name="APPEND_SKILL",
+                    payload="wildcards",
+                ),
+                RuntimeActionCall(
+                    name="APPEND_SKILL",
+                    payload="porn",
+                ),
+            ),
+        )
+        self.assertIn(
+            "<INTERNAL_ACTION_APPEND_SKILL: file_manager >",
+            result.text,
+        )
+        self.assertIn(
+            "<INTERNAL_ACTION_APPEND_SKILL: image_prompt_generator >",
+            result.text,
+        )
+        self.assertNotIn(
+            "<INTERNAL_ACTION_APPEND_SKILL: wildcards >",
+            result.text,
+        )
+        self.assertEqual(
+            len(result.removed_markers),
+            5,
+        )
+
+    def test_placeholder_append_skill_is_processed_once_and_duplicate_preserved(self):
+
+        appended_skill_names = set()
+
+        def preserve_duplicate_append_skill(_raw_marker, action):
+            if action.name != "APPEND_SKILL":
+                return False
+
+            requested_skill = normalize_skill_name(
+                action.payload
+            )
+
+            if requested_skill in appended_skill_names:
+                return True
+
+            appended_skill_names.add(
+                requested_skill
+            )
+            return False
+
+        result = extract_runtime_actions(
+            (
+                "<INTERNAL_ACTION_APPEND_SKILL: name of skill >\n"
+                "<INTERNAL_ACTION_APPEND_SKILL: name of skill >"
+            ),
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+            preserve_action_marker=preserve_duplicate_append_skill,
+        )
+
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name="APPEND_SKILL",
+                    payload="name of skill",
+                ),
+            ),
+        )
+        self.assertIn(
+            "<INTERNAL_ACTION_APPEND_SKILL: name of skill >",
+            result.text,
+        )
+        self.assertEqual(
+            len(result.removed_markers),
+            1,
+        )
+
+    def test_marker_repetition_guard_flags_consecutive_repeats(self):
+
+        repetition_guard = RuntimeActionRepetitionGuard(
+            max_consecutive=3,
+            max_per_message=5,
+        )
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+            repetition_guard=repetition_guard,
+        )
+
+        result = stream_filter.filter(
+            "<INTERNAL_ACTION_APPEND_SKILL: wildcards>\n"
+            "<INTERNAL_ACTION_APPEND_SKILL: wildcards>\n"
+            "<INTERNAL_ACTION_APPEND_SKILL: wildcards>\n"
+            "<INTERNAL_ACTION_APPEND_SKILL: wildcards>"
+        )
+
+        self.assertTrue(
+            result.marker_repetition_exceeded,
+        )
+        self.assertIn(
+            "in a row",
+            result.marker_repetition_reason,
+        )
+
+    def test_marker_repetition_guard_flags_message_repeats(self):
+
+        repetition_guard = RuntimeActionRepetitionGuard(
+            max_consecutive=3,
+            max_per_message=5,
+        )
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+            repetition_guard=repetition_guard,
+        )
+
+        result = stream_filter.filter(
+            "<INTERNAL_ACTION_APPEND_SKILL: file_manager>\n"
+            "<INTERNAL_ACTION_APPEND_SKILL: wildcards>\n"
+            "<INTERNAL_ACTION_APPEND_SKILL: file_manager>\n"
+            "<INTERNAL_ACTION_APPEND_SKILL: wildcards>\n"
+            "<INTERNAL_ACTION_APPEND_SKILL: file_manager>\n"
+            "<INTERNAL_ACTION_APPEND_SKILL: wildcards>\n"
+            "<INTERNAL_ACTION_APPEND_SKILL: file_manager>\n"
+            "<INTERNAL_ACTION_APPEND_SKILL: wildcards>\n"
+            "<INTERNAL_ACTION_APPEND_SKILL: file_manager>\n"
+            "<INTERNAL_ACTION_APPEND_SKILL: wildcards>\n"
+            "<INTERNAL_ACTION_APPEND_SKILL: file_manager>"
+        )
+
+        self.assertTrue(
+            result.marker_repetition_exceeded,
+        )
+        self.assertIn(
+            "one message",
+            result.marker_repetition_reason,
+        )
+
     def test_apply_runtime_action_calls_stores_search_queries(self):
 
         class Context:
@@ -2154,16 +2553,16 @@ class RuntimeActionTests(unittest.TestCase):
                     "Appended skill: file_writer ( does not exist )",
                 )
                 self.assertEqual(
+                    len(context.emitter.events),
+                    1,
+                )
+                self.assertEqual(
                     context.emitter.events[0]["text"],
                     "Appended skill: file_writer ( does not exist )",
                 )
                 self.assertEqual(
-                    context.emitter.events[1]["status"],
+                    context.emitter.events[0]["status"],
                     "failed",
-                )
-                self.assertEqual(
-                    context.emitter.events[1]["text"],
-                    "Appended skill: file_writer ( does not exist )",
                 )
 
     def test_append_skill_blocks_other_actions_in_same_stream(self):
@@ -2978,15 +3377,22 @@ class RuntimeActionTests(unittest.TestCase):
             1,
         )
         self.assertEqual(
-            context.delayed_memory_reports[
-                "radius_of_influence_specs"
-            ]["created_session_id"],
+            len(context.delayed_memory_reports),
+            1,
+        )
+        report_id, report = next(
+            iter(context.delayed_memory_reports.items())
+        )
+        self.assertRegex(
+            report_id,
+            r"^[a-z0-9]{6}$",
+        )
+        self.assertEqual(
+            report["created_session_id"],
             "session-1",
         )
         self.assertEqual(
-            context.delayed_memory_reports[
-                "radius_of_influence_specs"
-            ]["created_time"],
+            report["created_time"],
             "2026-06-29T12:00:00",
         )
         self.assertEqual(
@@ -3000,6 +3406,15 @@ class RuntimeActionTests(unittest.TestCase):
                     "delayed_memory_report": context.delayed_memory_reports,
                 },
             ],
+        )
+
+        self.assertEqual(
+            context.runtime_session_action_history[0]["text"],
+            "Delayed memory saved: Radius of Influence Specs",
+        )
+        self.assertIsInstance(
+            context.runtime_session_action_history[0]["created_at"],
+            float,
         )
 
     def test_apply_runtime_action_calls_suffixes_duplicate_delayed_memory_key(self):
@@ -3062,21 +3477,395 @@ class RuntimeActionTests(unittest.TestCase):
             ]["summary"],
             "Existing report.",
         )
+        new_report_ids = [
+            report_id
+            for report_id in context.delayed_memory_reports
+            if report_id != "kowloon_sandbox_architecture_contextual_status"
+        ]
+        self.assertEqual(
+            len(new_report_ids),
+            1,
+        )
+        self.assertRegex(
+            new_report_ids[0],
+            r"^[a-z0-9]{6}$",
+        )
         self.assertEqual(
             context.delayed_memory_reports[
-                "kowloon_sandbox_architecture_contextual_status_2"
+                new_report_ids[0]
             ]["summary"],
             "New report.",
         )
         self.assertEqual(
             context.emitter.events[0]["delayed_memory_report"],
             {
-                "kowloon_sandbox_architecture_contextual_status_2": (
+                new_report_ids[0]: (
                     context.delayed_memory_reports[
-                        "kowloon_sandbox_architecture_contextual_status_2"
+                        new_report_ids[0]
                     ]
                 ),
             },
+        )
+
+    def test_append_delayed_memory_uses_appended_context_block(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+        context.runtime_action_events = []
+        context.runtime_search_calls = []
+        context.runtime_appended_skills = []
+        context.runtime_asset_results = []
+        context.delayed_memory_reports = {
+            "a1b2c3": {
+                "title": "Русский отчёт",
+                "summary": "Summary",
+                "tags": [
+                    "tag",
+                ],
+                "body": "Body",
+            },
+            "b2c3d4": {
+                "title": "Second report",
+                "summary": "Summary",
+                "tags": [
+                    "tag",
+                ],
+                "body": "Body",
+            },
+        }
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="LIST_DELAYED_MEMORY",
+                    ),
+                    RuntimeActionCall(
+                        name="APPEND_DELAYED_MEMORY",
+                        payload="a1b2c3",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            2,
+        )
+        tool_results = build_tool_results_context(
+            context
+        )
+        self.assertNotIn(
+            "<TOOL_RESULTS type='delayed_memory'>",
+            tool_results,
+        )
+        self.assertNotIn(
+            "1. Русский отчёт | id: a1b2c3",
+            tool_results,
+        )
+        self.assertNotIn(
+            '<TOOL_RESULT name="APPEND_DELAYED_MEMORY">',
+            tool_results,
+        )
+        self.assertNotIn(
+            "<APPENDED_DELAYED_MEMORY>",
+            tool_results,
+        )
+        appended_context = build_appended_delayed_memory_context(
+            context
+        )
+        self.assertIn(
+            "<APPENDED_DELAYED_MEMORY>",
+            appended_context,
+        )
+        self.assertIn(
+            '"id": "a1b2c3"',
+            appended_context,
+        )
+        self.assertEqual(
+            context.emitter.events[0]["text"],
+            "Listing delayed memory",
+        )
+        self.assertEqual(
+            context.emitter.events[1]["text"],
+            (
+                "Appending: "
+                + context.delayed_memory_reports[
+                    "a1b2c3"
+                ]["title"]
+            ),
+        )
+        self.assertEqual(
+            len(context.emitter.events),
+            2,
+        )
+        self.assertEqual(
+            context.runtime_session_action_history[0]["text"],
+            (
+                "Delayed memory appended: "
+                + context.delayed_memory_reports[
+                    "a1b2c3"
+                ]["title"]
+            ),
+        )
+
+    def test_append_delayed_memory_replaces_current_report(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+        context.runtime_action_events = []
+        context.runtime_search_calls = []
+        context.runtime_appended_skills = []
+        context.runtime_asset_results = []
+        context.delayed_memory_reports = {
+            "a1b2c3": {
+                "title": "First report",
+                "summary": "Summary",
+                "tags": [
+                    "tag",
+                ],
+                "body": "Body",
+            },
+            "b2c3d4": {
+                "title": "Second report",
+                "summary": "Summary",
+                "tags": [
+                    "tag",
+                ],
+                "body": "Body",
+            },
+        }
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="APPEND_DELAYED_MEMORY",
+                        payload="a1b2c3",
+                    ),
+                    RuntimeActionCall(
+                        name="APPEND_DELAYED_MEMORY",
+                        payload="a1b2c3",
+                    ),
+                    RuntimeActionCall(
+                        name="APPEND_DELAYED_MEMORY",
+                        payload="b2c3d4",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            3,
+        )
+        self.assertEqual(
+            context.runtime_appended_delayed_memory["id"],
+            "b2c3d4",
+        )
+
+        appended_context = build_appended_delayed_memory_context(
+            context
+        )
+        self.assertIn(
+            "<APPENDED_DELAYED_MEMORY>",
+            appended_context,
+        )
+        self.assertIn(
+            '"title": "Second report"',
+            appended_context,
+        )
+        self.assertNotIn(
+            '"title": "First report"',
+            appended_context,
+        )
+
+        tool_results = build_tool_results_context(
+            context
+        )
+        self.assertNotIn(
+            "<TOOL_RESULTS type='delayed_memory'>",
+            tool_results,
+        )
+        self.assertNotIn(
+            "<APPENDED_DELAYED_MEMORY>",
+            tool_results,
+        )
+        self.assertEqual(
+            [
+                item["text"]
+                for item in context.runtime_session_action_history
+            ],
+            [
+                "Delayed memory appended: First report",
+                "Delayed memory appended: Second report",
+            ],
+        )
+
+    def test_remove_delayed_memory_only_detaches_from_context(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+        context.runtime_action_events = []
+        context.runtime_search_calls = []
+        context.runtime_appended_skills = []
+        context.runtime_asset_results = []
+        context.runtime_appended_delayed_memory = {
+            "id": "a1b2c3",
+            "title": "Pinned report",
+            "summary": "Summary",
+        }
+        context.delayed_memory_reports = {
+            "a1b2c3": {
+                "title": "Pinned report",
+                "summary": "Summary",
+                "tags": [
+                    "tag",
+                ],
+                "body": "Body",
+            },
+        }
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="REMOVE_DELAYED_MEMORY",
+                        payload="a1b2c3",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertEqual(
+            context.runtime_appended_delayed_memory,
+            {},
+        )
+        self.assertIn(
+            "a1b2c3",
+            context.delayed_memory_reports,
+        )
+        self.assertEqual(
+            context.emitter.events[0]["text"],
+            "Removing: Pinned report",
+        )
+        self.assertEqual(
+            context.runtime_session_action_history[0]["text"],
+            "Delayed memory removed from context: Pinned report",
+        )
+
+    def test_invalid_remove_delayed_memory_id_returns_failed_result(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+        context.runtime_action_events = []
+        context.runtime_search_calls = []
+        context.runtime_appended_skills = []
+        context.runtime_asset_results = []
+        context.runtime_delayed_memory_results = []
+        context.delayed_memory_reports = {
+            "a1b2c3": {
+                "title": "Saved report",
+                "summary": "Summary",
+                "tags": [
+                    "tag",
+                ],
+                "body": "Body",
+            },
+        }
+
+        extracted = extract_runtime_actions(
+            "<INTERNAL_ACTION_REMOVE_DELAYED_MEMORY: Test report (summary check)>",
+            enabled_actions=(
+                "REMOVE_DELAYED_MEMORY",
+            ),
+        )
+
+        self.assertEqual(
+            extracted.actions,
+            (
+                RuntimeActionCall(
+                    name="REMOVE_DELAYED_MEMORY",
+                    payload="Test report (summary check)",
+                ),
+            ),
+        )
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                extracted.actions,
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertEqual(
+            context.emitter.events[0]["status"],
+            "failed",
+        )
+        self.assertEqual(
+            context.runtime_delayed_memory_results[0]["ok"],
+            False,
+        )
+        self.assertEqual(
+            context.runtime_delayed_memory_results[0]["error"],
+            "invalid_delayed_memory_id",
+        )
+        self.assertIn(
+            '<TOOL_RESULT name="REMOVE_DELAYED_MEMORY">',
+            build_tool_results_context(
+                context
+            ),
         )
 
     def test_apply_runtime_action_calls_emits_create_active_memory_bubble(self):
@@ -3115,7 +3904,7 @@ class RuntimeActionTests(unittest.TestCase):
         )
         self.assertEqual(
             len(context.emitter.events),
-            1,
+            2,
         )
         self.assertEqual(
             context.emitter.events[0]["type"],
@@ -3150,6 +3939,14 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             context.emitter.events[0]["active_memory"],
             context.active_memory_records[0],
+        )
+        self.assertEqual(
+            context.emitter.events[1],
+            {
+                "type": "runtime_action",
+                "action": "create_active_memory",
+                "status": "completed",
+            },
         )
 
     def test_apply_runtime_action_calls_queues_active_memory_record(self):
@@ -3229,6 +4026,151 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             context.emitter.events[0]["active_memory"],
             context.active_memory_records[0],
+        )
+
+    def test_apply_runtime_action_calls_skips_exact_active_memory_copy(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+        context.runtime_action_events = []
+        context.runtime_search_calls = []
+        context.runtime_memory = ""
+        context.runtime_memory_stable = ""
+        context.active_memory_records = [
+            (
+                "active_memory_1: remember cuckoo "
+                "[ active_memory_id: 5fdg4g ] "
+                "[ conditions: remember cuckoo ] "
+                "[ creation_time: 2026-06-24T15:00:00 ] "
+                "[ elapsed_time: 00:00:00 ] "
+                "[ status: pending ]"
+            ),
+        ]
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="CREATE_ACTIVE_MEMORY",
+                        payload="remember cuckoo",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            0,
+        )
+        self.assertEqual(
+            len(context.active_memory_records),
+            1,
+        )
+        self.assertEqual(
+            context.runtime_action_events,
+            [
+                {
+                    "name": "create_active_memory",
+                    "payload": "remember cuckoo",
+                },
+            ],
+        )
+        self.assertEqual(
+            context.emitter.events,
+            [
+                {
+                    "type": "runtime_action",
+                    "action": "create_active_memory",
+                    "text": "Saving: remember cuckoo",
+                },
+                {
+                    "type": "runtime_action",
+                    "action": "create_active_memory",
+                    "status": "completed",
+                },
+            ],
+        )
+
+    def test_apply_runtime_action_calls_skips_active_memory_copy_from_runtime_memory(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+        context.runtime_action_events = []
+        context.runtime_search_calls = []
+        context.runtime_memory = (
+            "session_status: active\n"
+            "active_memory_1: remember cuckoo "
+            "[ active_memory_id: 5fdg4g ] "
+            "[ conditions: remember cuckoo ] "
+            "[ status: pending ]"
+        )
+        context.runtime_memory_stable = ""
+        context.active_memory_records = []
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="CREATE_ACTIVE_MEMORY",
+                        payload="remember cuckoo",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            0,
+        )
+        self.assertEqual(
+            context.active_memory_records,
+            [],
+        )
+        self.assertEqual(
+            context.runtime_action_events,
+            [
+                {
+                    "name": "create_active_memory",
+                    "payload": "remember cuckoo",
+                },
+            ],
+        )
+        self.assertEqual(
+            context.emitter.events,
+            [
+                {
+                    "type": "runtime_action",
+                    "action": "create_active_memory",
+                    "text": "Saving: remember cuckoo",
+                },
+                {
+                    "type": "runtime_action",
+                    "action": "create_active_memory",
+                    "status": "completed",
+                },
+            ],
         )
 
     def test_apply_runtime_action_calls_resolves_active_memory_by_id(self):

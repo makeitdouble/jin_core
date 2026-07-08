@@ -85,6 +85,7 @@ from runtime.L1_memory_utils import (
 )
 from utils.runtime_actions import (
     is_active_memory_key,
+    is_delayed_memory_report_id,
     refresh_active_memory_runtime_metadata,
     remove_active_memory_entries,
 )
@@ -175,6 +176,147 @@ def active_memory_records_text(context) -> str:
         )
         if str(record or "").strip()
     )
+
+
+def clean_delayed_memory_reports(value) -> dict:
+
+    if not isinstance(
+        value,
+        dict,
+    ):
+        return {}
+
+    reports = {}
+
+    for key, report in value.items():
+        report_id = str(
+            key
+            or ""
+        ).strip().casefold()
+
+        if not is_delayed_memory_report_id(
+            report_id
+        ):
+            continue
+
+        if not isinstance(
+            report,
+            dict,
+        ):
+            continue
+
+        title = clean_bootstrap_memory(
+            str(
+                report.get(
+                    "title",
+                    "",
+                )
+                or ""
+            ),
+            limit=500,
+        )
+
+        if not title:
+            continue
+
+        tags = report.get(
+            "tags",
+            [],
+        )
+
+        if isinstance(
+            tags,
+            list,
+        ):
+            clean_tags = [
+                clean_bootstrap_memory(
+                    str(tag or ""),
+                    limit=80,
+                )
+                for tag in tags
+                if clean_bootstrap_memory(
+                    str(tag or ""),
+                    limit=80,
+                )
+            ][:30]
+        else:
+            clean_tags = [
+                clean_bootstrap_memory(
+                    tag,
+                    limit=80,
+                )
+                for tag in str(
+                    tags
+                    or ""
+                ).split(",")
+                if clean_bootstrap_memory(
+                    tag,
+                    limit=80,
+                )
+            ][:30]
+
+        reports[report_id] = {
+            "title": title,
+            "summary": clean_bootstrap_memory(
+                str(
+                    report.get(
+                        "summary",
+                        "",
+                    )
+                    or ""
+                ),
+                limit=2000,
+            ),
+            "tags": clean_tags,
+            "body": clean_bootstrap_memory(
+                str(
+                    report.get(
+                        "body",
+                        "",
+                    )
+                    or ""
+                ),
+                limit=12000,
+            ),
+            "created_session_id": clean_bootstrap_memory(
+                str(
+                    report.get(
+                        "created_session_id",
+                        "",
+                    )
+                    or ""
+                ),
+                limit=200,
+            ),
+            "created_time": clean_bootstrap_memory(
+                str(
+                    report.get(
+                        "created_time",
+                        "",
+                    )
+                    or ""
+                ),
+                limit=100,
+            ),
+        }
+
+    return reports
+
+
+def apply_delayed_memory_reports(
+    context,
+    message_data: dict,
+) -> None:
+
+    reports = clean_delayed_memory_reports(
+        message_data.get(
+            "delayed_memory_reports",
+            {},
+        )
+    )
+
+    if "delayed_memory_reports" in message_data:
+        context.delayed_memory_reports = reports
 
 
 def remove_runtime_memory_slot_by_key(
@@ -1140,6 +1282,10 @@ def apply_runtime_resume(
         context,
         message_data,
     )
+    apply_delayed_memory_reports(
+        context,
+        message_data,
+    )
 
     runtime_memory = clean_bootstrap_runtime_memory(
         message_data.get(
@@ -1278,6 +1424,10 @@ def apply_session_bootstrap(
 ) -> bool:
 
     apply_active_memory_records(
+        context,
+        message_data,
+    )
+    apply_delayed_memory_reports(
         context,
         message_data,
     )
@@ -2221,6 +2371,10 @@ async def process_message(
             message_data,
         )
         apply_active_memory_records(
+            context,
+            message_data,
+        )
+        apply_delayed_memory_reports(
             context,
             message_data,
         )

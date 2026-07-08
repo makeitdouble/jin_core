@@ -31,6 +31,111 @@ from utils.language import (
 FOLLOWUP_USER_MESSAGE = "No new messages, multi-task in progress"
 
 
+def _compact_followup_value(
+        value,
+) -> str:
+
+    return " ".join(
+        str(
+            value
+            or ""
+        ).split()
+    ).strip()
+
+
+def format_followup_action_from_event(
+        event: dict,
+) -> str:
+
+    if not isinstance(
+        event,
+        dict,
+    ):
+        return ""
+
+    name = _compact_followup_value(
+        event.get(
+            "name",
+            "",
+        )
+    )
+    if not name:
+        return ""
+
+    details = []
+    for key in (
+            "query",
+            "payload",
+            "id",
+    ):
+        value = _compact_followup_value(
+            event.get(
+                key,
+                "",
+            )
+        )
+        if value:
+            details.append(
+                f'{key}="{value}"'
+            )
+
+    if details:
+        return (
+            f"{name} "
+            + " ".join(details)
+        )
+
+    return name
+
+
+def format_followup_action_from_asset_result(
+        result: dict,
+) -> str:
+
+    if not isinstance(
+        result,
+        dict,
+    ):
+        return ""
+
+    action = _compact_followup_value(
+        result.get(
+            "action",
+            "",
+        )
+    )
+    if not action:
+        return ""
+
+    return action
+
+
+def build_followup_user_message(
+        latest_action: str = "",
+) -> str:
+
+    latest_action = _compact_followup_value(
+        latest_action
+    )
+    lines = [
+        FOLLOWUP_USER_MESSAGE,
+    ]
+
+    if latest_action:
+        lines.append(
+            "This is follow-up tick for JIN latest action: "
+            f"{latest_action}."
+        )
+
+    lines.append(
+        "Requested and available information provided in tool results section."
+    )
+
+    return "\n".join(
+        lines
+    )
+
+
 class BrainNode(BaseNode):
 
     @staticmethod
@@ -52,8 +157,20 @@ class BrainNode(BaseNode):
 
         if context is not None:
             from clients.brain_context_builder import (
+                build_appended_delayed_memory_context,
                 build_previous_chat_messages_context,
             )
+
+            appended_delayed_memory_context = (
+                build_appended_delayed_memory_context(
+                    context
+                )
+            )
+
+            if appended_delayed_memory_context:
+                sections.append(
+                    appended_delayed_memory_context
+                )
 
             previous_chat_messages_context = (
                 build_previous_chat_messages_context(
@@ -491,6 +608,13 @@ class BrainNode(BaseNode):
             context.runtime_asset_results = []
         else:
             context.runtime_asset_results.clear()
+        if not hasattr(
+            context,
+            "runtime_delayed_memory_results",
+        ):
+            context.runtime_delayed_memory_results = []
+        else:
+            context.runtime_delayed_memory_results.clear()
 
         # Reset per-turn signal for schedule_runtime_memory_update(): it
         # needs to know whether CREATE_ACTIVE_MEMORY actually wrote a
@@ -542,6 +666,7 @@ class BrainNode(BaseNode):
         )
 
         asset_result_offset = 0
+        delayed_memory_result_offset = 0
         skill_state_event_offset = runtime_action_event_offset
         followup_count = 0
         max_followups = 12
@@ -629,7 +754,13 @@ class BrainNode(BaseNode):
                     context
                 )
 
-                followup_payload = FOLLOWUP_USER_MESSAGE
+                followup_payload = build_followup_user_message(
+                    format_followup_action_from_event({
+                        "name": "web_search",
+                        "query": query,
+                        "id": tool_call_id,
+                    })
+                )
 
                 text, reasoning = await self.run_brain_stream(
                     state=state,
@@ -665,6 +796,7 @@ class BrainNode(BaseNode):
                 if event.get("name") in {
                     "append_skill",
                     "remove_skill",
+                    "append_delayed_memory",
                 }
             ]
             skill_state_event_offset = len(
@@ -697,7 +829,71 @@ class BrainNode(BaseNode):
                     context
                 )
 
-                followup_payload = FOLLOWUP_USER_MESSAGE
+                followup_payload = build_followup_user_message(
+                    format_followup_action_from_event(
+                        new_skill_state_events[-1]
+                    )
+                )
+
+                text, reasoning = await self.run_brain_stream(
+                    state=state,
+                    context=context,
+                    brain_runtime=brain_runtime,
+                    brain_client=brain_client,
+                    system_prompt=followup_system_prompt,
+                    brain_payload=followup_payload,
+                    runtime_actions=followup_runtime_actions,
+                    emit_content_to_chat=(
+                        not state.translate_response
+                    ),
+                    filter_runtime_actions=True,
+                )
+
+                followup_count += 1
+                continue
+
+            delayed_memory_results = getattr(
+                context,
+                "runtime_delayed_memory_results",
+                [],
+            )
+
+            if (
+                    len(delayed_memory_results)
+                    > delayed_memory_result_offset
+            ):
+                delayed_memory_result_offset = len(
+                    delayed_memory_results
+                )
+                followup_runtime_actions = {
+                    **runtime_actions,
+                    "CAN_WEB_SEARCH": False,
+                    "CAN_SAVE_SESSION": False,
+                    "CAN_SAVE_ACTIVE_MEMORY": False,
+                }
+
+                followup_system_prompt = (
+                    self.build_followup_system_prompt(
+                        build_brain_system_prompt(
+                            context,
+                            runtime_actions=followup_runtime_actions,
+                            commit_active_memory_refresh=True,
+                            include_previous_chat_messages=False,
+                        ),
+                        state.translated_input,
+                        context=context,
+                    )
+                )
+
+                await emit_active_memory_records_update_if_dirty(
+                    context
+                )
+
+                followup_payload = build_followup_user_message(
+                    format_followup_action_from_asset_result(
+                        delayed_memory_results[-1]
+                    )
+                )
 
                 text, reasoning = await self.run_brain_stream(
                     state=state,
@@ -753,7 +949,11 @@ class BrainNode(BaseNode):
                 context
             )
 
-            followup_payload = FOLLOWUP_USER_MESSAGE
+            followup_payload = build_followup_user_message(
+                format_followup_action_from_asset_result(
+                    asset_results[-1]
+                )
+            )
 
             text, reasoning = await self.run_brain_stream(
                 state=state,

@@ -29,16 +29,46 @@ def _context():
         runtime_search_queries=[],
         runtime_search_calls=[],
         runtime_asset_results=[],
+        runtime_delayed_memory_results=[],
         runtime_appended_skills=[],
         runtime_action_events=[],
     )
 
 
-def _assert_latest_request_payload(test_case, call_kwargs, user_input):
+def _assert_latest_request_payload(
+        test_case,
+        call_kwargs,
+        user_input,
+        latest_action_fragment=None,
+):
     payload = call_kwargs["brain_payload"]
     system_prompt = call_kwargs["system_prompt"]
 
-    test_case.assertEqual(
+    test_case.assertTrue(
+        payload.startswith(
+            "No new messages, multi-task in progress\n"
+        ),
+        payload,
+    )
+    test_case.assertIn(
+        (
+            "This is follow-up tick for JIN latest action: "
+        ),
+        payload,
+    )
+    if latest_action_fragment is not None:
+        test_case.assertIn(
+            latest_action_fragment,
+            payload,
+        )
+    test_case.assertIn(
+        (
+            "Requested and available information provided in "
+            "tool results section."
+        ),
+        payload,
+    )
+    test_case.assertNotEqual(
         payload,
         "No new messages, multi-task in progress",
     )
@@ -71,6 +101,41 @@ def _assert_latest_request_payload(test_case, call_kwargs, user_input):
 
 
 class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
+
+    async def test_appended_delayed_memory_is_under_latest_request(self):
+
+        context = SimpleNamespace(
+            runtime_recent_turns=[],
+            runtime_appended_delayed_memory={
+                "id": "a1b2c3",
+                "title": "Pinned delayed report",
+                "summary": "Summary",
+            },
+        )
+
+        prompt = BrainNode.build_followup_system_prompt(
+            "system prompt",
+            "append the delayed memory",
+            context=context,
+        )
+
+        self.assertTrue(
+            prompt.startswith(
+                "<LATEST_USER_REQUEST>\n"
+                "append the delayed memory\n"
+                "</LATEST_USER_REQUEST>\n\n"
+                "<APPENDED_DELAYED_MEMORY>\n"
+            ),
+            prompt,
+        )
+        self.assertLess(
+            prompt.index(
+                "<APPENDED_DELAYED_MEMORY>"
+            ),
+            prompt.index(
+                "<PREVIOUS_CHAT_MESSAGES>"
+            ),
+        )
 
     async def test_list_skills_followup_text_is_emitted_when_no_asset_action_follows(self):
 
@@ -166,6 +231,91 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "I have two skills: image_prompt_generator and wildcards.",
         )
 
+    async def test_list_delayed_memory_result_triggers_followup(self):
+
+        calls = []
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+            context = kwargs["context"]
+
+            if len(calls) == 1:
+                context.runtime_delayed_memory_results.append({
+                    "ok": True,
+                    "action": "list_delayed_memory",
+                    "reports": [
+                        {
+                            "id": "dm_note",
+                            "title": "Solo note",
+                        },
+                    ],
+                })
+                return "", ""
+
+            if len(calls) == 2:
+                self.assertTrue(
+                    kwargs["filter_runtime_actions"],
+                )
+                self.assertTrue(
+                    kwargs["runtime_actions"].get(
+                        "CAN_SAVE_DELAYED_MEMORY"
+                    ),
+                )
+                _assert_latest_request_payload(
+                    self,
+                    kwargs,
+                    state.translated_input,
+                    "list_delayed_memory",
+                )
+                return (
+                    "Found delayed memory `dm_note`: Solo note.",
+                    "",
+                )
+
+            self.fail(
+                "Brain model kept running after delayed-memory answer"
+            )
+
+        context = _context()
+        state = AgentState(
+            user_input=(
+                "append delayed memory it is alone now"
+            ),
+        )
+        state.translated_input = state.user_input
+        brain_runtime = _brain_runtime()
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=brain_runtime,
+        ), patch(
+            "agent.nodes.brain.build_brain_system_prompt",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.build_brain_payload",
+            return_value="brain payload",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            len(calls),
+            2,
+        )
+        self.assertEqual(
+            state.brain_response,
+            "Found delayed memory `dm_note`: Solo note.",
+        )
+
     async def test_asset_operation_result_is_returned_to_model_before_final_answer(self):
 
         calls = []
@@ -231,6 +381,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     self,
                     kwargs,
                     state.translated_input,
+                    "create_wildcard_file",
                 )
                 self.assertNotIn(
                     "assets/wildcards/clothing/test_bottoms.txt",
@@ -334,6 +485,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     self,
                     kwargs,
                     state.translated_input,
+                    'append_skill payload="wildcards"',
                 )
                 return (
                     "Ready to use the wildcard skill.",
@@ -409,6 +561,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     self,
                     kwargs,
                     state.translated_input,
+                    'append_skill payload="wildcards"',
                 )
                 return (
                     "Ready to test with the wildcards skill loaded.",
@@ -497,6 +650,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     self,
                     kwargs,
                     state.translated_input,
+                    "create_wildcard_file",
                 )
                 self.assertNotIn(
                     "assets/wildcards/clothing/shoes.txt",
@@ -524,6 +678,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     self,
                     kwargs,
                     state.translated_input,
+                    "generate_prompt_batch",
                 )
                 self.assertNotIn(
                     "assets/prompts/test_prompts.txt",
@@ -657,6 +812,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     self,
                     kwargs,
                     state.translated_input,
+                    "generate_prompt_batch",
                 )
                 self.assertNotIn(
                     "assets/prompts/test_prompts.txt",

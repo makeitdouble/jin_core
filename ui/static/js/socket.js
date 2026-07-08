@@ -843,18 +843,42 @@ function completeDelayedMemoryRuntimeBubble(
 }
 
 
-function slugifyDelayedMemoryTitle(
-  title
+function generateDelayedMemoryReportId(
+  existingReports
 ) {
 
-  const slug =
-    String(title || "")
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "");
+  const alphabet =
+    "abcdefghijklmnopqrstuvwxyz0123456789";
+  const used =
+    new Set(
+      Object.keys(existingReports || {})
+        .map(key => String(key || "").trim().toLowerCase())
+        .filter(key => /^[a-z0-9]{6}$/.test(key))
+    );
 
-  return slug || "untitled_report";
+  for (let attempt = 0; attempt < 1000; attempt += 1) {
+    let reportId = "";
+    const randomValues =
+      window.crypto && window.crypto.getRandomValues
+        ? window.crypto.getRandomValues(new Uint8Array(6))
+        : null;
+
+    for (let index = 0; index < 6; index += 1) {
+      const value =
+        randomValues
+          ? randomValues[index]
+          : Math.floor(Math.random() * 256);
+
+      reportId +=
+        alphabet[value % alphabet.length];
+    }
+
+    if (!used.has(reportId)) {
+      return reportId;
+    }
+  }
+
+  return Math.random().toString(36).slice(2, 8).padEnd(6, "0");
 
 }
 
@@ -928,9 +952,15 @@ function parseDelayedMemoryReportPayload(
     return {};
   }
 
+  const currentReports =
+    window.JinRuntime
+      && window.JinRuntime.runtime
+      && window.JinRuntime.runtime.getDelayedMemoryReports
+        ? window.JinRuntime.runtime.getDelayedMemoryReports()
+        : {};
   const key =
-    slugifyDelayedMemoryTitle(
-      title
+    generateDelayedMemoryReportId(
+      currentReports
     );
 
   return {
@@ -1686,6 +1716,9 @@ function handleSocketMessage(event) {
         (
           action === "asset_action"
           || action === "list_skills"
+          || action === "list_delayed_memory"
+          || action === "append_delayed_memory"
+          || action === "remove_delayed_memory"
         )
         && displayText.trim()
       ) {
@@ -2132,6 +2165,15 @@ chatForm.addEventListener(
     ) {
       payload.active_memory_records =
         window.JinRuntime.runtime.getActiveMemoryRecords();
+    }
+
+    if (
+        window.JinRuntime
+        && window.JinRuntime.runtime
+        && window.JinRuntime.runtime.getDelayedMemoryReports
+    ) {
+      payload.delayed_memory_reports =
+        window.JinRuntime.runtime.getDelayedMemoryReports();
     }
 
     const sent =

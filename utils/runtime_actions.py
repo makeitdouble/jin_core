@@ -8,13 +8,16 @@ from datetime import datetime
 from rules import runtime as runtime_rules
 from rules.runtime import (
     RUNTIME_ACTION_APPEND_SKILL,
+    RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_CHECK_TODO,
     RUNTIME_ACTION_CREATE_TODO_LIST,
+    RUNTIME_ACTION_LIST_DELAYED_MEMORY,
     RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_REMOVE_SKILL,
+    RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
     RUNTIME_ACTION_RESOLVE_TODO,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
@@ -28,6 +31,9 @@ KNOWN_RUNTIME_ACTIONS = tuple(
             RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
             RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
             RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+            RUNTIME_ACTION_LIST_DELAYED_MEMORY,
+            RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
+            RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
             RUNTIME_ACTION_WEB_SEARCH,
             RUNTIME_ACTION_LIST_SKILLS,
             RUNTIME_ACTION_APPEND_SKILL,
@@ -63,16 +69,27 @@ BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+DELAYED_MEMORY_ACTION_PATTERN = re.compile(
+    (
+        r"(?m:^[^\S\r\n]*"
+        r"<?\s*(?:INTERNAL_ACTION_)?"
+        r"(?P<name>LIST_DELAYED_MEMORY|APPEND_DELAYED_MEMORY|REMOVE_DELAYED_MEMORY)"
+        r"(?:\s*:\s*(?P<query>[^\r\n>]*))?"
+        r"\s*>?[^\S\r\n]*$)"
+    ),
+    re.IGNORECASE,
+)
+
 MALFORMED_CALL_INTERNAL_ACTION_PATTERN = re.compile(
     (
         r"(?:"
         r"<\|?tool_call\>\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
-        r"(?P<tool_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL|RESOLVE_TODO|CHECK_TODO)"
+        r"(?P<tool_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_DELAYED_MEMORY|APPEND_DELAYED_MEMORY|REMOVE_DELAYED_MEMORY|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<tool_call_query>(?:(?!</\s*>)[^\r\n>])*?))?"
         r"(?:\s*</\s*>+|\s*>+|[^\S\r\n]*(?=\r?\n|$))"
         r"|"
         r"(?m:^\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
-        r"(?P<bare_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL|RESOLVE_TODO|CHECK_TODO)"
+        r"(?P<bare_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_DELAYED_MEMORY|APPEND_DELAYED_MEMORY|REMOVE_DELAYED_MEMORY|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<bare_call_query>[^\r\n]*))?"
         r"\s*$)"
         r")"
@@ -95,7 +112,7 @@ ASSET_ACTION_BLOCK_RE = re.compile(
         r"<\s*INTERNAL_ACTION_ASSET_ACTION\s*>"
         r"[^\S\r\n]*(?:\r?\n)?"
         r"(?P<payload>.*?)"
-        r"</\s*INTERNAL_ACTION_ASSET_ACTION\s*>+"
+        r"(?:<\s*/\s*INTERNAL_ACTION_ASSET_ACTION\s*>+|<\s*INTERNAL_ACTION_ASSET_ACTION\s*>)"
     ),
     re.IGNORECASE | re.DOTALL,
 )
@@ -124,8 +141,13 @@ ASSET_ACTION_BLOCK_START_RE = re.compile(
     re.IGNORECASE,
 )
 
+ASSET_ACTION_BLOCK_TAG_RE = re.compile(
+    r"<\s*(?P<slash>/)?\s*INTERNAL_ACTION_ASSET_ACTION\s*>+",
+    re.IGNORECASE,
+)
+
 ASSET_ACTION_BLOCK_END_RE = re.compile(
-    r"</\s*INTERNAL_ACTION_ASSET_ACTION\s*>+",
+    r"(?:<\s*/\s*INTERNAL_ACTION_ASSET_ACTION\s*>+|<\s*INTERNAL_ACTION_ASSET_ACTION\s*>)",
     re.IGNORECASE,
 )
 
@@ -170,6 +192,8 @@ ACTIVE_MEMORY_SLOT_ID_RE = re.compile(
     r"^[a-z0-9]{6}$",
 )
 
+SHORT_RUNTIME_ID_RE = ACTIVE_MEMORY_SLOT_ID_RE
+
 ACTIVE_MEMORY_SLOT_ID_SUFFIX_RE = re.compile(
     r"\[\s*active_memory_id\s*:\s*([a-z0-9]{6})\s*\]",
     re.IGNORECASE,
@@ -183,6 +207,8 @@ ACTIVE_MEMORY_SLOT_ID_ALPHABET = (
     string.ascii_lowercase
     + string.digits
 )
+
+SHORT_RUNTIME_ID_ALPHABET = ACTIVE_MEMORY_SLOT_ID_ALPHABET
 
 ACTIVE_MEMORY_KEY_RE = re.compile(
     r"^active_memory(?:_\d+)?$",
@@ -281,6 +307,32 @@ def collect_active_memory_slot_indexes(
             )
 
     return indexes
+
+
+def generate_short_runtime_id(
+    existing_ids=None,
+    *,
+    length: int = 6,
+) -> str:
+
+    used_ids = {
+        str(runtime_id or "").strip().casefold()
+        for runtime_id in (existing_ids or ())
+        if SHORT_RUNTIME_ID_RE.fullmatch(
+            str(runtime_id or "").strip().casefold()
+        )
+    }
+
+    while True:
+        runtime_id = "".join(
+            secrets.choice(
+                SHORT_RUNTIME_ID_ALPHABET
+            )
+            for _ in range(length)
+        )
+
+        if runtime_id not in used_ids:
+            return runtime_id
 
 
 def generate_active_memory_slot_key(
@@ -923,24 +975,9 @@ def generate_active_memory_slot_id(
     existing_ids=None,
 ) -> str:
 
-    used_ids = {
-        str(active_memory_id or "").strip().casefold()
-        for active_memory_id in (existing_ids or ())
-        if ACTIVE_MEMORY_SLOT_ID_RE.fullmatch(
-            str(active_memory_id or "").strip().casefold()
-        )
-    }
-
-    while True:
-        active_memory_id = "".join(
-            secrets.choice(
-                ACTIVE_MEMORY_SLOT_ID_ALPHABET
-            )
-            for _ in range(6)
-        )
-
-        if active_memory_id not in used_ids:
-            return active_memory_id
+    return generate_short_runtime_id(
+        existing_ids
+    )
 
 
 def _normalize_internal_action_placeholder(
@@ -1112,18 +1149,27 @@ def slugify_delayed_memory_title(
     title: str,
 ) -> str:
 
-    slug = re.sub(
-        r"[^a-z0-9]+",
-        "_",
-        str(
-            title
-            or ""
-        ).casefold(),
-    ).strip(
-        "_"
+    return generate_short_runtime_id()
+
+
+def generate_delayed_memory_report_id(
+    existing_ids=None,
+) -> str:
+
+    return generate_short_runtime_id(
+        existing_ids
     )
 
-    return slug or "untitled_report"
+
+def is_delayed_memory_report_id(
+    value: str,
+) -> bool:
+
+    return bool(
+        SHORT_RUNTIME_ID_RE.fullmatch(
+            str(value or "").strip().casefold()
+        )
+    )
 
 
 def parse_delayed_memory_content_payload(
@@ -1215,12 +1261,12 @@ def parse_delayed_memory_content_payload(
         if tag.strip()
     ]
 
-    key = slugify_delayed_memory_title(
-        title
+    report_id = generate_delayed_memory_report_id(
+        ()
     )
 
     return {
-        key: {
+        report_id: {
             "title": title,
             "summary": str(
                 fields.get(
@@ -1260,6 +1306,8 @@ class RuntimeActionResult:
     text: str
     actions: tuple[RuntimeActionCall, ...] = ()
     removed_markers: tuple[str, ...] = ()
+    marker_repetition_exceeded: bool = False
+    marker_repetition_reason: str = ""
 
     @property
     def search_queries(self) -> tuple[str, ...]:
@@ -1311,6 +1359,81 @@ def build_runtime_action_id(
     )
 
 
+class RuntimeActionRepetitionGuard:
+
+    def __init__(
+        self,
+        *,
+        max_consecutive: int = 3,
+        max_per_message: int = 5,
+    ):
+        self.max_consecutive = max_consecutive
+        self.max_per_message = max_per_message
+        self.counts = {}
+        self.last_key = None
+        self.consecutive_count = 0
+        self.triggered = False
+        self.reason = ""
+
+    @staticmethod
+    def marker_key(
+        action: RuntimeActionCall,
+    ) -> tuple[str, str]:
+        payload = " ".join(
+            str(
+                action.payload
+                or ""
+            ).split()
+        ).strip().casefold()
+
+        return (
+            action.name,
+            payload,
+        )
+
+    def record(
+        self,
+        action: RuntimeActionCall,
+    ) -> bool:
+
+        if self.triggered:
+            return True
+
+        key = self.marker_key(
+            action
+        )
+
+        count = self.counts.get(
+            key,
+            0,
+        ) + 1
+        self.counts[key] = count
+
+        if key == self.last_key:
+            self.consecutive_count += 1
+        else:
+            self.last_key = key
+            self.consecutive_count = 1
+
+        if self.consecutive_count > self.max_consecutive:
+            self.triggered = True
+            self.reason = (
+                "runtime action marker repeated "
+                f"{self.consecutive_count} times in a row"
+            )
+            return True
+
+        if count > self.max_per_message:
+            self.triggered = True
+            self.reason = (
+                "runtime action marker repeated "
+                f"{count} times in one message"
+            )
+            return True
+
+        return False
+
+
 def normalize_runtime_action_name(
     action_name: str,
 ) -> str:
@@ -1330,6 +1453,9 @@ def normalize_runtime_action_name(
         "SAVE_SESSION": RUNTIME_ACTION_SAVE_SESSION,
         "SAVE_DELAYED_MEMORY": RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
         "SAVE_DELAYED_MEMORY_CONTENT": RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+        "LIST_DELAYED_MEMORY": RUNTIME_ACTION_LIST_DELAYED_MEMORY,
+        "APPEND_DELAYED_MEMORY": RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
+        "REMOVE_DELAYED_MEMORY": RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
         "SAVE_ACTIVE_MEMORY": RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
         "RESOLVE_ACTIVE_MEMORY": RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
         "USE_ASSETS": RUNTIME_ACTION_ASSET_ACTION,
@@ -1388,6 +1514,17 @@ def normalize_runtime_action_names(
         if normalized_name == RUNTIME_ACTION_CREATE_ACTIVE_MEMORY:
             normalized_names.append(
                 RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+            )
+
+        if normalized_name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT:
+            normalized_names.append(
+                RUNTIME_ACTION_LIST_DELAYED_MEMORY
+            )
+            normalized_names.append(
+                RUNTIME_ACTION_APPEND_DELAYED_MEMORY
+            )
+            normalized_names.append(
+                RUNTIME_ACTION_REMOVE_DELAYED_MEMORY
             )
 
         if normalized_name == RUNTIME_ACTION_ASSET_ACTION:
@@ -1556,6 +1693,36 @@ def _build_internal_action_call(
             ensure_ascii=False,
         )
 
+    elif normalized_name == RUNTIME_ACTION_APPEND_DELAYED_MEMORY:
+        payload = _clean_internal_action_query(
+            query
+        ).casefold()
+
+        if (
+            _is_placeholder_internal_query(
+                payload,
+                placeholder_payloads,
+            )
+            or not is_delayed_memory_report_id(
+                payload
+            )
+        ):
+            return None
+
+    elif normalized_name == RUNTIME_ACTION_REMOVE_DELAYED_MEMORY:
+        payload = _clean_internal_action_query(
+            query
+        )
+
+        if _is_placeholder_internal_query(
+            payload,
+            placeholder_payloads,
+        ):
+            return None
+
+    elif normalized_name == RUNTIME_ACTION_LIST_DELAYED_MEMORY:
+        payload = ""
+
     elif normalized_name in (
         RUNTIME_ACTION_LIST_SKILLS,
         RUNTIME_ACTION_APPEND_SKILL,
@@ -1569,7 +1736,6 @@ def _build_internal_action_call(
         if (
             normalized_name in (
                 RUNTIME_ACTION_ASSET_ACTION,
-                RUNTIME_ACTION_APPEND_SKILL,
                 RUNTIME_ACTION_REMOVE_SKILL,
             )
             and _is_placeholder_internal_query(
@@ -1726,6 +1892,8 @@ def extract_runtime_actions(
     enabled_actions=None,
     preserve_action_text: bool = False,
     seen_action_keys=None,
+    preserve_action_marker=None,
+    repetition_guard: RuntimeActionRepetitionGuard | None = None,
 ) -> RuntimeActionResult:
 
     if not text:
@@ -1738,6 +1906,8 @@ def extract_runtime_actions(
     )
     actions = []
     removed_markers = []
+    marker_repetition_exceeded = False
+    marker_repetition_reason = ""
 
     if seen_action_keys is None:
         seen_action_keys = set()
@@ -1747,6 +1917,8 @@ def extract_runtime_actions(
         action_name: str,
         query: str = "",
     ) -> str:
+        nonlocal marker_repetition_exceeded
+        nonlocal marker_repetition_reason
 
         normalized_action_name = normalize_runtime_action_name(
             action_name
@@ -1763,15 +1935,43 @@ def extract_runtime_actions(
             query,
         )
 
+        if action is None:
+            if not preserve_action_text:
+                removed_markers.append(
+                    raw_marker
+                )
+
+            return (
+                raw_marker
+                if preserve_action_text
+                else ""
+            )
+
+        if (
+            repetition_guard is not None
+            and repetition_guard.record(
+                action
+            )
+        ):
+            marker_repetition_exceeded = True
+            marker_repetition_reason = repetition_guard.reason
+            return raw_marker
+
+        if (
+            preserve_action_marker is not None
+            and preserve_action_marker(
+                raw_marker,
+                action,
+            )
+        ):
+            return raw_marker
+
         if not preserve_action_text:
             removed_markers.append(
                 raw_marker
             )
 
-        if (
-            action is not None
-            and action_enabled
-        ):
+        if action_enabled:
             action_key = (
                 action.name,
                 action.payload,
@@ -1812,6 +2012,15 @@ def extract_runtime_actions(
             or match.group("bare_call_name"),
             match.group("tool_call_query")
             or match.group("bare_call_query")
+            or "",
+        )
+
+    def replace_delayed_memory_action_marker(match):
+
+        return handle_marker(
+            match.group(0),
+            match.group("name"),
+            match.group("query")
             or "",
         )
 
@@ -1862,6 +2071,12 @@ def extract_runtime_actions(
 
     clean_text = _replace_runtime_action_matches(
         clean_text,
+        DELAYED_MEMORY_ACTION_PATTERN,
+        replace_delayed_memory_action_marker,
+    )
+
+    clean_text = _replace_runtime_action_matches(
+        clean_text,
         MALFORMED_CALL_INTERNAL_ACTION_PATTERN,
         replace_malformed_call_marker,
     )
@@ -1880,6 +2095,8 @@ def extract_runtime_actions(
         removed_markers=tuple(
             removed_markers
         ),
+        marker_repetition_exceeded=marker_repetition_exceeded,
+        marker_repetition_reason=marker_repetition_reason,
     )
 
 def extract_search_query(
@@ -2149,12 +2366,102 @@ def _enabled_action_start_markers(
             "call:SAVE_DELAYED_MEMORY_CONTENT"
         )
 
+    if RUNTIME_ACTION_LIST_DELAYED_MEMORY in enabled_action_names:
+        markers.append(
+            "<LIST_DELAYED_MEMORY>"
+        )
+        markers.append(
+            "<INTERNAL_ACTION_LIST_DELAYED_MEMORY>"
+        )
+        markers.append(
+            "<INTERNAL_ACTION_LIST_DELAYED_MEMORY"
+        )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_LIST_DELAYED_MEMORY"
+        )
+        markers.append(
+            "<tool_call>call:INTERNAL_ACTION_LIST_DELAYED_MEMORY"
+        )
+        markers.append(
+            "<|tool_call>call:LIST_DELAYED_MEMORY"
+        )
+        markers.append(
+            "<tool_call>call:LIST_DELAYED_MEMORY"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_LIST_DELAYED_MEMORY"
+        )
+        markers.append(
+            "call:LIST_DELAYED_MEMORY"
+        )
+
+    if RUNTIME_ACTION_APPEND_DELAYED_MEMORY in enabled_action_names:
+        markers.append(
+            "<APPEND_DELAYED_MEMORY:"
+        )
+        markers.append(
+            "<INTERNAL_ACTION_APPEND_DELAYED_MEMORY:"
+        )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_APPEND_DELAYED_MEMORY:"
+        )
+        markers.append(
+            "<tool_call>call:INTERNAL_ACTION_APPEND_DELAYED_MEMORY:"
+        )
+        markers.append(
+            "<|tool_call>call:APPEND_DELAYED_MEMORY:"
+        )
+        markers.append(
+            "<tool_call>call:APPEND_DELAYED_MEMORY:"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_APPEND_DELAYED_MEMORY:"
+        )
+        markers.append(
+            "call:APPEND_DELAYED_MEMORY:"
+        )
+
+    if RUNTIME_ACTION_REMOVE_DELAYED_MEMORY in enabled_action_names:
+        markers.append(
+            "<REMOVE_DELAYED_MEMORY:"
+        )
+        markers.append(
+            "<INTERNAL_ACTION_REMOVE_DELAYED_MEMORY:"
+        )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_REMOVE_DELAYED_MEMORY:"
+        )
+        markers.append(
+            "<tool_call>call:INTERNAL_ACTION_REMOVE_DELAYED_MEMORY:"
+        )
+        markers.append(
+            "<|tool_call>call:REMOVE_DELAYED_MEMORY:"
+        )
+        markers.append(
+            "<tool_call>call:REMOVE_DELAYED_MEMORY:"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_REMOVE_DELAYED_MEMORY:"
+        )
+        markers.append(
+            "call:REMOVE_DELAYED_MEMORY:"
+        )
+
     if RUNTIME_ACTION_ASSET_ACTION in enabled_action_names:
         markers.append(
             "<INTERNAL_ACTION_ASSET_ACTION>"
         )
         markers.append(
+            "< INTERNAL_ACTION_ASSET_ACTION"
+        )
+        markers.append(
             "</INTERNAL_ACTION_ASSET_ACTION>"
+        )
+        markers.append(
+            "< /INTERNAL_ACTION_ASSET_ACTION"
+        )
+        markers.append(
+            "< / INTERNAL_ACTION_ASSET_ACTION"
         )
         markers.append(
             "<|tool_call>call:INTERNAL_ACTION_ASSET_ACTION"
@@ -2396,6 +2703,7 @@ def _action_text_may_contain_marker(
         "INTERNAL_ACTION_" in upper_text
         or "CALL:" in upper_text
         or "TODO_LIST" in upper_text
+        or "DELAYED_MEMORY" in upper_text
     )
 
 
@@ -2405,6 +2713,8 @@ def _extract_runtime_actions_if_needed(
     enabled_actions=None,
     preserve_action_text: bool = False,
     seen_action_keys=None,
+    preserve_action_marker=None,
+    repetition_guard: RuntimeActionRepetitionGuard | None = None,
 ) -> RuntimeActionResult:
 
     if not text:
@@ -2424,6 +2734,8 @@ def _extract_runtime_actions_if_needed(
         enabled_actions=enabled_actions,
         preserve_action_text=preserve_action_text,
         seen_action_keys=seen_action_keys,
+        preserve_action_marker=preserve_action_marker,
+        repetition_guard=repetition_guard,
     )
 
 
@@ -2543,6 +2855,48 @@ def _unclosed_tool_call_internal_action_start(
     return None
 
 
+def _unclosed_delayed_memory_action_start(
+    text: str,
+) -> int | None:
+
+    upper_text = text.upper()
+    marker_starts = [
+        upper_text.rfind(
+            marker
+        )
+        for marker in (
+            "<LIST_DELAYED_MEMORY",
+            "<INTERNAL_ACTION_LIST_DELAYED_MEMORY",
+            "<APPEND_DELAYED_MEMORY:",
+            "<INTERNAL_ACTION_APPEND_DELAYED_MEMORY:",
+            "<REMOVE_DELAYED_MEMORY:",
+            "<INTERNAL_ACTION_REMOVE_DELAYED_MEMORY:",
+        )
+    ]
+    marker_start = max(
+        marker_starts
+    )
+
+    if marker_start < 0:
+        return None
+
+    candidate = text[
+        marker_start:
+    ]
+
+    if (
+        ">" in candidate
+        or "\n" in candidate
+        or "\r" in candidate
+    ):
+        return None
+
+    if "<" in candidate[1:]:
+        return None
+
+    return marker_start
+
+
 def _unclosed_delayed_memory_content_block_start(
     text: str,
 ) -> int | None:
@@ -2577,25 +2931,36 @@ def _unclosed_asset_action_block_start(
 ) -> int | None:
 
     opening_match = None
+    opening_end = 0
 
-    for match in ASSET_ACTION_BLOCK_START_RE.finditer(
+    for match in ASSET_ACTION_BLOCK_TAG_RE.finditer(
         text
     ):
+        if match.group(
+            "slash"
+        ):
+            opening_match = None
+            opening_end = 0
+            continue
+
+        if opening_match is None:
+            opening_match = match
+            opening_end = match.end()
+            continue
+
+        payload = text[
+            opening_end:match.start()
+        ].strip()
+
+        if payload:
+            opening_match = None
+            opening_end = 0
+            continue
+
         opening_match = match
+        opening_end = match.end()
 
     if opening_match is None:
-        return None
-
-    closing_match = None
-
-    for match in ASSET_ACTION_BLOCK_END_RE.finditer(
-        text,
-        opening_match.end(),
-    ):
-        closing_match = match
-        break
-
-    if closing_match is not None:
         return None
 
     return opening_match.start()
@@ -2639,6 +3004,7 @@ def _unclosed_internal_action_request_start(
         _unclosed_create_todo_block_start,
         _unclosed_asset_action_block_start,
         _unclosed_delayed_memory_content_block_start,
+        _unclosed_delayed_memory_action_start,
         _unclosed_bracketed_internal_action_start,
         _unclosed_tool_call_internal_action_start,
     ):
@@ -2675,10 +3041,14 @@ class RuntimeActionStreamFilter:
         self,
         enabled_actions=None,
         preserve_action_text: bool = False,
+        preserve_action_marker=None,
+        repetition_guard: RuntimeActionRepetitionGuard | None = None,
     ):
         self.pending = ""
         self.pending_is_action = False
         self.preserve_action_text = preserve_action_text
+        self.preserve_action_marker = preserve_action_marker
+        self.repetition_guard = repetition_guard
         self.seen_action_keys = set()
         self.enabled_actions = normalize_runtime_action_names(
             enabled_actions
@@ -2718,6 +3088,8 @@ class RuntimeActionStreamFilter:
                     enabled_actions=self.enabled_actions,
                     preserve_action_text=self.preserve_action_text,
                     seen_action_keys=self.seen_action_keys,
+                    preserve_action_marker=self.preserve_action_marker,
+                    repetition_guard=self.repetition_guard,
                 )
 
         if (
@@ -2766,6 +3138,8 @@ class RuntimeActionStreamFilter:
                 enabled_actions=self.enabled_actions,
                 preserve_action_text=self.preserve_action_text,
                 seen_action_keys=self.seen_action_keys,
+                preserve_action_marker=self.preserve_action_marker,
+                repetition_guard=self.repetition_guard,
             )
 
         hold_length = _trailing_marker_prefix_length(
@@ -2786,6 +3160,8 @@ class RuntimeActionStreamFilter:
                 enabled_actions=self.enabled_actions,
                 preserve_action_text=self.preserve_action_text,
                 seen_action_keys=self.seen_action_keys,
+                preserve_action_marker=self.preserve_action_marker,
+                repetition_guard=self.repetition_guard,
             )
 
         return _extract_runtime_actions_if_needed(
@@ -2793,6 +3169,8 @@ class RuntimeActionStreamFilter:
             enabled_actions=self.enabled_actions,
             preserve_action_text=self.preserve_action_text,
             seen_action_keys=self.seen_action_keys,
+            preserve_action_marker=self.preserve_action_marker,
+            repetition_guard=self.repetition_guard,
         )
 
     def flush_result(self) -> RuntimeActionResult:
@@ -2814,6 +3192,8 @@ class RuntimeActionStreamFilter:
                 pending,
                 enabled_actions=self.enabled_actions,
                 preserve_action_text=False,
+                preserve_action_marker=self.preserve_action_marker,
+                repetition_guard=self.repetition_guard,
             )
 
             if result.actions:
@@ -2830,6 +3210,8 @@ class RuntimeActionStreamFilter:
             pending,
             enabled_actions=self.enabled_actions,
             preserve_action_text=False,
+            preserve_action_marker=self.preserve_action_marker,
+            repetition_guard=self.repetition_guard,
         )
 
     def flush(self) -> str:

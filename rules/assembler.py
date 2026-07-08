@@ -12,6 +12,10 @@ from .signal import LOOP_RULES, EXTREME_LOW_DIFF_RULES, ZERO_DIFF_RULES, \
     LOW_DIFF_RULES, MIDDLE_DIFF_RULES, NORMAL_DIFF_RULES
 from .runtime import (
     CREATE_ACTIVE_MEMORY_RULES,
+    DELAYED_MEMORY_ACTION_RULES,
+    DELAYED_MEMORY_APPEND_MARKER,
+    DELAYED_MEMORY_LIST_MARKER,
+    DELAYED_MEMORY_REMOVE_MARKER,
     RESOLVE_ACTIVE_MEMORY_RULES,
     INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER,
     INTERNAL_ACTION_ASSET_ACTION_MARKER,
@@ -26,12 +30,15 @@ from .runtime import (
     INTERNAL_ACTION_SAVE_SESSION_MARKER,
     INTERNAL_ACTION_WEB_SEARCH_MARKER,
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_CHECK_TODO,
     RUNTIME_ACTION_CREATE_TODO_LIST,
+    RUNTIME_ACTION_LIST_DELAYED_MEMORY,
     RUNTIME_ACTION_APPEND_SKILL,
     RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_REMOVE_SKILL,
+    RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_RESOLVE_TODO,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
@@ -40,6 +47,8 @@ from .runtime import (
     SAVE_SESSION_RULES,
     WEB_SEARCH_RULES,
     ASSETS_RULES,
+    APPEND_REMOVE_SKILL_RULES,
+    LIST_SKILLS_RULES,
     RUNTIME_TODO_RULES,
     SKILL_ROUTING_RULES,
     RUNTIME_ACTIONS_RULES, SAVE_DELAYED_MEMORY_RULES,
@@ -128,6 +137,18 @@ def get_enabled_runtime_actions(
             "CAN_SAVE_DELAYED_MEMORY",
         ),
         (
+            RUNTIME_ACTION_LIST_DELAYED_MEMORY,
+            "CAN_SAVE_DELAYED_MEMORY",
+        ),
+        (
+            RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
+            "CAN_SAVE_DELAYED_MEMORY",
+        ),
+        (
+            RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
+            "CAN_SAVE_DELAYED_MEMORY",
+        ),
+        (
             RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
             "CAN_SAVE_ACTIVE_MEMORY",
         ),
@@ -179,21 +200,60 @@ def build_conditional_prompt_rules(
     return ""
 
 
+def _context_has_list_skills_tool_result(
+    context=None,
+) -> bool:
+
+    for result in (
+        getattr(
+            context,
+            "runtime_asset_results",
+            [],
+        )
+        or []
+    ):
+        if (
+            isinstance(
+                result,
+                dict,
+            )
+            and result.get(
+                "action"
+            ) == "list_skills"
+        ):
+            return True
+
+    return False
+
+
 def _build_allowed_markers(
     enabled_actions: tuple[str, ...],
+    context=None,
 ) -> str:
     markers: list[str] = []
+    has_list_skills_result = _context_has_list_skills_tool_result(
+        context
+    )
 
     if _action_enabled(enabled_actions, RUNTIME_ACTION_WEB_SEARCH, "web_search"):
         markers.append(INTERNAL_ACTION_WEB_SEARCH_MARKER)
 
-    if _action_enabled(enabled_actions, RUNTIME_ACTION_LIST_SKILLS, "list_skills"):
+    if (
+        _action_enabled(enabled_actions, RUNTIME_ACTION_LIST_SKILLS, "list_skills")
+        and not has_list_skills_result
+    ):
         markers.append(INTERNAL_ACTION_LIST_SKILLS_MARKER)
 
-    if _action_enabled(enabled_actions, RUNTIME_ACTION_APPEND_SKILL, "append_skill"):
+    if (
+        _action_enabled(enabled_actions, RUNTIME_ACTION_APPEND_SKILL, "append_skill")
+        and has_list_skills_result
+    ):
         markers.append(INTERNAL_ACTION_APPEND_SKILL_MARKER)
 
-    if _action_enabled(enabled_actions, RUNTIME_ACTION_REMOVE_SKILL, "remove_skill"):
+    if (
+        _action_enabled(enabled_actions, RUNTIME_ACTION_REMOVE_SKILL, "remove_skill")
+        and has_list_skills_result
+    ):
         markers.append(INTERNAL_ACTION_REMOVE_SKILL_MARKER)
 
     if _action_enabled(enabled_actions, RUNTIME_ACTION_ASSET_ACTION, "asset_action"):
@@ -210,6 +270,15 @@ def _build_allowed_markers(
 
     if _action_enabled(enabled_actions, RUNTIME_ACTION_SAVE_SESSION, "save_session"):
         markers.append(INTERNAL_ACTION_SAVE_SESSION_MARKER)
+
+    if _action_enabled(enabled_actions, RUNTIME_ACTION_LIST_DELAYED_MEMORY, "list_delayed_memory"):
+        markers.append(DELAYED_MEMORY_LIST_MARKER)
+
+    if _action_enabled(enabled_actions, RUNTIME_ACTION_APPEND_DELAYED_MEMORY, "append_delayed_memory"):
+        markers.append(DELAYED_MEMORY_APPEND_MARKER)
+
+    if _action_enabled(enabled_actions, RUNTIME_ACTION_REMOVE_DELAYED_MEMORY, "remove_delayed_memory"):
+        markers.append(DELAYED_MEMORY_REMOVE_MARKER)
 
     if _action_enabled(enabled_actions, RUNTIME_ACTION_CREATE_ACTIVE_MEMORY, "create_active_memory"):
         markers.append(INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER)
@@ -254,6 +323,23 @@ def _append_resolve_active_memory_rules(
         return
     instructions.append(RESOLVE_ACTIVE_MEMORY_RULES)
 
+
+def _context_has_delayed_memory_reports(
+    context=None,
+) -> bool:
+    reports = getattr(
+        context,
+        "delayed_memory_reports",
+        None,
+    )
+    return bool(
+        isinstance(
+            reports,
+            dict,
+        )
+        and reports
+    )
+
 # ─────────────────────────────────────────────
 # Runtime actions / runtime state
 # ─────────────────────────────────────────────
@@ -265,6 +351,9 @@ def build_runtime_action_instructions(
     instructions: list[str] = [
         RUNTIME_ACTIONS_RULES
     ]
+    has_list_skills_result = _context_has_list_skills_tool_result(
+        context
+    )
 
     if _action_enabled(enabled_actions, RUNTIME_ACTION_WEB_SEARCH, "web_search"):
         instructions.append(WEB_SEARCH_RULES)
@@ -284,6 +373,16 @@ def build_runtime_action_instructions(
     if _action_enabled(enabled_actions, RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT, "save_delayed_memory_content"):
         instructions.append(SAVE_DELAYED_MEMORY_RULES)
 
+    if (
+        _context_has_delayed_memory_reports(context)
+        and (
+            _action_enabled(enabled_actions, RUNTIME_ACTION_LIST_DELAYED_MEMORY, "list_delayed_memory")
+            or _action_enabled(enabled_actions, RUNTIME_ACTION_APPEND_DELAYED_MEMORY, "append_delayed_memory")
+            or _action_enabled(enabled_actions, RUNTIME_ACTION_REMOVE_DELAYED_MEMORY, "remove_delayed_memory")
+        )
+    ):
+        instructions.append(DELAYED_MEMORY_ACTION_RULES)
+
     if _action_enabled(enabled_actions, RUNTIME_ACTION_CREATE_ACTIVE_MEMORY, "create_active_memory"):
         instructions.append(CREATE_ACTIVE_MEMORY_RULES)
         _append_resolve_active_memory_rules(
@@ -292,7 +391,25 @@ def build_runtime_action_instructions(
             context,
         )
 
-    if _action_enabled(enabled_actions, RUNTIME_ACTION_LIST_SKILLS, "list_skills"):
+    if (
+        _action_enabled(enabled_actions, RUNTIME_ACTION_LIST_SKILLS, "list_skills")
+        and not has_list_skills_result
+    ):
+        instructions.append(LIST_SKILLS_RULES)
+
+    if (
+        has_list_skills_result
+        and (
+            _action_enabled(enabled_actions, RUNTIME_ACTION_APPEND_SKILL, "append_skill")
+            or _action_enabled(enabled_actions, RUNTIME_ACTION_REMOVE_SKILL, "remove_skill")
+        )
+    ):
+        instructions.append(APPEND_REMOVE_SKILL_RULES)
+
+    if (
+        _action_enabled(enabled_actions, RUNTIME_ACTION_LIST_SKILLS, "list_skills")
+        or has_list_skills_result
+    ):
         instructions.append(SKILL_ROUTING_RULES)
 
     if not enabled_actions:

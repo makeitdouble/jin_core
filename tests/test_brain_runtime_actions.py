@@ -73,7 +73,14 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
         )
 
     if bool(runtime_actions.get("CAN_SAVE_DELAYED_MEMORY", False)):
-        expected_actions.append("SAVE_DELAYED_MEMORY_CONTENT")
+        expected_actions.extend(
+            (
+                "SAVE_DELAYED_MEMORY_CONTENT",
+                "LIST_DELAYED_MEMORY",
+                "APPEND_DELAYED_MEMORY",
+                "REMOVE_DELAYED_MEMORY",
+            )
+        )
 
     if bool(runtime_actions.get("CAN_SAVE_ACTIVE_MEMORY", False)):
         expected_actions.extend(
@@ -149,6 +156,14 @@ class BrainRuntimeActionTests(unittest.TestCase):
             self,
             prompt,
             "memory conditions.\nYou need",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            (
+                "USER PROMPT starting with 'No new messages, "
+                "multi-task in progress' is a runtime follow-up tick"
+            ),
         )
 
     def test_non_stream_blocks_save_session_meta_request_in_reasoning(self):
@@ -516,6 +531,155 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
+    def test_stream_preserves_duplicate_failed_append_skill_marker(self):
+
+        class FakeBrainClient:
+            async def stream(self, **_kwargs):
+                yield {
+                    "type": "content",
+                    "content": (
+                        "<INTERNAL_ACTION_APPEND_SKILL: name of skill >\n"
+                        "<INTERNAL_ACTION_APPEND_SKILL: name of skill >"
+                    ),
+                }
+
+        class Context:
+            pass
+
+        async def collect(context):
+            chunks = []
+
+            async for chunk in ask_brain_stream(
+                client=FakeBrainClient(),
+                text="load a skill",
+                context=context,
+                runtime_actions={
+                    "CAN_USE_ASSETS": True,
+                },
+            ):
+                chunks.append(
+                    chunk
+                )
+
+            return chunks
+
+        context = Context()
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            chunks = asyncio.run(
+                collect(
+                    context
+                )
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        visible_text = "".join(
+            chunk.get(
+                "content",
+                "",
+            )
+            for chunk in chunks
+            if chunk.get("type") == "content"
+        )
+
+        self.assertIn(
+            "<INTERNAL_ACTION_APPEND_SKILL: name of skill >",
+            visible_text,
+        )
+        self.assertEqual(
+            context.runtime_action_events,
+            [
+                {
+                    "name": "append_skill",
+                    "payload": "name of skill",
+                },
+            ],
+        )
+        self.assertEqual(
+            context.runtime_asset_results[-1]["action"],
+            "append_skill",
+        )
+        self.assertEqual(
+            context.runtime_asset_results[-1]["error"],
+            "skill_not_found",
+        )
+
+    def test_stream_stops_repeated_resolve_active_memory_markers(self):
+
+        class FakeBrainClient:
+            async def stream(self, **_kwargs):
+                for _ in range(4):
+                    yield {
+                        "type": "content",
+                        "content": (
+                            "<INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY: "
+                            "active_memory_id: 5fdg4g>"
+                        ),
+                    }
+
+        class Context:
+            pass
+
+        async def collect(context):
+            chunks = []
+
+            async for chunk in ask_brain_stream(
+                client=FakeBrainClient(),
+                text="how are you",
+                context=context,
+                runtime_actions={
+                    "CAN_SAVE_ACTIVE_MEMORY": True,
+                },
+            ):
+                chunks.append(
+                    chunk
+                )
+
+            return chunks
+
+        context = Context()
+        context.runtime_memory = (
+            "active_memory_1: remember cuckoo "
+            "[ active_memory_id: 5fdg4g ] [ status: pending ]"
+        )
+        context.runtime_memory_stable = context.runtime_memory
+        context.active_memory_records = [
+            context.runtime_memory,
+        ]
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            chunks = asyncio.run(
+                collect(
+                    context
+                )
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        self.assertEqual(
+            chunks,
+            [],
+        )
+        self.assertEqual(
+            context.active_memory_records,
+            [],
+        )
+        self.assertEqual(
+            context.runtime_action_events,
+            [
+                {
+                    "name": "resolve_active_memory",
+                    "id": "5fdg4g",
+                    "payload": "active_memory_id: 5fdg4g",
+                },
+            ],
+        )
+
     def test_stream_ignores_web_search_internal_action_in_thinking(self):
 
         class FakeBrainClient:
@@ -779,12 +943,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
             "<INTERNAL_ACTION_LIST_SKILLS>",
         )
-        assert_contains_text(
+        assert_not_contains_text(
             self,
             prompt,
             "<INTERNAL_ACTION_APPEND_SKILL: name of skill >",
         )
-        assert_contains_text(
+        assert_not_contains_text(
             self,
             prompt,
             "<INTERNAL_ACTION_REMOVE_SKILL: name of skill >",
@@ -803,6 +967,61 @@ class BrainRuntimeActionTests(unittest.TestCase):
             self,
             prompt,
             "assets/wildcards",
+        )
+
+    def test_prompt_shows_append_remove_rules_only_after_list_skills_result(self):
+
+        context = SimpleNamespace(
+            runtime_memory="session_status: active",
+            runtime_memory_stable="session_status: active",
+            runtime_l2_memory="",
+            active_memory_records=[],
+            runtime_asset_results=[
+                {
+                    "ok": True,
+                    "action": "list_skills",
+                    "skills": [
+                        {
+                            "name": "wildcards",
+                            "path": "assets/skills/wildcards.txt",
+                        },
+                    ],
+                },
+            ],
+            runtime_appended_skills=[],
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_USE_ASSETS": True,
+            },
+        )
+
+        assert_not_contains_text(
+            self,
+            prompt,
+            "LIST SKILLS:",
+        )
+        assert_not_contains_text(
+            self,
+            prompt,
+            "<INTERNAL_ACTION_LIST_SKILLS>",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "APPEND / REMOVE SKILLS:",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "<INTERNAL_ACTION_APPEND_SKILL: name of skill >",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "<INTERNAL_ACTION_REMOVE_SKILL: name of skill >",
         )
 
     def test_prompt_places_tool_results_before_identity(self):
@@ -920,6 +1139,56 @@ class BrainRuntimeActionTests(unittest.TestCase):
         self.assertNotIn(
             "<TOOL_RESULTS",
             runtime_context,
+        )
+
+    def test_prompt_adds_delayed_memory_rules_only_when_reports_exist(self):
+
+        empty_context = SimpleNamespace(
+            runtime_memory="session_status: active",
+            runtime_memory_stable="session_status: active",
+            runtime_l2_memory="",
+            active_memory_records=[],
+            delayed_memory_reports={},
+        )
+
+        prompt_without_reports = build_brain_system_prompt(
+            context=empty_context,
+            runtime_actions={
+                "CAN_SAVE_DELAYED_MEMORY": True,
+            },
+        )
+
+        self.assertNotIn(
+            "DELAYED MEMORY ACTIONS:",
+            prompt_without_reports,
+        )
+
+        context = SimpleNamespace(
+            runtime_memory="session_status: active",
+            runtime_memory_stable="session_status: active",
+            runtime_l2_memory="",
+            active_memory_records=[],
+            delayed_memory_reports={
+                "a1b2c3": {
+                    "title": "Saved report",
+                },
+            },
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_SAVE_DELAYED_MEMORY": True,
+            },
+        )
+
+        self.assertIn(
+            "DELAYED MEMORY ACTIONS:",
+            prompt,
+        )
+        self.assertIn(
+            "<LIST_DELAYED_MEMORY>",
+            prompt,
         )
 
     def test_prompt_formats_missing_skill_as_skill_error_tool_result(self):
