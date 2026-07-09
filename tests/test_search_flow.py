@@ -167,10 +167,12 @@ class FakeLogger(WebSocketLogger):
     async def log_validator(
         self,
         message: str,
+        details: str | None = None,
     ):
         await self.log(
             "[VALIDATOR]",
             message,
+            details,
         )
 
 
