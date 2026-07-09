@@ -836,14 +836,14 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(
                     runtime_events[0]["text"],
-                    "Assets: asset_action",
+                    "Processed asset action",
                 )
                 self.assertFalse(
                     runtime_events[0]["file_exists_at_emit"],
                 )
                 self.assertEqual(
                     runtime_events[1]["text"],
-                    "Assets: create_asset_file - assets/outputs/rain_simulator.py",
+                    "Created asset file - assets/outputs/rain_simulator.py",
                 )
                 self.assertTrue(
                     runtime_events[2]["file_exists_at_emit"],

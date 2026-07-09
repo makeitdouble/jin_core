@@ -390,6 +390,53 @@ class RuntimeActionTests(unittest.TestCase):
             ),
         )
 
+    def test_extracts_plural_append_and_remove_skill_markers(self):
+
+        result = extract_runtime_actions(
+            (
+                "<INTERNAL_ACTION_APPEND_SKILLS: "
+                "file_manager, image_prompt_generator, porn, wildcards>\n"
+                "<INTERNAL_ACTION_REMOVE_SKILLS: old_skill, unused_skill>"
+            ),
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name="APPEND_SKILL",
+                    payload="file_manager",
+                ),
+                RuntimeActionCall(
+                    name="APPEND_SKILL",
+                    payload="image_prompt_generator",
+                ),
+                RuntimeActionCall(
+                    name="APPEND_SKILL",
+                    payload="porn",
+                ),
+                RuntimeActionCall(
+                    name="APPEND_SKILL",
+                    payload="wildcards",
+                ),
+                RuntimeActionCall(
+                    name="REMOVE_SKILL",
+                    payload="old_skill",
+                ),
+                RuntimeActionCall(
+                    name="REMOVE_SKILL",
+                    payload="unused_skill",
+                ),
+            ),
+        )
+
     def test_extracts_append_skill_marker_with_name_attribute(self):
 
         result = extract_runtime_actions(
@@ -1447,6 +1494,59 @@ class RuntimeActionTests(unittest.TestCase):
             "",
         )
 
+    def test_stream_filter_handles_split_plural_append_skill_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "<INTERNAL_ACTION_APPEND_SKILLS: file_manager,"
+        )
+        second = stream_filter.filter(
+            " image_prompt_generator, porn, wildcards>"
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.actions,
+            (),
+        )
+        self.assertEqual(
+            second.text,
+            "",
+        )
+        self.assertEqual(
+            second.actions,
+            (
+                RuntimeActionCall(
+                    name="APPEND_SKILL",
+                    payload="file_manager",
+                ),
+                RuntimeActionCall(
+                    name="APPEND_SKILL",
+                    payload="image_prompt_generator",
+                ),
+                RuntimeActionCall(
+                    name="APPEND_SKILL",
+                    payload="porn",
+                ),
+                RuntimeActionCall(
+                    name="APPEND_SKILL",
+                    payload="wildcards",
+                ),
+            ),
+        )
+        self.assertEqual(
+            stream_filter.flush(),
+            "",
+        )
+
     def test_stream_filter_handles_split_bracketed_web_search_marker_terminated_by_newline(self):
 
         stream_filter = RuntimeActionStreamFilter(
@@ -2461,15 +2561,95 @@ class RuntimeActionTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "Reading skills",
+                    "Readed skills",
                 )
                 self.assertEqual(
                     context.runtime_session_action_history[0]["text"],
-                    "Reading skills",
+                    "Readed skills",
                 )
                 self.assertIsInstance(
                     context.runtime_session_action_history[0]["created_at"],
                     float,
+                )
+
+    def test_apply_runtime_action_calls_reuses_list_skills_cache(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                self.write_skill_fixture(
+                    root,
+                    "file_manager.txt",
+                    "file_manager\nUse ASSET_ACTION for asset files.",
+                )
+
+                context = Context()
+                context.emitter = Emitter()
+                context.runtime_current_turn_id = "turn_000001"
+
+                asyncio.run(
+                    apply_runtime_action_calls(
+                        context,
+                        (
+                            RuntimeActionCall(
+                                name="LIST_SKILLS",
+                                payload="",
+                            ),
+                        ),
+                    )
+                )
+
+                context.runtime_current_turn_id = "turn_000002"
+
+                asyncio.run(
+                    apply_runtime_action_calls(
+                        context,
+                        (
+                            RuntimeActionCall(
+                                name="LIST_SKILLS",
+                                payload="",
+                            ),
+                        ),
+                    )
+                )
+
+                self.assertEqual(
+                    len(context.runtime_asset_results),
+                    2,
+                )
+                self.assertNotIn(
+                    "runtime_action_reused",
+                    context.runtime_asset_results[0],
+                )
+                self.assertTrue(
+                    context.runtime_asset_results[1][
+                        "runtime_action_reused"
+                    ],
+                )
+                self.assertEqual(
+                    context.runtime_asset_results[1][
+                        "runtime_action_reused_from_turn_id"
+                    ],
+                    "turn_000001",
+                )
+                self.assertEqual(
+                    context.runtime_asset_results[1][
+                        "runtime_turn_id"
+                    ],
+                    "turn_000002",
                 )
 
     def test_apply_runtime_action_calls_appends_and_removes_skill(self):
@@ -2846,7 +3026,7 @@ class RuntimeActionTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "Assets: create_wildcard_file",
+                    "Created wildcard file",
                 )
                 self.assertEqual(
                     context.emitter.events[0]["status"],
@@ -2862,7 +3042,7 @@ class RuntimeActionTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[1]["text"],
-                    "Assets: create_wildcard_file - assets/wildcards/clothing/test_tops.txt",
+                    "Created wildcard file - assets/wildcards/clothing/test_tops.txt",
                 )
                 self.assertEqual(
                     context.emitter.events[1]["status"],
@@ -2874,7 +3054,7 @@ class RuntimeActionTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     context.runtime_session_action_history[0]["text"],
-                    "Assets: create_wildcard_file - assets/wildcards/clothing/test_tops.txt",
+                    "Created wildcard file - assets/wildcards/clothing/test_tops.txt",
                 )
                 self.assertIsInstance(
                     context.runtime_session_action_history[0]["created_at"],
@@ -2932,7 +3112,7 @@ class RuntimeActionTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "Assets: create_asset_file - assets/outputs/rain_script.py",
+                    "Created asset file - assets/outputs/rain_script.py",
                 )
                 self.assertEqual(
                     context.emitter.events[0]["id"],
@@ -3521,7 +3701,7 @@ class RuntimeActionTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "Assets: generate_prompt_batch",
+                    "Generated prompt batch",
                 )
                 self.assertEqual(
                     context.emitter.events[0]["status"],
@@ -3529,7 +3709,7 @@ class RuntimeActionTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[1]["text"],
-                    "Assets: generate_prompt_batch - failed",
+                    "Generated prompt batch - failed",
                 )
                 self.assertEqual(
                     context.emitter.events[1]["status"],
@@ -3541,7 +3721,7 @@ class RuntimeActionTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     context.runtime_session_action_history[0]["text"],
-                    "Assets: generate_prompt_batch - failed",
+                    "Generated prompt batch - failed",
                 )
                 self.assertIsInstance(
                     context.runtime_session_action_history[0]["created_at"],

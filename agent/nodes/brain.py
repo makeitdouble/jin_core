@@ -28,7 +28,7 @@ from utils.language import (
 )
 
 
-FOLLOWUP_USER_MESSAGE = "No new messages, multi-task in progress"
+FOLLOWUP_USER_MESSAGE = "This is NOT a new request! No new messages from a user, multi-task in progress."
 
 
 def _compact_followup_value(
@@ -147,12 +147,30 @@ class BrainNode(BaseNode):
             instruction: str = "",
     ) -> str:
 
-        sections = [
-            (
-                "<LATEST_USER_REQUEST>\n"
-                f"{str(initial_user_request or '').strip()}\n"
-                "</LATEST_USER_REQUEST>"
+        from clients.brain_context_builder import (
+            build_latest_user_request_context,
+        )
+
+        if context is not None:
+            latest_user_request_context = (
+                build_latest_user_request_context(
+                    initial_user_request,
+                    created_at=getattr(
+                        context,
+                        "runtime_turn_started_at",
+                        None,
+                    ),
+                )
             )
+        else:
+            latest_user_request_context = (
+                build_latest_user_request_context(
+                    initial_user_request
+                )
+            )
+
+        sections = [
+            latest_user_request_context
         ]
 
         if context is not None:
@@ -670,6 +688,65 @@ class BrainNode(BaseNode):
         skill_state_event_offset = runtime_action_event_offset
         followup_count = 0
         max_followups = 12
+        current_turn_id = str(
+            getattr(
+                context,
+                "runtime_current_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
+
+        def belongs_to_current_turn(
+                item,
+        ) -> bool:
+
+            if (
+                not current_turn_id
+                or not isinstance(
+                    item,
+                    dict,
+                )
+            ):
+                return True
+
+            item_turn_id = str(
+                item.get(
+                    "runtime_turn_id",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            return (
+                not item_turn_id
+                or item_turn_id == current_turn_id
+            )
+
+        skill_state_followup_event_names = {
+            "append_skill",
+            "remove_skill",
+            "append_delayed_memory",
+        }
+
+        def collect_pending_skill_state_events():
+
+            runtime_action_events = getattr(
+                context,
+                "runtime_action_events",
+                [],
+            )
+
+            return [
+                event
+                for event in runtime_action_events[
+                    skill_state_event_offset:
+                ]
+                if belongs_to_current_turn(
+                    event
+                )
+                if event.get("name") in skill_state_followup_event_names
+            ]
 
         while followup_count < max_followups:
 
@@ -788,17 +865,9 @@ class BrainNode(BaseNode):
                 "runtime_action_events",
                 [],
             )
-            new_skill_state_events = [
-                event
-                for event in runtime_action_events[
-                    skill_state_event_offset:
-                ]
-                if event.get("name") in {
-                    "append_skill",
-                    "remove_skill",
-                    "append_delayed_memory",
-                }
-            ]
+            new_skill_state_events = (
+                collect_pending_skill_state_events()
+            )
             skill_state_event_offset = len(
                 runtime_action_events
             )
@@ -857,13 +926,20 @@ class BrainNode(BaseNode):
                 "runtime_delayed_memory_results",
                 [],
             )
+            current_delayed_memory_results = [
+                result
+                for result in delayed_memory_results
+                if belongs_to_current_turn(
+                    result
+                )
+            ]
 
             if (
-                    len(delayed_memory_results)
+                    len(current_delayed_memory_results)
                     > delayed_memory_result_offset
             ):
                 delayed_memory_result_offset = len(
-                    delayed_memory_results
+                    current_delayed_memory_results
                 )
                 followup_runtime_actions = {
                     **runtime_actions,
@@ -891,7 +967,7 @@ class BrainNode(BaseNode):
 
                 followup_payload = build_followup_user_message(
                     format_followup_action_from_asset_result(
-                        delayed_memory_results[-1]
+                        current_delayed_memory_results[-1]
                     )
                 )
 
@@ -917,12 +993,19 @@ class BrainNode(BaseNode):
                 "runtime_asset_results",
                 [],
             )
+            current_asset_results = [
+                result
+                for result in asset_results
+                if belongs_to_current_turn(
+                    result
+                )
+            ]
 
-            if len(asset_results) <= asset_result_offset:
+            if len(current_asset_results) <= asset_result_offset:
                 break
 
             asset_result_offset = len(
-                asset_results
+                current_asset_results
             )
             followup_runtime_actions = {
                 **runtime_actions,
@@ -944,15 +1027,14 @@ class BrainNode(BaseNode):
                     context=context,
                 )
             )
+            followup_payload = build_followup_user_message(
+                format_followup_action_from_asset_result(
+                    current_asset_results[-1]
+                )
+            )
 
             await emit_active_memory_records_update_if_dirty(
                 context
-            )
-
-            followup_payload = build_followup_user_message(
-                format_followup_action_from_asset_result(
-                    asset_results[-1]
-                )
             )
 
             text, reasoning = await self.run_brain_stream(
@@ -971,8 +1053,11 @@ class BrainNode(BaseNode):
 
             followup_count += 1
 
+            if collect_pending_skill_state_events():
+                continue
+
             if (
-                    len(asset_results) <= asset_result_offset
+                    len(current_asset_results) <= asset_result_offset
                     and text.strip()
             ):
                 break

@@ -37,6 +37,7 @@ TRAILING_ARTIFACTS = [
 WORD_WINDOW_SIZE = 30
 MAX_REPEAT_WORDS = 8
 MAX_REPEAT_SENTENCES = 3
+SENTENCE_REPEAT_WINDOW = 12
 MIN_REPEAT_SENTENCE_CHARS = 24
 MIN_REPEAT_SENTENCE_WORDS = 5
 TRUNCATE = 160
@@ -57,8 +58,7 @@ class StreamValidator:
 
         self.current_sentence = ""
 
-        self.history_sentences = set()
-        self.sentence_counts = {}
+        self.recent_sentences = []
         self.history_paragraphs = set()
 
         self.recent_words = []
@@ -528,6 +528,7 @@ class StreamValidator:
         chunk: str,
     ):
 
+        return True
         self.current_sentence += chunk
 
         complete_sentences = []
@@ -599,21 +600,16 @@ class StreamValidator:
             ):
                 continue
 
-            self.history_sentences.add(
-                sentence
+            self.recent_sentences.append(sentence)
+
+            self.recent_sentences = (
+                self.recent_sentences[-SENTENCE_REPEAT_WINDOW:]
             )
 
-            count = (
-                self.sentence_counts.get(
-                    sentence,
-                    0,
-                )
-                + 1
-            )
-
-            self.sentence_counts[sentence] = count
-
-            if count >= MAX_REPEAT_SENTENCES:
+            if (
+                self.recent_sentences.count(sentence)
+                >= MAX_REPEAT_SENTENCES
+            ):
 
                 self.last_failure_reason = (
                     "Repeated sentence loop detected."
@@ -626,7 +622,6 @@ class StreamValidator:
                 return False
 
         return True
-
     # -----------------------------------------------------
     # VALIDATE PARAGRAPHS
     # -----------------------------------------------------

@@ -857,7 +857,7 @@ class MessageMemoryTests(
             ],
             runtime_session_action_history=[
                 {
-                    "text": "Reading skills",
+                    "text": "Readed skills",
                     "created_at": 40.0,
                 },
                 {
@@ -865,7 +865,7 @@ class MessageMemoryTests(
                     "created_at": 940.0,
                 },
                 {
-                    "text": "Assets: list_wildcards",
+                    "text": "Readed wildcards",
                     "created_at": 998.0,
                 },
             ],
@@ -909,7 +909,7 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertIn(
-            "1. Reading skills ( 16m ago )",
+            "1. Readed skills ( 16m ago )",
             prompt,
         )
         self.assertIn(
@@ -917,7 +917,7 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertIn(
-            "3. Assets: list_wildcards ( 2s ago )",
+            "3. Readed wildcards ( 2s ago )",
             prompt,
         )
         self.assertLess(

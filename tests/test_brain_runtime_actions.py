@@ -969,14 +969,14 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     )
                     self.assertEqual(
                         runtime_events[0]["text"],
-                        "Assets: asset_action",
+                        "Processed asset action",
                     )
                     self.assertFalse(
                         runtime_events[0]["file_exists_at_emit"],
                     )
                     self.assertEqual(
                         runtime_events[1]["text"],
-                        "Assets: create_asset_file - assets/outputs/rain_simulator.py",
+                        "Created asset file - assets/outputs/rain_simulator.py",
                     )
                     self.assertFalse(
                         runtime_events[1]["file_exists_at_emit"],
@@ -1162,13 +1162,16 @@ class BrainRuntimeActionTests(unittest.TestCase):
             "<INTERNAL_ACTION_REMOVE_SKILL: name of skill >",
         )
 
-    def test_prompt_places_tool_results_before_identity(self):
+    def test_prompt_places_tool_results_after_session_history(self):
 
         context = SimpleNamespace(
             runtime_memory="session_status: active",
             runtime_memory_stable="session_status: active",
             runtime_l2_memory="",
             active_memory_records=[],
+            runtime_session_action_history=[
+                "Readed skills",
+            ],
             runtime_asset_results=[
                 {
                     "ok": True,
@@ -1217,15 +1220,19 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertLess(
+            prompt.index("<SESSION_ACTIONS_HISTORY>"),
+            prompt.index("<TOOL_RESULTS"),
+        )
+        self.assertLess(
+            prompt.index("<TOOL_RESULTS"),
+            prompt.index("<APPENDED_SKILLS>"),
+        )
+        self.assertLess(
+            prompt.index("<APPENDED_SKILLS>"),
             prompt.index("Runtime Actions are internal mechanics"),
-            prompt.index("<TOOL_RESULTS"),
         )
         self.assertLess(
-            prompt.index("<TOOL_RESULTS"),
-            prompt.index("<APPENDED_SKILLS>"),
-        )
-        self.assertLess(
-            prompt.index("<APPENDED_SKILLS>"),
+            prompt.index("Runtime Actions are internal mechanics"),
             prompt.index("<Identity>"),
         )
         self.assertNotIn(

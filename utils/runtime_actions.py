@@ -51,7 +51,7 @@ BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
     (
         r"(?:"
         r"<\s*INTERNAL_ACTION_"
-        r"(?P<bracketed_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL|RESOLVE_TODO|CHECK_TODO)"
+        r"(?P<bracketed_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|LIST_SKILLS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<bracketed_query>(?:(?!</\s*>)[^\r\n>])*?))?"
         r"(?:\s*</\s*>+|\s*>+)"
         r"|"
@@ -63,12 +63,12 @@ BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
         r"\s*/?\s*>+"
         r"|"
         r"<\s*INTERNAL_ACTION_"
-        r"(?P<bracketed_line_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL|RESOLVE_TODO|CHECK_TODO)"
+        r"(?P<bracketed_line_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<bracketed_line_query>[^\r\n>]*))?"
         r"[^\S\r\n]*(?=\r?\n)"
         r"|"
         r"(?m:^\s*INTERNAL_ACTION_"
-        r"(?P<bare_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL|RESOLVE_TODO|CHECK_TODO)"
+        r"(?P<bare_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<bare_query>[^\r\n]*))?"
         r"\s*$)"
         r")"
@@ -91,12 +91,12 @@ MALFORMED_CALL_INTERNAL_ACTION_PATTERN = re.compile(
     (
         r"(?:"
         r"<\|?tool_call\>\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
-        r"(?P<tool_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_DELAYED_MEMORY|APPEND_DELAYED_MEMORY|REMOVE_DELAYED_MEMORY|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL|RESOLVE_TODO|CHECK_TODO)"
+        r"(?P<tool_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_DELAYED_MEMORY|APPEND_DELAYED_MEMORY|REMOVE_DELAYED_MEMORY|LIST_SKILLS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<tool_call_query>(?:(?!</\s*>)[^\r\n>])*?))?"
         r"(?:\s*</\s*>+|\s*>+|[^\S\r\n]*(?=\r?\n|$))"
         r"|"
         r"(?m:^\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
-        r"(?P<bare_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_DELAYED_MEMORY|APPEND_DELAYED_MEMORY|REMOVE_DELAYED_MEMORY|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL|RESOLVE_TODO|CHECK_TODO)"
+        r"(?P<bare_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_DELAYED_MEMORY|APPEND_DELAYED_MEMORY|REMOVE_DELAYED_MEMORY|LIST_SKILLS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<bare_call_query>[^\r\n]*))?"
         r"\s*$)"
         r")"
@@ -1575,6 +1575,41 @@ def _clean_internal_action_query(
     ).strip()
 
 
+def _plural_skill_marker_action_name(
+    action_name: str,
+) -> str | None:
+
+    normalized_name = (
+        str(action_name)
+        .strip()
+        .upper()
+    )
+
+    if normalized_name == "APPEND_SKILLS":
+        return RUNTIME_ACTION_APPEND_SKILL
+
+    if normalized_name == "REMOVE_SKILLS":
+        return RUNTIME_ACTION_REMOVE_SKILL
+
+    return None
+
+
+def _split_internal_skill_marker_list(
+    query: str,
+) -> tuple[str, ...]:
+
+    return tuple(
+        skill_name
+        for skill_name in (
+            part.strip()
+            for part in _clean_internal_action_query(
+                query
+            ).split(",")
+        )
+        if skill_name
+    )
+
+
 def _is_placeholder_internal_query(
     query: str,
     placeholder_payloads=(),
@@ -1928,6 +1963,17 @@ def extract_runtime_actions(
         nonlocal marker_repetition_exceeded
         nonlocal marker_repetition_reason
 
+        plural_skill_action_name = _plural_skill_marker_action_name(
+            action_name
+        )
+
+        if plural_skill_action_name is not None:
+            return handle_plural_skill_marker(
+                raw_marker,
+                plural_skill_action_name,
+                query,
+            )
+
         normalized_action_name = normalize_runtime_action_name(
             action_name
         )
@@ -1996,6 +2042,99 @@ def extract_runtime_actions(
         return (
             raw_marker
             if preserve_action_text
+            else ""
+        )
+
+    def handle_plural_skill_marker(
+        raw_marker: str,
+        action_name: str,
+        query: str = "",
+    ) -> str:
+        nonlocal marker_repetition_exceeded
+        nonlocal marker_repetition_reason
+
+        if action_name not in enabled_action_names:
+            return raw_marker
+
+        skill_names = _split_internal_skill_marker_list(
+            query
+        )
+        plural_actions = []
+
+        for skill_name in skill_names:
+            action = _build_internal_action_call(
+                action_name,
+                skill_name,
+            )
+
+            if action is not None:
+                plural_actions.append(
+                    action
+                )
+
+        if not plural_actions:
+            if not preserve_action_text:
+                removed_markers.append(
+                    raw_marker
+                )
+
+            return (
+                raw_marker
+                if preserve_action_text
+                else ""
+            )
+
+        for action in plural_actions:
+            if (
+                repetition_guard is not None
+                and repetition_guard.record(
+                    action
+                )
+            ):
+                marker_repetition_exceeded = True
+                marker_repetition_reason = repetition_guard.reason
+                return raw_marker
+
+        should_preserve_marker = False
+
+        for action in plural_actions:
+            if (
+                preserve_action_marker is not None
+                and preserve_action_marker(
+                    raw_marker,
+                    action,
+                )
+            ):
+                should_preserve_marker = True
+                continue
+
+            action_key = (
+                action.name,
+                action.payload,
+            )
+
+            if action_key not in seen_action_keys:
+                seen_action_keys.add(
+                    action_key
+                )
+                actions.append(
+                    action
+                )
+
+        if (
+            not preserve_action_text
+            and not should_preserve_marker
+        ):
+            removed_markers.append(
+                raw_marker
+            )
+
+        return (
+            raw_marker
+            if (
+                preserve_action_text
+                or should_preserve_marker
+            )
             else ""
         )
 
@@ -2601,7 +2740,16 @@ def _enabled_action_start_markers(
             "<INTERNAL_ACTION_APPEND_SKILL:"
         )
         markers.append(
+            "<INTERNAL_ACTION_APPEND_SKILLS"
+        )
+        markers.append(
+            "<INTERNAL_ACTION_APPEND_SKILLS:"
+        )
+        markers.append(
             "INTERNAL_ACTION_APPEND_SKILL:"
+        )
+        markers.append(
+            "INTERNAL_ACTION_APPEND_SKILLS:"
         )
         markers.append(
             "<|tool_call>call:INTERNAL_ACTION_APPEND_SKILL:"
@@ -2610,10 +2758,22 @@ def _enabled_action_start_markers(
             "<tool_call>call:INTERNAL_ACTION_APPEND_SKILL:"
         )
         markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_APPEND_SKILLS:"
+        )
+        markers.append(
+            "<tool_call>call:INTERNAL_ACTION_APPEND_SKILLS:"
+        )
+        markers.append(
             "<|tool_call>call:APPEND_SKILL:"
         )
         markers.append(
             "<tool_call>call:APPEND_SKILL:"
+        )
+        markers.append(
+            "<|tool_call>call:APPEND_SKILLS:"
+        )
+        markers.append(
+            "<tool_call>call:APPEND_SKILLS:"
         )
         markers.append(
             "call:INTERNAL_ACTION_APPEND_SKILL:"
@@ -2621,13 +2781,25 @@ def _enabled_action_start_markers(
         markers.append(
             "call:APPEND_SKILL:"
         )
+        markers.append(
+            "call:INTERNAL_ACTION_APPEND_SKILLS:"
+        )
+        markers.append(
+            "call:APPEND_SKILLS:"
+        )
 
     if RUNTIME_ACTION_REMOVE_SKILL in enabled_action_names:
         markers.append(
             "<INTERNAL_ACTION_REMOVE_SKILL:"
         )
         markers.append(
+            "<INTERNAL_ACTION_REMOVE_SKILLS:"
+        )
+        markers.append(
             "INTERNAL_ACTION_REMOVE_SKILL:"
+        )
+        markers.append(
+            "INTERNAL_ACTION_REMOVE_SKILLS:"
         )
         markers.append(
             "<|tool_call>call:INTERNAL_ACTION_REMOVE_SKILL:"
@@ -2636,16 +2808,34 @@ def _enabled_action_start_markers(
             "<tool_call>call:INTERNAL_ACTION_REMOVE_SKILL:"
         )
         markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_REMOVE_SKILLS:"
+        )
+        markers.append(
+            "<tool_call>call:INTERNAL_ACTION_REMOVE_SKILLS:"
+        )
+        markers.append(
             "<|tool_call>call:REMOVE_SKILL:"
         )
         markers.append(
             "<tool_call>call:REMOVE_SKILL:"
         )
         markers.append(
+            "<|tool_call>call:REMOVE_SKILLS:"
+        )
+        markers.append(
+            "<tool_call>call:REMOVE_SKILLS:"
+        )
+        markers.append(
             "call:INTERNAL_ACTION_REMOVE_SKILL:"
         )
         markers.append(
             "call:REMOVE_SKILL:"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_REMOVE_SKILLS:"
+        )
+        markers.append(
+            "call:REMOVE_SKILLS:"
         )
 
     return tuple(

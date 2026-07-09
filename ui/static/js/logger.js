@@ -436,6 +436,17 @@ function renderTraceDetails(
   const parsed =
     parseTraceJson(details);
 
+  if (
+      parsed
+      && parsed.kind === "user_payload_trace"
+  ) {
+    renderUserPayloadTrace(
+      parsed
+    );
+
+    return;
+  }
+
   if (isSummarizerRequestPayload(parsed)) {
     renderSummarizerRequestTrace(
       parsed,
@@ -999,6 +1010,133 @@ function formatUserPayload(
   return lines.join("\n");
 }
 
+function summarizeAttachmentsForPayloadTrace(
+  attachments,
+) {
+  if (!Array.isArray(attachments)) {
+    return [];
+  }
+
+  return attachments.map((attachment, index) => {
+    if (
+        !attachment
+        || typeof attachment !== "object"
+    ) {
+      return {
+        index: index + 1,
+        value: String(attachment || ""),
+      };
+    }
+
+    return {
+      index: index + 1,
+      kind: attachment.kind || "",
+      name: attachment.name || attachment.filename || "",
+      type: attachment.type || attachment.mime_type || "",
+      redacted: Boolean(
+        attachment.data_url
+        || attachment.text_content
+      ),
+    };
+  });
+}
+
+function buildUserPayloadContextTrace(
+  payload,
+) {
+  const data =
+    payload && typeof payload === "object"
+      ? payload
+      : {
+          text: String(payload || ""),
+        };
+
+  const contextFields = {};
+
+  [
+    "runtime_pattern_counter",
+    "runtime_repeated_input_count",
+    "user_idle",
+    "user_idle_seconds",
+    "user_idle_paused",
+    "pending_last_response_rating",
+  ].forEach((key) => {
+    if (
+        data[key] !== undefined
+        && data[key] !== null
+        && data[key] !== ""
+    ) {
+      contextFields[key] = data[key];
+    }
+  });
+
+  if (Array.isArray(data.active_memory_records)) {
+    contextFields.active_memory_records =
+      data.active_memory_records;
+  }
+
+  if (Array.isArray(data.attachments)) {
+    contextFields.attachments =
+      summarizeAttachmentsForPayloadTrace(
+        data.attachments
+      );
+  }
+
+  return {
+    prompt_to_jin: String(data.text || ""),
+    context_fields: contextFields,
+  };
+}
+
+function buildUserPayloadTrace(
+  payload,
+) {
+  const data =
+    payload && typeof payload === "object"
+      ? payload
+      : {
+          text: String(payload || ""),
+        };
+
+  return {
+    kind: "user_payload_trace",
+    context: buildUserPayloadContextTrace(
+      data
+    ),
+  };
+}
+
+function formatUserPayloadTrace(
+  payload,
+) {
+  return JSON.stringify(
+    buildUserPayloadTrace(
+      payload
+    ),
+    null,
+    2
+  );
+}
+
+function renderUserPayloadTrace(
+  parsed,
+) {
+  const context =
+    parsed.context || {};
+
+  appendTraceModalBody(
+    traceModalContent,
+    "Prompt to JIN",
+    context.prompt_to_jin || ""
+  );
+
+  appendTraceModalBody(
+    traceModalContent,
+    "Context fields sent with this turn",
+    context.context_fields || {}
+  );
+}
+
 function log_user(
   payload = {}
 ) {
@@ -1071,7 +1209,7 @@ function log_user(
     "click",
     function () {
       showTrace(
-        formatUserPayload(
+        formatUserPayloadTrace(
           payload
         ),
         "User payload"
@@ -1642,7 +1780,7 @@ function appendLog(
       function () {
         showTrace(
           isUser
-            ? formatUserPayload(
+            ? formatUserPayloadTrace(
                 parseTraceJson(normalized.details)
                 || normalized.details
               )

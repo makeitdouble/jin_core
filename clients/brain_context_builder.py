@@ -684,10 +684,78 @@ def crop_recent_message_text(
     )
 
 
+def format_context_message_age_suffix(
+    created_at,
+    *,
+    now: float | None = None,
+) -> str:
+
+    if not isinstance(
+        created_at,
+        (int, float),
+    ):
+        return ""
+
+    if created_at <= 0:
+        return ""
+
+    if now is None:
+        now = time.time()
+
+    return (
+        f" ( {format_session_action_age(now - float(created_at))} ago )"
+    )
+
+
+def append_context_message_age(
+    text: str,
+    created_at,
+    *,
+    now: float | None = None,
+) -> str:
+
+    suffix = format_context_message_age_suffix(
+        created_at,
+        now=now,
+    )
+
+    if not suffix:
+        return text
+
+    return f"{text}{suffix}"
+
+
+def build_latest_user_request_context(
+    user_message: str,
+    *,
+    created_at=None,
+) -> str:
+
+    text = str(
+        user_message
+        or ""
+    ).strip()
+
+    if not text:
+        return ""
+
+    text = append_context_message_age(
+        text,
+        created_at,
+    )
+
+    return (
+        "<LATEST_USER_REQUEST>\n"
+        f"{escape(text)}\n"
+        "</LATEST_USER_REQUEST>"
+    )
+
+
 def build_previous_chat_messages_context_text(
     recent_turns: list[dict] | None,
     *,
     extra_user_message: str = "",
+    extra_user_created_at=None,
 ) -> str:
 
     turns = list(
@@ -699,6 +767,7 @@ def build_previous_chat_messages_context_text(
         "<PREVIOUS_CHAT_MESSAGES>",
     ]
     last_user_text = ""
+    now = time.time()
 
     for turn in turns:
         if not isinstance(
@@ -722,11 +791,31 @@ def build_previous_chat_messages_context_text(
 
         if user_text:
             last_user_text = user_text
+            user_text = append_context_message_age(
+                user_text,
+                turn.get(
+                    "user_created_at",
+                    turn.get(
+                        "created_at",
+                    ),
+                ),
+                now=now,
+            )
             lines.append(
                 f"<USER>{escape(user_text)}"
             )
 
         if jin_text:
+            jin_text = append_context_message_age(
+                jin_text,
+                turn.get(
+                    "jin_created_at",
+                    turn.get(
+                        "created_at",
+                    ),
+                ),
+                now=now,
+            )
             lines.append(
                 f"<JIN>{escape(jin_text)}"
             )
@@ -739,6 +828,11 @@ def build_previous_chat_messages_context_text(
             extra_user_text
             and extra_user_text != last_user_text
     ):
+        extra_user_text = append_context_message_age(
+            extra_user_text,
+            extra_user_created_at,
+            now=now,
+        )
         lines.append(
             f"<USER>{escape(extra_user_text)}"
         )
@@ -773,6 +867,11 @@ def build_previous_chat_messages_context(
     return build_previous_chat_messages_context_text(
         recent_turns,
         extra_user_message=extra_user_message,
+        extra_user_created_at=getattr(
+            context,
+            "runtime_turn_started_at",
+            None,
+        ) if context is not None else None,
     )
 
 

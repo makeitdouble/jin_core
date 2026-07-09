@@ -11,6 +11,7 @@ import asyncio
 import contextlib
 import json
 import re
+import time
 import httpx
 
 from websocket_logger import (
@@ -2050,6 +2051,8 @@ def append_runtime_recent_turn(
     *,
     user_message: str,
     assistant_message: str,
+    user_created_at: float | None = None,
+    assistant_created_at: float | None = None,
 ) -> None:
 
     if context is None:
@@ -2073,10 +2076,30 @@ def append_runtime_recent_turn(
     if not user_message and not assistant_message:
         return
 
-    context.runtime_recent_turns.append({
+    turn = {
         "user": user_message,
         "jin": assistant_message,
-    })
+    }
+
+    if isinstance(
+        user_created_at,
+        (int, float),
+    ):
+        turn["user_created_at"] = float(
+            user_created_at
+        )
+
+    if isinstance(
+        assistant_created_at,
+        (int, float),
+    ):
+        turn["jin_created_at"] = float(
+            assistant_created_at
+        )
+
+    context.runtime_recent_turns.append(
+        turn
+    )
 
     context.runtime_recent_turns = context.runtime_recent_turns[
         -RECENT_MESSAGES_MAX_PAIRS:
@@ -2347,6 +2370,18 @@ async def process_message(
         )
 
         context.runtime_turn_user_message = user_text
+        context.runtime_turn_started_at = time.time()
+        context.runtime_turn_counter = (
+            getattr(
+                context,
+                "runtime_turn_counter",
+                0,
+            )
+            + 1
+        )
+        context.runtime_current_turn_id = (
+            f"turn_{context.runtime_turn_counter:06d}"
+        )
         context.runtime_turn_attachments = (
             message_data.get(
                 "attachments",
@@ -2373,10 +2408,6 @@ async def process_message(
             message_data,
         )
         apply_active_memory_records(
-            context,
-            message_data,
-        )
-        apply_delayed_memory_reports(
             context,
             message_data,
         )
@@ -2435,6 +2466,12 @@ async def process_message(
             context,
             user_message=user_text,
             assistant_message=assistant_message,
+            user_created_at=getattr(
+                context,
+                "runtime_turn_started_at",
+                None,
+            ),
+            assistant_created_at=time.time(),
         )
 
         if getattr(
@@ -2718,6 +2755,27 @@ async def websocket_endpoint(
                 await apply_runtime_memory_slot_delete(
                     context,
                     message_data,
+                )
+                continue
+
+            if message_type == "delayed_memory_store_sync":
+                apply_delayed_memory_reports(
+                    context,
+                    message_data,
+                )
+                report_count = len(
+                    getattr(
+                        context,
+                        "delayed_memory_reports",
+                        {},
+                    )
+                    or {}
+                )
+                await logger.log_system(
+                    (
+                        "[WS] delayed memory store synced "
+                        f"({report_count} reports)"
+                    )
                 )
                 continue
 

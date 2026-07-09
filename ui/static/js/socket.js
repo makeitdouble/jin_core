@@ -1737,6 +1737,8 @@ function handleSocketMessage(event) {
           displayText,
           {
             id: data.id || "",
+            updateExisting:
+              action !== "list_skills",
             contextSnapshot:
               data.context || null,
             assetResult:
@@ -2178,15 +2180,6 @@ chatForm.addEventListener(
         window.JinRuntime.runtime.getActiveMemoryRecords();
     }
 
-    if (
-        window.JinRuntime
-        && window.JinRuntime.runtime
-        && window.JinRuntime.runtime.getDelayedMemoryReports
-    ) {
-      payload.delayed_memory_reports =
-        window.JinRuntime.runtime.getDelayedMemoryReports();
-    }
-
     const sent =
       sendSocketMessage(payload);
 
@@ -2211,6 +2204,36 @@ chatForm.addEventListener(
 
   }
 );
+
+
+function syncDelayedMemoryReportsToRuntime() {
+  if (
+      !ws
+      || ws.readyState !== WebSocket.OPEN
+      || !window.JinRuntime
+      || !window.JinRuntime.runtime
+      || !window.JinRuntime.runtime.getDelayedMemoryReports
+  ) {
+    return;
+  }
+
+  const delayedMemoryReports =
+    window.JinRuntime.runtime.getDelayedMemoryReports();
+
+  if (
+      !delayedMemoryReports
+      || typeof delayedMemoryReports !== "object"
+      || Array.isArray(delayedMemoryReports)
+      || !Object.keys(delayedMemoryReports).length
+  ) {
+    return;
+  }
+
+  sendSocketMessage({
+    type: "delayed_memory_store_sync",
+    delayed_memory_reports: delayedMemoryReports,
+  });
+}
 
 
 async function handleSocketOpen() {
@@ -2253,6 +2276,8 @@ async function handleSocketOpen() {
       }
     }
 
+    syncDelayedMemoryReportsToRuntime();
+
     return;
   }
 
@@ -2260,6 +2285,7 @@ async function handleSocketOpen() {
       persistedSessionBootstrapSent
       || !window.getPersistedSessionBootstrap
   ) {
+    syncDelayedMemoryReportsToRuntime();
     return;
   }
 
@@ -2308,6 +2334,8 @@ async function handleSocketOpen() {
       "Browser session memory sent."
     );
 
+    syncDelayedMemoryReportsToRuntime();
+
     return;
   }
 
@@ -2335,6 +2363,8 @@ async function handleSocketOpen() {
       );
     }
   }
+
+  syncDelayedMemoryReportsToRuntime();
 
 }
 

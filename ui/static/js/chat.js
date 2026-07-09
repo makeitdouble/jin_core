@@ -2382,13 +2382,19 @@ function appendRuntimeAction(
     return false;
   }
 
+  const shouldUpdateExisting =
+    options.updateExisting !== false;
+
   const actionKey =
     buildRuntimeActionVisibleKey(
       action,
       options
     );
 
-  if (options.id) {
+  if (
+      options.id
+      && shouldUpdateExisting
+  ) {
     const existingRow =
       chatHistory.querySelector(
         `[data-runtime-action-key="${actionKey}"]`
@@ -2956,6 +2962,14 @@ function stripInternalActionMarkers(
     )
     .replace(
       /(^|\n)[^\S\r\n]*<INTERNAL_ACTION_LIST_SKILLS(?::[^>\n]*)?>[^\S\r\n]*(?=\n|$)/gi,
+      "$1"
+    )
+    .replace(
+      /(^|\n)[^\S\r\n]*<INTERNAL_ACTION_APPEND_SKILLS?:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
+      "$1"
+    )
+    .replace(
+      /(^|\n)[^\S\r\n]*<INTERNAL_ACTION_REMOVE_SKILLS?:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(

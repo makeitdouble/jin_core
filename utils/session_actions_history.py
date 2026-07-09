@@ -4,6 +4,65 @@ import time
 MAX_SESSION_ACTION_HISTORY_ITEMS = 200
 
 
+ACTION_PAST_TENSE_VERBS = {
+    "append": "Appended",
+    "asset": "Processed",
+    "check": "Checked",
+    "create": "Created",
+    "delete": "Deleted",
+    "generate": "Generated",
+    "list": "Readed",
+    "read": "Readed",
+    "remove": "Removed",
+    "resolve": "Resolved",
+    "save": "Saved",
+    "update": "Updated",
+    "write": "Wrote",
+}
+
+
+def _build_past_tense_action_text(
+    action: str,
+) -> str:
+
+    parts = [
+        part
+        for part in str(
+            action
+            or ""
+        ).strip().split("_")
+        if part
+    ]
+
+    if not parts:
+        return "Processed asset action"
+
+    verb = ACTION_PAST_TENSE_VERBS.get(
+        parts[0],
+    )
+
+    if verb is None:
+        return "Processed " + " ".join(
+            parts
+        )
+
+    subject_parts = parts[1:]
+
+    if parts[0] == "asset":
+        subject_parts = parts
+
+    subject = " ".join(
+        subject_parts
+    )
+
+    if not subject:
+        subject = " ".join(
+            parts
+        )
+
+    return f"{verb} {subject}".strip()
+
+
 def build_asset_action_history_text(
     result: dict,
 ) -> str:
@@ -12,7 +71,9 @@ def build_asset_action_history_text(
         result,
         dict,
     ):
-        return "Assets: asset_action"
+        return _build_past_tense_action_text(
+            "asset_action"
+        )
 
     action = str(
         result.get(
@@ -29,10 +90,9 @@ def build_asset_action_history_text(
         or ""
     ).strip()
 
-    if action == "list_skills":
-        return "Reading skills"
-
-    text = f"Assets: {action}"
+    text = _build_past_tense_action_text(
+        action
+    )
 
     if path:
         text = f"{text} - {path}"

@@ -153,6 +153,12 @@ class RuntimeContext:
 
     turn_number: int = 0
 
+    runtime_turn_counter: int = 0
+
+    runtime_current_turn_id: str = ""
+
+    runtime_turn_started_at: float = 0.0
+
     user_message_count: int = 0
 
     assistant_message_count: int = 0

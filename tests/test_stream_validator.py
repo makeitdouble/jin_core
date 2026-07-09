@@ -59,12 +59,12 @@ def test_stream_validator_removes_split_trailing_blockquote_tag():
     assert text == "Понял. Буду проще."
 
 
-def test_stream_validator_stops_repeated_sentence_loop():
+def test_stream_validator_stops_consecutive_repeated_sentence_loop():
     validator = StreamValidator()
 
     repeated = (
         "* Wait, I'll check if I should use "
-        "`append_skill` first. Yes.\n"
+        "`append_skill` first.\n"
     )
 
     assert validator.filter_chunk(repeated) == (
@@ -89,6 +89,37 @@ def test_stream_validator_stops_repeated_sentence_loop():
         "append_skill"
         in validator.last_failure_preview
     )
+
+
+def test_stream_validator_allows_non_consecutive_repeated_sentences():
+    validator = StreamValidator()
+
+    repeated = (
+        "The rain sound is actually a form of pink noise.\n"
+    )
+    separator = (
+        "That context makes the response feel more continuous.\n"
+    )
+
+    text = collect(
+        validator,
+        [
+            repeated,
+            separator,
+            repeated,
+            separator,
+            repeated,
+        ],
+    )
+
+    assert text == (
+        repeated
+        + separator
+        + repeated
+        + separator
+        + repeated
+    )
+    assert validator.last_failure_reason is None
 
 
 def test_stream_validator_allows_short_repeated_sentences():

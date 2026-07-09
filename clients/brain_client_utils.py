@@ -827,6 +827,23 @@ def append_asset_runtime_result(
             asset_results,
         )
 
+    if isinstance(
+        result,
+        dict,
+    ):
+        runtime_turn_id = str(
+            getattr(
+                context,
+                "runtime_current_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
+        if runtime_turn_id and not result.get(
+            "runtime_turn_id"
+        ):
+            result["runtime_turn_id"] = runtime_turn_id
+
     asset_results.append(
         result
     )
@@ -853,6 +870,23 @@ def append_delayed_memory_runtime_result(
             "runtime_delayed_memory_results",
             delayed_memory_results,
         )
+
+    if isinstance(
+        result,
+        dict,
+    ):
+        runtime_turn_id = str(
+            getattr(
+                context,
+                "runtime_current_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
+        if runtime_turn_id and not result.get(
+            "runtime_turn_id"
+        ):
+            result["runtime_turn_id"] = runtime_turn_id
 
     delayed_memory_results.append(
         result
@@ -1476,6 +1510,10 @@ async def apply_runtime_action_calls(
         RUNTIME_ACTION_APPEND_SKILL,
         RUNTIME_ACTION_REMOVE_SKILL,
     }
+    skill_workflow_action_names = {
+        *skill_state_action_names,
+        RUNTIME_ACTION_LIST_SKILLS,
+    }
     todo_action_names = {
         RUNTIME_ACTION_CREATE_TODO_LIST,
         RUNTIME_ACTION_RESOLVE_TODO,
@@ -1523,7 +1561,7 @@ async def apply_runtime_action_calls(
         actions = [
             action
             for action in actions
-            if action.name in skill_state_action_names
+            if action.name in skill_workflow_action_names
             or action.name in todo_action_names
         ]
 
@@ -1786,6 +1824,16 @@ async def apply_runtime_action_calls(
         action_event = {
             "name": action.name.lower(),
         }
+        runtime_turn_id = str(
+            getattr(
+                context,
+                "runtime_current_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
+        if runtime_turn_id:
+            action_event["runtime_turn_id"] = runtime_turn_id
 
         query = ""
 

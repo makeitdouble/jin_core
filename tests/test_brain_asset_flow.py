@@ -316,6 +316,162 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "Found delayed memory `dm_note`: Solo note.",
         )
 
+    async def test_same_turn_reused_list_skills_keeps_followup_payload(self):
+
+        calls = []
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+            context = kwargs["context"]
+
+            if len(calls) == 1:
+                context.runtime_asset_results.append({
+                    "ok": True,
+                    "action": "list_skills",
+                    "runtime_action_reused": True,
+                    "runtime_turn_id": "turn_000002",
+                    "runtime_action_reused_from_turn_id": "turn_000002",
+                    "skills": [
+                        {
+                            "name": "file_manager",
+                            "content": "Manage files.",
+                        },
+                    ],
+                })
+                return "", ""
+
+            if len(calls) == 2:
+                self.assertTrue(
+                    kwargs["brain_payload"].startswith(
+                        "No new messages, multi-task in progress"
+                    ),
+                    kwargs["brain_payload"],
+                )
+                return (
+                    "I am JIN.",
+                    "",
+                )
+
+            self.fail(
+                "Brain model kept running after reused list_skills answer"
+            )
+
+        context = _context()
+        context.runtime_current_turn_id = "turn_000002"
+        state = AgentState(
+            user_input="tell me about yourself",
+        )
+        state.translated_input = state.user_input
+        brain_runtime = _brain_runtime()
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=brain_runtime,
+        ), patch(
+            "agent.nodes.brain.build_brain_system_prompt",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            len(calls),
+            2,
+        )
+        self.assertEqual(
+            state.brain_response,
+            "I am JIN.",
+        )
+
+    async def test_previous_turn_reused_list_skills_keeps_real_user_payload(self):
+
+        calls = []
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+            context = kwargs["context"]
+
+            if len(calls) == 1:
+                context.runtime_asset_results.append({
+                    "ok": True,
+                    "action": "list_skills",
+                    "runtime_action_reused": True,
+                    "runtime_turn_id": "turn_000002",
+                    "runtime_action_reused_from_turn_id": "turn_000001",
+                    "skills": [
+                        {
+                            "name": "file_manager",
+                            "content": "Manage files.",
+                        },
+                    ],
+                })
+                return "", ""
+
+            if len(calls) == 2:
+                self.assertEqual(
+                    kwargs["brain_payload"],
+                    state.translated_input,
+                )
+                self.assertFalse(
+                    kwargs["brain_payload"].startswith(
+                        "No new messages, multi-task in progress"
+                    ),
+                    kwargs["brain_payload"],
+                )
+                return (
+                    "I am JIN.",
+                    "",
+                )
+
+            self.fail(
+                "Brain model kept running after reused list_skills answer"
+            )
+
+        context = _context()
+        context.runtime_current_turn_id = "turn_000002"
+        state = AgentState(
+            user_input="tell me about yourself",
+        )
+        state.translated_input = state.user_input
+        brain_runtime = _brain_runtime()
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=brain_runtime,
+        ), patch(
+            "agent.nodes.brain.build_brain_system_prompt",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            len(calls),
+            2,
+        )
+        self.assertEqual(
+            state.brain_response,
+            "I am JIN.",
+        )
+
     async def test_asset_operation_result_is_returned_to_model_before_final_answer(self):
 
         calls = []
