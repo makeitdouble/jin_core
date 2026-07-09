@@ -2714,6 +2714,12 @@ async def apply_runtime_action_calls(
                 "id": active_memory_id,
                 "text": "Active memory resolved",
             }))
+            await emit(with_action_context({
+                "type": "runtime_action",
+                "action": "resolve_active_memory",
+                "id": active_memory_id,
+                "status": "completed",
+            }))
 
     return (
         len(

@@ -4246,6 +4246,12 @@ class RuntimeActionTests(unittest.TestCase):
                     "id": "5fdg4g",
                     "text": "Active memory resolved",
                 },
+                {
+                    "type": "runtime_action",
+                    "action": "resolve_active_memory",
+                    "id": "5fdg4g",
+                    "status": "completed",
+                },
             ],
         )
 
