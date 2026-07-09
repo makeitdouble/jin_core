@@ -39,6 +39,23 @@ from utils.runtime_actions import (
 )
 
 
+def legacy_internal_action_marker(marker: str) -> str:
+    if marker.startswith(
+        "</"
+    ):
+        return marker.replace(
+            "</",
+            "</INTERNAL_ACTION_",
+            1,
+        )
+
+    return marker.replace(
+        "<",
+        "<INTERNAL_ACTION_",
+        1,
+    )
+
+
 class RuntimeActionTests(unittest.TestCase):
 
     def patch_asset_roots(self, root: Path):
@@ -108,6 +125,26 @@ class RuntimeActionTests(unittest.TestCase):
             result.search_queries,
             (
                 "\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440",
+            ),
+        )
+
+    def test_extracts_current_bracketed_web_search_marker(self):
+
+        result = extract_runtime_actions(
+            "<WEB_SEARCH:blue tomato>",
+            enabled_actions=[
+                "CAN_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.search_queries,
+            (
+                "blue tomato",
             ),
         )
 
@@ -291,10 +328,52 @@ class RuntimeActionTests(unittest.TestCase):
 
     def test_ignores_placeholder_bracketed_web_search_marker(self):
 
+        current_placeholder = runtime_rules.INTERNAL_ACTION_WEB_SEARCH_MARKER
+        legacy_placeholder = legacy_internal_action_marker(
+            current_placeholder
+        )
+        current_angle_placeholder = current_placeholder.replace(
+            ": ",
+            ":",
+        ).replace(
+            "plain text query",
+            "<plain text query>",
+        ).replace(
+            " >",
+            ">",
+        )
+        legacy_angle_placeholder = legacy_placeholder.replace(
+            ": ",
+            ":",
+        ).replace(
+            "plain text query",
+            "<plain text query>",
+        ).replace(
+            " >",
+            ">",
+        )
+
         for marker in (
-            "<INTERNAL_ACTION_WEB_SEARCH:plain text query>",
-            "<INTERNAL_ACTION_WEB_SEARCH:<plain text query>>",
-            "<INTERNAL_ACTION_WEB_SEARCH:...>",
+            current_placeholder,
+            current_placeholder.replace(
+                ": ",
+                ":",
+            ),
+            current_angle_placeholder,
+            current_placeholder.replace(
+                "plain text query",
+                "...",
+            ),
+            legacy_placeholder,
+            legacy_placeholder.replace(
+                ": ",
+                ":",
+            ),
+            legacy_angle_placeholder,
+            legacy_placeholder.replace(
+                "plain text query",
+                "...",
+            ),
         ):
 
             result = extract_runtime_actions(
@@ -341,6 +420,29 @@ class RuntimeActionTests(unittest.TestCase):
 
         result = extract_runtime_actions(
             "<INTERNAL_ACTION_LIST_SKILLS>",
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name="LIST_SKILLS",
+                    payload="",
+                ),
+            ),
+        )
+
+    def test_extracts_current_list_skills_marker(self):
+
+        result = extract_runtime_actions(
+            runtime_rules.INTERNAL_ACTION_LIST_SKILLS_MARKER,
             enabled_actions=[
                 "CAN_USE_ASSETS",
             ],

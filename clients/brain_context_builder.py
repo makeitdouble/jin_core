@@ -1617,9 +1617,9 @@ def append_appended_skills(
         return
 
     parts.append(
-        "<APPENDED_SKILLS>\n"
+        "<APPENDED_SKILLS_CONTENT>\n"
         f"{indent_xml(escape(format_tool_result_payload(appended_skills)))}\n"
-        "</APPENDED_SKILLS>"
+        "</APPENDED_SKILLS_CONTENT>"
     )
 
 

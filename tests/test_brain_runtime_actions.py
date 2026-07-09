@@ -27,6 +27,7 @@ from rules.assembler import (
     BRAIN_RUNTIME_ACTIONS,
     SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
 )
+from rules import runtime as runtime_rules
 
 
 
@@ -1038,9 +1039,9 @@ class BrainRuntimeActionTests(unittest.TestCase):
             )
 
         for private_marker in (
-            "<INTERNAL_ACTION_SAVE_SESSION>",
-            "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>",
-            "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: CONDITIONS >",
+            runtime_rules.INTERNAL_ACTION_SAVE_SESSION_MARKER,
+            runtime_rules.INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_MARKER,
+            runtime_rules.INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER,
             "Use WEB_SEARCH when freshness",
         ):
             assert_contains_text(
@@ -1076,17 +1077,17 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "<INTERNAL_ACTION_LIST_SKILLS>",
+            runtime_rules.INTERNAL_ACTION_LIST_SKILLS_MARKER,
         )
         assert_not_contains_text(
             self,
             prompt,
-            "<INTERNAL_ACTION_APPEND_SKILL: name of skill >",
+            runtime_rules.INTERNAL_ACTION_APPEND_SKILL_MARKER,
         )
         assert_not_contains_text(
             self,
             prompt,
-            "<INTERNAL_ACTION_REMOVE_SKILL: name of skill >",
+            runtime_rules.INTERNAL_ACTION_REMOVE_SKILL_MARKER,
         )
         assert_not_contains_text(
             self,
@@ -1146,12 +1147,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "<INTERNAL_ACTION_APPEND_SKILL: name of skill >",
+            runtime_rules.INTERNAL_ACTION_APPEND_SKILL_MARKER,
         )
         assert_contains_text(
             self,
             prompt,
-            "<INTERNAL_ACTION_REMOVE_SKILL: name of skill >",
+            runtime_rules.INTERNAL_ACTION_REMOVE_SKILL_MARKER,
         )
 
     def test_prompt_places_tool_results_after_session_history(self):
@@ -1217,10 +1218,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertLess(
             prompt.index("<TOOL_RESULTS"),
-            prompt.index("<APPENDED_SKILLS>"),
+            prompt.index("<APPENDED_SKILLS_CONTENT>"),
         )
         self.assertLess(
-            prompt.index("<APPENDED_SKILLS>"),
+            prompt.index("<APPENDED_SKILLS_CONTENT>"),
             prompt.index("Runtime Actions are internal mechanics"),
         )
         self.assertLess(
@@ -1270,7 +1271,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
         self.assertIn(
-            "<APPENDED_SKILLS>",
+            "<APPENDED_SKILLS_CONTENT>",
             prompt,
         )
         self.assertNotIn(
@@ -1692,11 +1693,11 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
         self.assertIn(
-            "<INTERNAL_ACTION_SAVE_SESSION>",
+            runtime_rules.INTERNAL_ACTION_SAVE_SESSION_MARKER,
             prompt,
         )
         self.assertIn(
-            "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: CONDITIONS >",
+            runtime_rules.INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER,
             prompt,
         )
         assert_contains_text(

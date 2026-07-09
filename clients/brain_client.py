@@ -12,7 +12,7 @@ from rules.runtime import (
     RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
-    RUNTIME_ACTION_WEB_SEARCH,
+    RUNTIME_ACTION_WEB_SEARCH, INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_MARKER,
 )
 
 from clients.errors import (
@@ -598,7 +598,9 @@ async def ask_brain_stream(
             or ""
         ).upper()
 
-        if "INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT" not in pending:
+        if (
+            INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_MARKER not in pending
+        ):
             return
 
         delayed_memory_bubble_started = True
@@ -638,7 +640,10 @@ async def ask_brain_stream(
             or ""
         ).upper()
 
-        if "INTERNAL_ACTION_ASSET_ACTION" not in pending:
+        if (
+            "INTERNAL_ACTION_ASSET_ACTION" not in pending
+            and "ASSET_ACTION" not in pending
+        ):
             return
 
         asset_action_bubble_started = True
