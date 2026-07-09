@@ -39,6 +39,29 @@ class StreamHandler:
             if enable_validator
             else None
         )
+        self.thinking_validator = (
+            StreamValidator()
+            if enable_validator
+            else None
+        )
+
+    def build_validator_error_text(
+        self,
+        validator,
+    ) -> str:
+
+        reason = (
+            validator.last_failure_reason
+            or "Generation stopped."
+        )
+
+        if validator.last_failure_preview:
+            reason = (
+                f'{reason} Looped text: '
+                f'"{validator.last_failure_preview}"'
+            )
+
+        return reason
 
     # ---------------------------------------------------------
     # START STREAM
@@ -79,12 +102,51 @@ class StreamHandler:
         chunk: str,
         *,
         emit: bool = True,
-    ):
+    ) -> bool:
+
+        if self.thinking_validator:
+
+            is_valid = (
+                self.thinking_validator.validate_sentences(
+                    chunk
+                )
+            )
+
+            if not is_valid:
+
+                self.thinking_validator.last_failure_reason = (
+                    "Repeated thinking sentence loop detected."
+                )
+
+                raw_chunk_preview = (
+                    chunk
+                    .replace("\n", "\\n")
+                )[:160]
+
+                await self.logger.log_validator(
+                    f"{self.thinking_validator.last_failure_reason}\n"
+                    f'Preview: "{self.thinking_validator.last_failure_preview}"\n'
+                    f'Raw thinking chunk: "{raw_chunk_preview}"'
+                )
+
+                if emit:
+
+                    await self.websocket.send_json({
+                        "type": "message_error",
+                        "message_id": (
+                            self.message_id
+                        ),
+                        "text": self.build_validator_error_text(
+                            self.thinking_validator
+                        ),
+                    })
+
+                return False
 
         self.reasoning += chunk
 
         if not emit:
-            return
+            return True
 
         await self.websocket.send_json({
             "type": "thinking_chunk",
@@ -93,6 +155,8 @@ class StreamHandler:
             ),
             "chunk": chunk,
         })
+
+        return True
 
     async def log_validator_cleanup_events(
         self,
@@ -189,8 +253,9 @@ class StreamHandler:
                 )
 
                 reason = (
-                    self.validator.last_failure_reason
-                    or "Generation stopped."
+                    self.build_validator_error_text(
+                        self.validator
+                    )
                 )
 
                 if emit:

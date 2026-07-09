@@ -2362,6 +2362,8 @@ async def process_message(
         )
         context.runtime_turn_assistant_response = ""
         context.runtime_turn_interrupted = False
+        context.runtime_turn_interruption_reason = ""
+        context.runtime_turn_interruption_quote = ""
         await arm_save_session_from_user_text(
             context,
             user_text,
@@ -2435,14 +2437,23 @@ async def process_message(
             assistant_message=assistant_message,
         )
 
-        memory_update_task = schedule_runtime_memory_update(
-            context=context,
-            user_message=format_runtime_memory_user_message(
-                context,
-                user_text,
-            ),
-            assistant_message=assistant_message,
-        )
+        if getattr(
+            context,
+            "runtime_turn_interrupted",
+            False,
+        ):
+            memory_update_task = schedule_interrupted_runtime_memory_update(
+                context=context,
+            )
+        else:
+            memory_update_task = schedule_runtime_memory_update(
+                context=context,
+                user_message=format_runtime_memory_user_message(
+                    context,
+                    user_text,
+                ),
+                assistant_message=assistant_message,
+            )
 
         if getattr(
             context,

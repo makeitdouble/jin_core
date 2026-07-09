@@ -52,11 +52,13 @@ INTERNAL_ACTIONS_WITH_PAYLOAD = [
 
 SKILL_ROUTING_RULES = (
     "SKILL ROUTING:\n"
-    "Operational tasks may require more than one skill; append every relevant skill returned by LIST_SKILLS.\n"
+    "Do not overthink and start immediately with the first obvious action.\n"
+    f"Correct skills flow: emit {INTERNAL_ACTION_LIST_SKILLS_MARKER} for list skill -> wait results from the runtime -> append needed skill\n"
+    "Operational tasks may require additional skills; start with LIST_SKILLS, than append every relevant skill.\n"
     "A content/domain skill can define what to build, while a file-operation skill can define how files are created, appended, previewed, or saved.\n"
     "Do not assume a single skill contains every instruction needed for a multi-capability task.\n"
     "You must append a skill to check or use it!\n"
-    "Runtime will provide all kinds of skills for various tasks.\n"
+    "For any file operations you must use correct skill. Runtime will provide all kinds of skills for various tasks.\n"
     "If unsure about skill capabilities - you must append it and read what it does, name of a skill may be misleading.\n"
     "DO NOT derive skill capabilities from a skill name! NEVER guess from a filename!\n"
     "DO NOT use hypothetical skill names!\n"
@@ -76,14 +78,16 @@ SKILL_ROUTING_RULES = (
     "   All skills are only a block of textual instructions that can be appended or removed from context.\n"
     "   Skill can not be executed as a marker/tool/action.\n"
     "   If no real runtime action is needed, output only the user-facing final result or usual response.\n"
+    "do not use emojis in the code; "
+    "NEVER write code in reasoning block; "
+    "NEVER output file content in your final answer, use filename and file path instead; "
+    "do not qoute or explain code in your final answer unless user explicitly asking.\n"
 )
 
 LIST_SKILLS_RULES = (
     "LIST SKILLS:\n"
-    "Do not use or do token-heavy operations in reasoning, if output is large - return it in the final answer directly and skip the reasoning part.\n"
     f"If user asks to view/list your skills you must use {INTERNAL_ACTION_LIST_SKILLS_MARKER}\n"
-    "Do not use LIST_SKILLS for simple conversation, direct factual answers, or tasks whose project workflow is already clear from current TOOL_RESULTS.\n"
-    "Emit LIST_SKILLS when the user asks you to list your skills or to do extended work, do not guess the procedure or a name of a skill, read its content by appending.\n"
+    "Emit LIST_SKILLS when the user asks you to list your skills or to do extended work, do not guess the procedure or a name of a skill.\n"
 )
 
 APPEND_REMOVE_SKILL_RULES = (
@@ -115,6 +119,8 @@ RUNTIME_ACTIONS_RULES = (
     "If a required action is already present in <SESSION_ACTIONS_HISTORY> on a last line - treat action as processed and completed.\n"
     "If all required actions for LATEST_USER_REQUEST conditions are completed, produce the final user-facing usual response.\n"
     "DO NOT answer to a runtime follow-up tick.\n"
+    "If the user only says 'save' without clarifying what exactly to save (session, or something else), "
+    "do not emit any runtime marker and ask one short clarification.\n"
 )
 
 RUNTIME_TODO_RULES = (
@@ -158,8 +164,6 @@ SAVE_SESSION_RULES = (
     f"Emit using exactly this schema {INTERNAL_ACTION_SAVE_SESSION_MARKER} once "
     "when the user clearly and explicitly ends session or asks to save the session.\n"
     "Do not emit for topic changes, brief silence, casual pause, bare ambiguous save commands, or while active work continues.\n"
-    "If the user only says 'save' without clarifying what exactly to save (session, or something else), "
-    "do not emit any runtime marker and ask one short clarification.\n"
 )
 
 CREATE_ACTIVE_MEMORY_RULES = (

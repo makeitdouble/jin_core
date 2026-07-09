@@ -56,6 +56,13 @@ BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
         r"(?:\s*</\s*>+|\s*>+)"
         r"|"
         r"<\s*INTERNAL_ACTION_"
+        r"(?P<bracketed_attr_name>APPEND_SKILL)"
+        r"\s+name\s*=\s*(?P<bracketed_attr_quote>['\"])"
+        r"(?P<bracketed_attr_query>[^\r\n<>]*?)"
+        r"(?P=bracketed_attr_quote)"
+        r"\s*/?\s*>+"
+        r"|"
+        r"<\s*INTERNAL_ACTION_"
         r"(?P<bracketed_line_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILL|REMOVE_SKILL|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<bracketed_line_query>[^\r\n>]*))?"
         r"[^\S\r\n]*(?=\r?\n)"
@@ -1304,6 +1311,7 @@ class RuntimeActionCall:
 @dataclass(frozen=True)
 class RuntimeActionResult:
     text: str
+    started_actions: tuple[RuntimeActionCall, ...] = ()
     actions: tuple[RuntimeActionCall, ...] = ()
     removed_markers: tuple[str, ...] = ()
     marker_repetition_exceeded: bool = False
@@ -1996,9 +2004,11 @@ def extract_runtime_actions(
         return handle_marker(
             match.group(0),
             match.group("bracketed_name")
+            or match.group("bracketed_attr_name")
             or match.group("bracketed_line_name")
             or match.group("bare_name"),
             match.group("bracketed_query")
+            or match.group("bracketed_attr_query")
             or match.group("bracketed_line_query")
             or match.group("bare_query")
             or "",
@@ -2585,6 +2595,9 @@ def _enabled_action_start_markers(
 
     if RUNTIME_ACTION_APPEND_SKILL in enabled_action_names:
         markers.append(
+            "<INTERNAL_ACTION_APPEND_SKILL"
+        )
+        markers.append(
             "<INTERNAL_ACTION_APPEND_SKILL:"
         )
         markers.append(
@@ -3050,8 +3063,39 @@ class RuntimeActionStreamFilter:
         self.preserve_action_marker = preserve_action_marker
         self.repetition_guard = repetition_guard
         self.seen_action_keys = set()
+        self.pending_started_actions = set()
         self.enabled_actions = normalize_runtime_action_names(
             enabled_actions
+        )
+
+    def _build_started_actions(
+        self,
+        text: str,
+        marker_start: int,
+    ) -> tuple[RuntimeActionCall, ...]:
+
+        if RUNTIME_ACTION_ASSET_ACTION not in self.enabled_actions:
+            return ()
+
+        if not ASSET_ACTION_BLOCK_START_RE.match(
+            text,
+            marker_start,
+        ):
+            return ()
+
+        action_key = RUNTIME_ACTION_ASSET_ACTION
+
+        if action_key in self.pending_started_actions:
+            return ()
+
+        self.pending_started_actions.add(
+            action_key
+        )
+
+        return (
+            RuntimeActionCall(
+                name=RUNTIME_ACTION_ASSET_ACTION,
+            ),
         )
 
     def filter(
@@ -3130,8 +3174,12 @@ class RuntimeActionStreamFilter:
                 unclosed_start:
             ]
             self.pending_is_action = True
+            started_actions = self._build_started_actions(
+                combined,
+                unclosed_start,
+            )
 
-            return _extract_runtime_actions_if_needed(
+            result = _extract_runtime_actions_if_needed(
                 combined[
                     :unclosed_start
                 ],
@@ -3141,6 +3189,24 @@ class RuntimeActionStreamFilter:
                 preserve_action_marker=self.preserve_action_marker,
                 repetition_guard=self.repetition_guard,
             )
+
+            if started_actions:
+                return RuntimeActionResult(
+                    text=result.text,
+                    started_actions=started_actions,
+                    actions=result.actions,
+                    removed_markers=result.removed_markers,
+                    marker_repetition_exceeded=(
+                        result.marker_repetition_exceeded
+                    ),
+                    marker_repetition_reason=(
+                        result.marker_repetition_reason
+                    ),
+                )
+
+            return result
+
+        self.pending_started_actions.clear()
 
         hold_length = _trailing_marker_prefix_length(
             combined,
@@ -3178,6 +3244,7 @@ class RuntimeActionStreamFilter:
         pending = self.pending
         self.pending = ""
         self.pending_is_action = False
+        self.pending_started_actions.clear()
 
         if self.preserve_action_text:
             return RuntimeActionResult(

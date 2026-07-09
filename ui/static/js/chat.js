@@ -167,15 +167,6 @@ function escapeHtml(text) {
 const ATTACHMENT_IMAGE_PREVIEW_MAX_PX = 200;
 const ASSET_TEXT_PREVIEW_ENDPOINT = "/api/assets/text-preview";
 const ASSET_TEXT_PREVIEW_MAX_CHARS = 60000;
-const ASSET_TEXT_PREVIEW_EXTENSIONS = new Set([
-  ".txt",
-  ".md",
-  ".csv",
-  ".json",
-  ".jsonl",
-  ".yaml",
-  ".yml",
-]);
 
 let attachmentHoverPreview = null;
 let attachmentHoverPreviewImage = null;
@@ -729,15 +720,6 @@ function getAssetResultPath(assetResult) {
   ).trim();
 }
 
-function getAssetPathExtension(path) {
-  const match =
-    String(path || "").toLowerCase().match(/\.[a-z0-9]+$/);
-
-  return match
-    ? match[0]
-    : ".txt";
-}
-
 function isPreviewableTextAssetResult(assetResult) {
   const path =
     getAssetResultPath(
@@ -761,11 +743,7 @@ function isPreviewableTextAssetResult(assetResult) {
     return false;
   }
 
-  return ASSET_TEXT_PREVIEW_EXTENSIONS.has(
-    getAssetPathExtension(
-      path
-    )
-  );
+  return true;
 }
 
 function formatAssetBytes(bytes) {
@@ -2359,6 +2337,36 @@ function buildRuntimeActionVisibleKey(
 
 }
 
+function updateRuntimeActionRow(
+  row,
+  action,
+  text,
+  options = {}
+) {
+
+  const label =
+    row.querySelector(
+      ".jin-runtime-action-label"
+    );
+
+  if (!label) {
+    return false;
+  }
+
+  label.textContent =
+    text;
+
+  if (action === "asset_action") {
+    bindAssetResultPreview(
+      label,
+      options.assetResult || null
+    );
+  }
+
+  return true;
+
+}
+
 function appendRuntimeAction(
   action,
   text,
@@ -2379,6 +2387,25 @@ function appendRuntimeAction(
       action,
       options
     );
+
+  if (options.id) {
+    const existingRow =
+      chatHistory.querySelector(
+        `[data-runtime-action-key="${actionKey}"]`
+      );
+
+    if (
+        existingRow
+        && updateRuntimeActionRow(
+          existingRow,
+          action,
+          actionText,
+          options
+        )
+    ) {
+      return true;
+    }
+  }
 
   if (options.activateScene !== false) {
     syncSceneSearchScreenForRuntimeAction(
@@ -2455,7 +2482,7 @@ function appendRuntimeAction(
     document.createElement("div");
 
   label.className =
-    "px-3 py-2 rounded-lg border border-cyan-700/70 bg-cyan-950/40 font-mono transition duration-500";
+    "jin-runtime-action-label px-3 py-2 rounded-lg border border-cyan-700/70 bg-cyan-950/40 font-mono transition duration-500";
 
   label.textContent =
     actionText;

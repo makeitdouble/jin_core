@@ -787,6 +787,32 @@ class MessageMemoryTests(
             message,
         )
 
+    def test_guard_interrupted_assistant_message_includes_reason_quote(self):
+
+        message = build_interrupted_assistant_message(
+            user_message="Use a skill.",
+            assistant_message="Partial answer",
+            interruption_reason="Repeated sentence loop detected.",
+            interruption_quote="Wait, I should use append_skill first.",
+        )
+
+        self.assertIn(
+            "interrupted before completion",
+            message,
+        )
+        self.assertIn(
+            "Repeated sentence loop detected.",
+            message,
+        )
+        self.assertIn(
+            '"Wait, I should use append_skill first."',
+            message,
+        )
+        self.assertNotIn(
+            "interrupted by the user",
+            message,
+        )
+
     def test_brain_prompt_includes_runtime_memory(self):
 
         context = SimpleNamespace(
@@ -4433,6 +4459,56 @@ class MessageMemoryTests(
         self.assertIn(
             "Interrupted response",
             context.runtime_memory,
+        )
+
+    async def test_guard_interrupted_update_uses_reason_and_quote(self):
+
+        service_client = FakeServiceClient(
+            "- Interrupted response: repeated sentence loop stopped"
+        )
+        context = SimpleNamespace(
+            clients={
+                "service": service_client,
+            },
+            logger=FakeLogger(),
+            runtime_memory="Initial memory.",
+            runtime_memory_stable="Initial memory.",
+            runtime_memory_updates=0,
+            runtime_memory_pending_turns=[],
+            runtime_memory_update_task=None,
+            runtime_turn_user_message="Use append_skill if needed.",
+            runtime_turn_assistant_response="Partial answer",
+            runtime_turn_interruption_reason=(
+                "Repeated sentence loop detected."
+            ),
+            runtime_turn_interruption_quote=(
+                "Wait, I'll check if I should use append_skill first."
+            ),
+        )
+
+        task = schedule_interrupted_runtime_memory_update(
+            context=context,
+        )
+
+        self.assertIsNotNone(
+            task
+        )
+
+        await task
+
+        user_prompt = service_client.calls[0]["user_prompt"]
+
+        self.assertIn(
+            "Repeated sentence loop detected.",
+            user_prompt,
+        )
+        self.assertIn(
+            "Wait, I'll check if I should use append_skill first.",
+            user_prompt,
+        )
+        self.assertNotIn(
+            "interrupted by the user",
+            user_prompt,
         )
 
 

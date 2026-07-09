@@ -30,6 +30,9 @@ from clients.brain_client_utils import (
     should_execute_save_delayed_memory,
     should_execute_save_session,
 )
+from utils.session_actions_history import (
+    build_asset_action_history_text,
+)
 
 from clients.service_client import (
     ask_service_model,
@@ -41,6 +44,7 @@ from clients.response_extractor import (
 )
 
 from utils.runtime_actions import (
+    build_runtime_action_id,
     RuntimeActionRepetitionGuard,
     RuntimeActionResult,
     RuntimeActionStreamFilter,
@@ -570,6 +574,7 @@ async def ask_brain_stream(
     )
     stop_for_runtime_action = False
     delayed_memory_bubble_started = False
+    asset_action_bubble_started = False
     action_context_snapshot = build_brain_context_snapshot(
         context=context,
         system_prompt=resolved_system_prompt,
@@ -617,6 +622,90 @@ async def ask_brain_stream(
                 "text": "Saving delayed memory report",
             })
 
+    async def emit_asset_action_bubble_started():
+
+        nonlocal asset_action_bubble_started
+
+        if asset_action_bubble_started:
+            return
+
+        pending = str(
+            getattr(
+                content_filter,
+                "pending",
+                "",
+            )
+            or ""
+        ).upper()
+
+        if "INTERNAL_ACTION_ASSET_ACTION" not in pending:
+            return
+
+        asset_action_bubble_started = True
+
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is None:
+            return
+
+        pending_ids = getattr(
+            context,
+            "runtime_pending_asset_action_ids",
+            None,
+        )
+
+        if not isinstance(
+            pending_ids,
+            list,
+        ):
+            pending_ids = []
+            context.runtime_pending_asset_action_ids = (
+                pending_ids
+            )
+
+        action_id = build_runtime_action_id(
+            RUNTIME_ACTION_ASSET_ACTION,
+            len(
+                getattr(
+                    context,
+                    "runtime_asset_results",
+                    [],
+                )
+                or []
+            )
+            + len(pending_ids)
+            + 1,
+        )
+        pending_ids.append(
+            action_id
+        )
+
+        payload = {
+            "type": "runtime_action",
+            "action": "asset_action",
+            "id": action_id,
+            "status": "started",
+            "text": build_asset_action_history_text({
+                "action": "asset_action",
+            }),
+        }
+
+        if action_context_snapshot:
+            payload["context"] = action_context_snapshot
+
+        await emit(
+            payload
+        )
+
     async def filter_runtime_action_chunk(
         action_chunk,
     ):
@@ -647,6 +736,7 @@ async def ask_brain_stream(
         )
 
         await emit_delayed_memory_bubble_started()
+        await emit_asset_action_bubble_started()
 
         await log_runtime_action_marker_removals(
             context,

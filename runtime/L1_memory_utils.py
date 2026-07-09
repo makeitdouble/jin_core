@@ -1205,12 +1205,46 @@ def build_interrupted_assistant_message(
         *,
         user_message: str,
         assistant_message: str,
+        interruption_reason: str = "",
+        interruption_quote: str = "",
 ) -> str:
 
     partial_text = assistant_message.strip()
 
     if not partial_text:
         partial_text = "No complete assistant answer was delivered."
+
+    interruption_reason = interruption_reason.strip()
+    interruption_quote = interruption_quote.strip()
+
+    if interruption_reason:
+        lines = [
+            "JIN response was interrupted before completion. "
+            "Do not treat this turn as resolved.",
+            "",
+            "Interruption reason:",
+            interruption_reason,
+        ]
+
+        if interruption_quote:
+            lines.extend([
+                "",
+                "Looped text quote:",
+                f'"{interruption_quote}"',
+            ])
+
+        lines.extend([
+            "",
+            "Interrupted user topic/request:",
+            user_message.strip(),
+            "",
+            "Partial JIN text before interruption:",
+            partial_text,
+        ])
+
+        return "\n".join(
+            lines
+        )
 
     return INTERRUPTED_ASSISTANT_MEMORY_TEMPLATE.format(
         user_message=user_message.strip(),

@@ -193,6 +193,10 @@ class RuntimeContext:
 
     runtime_turn_interrupted: bool = False
 
+    runtime_turn_interruption_reason: str = ""
+
+    runtime_turn_interruption_quote: str = ""
+
     runtime_user_idle_seconds: int | None = None
 
     runtime_user_idle_text: str = ""

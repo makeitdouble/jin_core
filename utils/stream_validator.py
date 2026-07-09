@@ -36,6 +36,9 @@ TRAILING_ARTIFACTS = [
 
 WORD_WINDOW_SIZE = 30
 MAX_REPEAT_WORDS = 8
+MAX_REPEAT_SENTENCES = 3
+MIN_REPEAT_SENTENCE_CHARS = 24
+MIN_REPEAT_SENTENCE_WORDS = 5
 TRUNCATE = 160
 
 def build_preview(
@@ -55,6 +58,7 @@ class StreamValidator:
         self.current_sentence = ""
 
         self.history_sentences = set()
+        self.sentence_counts = {}
         self.history_paragraphs = set()
 
         self.recent_words = []
@@ -524,46 +528,102 @@ class StreamValidator:
         chunk: str,
     ):
 
-        return True
         self.current_sentence += chunk
 
-        raw_sentence = self.current_sentence.strip()
+        complete_sentences = []
+        sentence_start = 0
 
-        if not any(
-            char in chunk
-            for char in [".", "!", "?", "\n"]
+        for index, char in enumerate(
+            self.current_sentence
         ):
-            return True
 
-        sentence = (
-            raw_sentence
-            .lower()
-            .rstrip(".!? \n")
-        )
+            if char not in [
+                ".",
+                "!",
+                "?",
+                "\n",
+            ]:
+                continue
 
-        sentence = (
-            raw_sentence
-            .lower()
-            .rstrip(".!? \n")
-        )
-
-        if not sentence:
-            self.current_sentence = ""
-            return True
-
-        if sentence in self.history_sentences:
-
-            self.last_failure_reason = (
-                "Repeated sentence detected."
+            raw_sentence = (
+                self.current_sentence[
+                    sentence_start:index + 1
+                ]
+                .strip()
             )
 
-            self.last_failure_preview = build_preview(raw_sentence)
+            if raw_sentence:
+                complete_sentences.append(
+                    raw_sentence
+                )
 
-            return False
+            sentence_start = index + 1
 
-        self.history_sentences.add(sentence)
+        self.current_sentence = (
+            self.current_sentence[
+                sentence_start:
+            ]
+        )
 
-        self.current_sentence = ""
+        if not complete_sentences:
+            return True
+
+        for raw_sentence in complete_sentences:
+
+            sentence = (
+                " ".join(
+                    raw_sentence
+                    .strip()
+                    .lstrip("*- \t")
+                    .rstrip(".!? \n")
+                    .split()
+                )
+                .casefold()
+            )
+
+            if not sentence:
+                continue
+
+            words = [
+                word
+                for word in sentence.split()
+                if any(
+                    char.isalnum()
+                    for char in word
+                )
+            ]
+
+            if (
+                len(sentence) < MIN_REPEAT_SENTENCE_CHARS
+                or len(words) < MIN_REPEAT_SENTENCE_WORDS
+            ):
+                continue
+
+            self.history_sentences.add(
+                sentence
+            )
+
+            count = (
+                self.sentence_counts.get(
+                    sentence,
+                    0,
+                )
+                + 1
+            )
+
+            self.sentence_counts[sentence] = count
+
+            if count >= MAX_REPEAT_SENTENCES:
+
+                self.last_failure_reason = (
+                    "Repeated sentence loop detected."
+                )
+
+                self.last_failure_preview = build_preview(
+                    raw_sentence
+                )
+
+                return False
 
         return True
 

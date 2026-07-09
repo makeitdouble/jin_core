@@ -21,14 +21,19 @@ from utils.tokens import (
     estimate_stream_live_tokens,
 )
 from utils.runtime_actions import (
+    build_runtime_action_id,
     RuntimeActionRepetitionGuard,
     RuntimeActionStreamFilter,
 )
 from rules.runtime import (
     RUNTIME_ACTION_APPEND_SKILL,
+    RUNTIME_ACTION_ASSET_ACTION,
 )
 from utils.assets_service import (
     normalize_skill_name,
+)
+from utils.session_actions_history import (
+    build_asset_action_history_text,
 )
 
 
@@ -335,6 +340,55 @@ class RuntimeStream:
             self.stream.response
         )
 
+    async def close_active_streams(self):
+
+        active_streams = getattr(
+            self.context,
+            "active_streams",
+            {},
+        )
+
+        for response in list(
+            active_streams.values()
+        ):
+
+            with contextlib.suppress(Exception):
+                await response.aclose()
+
+        active_streams.clear()
+
+    def mark_validator_interruption(
+        self,
+        validator=None,
+    ):
+
+        self.context.runtime_turn_interrupted = True
+
+        if validator is None:
+            validator = getattr(
+                self.stream,
+                "validator",
+                None,
+            )
+
+        reason = (
+            getattr(
+                validator,
+                "last_failure_reason",
+                "",
+            )
+            or "Runtime stream validator interrupted generation."
+        )
+
+        quote = getattr(
+            validator,
+            "last_failure_preview",
+            "",
+        )
+
+        self.context.runtime_turn_interruption_reason = reason
+        self.context.runtime_turn_interruption_quote = quote
+
     async def filter_runtime_action_content(
         self,
         content: str,
@@ -355,6 +409,15 @@ class RuntimeStream:
         self,
         result,
     ) -> str | None:
+
+        if getattr(
+            result,
+            "started_actions",
+            (),
+        ):
+            await self.emit_started_runtime_actions(
+                result.started_actions,
+            )
 
         if result.actions:
             from clients.brain_client_utils import (
@@ -393,6 +456,87 @@ class RuntimeStream:
             return None
 
         return result.text
+
+    async def emit_started_runtime_actions(
+        self,
+        actions,
+    ) -> None:
+
+        emitter = getattr(
+            self.context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is None:
+            return
+
+        action_context_snapshot = (
+            dict(self.context_snapshot)
+            if isinstance(
+                self.context_snapshot,
+                dict,
+            )
+            else None
+        )
+
+        for action in actions:
+            if action.name != RUNTIME_ACTION_ASSET_ACTION:
+                continue
+
+            pending_ids = getattr(
+                self.context,
+                "runtime_pending_asset_action_ids",
+                None,
+            )
+
+            if not isinstance(
+                pending_ids,
+                list,
+            ):
+                pending_ids = []
+                self.context.runtime_pending_asset_action_ids = (
+                    pending_ids
+                )
+
+            action_id = build_runtime_action_id(
+                RUNTIME_ACTION_ASSET_ACTION,
+                len(
+                    getattr(
+                        self.context,
+                        "runtime_asset_results",
+                        [],
+                    )
+                    or []
+                )
+                + len(pending_ids)
+                + 1,
+            )
+            pending_ids.append(
+                action_id
+            )
+
+            payload = {
+                "type": "runtime_action",
+                "action": "asset_action",
+                "id": action_id,
+                "status": "started",
+                "text": build_asset_action_history_text({
+                    "action": "asset_action",
+                }),
+            }
+
+            if action_context_snapshot:
+                payload["context"] = action_context_snapshot
+
+            await emit(
+                payload
+            )
 
     async def flush_runtime_action_content(
         self,
@@ -484,12 +628,7 @@ class RuntimeStream:
 
             await self.refresh_token_usage()
 
-            action_seen = False
-
             async for chunk in generator:
-                if len(getattr(self.context, "runtime_action_events", [])) > action_event_offset:
-                    action_seen = True
-
                 chunk_type = chunk.get(
                     "type"
                 )
@@ -510,13 +649,30 @@ class RuntimeStream:
                 # -------------------------------------------------
 
                 if chunk_type == "thinking":
-                    await self.stream.send_thinking(
-                        chunk.get(
-                            "content",
-                            "",
-                        ),
-                        emit=self.emit_to_chat,
+
+                    is_valid = (
+                        await self.stream.send_thinking(
+                            chunk.get(
+                                "content",
+                                "",
+                            ),
+                            emit=self.emit_to_chat,
+                        )
                     )
+
+                    if not is_valid:
+                        self.capture_runtime_turn_response()
+                        self.mark_validator_interruption(
+                            self.stream.thinking_validator
+                        )
+
+                        await self.close_active_streams()
+
+                        await self.stream.finish(
+                            emit=self.emit_to_chat
+                        )
+
+                        return None
 
                     await self.refresh_token_usage()
 
@@ -534,20 +690,6 @@ class RuntimeStream:
                             "",
                         )
                     )
-
-                    # `filter_runtime_action_content` may parse and apply a
-                    # runtime action marker (e.g. CREATE_ACTIVE_MEMORY,
-                    # APPEND_SKILL) from *this* chunk. `action_seen` above
-                    # only reflects actions from *previous* chunks, so it
-                    # must be refreshed here too — otherwise a marker that
-                    # lands in the same chunk as trailing content gets its
-                    # side effect applied (memory created / skill state
-                    # written) but the gate below still sees
-                    # `action_seen=False` and aborts the turn, dropping the
-                    # follow-up tick that was supposed to run next (e.g.
-                    # the L1 dirty-flush never fires).
-                    if len(getattr(self.context, "runtime_action_events", [])) > action_event_offset:
-                        action_seen = True
 
                     if (
                             content is None
@@ -570,9 +712,11 @@ class RuntimeStream:
 
                     if (
                             not is_valid
-                            and not action_seen
                     ):
                         self.capture_runtime_turn_response()
+                        self.mark_validator_interruption()
+
+                        await self.close_active_streams()
 
                         await self.stream.finish(
                             emit=self.emit_to_chat

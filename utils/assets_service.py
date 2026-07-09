@@ -156,6 +156,33 @@ def _clean_lines(value) -> list[str]:
     return lines
 
 
+def _normalize_text_content(value) -> str:
+    content = str(
+        value
+        if value is not None
+        else ""
+    )
+
+    return (
+        content
+        .replace("\\r\\n", "\n")
+        .replace("\\n", "\n")
+        .replace("\\r", "\n")
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
+    )
+
+
+def _with_terminal_newline(content: str) -> str:
+    if (
+        content
+        and not content.endswith("\n")
+    ):
+        return f"{content}\n"
+
+    return content
+
+
 def _extract_json_string_field(
     text: str,
     field_name: str,
@@ -251,12 +278,6 @@ def _normalize_action_payload(payload: dict) -> dict:
         },
     }
 
-    if (
-        "lines" not in normalized
-        and "content" in normalized
-    ):
-        normalized["lines"] = normalized["content"]
-
     return normalized
 
 
@@ -290,6 +311,44 @@ def _write_text_file(
         "\n".join(lines).strip() + ("\n" if lines else ""),
         encoding="utf-8",
     )
+
+    return {
+        "ok": True,
+        "path": _relative(path),
+        "line_count": len(lines),
+        "examples": lines[:5],
+    }
+
+
+def _write_text_content(
+    path: Path,
+    content,
+    *,
+    overwrite: bool = False,
+) -> dict:
+    if path.exists() and not overwrite:
+        return {
+            "ok": False,
+            "error": "file_exists",
+            "path": _relative(path),
+        }
+
+    normalized_content = _normalize_text_content(
+        content
+    )
+
+    path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    path.write_text(
+        _with_terminal_newline(
+            normalized_content
+        ),
+        encoding="utf-8",
+    )
+
+    lines = normalized_content.splitlines()
 
     return {
         "ok": True,
@@ -692,19 +751,30 @@ def create_asset_file(payload: dict) -> dict:
         str(payload.get("path", "")),
         default_suffix=".txt",
     )
-    lines = _clean_lines(
-        payload.get("lines")
-        or payload.get("content")
-    )
     overwrite = bool(
         payload.get("overwrite", False)
     )
 
-    result = _write_text_file(
-        path,
-        lines,
-        overwrite=overwrite,
-    )
+    if (
+        "content" in payload
+        and "lines" not in payload
+    ):
+        result = _write_text_content(
+            path,
+            payload.get("content"),
+            overwrite=overwrite,
+        )
+    else:
+        lines = _clean_lines(
+            payload.get("lines")
+            or payload.get("content")
+        )
+        result = _write_text_file(
+            path,
+            lines,
+            overwrite=overwrite,
+        )
+
     result["action"] = "create_asset_file"
     return result
 
@@ -715,6 +785,60 @@ def append_asset_file(payload: dict) -> dict:
         str(payload.get("path", "")),
         default_suffix=".txt",
     )
+
+    if (
+        "content" in payload
+        and "lines" not in payload
+    ):
+        appended_content = _normalize_text_content(
+            payload.get("content")
+        )
+        existing_content = (
+            path.read_text(
+                encoding="utf-8",
+            )
+            if path.exists()
+            else ""
+        )
+        separator = (
+            ""
+            if (
+                not existing_content
+                or existing_content.endswith("\n")
+                or not appended_content
+            )
+            else "\n"
+        )
+        merged_content = (
+            existing_content
+            + separator
+            + appended_content
+        )
+        merged_content = _with_terminal_newline(
+            merged_content
+        )
+
+        path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        path.write_text(
+            merged_content,
+            encoding="utf-8",
+        )
+
+        appended_lines = appended_content.splitlines()
+        merged_lines = merged_content.splitlines()
+
+        return {
+            "ok": True,
+            "action": "append_asset_file",
+            "path": _relative(path),
+            "appended_count": len(appended_lines),
+            "line_count": len(merged_lines),
+            "examples": merged_lines[:5],
+        }
+
     lines = _clean_lines(
         payload.get("lines")
         or payload.get("content")

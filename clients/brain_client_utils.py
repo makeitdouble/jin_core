@@ -75,6 +75,7 @@ from utils.assets_service import (
     list_skills,
     load_skill,
     normalize_skill_name,
+    _parse_lenient_asset_payload,
     run_asset_action,
 )
 from utils.runtime_actions import (
@@ -746,6 +747,62 @@ def build_runtime_action_marker_preview(
         .replace("\n", "\\n")
         .strip()
     )[:limit]
+
+
+def build_pending_asset_action_preview(
+    payload_text: str,
+) -> dict:
+
+    try:
+        payload = json.loads(
+            str(
+                payload_text
+                or ""
+            ).strip()
+        )
+    except json.JSONDecodeError:
+        payload = _parse_lenient_asset_payload(
+            payload_text
+        )
+
+    if not isinstance(
+        payload,
+        dict,
+    ):
+        payload = {}
+
+    action = str(
+        payload.get(
+            "action",
+            "asset_action",
+        )
+        or "asset_action"
+    ).strip()
+
+    result = {
+        "action": action,
+    }
+
+    if action in {
+        "create_asset_file",
+        "append_asset_file",
+    }:
+        path = str(
+            payload.get(
+                "path",
+                "",
+            )
+            or ""
+        ).strip().replace(
+            "\\",
+            "/",
+        )
+        if path:
+            if not path.startswith("assets/"):
+                path = f"assets/{path}"
+            result["path"] = path
+
+    return result
 
 
 def append_asset_runtime_result(
@@ -2078,6 +2135,62 @@ async def apply_runtime_action_calls(
             )
 
         for action in asset_actions:
+            emitter = getattr(
+                context,
+                "emitter",
+                None,
+            )
+            emit = getattr(
+                emitter,
+                "emit",
+                None,
+            )
+            pending_result = build_pending_asset_action_preview(
+                action.payload
+            )
+            pending_action = str(
+                pending_result.get(
+                    "action",
+                    "asset_action",
+                )
+                or "asset_action"
+            )
+            pending_asset_action_ids = getattr(
+                context,
+                "runtime_pending_asset_action_ids",
+                None,
+            )
+            pending_action_id = (
+                pending_asset_action_ids.pop(0)
+                if isinstance(
+                    pending_asset_action_ids,
+                    list,
+                )
+                and pending_asset_action_ids
+                else build_runtime_action_id(
+                    pending_action,
+                    len(
+                        getattr(
+                            context,
+                            "runtime_asset_results",
+                            [],
+                        )
+                        or []
+                    )
+                    + 1,
+                )
+            )
+            if emit is not None:
+                await emit(with_action_context({
+                    "type": "runtime_action",
+                    "action": "asset_action",
+                    "id": pending_action_id,
+                    "status": "started",
+                    "text": build_asset_action_history_text(
+                        pending_result
+                    ),
+                }))
+
             result = run_asset_action(
                 action.payload
             )
@@ -2094,6 +2207,7 @@ async def apply_runtime_action_calls(
                 result,
                 todo_item,
             )
+            result["runtime_action_id"] = pending_action_id
             append_asset_runtime_result(
                 context,
                 result,
@@ -2320,11 +2434,17 @@ async def apply_runtime_action_calls(
                         result_index - 1
                     ][1]
                 )
-                action_id = build_runtime_action_id(
-                    result_action
-                    or action_name,
-                    first_asset_result_index
-                    + result_index,
+                action_id = (
+                    result.get(
+                        "runtime_action_id",
+                        "",
+                    )
+                    or build_runtime_action_id(
+                        result_action
+                        or action_name,
+                        first_asset_result_index
+                        + result_index,
+                    )
                 )
                 await emit(with_action_context({
                     "type": "runtime_action",

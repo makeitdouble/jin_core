@@ -1670,6 +1670,16 @@ function handleSocketMessage(event) {
         )
         : text;
 
+    const shouldLogRuntimeAction =
+      ![
+        "started",
+        "start",
+        "pending",
+        "running",
+      ].includes(
+        status
+      );
+
     if (
       action === "create_active_memory"
       && data.active_memory
@@ -1775,6 +1785,7 @@ function handleSocketMessage(event) {
 
     if (
       appended
+      && shouldLogRuntimeAction
       && window.log_internal_action
     ) {
       window.log_internal_action(

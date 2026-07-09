@@ -390,6 +390,29 @@ class RuntimeActionTests(unittest.TestCase):
             ),
         )
 
+    def test_extracts_append_skill_marker_with_name_attribute(self):
+
+        result = extract_runtime_actions(
+            '<INTERNAL_ACTION_APPEND_SKILL name="file_manager" />',
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name="APPEND_SKILL",
+                    payload="file_manager",
+                ),
+            ),
+        )
+
     def test_extracts_asset_action_block(self):
 
         result = extract_runtime_actions(
@@ -538,6 +561,15 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             second.count("ASSET_ACTION"),
             1,
+        )
+        self.assertEqual(
+            first.started_actions,
+            (
+                RuntimeActionCall(
+                    name="ASSET_ACTION",
+                    payload="",
+                ),
+            ),
         )
 
     def test_stream_filter_strips_asset_action_block_boundary_variants(self):
@@ -1367,6 +1399,47 @@ class RuntimeActionTests(unittest.TestCase):
             second.search_queries,
             (
                 "\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440",
+            ),
+        )
+        self.assertEqual(
+            stream_filter.flush(),
+            "",
+        )
+
+    def test_stream_filter_handles_split_append_skill_marker_with_name_attribute(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+        )
+
+        first = stream_filter.filter(
+            '<INTERNAL_ACTION_APPEND_SKILL name="file'
+        )
+        second = stream_filter.filter(
+            '_manager" />'
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.actions,
+            (),
+        )
+        self.assertEqual(
+            second.text,
+            "",
+        )
+        self.assertEqual(
+            second.actions,
+            (
+                RuntimeActionCall(
+                    name="APPEND_SKILL",
+                    payload="file_manager",
+                ),
             ),
         )
         self.assertEqual(
@@ -2773,15 +2846,31 @@ class RuntimeActionTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "Assets: create_wildcard_file - assets/wildcards/clothing/test_tops.txt",
+                    "Assets: create_wildcard_file",
                 )
                 self.assertEqual(
                     context.emitter.events[0]["status"],
+                    "started",
+                )
+                self.assertEqual(
+                    context.emitter.events[1]["action"],
+                    "asset_action",
+                )
+                self.assertEqual(
+                    context.emitter.events[1]["id"],
+                    "create_wildcard_file_001",
+                )
+                self.assertEqual(
+                    context.emitter.events[1]["text"],
+                    "Assets: create_wildcard_file - assets/wildcards/clothing/test_tops.txt",
+                )
+                self.assertEqual(
+                    context.emitter.events[1]["status"],
                     "completed",
                 )
                 self.assertEqual(
                     len(context.emitter.events),
-                    1,
+                    2,
                 )
                 self.assertEqual(
                     context.runtime_session_action_history[0]["text"],
@@ -2790,6 +2879,72 @@ class RuntimeActionTests(unittest.TestCase):
                 self.assertIsInstance(
                     context.runtime_session_action_history[0]["created_at"],
                     float,
+                )
+
+
+    def test_create_asset_file_emits_started_with_path_before_completed(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                context = Context()
+                context.emitter = Emitter()
+                payload = json.dumps(
+                    {
+                        "action": "create_asset_file",
+                        "path": "assets/outputs/rain_script.py",
+                        "content": "print('rain')",
+                    }
+                )
+
+                asyncio.run(
+                    apply_runtime_action_calls(
+                        context,
+                        (
+                            RuntimeActionCall(
+                                name="ASSET_ACTION",
+                                payload=payload,
+                            ),
+                        ),
+                    )
+                )
+
+                self.assertEqual(
+                    len(context.emitter.events),
+                    2,
+                )
+                self.assertEqual(
+                    context.emitter.events[0]["status"],
+                    "started",
+                )
+                self.assertEqual(
+                    context.emitter.events[0]["text"],
+                    "Assets: create_asset_file - assets/outputs/rain_script.py",
+                )
+                self.assertEqual(
+                    context.emitter.events[0]["id"],
+                    "create_asset_file_001",
+                )
+                self.assertEqual(
+                    context.emitter.events[1]["status"],
+                    "completed",
+                )
+                self.assertEqual(
+                    context.emitter.events[1]["id"],
+                    "create_asset_file_001",
                 )
 
 
@@ -3054,6 +3209,93 @@ class RuntimeActionTests(unittest.TestCase):
                     result["truncated"],
                 )
 
+    def test_create_asset_file_content_preserves_indentation(self):
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                content = (
+                    "def generate_rain_sound():\n"
+                    "    print(\"start\")\n"
+                    "    if True:\n"
+                    "        print(\"nested\")\n"
+                    "\n"
+                    "if __name__ == \"__main__\":\n"
+                    "    generate_rain_sound()\n"
+                )
+                result = run_asset_action(json.dumps({
+                    "action": "create_asset_file",
+                    "path": "assets/outputs/rain_script.py",
+                    "content": content,
+                }))
+                output_path = (
+                    root
+                    / "assets"
+                    / "outputs"
+                    / "rain_script.py"
+                )
+
+                self.assertTrue(
+                    result["ok"],
+                )
+                self.assertEqual(
+                    output_path.read_text(encoding="utf-8"),
+                    content,
+                )
+                self.assertEqual(
+                    result["examples"][1],
+                    "    print(\"start\")",
+                )
+
+    def test_append_asset_file_content_preserves_existing_formatting(self):
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                output_path = (
+                    root
+                    / "assets"
+                    / "outputs"
+                    / "script.py"
+                )
+                output_path.parent.mkdir(
+                    parents=True,
+                    exist_ok=True,
+                )
+                output_path.write_text(
+                    "def main():\n"
+                    "    print(\"before\")",
+                    encoding="utf-8",
+                )
+
+                result = run_asset_action(json.dumps({
+                    "action": "append_asset_file",
+                    "path": "assets/outputs/script.py",
+                    "content": (
+                        "    print(\"after\")\n"
+                        "    return True\n"
+                    ),
+                }))
+
+                self.assertTrue(
+                    result["ok"],
+                )
+                self.assertEqual(
+                    output_path.read_text(encoding="utf-8"),
+                    (
+                        "def main():\n"
+                        "    print(\"before\")\n"
+                        "    print(\"after\")\n"
+                        "    return True\n"
+                    ),
+                )
+
     def test_generate_prompt_batch_expands_wildcards_and_accepts_assets_prompts_path(self):
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -3279,15 +3521,23 @@ class RuntimeActionTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "Assets: generate_prompt_batch - failed",
+                    "Assets: generate_prompt_batch",
                 )
                 self.assertEqual(
                     context.emitter.events[0]["status"],
+                    "started",
+                )
+                self.assertEqual(
+                    context.emitter.events[1]["text"],
+                    "Assets: generate_prompt_batch - failed",
+                )
+                self.assertEqual(
+                    context.emitter.events[1]["status"],
                     "failed",
                 )
                 self.assertEqual(
                     len(context.emitter.events),
-                    1,
+                    2,
                 )
                 self.assertEqual(
                     context.runtime_session_action_history[0]["text"],

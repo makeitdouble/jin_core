@@ -980,6 +980,16 @@ def schedule_interrupted_runtime_memory_update(
                 "runtime_turn_assistant_response",
                 "",
             ),
+            interruption_reason=getattr(
+                context,
+                "runtime_turn_interruption_reason",
+                "",
+            ),
+            interruption_quote=getattr(
+                context,
+                "runtime_turn_interruption_quote",
+                "",
+            ),
         )
     )
 

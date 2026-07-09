@@ -847,6 +847,149 @@ class BrainRuntimeActionTests(unittest.TestCase):
         finally:
             config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
 
+    def test_split_stream_asset_action_starts_chat_bubble_on_opening_tag(self):
+
+        class FakeBrainClient:
+            async def stream(self, **_kwargs):
+                yield {
+                    "type": "content",
+                    "content": "<INTERNAL_ACTION_ASSET_ACTION>\n",
+                }
+                yield {
+                    "type": "content",
+                    "content": (
+                        "{\n"
+                        '  "action": "create_asset_file",\n'
+                        '  "path": "assets/outputs/rain_simulator.py",\n'
+                        '  "content": "print(\\"rain\\")"\n'
+                        "}\n"
+                    ),
+                }
+                yield {
+                    "type": "content",
+                    "content": (
+                        "</INTERNAL_ACTION_ASSET_ACTION>\n"
+                        "This should not be visible."
+                    ),
+                }
+
+        class Context:
+            pass
+
+        async def collect(context):
+            chunks = []
+
+            async for chunk in ask_brain_stream(
+                client=FakeBrainClient(),
+                text="create rain simulator",
+                context=context,
+                system_prompt="system prompt",
+                brain_payload="brain payload",
+                runtime_actions={
+                    "CAN_USE_ASSETS": True,
+                },
+            ):
+                chunks.append(
+                    chunk
+                )
+
+            return chunks
+
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                output_path = (
+                    root
+                    / "assets"
+                    / "outputs"
+                    / "rain_simulator.py"
+                )
+
+                class TrackingEmitter:
+                    def __init__(self):
+                        self.events = []
+
+                    async def emit(self, event):
+                        self.events.append({
+                            **event,
+                            "file_exists_at_emit": output_path.exists(),
+                        })
+
+                with contextlib.ExitStack() as stack:
+                    for patcher in self.patch_asset_roots(root):
+                        stack.enter_context(patcher)
+
+                    context = Context()
+                    context.emitter = TrackingEmitter()
+
+                    chunks = asyncio.run(
+                        collect(
+                            context
+                        )
+                    )
+
+                    visible_text = "".join(
+                        chunk.get(
+                            "content",
+                            "",
+                        )
+                        for chunk in chunks
+                        if chunk.get("type") == "content"
+                    )
+                    runtime_events = [
+                        event
+                        for event in context.emitter.events
+                        if event.get("type") == "runtime_action"
+                    ]
+
+                    self.assertEqual(
+                        visible_text,
+                        "",
+                    )
+                    self.assertEqual(
+                        [
+                            event.get("status")
+                            for event in runtime_events
+                        ],
+                        [
+                            "started",
+                            "started",
+                            "completed",
+                        ],
+                    )
+                    self.assertEqual(
+                        len({
+                            event.get("id")
+                            for event in runtime_events
+                        }),
+                        1,
+                    )
+                    self.assertEqual(
+                        runtime_events[0]["text"],
+                        "Assets: asset_action",
+                    )
+                    self.assertFalse(
+                        runtime_events[0]["file_exists_at_emit"],
+                    )
+                    self.assertEqual(
+                        runtime_events[1]["text"],
+                        "Assets: create_asset_file - assets/outputs/rain_simulator.py",
+                    )
+                    self.assertFalse(
+                        runtime_events[1]["file_exists_at_emit"],
+                    )
+                    self.assertTrue(
+                        runtime_events[2]["file_exists_at_emit"],
+                    )
+                    self.assertTrue(
+                        output_path.exists(),
+                    )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
     def test_agent_runtime_action_flags_follow_assembler_constants(self):
 
         self.assertEqual(
@@ -1002,11 +1145,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
             self,
             prompt,
             "LIST SKILLS:",
-        )
-        assert_not_contains_text(
-            self,
-            prompt,
-            "<INTERNAL_ACTION_LIST_SKILLS>",
         )
         assert_contains_text(
             self,

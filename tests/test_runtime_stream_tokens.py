@@ -61,6 +61,34 @@ class FakeLogger:
             )
         )
 
+    async def log_validator(
+        self,
+        message,
+        **kwargs,
+    ):
+
+        self.messages.append(
+            (
+                "validator",
+                message,
+                kwargs,
+            )
+        )
+
+    async def log_error(
+        self,
+        message,
+        **kwargs,
+    ):
+
+        self.messages.append(
+            (
+                "error",
+                message,
+                kwargs,
+            )
+        )
+
 
 class FakeWebSocket:
 
@@ -76,6 +104,17 @@ class FakeWebSocket:
         self.messages.append(
             message
         )
+
+
+class FakeActiveStream:
+
+    def __init__(self):
+
+        self.closed = False
+
+    async def aclose(self):
+
+        self.closed = True
 
 
 async def fake_generator():
@@ -111,6 +150,34 @@ async def fake_cancelled_generator():
     }
 
     raise asyncio.CancelledError()
+
+
+async def fake_sentence_loop_generator():
+
+    repeated = (
+        "* Wait, I'll check if I should use "
+        "`append_skill` first. Yes.\n"
+    )
+
+    for _ in range(3):
+        yield {
+            "type": "content",
+            "content": repeated,
+        }
+
+
+async def fake_thinking_sentence_loop_generator():
+
+    repeated = (
+        "*Wait*, I'll check if I can use "
+        "`write_file` as a skill.\n"
+    )
+
+    for _ in range(3):
+        yield {
+            "type": "thinking",
+            "content": repeated,
+        }
 
 
 async def fake_prompt_only_usage_generator():
@@ -344,6 +411,178 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             "partial answer",
         )
 
+    async def test_sentence_loop_interrupts_brain_stream_with_reason(self):
+
+        runtime_id = settings.SERVICE_MODEL_UID
+        active_stream = FakeActiveStream()
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            active_streams={
+                1: active_stream,
+            },
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_turn_assistant_response="",
+            runtime_turn_interrupted=False,
+            runtime_turn_interruption_reason="",
+            runtime_turn_interruption_quote="",
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=runtime_id,
+            role="service",
+            context_window=(
+                settings.SERVICE_CONTEXT_WINDOW
+            ),
+            log_method=(
+                context.logger.log_service
+            ),
+            context_snapshot={
+                "context_role": "brain",
+                "system_prompt": "system prompt",
+                "user_prompt": "user payload",
+            },
+        )
+
+        result = await stream.run(
+            fake_sentence_loop_generator()
+        )
+
+        self.assertIsNone(
+            result
+        )
+        self.assertTrue(
+            context.runtime_turn_interrupted
+        )
+        self.assertEqual(
+            context.runtime_turn_interruption_reason,
+            "Repeated sentence loop detected.",
+        )
+        self.assertIn(
+            "append_skill",
+            context.runtime_turn_interruption_quote,
+        )
+        self.assertEqual(
+            context.active_streams,
+            {},
+        )
+        self.assertTrue(
+            active_stream.closed
+        )
+
+        errors = [
+            message
+            for message in context.websocket.messages
+            if message.get("type") == "message_error"
+        ]
+
+        self.assertEqual(
+            len(errors),
+            1,
+        )
+        self.assertIn(
+            "Looped text",
+            errors[0]["text"],
+        )
+        self.assertIn(
+            "append_skill",
+            errors[0]["text"],
+        )
+
+    async def test_thinking_sentence_loop_interrupts_stream_with_reason(self):
+
+        runtime_id = settings.SERVICE_MODEL_UID
+        active_stream = FakeActiveStream()
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            active_streams={
+                1: active_stream,
+            },
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_turn_assistant_response="",
+            runtime_turn_interrupted=False,
+            runtime_turn_interruption_reason="",
+            runtime_turn_interruption_quote="",
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=runtime_id,
+            role="service",
+            context_window=(
+                settings.SERVICE_CONTEXT_WINDOW
+            ),
+            log_method=(
+                context.logger.log_service
+            ),
+            context_snapshot={
+                "context_role": "brain",
+                "system_prompt": "system prompt",
+                "user_prompt": "user payload",
+            },
+        )
+
+        result = await stream.run(
+            fake_thinking_sentence_loop_generator()
+        )
+
+        self.assertIsNone(
+            result
+        )
+        self.assertTrue(
+            context.runtime_turn_interrupted
+        )
+        self.assertEqual(
+            context.runtime_turn_interruption_reason,
+            "Repeated thinking sentence loop detected.",
+        )
+        self.assertIn(
+            "write_file",
+            context.runtime_turn_interruption_quote,
+        )
+        self.assertEqual(
+            context.active_streams,
+            {},
+        )
+        self.assertTrue(
+            active_stream.closed
+        )
+
+        thinking_chunks = [
+            message
+            for message in context.websocket.messages
+            if message.get("type") == "thinking_chunk"
+        ]
+        self.assertEqual(
+            len(thinking_chunks),
+            2,
+        )
+
+        errors = [
+            message
+            for message in context.websocket.messages
+            if message.get("type") == "message_error"
+        ]
+
+        self.assertEqual(
+            len(errors),
+            1,
+        )
+        self.assertIn(
+            "Looped text",
+            errors[0]["text"],
+        )
+        self.assertIn(
+            "write_file",
+            errors[0]["text"],
+        )
+
     async def test_non_brain_stream_does_not_update_context_counter(self):
 
         runtime_id = settings.SERVICE_MODEL_UID
@@ -485,6 +724,132 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                         / "clothing"
                         / "test_tops.txt"
                     ).exists()
+                )
+
+    async def test_asset_action_started_emits_when_opening_tag_is_stripped(self):
+
+        runtime_id = settings.SERVICE_MODEL_UID
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            output_path = (
+                root
+                / "assets"
+                / "outputs"
+                / "rain_simulator.py"
+            )
+
+            class TrackingEmitter:
+
+                def __init__(self):
+
+                    self.events = []
+
+                async def emit(
+                    self,
+                    event,
+                ):
+
+                    self.events.append({
+                        **event,
+                        "file_exists_at_emit": output_path.exists(),
+                    })
+
+            async def split_asset_action_generator():
+
+                yield {
+                    "type": "content",
+                    "content": "<INTERNAL_ACTION_ASSET_ACTION>\n",
+                }
+                yield {
+                    "type": "content",
+                    "content": (
+                        '{"action":"create_asset_file",'
+                        '"path":"assets/outputs/rain_simulator.py",'
+                        '"content":"print(\\\"rain\\\")"}\n'
+                    ),
+                }
+                yield {
+                    "type": "content",
+                    "content": (
+                        "</INTERNAL_ACTION_ASSET_ACTION>\n"
+                        "Done."
+                    ),
+                }
+
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                context = SimpleNamespace(
+                    websocket=FakeWebSocket(),
+                    logger=FakeLogger(),
+                    emitter=TrackingEmitter(),
+                    runtime_action_events=[],
+                    runtime_usage_events=[],
+                    runtime_asset_results=[],
+                    active_memory_records=[],
+                )
+
+                stream = RuntimeStream(
+                    context=context,
+                    runtime_id=runtime_id,
+                    role="service",
+                    context_window=(
+                        settings.SERVICE_CONTEXT_WINDOW
+                    ),
+                    log_method=(
+                        context.logger.log_service
+                    ),
+                    runtime_actions={
+                        "CAN_USE_ASSETS": True,
+                    },
+                )
+
+                await stream.run(
+                    split_asset_action_generator()
+                )
+
+                runtime_events = [
+                    event
+                    for event in context.emitter.events
+                    if event.get("type") == "runtime_action"
+                ]
+
+                self.assertEqual(
+                    [
+                        event.get("status")
+                        for event in runtime_events
+                    ],
+                    [
+                        "started",
+                        "started",
+                        "completed",
+                    ],
+                )
+                self.assertEqual(
+                    len({
+                        event.get("id")
+                        for event in runtime_events
+                    }),
+                    1,
+                )
+                self.assertEqual(
+                    runtime_events[0]["text"],
+                    "Assets: asset_action",
+                )
+                self.assertFalse(
+                    runtime_events[0]["file_exists_at_emit"],
+                )
+                self.assertEqual(
+                    runtime_events[1]["text"],
+                    "Assets: create_asset_file - assets/outputs/rain_simulator.py",
+                )
+                self.assertTrue(
+                    runtime_events[2]["file_exists_at_emit"],
+                )
+                self.assertTrue(
+                    output_path.exists(),
                 )
 
 

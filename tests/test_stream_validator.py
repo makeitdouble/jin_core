@@ -59,6 +59,53 @@ def test_stream_validator_removes_split_trailing_blockquote_tag():
     assert text == "Понял. Буду проще."
 
 
+def test_stream_validator_stops_repeated_sentence_loop():
+    validator = StreamValidator()
+
+    repeated = (
+        "* Wait, I'll check if I should use "
+        "`append_skill` first. Yes.\n"
+    )
+
+    assert validator.filter_chunk(repeated) == (
+        repeated,
+        True,
+    )
+    assert validator.filter_chunk(repeated) == (
+        repeated,
+        True,
+    )
+
+    clean, is_valid = validator.filter_chunk(
+        repeated
+    )
+
+    assert clean == ""
+    assert not is_valid
+    assert validator.last_failure_reason == (
+        "Repeated sentence loop detected."
+    )
+    assert (
+        "append_skill"
+        in validator.last_failure_preview
+    )
+
+
+def test_stream_validator_allows_short_repeated_sentences():
+    validator = StreamValidator()
+
+    text = collect(
+        validator,
+        [
+            "Yes. ",
+            "Yes. ",
+            "Yes. ",
+        ],
+    )
+
+    assert text == "Yes. Yes. Yes. "
+
+
 def test_stream_validator_flushes_unfinished_tag_as_content():
     validator = StreamValidator()
 
