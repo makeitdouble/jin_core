@@ -2663,11 +2663,11 @@ class RuntimeActionTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "Readed skills",
+                    "Listed skills",
                 )
                 self.assertEqual(
                     context.runtime_session_action_history[0]["text"],
-                    "Readed skills",
+                    "Listed skills",
                 )
                 self.assertIsInstance(
                     context.runtime_session_action_history[0]["created_at"],

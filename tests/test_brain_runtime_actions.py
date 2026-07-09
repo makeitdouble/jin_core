@@ -1163,7 +1163,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             runtime_l2_memory="",
             active_memory_records=[],
             runtime_session_action_history=[
-                "Readed skills",
+                "Listed skills",
             ],
             runtime_asset_results=[
                 {

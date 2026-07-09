@@ -4,17 +4,48 @@ import time
 MAX_SESSION_ACTION_HISTORY_ITEMS = 200
 
 
+ACTION_DISPLAY_ALIASES = {
+    "append_asset_file": "Appended asset file",
+    "append_delayed_memory": "Appended delayed memory",
+    "append_skill": "Appended skill",
+    "append_wildcard_file": "Appended wildcard file",
+    "asset_action": "Processed asset action",
+    "check_duplicates": "Checked duplicates",
+    "create_active_memory": "Created active memory",
+    "create_asset_file": "Created asset file",
+    "create_wildcard_file": "Created wildcard file",
+    "create_wildcard_library": "Created wildcard library",
+    "expand_template": "Expanded template",
+    "generate_prompt_batch": "Generated prompt batch",
+    "list_delayed_memory": "Listed delayed memory",
+    "list_skills": "Listed skills",
+    "list_wildcards": "Listed wildcards",
+    "preview_file": "Previewed file",
+    "read_asset_file": "Read asset file",
+    "read_asset_text": "Read asset text",
+    "remove_delayed_memory": "Removed delayed memory",
+    "remove_skill": "Removed skill",
+    "resolve_active_memory": "Resolved active memory",
+    "sample_wildcard": "Sampled wildcard",
+    "save_delayed_memory_content": "Saved delayed memory",
+    "save_session": "Saved session",
+}
+
+
 ACTION_PAST_TENSE_VERBS = {
     "append": "Appended",
     "asset": "Processed",
     "check": "Checked",
     "create": "Created",
     "delete": "Deleted",
+    "expand": "Expanded",
     "generate": "Generated",
-    "list": "Readed",
-    "read": "Readed",
+    "list": "Listed",
+    "preview": "Previewed",
+    "read": "Read",
     "remove": "Removed",
     "resolve": "Resolved",
+    "sample": "Sampled",
     "save": "Saved",
     "update": "Updated",
     "write": "Wrote",
@@ -36,6 +67,17 @@ def _build_past_tense_action_text(
 
     if not parts:
         return "Processed asset action"
+
+    action_name = "_".join(
+        parts
+    ).lower()
+
+    alias = ACTION_DISPLAY_ALIASES.get(
+        action_name,
+    )
+
+    if alias:
+        return alias
 
     verb = ACTION_PAST_TENSE_VERBS.get(
         parts[0],
