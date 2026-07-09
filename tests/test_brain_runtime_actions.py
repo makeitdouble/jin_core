@@ -145,25 +145,17 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "final answer.\nEmit markers",
+            "Runtime Actions are internal mechanics.\nIf user asks",
         )
         assert_contains_text(
             self,
             prompt,
-            "specific cases.\nDO NOT invent",
+            "short and brief.\nNEVER override",
         )
         assert_contains_text(
             self,
             prompt,
-            "memory conditions.\nYou need",
-        )
-        assert_contains_text(
-            self,
-            prompt,
-            (
-                "USER PROMPT starting with 'No new messages, "
-                "multi-task in progress' is a runtime follow-up tick"
-            ),
+            "markers!\nCheck all active_memory",
         )
 
     def test_non_stream_blocks_save_session_meta_request_in_reasoning(self):
@@ -1233,7 +1225,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertLess(
             prompt.index("Runtime Actions are internal mechanics"),
-            prompt.index("<Identity>"),
+            prompt.index("I identify as JIN"),
         )
         self.assertNotIn(
             "first line\\nsecond line",

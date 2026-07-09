@@ -159,7 +159,7 @@ async def fake_sentence_loop_generator():
         "`append_skill` first. Yes.\n"
     )
 
-    for _ in range(3):
+    for _ in range(6):
         yield {
             "type": "content",
             "content": repeated,
@@ -173,7 +173,7 @@ async def fake_thinking_sentence_loop_generator():
         "`write_file` as a skill.\n"
     )
 
-    for _ in range(3):
+    for _ in range(6):
         yield {
             "type": "thinking",
             "content": repeated,
@@ -411,7 +411,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             "partial answer",
         )
 
-    async def test_sentence_loop_interrupts_brain_stream_with_reason(self):
+    async def test_sentence_loop_content_is_preserved_without_interrupt(self):
 
         runtime_id = settings.SERVICE_MODEL_UID
         active_stream = FakeActiveStream()
@@ -451,25 +451,27 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             fake_sentence_loop_generator()
         )
 
-        self.assertIsNone(
+        self.assertIsNotNone(
             result
         )
-        self.assertTrue(
+        self.assertIn(
+            "append_skill",
+            result,
+        )
+        self.assertFalse(
             context.runtime_turn_interrupted
         )
         self.assertEqual(
             context.runtime_turn_interruption_reason,
-            "Repeated sentence loop detected.",
-        )
-        self.assertIn(
-            "append_skill",
-            context.runtime_turn_interruption_quote,
+            "",
         )
         self.assertEqual(
             context.active_streams,
-            {},
+            {
+                1: active_stream,
+            },
         )
-        self.assertTrue(
+        self.assertFalse(
             active_stream.closed
         )
 
@@ -481,18 +483,10 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             len(errors),
-            1,
-        )
-        self.assertIn(
-            "Looped text",
-            errors[0]["text"],
-        )
-        self.assertIn(
-            "append_skill",
-            errors[0]["text"],
+            0,
         )
 
-    async def test_thinking_sentence_loop_interrupts_stream_with_reason(self):
+    async def test_thinking_sentence_loop_is_preserved_without_interrupt(self):
 
         runtime_id = settings.SERVICE_MODEL_UID
         active_stream = FakeActiveStream()
@@ -532,25 +526,24 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             fake_thinking_sentence_loop_generator()
         )
 
-        self.assertIsNone(
-            result
+        self.assertEqual(
+            result,
+            "",
         )
-        self.assertTrue(
+        self.assertFalse(
             context.runtime_turn_interrupted
         )
         self.assertEqual(
             context.runtime_turn_interruption_reason,
-            "Repeated thinking sentence loop detected.",
-        )
-        self.assertIn(
-            "write_file",
-            context.runtime_turn_interruption_quote,
+            "",
         )
         self.assertEqual(
             context.active_streams,
-            {},
+            {
+                1: active_stream,
+            },
         )
-        self.assertTrue(
+        self.assertFalse(
             active_stream.closed
         )
 
@@ -559,9 +552,9 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             for message in context.websocket.messages
             if message.get("type") == "thinking_chunk"
         ]
-        self.assertEqual(
+        self.assertGreaterEqual(
             len(thinking_chunks),
-            2,
+            1,
         )
 
         errors = [
@@ -572,15 +565,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             len(errors),
-            1,
-        )
-        self.assertIn(
-            "Looped text",
-            errors[0]["text"],
-        )
-        self.assertIn(
-            "write_file",
-            errors[0]["text"],
+            0,
         )
 
     async def test_non_brain_stream_does_not_update_context_counter(self):

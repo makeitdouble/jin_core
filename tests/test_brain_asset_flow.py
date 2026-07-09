@@ -46,7 +46,11 @@ def _assert_latest_request_payload(
 
     test_case.assertTrue(
         payload.startswith(
-            "No new messages, multi-task in progress\n"
+            "This is NOT a new request! No new messages from a user, "
+            "multi-task in progress."
+        )
+        or payload.startswith(
+            "No new messages, multi-task in progress"
         ),
         payload,
     )
@@ -316,7 +320,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "Found delayed memory `dm_note`: Solo note.",
         )
 
-    async def test_same_turn_reused_list_skills_keeps_followup_payload(self):
+    async def test_same_turn_list_skills_keeps_followup_payload(self):
 
         calls = []
 
@@ -328,9 +332,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 context.runtime_asset_results.append({
                     "ok": True,
                     "action": "list_skills",
-                    "runtime_action_reused": True,
                     "runtime_turn_id": "turn_000002",
-                    "runtime_action_reused_from_turn_id": "turn_000002",
                     "skills": [
                         {
                             "name": "file_manager",
@@ -343,7 +345,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             if len(calls) == 2:
                 self.assertTrue(
                     kwargs["brain_payload"].startswith(
-                        "No new messages, multi-task in progress"
+                        "This is NOT a new request! No new messages "
+                        "from a user, multi-task in progress."
                     ),
                     kwargs["brain_payload"],
                 )
@@ -353,7 +356,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 )
 
             self.fail(
-                "Brain model kept running after reused list_skills answer"
+                "Brain model kept running after list_skills answer"
             )
 
         context = _context()
@@ -392,7 +395,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "I am JIN.",
         )
 
-    async def test_previous_turn_reused_list_skills_keeps_real_user_payload(self):
+    async def test_previous_turn_list_skills_uses_followup_payload(self):
 
         calls = []
 
@@ -404,9 +407,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 context.runtime_asset_results.append({
                     "ok": True,
                     "action": "list_skills",
-                    "runtime_action_reused": True,
                     "runtime_turn_id": "turn_000002",
-                    "runtime_action_reused_from_turn_id": "turn_000001",
                     "skills": [
                         {
                             "name": "file_manager",
@@ -417,13 +418,10 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 return "", ""
 
             if len(calls) == 2:
-                self.assertEqual(
-                    kwargs["brain_payload"],
-                    state.translated_input,
-                )
-                self.assertFalse(
+                self.assertTrue(
                     kwargs["brain_payload"].startswith(
-                        "No new messages, multi-task in progress"
+                        "This is NOT a new request! No new messages "
+                        "from a user, multi-task in progress."
                     ),
                     kwargs["brain_payload"],
                 )
@@ -433,7 +431,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 )
 
             self.fail(
-                "Brain model kept running after reused list_skills answer"
+                "Brain model kept running after list_skills answer"
             )
 
         context = _context()

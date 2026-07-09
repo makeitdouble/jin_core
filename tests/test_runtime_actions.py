@@ -2572,7 +2572,7 @@ class RuntimeActionTests(unittest.TestCase):
                     float,
                 )
 
-    def test_apply_runtime_action_calls_reuses_list_skills_cache(self):
+    def test_apply_runtime_action_calls_reads_list_skills_each_time(self):
 
         class Emitter:
             def __init__(self):
@@ -2634,16 +2634,9 @@ class RuntimeActionTests(unittest.TestCase):
                     "runtime_action_reused",
                     context.runtime_asset_results[0],
                 )
-                self.assertTrue(
-                    context.runtime_asset_results[1][
-                        "runtime_action_reused"
-                    ],
-                )
-                self.assertEqual(
-                    context.runtime_asset_results[1][
-                        "runtime_action_reused_from_turn_id"
-                    ],
-                    "turn_000001",
+                self.assertNotIn(
+                    "runtime_action_reused",
+                    context.runtime_asset_results[1],
                 )
                 self.assertEqual(
                     context.runtime_asset_results[1][
