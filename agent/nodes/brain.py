@@ -28,7 +28,11 @@ from utils.language import (
 )
 
 
-FOLLOWUP_USER_MESSAGE = "This is NOT a new request! No new messages from a user, multi-task in progress."
+FOLLOWUP_USER_MESSAGE = (
+    "This is NOT a new request! Multi-task in progress!\n"
+    f"\n"
+    f"YOU MUST derive your next action from <LATEST_USER_REQUEST> and <SESSION_ACTIONS_HISTORY> and proceed without confirmation!\n"
+)
 
 
 def _compact_followup_value(

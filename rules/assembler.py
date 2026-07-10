@@ -48,7 +48,6 @@ from .runtime import (
     WEB_SEARCH_RULES,
     ASSETS_RULES,
     APPEND_REMOVE_SKILL_RULES,
-    LIST_SKILLS_RULES,
     RUNTIME_TODO_RULES,
     SKILL_ROUTING_RULES,
     RUNTIME_ACTIONS_RULES, SAVE_DELAYED_MEMORY_RULES,
@@ -395,7 +394,7 @@ def build_runtime_action_instructions(
         _action_enabled(enabled_actions, RUNTIME_ACTION_LIST_SKILLS, "list_skills")
         and not has_list_skills_result
     ):
-        instructions.append(LIST_SKILLS_RULES)
+        instructions.append(SKILL_ROUTING_RULES)
 
     if (
         has_list_skills_result
@@ -405,12 +404,6 @@ def build_runtime_action_instructions(
         )
     ):
         instructions.append(APPEND_REMOVE_SKILL_RULES)
-
-    if (
-        _action_enabled(enabled_actions, RUNTIME_ACTION_LIST_SKILLS, "list_skills")
-        or has_list_skills_result
-    ):
-        instructions.append(SKILL_ROUTING_RULES)
 
     if not enabled_actions:
         instructions = ["No runtime actions are currently enabled."]
