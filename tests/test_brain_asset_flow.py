@@ -146,6 +146,36 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "resolve_active_memory (repeated_times: 2 ), save_session",
         )
 
+    async def test_followup_renames_runtime_memory_block(self):
+
+        prompt = BrainNode.build_followup_system_prompt(
+            (
+                "<ACTIVE_MEMORY>\nactive memory\n</ACTIVE_MEMORY>\n\n"
+                "<RUNTIME_MEMORY>\nactive_topic: test\n</RUNTIME_MEMORY>\n\n"
+                "<RUNTIME_PATTERN_MEMORY>\npattern\n</RUNTIME_PATTERN_MEMORY>"
+            ),
+            "continue the task",
+        )
+
+        self.assertIn(
+            "<LATEST_RUNTIME_MEMORY>\nactive_topic: test\n"
+            "</LATEST_RUNTIME_MEMORY>",
+            prompt,
+        )
+        self.assertNotIn(
+            "<RUNTIME_MEMORY>",
+            prompt,
+        )
+        self.assertNotIn(
+            "</RUNTIME_MEMORY>",
+            prompt,
+        )
+        self.assertIn(
+            "<RUNTIME_PATTERN_MEMORY>\npattern\n"
+            "</RUNTIME_PATTERN_MEMORY>",
+            prompt,
+        )
+
     async def test_appended_delayed_memory_is_under_latest_request(self):
 
         context = SimpleNamespace(

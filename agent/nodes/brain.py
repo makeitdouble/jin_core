@@ -136,6 +136,40 @@ def format_followup_actions_from_events(
     )
 
 
+def rename_runtime_memory_for_followup(
+        system_prompt: str,
+) -> str:
+
+    prompt = str(
+        system_prompt
+        or ""
+    )
+    opening_tag = "<RUNTIME_MEMORY>"
+    closing_tag = "</RUNTIME_MEMORY>"
+    opening_index = prompt.find(
+        opening_tag
+    )
+
+    if opening_index < 0:
+        return prompt
+
+    closing_index = prompt.find(
+        closing_tag,
+        opening_index + len(opening_tag),
+    )
+
+    if closing_index < 0:
+        return prompt
+
+    return (
+        prompt[:opening_index]
+        + "<LATEST_RUNTIME_MEMORY>"
+        + prompt[opening_index + len(opening_tag):closing_index]
+        + "</LATEST_RUNTIME_MEMORY>"
+        + prompt[closing_index + len(closing_tag):]
+    )
+
+
 def build_followup_user_message(
         latest_action: str = "",
 ) -> str:
@@ -234,7 +268,9 @@ class BrainNode(BaseNode):
             )
 
         sections.append(
-            system_prompt
+            rename_runtime_memory_for_followup(
+                system_prompt
+            )
         )
 
         return "\n\n".join(
