@@ -1279,6 +1279,51 @@ class BrainRuntimeActionTests(unittest.TestCase):
             runtime_context,
         )
 
+    def test_prompt_keeps_appended_delayed_memory_in_normal_turns(self):
+
+        context = SimpleNamespace(
+            runtime_memory="session_status: active",
+            runtime_memory_stable="session_status: active",
+            runtime_l2_memory="",
+            active_memory_records=[],
+            runtime_appended_delayed_memory={
+                "id": "a1b2c3",
+                "title": "Pinned task plan",
+                "summary": "Use this plan for the next task.",
+            },
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_SAVE_DELAYED_MEMORY": True,
+            },
+            user_input="start the task",
+        )
+
+        self.assertIn(
+            "<APPENDED_DELAYED_MEMORY>",
+            prompt,
+        )
+        self.assertIn(
+            '"title": "Pinned task plan"',
+            prompt,
+        )
+        self.assertEqual(
+            prompt.count(
+                "<APPENDED_DELAYED_MEMORY>"
+            ),
+            1,
+        )
+        self.assertLess(
+            prompt.index(
+                "<APPENDED_DELAYED_MEMORY>"
+            ),
+            prompt.index(
+                "I identify as JIN"
+            ),
+        )
+
     def test_prompt_adds_delayed_memory_rules_only_when_reports_exist(self):
 
         empty_context = SimpleNamespace(

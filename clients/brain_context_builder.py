@@ -445,6 +445,10 @@ def build_brain_top_runtime_context(
         parts,
         context,
     )
+    append_appended_delayed_memory(
+        parts,
+        context,
+    )
     current_appended_skills_context = (
         build_current_appended_skills_context(
             context
