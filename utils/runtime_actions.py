@@ -3331,27 +3331,99 @@ class RuntimeActionStreamFilter:
         marker_start: int,
     ) -> tuple[RuntimeActionCall, ...]:
 
-        if RUNTIME_ACTION_ASSET_ACTION not in self.enabled_actions:
-            return ()
-
-        if not ASSET_ACTION_BLOCK_START_RE.match(
-            text,
-            marker_start,
-        ):
-            return ()
-
-        action_key = RUNTIME_ACTION_ASSET_ACTION
-
-        if action_key in self.pending_started_actions:
-            return ()
-
-        self.pending_started_actions.add(
-            action_key
+        block_actions = (
+            (
+                RUNTIME_ACTION_ASSET_ACTION,
+                ASSET_ACTION_BLOCK_START_RE,
+            ),
+            (
+                RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+                DELAYED_MEMORY_BLOCK_START_RE,
+            ),
         )
 
-        return (
-            RuntimeActionCall(
-                name=RUNTIME_ACTION_ASSET_ACTION,
+        for action_name, start_pattern in block_actions:
+            if action_name not in self.enabled_actions:
+                continue
+
+            if not start_pattern.match(
+                text,
+                marker_start,
+            ):
+                continue
+
+            if action_name in self.pending_started_actions:
+                return ()
+
+            self.pending_started_actions.add(
+                action_name
+            )
+
+            return (
+                RuntimeActionCall(
+                    name=action_name,
+                ),
+            )
+
+        return ()
+
+    def _find_started_actions(
+        self,
+        text: str,
+    ) -> tuple[RuntimeActionCall, ...]:
+
+        marker_starts = []
+
+        for start_pattern in (
+            ASSET_ACTION_BLOCK_START_RE,
+            DELAYED_MEMORY_BLOCK_START_RE,
+        ):
+            match = start_pattern.search(
+                text
+            )
+
+            if match is not None:
+                marker_starts.append(
+                    match.start()
+                )
+
+        started_actions = []
+
+        for marker_start in sorted(
+            set(marker_starts)
+        ):
+            started_actions.extend(
+                self._build_started_actions(
+                    text,
+                    marker_start,
+                )
+            )
+
+        return tuple(
+            started_actions
+        )
+
+    @staticmethod
+    def _attach_started_actions(
+        result: RuntimeActionResult,
+        started_actions,
+    ) -> RuntimeActionResult:
+
+        if not started_actions:
+            return result
+
+        return RuntimeActionResult(
+            text=result.text,
+            started_actions=tuple(
+                started_actions
+            ),
+            actions=result.actions,
+            removed_markers=result.removed_markers,
+            marker_repetition_exceeded=(
+                result.marker_repetition_exceeded
+            ),
+            marker_repetition_reason=(
+                result.marker_repetition_reason
             ),
         )
 
@@ -3382,15 +3454,26 @@ class RuntimeActionStreamFilter:
                     -hold_length:
                 ]
 
-                return _extract_runtime_actions_if_needed(
-                    combined[
-                        :-hold_length
-                    ],
+                ready_text = combined[
+                    :-hold_length
+                ]
+                started_actions = self._find_started_actions(
+                    ready_text
+                )
+                result = _extract_runtime_actions_if_needed(
+                    ready_text,
                     enabled_actions=self.enabled_actions,
                     preserve_action_text=self.preserve_action_text,
                     seen_action_keys=self.seen_action_keys,
                     preserve_action_marker=self.preserve_action_marker,
                     repetition_guard=self.repetition_guard,
+                )
+
+                self.pending_started_actions.clear()
+
+                return self._attach_started_actions(
+                    result,
+                    started_actions,
                 )
 
         if (
@@ -3419,6 +3502,9 @@ class RuntimeActionStreamFilter:
 
         self.pending = ""
         self.pending_is_action = False
+        started_actions = self._find_started_actions(
+            combined
+        )
 
         unclosed_start = _unclosed_internal_action_request_start(
             combined,
@@ -3431,10 +3517,6 @@ class RuntimeActionStreamFilter:
                 unclosed_start:
             ]
             self.pending_is_action = True
-            started_actions = self._build_started_actions(
-                combined,
-                unclosed_start,
-            )
 
             result = _extract_runtime_actions_if_needed(
                 combined[
@@ -3447,23 +3529,10 @@ class RuntimeActionStreamFilter:
                 repetition_guard=self.repetition_guard,
             )
 
-            if started_actions:
-                return RuntimeActionResult(
-                    text=result.text,
-                    started_actions=started_actions,
-                    actions=result.actions,
-                    removed_markers=result.removed_markers,
-                    marker_repetition_exceeded=(
-                        result.marker_repetition_exceeded
-                    ),
-                    marker_repetition_reason=(
-                        result.marker_repetition_reason
-                    ),
-                )
-
-            return result
-
-        self.pending_started_actions.clear()
+            return self._attach_started_actions(
+                result,
+                started_actions,
+            )
 
         hold_length = _trailing_marker_prefix_length(
             combined,
@@ -3476,7 +3545,7 @@ class RuntimeActionStreamFilter:
                 -hold_length:
             ]
 
-            return _extract_runtime_actions_if_needed(
+            result = _extract_runtime_actions_if_needed(
                 combined[
                     :-hold_length
                 ],
@@ -3487,13 +3556,27 @@ class RuntimeActionStreamFilter:
                 repetition_guard=self.repetition_guard,
             )
 
-        return _extract_runtime_actions_if_needed(
+            self.pending_started_actions.clear()
+
+            return self._attach_started_actions(
+                result,
+                started_actions,
+            )
+
+        result = _extract_runtime_actions_if_needed(
             combined,
             enabled_actions=self.enabled_actions,
             preserve_action_text=self.preserve_action_text,
             seen_action_keys=self.seen_action_keys,
             preserve_action_marker=self.preserve_action_marker,
             repetition_guard=self.repetition_guard,
+        )
+
+        self.pending_started_actions.clear()
+
+        return self._attach_started_actions(
+            result,
+            started_actions,
         )
 
     def flush_result(self) -> RuntimeActionResult:
@@ -3507,6 +3590,49 @@ class RuntimeActionStreamFilter:
             return RuntimeActionResult(
                 text=pending,
             )
+
+        delayed_memory_start = DELAYED_MEMORY_BLOCK_START_RE.match(
+            pending
+        )
+
+        if (
+            delayed_memory_start is not None
+            and not DELAYED_MEMORY_BLOCK_END_RE.search(
+                pending,
+                delayed_memory_start.end(),
+            )
+        ):
+            payload = pending[
+                delayed_memory_start.end():
+            ].strip()
+
+            present_fields = {
+                str(
+                    match.group(1)
+                    or ""
+                ).strip().casefold()
+                for match in DELAYED_MEMORY_FIELD_RE.finditer(
+                    payload
+                )
+            }
+
+            if (
+                {
+                    "title",
+                    "summary",
+                    "tags",
+                    "body",
+                }.issubset(
+                    present_fields
+                )
+                and parse_delayed_memory_content_payload(
+                    payload
+                )
+            ):
+                pending = (
+                    pending.rstrip()
+                    + "\n</SAVE_DELAYED_MEMORY_CONTENT>"
+                )
 
         if _unclosed_internal_action_request_start(
             pending,

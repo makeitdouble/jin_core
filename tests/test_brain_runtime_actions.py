@@ -983,6 +983,98 @@ class BrainRuntimeActionTests(unittest.TestCase):
         finally:
             config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
 
+    def test_split_stream_delayed_memory_reuses_started_bubble_id_on_completion(self):
+
+        class FakeBrainClient:
+            async def stream(self, **_kwargs):
+                yield {
+                    "type": "content",
+                    "content": "<SAVE_DELAYED_MEMORY_CONTENT>\n",
+                }
+                yield {
+                    "type": "content",
+                    "content": (
+                        "title: Test delayed memory report\n"
+                        "summary: Current runtime state.\n"
+                        "tags: runtime, test\n"
+                        "body: Complete report body.\n"
+                    ),
+                }
+                yield {
+                    "type": "content",
+                    "content": "</SAVE_DELAYED_MEMORY_CONTENT>\n",
+                }
+
+        class TrackingEmitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        async def collect(context):
+            chunks = []
+
+            async for chunk in ask_brain_stream(
+                client=FakeBrainClient(),
+                text="создай отчёт delayed memory",
+                context=context,
+                runtime_actions={
+                    "CAN_SAVE_DELAYED_MEMORY": True,
+                },
+            ):
+                chunks.append(chunk)
+
+            return chunks
+
+        context = Context()
+        context.emitter = TrackingEmitter()
+        context.session_id = "session-1"
+        context.timestamp = "2026-07-10T14:00:00"
+
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            chunks = asyncio.run(
+                collect(context)
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        runtime_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "runtime_action"
+        ]
+
+        self.assertEqual(chunks, [])
+        self.assertEqual(
+            [
+                event.get("status")
+                for event in runtime_events
+            ],
+            [
+                "started",
+                "completed",
+            ],
+        )
+        self.assertEqual(
+            runtime_events[0]["id"],
+            runtime_events[1]["id"],
+        )
+        self.assertEqual(
+            runtime_events[0]["text"],
+            "Saving delayed memory report",
+        )
+        self.assertEqual(
+            runtime_events[1]["text"],
+            "Saved delayed memory: Test delayed memory report",
+        )
+
     def test_agent_runtime_action_flags_follow_assembler_constants(self):
 
         self.assertEqual(

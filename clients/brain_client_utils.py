@@ -48,6 +48,7 @@ def get_brain_runtime_config():
 
 import json
 import re
+from copy import deepcopy
 from xml.etree import ElementTree
 
 from rules.runtime import (
@@ -2330,6 +2331,12 @@ async def apply_runtime_action_calls(
             context
         )
 
+        saved_reports_before_remove = deepcopy(
+            get_delayed_memory_reports(
+                context
+            )
+        )
+
         for action in remove_delayed_memory_actions:
             result = remove_delayed_memory_report(
                 context,
@@ -2358,6 +2365,15 @@ async def apply_runtime_action_calls(
                     )
             delayed_memory_results.append(
                 result
+            )
+
+        if get_delayed_memory_reports(
+            context
+        ) != saved_reports_before_remove:
+            setattr(
+                context,
+                "delayed_memory_reports",
+                saved_reports_before_remove,
             )
 
     if delayed_memory_results:
@@ -2830,13 +2846,90 @@ async def apply_runtime_action_calls(
 
         if emit is not None:
             for report in saved_delayed_memory_reports:
-                await emit({
+                report_items = [
+                    (
+                        report_id,
+                        report_value,
+                    )
+                    for report_id, report_value in report.items()
+                    if isinstance(
+                        report_value,
+                        dict,
+                    )
+                ]
+                report_id = (
+                    report_items[0][0]
+                    if report_items
+                    else ""
+                )
+                report_title = (
+                    str(
+                        report_items[0][1].get(
+                            "title",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+                    if report_items
+                    else ""
+                )
+                pending_ids = getattr(
+                    context,
+                    "runtime_pending_delayed_memory_action_ids",
+                    None,
+                )
+                action_id = (
+                    pending_ids.pop(0)
+                    if isinstance(
+                        pending_ids,
+                        list,
+                    )
+                    and pending_ids
+                    else ""
+                )
+
+                if not action_id:
+                    current_action_sequence = int(
+                        getattr(
+                            context,
+                            "runtime_delayed_memory_action_sequence",
+                            0,
+                        )
+                        or 0
+                    )
+                    action_sequence = max(
+                        current_action_sequence + 1,
+                        len(
+                            getattr(
+                                context,
+                                "delayed_memory_reports",
+                                {},
+                            )
+                            or {}
+                        ),
+                    )
+                    setattr(
+                        context,
+                        "runtime_delayed_memory_action_sequence",
+                        action_sequence,
+                    )
+                    action_id = build_runtime_action_id(
+                        RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+                        action_sequence,
+                    )
+                await emit(with_action_context({
                     "type": "runtime_action",
                     "action": "save_delayed_memory_content",
+                    "id": action_id,
                     "status": "completed",
-                    "text": "Saving delayed memory",
+                    "text": (
+                        f"Saved delayed memory: {report_title}"
+                        if report_title
+                        else "Delayed memory saved"
+                    ),
+                    "delayed_memory_report_id": report_id,
                     "delayed_memory_report": report,
-                })
+                }))
 
     resolved_active_memory_count = 0
 

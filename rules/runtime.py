@@ -167,6 +167,8 @@ SAVE_DELAYED_MEMORY_RULES = (
     "Do NOT use this marker for word recall tests, secret values, future questions, or next-N-message conditions.\n"
     f"Emit fulfilled form only for explicit summary-save requests:\n"
     f"{INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_EMPTY_EXAMPLE}\n"
+    "The opening tag must be the first content line. Emit every field immediately, then always emit the matching closing tag.\n"
+    "Never announce, explain, or promise this action instead of emitting the complete block.\n"
     "When saving a summary/report NEVER skip form fields; you must fulfill all fields of delayed memory form so it will be valid for processing by runtime.\n"
 )
 

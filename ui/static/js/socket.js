@@ -1745,6 +1745,7 @@ function handleSocketMessage(event) {
       if (
         (
           action === "asset_action"
+          || action === "save_delayed_memory_content"
           || action === "list_skills"
           || action === "list_delayed_memory"
           || action === "append_delayed_memory"

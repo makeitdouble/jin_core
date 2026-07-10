@@ -1011,6 +1011,115 @@ class RuntimeActionTests(unittest.TestCase):
             "Radius of Influence Specs",
         )
 
+    def test_stream_filter_emits_delayed_memory_started_action(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_SAVE_DELAYED_MEMORY",
+            ],
+        )
+
+        first = stream_filter.filter(
+            (
+                "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "title: Radius of Influence Specs\n"
+                "summary: Three-zone data priority model.\n"
+            )
+        )
+        second = stream_filter.filter(
+            (
+                "tags: simulation, world_state\n"
+                "body: Complete report body.\n"
+                "</SAVE_DELAYED_MEMORY_CONTENT>\n"
+            )
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.started_actions,
+            (
+                RuntimeActionCall(
+                    name="SAVE_DELAYED_MEMORY_CONTENT",
+                    payload="",
+                ),
+            ),
+        )
+        self.assertEqual(
+            second.count("SAVE_DELAYED_MEMORY_CONTENT"),
+            1,
+        )
+
+    def test_stream_filter_emits_started_action_for_complete_delayed_block_chunk(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_SAVE_DELAYED_MEMORY",
+            ],
+        )
+
+        result = stream_filter.filter(
+            (
+                "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "title: Runtime state report\n"
+                "summary: Current runtime state.\n"
+                "tags: runtime\n"
+                "body: Full report.\n"
+                "</SAVE_DELAYED_MEMORY_CONTENT>\n"
+            )
+        )
+
+        self.assertEqual(
+            result.started_actions,
+            (
+                RuntimeActionCall(
+                    name="SAVE_DELAYED_MEMORY_CONTENT",
+                    payload="",
+                ),
+            ),
+        )
+        self.assertEqual(
+            result.count("SAVE_DELAYED_MEMORY_CONTENT"),
+            1,
+        )
+
+    def test_stream_filter_recovers_complete_delayed_memory_without_closing_tag(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_SAVE_DELAYED_MEMORY",
+            ],
+        )
+
+        first = stream_filter.filter(
+            (
+                "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "title: Radius of Influence Specs\n"
+                "summary: Three-zone data priority model.\n"
+                "tags: simulation, world_state\n"
+                "body: Complete report body.\n"
+            )
+        )
+        tail = stream_filter.flush_result()
+
+        self.assertEqual(
+            first.started_actions[0].name,
+            "SAVE_DELAYED_MEMORY_CONTENT",
+        )
+        self.assertEqual(
+            tail.count("SAVE_DELAYED_MEMORY_CONTENT"),
+            1,
+        )
+        report = json.loads(
+            tail.actions[0].payload
+        )
+        self.assertEqual(
+            next(iter(report.values()))["title"],
+            "Radius of Influence Specs",
+        )
+
     def test_extracts_delayed_memory_action_markers(self):
 
         result = extract_runtime_actions(
@@ -3926,8 +4035,10 @@ class RuntimeActionTests(unittest.TestCase):
                 {
                     "type": "runtime_action",
                     "action": "save_delayed_memory_content",
+                    "id": "save_delayed_memory_content_001",
                     "status": "completed",
-                    "text": "Saving delayed memory",
+                    "text": "Saved delayed memory: Radius of Influence Specs",
+                    "delayed_memory_report_id": report_id,
                     "delayed_memory_report": context.delayed_memory_reports,
                 },
             ],
@@ -4306,6 +4417,19 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertIn(
             "a1b2c3",
             context.delayed_memory_reports,
+        )
+        self.assertEqual(
+            context.delayed_memory_reports,
+            {
+                "a1b2c3": {
+                    "title": "Pinned report",
+                    "summary": "Summary",
+                    "tags": [
+                        "tag",
+                    ],
+                    "body": "Body",
+                },
+            },
         )
         self.assertEqual(
             context.emitter.events[0]["text"],

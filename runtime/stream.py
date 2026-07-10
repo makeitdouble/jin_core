@@ -28,6 +28,7 @@ from utils.runtime_actions import (
 from rules.runtime import (
     RUNTIME_ACTION_APPEND_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
+    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
 )
 from utils.assets_service import (
     normalize_skill_name,
@@ -81,6 +82,7 @@ class RuntimeStream:
         self.append_skill_marker_names = self.build_appended_skill_name_set()
         self.repetition_guard = RuntimeActionRepetitionGuard()
         self.marker_repetition_aborted = False
+        self.started_delayed_memory_action_ids = []
         self.action_filter = RuntimeActionStreamFilter(
             enabled_actions=self.runtime_actions,
             preserve_action_marker=self.should_preserve_action_marker,
@@ -486,50 +488,106 @@ class RuntimeStream:
         )
 
         for action in actions:
-            if action.name != RUNTIME_ACTION_ASSET_ACTION:
-                continue
-
-            pending_ids = getattr(
-                self.context,
-                "runtime_pending_asset_action_ids",
-                None,
-            )
-
-            if not isinstance(
-                pending_ids,
-                list,
-            ):
-                pending_ids = []
-                self.context.runtime_pending_asset_action_ids = (
-                    pending_ids
+            if action.name == RUNTIME_ACTION_ASSET_ACTION:
+                pending_ids = getattr(
+                    self.context,
+                    "runtime_pending_asset_action_ids",
+                    None,
                 )
 
-            action_id = build_runtime_action_id(
-                RUNTIME_ACTION_ASSET_ACTION,
-                len(
-                    getattr(
-                        self.context,
-                        "runtime_asset_results",
-                        [],
+                if not isinstance(
+                    pending_ids,
+                    list,
+                ):
+                    pending_ids = []
+                    self.context.runtime_pending_asset_action_ids = (
+                        pending_ids
                     )
-                    or []
-                )
-                + len(pending_ids)
-                + 1,
-            )
-            pending_ids.append(
-                action_id
-            )
 
-            payload = {
-                "type": "runtime_action",
-                "action": "asset_action",
-                "id": action_id,
-                "status": "started",
-                "text": build_asset_action_history_text({
+                action_id = build_runtime_action_id(
+                    RUNTIME_ACTION_ASSET_ACTION,
+                    len(
+                        getattr(
+                            self.context,
+                            "runtime_asset_results",
+                            [],
+                        )
+                        or []
+                    )
+                    + len(pending_ids)
+                    + 1,
+                )
+                pending_ids.append(
+                    action_id
+                )
+
+                payload = {
+                    "type": "runtime_action",
                     "action": "asset_action",
-                }),
-            }
+                    "id": action_id,
+                    "status": "started",
+                    "text": build_asset_action_history_text({
+                        "action": "asset_action",
+                    }),
+                }
+            elif action.name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT:
+                pending_ids = getattr(
+                    self.context,
+                    "runtime_pending_delayed_memory_action_ids",
+                    None,
+                )
+
+                if not isinstance(
+                    pending_ids,
+                    list,
+                ):
+                    pending_ids = []
+                    self.context.runtime_pending_delayed_memory_action_ids = (
+                        pending_ids
+                    )
+
+                current_sequence = max(
+                    int(
+                        getattr(
+                            self.context,
+                            "runtime_delayed_memory_action_sequence",
+                            0,
+                        )
+                        or 0
+                    ),
+                    len(
+                        getattr(
+                            self.context,
+                            "delayed_memory_reports",
+                            {},
+                        )
+                        or {}
+                    ),
+                )
+                next_sequence = current_sequence + 1
+                self.context.runtime_delayed_memory_action_sequence = (
+                    next_sequence
+                )
+                action_id = build_runtime_action_id(
+                    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+                    next_sequence,
+                )
+                pending_ids.append(
+                    action_id
+                )
+                self.started_delayed_memory_action_ids.append(
+                    action_id
+                )
+
+                payload = {
+                    "type": "runtime_action",
+                    "action": "save_delayed_memory_content",
+                    "id": action_id,
+                    "status": "started",
+                    "text": "Saving delayed memory report",
+                }
+            else:
+                continue
 
             if action_context_snapshot:
                 payload["context"] = action_context_snapshot
@@ -537,6 +595,58 @@ class RuntimeStream:
             await emit(
                 payload
             )
+
+    async def fail_unfinished_delayed_memory_actions(
+        self,
+    ) -> None:
+
+        if not self.started_delayed_memory_action_ids:
+            return
+
+        pending_ids = getattr(
+            self.context,
+            "runtime_pending_delayed_memory_action_ids",
+            None,
+        )
+
+        if not isinstance(
+            pending_ids,
+            list,
+        ):
+            self.started_delayed_memory_action_ids.clear()
+            return
+
+        emitter = getattr(
+            self.context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        for action_id in tuple(
+            self.started_delayed_memory_action_ids
+        ):
+            if action_id not in pending_ids:
+                continue
+
+            pending_ids.remove(
+                action_id
+            )
+
+            if emit is not None:
+                await emit({
+                    "type": "runtime_action",
+                    "action": "save_delayed_memory_content",
+                    "id": action_id,
+                    "status": "failed",
+                    "text": "Delayed memory report was not saved",
+                })
+
+        self.started_delayed_memory_action_ids.clear()
 
     async def flush_runtime_action_content(
         self,
@@ -547,9 +657,13 @@ class RuntimeStream:
 
         result = self.action_filter.flush_result()
 
-        return await self.apply_runtime_action_filter_result(
+        content = await self.apply_runtime_action_filter_result(
             result,
         )
+
+        await self.fail_unfinished_delayed_memory_actions()
+
+        return content
 
     def build_action_log(
         self,

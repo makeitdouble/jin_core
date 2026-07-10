@@ -616,13 +616,68 @@ async def ask_brain_stream(
             None,
         )
 
-        if emit is not None:
-            await emit({
-                "type": "runtime_action",
-                "action": "save_delayed_memory_content",
-                "status": "started",
-                "text": "Saving delayed memory report",
-            })
+        if emit is None:
+            return
+
+        pending_ids = getattr(
+            context,
+            "runtime_pending_delayed_memory_action_ids",
+            None,
+        )
+
+        if not isinstance(
+            pending_ids,
+            list,
+        ):
+            pending_ids = []
+            context.runtime_pending_delayed_memory_action_ids = (
+                pending_ids
+            )
+
+        current_sequence = max(
+            int(
+                getattr(
+                    context,
+                    "runtime_delayed_memory_action_sequence",
+                    0,
+                )
+                or 0
+            ),
+            len(
+                getattr(
+                    context,
+                    "delayed_memory_reports",
+                    {},
+                )
+                or {}
+            ),
+        )
+        next_sequence = current_sequence + 1
+        context.runtime_delayed_memory_action_sequence = (
+            next_sequence
+        )
+        action_id = build_runtime_action_id(
+            RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+            next_sequence,
+        )
+        pending_ids.append(
+            action_id
+        )
+
+        payload = {
+            "type": "runtime_action",
+            "action": "save_delayed_memory_content",
+            "id": action_id,
+            "status": "started",
+            "text": "Saving delayed memory report",
+        }
+
+        if action_context_snapshot:
+            payload["context"] = action_context_snapshot
+
+        await emit(
+            payload
+        )
 
     async def emit_asset_action_bubble_started():
 

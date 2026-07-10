@@ -837,6 +837,151 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                     output_path.exists(),
                 )
 
+    async def test_delayed_memory_started_and_completed_events_share_id(self):
+
+        runtime_id = settings.SERVICE_MODEL_UID
+
+        async def delayed_memory_generator_without_closing_tag():
+
+            yield {
+                "type": "content",
+                "content": "<SAVE_DELAYED_MEMORY_CONTENT>\n",
+            }
+            yield {
+                "type": "content",
+                "content": (
+                    "title: Runtime state report\n"
+                    "summary: Current runtime state and available skills.\n"
+                    "tags: runtime, skills, session_summary\n"
+                    "body: Full current-state report.\n"
+                ),
+            }
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_asset_results=[],
+            runtime_delayed_memory_results=[],
+            delayed_memory_reports={},
+            active_memory_records=[],
+            runtime_turn_user_message="создай отчёт delayed memory",
+            session_id="session-1",
+            timestamp="2026-07-10T14:00:00",
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=runtime_id,
+            role="service",
+            context_window=(
+                settings.SERVICE_CONTEXT_WINDOW
+            ),
+            log_method=(
+                context.logger.log_service
+            ),
+            runtime_actions={
+                "CAN_SAVE_DELAYED_MEMORY": True,
+            },
+        )
+
+        await stream.run(
+            delayed_memory_generator_without_closing_tag()
+        )
+
+        runtime_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "runtime_action"
+        ]
+
+        self.assertEqual(
+            [
+                event.get("status")
+                for event in runtime_events
+            ],
+            [
+                "started",
+                "completed",
+            ],
+        )
+        self.assertEqual(
+            runtime_events[0]["id"],
+            runtime_events[1]["id"],
+        )
+        self.assertEqual(
+            runtime_events[1]["text"],
+            "Saved delayed memory: Runtime state report",
+        )
+        self.assertEqual(
+            len(context.delayed_memory_reports),
+            1,
+        )
+
+    async def test_unfinished_delayed_memory_bubble_fails_instead_of_staying_active(self):
+
+        async def incomplete_delayed_memory_generator():
+
+            yield {
+                "type": "content",
+                "content": "<SAVE_DELAYED_MEMORY_CONTENT>\n",
+            }
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_asset_results=[],
+            runtime_delayed_memory_results=[],
+            delayed_memory_reports={},
+            active_memory_records=[],
+            runtime_turn_user_message="создай отчёт delayed memory",
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=settings.SERVICE_MODEL_UID,
+            role="service",
+            context_window=(
+                settings.SERVICE_CONTEXT_WINDOW
+            ),
+            log_method=(
+                context.logger.log_service
+            ),
+            runtime_actions={
+                "CAN_SAVE_DELAYED_MEMORY": True,
+            },
+        )
+
+        await stream.run(
+            incomplete_delayed_memory_generator()
+        )
+
+        runtime_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "runtime_action"
+        ]
+
+        self.assertEqual(
+            [
+                event.get("status")
+                for event in runtime_events
+            ],
+            [
+                "started",
+                "failed",
+            ],
+        )
+        self.assertEqual(
+            runtime_events[0]["id"],
+            runtime_events[1]["id"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

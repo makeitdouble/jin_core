@@ -69,6 +69,12 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_pending_delayed_memory_action_ids: list[str] = field(
+        default_factory=list
+    )
+
+    runtime_delayed_memory_action_sequence: int = 0
+
     runtime_appended_delayed_memory: dict = field(
         default_factory=dict
     )

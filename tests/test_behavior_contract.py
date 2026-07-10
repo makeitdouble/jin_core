@@ -125,6 +125,15 @@ class BehaviorContractTests(unittest.TestCase):
             )
         )
 
+    def test_should_execute_save_delayed_memory_matches_create_report_request(self):
+
+        self.assertTrue(
+            should_execute_action_guard(
+                "save_delayed_memory",
+                "создай отчёт delayed memory",
+            )
+        )
+
     def test_should_execute_save_session_matches_bedtime(self):
 
         self.assertTrue(
