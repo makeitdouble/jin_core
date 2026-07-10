@@ -146,7 +146,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "Runtime Actions are internal mechanics.\nIf user asks",
+            "Runtime Action Markers are internal mechanics.\nEmit markers",
         )
         assert_contains_text(
             self,
@@ -156,7 +156,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "markers!\nCheck all active_memory",
+            "marker name!\nCheck all active_memory",
         )
 
     def test_non_stream_blocks_save_session_meta_request_in_reasoning(self):
@@ -1067,7 +1067,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "SKILL ROUTING:",
+            "<MANDATORY SKILL ROUTING RULES>",
         )
         assert_contains_text(
             self,
@@ -1222,10 +1222,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertLess(
             prompt.index("<APPENDED_SKILLS_CONTENT>"),
-            prompt.index("Runtime Actions are internal mechanics"),
+            prompt.index("Runtime Action Markers are internal mechanics"),
         )
         self.assertLess(
-            prompt.index("Runtime Actions are internal mechanics"),
+            prompt.index("Runtime Action Markers are internal mechanics"),
             prompt.index("I identify as JIN"),
         )
         self.assertNotIn(

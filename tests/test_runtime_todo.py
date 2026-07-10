@@ -224,11 +224,11 @@ class RuntimeTodoTests(unittest.TestCase):
             snapshot["hide_internal_action_rules"],
         )
         self.assertIn(
-            "Runtime Actions are internal mechanics",
+            "Runtime Action Markers are internal mechanics",
             snapshot["system_prompt"],
         )
         self.assertNotIn(
-            "Runtime Actions are internal mechanics",
+            "Runtime Action Markers are internal mechanics",
             snapshot["visible_system_prompt"],
         )
         self.assertNotIn(

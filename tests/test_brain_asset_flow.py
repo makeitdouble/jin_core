@@ -46,11 +46,7 @@ def _assert_latest_request_payload(
 
     test_case.assertTrue(
         payload.startswith(
-            "This is NOT a new request! No new messages from a user, "
-            "multi-task in progress."
-        )
-        or payload.startswith(
-            "No new messages, multi-task in progress"
+            "This is NOT a new request! Multi-task in progress!"
         ),
         payload,
     )
@@ -345,8 +341,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             if len(calls) == 2:
                 self.assertTrue(
                     kwargs["brain_payload"].startswith(
-                        "This is NOT a new request! No new messages "
-                        "from a user, multi-task in progress."
+                        "This is NOT a new request! Multi-task in progress!"
                     ),
                     kwargs["brain_payload"],
                 )
@@ -420,8 +415,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             if len(calls) == 2:
                 self.assertTrue(
                     kwargs["brain_payload"].startswith(
-                        "This is NOT a new request! No new messages "
-                        "from a user, multi-task in progress."
+                        "This is NOT a new request! Multi-task in progress!"
                     ),
                     kwargs["brain_payload"],
                 )
