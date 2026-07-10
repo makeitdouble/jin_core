@@ -789,11 +789,16 @@ const delayedMemoryClientFilterState = {
   activeMessageIds: new Set(),
 };
 
-const delayedMemoryOpenTag =
-  "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>";
-
-const delayedMemoryCloseTag =
-  "</INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>";
+const delayedMemoryTagPairs = [
+  {
+    open: "<SAVE_DELAYED_MEMORY_CONTENT>",
+    close: "</SAVE_DELAYED_MEMORY_CONTENT>",
+  },
+  {
+    open: "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>",
+    close: "</INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>",
+  },
+];
 
 
 function startDelayedMemoryRuntimeBubble(
@@ -1028,12 +1033,27 @@ function filterDelayedMemoryContentFromChunk(
   let visible = "";
 
   while (source) {
-    const openIndex =
-      source.indexOf(
-        delayedMemoryOpenTag
-      );
+    let matchedTags = null;
+    let openIndex = -1;
 
-    if (openIndex < 0) {
+    delayedMemoryTagPairs.forEach(
+      function (tags) {
+        const candidateIndex =
+          source.indexOf(
+            tags.open
+          );
+
+        if (
+            candidateIndex >= 0
+            && (openIndex < 0 || candidateIndex < openIndex)
+        ) {
+          openIndex = candidateIndex;
+          matchedTags = tags;
+        }
+      }
+    );
+
+    if (openIndex < 0 || !matchedTags) {
       visible += source;
       source = "";
       break;
@@ -1049,11 +1069,11 @@ function filterDelayedMemoryContentFromChunk(
     );
 
     const payloadStart =
-      openIndex + delayedMemoryOpenTag.length;
+      openIndex + matchedTags.open.length;
 
     const closeIndex =
       source.indexOf(
-        delayedMemoryCloseTag,
+        matchedTags.close,
         payloadStart
       );
 
@@ -1079,7 +1099,7 @@ function filterDelayedMemoryContentFromChunk(
 
     source =
       source.slice(
-        closeIndex + delayedMemoryCloseTag.length
+        closeIndex + matchedTags.close.length
       );
   }
 

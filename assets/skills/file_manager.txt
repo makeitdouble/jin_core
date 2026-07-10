@@ -28,9 +28,9 @@ Action workflow:
 1. Use LIST_SKILLS before an operational file workflow if the relevant project skills are not already appended.
 2. Use ASSET_ACTION with JSON payload for create_asset_file, append_asset_file, preview_file, and any task-specific asset action provided by another loaded instruction block.
 3. Emit ASSET_ACTION as a JSON block:
-<INTERNAL_ACTION_ASSET_ACTION>
+<ASSET_ACTION>
 {"action":"preview_file","path":"assets/outputs/example.txt","count":10}
-</INTERNAL_ACTION_ASSET_ACTION>
+</ASSET_ACTION>
 4. Payload fields may be top-level or nested under args.
 5. Use create_asset_file for new text files under assets/.
    Schema:

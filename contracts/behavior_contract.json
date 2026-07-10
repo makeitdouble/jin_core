@@ -4,7 +4,7 @@
     "save_session": {
       "description": "Allows the model to request saving the current session when the user clearly ends, wraps up, or asks to save the session.",
       "runtime_action": "SAVE_SESSION",
-      "private_marker": "<INTERNAL_ACTION_SAVE_SESSION>",
+      "private_marker": "<SAVE_SESSION>",
       "triggers": [
         "закончим",
         "на сегодня все",
@@ -65,7 +65,7 @@
     "save_delayed_memory": {
       "description": "Allows the model to request saving the current session summary when the user wants to save it for later and continue in another tab.",
       "runtime_action": "SAVE_DELAYED_MEMORY_CONTENT",
-      "private_marker": "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>",
+      "private_marker": "<SAVE_DELAYED_MEMORY_CONTENT>",
       "triggers": [
         "save report",
         "save summary",

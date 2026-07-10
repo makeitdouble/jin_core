@@ -2953,27 +2953,27 @@ function stripInternalActionMarkers(
 
   return String(text || "")
     .replace(
-      /(^|\n)[^\S\r\n]*<INTERNAL_ACTION_SAVE_SESSION>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<(?:INTERNAL_ACTION_)?SAVE_SESSION>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(
-      /(^|\n)[^\S\r\n]*<INTERNAL_ACTION_WEB_SEARCH:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<(?:INTERNAL_ACTION_)?WEB_SEARCH:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(
-      /(^|\n)[^\S\r\n]*<INTERNAL_ACTION_LIST_SKILLS(?::[^>\n]*)?>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<(?:INTERNAL_ACTION_)?LIST_SKILLS(?::[^>\n]*)?>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(
-      /(^|\n)[^\S\r\n]*<INTERNAL_ACTION_APPEND_SKILLS?:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<(?:INTERNAL_ACTION_)?APPEND_SKILLS?:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(
-      /(^|\n)[^\S\r\n]*<INTERNAL_ACTION_REMOVE_SKILLS?:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<(?:INTERNAL_ACTION_)?REMOVE_SKILLS?:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(
-      /(^|\n)[^\S\r\n]*<INTERNAL_ACTION_ASSET_ACTION>[\s\S]*?<\/INTERNAL_ACTION_ASSET_ACTION>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<(?:INTERNAL_ACTION_)?ASSET_ACTION>[\s\S]*?<\/(?:INTERNAL_ACTION_)?ASSET_ACTION>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(

@@ -42,7 +42,7 @@ class BehaviorContractTests(unittest.TestCase):
         )
         self.assertEqual(
             guard["private_marker"],
-            "<INTERNAL_ACTION_SAVE_SESSION>",
+            "<SAVE_SESSION>",
         )
         self.assertTrue(
             guard["effects"]["save_session"],
@@ -81,6 +81,17 @@ class BehaviorContractTests(unittest.TestCase):
                 phrase,
                 blockers,
             )
+
+    def test_save_delayed_memory_guard_uses_clean_marker(self):
+
+        guard = get_action_guard(
+            "save_delayed_memory"
+        )
+
+        self.assertEqual(
+            guard["private_marker"],
+            "<SAVE_DELAYED_MEMORY_CONTENT>",
+        )
 
     def test_save_delayed_memory_triggers_include_english_phrases(self):
 

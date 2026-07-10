@@ -43,9 +43,9 @@ Action workflow:
 3. After list_wildcards, use only the exact returned wildcard paths, without .txt, inside __category/file__ tokens.
 4. Use ASSET_ACTION with JSON payload for list_wildcards, sample_wildcard, expand_template, generate_prompt_batch, check_duplicates, or preview_file.
 5. Emit ASSET_ACTION as a JSON block:
-<INTERNAL_ACTION_ASSET_ACTION>
+<ASSET_ACTION>
 {"action":"list_wildcards"}
-</INTERNAL_ACTION_ASSET_ACTION>
+</ASSET_ACTION>
 6. Payload fields may be top-level or nested under args.
 7. When creating or updating reusable fragment resources, keep the wildcard file format and path authority rules active.
 8. Use generate_prompt_batch when the user asks to create N prompts from a template or wildcard tokens and save them to assets/prompts or assets/outputs.
