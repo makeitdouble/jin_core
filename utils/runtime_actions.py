@@ -1312,6 +1312,7 @@ class RuntimeActionCall:
 class RuntimeActionResult:
     text: str
     started_actions: tuple[RuntimeActionCall, ...] = ()
+    observed_actions: tuple[RuntimeActionCall, ...] = ()
     actions: tuple[RuntimeActionCall, ...] = ()
     removed_markers: tuple[str, ...] = ()
     marker_repetition_exceeded: bool = False
@@ -1948,6 +1949,7 @@ def extract_runtime_actions(
         enabled_actions
     )
     actions = []
+    observed_actions = []
     removed_markers = []
     marker_repetition_exceeded = False
     marker_repetition_reason = ""
@@ -2000,6 +2002,10 @@ def extract_runtime_actions(
                 if preserve_action_text
                 else ""
             )
+
+        observed_actions.append(
+            action
+        )
 
         if (
             repetition_guard is not None
@@ -2083,6 +2089,10 @@ def extract_runtime_actions(
                 if preserve_action_text
                 else ""
             )
+
+        observed_actions.extend(
+            plural_actions
+        )
 
         for action in plural_actions:
             if (
@@ -2238,6 +2248,9 @@ def extract_runtime_actions(
 
     return RuntimeActionResult(
         text=clean_text,
+        observed_actions=tuple(
+            observed_actions
+        ),
         actions=tuple(
             actions
         ),
@@ -3417,6 +3430,7 @@ class RuntimeActionStreamFilter:
             started_actions=tuple(
                 started_actions
             ),
+            observed_actions=result.observed_actions,
             actions=result.actions,
             removed_markers=result.removed_markers,
             marker_repetition_exceeded=(

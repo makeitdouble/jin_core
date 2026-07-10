@@ -187,3 +187,65 @@ def record_session_action_history(
 
     if len(history) > MAX_SESSION_ACTION_HISTORY_ITEMS:
         del history[:-MAX_SESSION_ACTION_HISTORY_ITEMS]
+
+
+def replace_session_action_history_since(
+    context,
+    start_index: int,
+    marker_names,
+) -> None:
+
+    if context is None:
+        return
+
+    normalized_names = [
+        str(
+            marker_name
+            or ""
+        ).strip().upper()
+        for marker_name in marker_names or []
+        if str(
+            marker_name
+            or ""
+        ).strip()
+    ]
+
+    if not normalized_names:
+        return
+
+    history = getattr(
+        context,
+        "runtime_session_action_history",
+        None,
+    )
+
+    if not isinstance(
+        history,
+        list,
+    ):
+        history = []
+        setattr(
+            context,
+            "runtime_session_action_history",
+            history,
+        )
+
+    safe_start_index = max(
+        0,
+        min(
+            int(
+                start_index
+                or 0
+            ),
+            len(history),
+        ),
+    )
+
+    del history[safe_start_index:]
+
+    record_session_action_history(
+        context,
+        ", ".join(
+            normalized_names
+        ),
+    )

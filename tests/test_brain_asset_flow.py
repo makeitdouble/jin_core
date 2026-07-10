@@ -491,13 +491,13 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(
                     kwargs["filter_runtime_actions"],
                 )
-                self.assertFalse(
+                self.assertTrue(
                     kwargs["runtime_actions"].get("CAN_SAVE_ACTIVE_MEMORY"),
                 )
-                self.assertFalse(
+                self.assertTrue(
                     kwargs["runtime_actions"].get("CAN_SAVE_DELAYED_MEMORY"),
                 )
-                self.assertFalse(
+                self.assertTrue(
                     kwargs["runtime_actions"].get("CAN_SAVE_SESSION"),
                 )
                 self.assertTrue(
@@ -938,7 +938,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(
                     kwargs["runtime_actions"].get("CAN_USE_ASSETS"),
                 )
-                self.assertFalse(
+                self.assertTrue(
                     kwargs["runtime_actions"].get("CAN_WEB_SEARCH"),
                 )
                 self.assertTrue(
@@ -1024,6 +1024,269 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             state.brain_response,
             "Created prompt batch `assets/prompts/test_prompts.txt` with 20 lines.",
+        )
+
+
+    async def test_every_action_message_triggers_followup_and_keeps_actions_enabled(self):
+
+        calls = []
+        action_names = [
+            "create_active_memory",
+            "append_skill",
+            "save_session",
+        ]
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+            context = kwargs["context"]
+            call_index = len(calls)
+
+            if call_index <= len(action_names):
+                action_name = action_names[call_index - 1]
+                context.runtime_action_events.append({
+                    "name": action_name,
+                    "payload": f"payload_{call_index}",
+                })
+                return "", ""
+
+            self.assertEqual(
+                kwargs["runtime_actions"],
+                _brain_runtime()["runtime_actions"],
+            )
+            return "Finished all action steps.", ""
+
+        context = _context()
+        state = AgentState(
+            user_input="emit several different runtime actions",
+        )
+        state.translated_input = state.user_input
+        brain_runtime = _brain_runtime()
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=brain_runtime,
+        ), patch(
+            "agent.nodes.brain.build_brain_system_prompt",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.build_brain_payload",
+            return_value="brain payload",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            len(calls),
+            4,
+        )
+        self.assertIn(
+            'create_active_memory payload="payload_1"',
+            calls[1]["brain_payload"],
+        )
+        self.assertIn(
+            'append_skill payload="payload_2"',
+            calls[2]["brain_payload"],
+        )
+        self.assertIn(
+            'save_session payload="payload_3"',
+            calls[3]["brain_payload"],
+        )
+        for call in calls[1:]:
+            self.assertEqual(
+                call["runtime_actions"],
+                brain_runtime["runtime_actions"],
+            )
+        self.assertEqual(
+            state.brain_response,
+            "Finished all action steps.",
+        )
+
+    async def test_multiple_actions_in_one_message_use_one_followup_tick(self):
+
+        calls = []
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+            context = kwargs["context"]
+
+            if len(calls) == 1:
+                context.runtime_action_events.extend([
+                    {
+                        "name": "create_active_memory",
+                        "payload": "first",
+                    },
+                    {
+                        "name": "resolve_active_memory",
+                        "id": "active_memory_1",
+                    },
+                ])
+                return "", ""
+
+            self.assertIn(
+                'create_active_memory payload="first"',
+                kwargs["brain_payload"],
+            )
+            self.assertIn(
+                'resolve_active_memory id="active_memory_1"',
+                kwargs["brain_payload"],
+            )
+            return "Finished.", ""
+
+        context = _context()
+        state = AgentState(
+            user_input="run two actions in one message",
+        )
+        state.translated_input = state.user_input
+        brain_runtime = _brain_runtime()
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=brain_runtime,
+        ), patch(
+            "agent.nodes.brain.build_brain_system_prompt",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.build_brain_payload",
+            return_value="brain payload",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            len(calls),
+            2,
+        )
+        self.assertEqual(
+            state.brain_response,
+            "Finished.",
+        )
+
+    async def test_followup_limit_runs_final_non_executable_tick(self):
+
+        calls = []
+        runtime_logs = []
+        websocket_events = []
+
+        class Logger:
+
+            async def log_runtime(self, message):
+                runtime_logs.append(message)
+
+        class Websocket:
+
+            async def send_json(self, payload):
+                websocket_events.append(payload)
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+            context = kwargs["context"]
+
+            if len(calls) <= 3:
+                context.runtime_asset_results.append({
+                    "ok": True,
+                    "action": "append_wildcard_file",
+                    "path": "assets/outputs/long_task.txt",
+                })
+                return "", ""
+
+            self.assertFalse(
+                kwargs["filter_runtime_actions"]
+            )
+            self.assertTrue(
+                kwargs["preserve_runtime_action_markers"]
+            )
+            self.assertTrue(
+                all(
+                    value is False
+                    for value in kwargs["runtime_actions"].values()
+                )
+            )
+            self.assertIn(
+                "<FOLLOWUP_LIMIT_REACHED>",
+                kwargs["system_prompt"],
+            )
+            return "<ASSET_ACTION>still pending</ASSET_ACTION>", ""
+
+        context = _context()
+        context.logger = Logger()
+        context.websocket = Websocket()
+        context.runtime_current_turn_id = "turn_limit"
+
+        state = AgentState(
+            user_input="run a long task",
+        )
+        state.translated_input = state.user_input
+        brain_runtime = _brain_runtime()
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=brain_runtime,
+        ), patch(
+            "agent.nodes.brain.build_brain_system_prompt",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.build_brain_payload",
+            return_value="brain payload",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch(
+            "agent.nodes.brain.config.BRAIN_MAX_FOLLOWUPS",
+            2,
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            len(calls),
+            4,
+        )
+        self.assertEqual(
+            state.brain_response,
+            "<ASSET_ACTION>still pending</ASSET_ACTION>",
+        )
+        self.assertTrue(
+            any(
+                "follow-up limit (2)" in message
+                for message in runtime_logs
+            )
+        )
+        self.assertIn(
+            {
+                "type": "runtime_action",
+                "action": "followup_limit_reached",
+                "id": "turn_limit",
+                "status": "stopped",
+                "text": (
+                    "Follow-up limit reached (2). Running one final "
+                    "response tick with runtime actions disabled."
+                ),
+            },
+            websocket_events,
         )
 
 

@@ -32,6 +32,11 @@ class ConfigLoaderTests(unittest.TestCase):
             "translator-model",
         )
 
+        self.assertEqual(
+            config.BRAIN_MAX_FOLLOWUPS,
+            50,
+        )
+
     def test_env_overrides_fallback_config_values(self):
 
         root = Path(__file__).resolve().parents[1]

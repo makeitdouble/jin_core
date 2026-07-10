@@ -885,8 +885,12 @@ class MessageMemoryTests(
 
         self.assertTrue(
             prompt.startswith(
-                "<CURRENT_TRUSTED_RUNTIME_VARIABLES>"
+                "<RUNTIME_MEMORY>"
             ),
+        )
+        self.assertLess(
+            prompt.index("<RUNTIME_MEMORY>"),
+            prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
         )
         self.assertLess(
             prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
@@ -1045,8 +1049,12 @@ class MessageMemoryTests(
         )
         self.assertTrue(
             prompt.startswith(
-                "<CURRENT_TRUSTED_RUNTIME_VARIABLES>"
+                "<RUNTIME_MEMORY>"
             ),
+        )
+        self.assertLess(
+            prompt.index("<RUNTIME_MEMORY>"),
+            prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
         )
         self.assertLess(
             prompt.index("<CURRENT_SESSION_STATE>"),
@@ -1162,7 +1170,7 @@ class MessageMemoryTests(
             )
         )
 
-    def test_brain_prompt_places_session_memory_above_runtime_memory(self):
+    def test_brain_prompt_places_runtime_memory_above_session_memory(self):
 
         context = SimpleNamespace(
             session_memory=(
@@ -1203,10 +1211,10 @@ class MessageMemoryTests(
         )
         self.assertLess(
             prompt.index(
-                "<PREVIOUS_SESSION_STATE"
+                "<RUNTIME_MEMORY>"
             ),
             prompt.index(
-                "<RUNTIME_MEMORY>"
+                "<PREVIOUS_SESSION_STATE"
             ),
         )
 

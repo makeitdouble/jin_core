@@ -524,6 +524,142 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
+    def test_stream_groups_two_action_markers_into_one_history_item(self):
+
+        class FakeBrainClient:
+            async def stream(self, **_kwargs):
+                yield {
+                    "type": "content",
+                    "content": (
+                        "<SAVE_SESSION>\n"
+                        "<LIST_SKILLS>"
+                    ),
+                }
+
+        class Context:
+            pass
+
+        async def collect(context):
+            chunks = []
+
+            async for chunk in ask_brain_stream(
+                client=FakeBrainClient(),
+                text="save session and list skills",
+                context=context,
+                runtime_actions={
+                    "CAN_SAVE_SESSION": True,
+                    "CAN_USE_ASSETS": True,
+                },
+            ):
+                chunks.append(
+                    chunk
+                )
+
+            return chunks
+
+        context = Context()
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            asyncio.run(
+                collect(
+                    context
+                )
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        self.assertEqual(
+            [
+                item["text"]
+                for item in context.runtime_session_action_history
+            ],
+            [
+                "SAVE_SESSION, LIST_SKILLS",
+            ],
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_SAVE_SESSION": True,
+                "CAN_USE_ASSETS": True,
+            },
+        )
+
+        self.assertIn(
+            "<SESSION_ACTIONS_HISTORY>",
+            prompt,
+        )
+        self.assertIn(
+            "1. SAVE_SESSION, LIST_SKILLS",
+            prompt,
+        )
+
+    def test_stream_history_preserves_duplicate_markers_after_action_dedup(self):
+
+        class FakeBrainClient:
+            async def stream(self, **_kwargs):
+                yield {
+                    "type": "content",
+                    "content": (
+                        "<SAVE_SESSION>\n"
+                        "<SAVE_SESSION>"
+                    ),
+                }
+
+        class Context:
+            pass
+
+        async def collect(context):
+            chunks = []
+
+            async for chunk in ask_brain_stream(
+                client=FakeBrainClient(),
+                text="save session",
+                context=context,
+                runtime_actions={
+                    "CAN_SAVE_SESSION": True,
+                },
+            ):
+                chunks.append(
+                    chunk
+                )
+
+            return chunks
+
+        context = Context()
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            asyncio.run(
+                collect(
+                    context
+                )
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        self.assertEqual(
+            context.runtime_action_events,
+            [
+                {
+                    "name": "save_session",
+                },
+            ],
+        )
+        self.assertEqual(
+            [
+                item["text"]
+                for item in context.runtime_session_action_history
+            ],
+            [
+                "SAVE_SESSION, SAVE_SESSION",
+            ],
+        )
+
     def test_stream_preserves_duplicate_failed_append_skill_marker(self):
 
         class FakeBrainClient:
@@ -1555,9 +1691,29 @@ class BrainRuntimeActionTests(unittest.TestCase):
             runtime_context,
             "5fdg4g",
         )
+        self.assertTrue(
+            prompt.startswith(
+                "<ACTIVE_MEMORY priority=\"active_runtime_contracts\">"
+            )
+        )
+        self.assertLess(
+            prompt.index("<ACTIVE_MEMORY"),
+            prompt.index("<RUNTIME_MEMORY>"),
+        )
+        self.assertLess(
+            prompt.index("<RUNTIME_MEMORY>"),
+            prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
+        )
+        self.assertLess(
+            runtime_context.index("<ACTIVE_MEMORY"),
+            runtime_context.index("<RUNTIME_MEMORY>"),
+        )
 
         runtime_memory_block = runtime_context.split(
-            "<ACTIVE_MEMORY",
+            "<RUNTIME_MEMORY>",
+            1,
+        )[1].split(
+            "</RUNTIME_MEMORY>",
             1,
         )[0]
         assert_not_contains_text(

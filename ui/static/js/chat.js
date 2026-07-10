@@ -150,6 +150,7 @@ function updateJinInputLoopCounter(text) {
  * @property {string=} user_prompt
  * @property {string=} context_role
  * @property {boolean=} hide_internal_action_rules
+ * @property {boolean=} preserve_runtime_action_markers
  */
 
 
@@ -3057,10 +3058,18 @@ function appendStreamChunk(
     return;
   }
 
-  chunk =
-    stripInternalActionMarkers(
-      chunk
+  const preserveRuntimeActionMarkers =
+    Boolean(
+      stream.context
+      && stream.context.preserve_runtime_action_markers
     );
+
+  if (!preserveRuntimeActionMarkers) {
+    chunk =
+      stripInternalActionMarkers(
+        chunk
+      );
+  }
 
   if (!stream.answer.trim()) {
     chunk =

@@ -468,6 +468,7 @@ def build_brain_system_prompt(
     top_runtime_context = build_brain_top_runtime_context(
         context,
         runtime_actions,
+        commit_active_memory_refresh=commit_active_memory_refresh,
     )
     top_runtime_section = (
         f"{top_runtime_context}\n\n"

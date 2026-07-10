@@ -427,10 +427,17 @@ def append_current_runtime_todo(
 def build_brain_top_runtime_context(
     context=None,
     runtime_actions=None,
+    *,
+    commit_active_memory_refresh: bool = False,
 ) -> str:
 
     parts = []
 
+    append_L1_runtime_memory(
+        parts,
+        context,
+        commit_active_memory_refresh=commit_active_memory_refresh,
+    )
     parts.append(
         build_runtime_xml(
             context,
@@ -543,13 +550,6 @@ def append_L1_runtime_memory(
         context,
     )
 
-    if runtime_memory.strip():
-        parts.append(
-            "<RUNTIME_MEMORY>\n"
-            f"{indent_xml(escape(canonicalize_runtime_memory_text(runtime_memory)))}\n"
-            "</RUNTIME_MEMORY>"
-        )
-
     stored_active_memory_records = [
         str(record or "").strip()
         for record in getattr(
@@ -618,13 +618,18 @@ def append_L1_runtime_memory(
             )
         ).strip()
 
-        if not active_memory_context_text:
-            return
+        if active_memory_context_text:
+            parts.append(
+                "<ACTIVE_MEMORY priority=\"active_runtime_contracts\">\n"
+                f"{indent_xml(escape(canonicalize_runtime_memory_text(active_memory_context_text)))}\n"
+                "</ACTIVE_MEMORY>"
+            )
 
+    if runtime_memory.strip():
         parts.append(
-            "<ACTIVE_MEMORY priority=\"active_runtime_contracts\">\n"
-            f"{indent_xml(escape(canonicalize_runtime_memory_text(active_memory_context_text)))}\n"
-            "</ACTIVE_MEMORY>"
+            "<RUNTIME_MEMORY>\n"
+            f"{indent_xml(escape(canonicalize_runtime_memory_text(runtime_memory)))}\n"
+            "</RUNTIME_MEMORY>"
         )
 
 
@@ -750,6 +755,9 @@ def build_latest_user_request_context(
 
     return (
         "<LATEST_USER_REQUEST>\n"
+        "!!!this is not a current user prompt!!!"
+        "!!!this is not a start message!!!"
+        "!!!this is initial user request provided by follow up tick!!!"
         f"{escape(text)}\n"
         "</LATEST_USER_REQUEST>"
     )
@@ -1665,6 +1673,13 @@ def build_brain_runtime_context(
 
     parts = []
 
+    if include_top_runtime_context:
+        append_L1_runtime_memory(
+            parts,
+            context,
+            commit_active_memory_refresh=commit_active_memory_refresh,
+        )
+
     append_user_feedback(
         parts,
         context,
@@ -1688,11 +1703,6 @@ def build_brain_runtime_context(
     append_session_event_snapshots(
         parts,
         context,
-    )
-    append_L1_runtime_memory(
-        parts,
-        context,
-        commit_active_memory_refresh=commit_active_memory_refresh,
     )
     append_L2_runtime_memory(
         parts,

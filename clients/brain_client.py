@@ -32,6 +32,7 @@ from clients.brain_client_utils import (
 )
 from utils.session_actions_history import (
     build_asset_action_history_text,
+    replace_session_action_history_since,
 )
 
 from clients.service_client import (
@@ -581,6 +582,54 @@ async def ask_brain_stream(
         user_prompt=resolved_brain_payload,
         runtime_actions=runtime_actions,
     )
+    session_action_history_start = len(
+        getattr(
+            context,
+            "runtime_session_action_history",
+            [],
+        )
+        or []
+    )
+    observed_action_marker_names = []
+    session_action_history_finalized = False
+
+    def capture_observed_action_markers(
+        result,
+    ) -> None:
+
+        for action in getattr(
+            result,
+            "observed_actions",
+            (),
+        ):
+            name = str(
+                getattr(
+                    action,
+                    "name",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            if name:
+                observed_action_marker_names.append(
+                    name
+                )
+
+    def finalize_session_action_history() -> None:
+
+        nonlocal session_action_history_finalized
+
+        if session_action_history_finalized:
+            return
+
+        session_action_history_finalized = True
+
+        replace_session_action_history_since(
+            context,
+            session_action_history_start,
+            observed_action_marker_names,
+        )
 
     async def emit_delayed_memory_bubble_started():
 
@@ -794,6 +843,9 @@ async def ask_brain_stream(
                 "",
             )
         )
+        capture_observed_action_markers(
+            result
+        )
 
         await emit_delayed_memory_bubble_started()
         await emit_asset_action_bubble_started()
@@ -954,6 +1006,9 @@ async def ask_brain_stream(
                 if filter_runtime_actions
                 else RuntimeActionResult(text="")
             )
+            capture_observed_action_markers(
+                tail_result
+            )
 
             await log_runtime_action_marker_removals(
                 context,
@@ -964,6 +1019,7 @@ async def ask_brain_stream(
             if await stop_on_marker_repetition(
                 tail_result
             ):
+                finalize_session_action_history()
                 return
 
             await apply_runtime_action_result(
@@ -980,12 +1036,16 @@ async def ask_brain_stream(
                     "content": content_tail,
                 }
 
+            finalize_session_action_history()
             return
 
         except asyncio.CancelledError:
+            finalize_session_action_history()
             raise
 
         except Exception as error:
+
+            finalize_session_action_history()
 
             formatted_error = (
                 format_client_error(
@@ -1041,6 +1101,9 @@ async def ask_brain_stream(
             if filter_runtime_actions
             else RuntimeActionResult(text="")
         )
+        capture_observed_action_markers(
+            tail_result
+        )
 
         await log_runtime_action_marker_removals(
             context,
@@ -1051,6 +1114,7 @@ async def ask_brain_stream(
         if await stop_on_marker_repetition(
             tail_result
         ):
+            finalize_session_action_history()
             return
 
         await apply_runtime_action_result(
@@ -1067,10 +1131,15 @@ async def ask_brain_stream(
                 "content": content_tail,
             }
 
+        finalize_session_action_history()
+
     except asyncio.CancelledError:
+        finalize_session_action_history()
         raise
 
     except Exception as error:
+
+        finalize_session_action_history()
 
         formatted_error = (
             format_client_error(

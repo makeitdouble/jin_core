@@ -27,11 +27,21 @@ from utils.language import (
     contains_cyrillic,
 )
 
+from config_loader import (
+    config,
+)
+
 
 FOLLOWUP_USER_MESSAGE = (
-    "This is NOT a new request! Multi-task in progress!\n"
-    f"\n"
-    f"YOU MUST derive your next action from <LATEST_USER_REQUEST> and <SESSION_ACTIONS_HISTORY> and proceed without confirmation!\n"
+    "<runtime_system_message>\n"
+    "This is not a start of a task sequence!\n"
+    "This is not a new request!\n"
+    "Multi-step task in progress!\n"
+    "\n"
+    "YOU MUST derive your next action from your context LATEST_USER_REQUEST and SESSION_ACTIONS_HISTORY.\n"
+    "You need to make all require actions and track progress using history timeline!\n"
+    "Continue without confirmation!\n"
+    "</runtime_system_message>\n"
 )
 
 
@@ -112,6 +122,26 @@ def format_followup_action_from_asset_result(
         return ""
 
     return action
+
+
+def format_followup_actions_from_events(
+        events,
+) -> str:
+
+    formatted_actions = []
+
+    for event in events or []:
+        formatted_action = format_followup_action_from_event(
+            event
+        )
+        if formatted_action:
+            formatted_actions.append(
+                formatted_action
+            )
+
+    return "; ".join(
+        formatted_actions
+    )
 
 
 def build_followup_user_message(
@@ -527,6 +557,7 @@ class BrainNode(BaseNode):
             runtime_actions: dict,
             emit_content_to_chat: bool = True,
             filter_runtime_actions: bool = True,
+            preserve_runtime_action_markers: bool = False,
     ) -> tuple[str, str]:
 
         logger = context.logger
@@ -537,6 +568,12 @@ class BrainNode(BaseNode):
             user_prompt=brain_payload,
             runtime_actions=runtime_actions,
         )
+
+        if preserve_runtime_action_markers:
+            context_snapshot = {
+                **context_snapshot,
+                "preserve_runtime_action_markers": True,
+            }
 
         state.visible_response_context = (
             context_snapshot
@@ -689,9 +726,13 @@ class BrainNode(BaseNode):
 
         asset_result_offset = 0
         delayed_memory_result_offset = 0
-        skill_state_event_offset = runtime_action_event_offset
         followup_count = 0
-        max_followups = 12
+        max_followups = max(
+            1,
+            int(
+                config.BRAIN_MAX_FOLLOWUPS
+            ),
+        )
         current_turn_id = str(
             getattr(
                 context,
@@ -727,13 +768,16 @@ class BrainNode(BaseNode):
                 or item_turn_id == current_turn_id
             )
 
+        action_event_followup_offset = (
+            runtime_action_event_offset
+        )
         skill_state_followup_event_names = {
             "append_skill",
             "remove_skill",
             "append_delayed_memory",
         }
 
-        def collect_pending_skill_state_events():
+        def collect_pending_action_events():
 
             runtime_action_events = getattr(
                 context,
@@ -744,13 +788,61 @@ class BrainNode(BaseNode):
             return [
                 event
                 for event in runtime_action_events[
-                    skill_state_event_offset:
+                    action_event_followup_offset:
                 ]
                 if belongs_to_current_turn(
                     event
                 )
-                if event.get("name") in skill_state_followup_event_names
             ]
+
+        def consume_current_action_batch():
+
+            nonlocal action_event_followup_offset
+            nonlocal asset_result_offset
+            nonlocal delayed_memory_result_offset
+
+            pending_action_events = (
+                collect_pending_action_events()
+            )
+            action_event_followup_offset = len(
+                getattr(
+                    context,
+                    "runtime_action_events",
+                    [],
+                )
+            )
+
+            current_asset_results = [
+                result
+                for result in getattr(
+                    context,
+                    "runtime_asset_results",
+                    [],
+                )
+                if belongs_to_current_turn(
+                    result
+                )
+            ]
+            asset_result_offset = len(
+                current_asset_results
+            )
+
+            current_delayed_memory_results = [
+                result
+                for result in getattr(
+                    context,
+                    "runtime_delayed_memory_results",
+                    [],
+                )
+                if belongs_to_current_turn(
+                    result
+                )
+            ]
+            delayed_memory_result_offset = len(
+                current_delayed_memory_results
+            )
+
+            return pending_action_events
 
         while followup_count < max_followups:
 
@@ -806,9 +898,11 @@ class BrainNode(BaseNode):
                 context.runtime_search_result = search_result
                 context.runtime_search_result_id = tool_call_id
 
+                followup_action_events = (
+                    consume_current_action_batch()
+                )
                 followup_runtime_actions = {
                     **runtime_actions,
-                    "CAN_WEB_SEARCH": False,
                 }
 
                 followup_system_prompt = (
@@ -825,8 +919,7 @@ class BrainNode(BaseNode):
                             "Answer the latest user request using the "
                             "WEB_SEARCH tool result from trusted runtime "
                             "context. Mention the quoted source data when "
-                            "it helps. Do not emit another WEB_SEARCH "
-                            "runtime action."
+                            "it helps, then continue the workflow."
                         ),
                     )
                 )
@@ -836,7 +929,10 @@ class BrainNode(BaseNode):
                 )
 
                 followup_payload = build_followup_user_message(
-                    format_followup_action_from_event({
+                    format_followup_actions_from_events(
+                        followup_action_events
+                    )
+                    or format_followup_action_from_event({
                         "name": "web_search",
                         "query": query,
                         "id": tool_call_id,
@@ -864,25 +960,22 @@ class BrainNode(BaseNode):
                 followup_count += 1
                 continue
 
-            runtime_action_events = getattr(
-                context,
-                "runtime_action_events",
-                [],
+            pending_action_events = (
+                collect_pending_action_events()
             )
-            new_skill_state_events = (
-                collect_pending_skill_state_events()
-            )
-            skill_state_event_offset = len(
-                runtime_action_events
-            )
+            new_skill_state_events = [
+                event
+                for event in pending_action_events
+                if event.get("name")
+                in skill_state_followup_event_names
+            ]
 
             if new_skill_state_events:
+                followup_action_events = (
+                    consume_current_action_batch()
+                )
                 followup_runtime_actions = {
                     **runtime_actions,
-                    "CAN_WEB_SEARCH": False,
-                    "CAN_SAVE_SESSION": False,
-                    "CAN_SAVE_DELAYED_MEMORY": False,
-                    "CAN_SAVE_ACTIVE_MEMORY": False,
                 }
 
                 followup_system_prompt = (
@@ -903,8 +996,8 @@ class BrainNode(BaseNode):
                 )
 
                 followup_payload = build_followup_user_message(
-                    format_followup_action_from_event(
-                        new_skill_state_events[-1]
+                    format_followup_actions_from_events(
+                        followup_action_events
                     )
                 )
 
@@ -942,14 +1035,11 @@ class BrainNode(BaseNode):
                     len(current_delayed_memory_results)
                     > delayed_memory_result_offset
             ):
-                delayed_memory_result_offset = len(
-                    current_delayed_memory_results
+                followup_action_events = (
+                    consume_current_action_batch()
                 )
                 followup_runtime_actions = {
                     **runtime_actions,
-                    "CAN_WEB_SEARCH": False,
-                    "CAN_SAVE_SESSION": False,
-                    "CAN_SAVE_ACTIVE_MEMORY": False,
                 }
 
                 followup_system_prompt = (
@@ -970,7 +1060,10 @@ class BrainNode(BaseNode):
                 )
 
                 followup_payload = build_followup_user_message(
-                    format_followup_action_from_asset_result(
+                    format_followup_actions_from_events(
+                        followup_action_events
+                    )
+                    or format_followup_action_from_asset_result(
                         current_delayed_memory_results[-1]
                     )
                 )
@@ -1006,17 +1099,64 @@ class BrainNode(BaseNode):
             ]
 
             if len(current_asset_results) <= asset_result_offset:
-                break
+                pending_action_events = (
+                    collect_pending_action_events()
+                )
 
-            asset_result_offset = len(
-                current_asset_results
+                if not pending_action_events:
+                    break
+
+                followup_action_events = (
+                    consume_current_action_batch()
+                )
+                followup_runtime_actions = {
+                    **runtime_actions,
+                }
+
+                followup_system_prompt = (
+                    self.build_followup_system_prompt(
+                        build_brain_system_prompt(
+                            context,
+                            runtime_actions=followup_runtime_actions,
+                            commit_active_memory_refresh=True,
+                            include_previous_chat_messages=False,
+                        ),
+                        state.translated_input,
+                        context=context,
+                    )
+                )
+                followup_payload = build_followup_user_message(
+                    format_followup_actions_from_events(
+                        followup_action_events
+                    )
+                )
+
+                await emit_active_memory_records_update_if_dirty(
+                    context
+                )
+
+                text, reasoning = await self.run_brain_stream(
+                    state=state,
+                    context=context,
+                    brain_runtime=brain_runtime,
+                    brain_client=brain_client,
+                    system_prompt=followup_system_prompt,
+                    brain_payload=followup_payload,
+                    runtime_actions=followup_runtime_actions,
+                    emit_content_to_chat=(
+                        not state.translate_response
+                    ),
+                    filter_runtime_actions=True,
+                )
+
+                followup_count += 1
+                continue
+
+            followup_action_events = (
+                consume_current_action_batch()
             )
             followup_runtime_actions = {
                 **runtime_actions,
-                "CAN_WEB_SEARCH": False,
-                "CAN_SAVE_SESSION": False,
-                "CAN_SAVE_DELAYED_MEMORY": False,
-                "CAN_SAVE_ACTIVE_MEMORY": False,
             }
 
             followup_system_prompt = (
@@ -1032,7 +1172,10 @@ class BrainNode(BaseNode):
                 )
             )
             followup_payload = build_followup_user_message(
-                format_followup_action_from_asset_result(
+                format_followup_actions_from_events(
+                    followup_action_events
+                )
+                or format_followup_action_from_asset_result(
                     current_asset_results[-1]
                 )
             )
@@ -1056,14 +1199,90 @@ class BrainNode(BaseNode):
             )
 
             followup_count += 1
+            continue
 
-            if collect_pending_skill_state_events():
-                continue
+        if followup_count >= max_followups:
+            stop_reason = (
+                "Brain workflow stopped after reaching the configured "
+                f"follow-up limit ({max_followups}). "
+                "One final non-executable response tick will run."
+            )
 
-            if (
-                    len(current_asset_results) <= asset_result_offset
-                    and text.strip()
-            ):
-                break
+            await logger.log_runtime(
+                "[BRAIN FOLLOW-UP LIMIT] "
+                + stop_reason
+            )
+
+            await context.websocket.send_json({
+                "type": "runtime_action",
+                "action": "followup_limit_reached",
+                "id": (
+                    current_turn_id
+                    or "current_turn"
+                ),
+                "status": "stopped",
+                "text": (
+                    f"Follow-up limit reached ({max_followups}). "
+                    "Running one final response tick with runtime "
+                    "actions disabled."
+                ),
+            })
+
+            final_runtime_actions = {
+                key: False
+                for key in runtime_actions
+            }
+
+            final_system_prompt = (
+                self.build_followup_system_prompt(
+                    build_brain_system_prompt(
+                        context,
+                        runtime_actions=final_runtime_actions,
+                        commit_active_memory_refresh=True,
+                        include_previous_chat_messages=False,
+                    ),
+                    state.translated_input,
+                    context=context,
+                )
+            )
+            final_system_prompt += (
+                "\n\n<FOLLOWUP_LIMIT_REACHED>\n"
+                f"The runtime stopped this workflow after {max_followups} "
+                "internal follow-up ticks. This is the final response "
+                "tick. No runtime action emitted in this response will "
+                "execute, and no further follow-up tick will run. Any "
+                "runtime action marker you output will be shown to the "
+                "user as plain model text. If work remains and your next "
+                "step would normally be a runtime action, output that exact "
+                "marker so the user can see where execution stopped. State "
+                "clearly that the workflow stopped because the follow-up "
+                "limit was reached. Briefly "
+                "summarize what was completed and what remains. Do not "
+                "claim unfinished work is complete.\n"
+                "</FOLLOWUP_LIMIT_REACHED>"
+            )
+
+            await emit_active_memory_records_update_if_dirty(
+                context
+            )
+
+            text, reasoning = await self.run_brain_stream(
+                state=state,
+                context=context,
+                brain_runtime=brain_runtime,
+                brain_client=brain_client,
+                system_prompt=final_system_prompt,
+                brain_payload=(
+                    build_followup_user_message(
+                        "followup_limit_reached"
+                    )
+                ),
+                runtime_actions=final_runtime_actions,
+                emit_content_to_chat=(
+                    not state.translate_response
+                ),
+                filter_runtime_actions=False,
+                preserve_runtime_action_markers=True,
+            )
 
         state.brain_response = text or ""
