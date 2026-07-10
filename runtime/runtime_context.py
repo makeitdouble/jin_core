@@ -87,7 +87,11 @@ class RuntimeContext:
         default_factory=list
     )
 
-    runtime_session_action_history: list[str] = field(
+    runtime_session_action_history: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_action_sequence_turn_ids: list[str] = field(
         default_factory=list
     )
 

@@ -29,7 +29,11 @@ from rules.assembler import (
 )
 from rules import runtime as runtime_rules
 from utils.session_actions_history import (
+    format_session_action_marker_names,
     replace_session_action_history_since,
+)
+from utils.runtime_actions import (
+    RuntimeActionCall,
 )
 
 
@@ -692,6 +696,85 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
 
+    def test_session_history_includes_appended_and_removed_skill_names(self):
+
+        formatted = format_session_action_marker_names([
+            RuntimeActionCall(
+                name="LIST_SKILLS",
+            ),
+            RuntimeActionCall(
+                name="APPEND_SKILL",
+                payload="wildcards",
+            ),
+            RuntimeActionCall(
+                name="APPEND_SKILL",
+                payload="file_manager",
+            ),
+            RuntimeActionCall(
+                name="APPEND_SKILL",
+                payload="wildcards",
+            ),
+            RuntimeActionCall(
+                name="REMOVE_SKILL",
+                payload="image_prompt_generator",
+            ),
+            RuntimeActionCall(
+                name="REMOVE_SKILL",
+                payload="image_prompt_generator",
+            ),
+            RuntimeActionCall(
+                name="REMOVE_SKILL",
+                payload="file_manager",
+            ),
+        ])
+
+        self.assertEqual(
+            formatted,
+            (
+                "LIST_SKILLS, "
+                "APPEND_SKILL: wildcards ( repeated_times: 2 ), file_manager, "
+                "REMOVE_SKILL: image_prompt_generator ( repeated_times: 2 ), "
+                "file_manager"
+            ),
+        )
+
+    def test_replace_session_history_preserves_skill_marker_payloads(self):
+
+        context = SimpleNamespace(
+            runtime_session_action_history=[],
+        )
+
+        replace_session_action_history_since(
+            context,
+            0,
+            [
+                RuntimeActionCall(
+                    name="APPEND_SKILL",
+                    payload="wildcards",
+                ),
+                RuntimeActionCall(
+                    name="APPEND_SKILL",
+                    payload="wildcards",
+                ),
+                RuntimeActionCall(
+                    name="APPEND_SKILL",
+                    payload="file_manager",
+                ),
+                RuntimeActionCall(
+                    name="REMOVE_SKILL",
+                    payload="image_prompt_generator",
+                ),
+            ],
+        )
+
+        self.assertEqual(
+            context.runtime_session_action_history[0]["text"],
+            (
+                "APPEND_SKILL: wildcards ( repeated_times: 2 ), file_manager, "
+                "REMOVE_SKILL: image_prompt_generator"
+            ),
+        )
+
     def test_stream_preserves_duplicate_failed_append_skill_marker(self):
 
         class FakeBrainClient:
@@ -766,6 +849,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             context.runtime_asset_results[-1]["error"],
             "skill_not_found",
+        )
+        self.assertEqual(
+            context.runtime_session_action_history[-1]["text"],
+            "APPEND_SKILL: name of skill ( repeated_times: 2 )",
         )
 
     def test_stream_stops_repeated_resolve_active_memory_markers(self):

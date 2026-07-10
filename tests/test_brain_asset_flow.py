@@ -214,6 +214,81 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
+    async def test_followup_places_current_sequence_under_latest_request(self):
+
+        context = SimpleNamespace(
+            runtime_current_turn_id="turn_000002",
+            runtime_turn_started_at=940.0,
+            runtime_action_sequence_turn_ids=[],
+            runtime_session_action_history=[
+                {
+                    "text": "SAVE_ACTIVE_MEMORY",
+                    "created_at": 800.0,
+                    "runtime_turn_id": "turn_000001",
+                },
+                {
+                    "text": "LIST_SKILLS",
+                    "created_at": 945.0,
+                    "runtime_turn_id": "turn_000002",
+                },
+                {
+                    "text": "APPEND_SKILL",
+                    "created_at": 998.0,
+                    "runtime_turn_id": "turn_000002",
+                },
+            ],
+            runtime_recent_turns=[],
+            runtime_appended_delayed_memory={},
+        )
+        base_prompt = (
+            "<RUNTIME_MEMORY>\nstate\n</RUNTIME_MEMORY>\n\n"
+            "<SESSION_ACTIONS_HISTORY>\n"
+            "    1. SAVE_ACTIVE_MEMORY\n"
+            "    2. LIST_SKILLS\n"
+            "    3. APPEND_SKILL\n"
+            "</SESSION_ACTIONS_HISTORY>\n\n"
+            "RULES"
+        )
+
+        with patch(
+            "clients.brain_context_builder.time.time",
+            return_value=1000.0,
+        ):
+            prompt = BrainNode.build_followup_system_prompt(
+                base_prompt,
+                "first list skills, then append one",
+                context=context,
+            )
+
+        self.assertIn(
+            "turn_000002",
+            context.runtime_action_sequence_turn_ids,
+        )
+        self.assertIn(
+            "<CURRENT_ACTIONS_HISTORY>\n"
+            "    --- Sequence started ---\n"
+            "    1. LIST_SKILLS ( 55s ago )\n"
+            "    2. APPEND_SKILL ( 2s ago )\n"
+            "</CURRENT_ACTIONS_HISTORY>",
+            prompt,
+        )
+        self.assertNotIn(
+            "<SESSION_ACTIONS_HISTORY>",
+            prompt,
+        )
+        self.assertNotIn(
+            "Sequence ended",
+            prompt,
+        )
+        self.assertLess(
+            prompt.index("</LATEST_USER_REQUEST>"),
+            prompt.index("<CURRENT_ACTIONS_HISTORY>"),
+        )
+        self.assertLess(
+            prompt.index("<CURRENT_ACTIONS_HISTORY>"),
+            prompt.index("<PREVIOUS_CHAT_MESSAGES>"),
+        )
+
     async def test_list_skills_followup_text_is_emitted_when_no_asset_action_follows(self):
 
         calls = []

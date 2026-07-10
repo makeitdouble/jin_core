@@ -295,84 +295,261 @@ def build_current_appended_skills_context(
     )
 
 
+def _normalize_session_action_history_item(
+    item,
+) -> dict:
+
+    created_at = None
+    runtime_turn_id = ""
+
+    if isinstance(
+        item,
+        dict,
+    ):
+        text = str(
+            item.get(
+                "text",
+                "",
+            )
+            or ""
+        ).strip()
+        raw_created_at = item.get(
+            "created_at"
+        )
+        if isinstance(
+            raw_created_at,
+            (int, float),
+        ):
+            created_at = float(
+                raw_created_at
+            )
+        runtime_turn_id = str(
+            item.get(
+                "runtime_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
+    else:
+        text = str(
+            item
+            or ""
+        ).strip()
+
+    return {
+        "text": text,
+        "created_at": created_at,
+        "runtime_turn_id": runtime_turn_id,
+    }
+
+
+def _is_current_sequence_action(
+    item: dict,
+    *,
+    current_turn_id: str,
+    turn_started_at,
+) -> bool:
+
+    item_turn_id = str(
+        item.get(
+            "runtime_turn_id",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if (
+        current_turn_id
+        and item_turn_id
+        and item_turn_id != current_turn_id
+    ):
+        return False
+
+    created_at = item.get(
+        "created_at"
+    )
+
+    if (
+        isinstance(
+            created_at,
+            (int, float),
+        )
+        and isinstance(
+            turn_started_at,
+            (int, float),
+        )
+    ):
+        return float(created_at) >= float(turn_started_at)
+
+    return bool(
+        current_turn_id
+        and item_turn_id == current_turn_id
+    )
+
+
 def build_session_actions_history_context(
     context=None,
+    *,
+    current_sequence: bool = False,
 ) -> str:
 
     if context is None:
         return ""
 
-    history_items = list(
-        getattr(
-            context,
-            "runtime_session_action_history",
-            [],
+    history_items = [
+        _normalize_session_action_history_item(
+            item
         )
-        or []
-    )
+        for item in list(
+            getattr(
+                context,
+                "runtime_session_action_history",
+                [],
+            )
+            or []
+        )
+    ]
+    history_items = [
+        item
+        for item in history_items
+        if item["text"]
+    ]
+
+    if current_sequence:
+        current_turn_id = str(
+            getattr(
+                context,
+                "runtime_current_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
+        turn_started_at = getattr(
+            context,
+            "runtime_turn_started_at",
+            None,
+        )
+        history_items = [
+            item
+            for item in history_items
+            if _is_current_sequence_action(
+                item,
+                current_turn_id=current_turn_id,
+                turn_started_at=turn_started_at,
+            )
+        ]
+
+    if not history_items:
+        return ""
 
     now = time.time()
-    history = []
+    sequence_turn_ids = {
+        str(
+            turn_id
+            or ""
+        ).strip()
+        for turn_id in (
+            getattr(
+                context,
+                "runtime_action_sequence_turn_ids",
+                [],
+            )
+            or []
+        )
+        if str(
+            turn_id
+            or ""
+        ).strip()
+    }
+    lines = []
+    action_index = 0
+    open_sequence_turn_id = ""
+
+    if current_sequence:
+        lines.append(
+            "--- Sequence started ---"
+        )
 
     for item in history_items:
-        created_at = None
+        runtime_turn_id = item[
+            "runtime_turn_id"
+        ]
+        item_is_sequence = (
+            not current_sequence
+            and runtime_turn_id in sequence_turn_ids
+        )
 
-        if isinstance(
-            item,
-            dict,
-        ):
-            text = str(
-                item.get(
-                    "text",
-                    "",
+        if item_is_sequence:
+            if open_sequence_turn_id != runtime_turn_id:
+                if open_sequence_turn_id:
+                    lines.append(
+                        "--- Sequence ended ---"
+                    )
+                lines.append(
+                    "--- Sequence started ---"
                 )
-                or ""
-            ).strip()
-            raw_created_at = item.get(
-                "created_at"
+                open_sequence_turn_id = runtime_turn_id
+        elif open_sequence_turn_id:
+            lines.append(
+                "--- Sequence ended ---"
             )
-            if isinstance(
-                raw_created_at,
-                (int, float),
-            ):
-                created_at = float(
-                    raw_created_at
-                )
-        else:
-            text = str(
-                item
-                or ""
-            ).strip()
+            open_sequence_turn_id = ""
 
-        if not text:
-            continue
-
+        text = item[
+            "text"
+        ]
+        created_at = item.get(
+            "created_at"
+        )
         if created_at is not None:
             text = (
                 f"{text} ( {format_session_action_age(now - created_at)} ago )"
             )
 
-        history.append(
-            text
+        action_index += 1
+        lines.append(
+            f"{action_index}. {text}"
         )
 
-    if not history:
-        return ""
-
-    lines = [
-        f"{index}. {item}"
-        for index, item in enumerate(
-            history,
-            start=1,
+    if open_sequence_turn_id:
+        lines.append(
+            "--- Sequence ended ---"
         )
-    ]
 
-    return (
-        "<SESSION_ACTIONS_HISTORY>\n"
-        f"{indent_xml(escape(chr(10).join(lines)), spaces=4)}\n"
-        "</SESSION_ACTIONS_HISTORY>"
+    tag_name = (
+        "CURRENT_ACTIONS_HISTORY"
+        if current_sequence
+        else "SESSION_ACTIONS_HISTORY"
     )
 
+    return (
+        f"<{tag_name}>\n"
+        f"{indent_xml(escape(chr(10).join(lines)), spaces=4)}\n"
+        f"</{tag_name}>"
+    )
+
+
+def strip_actions_history_context(
+    system_prompt: str,
+) -> str:
+
+    prompt = str(
+        system_prompt
+        or ""
+    )
+
+    for tag_name in (
+        "SESSION_ACTIONS_HISTORY",
+        "CURRENT_ACTIONS_HISTORY",
+    ):
+        prompt = re.sub(
+            rf"(?:^|\n)<{tag_name}>.*?</{tag_name}>\n*",
+            "\n",
+            prompt,
+            flags=re.DOTALL,
+        )
+
+    return prompt.strip()
 
 def format_session_action_age(
     elapsed_seconds,
@@ -755,9 +932,10 @@ def build_latest_user_request_context(
 
     return (
         "<LATEST_USER_REQUEST>\n"
-        "!!!this is not a current user prompt!!!"
-        "!!!this is not a start message!!!"
-        "!!!this is initial user request provided by follow up tick!!!"
+        "!!!this is not a current user prompt!!!\n"
+        "!!!this is not a start message!!!\n"
+        "!!!this is initial user request provided by follow up tick!!!\n"
+        "\n"
         f"{escape(text)}\n"
         "</LATEST_USER_REQUEST>"
     )

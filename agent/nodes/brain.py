@@ -33,15 +33,15 @@ from config_loader import (
 
 
 FOLLOWUP_USER_MESSAGE = (
-    "<runtime_system_message>\n"
+    "This is runtime system message!\n"
+    "Multi-step task in progress!\n"
     "This is not a start of a task sequence!\n"
     "This is not a new request!\n"
-    "Multi-step task in progress!\n"
     "\n"
-    "YOU MUST derive your next action from your context LATEST_USER_REQUEST and SESSION_ACTIONS_HISTORY.\n"
-    "You need to make all require actions and track progress using history timeline!\n"
+    "YOU MUST derive your next action from LATEST_USER_REQUEST and CURRENT_ACTIONS_HISTORY.\n"
+    "You need to make all required actions and complete remaining steps!\n"
     "Continue without confirmation!\n"
-    "</runtime_system_message>\n"
+    "\n"
 )
 
 
@@ -209,6 +209,11 @@ class BrainNode(BaseNode):
 
         from clients.brain_context_builder import (
             build_latest_user_request_context,
+            build_session_actions_history_context,
+            strip_actions_history_context,
+        )
+        from utils.session_actions_history import (
+            mark_current_action_sequence,
         )
 
         if context is not None:
@@ -234,6 +239,21 @@ class BrainNode(BaseNode):
         ]
 
         if context is not None:
+            mark_current_action_sequence(
+                context
+            )
+            current_actions_history_context = (
+                build_session_actions_history_context(
+                    context,
+                    current_sequence=True,
+                )
+            )
+
+            if current_actions_history_context:
+                sections.append(
+                    current_actions_history_context
+                )
+
             from clients.brain_context_builder import (
                 build_appended_delayed_memory_context,
                 build_previous_chat_messages_context,
@@ -269,7 +289,9 @@ class BrainNode(BaseNode):
 
         sections.append(
             rename_runtime_memory_for_followup(
-                system_prompt
+                strip_actions_history_context(
+                    system_prompt
+                )
             )
         )
 

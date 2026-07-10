@@ -590,7 +590,7 @@ async def ask_brain_stream(
         )
         or []
     )
-    observed_action_marker_names = []
+    observed_action_markers = []
     session_action_history_finalized = False
 
     def capture_observed_action_markers(
@@ -612,8 +612,8 @@ async def ask_brain_stream(
             ).strip()
 
             if name:
-                observed_action_marker_names.append(
-                    name
+                observed_action_markers.append(
+                    action
                 )
 
     def finalize_session_action_history() -> None:
@@ -628,7 +628,7 @@ async def ask_brain_stream(
         replace_session_action_history_since(
             context,
             session_action_history_start,
-            observed_action_marker_names,
+            observed_action_markers,
         )
 
     async def emit_delayed_memory_bubble_started():

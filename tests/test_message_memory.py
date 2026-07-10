@@ -7,6 +7,9 @@ import httpx
 from rules.assembler import (
     build_brain_system_prompt,
 )
+from clients.brain_context_builder import (
+    build_session_actions_history_context,
+)
 from runtime import (
     DEFAULT_RUNTIME_MEMORY,
     L2_PATCH_WINDOW,
@@ -927,6 +930,116 @@ class MessageMemoryTests(
         self.assertLess(
             prompt.index("<SESSION_ACTIONS_HISTORY>"),
             prompt.index("I identify as JIN"),
+        )
+
+    def test_current_actions_history_filters_older_session_actions(self):
+
+        context = SimpleNamespace(
+            runtime_current_turn_id="turn_000002",
+            runtime_turn_started_at=940.0,
+            runtime_action_sequence_turn_ids=[
+                "turn_000002",
+            ],
+            runtime_session_action_history=[
+                {
+                    "text": "SAVE_ACTIVE_MEMORY",
+                    "created_at": 800.0,
+                    "runtime_turn_id": "turn_000001",
+                },
+                {
+                    "text": "STALE_SAME_TURN",
+                    "created_at": 900.0,
+                    "runtime_turn_id": "turn_000002",
+                },
+                {
+                    "text": "LIST_SKILLS",
+                    "created_at": 945.0,
+                    "runtime_turn_id": "turn_000002",
+                },
+                {
+                    "text": "APPEND_SKILL",
+                    "created_at": 998.0,
+                    "runtime_turn_id": "turn_000002",
+                },
+            ],
+        )
+
+        with patch(
+            "clients.brain_context_builder.time.time",
+            return_value=1000.0,
+        ):
+            history = build_session_actions_history_context(
+                context,
+                current_sequence=True,
+            )
+
+        self.assertEqual(
+            history,
+            (
+                "<CURRENT_ACTIONS_HISTORY>\n"
+                "    --- Sequence started ---\n"
+                "    1. LIST_SKILLS ( 55s ago )\n"
+                "    2. APPEND_SKILL ( 2s ago )\n"
+                "</CURRENT_ACTIONS_HISTORY>"
+            ),
+        )
+        self.assertNotIn(
+            "SAVE_ACTIVE_MEMORY",
+            history,
+        )
+        self.assertNotIn(
+            "STALE_SAME_TURN",
+            history,
+        )
+        self.assertNotIn(
+            "Sequence ended",
+            history,
+        )
+
+    def test_completed_sequence_is_wrapped_in_session_history(self):
+
+        context = SimpleNamespace(
+            runtime_action_sequence_turn_ids=[
+                "turn_000002",
+            ],
+            runtime_session_action_history=[
+                {
+                    "text": "SAVE_ACTIVE_MEMORY",
+                    "created_at": 800.0,
+                    "runtime_turn_id": "turn_000001",
+                },
+                {
+                    "text": "LIST_SKILLS",
+                    "created_at": 945.0,
+                    "runtime_turn_id": "turn_000002",
+                },
+                {
+                    "text": "APPEND_SKILL",
+                    "created_at": 998.0,
+                    "runtime_turn_id": "turn_000002",
+                },
+            ],
+        )
+
+        with patch(
+            "clients.brain_context_builder.time.time",
+            return_value=1000.0,
+        ):
+            history = build_session_actions_history_context(
+                context
+            )
+
+        self.assertEqual(
+            history,
+            (
+                "<SESSION_ACTIONS_HISTORY>\n"
+                "    1. SAVE_ACTIVE_MEMORY ( 3m ago )\n"
+                "    --- Sequence started ---\n"
+                "    2. LIST_SKILLS ( 55s ago )\n"
+                "    3. APPEND_SKILL ( 2s ago )\n"
+                "    --- Sequence ended ---\n"
+                "</SESSION_ACTIONS_HISTORY>"
+            ),
         )
 
     def test_brain_prompt_counts_current_turn_runtime_actions_and_pending_answer(self):
