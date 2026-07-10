@@ -153,7 +153,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "Runtime Action Markers are internal mechanics.\nEmit markers",
+            "RUNTIME ACTION MARKERS are internal mechanics.\nEmit markers",
         )
         assert_contains_text(
             self,
@@ -163,7 +163,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "marker name!\nCheck all active_memory",
+            "context.\nNever assume internal marker name!",
         )
 
     def test_non_stream_blocks_save_session_meta_request_in_reasoning(self):
@@ -1569,11 +1569,11 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertLess(
             prompt.index("<APPENDED_SKILLS_CONTENT>"),
-            prompt.index("Runtime Action Markers are internal mechanics"),
+            prompt.index("RUNTIME ACTION MARKERS are internal mechanics"),
         )
         self.assertLess(
-            prompt.index("Runtime Action Markers are internal mechanics"),
-            prompt.index("I identify as JIN"),
+            prompt.index("RUNTIME ACTION MARKERS are internal mechanics"),
+            prompt.index("I must identify myself as JIN"),
         )
         self.assertNotIn(
             "first line\\nsecond line",
@@ -1667,7 +1667,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 "<APPENDED_DELAYED_MEMORY>"
             ),
             prompt.index(
-                "I identify as JIN"
+                "I must identify myself as JIN"
             ),
         )
 

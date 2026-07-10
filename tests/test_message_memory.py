@@ -929,7 +929,7 @@ class MessageMemoryTests(
         )
         self.assertLess(
             prompt.index("<SESSION_ACTIONS_HISTORY>"),
-            prompt.index("I identify as JIN"),
+            prompt.index("I must identify myself as JIN"),
         )
 
     def test_current_actions_history_filters_older_session_actions(self):

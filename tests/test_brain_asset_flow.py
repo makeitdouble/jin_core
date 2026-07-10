@@ -50,10 +50,10 @@ def _assert_latest_request_payload(
 
     test_case.assertTrue(
         payload.startswith(
-            "<runtime_system_message>\n"
+            "This is runtime system message!\n"
+            "Multi-step task in progress!\n"
             "This is not a start of a task sequence!\n"
-            "This is not a new request!\n"
-            "Multi-step task in progress!"
+            "This is not a new request!"
         ),
         payload,
     )
@@ -83,19 +83,37 @@ def _assert_latest_request_payload(
         user_input,
         payload,
     )
+    latest_request_block = (
+        "<LATEST_USER_REQUEST>\n"
+        "!!!this is not a current user prompt!!!\n"
+        "!!!this is not a start message!!!\n"
+        "!!!this is initial user request provided by follow up tick!!!\n"
+        "\n"
+        f"{user_input}\n"
+        "</LATEST_USER_REQUEST>"
+    )
+    previous_messages_block = (
+        "<PREVIOUS_CHAT_MESSAGES>\n"
+        f"<USER>{user_input}\n"
+        "</PREVIOUS_CHAT_MESSAGES>"
+    )
     test_case.assertTrue(
         system_prompt.startswith(
-            "<LATEST_USER_REQUEST>\n"
-            "!!!this is not a current user prompt!!!"
-            "!!!this is not a start message!!!"
-            "!!!this is initial user request provided by follow up tick!!!"
-            f"{user_input}\n"
-            "</LATEST_USER_REQUEST>\n\n"
-            "<PREVIOUS_CHAT_MESSAGES>\n"
-            f"<USER>{user_input}\n"
-            "</PREVIOUS_CHAT_MESSAGES>\n\n"
+            latest_request_block
         ),
         system_prompt,
+    )
+    test_case.assertIn(
+        previous_messages_block,
+        system_prompt,
+    )
+    test_case.assertLess(
+        system_prompt.index(
+            latest_request_block
+        ),
+        system_prompt.index(
+            previous_messages_block
+        ),
     )
     test_case.assertNotIn(
         "Continue using",
@@ -196,9 +214,10 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(
             prompt.startswith(
                 "<LATEST_USER_REQUEST>\n"
-                "!!!this is not a current user prompt!!!"
-                "!!!this is not a start message!!!"
-                "!!!this is initial user request provided by follow up tick!!!"
+                "!!!this is not a current user prompt!!!\n"
+                "!!!this is not a start message!!!\n"
+                "!!!this is initial user request provided by follow up tick!!!\n"
+                "\n"
                 "append the delayed memory\n"
                 "</LATEST_USER_REQUEST>\n\n"
                 "<APPENDED_DELAYED_MEMORY>\n"
@@ -493,7 +512,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             if len(calls) == 2:
                 self.assertTrue(
                     kwargs["brain_payload"].startswith(
-                        "<runtime_system_message>\n"
+                        "This is runtime system message!\n"
+                        "Multi-step task in progress!\n"
                         "This is not a start of a task sequence!"
                     ),
                     kwargs["brain_payload"],
@@ -568,7 +588,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             if len(calls) == 2:
                 self.assertTrue(
                     kwargs["brain_payload"].startswith(
-                        "<runtime_system_message>\n"
+                        "This is runtime system message!\n"
+                        "Multi-step task in progress!\n"
                         "This is not a start of a task sequence!"
                     ),
                     kwargs["brain_payload"],

@@ -644,9 +644,10 @@ class SearchFlowTests(
         )
         self.assertIn(
             "<LATEST_USER_REQUEST>\n"
-            "!!!this is not a current user prompt!!!"
-            "!!!this is not a start message!!!"
-            "!!!this is initial user request provided by follow up tick!!!"
+            "!!!this is not a current user prompt!!!\n"
+            "!!!this is not a start message!!!\n"
+            "!!!this is initial user request provided by follow up tick!!!\n"
+            "\n"
             "search tesla car price",
             brain_client.prompts[1]["system_prompt"],
         )
