@@ -4904,6 +4904,138 @@ class RuntimeActionTests(unittest.TestCase):
             ],
         )
 
+    def test_apply_runtime_action_calls_resolves_multiple_active_memories(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+        context.runtime_memory = (
+            "active_memory_1: first [ active_memory_id: one111 ] "
+            "[ status: pending ]\n"
+            "active_memory_2: second [ active_memory_id: two222 ] "
+            "[ status: pending ]\n"
+            "active_memory_3: third [ active_memory_id: tri333 ] "
+            "[ status: pending ]"
+        )
+        context.runtime_memory_stable = context.runtime_memory
+        context.active_memory_records = context.runtime_memory.splitlines()
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="RESOLVE_ACTIVE_MEMORY",
+                        payload="one111",
+                    ),
+                    RuntimeActionCall(
+                        name="RESOLVE_ACTIVE_MEMORY",
+                        payload="two222",
+                    ),
+                    RuntimeActionCall(
+                        name="RESOLVE_ACTIVE_MEMORY",
+                        payload="tri333",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            3,
+        )
+        self.assertEqual(
+            context.active_memory_records,
+            [],
+        )
+        self.assertNotIn(
+            "active_memory_",
+            context.runtime_memory,
+        )
+        self.assertNotIn(
+            "active_memory_",
+            context.runtime_memory_stable,
+        )
+        self.assertTrue(
+            context.runtime_active_memory_records_dirty,
+        )
+        self.assertEqual(
+            [
+                event.get("id")
+                for event in context.emitter.events
+                if event.get("status") == "completed"
+            ],
+            [
+                "one111",
+                "two222",
+                "tri333",
+            ],
+        )
+        self.assertEqual(
+            [
+                event.get("id")
+                for event in context.runtime_action_events
+            ],
+            [
+                "one111",
+                "two222",
+                "tri333",
+            ],
+        )
+
+    def test_apply_runtime_action_calls_deduplicates_same_resolve_id(self):
+
+        class Context:
+            pass
+
+        context = Context()
+        context.runtime_memory = (
+            "active_memory_1: first [ active_memory_id: one111 ] "
+            "[ status: pending ]"
+        )
+        context.runtime_memory_stable = context.runtime_memory
+        context.active_memory_records = [
+            context.runtime_memory,
+        ]
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="RESOLVE_ACTIVE_MEMORY",
+                        payload="one111",
+                    ),
+                    RuntimeActionCall(
+                        name="RESOLVE_ACTIVE_MEMORY",
+                        payload="one111",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertEqual(
+            context.active_memory_records,
+            [],
+        )
+        self.assertEqual(
+            len(context.runtime_action_events),
+            1,
+        )
+
     def test_apply_runtime_action_calls_does_not_resolve_paused_active_memory(self):
 
         class Emitter:

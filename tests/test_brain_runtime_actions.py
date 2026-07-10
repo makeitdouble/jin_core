@@ -28,6 +28,9 @@ from rules.assembler import (
     SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
 )
 from rules import runtime as runtime_rules
+from utils.session_actions_history import (
+    replace_session_action_history_since,
+)
 
 
 
@@ -656,8 +659,37 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 for item in context.runtime_session_action_history
             ],
             [
-                "SAVE_SESSION, SAVE_SESSION",
+                "SAVE_SESSION ( repeated_times: 2 )",
             ],
+        )
+
+    def test_session_history_compacts_many_repeated_markers(self):
+
+        context = SimpleNamespace(
+            runtime_session_action_history=[],
+        )
+
+        replace_session_action_history_since(
+            context,
+            0,
+            [
+                "resolve_active_memory",
+            ] * 24,
+        )
+
+        self.assertEqual(
+            context.runtime_session_action_history[0]["text"],
+            "RESOLVE_ACTIVE_MEMORY ( repeated_times: 24 )",
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={},
+        )
+
+        self.assertIn(
+            "1. RESOLVE_ACTIVE_MEMORY ( repeated_times: 24 )",
+            prompt,
         )
 
     def test_stream_preserves_duplicate_failed_append_skill_marker(self):

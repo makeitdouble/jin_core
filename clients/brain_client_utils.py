@@ -1499,7 +1499,7 @@ async def apply_runtime_action_calls(
             False,
         )
     )
-    resolve_active_memory_seen = False
+    resolve_active_memory_ids_seen = set()
     save_delayed_memory_seen = False
     list_delayed_memory_seen = False
     list_skills_seen = False
@@ -1683,18 +1683,22 @@ async def apply_runtime_action_calls(
             continue
 
         if action.name == RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY:
-            if resolve_active_memory_seen:
-                continue
-
-            if not extract_active_memory_resolve_slot_id(
+            active_memory_id = extract_active_memory_resolve_slot_id(
                 action.payload,
                 existing_ids=collect_context_active_memory_slot_ids(
                     context
                 ),
+            )
+
+            if (
+                not active_memory_id
+                or active_memory_id in resolve_active_memory_ids_seen
             ):
                 continue
 
-            resolve_active_memory_seen = True
+            resolve_active_memory_ids_seen.add(
+                active_memory_id
+            )
             accepted_action_names.add(
                 action_event_name
             )
@@ -1891,10 +1895,13 @@ async def apply_runtime_action_calls(
         create_active_memory_actions
     )
 
-    resolve_active_memory_count = sum(
-        1
+    resolve_active_memory_actions = [
+        action
         for action in filtered_actions
         if action.name == RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+    ]
+    resolve_active_memory_count = len(
+        resolve_active_memory_actions
     )
 
     save_delayed_memory_actions = [
@@ -2934,26 +2941,6 @@ async def apply_runtime_action_calls(
     resolved_active_memory_count = 0
 
     if resolve_active_memory_count:
-        active_memory_resolve_text = next(
-            (
-                action.payload
-                for action in filtered_actions
-                if action.name == RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
-                and action.payload
-            ),
-            "",
-        )
-
-        record_resolved, active_memory_id = (
-            await resolve_active_memory_runtime_record(
-                context,
-                active_memory_resolve_text,
-            )
-        )
-
-        if record_resolved:
-            resolved_active_memory_count = 1
-
         emitter = getattr(
             context,
             "emitter",
@@ -2965,10 +2952,22 @@ async def apply_runtime_action_calls(
             None,
         )
 
-        if (
-            emit is not None
-            and record_resolved
-        ):
+        for action in resolve_active_memory_actions:
+            record_resolved, active_memory_id = (
+                await resolve_active_memory_runtime_record(
+                    context,
+                    action.payload,
+                )
+            )
+
+            if not record_resolved:
+                continue
+
+            resolved_active_memory_count += 1
+
+            if emit is None:
+                continue
+
             await emit(with_action_context({
                 "type": "runtime_action",
                 "action": "resolve_active_memory",
@@ -2981,6 +2980,9 @@ async def apply_runtime_action_calls(
                 "id": active_memory_id,
                 "status": "completed",
             }))
+
+        if resolved_active_memory_count:
+            context.runtime_active_memory_records_dirty = True
 
     return (
         len(

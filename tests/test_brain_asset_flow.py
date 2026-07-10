@@ -2,7 +2,11 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from agent.nodes.brain import BrainNode
+from agent.nodes.brain import (
+    BrainNode,
+    format_followup_action_from_event,
+    format_followup_actions_from_events,
+)
 from agent.state import AgentState
 
 
@@ -46,7 +50,10 @@ def _assert_latest_request_payload(
 
     test_case.assertTrue(
         payload.startswith(
-            "This is NOT a new request! Multi-task in progress!"
+            "<runtime_system_message>\n"
+            "This is not a start of a task sequence!\n"
+            "This is not a new request!\n"
+            "Multi-step task in progress!"
         ),
         payload,
     )
@@ -78,7 +85,11 @@ def _assert_latest_request_payload(
     )
     test_case.assertTrue(
         system_prompt.startswith(
-            f"<LATEST_USER_REQUEST>\n{user_input}\n"
+            "<LATEST_USER_REQUEST>\n"
+            "!!!this is not a current user prompt!!!"
+            "!!!this is not a start message!!!"
+            "!!!this is initial user request provided by follow up tick!!!"
+            f"{user_input}\n"
             "</LATEST_USER_REQUEST>\n\n"
             "<PREVIOUS_CHAT_MESSAGES>\n"
             f"<USER>{user_input}\n"
@@ -102,6 +113,39 @@ def _assert_latest_request_payload(
 
 class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
+    async def test_followup_event_formatter_keeps_only_action_name(self):
+
+        self.assertEqual(
+            format_followup_action_from_event({
+                "name": "save_session",
+                "payload": "session payload",
+                "id": "save-123",
+                "query": "ignored query",
+            }),
+            "save_session",
+        )
+
+    async def test_followup_event_formatter_groups_duplicate_action_names(self):
+
+        self.assertEqual(
+            format_followup_actions_from_events([
+                {
+                    "name": "resolve_active_memory",
+                    "id": "active_memory_1",
+                },
+                {
+                    "name": "resolve_active_memory",
+                    "id": "active_memory_2",
+                },
+                {
+                    "name": "save_session",
+                    "id": "save-123",
+                    "payload": "ignored",
+                },
+            ]),
+            "resolve_active_memory (repeated_times: 2 ), save_session",
+        )
+
     async def test_appended_delayed_memory_is_under_latest_request(self):
 
         context = SimpleNamespace(
@@ -122,6 +166,9 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(
             prompt.startswith(
                 "<LATEST_USER_REQUEST>\n"
+                "!!!this is not a current user prompt!!!"
+                "!!!this is not a start message!!!"
+                "!!!this is initial user request provided by follow up tick!!!"
                 "append the delayed memory\n"
                 "</LATEST_USER_REQUEST>\n\n"
                 "<APPENDED_DELAYED_MEMORY>\n"
@@ -341,7 +388,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             if len(calls) == 2:
                 self.assertTrue(
                     kwargs["brain_payload"].startswith(
-                        "This is NOT a new request! Multi-task in progress!"
+                        "<runtime_system_message>\n"
+                        "This is not a start of a task sequence!"
                     ),
                     kwargs["brain_payload"],
                 )
@@ -415,7 +463,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             if len(calls) == 2:
                 self.assertTrue(
                     kwargs["brain_payload"].startswith(
-                        "This is NOT a new request! Multi-task in progress!"
+                        "<runtime_system_message>\n"
+                        "This is not a start of a task sequence!"
                     ),
                     kwargs["brain_payload"],
                 )
@@ -633,7 +682,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     self,
                     kwargs,
                     state.translated_input,
-                    'append_skill payload="wildcards"',
+                    'append_skill',
                 )
                 return (
                     "Ready to use the wildcard skill.",
@@ -709,7 +758,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     self,
                     kwargs,
                     state.translated_input,
-                    'append_skill payload="wildcards"',
+                    'append_skill',
                 )
                 return (
                     "Ready to test with the wildcards skill loaded.",
@@ -1089,15 +1138,15 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             4,
         )
         self.assertIn(
-            'create_active_memory payload="payload_1"',
+            'create_active_memory',
             calls[1]["brain_payload"],
         )
         self.assertIn(
-            'append_skill payload="payload_2"',
+            'append_skill',
             calls[2]["brain_payload"],
         )
         self.assertIn(
-            'save_session payload="payload_3"',
+            'save_session',
             calls[3]["brain_payload"],
         )
         for call in calls[1:]:
@@ -1132,11 +1181,23 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 return "", ""
 
             self.assertIn(
-                'create_active_memory payload="first"',
+                'create_active_memory',
                 kwargs["brain_payload"],
             )
             self.assertIn(
-                'resolve_active_memory id="active_memory_1"',
+                'resolve_active_memory',
+                kwargs["brain_payload"],
+            )
+            self.assertNotIn(
+                'payload=',
+                kwargs["brain_payload"],
+            )
+            self.assertNotIn(
+                'id=',
+                kwargs["brain_payload"],
+            )
+            self.assertNotIn(
+                'active_memory_1',
                 kwargs["brain_payload"],
             )
             return "Finished.", ""

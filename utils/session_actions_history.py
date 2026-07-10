@@ -189,14 +189,9 @@ def record_session_action_history(
         del history[:-MAX_SESSION_ACTION_HISTORY_ITEMS]
 
 
-def replace_session_action_history_since(
-    context,
-    start_index: int,
+def format_session_action_marker_names(
     marker_names,
-) -> None:
-
-    if context is None:
-        return
+) -> str:
 
     normalized_names = [
         str(
@@ -210,7 +205,49 @@ def replace_session_action_history_since(
         ).strip()
     ]
 
-    if not normalized_names:
+    action_counts = {}
+
+    for action_name in normalized_names:
+        action_counts[action_name] = (
+            action_counts.get(
+                action_name,
+                0,
+            )
+            + 1
+        )
+
+    formatted_names = []
+
+    for action_name, count in action_counts.items():
+        if count > 1:
+            formatted_names.append(
+                f"{action_name} ( repeated_times: {count} )"
+            )
+            continue
+
+        formatted_names.append(
+            action_name
+        )
+
+    return ", ".join(
+        formatted_names
+    )
+
+
+def replace_session_action_history_since(
+    context,
+    start_index: int,
+    marker_names,
+) -> None:
+
+    if context is None:
+        return
+
+    formatted_marker_names = format_session_action_marker_names(
+        marker_names
+    )
+
+    if not formatted_marker_names:
         return
 
     history = getattr(
@@ -245,7 +282,5 @@ def replace_session_action_history_since(
 
     record_session_action_history(
         context,
-        ", ".join(
-            normalized_names
-        ),
+        formatted_marker_names,
     )

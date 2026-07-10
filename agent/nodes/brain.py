@@ -67,39 +67,12 @@ def format_followup_action_from_event(
     ):
         return ""
 
-    name = _compact_followup_value(
+    return _compact_followup_value(
         event.get(
             "name",
             "",
         )
     )
-    if not name:
-        return ""
-
-    details = []
-    for key in (
-            "query",
-            "payload",
-            "id",
-    ):
-        value = _compact_followup_value(
-            event.get(
-                key,
-                "",
-            )
-        )
-        if value:
-            details.append(
-                f'{key}="{value}"'
-            )
-
-    if details:
-        return (
-            f"{name} "
-            + " ".join(details)
-        )
-
-    return name
 
 
 def format_followup_action_from_asset_result(
@@ -128,18 +101,37 @@ def format_followup_actions_from_events(
         events,
 ) -> str:
 
-    formatted_actions = []
+    action_counts = {}
 
     for event in events or []:
-        formatted_action = format_followup_action_from_event(
+        action_name = format_followup_action_from_event(
             event
         )
-        if formatted_action:
-            formatted_actions.append(
-                formatted_action
-            )
+        if not action_name:
+            continue
 
-    return "; ".join(
+        action_counts[action_name] = (
+            action_counts.get(
+                action_name,
+                0,
+            )
+            + 1
+        )
+
+    formatted_actions = []
+
+    for action_name, count in action_counts.items():
+        if count > 1:
+            formatted_actions.append(
+                f"{action_name} (repeated_times: {count} )"
+            )
+            continue
+
+        formatted_actions.append(
+            action_name
+        )
+
+    return ", ".join(
         formatted_actions
     )
 
