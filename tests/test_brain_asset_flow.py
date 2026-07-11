@@ -48,36 +48,36 @@ def _assert_latest_request_payload(
     payload = call_kwargs["brain_payload"]
     system_prompt = call_kwargs["system_prompt"]
 
+    test_case.assertEqual(
+        payload,
+        "",
+    )
     test_case.assertTrue(
-        payload.startswith(
+        system_prompt.startswith(
             "This is runtime system message!\n"
             "Multi-step task in progress!\n"
             "This is not a start of a task sequence!\n"
             "This is not a new request!"
         ),
-        payload,
+        system_prompt,
     )
     test_case.assertIn(
         (
             "This is follow-up tick for JIN latest action: "
         ),
-        payload,
+        system_prompt,
     )
     if latest_action_fragment is not None:
         test_case.assertIn(
             latest_action_fragment,
-            payload,
+            system_prompt,
         )
     test_case.assertIn(
         (
             "Requested and available information provided in "
             "tool results section."
         ),
-        payload,
-    )
-    test_case.assertNotEqual(
-        payload,
-        "No new messages, multi-task in progress",
+        system_prompt,
     )
     test_case.assertNotIn(
         user_input,
@@ -97,11 +97,17 @@ def _assert_latest_request_payload(
         f"<USER>{user_input}\n"
         "</PREVIOUS_CHAT_MESSAGES>"
     )
-    test_case.assertTrue(
-        system_prompt.startswith(
+    test_case.assertIn(
+        latest_request_block,
+        system_prompt,
+    )
+    test_case.assertLess(
+        system_prompt.index(
+            "This is runtime system message!"
+        ),
+        system_prompt.index(
             latest_request_block
         ),
-        system_prompt,
     )
     test_case.assertIn(
         previous_messages_block,
@@ -117,15 +123,15 @@ def _assert_latest_request_payload(
     )
     test_case.assertNotIn(
         "Continue using",
-        payload,
+        system_prompt,
     )
     test_case.assertNotIn(
         "Latest tool result summary:",
-        payload,
+        system_prompt,
     )
     test_case.assertNotIn(
         "APPENDED_SKILLS",
-        payload,
+        system_prompt,
     )
 
 
@@ -211,18 +217,24 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             context=context,
         )
 
-        self.assertTrue(
-            prompt.startswith(
-                "<LATEST_USER_REQUEST>\n"
-                "!!!this is not a current user prompt!!!\n"
-                "!!!this is not a start message!!!\n"
-                "!!!this is initial user request provided by follow up tick!!!\n"
-                "\n"
-                "append the delayed memory\n"
-                "</LATEST_USER_REQUEST>\n\n"
-                "<APPENDED_DELAYED_MEMORY>\n"
-            ),
+        latest_request_block = (
+            "<LATEST_USER_REQUEST>\n"
+            "\n"
+            "append the delayed memory\n"
+            "</LATEST_USER_REQUEST>\n\n"
+            "<APPENDED_DELAYED_MEMORY>\n"
+        )
+        self.assertIn(
+            latest_request_block,
             prompt,
+        )
+        self.assertLess(
+            prompt.index(
+                "This is runtime system message!"
+            ),
+            prompt.index(
+                latest_request_block
+            ),
         )
         self.assertLess(
             prompt.index(
@@ -487,7 +499,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "Found delayed memory `dm_note`: Solo note.",
         )
 
-    async def test_same_turn_list_skills_keeps_followup_payload(self):
+    async def test_same_turn_list_skills_moves_followup_to_system_prompt(self):
 
         calls = []
 
@@ -510,13 +522,17 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 return "", ""
 
             if len(calls) == 2:
+                self.assertEqual(
+                    kwargs["brain_payload"],
+                    "",
+                )
                 self.assertTrue(
-                    kwargs["brain_payload"].startswith(
+                    kwargs["system_prompt"].startswith(
                         "This is runtime system message!\n"
                         "Multi-step task in progress!\n"
                         "This is not a start of a task sequence!"
                     ),
-                    kwargs["brain_payload"],
+                    kwargs["system_prompt"],
                 )
                 return (
                     "I am JIN.",
@@ -563,7 +579,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "I am JIN.",
         )
 
-    async def test_previous_turn_list_skills_uses_followup_payload(self):
+    async def test_previous_turn_list_skills_uses_followup_system_prompt(self):
 
         calls = []
 
@@ -586,13 +602,17 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 return "", ""
 
             if len(calls) == 2:
+                self.assertEqual(
+                    kwargs["brain_payload"],
+                    "",
+                )
                 self.assertTrue(
-                    kwargs["brain_payload"].startswith(
+                    kwargs["system_prompt"].startswith(
                         "This is runtime system message!\n"
                         "Multi-step task in progress!\n"
                         "This is not a start of a task sequence!"
                     ),
-                    kwargs["brain_payload"],
+                    kwargs["system_prompt"],
                 )
                 return (
                     "I am JIN.",
@@ -1265,16 +1285,21 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn(
             'create_active_memory',
-            calls[1]["brain_payload"],
+            calls[1]["system_prompt"],
         )
         self.assertIn(
             'append_skill',
-            calls[2]["brain_payload"],
+            calls[2]["system_prompt"],
         )
         self.assertIn(
             'save_session',
-            calls[3]["brain_payload"],
+            calls[3]["system_prompt"],
         )
+        for call in calls[1:]:
+            self.assertEqual(
+                call["brain_payload"],
+                "",
+            )
         for call in calls[1:]:
             self.assertEqual(
                 call["runtime_actions"],
@@ -1308,23 +1333,27 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertIn(
                 'create_active_memory',
-                kwargs["brain_payload"],
+                kwargs["system_prompt"],
             )
             self.assertIn(
                 'resolve_active_memory',
-                kwargs["brain_payload"],
+                kwargs["system_prompt"],
             )
             self.assertNotIn(
                 'payload=',
-                kwargs["brain_payload"],
+                kwargs["system_prompt"],
             )
             self.assertNotIn(
                 'id=',
-                kwargs["brain_payload"],
+                kwargs["system_prompt"],
             )
             self.assertNotIn(
                 'active_memory_1',
+                kwargs["system_prompt"],
+            )
+            self.assertEqual(
                 kwargs["brain_payload"],
+                "",
             )
             return "Finished.", ""
 

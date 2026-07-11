@@ -32,7 +32,7 @@ from config_loader import (
 )
 
 
-FOLLOWUP_USER_MESSAGE = (
+FOLLOWUP_SYSTEM_MESSAGE = (
     "This is runtime system message!\n"
     "Multi-step task in progress!\n"
     "This is not a start of a task sequence!\n"
@@ -170,7 +170,7 @@ def rename_runtime_memory_for_followup(
     )
 
 
-def build_followup_user_message(
+def build_followup_system_message(
         latest_action: str = "",
 ) -> str:
 
@@ -178,7 +178,7 @@ def build_followup_user_message(
         latest_action
     )
     lines = [
-        FOLLOWUP_USER_MESSAGE,
+        FOLLOWUP_SYSTEM_MESSAGE,
     ]
 
     if latest_action:
@@ -193,7 +193,7 @@ def build_followup_user_message(
 
     return "\n".join(
         lines
-    )
+    ).strip()
 
 
 class BrainNode(BaseNode):
@@ -205,6 +205,7 @@ class BrainNode(BaseNode):
             *,
             context=None,
             instruction: str = "",
+            latest_action: str = "",
     ) -> str:
 
         from clients.brain_context_builder import (
@@ -235,6 +236,9 @@ class BrainNode(BaseNode):
             )
 
         sections = [
+            build_followup_system_message(
+                latest_action
+            ),
             latest_user_request_context
         ]
 
@@ -955,6 +959,17 @@ class BrainNode(BaseNode):
                     **runtime_actions,
                 }
 
+                latest_followup_action = (
+                    format_followup_actions_from_events(
+                        followup_action_events
+                    )
+                    or format_followup_action_from_event({
+                        "name": "web_search",
+                        "query": query,
+                        "id": tool_call_id,
+                    })
+                )
+
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
                         build_brain_system_prompt(
@@ -965,6 +980,7 @@ class BrainNode(BaseNode):
                         ),
                         state.translated_input,
                         context=context,
+                        latest_action=latest_followup_action,
                         instruction=(
                             "Answer the latest user request using the "
                             "WEB_SEARCH tool result from trusted runtime "
@@ -978,24 +994,13 @@ class BrainNode(BaseNode):
                     context
                 )
 
-                followup_payload = build_followup_user_message(
-                    format_followup_actions_from_events(
-                        followup_action_events
-                    )
-                    or format_followup_action_from_event({
-                        "name": "web_search",
-                        "query": query,
-                        "id": tool_call_id,
-                    })
-                )
-
                 text, reasoning = await self.run_brain_stream(
                     state=state,
                     context=context,
                     brain_runtime=brain_runtime,
                     brain_client=brain_client,
                     system_prompt=followup_system_prompt,
-                    brain_payload=followup_payload,
+                    brain_payload="",
                     runtime_actions=followup_runtime_actions,
                     emit_content_to_chat=(
                         not state.translate_response
@@ -1028,6 +1033,12 @@ class BrainNode(BaseNode):
                     **runtime_actions,
                 }
 
+                latest_followup_action = (
+                    format_followup_actions_from_events(
+                        followup_action_events
+                    )
+                )
+
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
                         build_brain_system_prompt(
@@ -1038,17 +1049,12 @@ class BrainNode(BaseNode):
                         ),
                         state.translated_input,
                         context=context,
+                        latest_action=latest_followup_action,
                     )
                 )
 
                 await emit_active_memory_records_update_if_dirty(
                     context
-                )
-
-                followup_payload = build_followup_user_message(
-                    format_followup_actions_from_events(
-                        followup_action_events
-                    )
                 )
 
                 text, reasoning = await self.run_brain_stream(
@@ -1057,7 +1063,7 @@ class BrainNode(BaseNode):
                     brain_runtime=brain_runtime,
                     brain_client=brain_client,
                     system_prompt=followup_system_prompt,
-                    brain_payload=followup_payload,
+                    brain_payload="",
                     runtime_actions=followup_runtime_actions,
                     emit_content_to_chat=(
                         not state.translate_response
@@ -1092,6 +1098,15 @@ class BrainNode(BaseNode):
                     **runtime_actions,
                 }
 
+                latest_followup_action = (
+                    format_followup_actions_from_events(
+                        followup_action_events
+                    )
+                    or format_followup_action_from_asset_result(
+                        current_delayed_memory_results[-1]
+                    )
+                )
+
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
                         build_brain_system_prompt(
@@ -1102,20 +1117,12 @@ class BrainNode(BaseNode):
                         ),
                         state.translated_input,
                         context=context,
+                        latest_action=latest_followup_action,
                     )
                 )
 
                 await emit_active_memory_records_update_if_dirty(
                     context
-                )
-
-                followup_payload = build_followup_user_message(
-                    format_followup_actions_from_events(
-                        followup_action_events
-                    )
-                    or format_followup_action_from_asset_result(
-                        current_delayed_memory_results[-1]
-                    )
                 )
 
                 text, reasoning = await self.run_brain_stream(
@@ -1124,7 +1131,7 @@ class BrainNode(BaseNode):
                     brain_runtime=brain_runtime,
                     brain_client=brain_client,
                     system_prompt=followup_system_prompt,
-                    brain_payload=followup_payload,
+                    brain_payload="",
                     runtime_actions=followup_runtime_actions,
                     emit_content_to_chat=(
                         not state.translate_response
@@ -1163,6 +1170,12 @@ class BrainNode(BaseNode):
                     **runtime_actions,
                 }
 
+                latest_followup_action = (
+                    format_followup_actions_from_events(
+                        followup_action_events
+                    )
+                )
+
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
                         build_brain_system_prompt(
@@ -1173,11 +1186,7 @@ class BrainNode(BaseNode):
                         ),
                         state.translated_input,
                         context=context,
-                    )
-                )
-                followup_payload = build_followup_user_message(
-                    format_followup_actions_from_events(
-                        followup_action_events
+                        latest_action=latest_followup_action,
                     )
                 )
 
@@ -1191,7 +1200,7 @@ class BrainNode(BaseNode):
                     brain_runtime=brain_runtime,
                     brain_client=brain_client,
                     system_prompt=followup_system_prompt,
-                    brain_payload=followup_payload,
+                    brain_payload="",
                     runtime_actions=followup_runtime_actions,
                     emit_content_to_chat=(
                         not state.translate_response
@@ -1209,6 +1218,15 @@ class BrainNode(BaseNode):
                 **runtime_actions,
             }
 
+            latest_followup_action = (
+                format_followup_actions_from_events(
+                    followup_action_events
+                )
+                or format_followup_action_from_asset_result(
+                    current_asset_results[-1]
+                )
+            )
+
             followup_system_prompt = (
                 self.build_followup_system_prompt(
                     build_brain_system_prompt(
@@ -1219,14 +1237,7 @@ class BrainNode(BaseNode):
                     ),
                     state.translated_input,
                     context=context,
-                )
-            )
-            followup_payload = build_followup_user_message(
-                format_followup_actions_from_events(
-                    followup_action_events
-                )
-                or format_followup_action_from_asset_result(
-                    current_asset_results[-1]
+                    latest_action=latest_followup_action,
                 )
             )
 
@@ -1240,7 +1251,7 @@ class BrainNode(BaseNode):
                 brain_runtime=brain_runtime,
                 brain_client=brain_client,
                 system_prompt=followup_system_prompt,
-                brain_payload=followup_payload,
+                brain_payload="",
                 runtime_actions=followup_runtime_actions,
                 emit_content_to_chat=(
                     not state.translate_response
@@ -1293,6 +1304,7 @@ class BrainNode(BaseNode):
                     ),
                     state.translated_input,
                     context=context,
+                    latest_action="followup_limit_reached",
                 )
             )
             final_system_prompt += (
@@ -1322,11 +1334,7 @@ class BrainNode(BaseNode):
                 brain_runtime=brain_runtime,
                 brain_client=brain_client,
                 system_prompt=final_system_prompt,
-                brain_payload=(
-                    build_followup_user_message(
-                        "followup_limit_reached"
-                    )
-                ),
+                brain_payload="",
                 runtime_actions=final_runtime_actions,
                 emit_content_to_chat=(
                     not state.translate_response

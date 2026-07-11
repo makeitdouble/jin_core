@@ -473,6 +473,61 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
+    def test_stream_preserves_explicit_empty_brain_payload(self):
+
+        class FakeBrainClient:
+            user_prompt = None
+
+            async def stream(self, **kwargs):
+                self.user_prompt = kwargs["user_prompt"]
+                yield {
+                    "type": "content",
+                    "content": "ok",
+                }
+
+        class Context:
+            pass
+
+        async def collect(client, context):
+            return [
+                chunk
+                async for chunk in ask_brain_stream(
+                    client=client,
+                    text="original user request",
+                    context=context,
+                    system_prompt="system prompt",
+                    brain_payload="",
+                    runtime_actions={},
+                )
+            ]
+
+        client = FakeBrainClient()
+        context = Context()
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            chunks = asyncio.run(
+                collect(
+                    client,
+                    context,
+                )
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        self.assertEqual(
+            client.user_prompt,
+            "",
+        )
+        self.assertEqual(
+            chunks[-1],
+            {
+                "type": "content",
+                "content": "ok",
+            },
+        )
+
     def test_stream_applies_save_session_marker_from_content_tail(self):
 
         class FakeBrainClient:

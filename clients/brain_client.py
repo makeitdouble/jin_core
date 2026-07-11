@@ -487,7 +487,8 @@ async def ask_brain_stream(
 
     resolved_brain_payload: str = (
         brain_payload
-        or build_brain_payload(
+        if brain_payload is not None
+        else build_brain_payload(
             text,
             context=context,
         )

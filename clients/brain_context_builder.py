@@ -932,9 +932,6 @@ def build_latest_user_request_context(
 
     return (
         "<LATEST_USER_REQUEST>\n"
-        "!!!this is not a current user prompt!!!\n"
-        "!!!this is not a start message!!!\n"
-        "!!!this is initial user request provided by follow up tick!!!\n"
         "\n"
         f"{escape(text)}\n"
         "</LATEST_USER_REQUEST>"
