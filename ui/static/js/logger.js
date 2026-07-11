@@ -427,6 +427,102 @@ function renderSummarizerRequestTrace(
   }
 }
 
+function formatEmbeddedSummarizerReasoning(details) {
+  const text =
+    String(details || "");
+
+  const sectionMarker =
+    "Summarizer response details:";
+
+  const sectionIndex =
+    text.indexOf(sectionMarker);
+
+  if (sectionIndex < 0) {
+    return text;
+  }
+
+  const jsonStart =
+    text.indexOf(
+      "{",
+      sectionIndex + sectionMarker.length
+    );
+
+  if (jsonStart < 0) {
+    return text;
+  }
+
+  const responseText =
+    text.slice(jsonStart);
+
+  const response =
+    parseTraceJson(
+      responseText.trim()
+    );
+
+  if (
+      !response
+      || response.kind !== "summarizer_response"
+      || typeof response.reasoning_content !== "string"
+      || !response.reasoning_content
+  ) {
+    return text;
+  }
+
+  const serializedReasoning =
+    JSON.stringify(
+      response.reasoning_content
+    );
+
+  const fieldText =
+    `"reasoning_content": ${serializedReasoning}`;
+
+  const fieldIndex =
+    responseText.indexOf(fieldText);
+
+  if (fieldIndex < 0) {
+    return text;
+  }
+
+  const lineStart =
+    responseText.lastIndexOf(
+      "\n",
+      fieldIndex
+    ) + 1;
+
+  const indent =
+    responseText.slice(
+      lineStart,
+      fieldIndex
+    );
+
+  let fieldEnd =
+    fieldIndex + fieldText.length;
+
+  if (responseText[fieldEnd] === ",") {
+    fieldEnd += 1;
+  }
+
+  const reasoning =
+    response.reasoning_content.replace(
+      /\r\n?/g,
+      "\n"
+    );
+
+  const formattedField = [
+    `"reasoning_content":`,
+    `${indent}--------------------`,
+    reasoning,
+    "",
+  ].join("\n");
+
+  return (
+    text.slice(0, jsonStart)
+    + responseText.slice(0, fieldIndex)
+    + formattedField
+    + responseText.slice(fieldEnd)
+  );
+}
+
 function renderTraceDetails(
   details,
   title = "Trace",
@@ -519,7 +615,9 @@ function renderTraceDetails(
     "anywhere";
 
   pre.textContent =
-    String(details);
+    formatEmbeddedSummarizerReasoning(
+      details
+    );
 
   traceModalContent.appendChild(
     pre
