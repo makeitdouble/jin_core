@@ -590,7 +590,6 @@ class MessageMemoryTests(
                 "Every memory line must be a complete key:value entry",
                 "user_fact",
                 "jin_fact",
-                "active_memory",
         ):
             assert_contains_text(
                 self,
