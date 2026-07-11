@@ -462,6 +462,118 @@ class RuntimeActionTests(unittest.TestCase):
             ),
         )
 
+    def test_extracts_self_closing_runtime_markers_without_blocks(self):
+
+        cases = (
+            ("<SAVE_SESSION/>", "SAVE_SESSION", ""),
+            ("<LIST_SKILLS/>", "LIST_SKILLS", ""),
+            ("<INTERNAL_ACTION_LIST_SKILLS/>", "LIST_SKILLS", ""),
+            (
+                "<WEB_SEARCH: blue tomato/>",
+                "WEB_SEARCH",
+                json.dumps({
+                    "query": "blue tomato",
+                }),
+            ),
+            (
+                "<CREATE_ACTIVE_MEMORY: remember tea/>",
+                "CREATE_ACTIVE_MEMORY",
+                "remember tea",
+            ),
+            (
+                "<APPEND_SKILL: file_manager/>",
+                "APPEND_SKILL",
+                "file_manager",
+            ),
+            (
+                "<RESOLVE_TODO: todo-1/>",
+                "RESOLVE_TODO",
+                "todo-1",
+            ),
+            (
+                "<APPEND_DELAYED_MEMORY: a1b2c3/>",
+                "APPEND_DELAYED_MEMORY",
+                "a1b2c3",
+            ),
+        )
+
+        for marker, action_name, payload in cases:
+            with self.subTest(marker=marker):
+                result = extract_runtime_actions(
+                    marker
+                )
+
+                self.assertEqual(
+                    result.text,
+                    "",
+                )
+                self.assertEqual(
+                    result.actions,
+                    (
+                        RuntimeActionCall(
+                            name=action_name,
+                            payload=payload,
+                        ),
+                    ),
+                )
+                self.assertEqual(
+                    result.removed_markers,
+                    (
+                        marker,
+                    ),
+                )
+
+        self.assertEqual(
+            get_create_active_memory_marker_fields(
+                "<CREATE_ACTIVE_MEMORY: one | two/>"
+            ),
+            (
+                "one",
+                "two",
+            ),
+        )
+
+    def test_stream_filter_handles_split_self_closing_list_skills_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "<LIST_SKILLS"
+        )
+        second = stream_filter.filter(
+            "/>"
+        )
+
+        self.assertEqual(
+            first.text,
+            "",
+        )
+        self.assertEqual(
+            first.actions,
+            (),
+        )
+        self.assertEqual(
+            second.text,
+            "",
+        )
+        self.assertEqual(
+            second.actions,
+            (
+                RuntimeActionCall(
+                    name="LIST_SKILLS",
+                    payload="",
+                ),
+            ),
+        )
+        self.assertEqual(
+            stream_filter.flush(),
+            "",
+        )
+
     def test_extracts_append_and_remove_skill_markers(self):
 
         result = extract_runtime_actions(

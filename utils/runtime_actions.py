@@ -53,7 +53,7 @@ BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
         r"<\s*(?:INTERNAL_ACTION_)?"
         r"(?P<bracketed_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|LIST_SKILLS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<bracketed_query>(?:(?!</\s*>)[^\r\n>])*?))?"
-        r"(?:\s*</\s*>+|\s*>+)"
+        r"(?:\s*</\s*>+|\s*/?\s*>+)"
         r"|"
         r"<\s*(?:INTERNAL_ACTION_)?"
         r"(?P<bracketed_attr_name>APPEND_SKILL)"
@@ -81,8 +81,8 @@ DELAYED_MEMORY_ACTION_PATTERN = re.compile(
         r"(?m:^[^\S\r\n]*"
         r"<?\s*(?:INTERNAL_ACTION_)?"
         r"(?P<name>LIST_DELAYED_MEMORY|APPEND_DELAYED_MEMORY|REMOVE_DELAYED_MEMORY)"
-        r"(?:\s*:\s*(?P<query>[^\r\n>]*))?"
-        r"\s*>?[^\S\r\n]*$)"
+        r"(?:\s*:\s*(?P<query>[^\r\n>]*?))?"
+        r"\s*/?\s*>?[^\S\r\n]*$)"
     ),
     re.IGNORECASE,
 )
@@ -93,7 +93,7 @@ MALFORMED_CALL_INTERNAL_ACTION_PATTERN = re.compile(
         r"<\|?tool_call\>\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
         r"(?P<tool_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_DELAYED_MEMORY|APPEND_DELAYED_MEMORY|REMOVE_DELAYED_MEMORY|LIST_SKILLS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<tool_call_query>(?:(?!</\s*>)[^\r\n>])*?))?"
-        r"(?:\s*</\s*>+|\s*>+|[^\S\r\n]*(?=\r?\n|$))"
+        r"(?:\s*</\s*>+|\s*/?\s*>+|[^\S\r\n]*(?=\r?\n|$))"
         r"|"
         r"(?m:^\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
         r"(?P<bare_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_DELAYED_MEMORY|APPEND_DELAYED_MEMORY|REMOVE_DELAYED_MEMORY|LIST_SKILLS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
@@ -176,7 +176,7 @@ DELAYED_MEMORY_BLOCK_END_RE = re.compile(
 CREATE_ACTIVE_MEMORY_MARKER_RE = re.compile(
     (
         r"^\s*<?\s*(?:INTERNAL_ACTION_)?CREATE_ACTIVE_MEMORY"
-        r"\s*:\s*(?P<fields>(?:(?!</\s*>).)*?)\s*(?:</\s*>+|>+)\s*$"
+        r"\s*:\s*(?P<fields>(?:(?!</\s*>).)*?)\s*(?:</\s*>+|/?\s*>+)\s*$"
         r"|"
         r"^\s*(?:INTERNAL_ACTION_)?CREATE_ACTIVE_MEMORY"
         r"\s*:\s*(?P<bare_fields>[^\r\n]*)\s*$"
@@ -187,7 +187,7 @@ CREATE_ACTIVE_MEMORY_MARKER_RE = re.compile(
 INTERNAL_ACTION_WITH_PAYLOAD_MARKER_RE = re.compile(
     (
         r"^\s*<?\s*(?:INTERNAL_ACTION_)?[A-Z_]+"
-        r"\s*:\s*(?P<payload>(?:(?!</\s*>).)*?)\s*(?:</\s*>+|>+)\s*$"
+        r"\s*:\s*(?P<payload>(?:(?!</\s*>).)*?)\s*(?:</\s*>+|/?\s*>+)\s*$"
         r"|"
         r"^\s*(?:INTERNAL_ACTION_)?[A-Z_]+"
         r"\s*:\s*(?P<bare_payload>[^\r\n]*)\s*$"
