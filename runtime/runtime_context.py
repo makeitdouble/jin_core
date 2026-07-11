@@ -300,9 +300,9 @@ def format_session_state(
     ]
 
     lines.extend([
-        f"    Total turns count:      {turn_number if turn_number is not None else 0}",
-        f"    User messages count:    {user_message_count if user_message_count is not None else 0}",
-        f"    JIN messages count:     {assistant_message_count if assistant_message_count is not None else 0}",
+        f"    User messages count:          {user_message_count or 0}",
+        f"    JIN messages count:           {assistant_message_count or 0}",
+        f"    Total messages count:         {(user_message_count or 0) + (assistant_message_count or 0)}",
         "</CURRENT_SESSION_STATE>",
     ])
 

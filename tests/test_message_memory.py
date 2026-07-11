@@ -908,7 +908,7 @@ class MessageMemoryTests(
             prompt.index("<SESSION_ACTIONS_HISTORY>"),
         )
         self.assertIn(
-            "Total turns count:      2",
+            "Total messages count:         4",
             prompt,
         )
         self.assertIn(
@@ -1078,7 +1078,7 @@ class MessageMemoryTests(
         )[0]
 
         self.assertIn(
-            "JIN messages count:     3",
+            "JIN messages count:           3",
             session_state,
         )
 
@@ -2475,7 +2475,7 @@ class MessageMemoryTests(
             user_prompt,
         )
         self.assertNotIn(
-            "Total turns count:",
+            "Total messages count:",
             user_prompt,
         )
         self.assertIn(
