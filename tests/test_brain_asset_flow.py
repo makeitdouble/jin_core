@@ -4,6 +4,8 @@ from unittest.mock import patch
 
 from agent.nodes.brain import (
     BrainNode,
+    FOLLOWUP_SYSTEM_MESSAGE,
+    build_followup_system_message,
     format_followup_action_from_event,
     format_followup_actions_from_events,
 )
@@ -52,30 +54,12 @@ def _assert_latest_request_payload(
         payload,
         "",
     )
+    expected_followup_message = build_followup_system_message(
+        latest_action_fragment or "",
+    )
     test_case.assertTrue(
         system_prompt.startswith(
-            "This is runtime system message!\n"
-            "Multi-step task in progress!\n"
-            "This is not a start of a task sequence!\n"
-            "This is not a new request!"
-        ),
-        system_prompt,
-    )
-    test_case.assertIn(
-        (
-            "This is follow-up tick for JIN latest action: "
-        ),
-        system_prompt,
-    )
-    if latest_action_fragment is not None:
-        test_case.assertIn(
-            latest_action_fragment,
-            system_prompt,
-        )
-    test_case.assertIn(
-        (
-            "Requested and available information provided in "
-            "tool results section."
+            expected_followup_message
         ),
         system_prompt,
     )
@@ -85,9 +69,6 @@ def _assert_latest_request_payload(
     )
     latest_request_block = (
         "<LATEST_USER_REQUEST>\n"
-        "!!!this is not a current user prompt!!!\n"
-        "!!!this is not a start message!!!\n"
-        "!!!this is initial user request provided by follow up tick!!!\n"
         "\n"
         f"{user_input}\n"
         "</LATEST_USER_REQUEST>"
@@ -528,9 +509,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertTrue(
                     kwargs["system_prompt"].startswith(
-                        "This is runtime system message!\n"
-                        "Multi-step task in progress!\n"
-                        "This is not a start of a task sequence!"
+                        FOLLOWUP_SYSTEM_MESSAGE
                     ),
                     kwargs["system_prompt"],
                 )
@@ -608,9 +587,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertTrue(
                     kwargs["system_prompt"].startswith(
-                        "This is runtime system message!\n"
-                        "Multi-step task in progress!\n"
-                        "This is not a start of a task sequence!"
+                        FOLLOWUP_SYSTEM_MESSAGE
                     ),
                     kwargs["system_prompt"],
                 )
