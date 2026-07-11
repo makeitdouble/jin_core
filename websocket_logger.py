@@ -79,6 +79,7 @@ class WebSocketLogger:
             message: str,
             details: str | None = None,
             event: str | None = None,
+            **extra,
     ):
         await self.log(
             f"[MEMORY:{level}]",
@@ -87,6 +88,7 @@ class WebSocketLogger:
             channel="memory",
             memory_level=level,
             memory_event=event,
+            **extra,
         )
 
     async def log_active_memory(

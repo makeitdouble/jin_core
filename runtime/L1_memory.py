@@ -1,8 +1,10 @@
 import asyncio
 import contextlib
 import traceback
+from uuid import uuid4
 from clients.service_client import (
     ask_service_model,
+    ask_service_model_stream,
 )
 from config_loader import (
     config,
@@ -33,6 +35,7 @@ from runtime.memory_common import (
     latest_turn_context_is_overloaded,
     log_memory_event,
     log_runtime_summarizer_payload,
+    log_runtime_summarizer_stream_event,
     looks_like_incomplete_runtime_memory,
     refresh_runtime_memory_summarizer_usage,
     runtime_prompt_is_context_overloaded,
@@ -215,6 +218,192 @@ async def apply_runtime_response_feedback(
         "runtime_memory": cleaned_memory,
     }
 
+async def ask_l1_summarizer(
+        *,
+        context,
+        service_client,
+        label: str,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        max_tokens: int,
+) -> dict:
+
+    stream_enabled = callable(
+        getattr(
+            service_client,
+            "stream",
+            None,
+        )
+    )
+    stream_id = (
+        f"l1-{uuid4().hex}"
+        if stream_enabled
+        else None
+    )
+
+    await log_runtime_summarizer_payload(
+        context,
+        label=label,
+        payload=build_runtime_summarizer_payload(
+            service_client=service_client,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=stream_enabled,
+        ),
+        stream_id=stream_id,
+    )
+
+    if not stream_enabled:
+        return await ask_service_model(
+            client=service_client,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=config.SERVICE_REQUEST_TIMEOUT,
+        )
+
+    reasoning_parts = []
+    content_parts = []
+    usage = {}
+    finish_reason = "stop"
+    stream_started = False
+
+    try:
+        async for model_chunk in ask_service_model_stream(
+                context=context,
+                client=service_client,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+        ):
+            chunk_type = str(
+                model_chunk.get(
+                    "type",
+                    "",
+                )
+                or ""
+            )
+
+            if not stream_started:
+                stream_started = True
+                await log_runtime_summarizer_stream_event(
+                    context,
+                    label=label,
+                    stream_id=stream_id,
+                    event="start",
+                )
+
+            if chunk_type == "usage":
+                usage = {
+                    key: value
+                    for key, value in model_chunk.items()
+                    if key != "type"
+                }
+                continue
+
+            if chunk_type == "finish":
+                finish_reason = str(
+                    model_chunk.get(
+                        "finish_reason",
+                        "",
+                    )
+                    or "stop"
+                )
+                continue
+
+            if chunk_type not in {
+                "thinking",
+                "content",
+            }:
+                continue
+
+            chunk = str(
+                model_chunk.get(
+                    "content",
+                    "",
+                )
+                or ""
+            )
+
+            if not chunk:
+                continue
+
+            if chunk_type == "thinking":
+                reasoning_parts.append(
+                    chunk
+                )
+            else:
+                content_parts.append(
+                    chunk
+                )
+
+            await log_runtime_summarizer_stream_event(
+                context,
+                label=label,
+                stream_id=stream_id,
+                event="chunk",
+                chunk_kind=chunk_type,
+                chunk=chunk,
+            )
+
+    except asyncio.CancelledError:
+        raise
+
+    except Exception:
+        if stream_started:
+            await log_runtime_summarizer_stream_event(
+                context,
+                label=label,
+                stream_id=stream_id,
+                event="error",
+            )
+        raise
+
+    await log_runtime_summarizer_stream_event(
+        context,
+        label=label,
+        stream_id=stream_id,
+        event="end",
+    )
+
+    message = {
+        "content": "".join(
+            content_parts
+        ),
+    }
+    reasoning = "".join(
+        reasoning_parts
+    )
+
+    if reasoning:
+        message["reasoning_content"] = reasoning
+
+    response = {
+        "model": getattr(
+            service_client,
+            "model_uid",
+            "",
+        ),
+        "choices": [
+            {
+                "index": 0,
+                "finish_reason": finish_reason,
+                "message": message,
+            },
+        ],
+    }
+
+    if usage:
+        response["usage"] = usage
+
+    return response
+
+
 async def ask_runtime_memory_model(
         *,
         context=None,
@@ -294,25 +483,14 @@ async def ask_runtime_memory_model(
         config.SERVICE_MAX_TOKENS
     )
 
-    await log_runtime_summarizer_payload(
-        context,
+    response = await ask_l1_summarizer(
+        context=context,
+        service_client=service_client,
         label="L1",
-        payload=build_runtime_summarizer_payload(
-            service_client=service_client,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        ),
-    )
-
-    response = await ask_service_model(
-        client=service_client,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         temperature=temperature,
         max_tokens=max_tokens,
-        timeout=config.SERVICE_REQUEST_TIMEOUT,
     )
 
     await refresh_runtime_memory_summarizer_usage(
@@ -377,25 +555,14 @@ async def ask_runtime_memory_batch_model(
         else "L1"
     )
 
-    await log_runtime_summarizer_payload(
-        context,
+    response = await ask_l1_summarizer(
+        context=context,
+        service_client=service_client,
         label=log_label,
-        payload=build_runtime_summarizer_payload(
-            service_client=service_client,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        ),
-    )
-
-    response = await ask_service_model(
-        client=service_client,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         temperature=temperature,
         max_tokens=max_tokens,
-        timeout=config.SERVICE_REQUEST_TIMEOUT,
     )
 
     await refresh_runtime_memory_summarizer_usage(

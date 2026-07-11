@@ -349,6 +349,7 @@ async def log_memory_event(
         details: str | None = None,
         fallback_channel: str = "runtime",
         event: str | None = None,
+        **extra,
 ) -> None:
 
     logger = getattr(
@@ -370,6 +371,7 @@ async def log_memory_event(
             message,
             details=details,
             event=event,
+            **extra,
         )
         return
 
@@ -749,6 +751,7 @@ def build_runtime_summarizer_payload(
         user_prompt: str,
         temperature: float,
         max_tokens: int,
+        stream: bool = False,
 ) -> dict:
 
     return {
@@ -769,7 +772,7 @@ def build_runtime_summarizer_payload(
         ],
         "temperature": temperature,
         "max_tokens": max_tokens,
-        "stream": False,
+        "stream": bool(stream),
     }
 
 
@@ -778,7 +781,13 @@ async def log_runtime_summarizer_payload(
         *,
         label: str,
         payload: dict,
+        stream_id: str | None = None,
 ) -> None:
+
+    extra = {}
+
+    if stream_id:
+        extra["summarizer_stream_id"] = stream_id
 
     await log_memory_event(
         context,
@@ -793,6 +802,31 @@ async def log_runtime_summarizer_payload(
         ),
         fallback_channel="summarizer",
         event="summarizer_request",
+        **extra,
+    )
+
+
+async def log_runtime_summarizer_stream_event(
+        context,
+        *,
+        label: str,
+        stream_id: str,
+        event: str,
+        chunk_kind: str | None = None,
+        chunk: str | None = None,
+) -> None:
+
+    await log_memory_event(
+        context,
+        level=get_memory_log_level(
+            label
+        ),
+        message=f"{label} summarizer stream",
+        fallback_channel="summarizer",
+        event=f"summarizer_stream_{event}",
+        summarizer_stream_id=stream_id,
+        summarizer_stream_kind=chunk_kind,
+        summarizer_stream_chunk=chunk,
     )
 
 

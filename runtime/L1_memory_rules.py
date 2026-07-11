@@ -207,6 +207,7 @@ KEY_SEMANTICS = (
     "your_semantic_key: another_semantic_key: Descriptive value.\n"
     "\n"
     "No generic keys like 'info' or 'data'.\n"
+    "You can skip a key if no valid information is specified.\n"
     "You may create semantic keys whenever they better capture an explicit current fact.\n"
     "Treat labels as semantic registers, not fixed database fields.\n"
     "Treat the example keys below as illustrative, not as a closed schema.\n"
@@ -216,10 +217,10 @@ KEY_SEMANTICS = (
     "If an existing key already represents the same semantic state, update it in place.\n"
     "Use lowercase words with underscores for new keys.\n"
     "Choose names that help immediate continuity and retrieval.\n"
-    "Example keys may include: user_fact, user_name, user_state, user_identity, user_work, \n"
+    "Example keys (not mandatory): user_fact, user_name, user_state, user_identity, user_work, \n"
     "jin_fact, jin_purpose, jin_state, jin_identity.\n"
     "Update usual keys value when needed.\n"
-    "Example usual keys may include: session_status, active_topic, current_task, current_request, "
+    "Example usual keys (not mandatory): session_status, active_topic, current_task, current_request, "
     "user_focus, user_intent, open_question, open_risk, pending_choice, pending_action, "
     "test_result, observed_behavior, interaction_state, dormant_thread.\n"
     "</memory_line_semantics_rules>\n"
@@ -270,7 +271,7 @@ def build_runtime_memory_system_prompt(
     prompt = (
         ROLE
         + KEY_SEMANTICS
-        + DURABLE_CARRY_FORWARD
+#        + DURABLE_CARRY_FORWARD
         + OUTPUT_FORMAT
     )
 

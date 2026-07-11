@@ -807,6 +807,11 @@ class RuntimeClient:
 
                     if finish_reason:
 
+                        yield {
+                            "type": "finish",
+                            "finish_reason": finish_reason,
+                        }
+
                         continue
 
         # ---------------------------------------------------------
