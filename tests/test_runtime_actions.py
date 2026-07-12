@@ -26,6 +26,13 @@ from utils.assets_service import (
 from utils.runtime_todo import (
     create_runtime_todo,
 )
+from utils.tool_results import (
+    TOOL_RESULT_KIND_ASSET,
+    TOOL_RESULT_KIND_DELAYED_MEMORY,
+    TOOL_RESULT_KIND_SEARCH,
+    begin_runtime_tool_results_turn,
+    record_runtime_tool_result,
+)
 from utils.runtime_actions import (
     RuntimeActionCall,
     RuntimeActionRepetitionGuard,
@@ -457,6 +464,29 @@ class RuntimeActionTests(unittest.TestCase):
             (
                 RuntimeActionCall(
                     name="HIDE_SKILLS",
+                    payload="",
+                ),
+            ),
+        )
+
+    def test_extracts_clean_tool_results_marker(self):
+
+        result = extract_runtime_actions(
+            runtime_rules.INTERNAL_ACTION_CLEAN_TOOL_RESULTS_MARKER,
+            enabled_actions=[
+                runtime_rules.RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name=runtime_rules.RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
                     payload="",
                 ),
             ),
@@ -1759,6 +1789,53 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             stream_filter.flush(),
             "",
+        )
+
+    def test_stream_filter_handles_split_clean_tool_results_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                runtime_rules.RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+            ],
+        )
+
+        first = stream_filter.filter(
+            "visible answer\n\n<CLEAN_"
+        )
+        second = stream_filter.filter(
+            "TOOL_RESULTS>"
+        )
+
+        self.assertEqual(
+            first.text,
+            "visible answer\n\n",
+        )
+        self.assertEqual(
+            first.actions,
+            (),
+        )
+        self.assertEqual(
+            second.text,
+            "",
+        )
+        self.assertEqual(
+            second.actions,
+            (),
+        )
+
+        flushed = stream_filter.flush_result()
+
+        self.assertEqual(
+            flushed.text,
+            "",
+        )
+        self.assertEqual(
+            flushed.actions,
+            (
+                RuntimeActionCall(
+                    name=runtime_rules.RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+                ),
+            ),
         )
 
     def test_stream_filter_handles_split_bracketed_web_search_marker(self):
@@ -4453,6 +4530,169 @@ class RuntimeActionTests(unittest.TestCase):
             },
         )
 
+    def test_recorded_tool_results_replace_then_append_in_order(self):
+
+        class Context:
+            pass
+
+        context = Context()
+        context.runtime_tool_results = [
+            {
+                "kind": TOOL_RESULT_KIND_SEARCH,
+                "result": "<RESULTS>old result</RESULTS>",
+            },
+        ]
+
+        begin_runtime_tool_results_turn(
+            context
+        )
+        record_runtime_tool_result(
+            context,
+            TOOL_RESULT_KIND_ASSET,
+            {
+                "ok": True,
+                "action": "list_skills",
+                "skills": [
+                    {
+                        "name": "file_manager",
+                        "path": "assets/skills/file_manager.txt",
+                    },
+                ],
+            },
+        )
+        record_runtime_tool_result(
+            context,
+            TOOL_RESULT_KIND_DELAYED_MEMORY,
+            {
+                "ok": True,
+                "action": "list_delayed_memory",
+                "reports": [],
+            },
+        )
+
+        tool_results = build_tool_results_context(
+            context
+        )
+
+        self.assertNotIn(
+            "old result",
+            tool_results,
+        )
+        self.assertLess(
+            tool_results.index("file_manager"),
+            tool_results.index("No delayed memory reports saved."),
+        )
+        self.assertEqual(
+            len(context.runtime_tool_results),
+            2,
+        )
+
+    def test_clean_tool_results_action_clears_all_result_state(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+        context.runtime_action_events = []
+        context.runtime_search_calls = []
+        context.runtime_appended_skills = []
+        context.runtime_tool_results = [
+            {
+                "kind": TOOL_RESULT_KIND_SEARCH,
+                "result": "search result",
+            },
+        ]
+        context.runtime_tool_results_turn_count = 1
+        context.runtime_search_result = "search result"
+        context.runtime_search_result_id = "web_search_001"
+        context.runtime_asset_results = [
+            {
+                "action": "list_skills",
+            },
+        ]
+        context.runtime_asset_retry_results = [
+            {
+                "action": "create_asset_file",
+            },
+        ]
+        context.runtime_asset_retry_context = [
+            {
+                "action": "create_asset_file",
+            },
+        ]
+        context.runtime_delayed_memory_results = [
+            {
+                "action": "list_delayed_memory",
+            },
+        ]
+        context.runtime_visible_skills_result = {
+            "action": "list_skills",
+        }
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name=runtime_rules.RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertEqual(
+            context.runtime_tool_results,
+            [],
+        )
+        self.assertEqual(
+            context.runtime_search_result,
+            "",
+        )
+        self.assertEqual(
+            context.runtime_search_result_id,
+            "",
+        )
+        self.assertEqual(
+            context.runtime_asset_results,
+            [],
+        )
+        self.assertEqual(
+            context.runtime_asset_retry_results,
+            [],
+        )
+        self.assertEqual(
+            context.runtime_asset_retry_context,
+            [],
+        )
+        self.assertEqual(
+            context.runtime_delayed_memory_results,
+            [],
+        )
+        self.assertEqual(
+            context.runtime_visible_skills_result,
+            {},
+        )
+        self.assertEqual(
+            context.runtime_action_events[-1]["name"],
+            "clean_tool_results",
+        )
+        self.assertEqual(
+            context.emitter.events[-1]["action"],
+            "clean_tool_results",
+        )
+
     def test_append_delayed_memory_uses_appended_context_block(self):
 
         class Emitter:
@@ -4512,11 +4752,11 @@ class RuntimeActionTests(unittest.TestCase):
         tool_results = build_tool_results_context(
             context
         )
-        self.assertNotIn(
+        self.assertIn(
             "<TOOL_RESULTS type='delayed_memory'>",
             tool_results,
         )
-        self.assertNotIn(
+        self.assertIn(
             "1. Русский отчёт | id: a1b2c3",
             tool_results,
         )

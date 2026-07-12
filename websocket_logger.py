@@ -46,10 +46,10 @@ class WebSocketLogger:
         await self.log("[PAYLOAD]", payload[:limit])
 
     async def log_brain(self, message: str):
-        await self.log("[BRAIN]", message)
+        return None
 
     async def log_service(self, message: str):
-        await self.log("[SERVICE]", message)
+        return None
 
     async def log_summarizer(
             self,
@@ -106,7 +106,7 @@ class WebSocketLogger:
         )
 
     async def log_service_as_brain(self, message: str):
-        await self.log("[SERVICE as BRAIN]", message)
+        return None
 
     async def log_error(
             self,

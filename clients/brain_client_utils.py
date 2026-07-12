@@ -61,6 +61,7 @@ from rules.runtime import (
     RUNTIME_ACTION_LIST_DELAYED_MEMORY,
     RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_HIDE_SKILLS,
+    RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
     RUNTIME_ACTION_REMOVE_SKILL,
     RUNTIME_ACTION_RESOLVE_TODO,
@@ -99,6 +100,13 @@ from utils.runtime_actions import (
 from utils.session_actions_history import (
     build_asset_action_history_text,
     record_session_action_history,
+)
+from utils.tool_results import (
+    TOOL_RESULT_KIND_ASSET,
+    TOOL_RESULT_KIND_DELAYED_MEMORY,
+    clear_runtime_tool_results,
+    record_runtime_tool_result,
+    remove_runtime_tool_results,
 )
 from utils.runtime_todo import (
     apply_runtime_todo_action_result,
@@ -895,6 +903,11 @@ def append_asset_runtime_result(
     asset_results.append(
         result
     )
+    record_runtime_tool_result(
+        context,
+        TOOL_RESULT_KIND_ASSET,
+        result,
+    )
 
 
 def append_delayed_memory_runtime_result(
@@ -938,6 +951,11 @@ def append_delayed_memory_runtime_result(
 
     delayed_memory_results.append(
         result
+    )
+    record_runtime_tool_result(
+        context,
+        TOOL_RESULT_KIND_DELAYED_MEMORY,
+        result,
     )
 
 
@@ -1557,6 +1575,7 @@ async def apply_runtime_action_calls(
     list_delayed_memory_seen = False
     list_skills_seen = False
     hide_skills_seen = False
+    clean_tool_results_seen = False
     resolved_user_message = resolve_runtime_action_user_message(
         context,
         user_message,
@@ -1569,6 +1588,7 @@ async def apply_runtime_action_calls(
         *skill_state_action_names,
         RUNTIME_ACTION_LIST_SKILLS,
         RUNTIME_ACTION_HIDE_SKILLS,
+        RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     }
     todo_action_names = {
         RUNTIME_ACTION_CREATE_TODO_LIST,
@@ -1801,6 +1821,12 @@ async def apply_runtime_action_calls(
 
             hide_skills_seen = True
 
+        if action.name == RUNTIME_ACTION_CLEAN_TOOL_RESULTS:
+            if clean_tool_results_seen:
+                continue
+
+            clean_tool_results_seen = True
+
         if action.name == RUNTIME_ACTION_APPEND_SKILL:
             requested_skill = normalize_skill_name(
                 action.payload
@@ -2001,6 +2027,12 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_HIDE_SKILLS
     ]
 
+    clean_tool_result_actions = [
+        action
+        for action in filtered_actions
+        if action.name == RUNTIME_ACTION_CLEAN_TOOL_RESULTS
+    ]
+
     append_skill_actions = [
         action
         for action in filtered_actions
@@ -2106,6 +2138,35 @@ async def apply_runtime_action_calls(
                     "runtime_todo_result": result,
                 }))
 
+    if clean_tool_result_actions:
+        if log_runtime is not None:
+            await log_runtime(
+                "[RUNTIME ACTION] clean_tool_results requested"
+            )
+
+        clear_runtime_tool_results(
+            context
+        )
+
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is not None:
+            await emit(with_action_context({
+                "type": "runtime_action",
+                "action": "clean_tool_results",
+                "status": "completed",
+                "text": "Tool results cleared",
+            }))
+
     saved_asset_results = []
 
     if list_skill_actions:
@@ -2153,6 +2214,14 @@ async def apply_runtime_action_calls(
                 )
             )
             context.runtime_visible_skills_result = {}
+            remove_runtime_tool_results(
+                context,
+                lambda entry: (
+                    entry.get("kind") == TOOL_RESULT_KIND_ASSET
+                    and isinstance(entry.get("result"), dict)
+                    and entry["result"].get("action") == "list_skills"
+                ),
+            )
 
             for attribute_name in (
                 "runtime_asset_results",
@@ -3140,6 +3209,9 @@ async def apply_runtime_action_calls(
         )
         + len(
             hidden_skill_results
+        )
+        + len(
+            clean_tool_result_actions
         )
         + min(
             save_session_count,

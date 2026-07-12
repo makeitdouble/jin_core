@@ -66,6 +66,17 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
             (
                 "LIST_SKILLS",
                 "HIDE_SKILLS",
+            )
+        )
+
+    if bool(runtime_actions.get("CAN_CLEAN_TOOL_RESULTS", False)):
+        expected_actions.append(
+            "CLEAN_TOOL_RESULTS"
+        )
+
+    if bool(runtime_actions.get("CAN_USE_ASSETS", False)):
+        expected_actions.extend(
+            (
                 "APPEND_SKILL",
                 "REMOVE_SKILL",
                 "ASSET_ACTION",

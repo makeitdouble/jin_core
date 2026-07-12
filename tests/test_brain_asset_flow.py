@@ -5,6 +5,7 @@ from unittest.mock import patch
 from agent.nodes.brain import (
     BrainNode,
     FOLLOWUP_SYSTEM_MESSAGE,
+    action_event_requires_follow_up,
     build_followup_system_message,
     format_followup_action_from_event,
     format_followup_actions_from_events,
@@ -17,6 +18,10 @@ from clients.brain_context_builder import (
     build_tool_results_context,
 )
 from agent.state import AgentState
+from utils.tool_results import (
+    TOOL_RESULT_KIND_ASSET,
+    record_runtime_tool_result,
+)
 
 
 def _brain_runtime():
@@ -178,6 +183,18 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 context
             ),
             "",
+        )
+
+    async def test_followup_always_contains_tool_results_block(self):
+
+        prompt = BrainNode.build_followup_system_prompt(
+            "system prompt without results",
+            "inspect available skills",
+        )
+
+        self.assertIn(
+            "<TOOL_RESULTS>\n</TOOL_RESULTS>",
+            prompt,
         )
 
     async def test_followup_event_formatter_keeps_only_action_name(self):
@@ -1384,6 +1401,63 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
+    async def test_no_follow_up_action_keeps_visible_answer_without_tick(self):
+
+        calls = []
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+            kwargs["context"].runtime_action_events.append({
+                "name": "clean_tool_results",
+            })
+            return "Done. Search results have been cleared.", ""
+
+        context = _context()
+        state = AgentState(
+            user_input="clear search results",
+        )
+        state.translated_input = state.user_input
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=_brain_runtime(),
+        ), patch(
+            "agent.nodes.brain.build_brain_system_prompt",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.build_brain_payload",
+            return_value="brain payload",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            len(calls),
+            1,
+        )
+        self.assertEqual(
+            state.brain_response,
+            "Done. Search results have been cleared.",
+        )
+        self.assertFalse(
+            action_event_requires_follow_up({
+                "name": "clean_tool_results",
+            })
+        )
+        self.assertTrue(
+            action_event_requires_follow_up({
+                "name": "web_search",
+            })
+        )
     async def test_every_action_message_triggers_followup_and_keeps_actions_enabled(self):
 
         calls = []
@@ -1560,6 +1634,149 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             state.brain_response,
             "Finished.",
+        )
+
+    async def test_one_step_tool_result_remains_after_sequence(self):
+
+        calls = []
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+            context = kwargs["context"]
+
+            if len(calls) == 1:
+                record_runtime_tool_result(
+                    context,
+                    TOOL_RESULT_KIND_ASSET,
+                    {
+                        "ok": True,
+                        "action": "list_skills",
+                        "skills": [],
+                    },
+                )
+                context.runtime_action_events.append({
+                    "name": "list_skills",
+                })
+                return "", ""
+
+            return "Finished.", ""
+
+        context = _context()
+        state = AgentState(
+            user_input="inspect available skills",
+        )
+        state.translated_input = state.user_input
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=_brain_runtime(),
+        ), patch(
+            "agent.nodes.brain.build_brain_system_prompt",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.build_brain_payload",
+            return_value="brain payload",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            len(context.runtime_tool_results),
+            1,
+        )
+        self.assertEqual(
+            context.runtime_tool_results[0]["result"]["action"],
+            "list_skills",
+        )
+
+    async def test_multi_step_tool_results_clear_after_sequence(self):
+
+        calls = []
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+            context = kwargs["context"]
+
+            if len(calls) == 1:
+                record_runtime_tool_result(
+                    context,
+                    TOOL_RESULT_KIND_ASSET,
+                    {
+                        "ok": True,
+                        "action": "list_skills",
+                        "skills": [],
+                    },
+                )
+                context.runtime_action_events.append({
+                    "name": "list_skills",
+                })
+                return "", ""
+
+            if len(calls) == 2:
+                record_runtime_tool_result(
+                    context,
+                    TOOL_RESULT_KIND_ASSET,
+                    {
+                        "ok": True,
+                        "action": "read_asset_file",
+                        "content": "skill content",
+                    },
+                )
+                context.runtime_action_events.append({
+                    "name": "asset_action",
+                })
+                return "", ""
+
+            return "Finished.", ""
+
+        context = _context()
+        state = AgentState(
+            user_input="inspect and read the skill",
+        )
+        state.translated_input = state.user_input
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=_brain_runtime(),
+        ), patch(
+            "agent.nodes.brain.build_brain_system_prompt",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.build_brain_payload",
+            return_value="brain payload",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            len(calls),
+            3,
+        )
+        self.assertEqual(
+            context.runtime_tool_results,
+            [],
+        )
+        self.assertEqual(
+            context.runtime_asset_results,
+            [],
         )
 
     async def test_followup_limit_runs_final_non_executable_tick(self):

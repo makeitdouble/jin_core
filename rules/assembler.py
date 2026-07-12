@@ -24,6 +24,7 @@ from .runtime import (
     INTERNAL_ACTION_APPEND_SKILL_MARKER,
     INTERNAL_ACTION_LIST_SKILLS_MARKER,
     INTERNAL_ACTION_HIDE_SKILLS_MARKER,
+    INTERNAL_ACTION_CLEAN_TOOL_RESULTS_MARKER,
     INTERNAL_ACTION_REMOVE_SKILL_MARKER,
     INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY_MARKER,
     INTERNAL_ACTION_RESOLVE_TODO_MARKER,
@@ -39,6 +40,7 @@ from .runtime import (
     RUNTIME_ACTION_APPEND_SKILL,
     RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_HIDE_SKILLS,
+    RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_REMOVE_SKILL,
     RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
@@ -63,6 +65,7 @@ SERVICE_AS_BRAIN_RUNTIME_ACTIONS = {
     "CAN_SAVE_DELAYED_MEMORY": True,
     "CAN_SAVE_ACTIVE_MEMORY": True,
     "CAN_RUNTIME_TODO": False,
+    "CAN_CLEAN_TOOL_RESULTS": True,
 }
 
 BRAIN_RUNTIME_ACTIONS = {
@@ -72,6 +75,7 @@ BRAIN_RUNTIME_ACTIONS = {
     "CAN_SAVE_DELAYED_MEMORY": True,
     "CAN_SAVE_ACTIVE_MEMORY": True,
     "CAN_RUNTIME_TODO": False,
+    "CAN_CLEAN_TOOL_RESULTS": True,
 }
 
 
@@ -112,6 +116,10 @@ def get_enabled_runtime_actions(
         (
             RUNTIME_ACTION_HIDE_SKILLS,
             "CAN_USE_ASSETS",
+        ),
+        (
+            RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+            "CAN_CLEAN_TOOL_RESULTS",
         ),
         (
             RUNTIME_ACTION_APPEND_SKILL,
@@ -226,6 +234,35 @@ def _context_has_list_skills_tool_result(
     ):
         return True
 
+    tool_result_entries = list(
+        getattr(
+            context,
+            "runtime_tool_results",
+            [],
+        )
+        or []
+    )
+    for entry in tool_result_entries:
+        if not isinstance(
+            entry,
+            dict,
+        ):
+            continue
+
+        result = entry.get(
+            "result"
+        )
+        if (
+            isinstance(
+                result,
+                dict,
+            )
+            and result.get(
+                "action"
+            ) == "list_skills"
+        ):
+            return True
+
     for result in (
         getattr(
             context,
@@ -259,6 +296,13 @@ def _build_allowed_markers(
 
     if _action_enabled(enabled_actions, RUNTIME_ACTION_WEB_SEARCH, "web_search"):
         markers.append(INTERNAL_ACTION_WEB_SEARCH_MARKER)
+
+    if _action_enabled(
+        enabled_actions,
+        RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+        "clean_tool_results",
+    ):
+        markers.append(INTERNAL_ACTION_CLEAN_TOOL_RESULTS_MARKER)
 
     if (
         _action_enabled(enabled_actions, RUNTIME_ACTION_LIST_SKILLS, "list_skills")

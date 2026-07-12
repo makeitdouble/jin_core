@@ -36,6 +36,10 @@ from utils.assets_service import (
 from utils.session_actions_history import (
     build_asset_action_history_text,
 )
+from utils.tool_results import (
+    TOOL_RESULT_KIND_DELAYED_MEMORY,
+    record_runtime_tool_result,
+)
 
 
 class RuntimeStream:
@@ -694,6 +698,11 @@ class RuntimeStream:
                 )
             delayed_memory_results.append(
                 failure_result
+            )
+            record_runtime_tool_result(
+                self.context,
+                TOOL_RESULT_KIND_DELAYED_MEMORY,
+                failure_result,
             )
 
             if emit is not None:

@@ -61,6 +61,12 @@ class RuntimeContext:
 
     runtime_search_result_id: str = ""
 
+    runtime_tool_results: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_tool_results_turn_count: int = 0
+
     runtime_asset_results: list[dict] = field(
         default_factory=list
     )

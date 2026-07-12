@@ -15,6 +15,9 @@ from clients.brain_client import (
 from rules.assembler import (
     build_brain_system_prompt,
 )
+from rules.runtime import (
+    NO_FOLLOW_UP_INTERNAL_ACTIONS,
+)
 
 from clients.search_client import (
     build_search_result_fallback_answer,
@@ -28,11 +31,50 @@ from clients.brain_client_utils import (
 from utils.language import (
     contains_cyrillic,
 )
+from utils.tool_results import (
+    TOOL_RESULT_KIND_SEARCH,
+    begin_runtime_tool_results_turn,
+    clear_runtime_tool_results,
+    record_runtime_tool_result,
+)
 
 from config_loader import (
     config,
 )
 
+def build_no_follow_up_action_names() -> frozenset[str]:
+
+    names = set()
+
+    for marker in NO_FOLLOW_UP_INTERNAL_ACTIONS:
+        marker_text = str(marker or "").strip()
+
+        if not marker_text:
+            continue
+
+        marker_text = marker_text.lstrip("<").split(":", 1)[0]
+        marker_text = marker_text.split(">", 1)[0].strip()
+
+        if marker_text.startswith("INTERNAL_ACTION_"):
+            marker_text = marker_text[len("INTERNAL_ACTION_"):]
+
+        if marker_text:
+            names.add(marker_text.casefold())
+
+    return frozenset(names)
+
+
+NO_FOLLOW_UP_ACTION_NAMES = build_no_follow_up_action_names()
+
+
+def action_event_requires_follow_up(event) -> bool:
+
+    if not isinstance(event, dict):
+        return True
+
+    name = str(event.get("name", "") or "").strip().casefold()
+
+    return name not in NO_FOLLOW_UP_ACTION_NAMES
 
 def prepare_asset_results_for_turn(
         context,
@@ -334,6 +376,11 @@ class BrainNode(BaseNode):
         if instruction.strip():
             sections.append(
                 instruction.strip()
+            )
+
+        if "<TOOL_RESULTS" not in system_prompt:
+            sections.append(
+                "<TOOL_RESULTS>\n</TOOL_RESULTS>"
             )
 
         sections.append(
@@ -755,6 +802,9 @@ class BrainNode(BaseNode):
             )
         )
 
+        begin_runtime_tool_results_turn(
+            context
+        )
         context.runtime_search_queries.clear()
         context.runtime_search_calls.clear()
         context.runtime_search_result = ""
@@ -886,8 +936,13 @@ class BrainNode(BaseNode):
                 for event in runtime_action_events[
                     action_event_followup_offset:
                 ]
-                if belongs_to_current_turn(
-                    event
+                if (
+                    belongs_to_current_turn(
+                        event
+                    )
+                    and action_event_requires_follow_up(
+                        event
+                    )
                 )
             ]
 
@@ -993,6 +1048,12 @@ class BrainNode(BaseNode):
 
                 context.runtime_search_result = search_result
                 context.runtime_search_result_id = tool_call_id
+                record_runtime_tool_result(
+                    context,
+                    TOOL_RESULT_KIND_SEARCH,
+                    search_result,
+                    result_id=tool_call_id,
+                )
 
                 followup_action_events = (
                     consume_current_action_batch()
@@ -1383,6 +1444,34 @@ class BrainNode(BaseNode):
                 ),
                 filter_runtime_actions=False,
                 preserve_runtime_action_markers=True,
+            )
+
+        sequence_action_count = len([
+            event
+            for event in getattr(
+                context,
+                "runtime_action_events",
+                [],
+            )[runtime_action_event_offset:]
+            if belongs_to_current_turn(
+                event
+            )
+        ])
+        current_turn_tool_result_count = int(
+            getattr(
+                context,
+                "runtime_tool_results_turn_count",
+                0,
+            )
+            or 0
+        )
+
+        if (
+            sequence_action_count > 1
+            and current_turn_tool_result_count > 0
+        ):
+            clear_runtime_tool_results(
+                context
             )
 
         state.brain_response = text or ""

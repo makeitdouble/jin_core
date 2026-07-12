@@ -221,8 +221,9 @@ KEY_SEMANTICS = (
     "jin_fact, jin_purpose, jin_state, jin_identity.\n"
     "Update usual keys value when needed.\n"
     "Example usual keys (not mandatory): session_status, active_topic, current_task, current_request, "
-    "user_focus, user_intent, open_question, open_risk, pending_choice, pending_action, "
-    "test_result, observed_behavior, interaction_state, dormant_thread.\n"
+    "user_focus, user_intent, open_question, open_risk, previous_choices, pending_choice, pending_action, previous_action, "
+    "test_result, observed_behavior, interaction_state, dormant_thread, "
+    "next_steps, future_steps, next_strategy, future_strategy.\n"
     "</memory_line_semantics_rules>\n"
     "\n"
 )
@@ -240,6 +241,34 @@ DURABLE_CARRY_FORWARD = (
     "An active_memory remains active and durable until JIN explicitly resolves it.\n"
     "Topic changes, conversation flow, or unrelated user requests never cancel or modify active_memory by themselves.\n"
     "</durable_carry_forward_rules>\n"
+    "\n"
+)
+
+LIVE_INTERACTION_SIGNALS = (
+    "\n"
+    "<live_interaction_signal_rules>\n"
+    "Track the conversation signals as a changing live process, not only as a factual log.\n"
+    "Store brief interaction signals only when they can materially improve the next response.\n"
+    "You may create or update any amount of signals during whole session as separate memory entries or united memory entry.\n"
+    "\n"
+    "Useful signals include:\n"
+    "- input channel: typos, missing spaces, shorthand, transliteration, or voice-input noise;\n"
+    "- interpretation mode: literal speech, irony, slang, exaggeration, wordplay, or intentional distortion;\n"
+    "- momentum: exploring, deciding, testing, debugging, correcting, waiting, or closing;\n"
+    "- pressure and engagement: confusion, impatience, urgency, curiosity, skepticism, boredom, or satisfaction;\n"
+    "- response feedback: what JIN misunderstood, overexplained, omitted, or finally understood;\n"
+    "- repair signal: a correction that changes the intended meaning, referent, tone, or task direction;\n"
+    "- pacing: quick continuation, careful analysis, direct action, or open exploration;\n"
+    "- ambiguity risk: malformed words, names, numbers, negations, or commands that could change an action.\n"
+    "- JIN state: current stance, such as calm, focused, cautious, playful, corrective, or closing; include only when it affects the response;\n"
+    "- user state: tentative interaction state, such as curious, skeptical, confused, impatient, engaged, or satisfied; infer cautiously from visible signals.\n"
+    "\n"
+    "Store the useful inferred pattern, not a transcript or quoted evidence.\n"
+    "\n"
+    "Treat inferred signals as temporary adaptive traces, not permanent user traits.\n"
+    "You must distinct weak signal from durable preference or identity claim and use cautious wording for uncertain inferences.\n"
+    "\n"
+    "</live_interaction_signal_rules>\n"
     "\n"
 )
 
@@ -271,6 +300,7 @@ def build_runtime_memory_system_prompt(
     prompt = (
         ROLE
         + KEY_SEMANTICS
+        + LIVE_INTERACTION_SIGNALS
 #        + DURABLE_CARRY_FORWARD
         + OUTPUT_FORMAT
     )

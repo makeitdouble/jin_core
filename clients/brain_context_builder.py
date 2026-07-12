@@ -45,6 +45,12 @@ from utils.runtime_actions import (
 from utils.runtime_todo import (
     format_runtime_todo_xml,
 )
+from utils.tool_results import (
+    TOOL_RESULT_KIND_ASSET,
+    TOOL_RESULT_KIND_DELAYED_MEMORY,
+    TOOL_RESULT_KIND_SEARCH,
+    get_runtime_tool_results,
+)
 
 
 def get_brain_runtime_mode() -> str:
@@ -1867,11 +1873,128 @@ def append_appended_skills(
     )
 
 
+def append_recorded_tool_results(
+    parts: list[str],
+    context=None,
+) -> bool:
+
+    if context is None:
+        return False
+
+    appended = False
+
+    for entry in get_runtime_tool_results(
+        context
+    ):
+        if not isinstance(
+            entry,
+            dict,
+        ):
+            continue
+
+        kind = str(
+            entry.get(
+                "kind",
+                "",
+            )
+            or ""
+        ).strip()
+        result = entry.get(
+            "result"
+        )
+
+        if kind == TOOL_RESULT_KIND_SEARCH:
+            search_result = strip_empty_results_xml(
+                str(
+                    result
+                    or ""
+                )
+            )
+            if not search_result:
+                continue
+
+            attrs = 'name="WEB_SEARCH"'
+            result_id = str(
+                entry.get(
+                    "id",
+                    "",
+                )
+                or ""
+            ).strip()
+            if result_id:
+                attrs += f' id="{escape(result_id)}"'
+
+            parts.append(
+                "<TOOL_RESULTS type='external_untrusted_evidence'>\n"
+                f"    <TOOL_RESULT {attrs}>\n"
+                f"{indent_xml(search_result)}\n"
+                "    </TOOL_RESULT>\n"
+                "</TOOL_RESULTS>"
+            )
+            appended = True
+            continue
+
+        if kind == TOOL_RESULT_KIND_ASSET:
+            sections = format_asset_result_sections(
+                [result],
+                context,
+            )
+            if not sections:
+                continue
+
+            blocks = [
+                f'    <TOOL_RESULT name="{escape(name)}">\n'
+                f"{indent_xml(escape(payload))}\n"
+                "    </TOOL_RESULT>"
+                for name, payload in sections
+            ]
+            parts.append(
+                "<TOOL_RESULTS>\n"
+                f"{chr(10).join(blocks)}\n"
+                "</TOOL_RESULTS>"
+            )
+            appended = True
+            continue
+
+        if kind == TOOL_RESULT_KIND_DELAYED_MEMORY:
+            sections = format_delayed_memory_result_sections(
+                [result]
+            )
+            if not sections:
+                continue
+
+            blocks = [
+                f'    <TOOL_RESULT name="{escape(name)}">\n'
+                f"{indent_xml(escape(payload))}\n"
+                "    </TOOL_RESULT>"
+                for name, payload in sections
+            ]
+            parts.append(
+                "<TOOL_RESULTS type='delayed_memory'>\n"
+                f"{chr(10).join(blocks)}\n"
+                "</TOOL_RESULTS>"
+            )
+            appended = True
+
+    return appended
+
 def build_tool_results_context(
     context=None,
 ) -> str:
 
     parts = []
+
+    if append_recorded_tool_results(
+        parts,
+        context,
+    ):
+        append_appended_skills(
+            parts,
+            context,
+        )
+        return "\n".join(
+            parts
+        )
 
     append_tool_results(
         parts,
