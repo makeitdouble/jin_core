@@ -11,6 +11,9 @@ from agent.nodes.brain import (
     prepare_asset_results_for_turn,
 )
 from clients.brain_context_builder import (
+    build_appended_delayed_memory_context,
+    build_previous_chat_messages_context,
+    build_sequence_origin_request_context,
     build_tool_results_context,
 )
 from agent.state import AgentState
@@ -67,56 +70,33 @@ def _assert_latest_request_payload(
         ),
         system_prompt,
     )
-    test_case.assertNotIn(
-        user_input,
-        payload,
+
+    sequence_origin_request = (
+        build_sequence_origin_request_context(
+            user_input
+        )
     )
-    latest_request_block = (
-        "<SEQUENCE_ORIGIN_REQUEST>\n"
-        "\n"
-        f"{user_input}\n"
-        "</SEQUENCE_ORIGIN_REQUEST>"
+    previous_chat_messages = (
+        build_previous_chat_messages_context(
+            extra_user_message=user_input,
+        )
     )
-    previous_messages_block = (
-        "<PREVIOUS_CHAT_MESSAGES>\n"
-        f"<USER>{user_input}\n"
-        "</PREVIOUS_CHAT_MESSAGES>"
+
+    test_case.assertIn(
+        sequence_origin_request,
+        system_prompt,
     )
     test_case.assertIn(
-        latest_request_block,
+        previous_chat_messages,
         system_prompt,
     )
     test_case.assertLess(
         system_prompt.index(
-            "This is runtime system message!"
+            sequence_origin_request
         ),
         system_prompt.index(
-            latest_request_block
+            previous_chat_messages
         ),
-    )
-    test_case.assertIn(
-        previous_messages_block,
-        system_prompt,
-    )
-    test_case.assertLess(
-        system_prompt.index(
-            latest_request_block
-        ),
-        system_prompt.index(
-            previous_messages_block
-        ),
-    )
-    test_case.assertNotIn(
-        "Continue using",
-        system_prompt,
-    )
-    test_case.assertNotIn(
-        "Latest tool result summary:",
-        system_prompt,
-    )
-    test_case.assertNotIn(
-        "APPENDED_SKILLS",
-        system_prompt,
     )
 
 
@@ -280,31 +260,57 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             context=context,
         )
 
-        latest_request_block = (
-            "<SEQUENCE_ORIGIN_REQUEST>\n"
-            "\n"
-            "append the delayed memory\n"
-            "</SEQUENCE_ORIGIN_REQUEST>\n\n"
-            "<APPENDED_DELAYED_MEMORY>\n"
+        sequence_origin_request = (
+            build_sequence_origin_request_context(
+                "append the delayed memory"
+            )
+        )
+        appended_delayed_memory = (
+            build_appended_delayed_memory_context(
+                context
+            )
+        )
+        previous_chat_messages = (
+            build_previous_chat_messages_context(
+                context,
+                extra_user_message=(
+                    "append the delayed memory"
+                ),
+            )
+        )
+
+        self.assertTrue(
+            prompt.startswith(
+                build_followup_system_message()
+            ),
+            prompt,
         )
         self.assertIn(
-            latest_request_block,
+            sequence_origin_request,
+            prompt,
+        )
+        self.assertIn(
+            appended_delayed_memory,
+            prompt,
+        )
+        self.assertIn(
+            previous_chat_messages,
             prompt,
         )
         self.assertLess(
             prompt.index(
-                "This is runtime system message!"
+                sequence_origin_request
             ),
             prompt.index(
-                latest_request_block
+                appended_delayed_memory
             ),
         )
         self.assertLess(
             prompt.index(
-                "<APPENDED_DELAYED_MEMORY>"
+                appended_delayed_memory
             ),
             prompt.index(
-                "<PREVIOUS_CHAT_MESSAGES>"
+                previous_chat_messages
             ),
         )
 

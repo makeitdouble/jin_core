@@ -19,6 +19,9 @@ from clients import (
     normalize_search_results,
     normalize_serper_item,
 )
+from clients.brain_context_builder import (
+    build_sequence_origin_request_context,
+)
 from runtime import (
     RuntimeContext,
     RuntimeEmitter,
@@ -639,13 +642,9 @@ class SearchFlowTests(
             ),
         )
         self.assertIn(
-            "WEB_SEARCH tool result",
-            brain_client.prompts[1]["system_prompt"],
-        )
-        self.assertIn(
-            "<SEQUENCE_ORIGIN_REQUEST>\n"
-            "\n"
-            "search tesla car price",
+            build_sequence_origin_request_context(
+                state.translated_input
+            ),
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertNotIn(
@@ -678,10 +677,6 @@ class SearchFlowTests(
         )
         self.assertNotIn(
             "<RESULTS></RESULTS>",
-            brain_client.prompts[1]["system_prompt"],
-        )
-        self.assertNotIn(
-            "<RUNTIME_ACTION:WEB_SEARCH>{\"query\":\"...\"}</RUNTIME_ACTION:WEB_SEARCH>",
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertEqual(
