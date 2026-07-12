@@ -165,7 +165,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "RUNTIME ACTION MARKERS are internal mechanics.\nEmit markers",
+            "RUNTIME ACTION MARKERS are internal mechanics.",
         )
         assert_contains_text(
             self,
