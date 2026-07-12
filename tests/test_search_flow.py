@@ -643,7 +643,7 @@ class SearchFlowTests(
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertIn(
-            "<LATEST_USER_REQUEST>\n"
+            "<SEQUENCE_ORIGIN_REQUEST>\n"
             "\n"
             "search tesla car price",
             brain_client.prompts[1]["system_prompt"],

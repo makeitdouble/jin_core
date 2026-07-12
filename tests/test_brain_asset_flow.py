@@ -72,10 +72,10 @@ def _assert_latest_request_payload(
         payload,
     )
     latest_request_block = (
-        "<LATEST_USER_REQUEST>\n"
+        "<SEQUENCE_ORIGIN_REQUEST>\n"
         "\n"
         f"{user_input}\n"
-        "</LATEST_USER_REQUEST>"
+        "</SEQUENCE_ORIGIN_REQUEST>"
     )
     previous_messages_block = (
         "<PREVIOUS_CHAT_MESSAGES>\n"
@@ -281,10 +281,10 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         latest_request_block = (
-            "<LATEST_USER_REQUEST>\n"
+            "<SEQUENCE_ORIGIN_REQUEST>\n"
             "\n"
             "append the delayed memory\n"
-            "</LATEST_USER_REQUEST>\n\n"
+            "</SEQUENCE_ORIGIN_REQUEST>\n\n"
             "<APPENDED_DELAYED_MEMORY>\n"
         )
         self.assertIn(
@@ -359,11 +359,11 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             context.runtime_action_sequence_turn_ids,
         )
         self.assertIn(
-            "<CURRENT_ACTIONS_HISTORY>\n"
+            "<CURRENT_SEQUENCE>\n"
             "    --- Sequence started ---\n"
-            "    1. LIST_SKILLS ( 55s ago )\n"
-            "    2. APPEND_SKILL ( 2s ago )\n"
-            "</CURRENT_ACTIONS_HISTORY>",
+            "    Step 1 - LIST_SKILLS ( 55s ago )\n"
+            "    Step 2 - APPEND_SKILL ( 2s ago )\n"
+            "</CURRENT_SEQUENCE>",
             prompt,
         )
         self.assertNotIn(
@@ -375,11 +375,11 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             prompt,
         )
         self.assertLess(
-            prompt.index("</LATEST_USER_REQUEST>"),
-            prompt.index("<CURRENT_ACTIONS_HISTORY>"),
+            prompt.index("</SEQUENCE_ORIGIN_REQUEST>"),
+            prompt.index("<CURRENT_SEQUENCE>"),
         )
         self.assertLess(
-            prompt.index("<CURRENT_ACTIONS_HISTORY>"),
+            prompt.index("<CURRENT_SEQUENCE>"),
             prompt.index("<PREVIOUS_CHAT_MESSAGES>"),
         )
 

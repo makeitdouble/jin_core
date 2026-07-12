@@ -975,11 +975,11 @@ class MessageMemoryTests(
         self.assertEqual(
             history,
             (
-                "<CURRENT_ACTIONS_HISTORY>\n"
+                "<CURRENT_SEQUENCE>\n"
                 "    --- Sequence started ---\n"
-                "    1. LIST_SKILLS ( 55s ago )\n"
-                "    2. APPEND_SKILL ( 2s ago )\n"
-                "</CURRENT_ACTIONS_HISTORY>"
+                "    Step 1 - LIST_SKILLS ( 55s ago )\n"
+                "    Step 2 - APPEND_SKILL ( 2s ago )\n"
+                "</CURRENT_SEQUENCE>"
             ),
         )
         self.assertNotIn(

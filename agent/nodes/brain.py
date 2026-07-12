@@ -82,7 +82,7 @@ FOLLOWUP_SYSTEM_MESSAGE = (
     "This is not a start of a task sequence!\n"
     "This is not a new request!\n"
     "\n"
-    "YOU MUST derive your next action from LATEST_USER_REQUEST and CURRENT_ACTIONS_HISTORY.\n"
+    "YOU MUST derive your next action from SEQUENCE_ORIGIN_REQUEST and CURRENT_SEQUENCE.\n"
     "You need to make all required actions and complete remaining steps!\n"
     "Continue without confirmation!\n"
     "\n"
@@ -253,7 +253,7 @@ class BrainNode(BaseNode):
     ) -> str:
 
         from clients.brain_context_builder import (
-            build_latest_user_request_context,
+            build_sequence_origin_request_context,
             build_session_actions_history_context,
             strip_actions_history_context,
         )
@@ -262,8 +262,8 @@ class BrainNode(BaseNode):
         )
 
         if context is not None:
-            latest_user_request_context = (
-                build_latest_user_request_context(
+            sequence_origin_request_context = (
+                build_sequence_origin_request_context(
                     initial_user_request,
                     created_at=getattr(
                         context,
@@ -273,8 +273,8 @@ class BrainNode(BaseNode):
                 )
             )
         else:
-            latest_user_request_context = (
-                build_latest_user_request_context(
+            sequence_origin_request_context = (
+                build_sequence_origin_request_context(
                     initial_user_request
                 )
             )
@@ -283,7 +283,7 @@ class BrainNode(BaseNode):
             build_followup_system_message(
                 latest_action
             ),
-            latest_user_request_context
+            sequence_origin_request_context
         ]
 
         if context is not None:

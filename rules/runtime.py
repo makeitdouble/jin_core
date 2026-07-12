@@ -53,7 +53,7 @@ INTERNAL_ACTIONS_WITH_PAYLOAD = [
 ]
 
 SKILL_ROUTING_RULES = ("\n"
-                       "You must check <CURRENT_APPENDED_SKILLS> and <CURRENT_ACTIONS_HISTORY> during follow-up, or <SESSION_ACTIONS_HISTORY> outside follow-up, before appending any skill.\n"
+                       "You must check <CURRENT_APPENDED_SKILLS> and <CURRENT_SEQUENCE> during follow-up, or <SESSION_ACTIONS_HISTORY> outside follow-up, before appending any skill.\n"
                        "\n"
                        "<MANDATORY SKILL ROUTING RULES>\n"
                        "1. Determine whether the request requires a skill.\n"
@@ -101,6 +101,10 @@ RUNTIME_ACTIONS_RULES = (
     "After emitting the required markers, stop generating text."
     "The runtime will execute them and automatically provide a response in a follow-up system tick."
     "Use follow-up system ticks in sequence for multi-step tasks.\n"
+    "In case of conflict, ignore PREVIOUS_CHAT_MESSAGES and accept LATEST_USER_REQUEST already in progress.\n"
+    "When follow-up tick is active you must use CURRENT_ACTIONS_HISTORY is the only source of truth and the order of executed actions."
+    "CURRENT_SEQUENCE lists steps already done for SEQUENCE_ORIGIN_REQUEST.\n"
+    "SESSION_ACTIONS_HISTORY lists completed actions from the whole session.\n"
 )
 
 RUNTIME_TODO_RULES = (
@@ -121,9 +125,6 @@ RUNTIME_TODO_RULES = (
     "Never emit TODO_LIST marker if <CURRENT_RUNTIME_TODO_LIST> already created and present in the context.\n"
 
     "If all TODO items are done, stop internal actions and answer the user.\n"
-    "CURRENT_ACTIONS_HISTORY lists actions already done in the active follow-up sequence.\n"
-    "SESSION_ACTIONS_HISTORY lists completed actions from the whole session.\n"
-    "Treat every listed action in either block as already done.\n"
 )
 
 WEB_SEARCH_RULES = (

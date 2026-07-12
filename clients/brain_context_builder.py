@@ -507,9 +507,14 @@ def build_session_actions_history_context(
             )
 
         action_index += 1
-        lines.append(
-            f"{action_index}. {text}"
-        )
+        if current_sequence:
+            lines.append(
+                f"Step {action_index} - {text}"
+            )
+        else:
+            lines.append(
+                f"{action_index}. {text}"
+            )
 
     if open_sequence_turn_id:
         lines.append(
@@ -517,7 +522,7 @@ def build_session_actions_history_context(
         )
 
     tag_name = (
-        "CURRENT_ACTIONS_HISTORY"
+        "CURRENT_SEQUENCE"
         if current_sequence
         else "SESSION_ACTIONS_HISTORY"
     )
@@ -540,6 +545,7 @@ def strip_actions_history_context(
 
     for tag_name in (
         "SESSION_ACTIONS_HISTORY",
+        "CURRENT_SEQUENCE",
         "CURRENT_ACTIONS_HISTORY",
     ):
         prompt = re.sub(
@@ -911,7 +917,7 @@ def append_context_message_age(
     return f"{text}{suffix}"
 
 
-def build_latest_user_request_context(
+def build_sequence_origin_request_context(
     user_message: str,
     *,
     created_at=None,
@@ -931,10 +937,10 @@ def build_latest_user_request_context(
     )
 
     return (
-        "<LATEST_USER_REQUEST>\n"
+        "<SEQUENCE_ORIGIN_REQUEST>\n"
         "\n"
         f"{escape(text)}\n"
-        "</LATEST_USER_REQUEST>"
+        "</SEQUENCE_ORIGIN_REQUEST>"
     )
 
 
