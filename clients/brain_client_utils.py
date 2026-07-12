@@ -750,8 +750,8 @@ def build_runtime_action_marker_preview(
     )[:limit]
 
 
-def build_pending_asset_action_preview(
-    payload_text: str,
+def parse_asset_action_payload(
+        payload_text: str,
 ) -> dict:
 
     try:
@@ -770,7 +770,20 @@ def build_pending_asset_action_preview(
         payload,
         dict,
     ):
-        payload = {}
+        return {}
+
+    return deepcopy(
+        payload
+    )
+
+
+def build_pending_asset_action_preview(
+        payload_text: str,
+) -> dict:
+
+    payload = parse_asset_action_payload(
+        payload_text
+    )
 
     action = str(
         payload.get(
@@ -804,6 +817,39 @@ def build_pending_asset_action_preview(
             result["path"] = path
 
     return result
+
+
+def preserve_failed_asset_action_for_retry(
+        context,
+        result: dict,
+        payload_text: str,
+) -> None:
+
+    if (
+        not isinstance(
+            result,
+            dict,
+        )
+        or result.get("ok") is not False
+    ):
+        return
+
+    payload = parse_asset_action_payload(
+        payload_text
+    )
+
+    if payload:
+        result["payload"] = payload
+
+    if (
+        result.get("error") != "file_exists"
+        or not payload
+    ):
+        return
+
+    context.runtime_asset_retry_results = [
+        deepcopy(result)
+    ]
 
 
 def append_asset_runtime_result(
@@ -2267,6 +2313,11 @@ async def apply_runtime_action_calls(
             append_asset_runtime_result(
                 context,
                 result,
+            )
+            preserve_failed_asset_action_for_retry(
+                context,
+                result,
+                action.payload,
             )
             saved_asset_results.append(
                 result

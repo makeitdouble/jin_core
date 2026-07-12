@@ -65,6 +65,14 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_asset_retry_results: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_asset_retry_context: list[dict] = field(
+        default_factory=list
+    )
+
     runtime_delayed_memory_results: list[dict] = field(
         default_factory=list
     )

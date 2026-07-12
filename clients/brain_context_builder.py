@@ -1666,13 +1666,24 @@ def append_asset_results(
     if context is None:
         return
 
-    asset_results = list(
+    retry_context = list(
         getattr(
             context,
-            "runtime_asset_results",
+            "runtime_asset_retry_context",
             [],
         )
         or []
+    )
+    asset_results = (
+        retry_context
+        + list(
+            getattr(
+                context,
+                "runtime_asset_results",
+                [],
+            )
+            or []
+        )
     )
 
     if not asset_results:

@@ -8,6 +8,10 @@ from agent.nodes.brain import (
     build_followup_system_message,
     format_followup_action_from_event,
     format_followup_actions_from_events,
+    prepare_asset_results_for_turn,
+)
+from clients.brain_context_builder import (
+    build_tool_results_context,
 )
 from agent.state import AgentState
 
@@ -117,6 +121,84 @@ def _assert_latest_request_payload(
 
 
 class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
+
+    async def test_retry_asset_payload_is_available_for_exactly_next_turn(self):
+
+        failed_result = {
+            "ok": False,
+            "action": "create_asset_file",
+            "error": "file_exists",
+            "path": "assets/outputs/gemma.txt",
+            "runtime_turn_id": "turn_000001",
+            "payload": {
+                "action": "create_asset_file",
+                "path": "assets/outputs/gemma.txt",
+                "content": "saved text",
+            },
+        }
+        context = SimpleNamespace(
+            runtime_asset_results=[
+                {
+                    "ok": True,
+                    "action": "list_skills",
+                },
+            ],
+            runtime_asset_retry_results=[
+                failed_result,
+            ],
+        )
+
+        prepare_asset_results_for_turn(
+            context
+        )
+
+        self.assertEqual(
+            context.runtime_asset_results,
+            [],
+        )
+        self.assertEqual(
+            context.runtime_asset_retry_results,
+            [],
+        )
+        self.assertEqual(
+            context.runtime_asset_retry_context,
+            [failed_result],
+        )
+        self.assertIsNot(
+            context.runtime_asset_retry_context[0],
+            failed_result,
+        )
+
+        tool_results = build_tool_results_context(
+            context
+        )
+        self.assertIn(
+            "file_exists",
+            tool_results,
+        )
+        self.assertIn(
+            "saved text",
+            tool_results,
+        )
+        self.assertIn(
+            "assets/outputs/gemma.txt",
+            tool_results,
+        )
+
+        prepare_asset_results_for_turn(
+            context
+        )
+
+        self.assertEqual(
+            context.runtime_asset_retry_context,
+            [],
+        )
+        self.assertEqual(
+            build_tool_results_context(
+                context
+            ),
+            "",
+        )
 
     async def test_followup_event_formatter_keeps_only_action_name(self):
 

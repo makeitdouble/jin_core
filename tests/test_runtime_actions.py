@@ -3378,6 +3378,92 @@ class RuntimeActionTests(unittest.TestCase):
                 )
 
 
+    def test_failed_create_asset_file_preserves_payload_for_retry(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                output_path = (
+                    root
+                    / "assets"
+                    / "outputs"
+                    / "gemma.txt"
+                )
+                output_path.parent.mkdir(
+                    parents=True,
+                    exist_ok=True,
+                )
+                output_path.write_text(
+                    "old text\n",
+                    encoding="utf-8",
+                )
+
+                context = Context()
+                context.emitter = Emitter()
+                context.runtime_current_turn_id = "turn_000001"
+                payload_data = {
+                    "action": "create_asset_file",
+                    "path": "assets/outputs/gemma.txt",
+                    "content": "new text",
+                }
+                payload = json.dumps(
+                    payload_data
+                )
+
+                asyncio.run(
+                    apply_runtime_action_calls(
+                        context,
+                        (
+                            RuntimeActionCall(
+                                name="ASSET_ACTION",
+                                payload=payload,
+                            ),
+                        ),
+                    )
+                )
+
+                result = context.runtime_asset_results[0]
+                self.assertFalse(
+                    result["ok"],
+                )
+                self.assertEqual(
+                    result["error"],
+                    "file_exists",
+                )
+                self.assertEqual(
+                    result["payload"],
+                    payload_data,
+                )
+                self.assertEqual(
+                    result["runtime_turn_id"],
+                    "turn_000001",
+                )
+                self.assertEqual(
+                    context.runtime_asset_retry_results,
+                    [result],
+                )
+                self.assertIsNot(
+                    context.runtime_asset_retry_results[0],
+                    result,
+                )
+                self.assertEqual(
+                    output_path.read_text(encoding="utf-8"),
+                    "old text\n",
+                )
+
     def test_create_asset_file_emits_started_with_path_before_completed(self):
 
         class Emitter:

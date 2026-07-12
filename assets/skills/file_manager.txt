@@ -19,6 +19,8 @@ File behavior:
 - Create parent folders inside assets/ when useful.
 - Do not delete files unless the user explicitly asks for deletion.
 - Do not overwrite existing files unless the user explicitly asks to replace their contents.
+- If create_asset_file fails with file_exists, use the payload from that failed tool result as the exact previous write request.
+- When the user then explicitly asks to overwrite or replace the file, repeat that payload with "overwrite": true. Keep the same path and content unless the user changes them; do not ask for the content again when it is already present in the failed payload.
 - Prefer appending when the user asks to expand or add to an existing text resource.
 - Preserve the target format required by the task-specific instructions.
 - For plain line-based resources, one meaningful item per line is preferred unless the user asks for another structure.
@@ -35,6 +37,8 @@ Action workflow:
 5. Use create_asset_file for new text files under assets/.
    Schema:
    {"action":"create_asset_file","path":"assets/outputs/example.txt","content":"line one\nline two"}
+   Explicit overwrite schema:
+   {"action":"create_asset_file","path":"assets/outputs/example.txt","content":"replacement content","overwrite":true}
 6. Use append_asset_file to add lines to an existing or new text file under assets/.
    Schema:
    {"action":"append_asset_file","path":"assets/outputs/example.txt","content":"line three"}

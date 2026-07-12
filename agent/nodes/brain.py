@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 from agent.nodes.base import BaseNode
 
 from runtime.stream import (
@@ -30,6 +32,48 @@ from utils.language import (
 from config_loader import (
     config,
 )
+
+
+def prepare_asset_results_for_turn(
+        context,
+) -> None:
+
+    retry_results = getattr(
+        context,
+        "runtime_asset_retry_results",
+        [],
+    )
+
+    if not isinstance(
+        retry_results,
+        list,
+    ):
+        retry_results = []
+
+    context.runtime_asset_retry_context = [
+        deepcopy(result)
+        for result in retry_results
+        if isinstance(
+            result,
+            dict,
+        )
+    ]
+    context.runtime_asset_retry_results = []
+
+    asset_results = getattr(
+        context,
+        "runtime_asset_results",
+        None,
+    )
+
+    if not isinstance(
+        asset_results,
+        list,
+    ):
+        context.runtime_asset_results = []
+        return
+
+    asset_results.clear()
 
 
 FOLLOWUP_SYSTEM_MESSAGE = (
@@ -714,13 +758,9 @@ class BrainNode(BaseNode):
         context.runtime_search_calls.clear()
         context.runtime_search_result = ""
         context.runtime_search_result_id = ""
-        if not hasattr(
-            context,
-            "runtime_asset_results",
-        ):
-            context.runtime_asset_results = []
-        else:
-            context.runtime_asset_results.clear()
+        prepare_asset_results_for_turn(
+            context
+        )
         if not hasattr(
             context,
             "runtime_delayed_memory_results",
