@@ -938,7 +938,6 @@ def build_sequence_origin_request_context(
 
     return (
         "<SEQUENCE_ORIGIN_REQUEST>\n"
-        "\n"
         f"{escape(text)}\n"
         "</SEQUENCE_ORIGIN_REQUEST>"
     )

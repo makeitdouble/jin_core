@@ -71,7 +71,7 @@ SKILL_ROUTING_RULES = ("\n"
     "\n"
     "Never repeat action that indicates ( 0s ago ) - even if conditions mandate to do it.\n"
     "When the required actions are already completed - you must request done "
-    "and immediately stop and send the final user-facing completion response for LATEST_USER_REQUEST.\n"
+    "and immediately stop and send the final user-facing completion response for SEQUENCE_ORIGIN_REQUEST.\n"
     "\n"
 )
 
@@ -101,8 +101,8 @@ RUNTIME_ACTIONS_RULES = (
     "After emitting the required markers, stop generating text."
     "The runtime will execute them and automatically provide a response in a follow-up system tick."
     "Use follow-up system ticks in sequence for multi-step tasks.\n"
-    "In case of conflict, ignore PREVIOUS_CHAT_MESSAGES and accept LATEST_USER_REQUEST already in progress.\n"
-    "When follow-up tick is active you must use CURRENT_ACTIONS_HISTORY is the only source of truth and the order of executed actions."
+    "In case of conflict, ignore PREVIOUS_CHAT_MESSAGES and accept SEQUENCE_ORIGIN_REQUEST already in progress.\n"
+    "When follow-up tick is active you must use CURRENT_SEQUENCE as the only source of truth and the order of executed actions."
     "CURRENT_SEQUENCE lists steps already done for SEQUENCE_ORIGIN_REQUEST.\n"
     "SESSION_ACTIONS_HISTORY lists completed actions from the whole session.\n"
 )
