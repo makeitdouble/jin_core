@@ -1657,6 +1657,16 @@ def format_delayed_memory_result_sections(
                 )
             )
 
+        if action == "save_delayed_memory_content":
+            sections.append(
+                (
+                    "SAVE_DELAYED_MEMORY_CONTENT",
+                    format_delayed_memory_report_result(
+                        result
+                    ),
+                )
+            )
+
     return [
         section
         for section in sections

@@ -922,11 +922,17 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_unfinished_delayed_memory_bubble_fails_instead_of_staying_active(self):
 
+        failed_payload = (
+            "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+            "CONDITIONS: Simulation step 2/5\n"
+            "</CREATE_ACTIVE_MEMORY>\n"
+        )
+
         async def incomplete_delayed_memory_generator():
 
             yield {
                 "type": "content",
-                "content": "<SAVE_DELAYED_MEMORY_CONTENT>\n",
+                "content": failed_payload,
             }
 
         context = SimpleNamespace(
@@ -940,6 +946,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             delayed_memory_reports={},
             active_memory_records=[],
             runtime_turn_user_message="создай отчёт delayed memory",
+            runtime_current_turn_id="turn_delayed_failure",
         )
 
         stream = RuntimeStream(
@@ -980,6 +987,19 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             runtime_events[0]["id"],
             runtime_events[1]["id"],
+        )
+        self.assertEqual(
+            context.runtime_delayed_memory_results,
+            [
+                {
+                    "ok": False,
+                    "action": "save_delayed_memory_content",
+                    "id": runtime_events[0]["id"],
+                    "error": "Delayed memory report was not saved",
+                    "payload": failed_payload,
+                    "runtime_turn_id": "turn_delayed_failure",
+                },
+            ],
         )
 
 

@@ -83,6 +83,7 @@ class RuntimeStream:
         self.repetition_guard = RuntimeActionRepetitionGuard()
         self.marker_repetition_aborted = False
         self.started_delayed_memory_action_ids = []
+        self.delayed_memory_action_payload = ""
         self.action_filter = RuntimeActionStreamFilter(
             enabled_actions=self.runtime_actions,
             preserve_action_marker=self.should_preserve_action_marker,
@@ -412,6 +413,29 @@ class RuntimeStream:
         result,
     ) -> str | None:
 
+        for action in getattr(
+            result,
+            "actions",
+            (),
+        ):
+            if (
+                action.name
+                == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                and action.payload
+            ):
+                self.delayed_memory_action_payload = action.payload
+
+        for marker in getattr(
+            result,
+            "removed_markers",
+            (),
+        ):
+            if (
+                "SAVE_DELAYED_MEMORY_CONTENT"
+                in str(marker).upper()
+            ):
+                self.delayed_memory_action_payload = str(marker)
+
         if getattr(
             result,
             "started_actions",
@@ -637,6 +661,41 @@ class RuntimeStream:
                 action_id
             )
 
+            failure_result = {
+                "ok": False,
+                "action": "save_delayed_memory_content",
+                "id": action_id,
+                "error": "Delayed memory report was not saved",
+                "payload": self.delayed_memory_action_payload,
+            }
+            runtime_turn_id = str(
+                getattr(
+                    self.context,
+                    "runtime_current_turn_id",
+                    "",
+                )
+                or ""
+            ).strip()
+            if runtime_turn_id:
+                failure_result["runtime_turn_id"] = runtime_turn_id
+
+            delayed_memory_results = getattr(
+                self.context,
+                "runtime_delayed_memory_results",
+                None,
+            )
+            if not isinstance(
+                delayed_memory_results,
+                list,
+            ):
+                delayed_memory_results = []
+                self.context.runtime_delayed_memory_results = (
+                    delayed_memory_results
+                )
+            delayed_memory_results.append(
+                failure_result
+            )
+
             if emit is not None:
                 await emit({
                     "type": "runtime_action",
@@ -647,6 +706,7 @@ class RuntimeStream:
                 })
 
         self.started_delayed_memory_action_ids.clear()
+        self.delayed_memory_action_payload = ""
 
     async def flush_runtime_action_content(
         self,

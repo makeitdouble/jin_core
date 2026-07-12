@@ -84,7 +84,8 @@ FOLLOWUP_SYSTEM_MESSAGE = (
     "\n"
     "YOU MUST derive your next action from SEQUENCE_ORIGIN_REQUEST and CURRENT_SEQUENCE.\n"
     "You need to make all required actions and complete remaining steps!\n"
-    "Continue without confirmation!\n"
+    "If SEQUENCE_ORIGIN_REQUEST conditions are met - stop execute and notify user!\n"
+    "If conditions are not met - continue without confirmation!\n"
     "\n"
 )
 

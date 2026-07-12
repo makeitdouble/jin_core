@@ -562,6 +562,103 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "Found delayed memory `dm_note`: Solo note.",
         )
 
+    async def test_failed_delayed_memory_save_triggers_followup_with_payload(self):
+
+        calls = []
+        failed_payload = (
+            "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+            "CONDITIONS: Simulation step 2/5\n"
+            "</CREATE_ACTIVE_MEMORY>"
+        )
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+            context = kwargs["context"]
+
+            if len(calls) == 1:
+                context.runtime_delayed_memory_results.append({
+                    "ok": False,
+                    "action": "save_delayed_memory_content",
+                    "error": "Delayed memory report was not saved",
+                    "payload": failed_payload,
+                })
+                return "", ""
+
+            if len(calls) == 2:
+                self.assertTrue(
+                    kwargs["filter_runtime_actions"],
+                )
+                _assert_latest_request_payload(
+                    self,
+                    kwargs,
+                    state.translated_input,
+                    "save_delayed_memory_content",
+                )
+                self.assertIn(
+                    "Delayed memory report was not saved",
+                    kwargs["system_prompt"],
+                )
+                self.assertIn(
+                    "CONDITIONS: Simulation step 2/5",
+                    kwargs["system_prompt"],
+                )
+                self.assertIn(
+                    "&lt;SAVE_DELAYED_MEMORY_CONTENT&gt;",
+                    kwargs["system_prompt"],
+                )
+                self.assertIn(
+                    "&lt;/CREATE_ACTIVE_MEMORY&gt;",
+                    kwargs["system_prompt"],
+                )
+                return "Retrying the failed save.", ""
+
+            self.fail(
+                "Brain model kept running after delayed-memory failure"
+            )
+
+        context = _context()
+        state = AgentState(
+            user_input="run five runtime steps",
+        )
+        state.translated_input = state.user_input
+        brain_runtime = _brain_runtime()
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=brain_runtime,
+        ), patch(
+            "agent.nodes.brain.build_brain_system_prompt",
+            side_effect=lambda current_context, **_kwargs: (
+                "system prompt\n"
+                + build_tool_results_context(
+                    current_context
+                )
+            ),
+        ), patch(
+            "agent.nodes.brain.build_brain_payload",
+            return_value="brain payload",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            len(calls),
+            2,
+        )
+        self.assertEqual(
+            state.brain_response,
+            "Retrying the failed save.",
+        )
+
     async def test_same_turn_list_skills_moves_followup_to_system_prompt(self):
 
         calls = []
