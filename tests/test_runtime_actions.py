@@ -439,6 +439,29 @@ class RuntimeActionTests(unittest.TestCase):
             ),
         )
 
+    def test_extracts_hide_skills_marker(self):
+
+        result = extract_runtime_actions(
+            runtime_rules.INTERNAL_ACTION_HIDE_SKILLS_MARKER,
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name="HIDE_SKILLS",
+                    payload="",
+                ),
+            ),
+        )
+
     def test_extracts_current_list_skills_marker(self):
 
         result = extract_runtime_actions(
@@ -2856,6 +2879,10 @@ class RuntimeActionTests(unittest.TestCase):
                     context.runtime_asset_results[0]["requested"],
                     "",
                 )
+                self.assertIs(
+                    context.runtime_visible_skills_result,
+                    context.runtime_asset_results[0],
+                )
                 skills_by_name = {
                     skill["name"]: skill
                     for skill in context.runtime_asset_results[0]["skills"]
@@ -2894,6 +2921,91 @@ class RuntimeActionTests(unittest.TestCase):
                     context.runtime_session_action_history[0]["created_at"],
                     float,
                 )
+
+    def test_apply_runtime_action_calls_hides_only_listed_skills(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        listed_skills = {
+            "ok": True,
+            "action": "list_skills",
+            "skills": [
+                {
+                    "name": "file_manager",
+                    "path": "assets/skills/file_manager.txt",
+                },
+            ],
+        }
+        appended_skill = {
+            "name": "file_manager",
+            "path": "assets/skills/file_manager.txt",
+            "content": "Use ASSET_ACTION for files.",
+        }
+        context = Context()
+        context.emitter = Emitter()
+        context.runtime_visible_skills_result = listed_skills
+        context.runtime_asset_results = [
+            listed_skills,
+            {
+                "ok": True,
+                "action": "read_asset_text",
+            },
+        ]
+        context.runtime_appended_skills = [
+            appended_skill,
+        ]
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="HIDE_SKILLS",
+                        payload="",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertEqual(
+            context.runtime_visible_skills_result,
+            {},
+        )
+        self.assertEqual(
+            context.runtime_asset_results,
+            [
+                {
+                    "ok": True,
+                    "action": "read_asset_text",
+                },
+            ],
+        )
+        self.assertEqual(
+            context.runtime_appended_skills,
+            [
+                appended_skill,
+            ],
+        )
+        self.assertEqual(
+            context.runtime_action_events[-1]["name"],
+            "hide_skills",
+        )
+        self.assertEqual(
+            context.runtime_session_action_history[-1]["text"],
+            "Hidden skills list",
+        )
 
     def test_apply_runtime_action_calls_reads_list_skills_each_time(self):
 

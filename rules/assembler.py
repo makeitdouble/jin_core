@@ -23,6 +23,7 @@ from .runtime import (
     INTERNAL_ACTION_CREATE_TODO_LIST_MARKER,
     INTERNAL_ACTION_APPEND_SKILL_MARKER,
     INTERNAL_ACTION_LIST_SKILLS_MARKER,
+    INTERNAL_ACTION_HIDE_SKILLS_MARKER,
     INTERNAL_ACTION_REMOVE_SKILL_MARKER,
     INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY_MARKER,
     INTERNAL_ACTION_RESOLVE_TODO_MARKER,
@@ -37,6 +38,7 @@ from .runtime import (
     RUNTIME_ACTION_LIST_DELAYED_MEMORY,
     RUNTIME_ACTION_APPEND_SKILL,
     RUNTIME_ACTION_LIST_SKILLS,
+    RUNTIME_ACTION_HIDE_SKILLS,
     RUNTIME_ACTION_REMOVE_SKILL,
     RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
@@ -105,6 +107,10 @@ def get_enabled_runtime_actions(
         ),
         (
             RUNTIME_ACTION_LIST_SKILLS,
+            "CAN_USE_ASSETS",
+        ),
+        (
+            RUNTIME_ACTION_HIDE_SKILLS,
             "CAN_USE_ASSETS",
         ),
         (
@@ -203,6 +209,23 @@ def _context_has_list_skills_tool_result(
     context=None,
 ) -> bool:
 
+    visible_result = getattr(
+        context,
+        "runtime_visible_skills_result",
+        {},
+    )
+
+    if (
+        isinstance(
+            visible_result,
+            dict,
+        )
+        and visible_result.get(
+            "action"
+        ) == "list_skills"
+    ):
+        return True
+
     for result in (
         getattr(
             context,
@@ -242,6 +265,12 @@ def _build_allowed_markers(
         and not has_list_skills_result
     ):
         markers.append(INTERNAL_ACTION_LIST_SKILLS_MARKER)
+
+    if (
+        _action_enabled(enabled_actions, RUNTIME_ACTION_HIDE_SKILLS, "hide_skills")
+        and has_list_skills_result
+    ):
+        markers.append(INTERNAL_ACTION_HIDE_SKILLS_MARKER)
 
     if (
         _action_enabled(enabled_actions, RUNTIME_ACTION_APPEND_SKILL, "append_skill")
@@ -392,7 +421,6 @@ def build_runtime_action_instructions(
 
     if (
         _action_enabled(enabled_actions, RUNTIME_ACTION_LIST_SKILLS, "list_skills")
-        and not has_list_skills_result
     ):
         instructions.append(SKILL_ROUTING_RULES)
 

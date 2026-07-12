@@ -1390,6 +1390,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         action_names = [
             "create_active_memory",
             "append_skill",
+            "hide_skills",
             "save_session",
         ]
 
@@ -1443,7 +1444,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             len(calls),
-            4,
+            5,
         )
         self.assertIn(
             'create_active_memory',
@@ -1454,8 +1455,12 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             calls[2]["system_prompt"],
         )
         self.assertIn(
-            'save_session',
+            'hide_skills',
             calls[3]["system_prompt"],
+        )
+        self.assertIn(
+            'save_session',
+            calls[4]["system_prompt"],
         )
         for call in calls[1:]:
             self.assertEqual(

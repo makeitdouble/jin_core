@@ -16,6 +16,7 @@ from rules.runtime import (
     RUNTIME_ACTION_CREATE_TODO_LIST,
     RUNTIME_ACTION_LIST_DELAYED_MEMORY,
     RUNTIME_ACTION_LIST_SKILLS,
+    RUNTIME_ACTION_HIDE_SKILLS,
     RUNTIME_ACTION_REMOVE_SKILL,
     RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
     RUNTIME_ACTION_RESOLVE_TODO,
@@ -36,6 +37,7 @@ KNOWN_RUNTIME_ACTIONS = tuple(
             RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
             RUNTIME_ACTION_WEB_SEARCH,
             RUNTIME_ACTION_LIST_SKILLS,
+            RUNTIME_ACTION_HIDE_SKILLS,
             RUNTIME_ACTION_APPEND_SKILL,
             RUNTIME_ACTION_REMOVE_SKILL,
             RUNTIME_ACTION_ASSET_ACTION,
@@ -51,7 +53,7 @@ BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
     (
         r"(?:"
         r"<\s*(?:INTERNAL_ACTION_)?"
-        r"(?P<bracketed_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|LIST_SKILLS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
+        r"(?P<bracketed_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|LIST_SKILLS|HIDE_SKILLS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<bracketed_query>(?:(?!</\s*>)[^\r\n>])*?))?"
         r"(?:\s*</\s*>+|\s*/?\s*>+)"
         r"|"
@@ -63,12 +65,12 @@ BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
         r"\s*/?\s*>+"
         r"|"
         r"<\s*(?:INTERNAL_ACTION_)?"
-        r"(?P<bracketed_line_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
+        r"(?P<bracketed_line_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|HIDE_SKILLS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<bracketed_line_query>[^\r\n>]*))?"
         r"[^\S\r\n]*(?=\r?\n)"
         r"|"
         r"(?m:^\s*(?:INTERNAL_ACTION_)?"
-        r"(?P<bare_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
+        r"(?P<bare_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|HIDE_SKILLS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<bare_query>[^\r\n]*))?"
         r"\s*$)"
         r")"
@@ -91,12 +93,12 @@ MALFORMED_CALL_INTERNAL_ACTION_PATTERN = re.compile(
     (
         r"(?:"
         r"<\|?tool_call\>\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
-        r"(?P<tool_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_DELAYED_MEMORY|APPEND_DELAYED_MEMORY|REMOVE_DELAYED_MEMORY|LIST_SKILLS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
+        r"(?P<tool_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_DELAYED_MEMORY|APPEND_DELAYED_MEMORY|REMOVE_DELAYED_MEMORY|LIST_SKILLS|HIDE_SKILLS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<tool_call_query>(?:(?!</\s*>)[^\r\n>])*?))?"
         r"(?:\s*</\s*>+|\s*/?\s*>+|[^\S\r\n]*(?=\r?\n|$))"
         r"|"
         r"(?m:^\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
-        r"(?P<bare_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_DELAYED_MEMORY|APPEND_DELAYED_MEMORY|REMOVE_DELAYED_MEMORY|LIST_SKILLS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
+        r"(?P<bare_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_DELAYED_MEMORY|APPEND_DELAYED_MEMORY|REMOVE_DELAYED_MEMORY|LIST_SKILLS|HIDE_SKILLS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
         r"(?:\s*:\s*(?P<bare_call_query>[^\r\n]*))?"
         r"\s*$)"
         r")"
@@ -1469,6 +1471,7 @@ def normalize_runtime_action_name(
         "RESOLVE_ACTIVE_MEMORY": RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
         "USE_ASSETS": RUNTIME_ACTION_ASSET_ACTION,
         "LIST_SKILLS": RUNTIME_ACTION_LIST_SKILLS,
+        "HIDE_SKILLS": RUNTIME_ACTION_HIDE_SKILLS,
         "APPEND_SKILL": RUNTIME_ACTION_APPEND_SKILL,
         "REMOVE_SKILL": RUNTIME_ACTION_REMOVE_SKILL,
         "ASSET_ACTION": RUNTIME_ACTION_ASSET_ACTION,
@@ -1539,6 +1542,9 @@ def normalize_runtime_action_names(
         if normalized_name == RUNTIME_ACTION_ASSET_ACTION:
             normalized_names.append(
                 RUNTIME_ACTION_LIST_SKILLS
+            )
+            normalized_names.append(
+                RUNTIME_ACTION_HIDE_SKILLS
             )
             normalized_names.append(
                 RUNTIME_ACTION_APPEND_SKILL
@@ -1764,7 +1770,10 @@ def _build_internal_action_call(
         ):
             return None
 
-    elif normalized_name == RUNTIME_ACTION_LIST_DELAYED_MEMORY:
+    elif normalized_name in (
+        RUNTIME_ACTION_LIST_DELAYED_MEMORY,
+        RUNTIME_ACTION_HIDE_SKILLS,
+    ):
         payload = ""
 
     elif normalized_name in (
@@ -2788,6 +2797,32 @@ def _enabled_action_start_markers(
         )
         markers.append(
             "call:LIST_SKILLS:"
+        )
+
+    if RUNTIME_ACTION_HIDE_SKILLS in enabled_action_names:
+        markers.append(
+            "<HIDE_SKILLS>"
+        )
+        markers.append(
+            "<INTERNAL_ACTION_HIDE_SKILLS>"
+        )
+        markers.append(
+            "<|tool_call>call:INTERNAL_ACTION_HIDE_SKILLS"
+        )
+        markers.append(
+            "<tool_call>call:INTERNAL_ACTION_HIDE_SKILLS"
+        )
+        markers.append(
+            "<|tool_call>call:HIDE_SKILLS"
+        )
+        markers.append(
+            "<tool_call>call:HIDE_SKILLS"
+        )
+        markers.append(
+            "call:INTERNAL_ACTION_HIDE_SKILLS"
+        )
+        markers.append(
+            "call:HIDE_SKILLS"
         )
 
     if RUNTIME_ACTION_APPEND_SKILL in enabled_action_names:

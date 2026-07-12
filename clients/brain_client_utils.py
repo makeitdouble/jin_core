@@ -60,6 +60,7 @@ from rules.runtime import (
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_LIST_DELAYED_MEMORY,
     RUNTIME_ACTION_LIST_SKILLS,
+    RUNTIME_ACTION_HIDE_SKILLS,
     RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
     RUNTIME_ACTION_REMOVE_SKILL,
     RUNTIME_ACTION_RESOLVE_TODO,
@@ -1503,6 +1504,12 @@ async def apply_runtime_action_calls(
     ):
         context.runtime_appended_skills = []
 
+    if not hasattr(
+        context,
+        "runtime_visible_skills_result",
+    ):
+        context.runtime_visible_skills_result = {}
+
     action_context_snapshot = (
         dict(context_snapshot)
         if isinstance(context_snapshot, dict)
@@ -1549,6 +1556,7 @@ async def apply_runtime_action_calls(
     save_delayed_memory_seen = False
     list_delayed_memory_seen = False
     list_skills_seen = False
+    hide_skills_seen = False
     resolved_user_message = resolve_runtime_action_user_message(
         context,
         user_message,
@@ -1560,6 +1568,7 @@ async def apply_runtime_action_calls(
     skill_workflow_action_names = {
         *skill_state_action_names,
         RUNTIME_ACTION_LIST_SKILLS,
+        RUNTIME_ACTION_HIDE_SKILLS,
     }
     todo_action_names = {
         RUNTIME_ACTION_CREATE_TODO_LIST,
@@ -1786,6 +1795,12 @@ async def apply_runtime_action_calls(
 
             list_skills_seen = True
 
+        if action.name == RUNTIME_ACTION_HIDE_SKILLS:
+            if hide_skills_seen:
+                continue
+
+            hide_skills_seen = True
+
         if action.name == RUNTIME_ACTION_APPEND_SKILL:
             requested_skill = normalize_skill_name(
                 action.payload
@@ -1980,6 +1995,12 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_LIST_SKILLS
     ]
 
+    hide_skill_actions = [
+        action
+        for action in filtered_actions
+        if action.name == RUNTIME_ACTION_HIDE_SKILLS
+    ]
+
     append_skill_actions = [
         action
         for action in filtered_actions
@@ -2110,7 +2131,74 @@ async def apply_runtime_action_calls(
                 context,
                 result,
             )
+            context.runtime_visible_skills_result = result
             saved_asset_results.append(
+                result
+            )
+
+    hidden_skill_results = []
+
+    if hide_skill_actions:
+        if log_runtime is not None:
+            await log_runtime(
+                "[RUNTIME ACTION] hide_skills requested"
+            )
+
+        for action in hide_skill_actions:
+            was_visible = bool(
+                getattr(
+                    context,
+                    "runtime_visible_skills_result",
+                    {},
+                )
+            )
+            context.runtime_visible_skills_result = {}
+
+            for attribute_name in (
+                "runtime_asset_results",
+                "runtime_asset_retry_context",
+                "runtime_asset_retry_results",
+            ):
+                results = getattr(
+                    context,
+                    attribute_name,
+                    None,
+                )
+                if not isinstance(
+                    results,
+                    list,
+                ):
+                    continue
+
+                results[:] = [
+                    result
+                    for result in results
+                    if not (
+                        isinstance(
+                            result,
+                            dict,
+                        )
+                        and result.get(
+                            "action"
+                        ) == "list_skills"
+                    )
+                ]
+
+            result = {
+                "ok": True,
+                "action": "hide_skills",
+                "hidden": was_visible,
+            }
+            todo_item = apply_runtime_todo_action_result(
+                context,
+                runtime_todo_action_items.get(action),
+                result,
+            ) or runtime_todo_action_items.get(action)
+            result = attach_runtime_todo_item_to_result(
+                result,
+                todo_item,
+            )
+            hidden_skill_results.append(
                 result
             )
 
@@ -2584,6 +2672,7 @@ async def apply_runtime_action_calls(
     skill_state_results = (
         appended_skill_results
         + removed_skill_results
+        + hidden_skill_results
     )
 
     skill_state_result_texts = []
@@ -2603,11 +2692,12 @@ async def apply_runtime_action_calls(
             )
             or ""
         )
-        text = (
-            f"Appended skill: {requested_skill}"
-            if result_action == "append_skill"
-            else f"Removed skill: {requested_skill}"
-        )
+        if result_action == "append_skill":
+            text = f"Appended skill: {requested_skill}"
+        elif result_action == "remove_skill":
+            text = f"Removed skill: {requested_skill}"
+        else:
+            text = "Hidden skills list"
         if (
             result_action == "append_skill"
             and result.get("ok") is False
@@ -3047,6 +3137,9 @@ async def apply_runtime_action_calls(
         )
         + len(
             removed_skill_results
+        )
+        + len(
+            hidden_skill_results
         )
         + min(
             save_session_count,

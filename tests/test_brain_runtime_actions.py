@@ -65,6 +65,7 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
         expected_actions.extend(
             (
                 "LIST_SKILLS",
+                "HIDE_SKILLS",
                 "APPEND_SKILL",
                 "REMOVE_SKILL",
                 "ASSET_ACTION",
@@ -1555,6 +1556,70 @@ class BrainRuntimeActionTests(unittest.TestCase):
             self,
             prompt,
             runtime_rules.INTERNAL_ACTION_REMOVE_SKILL_MARKER,
+        )
+
+    def test_prompt_keeps_listed_skills_until_hidden(self):
+
+        visible_result = {
+            "ok": True,
+            "action": "list_skills",
+            "skills": [
+                {
+                    "name": "wildcards",
+                    "path": "assets/skills/wildcards.txt",
+                },
+            ],
+        }
+        context = SimpleNamespace(
+            runtime_memory="session_status: active",
+            runtime_memory_stable="session_status: active",
+            runtime_l2_memory="",
+            active_memory_records=[],
+            runtime_asset_results=[],
+            runtime_visible_skills_result=visible_result,
+            runtime_appended_skills=[],
+        )
+
+        prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_USE_ASSETS": True,
+            },
+        )
+
+        assert_contains_text(
+            self,
+            prompt,
+            '<TOOL_RESULT name="SKILLS">',
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "1. wildcards - assets/skills/wildcards.txt",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "APPEND / REMOVE SKILLS:",
+        )
+
+        context.runtime_visible_skills_result = {}
+        hidden_prompt = build_brain_system_prompt(
+            context=context,
+            runtime_actions={
+                "CAN_USE_ASSETS": True,
+            },
+        )
+
+        assert_not_contains_text(
+            self,
+            hidden_prompt,
+            '<TOOL_RESULT name="SKILLS">',
+        )
+        assert_not_contains_text(
+            self,
+            hidden_prompt,
+            "APPEND / REMOVE SKILLS:",
         )
 
     def test_prompt_places_tool_results_after_session_history(self):

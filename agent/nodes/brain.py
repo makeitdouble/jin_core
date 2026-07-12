@@ -869,6 +869,7 @@ class BrainNode(BaseNode):
         skill_state_followup_event_names = {
             "append_skill",
             "remove_skill",
+            "hide_skills",
             "append_delayed_memory",
         }
 
