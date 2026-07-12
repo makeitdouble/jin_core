@@ -1750,6 +1750,7 @@ function handleSocketMessage(event) {
           || action === "list_delayed_memory"
           || action === "append_delayed_memory"
           || action === "remove_delayed_memory"
+          || action === "clean_tool_results"
         )
         && displayText.trim()
       ) {

@@ -121,6 +121,8 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_active_memory_refresh_tick: int = 0
+
     delayed_memory_reports: dict = field(
         default_factory=dict
     )
@@ -230,6 +232,8 @@ class RuntimeContext:
     runtime_turn_interruption_reason: str = ""
 
     runtime_turn_interruption_quote: str = ""
+
+    runtime_reasoning_recovery_pending: bool = False
 
     runtime_user_idle_seconds: int | None = None
 

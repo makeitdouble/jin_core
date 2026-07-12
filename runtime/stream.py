@@ -35,6 +35,8 @@ from utils.assets_service import (
 )
 from utils.session_actions_history import (
     build_asset_action_history_text,
+    build_reasoning_loop_history_text,
+    record_session_action_history,
 )
 from utils.tool_results import (
     TOOL_RESULT_KIND_DELAYED_MEMORY,
@@ -364,12 +366,33 @@ class RuntimeStream:
 
         active_streams.clear()
 
+    @staticmethod
+    async def close_generator(
+        generator,
+    ) -> None:
+
+        close = getattr(
+            generator,
+            "aclose",
+            None,
+        )
+
+        if close is None:
+            return
+
+        with contextlib.suppress(
+            asyncio.CancelledError,
+            Exception,
+        ):
+            await close()
+
     def mark_validator_interruption(
         self,
         validator=None,
     ):
 
         self.context.runtime_turn_interrupted = True
+        self.context.runtime_reasoning_recovery_pending = True
 
         if validator is None:
             validator = getattr(
@@ -395,6 +418,41 @@ class RuntimeStream:
 
         self.context.runtime_turn_interruption_reason = reason
         self.context.runtime_turn_interruption_quote = quote
+
+    def record_validator_interruption_history(
+        self,
+        validator=None,
+    ) -> None:
+
+        if not self.is_brain_context():
+            return
+
+        if validator is None:
+            validator = getattr(
+                self.stream,
+                "validator",
+                None,
+            )
+
+        quote = (
+            getattr(
+                validator,
+                "last_failure_loop_preview",
+                "",
+            )
+            or getattr(
+                validator,
+                "last_failure_preview",
+                "",
+            )
+        )
+
+        record_session_action_history(
+            self.context,
+            build_reasoning_loop_history_text(
+                quote
+            ),
+        )
 
     async def filter_runtime_action_content(
         self,
@@ -850,6 +908,12 @@ class RuntimeStream:
                         )
 
                         await self.close_active_streams()
+                        await self.close_generator(
+                            generator
+                        )
+                        self.record_validator_interruption_history(
+                            self.stream.thinking_validator
+                        )
 
                         await self.stream.finish(
                             emit=self.emit_to_chat
@@ -900,6 +964,10 @@ class RuntimeStream:
                         self.mark_validator_interruption()
 
                         await self.close_active_streams()
+                        await self.close_generator(
+                            generator
+                        )
+                        self.record_validator_interruption_history()
 
                         await self.stream.finish(
                             emit=self.emit_to_chat

@@ -1977,6 +1977,81 @@ class BrainRuntimeActionTests(unittest.TestCase):
             "active_memory",
         )
 
+    def test_active_memory_recalculates_on_each_followup_tick(self):
+
+        context = SimpleNamespace(
+            runtime_memory="session_status: active",
+            runtime_memory_stable="session_status: active",
+            runtime_l2_memory="",
+            active_memory_records=[
+                (
+                    "active_memory_1: Track experiment "
+                    "[ creation_time: 2026-06-20T10:00:00 ] "
+                    "[ created_jin_message_number: 3 ] "
+                    "[ elapsed_time: 00:00:00 ] "
+                    "[ elapsed_jin_message_number: 0 ] "
+                    "[ status: pending ]"
+                ),
+            ],
+            timestamp="2026-06-20T10:00:00",
+            turn_number=4,
+            user_message_count=2,
+            runtime_user_idle_seconds=300,
+            runtime_active_memory_refresh_tick=0,
+        )
+
+        build_brain_runtime_context(
+            context=context,
+            runtime_actions={},
+            commit_active_memory_refresh=True,
+        )
+
+        self.assertIn(
+            "[ elapsed_time: 00:05:00 ]",
+            context.active_memory_records[0],
+        )
+        self.assertEqual(
+            context.runtime_active_memory_records_refresh_turn,
+            (4, 2, 0),
+        )
+
+        context.timestamp = "2026-06-20T10:01:00"
+        context.runtime_active_memory_refresh_tick = 1
+
+        build_brain_runtime_context(
+            context=context,
+            runtime_actions={},
+            commit_active_memory_refresh=True,
+        )
+
+        self.assertIn(
+            "[ elapsed_time: 00:05:00 ]",
+            context.active_memory_records[0],
+        )
+        self.assertEqual(
+            context.runtime_active_memory_records_refresh_turn,
+            (4, 2, 1),
+        )
+
+        context.timestamp = "2026-06-20T10:06:00"
+        context.runtime_active_memory_refresh_tick = 2
+
+        build_brain_runtime_context(
+            context=context,
+            runtime_actions={},
+            commit_active_memory_refresh=True,
+        )
+
+        self.assertIn(
+            "[ elapsed_time: 00:06:00 ]",
+            context.active_memory_records[0],
+        )
+        self.assertEqual(
+            context.runtime_active_memory_records_refresh_turn,
+            (4, 2, 2),
+        )
+
+
     def test_runtime_context_omits_paused_active_memory_records(self):
 
         context = SimpleNamespace(

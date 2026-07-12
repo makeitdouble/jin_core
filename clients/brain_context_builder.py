@@ -750,7 +750,7 @@ def append_L1_runtime_memory(
     ]
 
     if stored_active_memory_records:
-        active_memory_refresh_turn = (
+        active_memory_refresh_base_turn = (
             getattr(
                 context,
                 "turn_number",
@@ -762,14 +762,31 @@ def append_L1_runtime_memory(
                 0,
             ),
         )
+        active_memory_refresh_turn = (
+            *active_memory_refresh_base_turn,
+            getattr(
+                context,
+                "runtime_active_memory_refresh_tick",
+                0,
+            ),
+        )
+        previous_active_memory_refresh_turn = getattr(
+            context,
+            "runtime_active_memory_records_refresh_turn",
+            None,
+        )
         active_memory_refresh_committed = (
             commit_active_memory_refresh
-            and getattr(
-                context,
-                "runtime_active_memory_records_refresh_turn",
-                None,
-            )
+            and previous_active_memory_refresh_turn
             == active_memory_refresh_turn
+        )
+        active_memory_idle_already_applied = (
+            isinstance(
+                previous_active_memory_refresh_turn,
+                tuple,
+            )
+            and previous_active_memory_refresh_turn[:2]
+            == active_memory_refresh_base_turn
         )
         previous_active_memory_text = "\n".join(
             stored_active_memory_records
@@ -781,7 +798,9 @@ def append_L1_runtime_memory(
                 previous_active_memory_text,
                 context=context,
                 previous_memory=previous_active_memory_text,
-                add_runtime_user_idle_to_elapsed=True,
+                add_runtime_user_idle_to_elapsed=(
+                    not active_memory_idle_already_applied
+                ),
             )
         )
 

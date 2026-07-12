@@ -2347,6 +2347,60 @@ class RuntimeActionTests(unittest.TestCase):
             "",
         )
 
+    def test_stream_filter_executes_consecutive_markers_across_all_chunk_boundaries(self):
+
+        marker_text = (
+            "<WEB_SEARCH: latest breakthroughs in fusion energy 2026>\n"
+            "<CREATE_ACTIVE_MEMORY: experiment_start_time: "
+            "2026-07-12 23:55>"
+        )
+        expected_actions = (
+            RuntimeActionCall(
+                name="WEB_SEARCH",
+                payload=(
+                    '{"query": "latest breakthroughs in fusion energy 2026"}'
+                ),
+            ),
+            RuntimeActionCall(
+                name="CREATE_ACTIVE_MEMORY",
+                payload="experiment_start_time: 2026-07-12 23:55",
+            ),
+        )
+
+        for split_at in range(1, len(marker_text)):
+            with self.subTest(split_at=split_at):
+                stream_filter = RuntimeActionStreamFilter(
+                    enabled_actions=[
+                        "CAN_WEB_SEARCH",
+                        "CAN_SAVE_ACTIVE_MEMORY",
+                    ],
+                )
+
+                first = stream_filter.filter(
+                    marker_text[:split_at]
+                )
+                second = stream_filter.filter(
+                    marker_text[split_at:]
+                )
+                final = stream_filter.flush_result()
+
+                self.assertEqual(
+                    (
+                        first.text
+                        + second.text
+                        + final.text
+                    ).strip(),
+                    "",
+                )
+                self.assertEqual(
+                    (
+                        *first.actions,
+                        *second.actions,
+                        *final.actions,
+                    ),
+                    expected_actions,
+                )
+
     def test_stream_filter_handles_split_bare_create_active_memory_marker(self):
 
         stream_filter = RuntimeActionStreamFilter(
@@ -5146,6 +5200,92 @@ class RuntimeActionTests(unittest.TestCase):
                 "action": "create_active_memory",
                 "status": "completed",
             },
+        )
+
+    def test_create_active_memory_replaces_model_runtime_suffixes(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+        context.timestamp = "2026-07-13T00:12:00"
+        context.session_id = "runtime-session"
+        context.turn_number = 8
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="CREATE_ACTIVE_MEMORY",
+                        payload=(
+                            "Experiment Progress: 2m elapsed "
+                            "[ active_memory_id: progress_marker_1 ] "
+                            "[ conditions: stale condition ] "
+                            "[ creation_time: 1999-01-01T00:00:00 ] "
+                            "[ created_session_id: model-session ] "
+                            "[ created_jin_message_number: 999 ] "
+                            "[ elapsed_time: 99:99:99 ] "
+                            "[ elapsed_jin_message_number: 999 ] "
+                            "[ status: resolved ]"
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertEqual(
+            context.emitter.events[0]["text"],
+            "Saving: Experiment Progress: 2m elapsed",
+        )
+        self.assertEqual(
+            context.runtime_action_events[0]["payload"],
+            "Experiment Progress: 2m elapsed",
+        )
+
+        active_memory = context.active_memory_records[0]
+
+        self.assertRegex(
+            active_memory,
+            (
+                r"^active_memory_1: Experiment Progress: 2m elapsed "
+                r"\[ active_memory_id: [a-z0-9]{6} \] "
+                r"\[ conditions: Experiment Progress: 2m elapsed \] "
+                r"\[ creation_time: 2026-07-13T00:12:00 \] "
+                r"\[ created_session_id: runtime-session \] "
+                r"\[ created_jin_message_number: 8 \] "
+                r"\[ elapsed_time: 00:00:00 \] "
+                r"\[ elapsed_jin_message_number: 0 \] "
+                r"\[ status: pending \]$"
+            ),
+        )
+        self.assertNotIn(
+            "progress_marker_1",
+            active_memory,
+        )
+        self.assertNotIn(
+            "stale condition",
+            active_memory,
+        )
+        self.assertNotIn(
+            "model-session",
+            active_memory,
+        )
+        self.assertNotIn(
+            "99:99:99",
+            active_memory,
         )
 
     def test_apply_runtime_action_calls_queues_active_memory_record(self):

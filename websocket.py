@@ -2399,6 +2399,7 @@ async def process_message(
         context.runtime_turn_interrupted = False
         context.runtime_turn_interruption_reason = ""
         context.runtime_turn_interruption_quote = ""
+        context.runtime_reasoning_recovery_pending = False
         await arm_save_session_from_user_text(
             context,
             user_text,

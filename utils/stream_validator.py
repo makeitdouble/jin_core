@@ -1,3 +1,25 @@
+from rules.runtime import (
+    DELAYED_MEMORY_APPEND_MARKER,
+    DELAYED_MEMORY_LIST_MARKER,
+    DELAYED_MEMORY_REMOVE_MARKER,
+    INTERNAL_ACTION_APPEND_SKILL_MARKER,
+    INTERNAL_ACTION_APPEND_SKILLS_MARKER,
+    INTERNAL_ACTION_ASSET_ACTION_MARKER,
+    INTERNAL_ACTION_CHECK_TODO_MARKER,
+    INTERNAL_ACTION_CLEAN_TOOL_RESULTS_MARKER,
+    INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER,
+    INTERNAL_ACTION_CREATE_TODO_LIST_MARKER,
+    INTERNAL_ACTION_HIDE_SKILLS_MARKER,
+    INTERNAL_ACTION_LIST_SKILLS_MARKER,
+    INTERNAL_ACTION_REMOVE_SKILL_MARKER,
+    INTERNAL_ACTION_REMOVE_SKILLS_MARKER,
+    INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY_MARKER,
+    INTERNAL_ACTION_RESOLVE_TODO_MARKER,
+    INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_MARKER,
+    INTERNAL_ACTION_SAVE_SESSION_MARKER,
+    INTERNAL_ACTION_WEB_SEARCH_MARKER,
+)
+
 # ---------------------------------------------------------
 # STREAM VALIDATOR
 # ---------------------------------------------------------
@@ -36,11 +58,76 @@ TRAILING_ARTIFACTS = [
 
 WORD_WINDOW_SIZE = 30
 MAX_REPEAT_WORDS = 8
-MAX_REPEAT_SENTENCES = 3
-SENTENCE_REPEAT_WINDOW = 12
-MIN_REPEAT_SENTENCE_CHARS = 24
-MIN_REPEAT_SENTENCE_WORDS = 5
+MAX_REPEAT_SENTENCES = 10
+MAX_SENTENCE_LOOP_SEQUENCE_SIZE = 32
+SENTENCE_HISTORY_SIZE = (
+    MAX_SENTENCE_LOOP_SEQUENCE_SIZE
+    + 1
+)
 TRUNCATE = 160
+
+STREAM_VALIDATOR_EXCLUDED_MARKERS = [
+    INTERNAL_ACTION_WEB_SEARCH_MARKER,
+    INTERNAL_ACTION_SAVE_SESSION_MARKER,
+    INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER,
+    INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY_MARKER,
+    INTERNAL_ACTION_LIST_SKILLS_MARKER,
+    INTERNAL_ACTION_HIDE_SKILLS_MARKER,
+    INTERNAL_ACTION_CLEAN_TOOL_RESULTS_MARKER,
+    INTERNAL_ACTION_APPEND_SKILL_MARKER,
+    INTERNAL_ACTION_REMOVE_SKILL_MARKER,
+    INTERNAL_ACTION_APPEND_SKILLS_MARKER,
+    INTERNAL_ACTION_REMOVE_SKILLS_MARKER,
+    INTERNAL_ACTION_ASSET_ACTION_MARKER,
+    INTERNAL_ACTION_CREATE_TODO_LIST_MARKER,
+    INTERNAL_ACTION_RESOLVE_TODO_MARKER,
+    INTERNAL_ACTION_CHECK_TODO_MARKER,
+    INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_MARKER,
+    DELAYED_MEMORY_LIST_MARKER,
+    DELAYED_MEMORY_APPEND_MARKER,
+    DELAYED_MEMORY_REMOVE_MARKER,
+]
+
+
+def extract_marker_name(
+        marker: str,
+) -> str:
+
+    marker = str(marker or "")
+
+    if not marker.startswith("<"):
+        return ""
+
+    offset = 2 if marker.startswith("</") else 1
+    chars = []
+
+    for char in marker[offset:]:
+        if char.isalnum() or char == "_":
+            chars.append(char)
+            continue
+
+        break
+
+    return "".join(chars)
+
+
+EXCLUDED_MARKER_NAMES = frozenset(
+    marker_name
+    for marker_name in (
+        extract_marker_name(marker)
+        for marker in STREAM_VALIDATOR_EXCLUDED_MARKERS
+    )
+    if marker_name
+)
+
+EXCLUDED_MARKER_STARTS = tuple(
+    marker_start
+    for marker_name in EXCLUDED_MARKER_NAMES
+    for marker_start in (
+        f"<{marker_name}",
+        f"</{marker_name}",
+    )
+)
 
 def build_preview(
         text: str,
@@ -56,15 +143,23 @@ class StreamValidator:
 
     def __init__(self):
 
-        self.current_sentence = ""
+        self.current_sentence_parts = []
+        self.sentence_history = []
+        self.sentence_period_match_counts = [
+            0
+        ] * (
+            MAX_SENTENCE_LOOP_SEQUENCE_SIZE
+            + 1
+        )
 
-        self.recent_sentences = []
         self.history_paragraphs = set()
 
         self.recent_words = []
+        self.validation_marker_buffer = ""
 
         self.last_failure_reason: str | None = None
         self.last_failure_preview = ""
+        self.last_failure_loop_preview = ""
 
         self.stream_started = False
         self.failure_emitted = False
@@ -514,112 +609,239 @@ class StreamValidator:
                     )
 
                     self.last_failure_preview = build_preview(preview)
+                    self.last_failure_loop_preview = build_preview(
+                        last_word
+                    )
 
                     return False
 
         return True
 
     # -----------------------------------------------------
+    # FILTER SYSTEM MARKERS FOR VALIDATION
+    # -----------------------------------------------------
+
+    @staticmethod
+    def is_excluded_marker(
+        marker: str,
+    ) -> bool:
+
+        return (
+            extract_marker_name(marker)
+            in EXCLUDED_MARKER_NAMES
+        )
+
+    @staticmethod
+    def can_be_excluded_marker_prefix(
+        candidate: str,
+    ) -> bool:
+
+        return any(
+            marker_start.startswith(candidate)
+            or candidate.startswith(marker_start)
+            for marker_start in EXCLUDED_MARKER_STARTS
+        )
+
+    def filter_validation_exclusions(
+        self,
+        chunk: str,
+    ) -> str:
+
+        text = self.validation_marker_buffer + chunk
+        self.validation_marker_buffer = ""
+
+        output = []
+        offset = 0
+
+        while offset < len(text):
+
+            marker_start = text.find("<", offset)
+
+            if marker_start < 0:
+                output.append(text[offset:])
+                break
+
+            output.append(
+                text[offset:marker_start]
+            )
+
+            marker_end = text.find(
+                ">",
+                marker_start + 1,
+            )
+
+            if marker_end < 0:
+                candidate = text[marker_start:]
+
+                if self.can_be_excluded_marker_prefix(
+                    candidate
+                ):
+                    self.validation_marker_buffer = candidate
+                else:
+                    output.append(candidate)
+
+                break
+
+            marker = text[
+                marker_start:marker_end + 1
+            ]
+
+            if self.is_excluded_marker(marker):
+                output.append(" ")
+            else:
+                output.append(marker)
+
+            offset = marker_end + 1
+
+        return "".join(output)
+
+    # -----------------------------------------------------
+    # VALIDATE REPETITIONS
+    # -----------------------------------------------------
+
+    def validate_repetitions(
+        self,
+        chunk: str,
+    ) -> bool:
+
+        validation_chunk = (
+            self.filter_validation_exclusions(
+                chunk
+            )
+        )
+
+        if not validation_chunk:
+            return True
+
+        if not self.validate_word_loops(
+            validation_chunk
+        ):
+            return False
+
+        return self.validate_sentences(
+            validation_chunk
+        )
+
+    # -----------------------------------------------------
     # VALIDATE SENTENCES
     # -----------------------------------------------------
+
+    def validate_sentence_sequence_loop(
+        self,
+        sentence: str,
+    ) -> bool:
+
+        self.sentence_history.append(
+            sentence
+        )
+
+        if (
+            len(self.sentence_history)
+            > SENTENCE_HISTORY_SIZE
+        ):
+            del self.sentence_history[0]
+
+        max_sequence_size = min(
+            MAX_SENTENCE_LOOP_SEQUENCE_SIZE,
+            len(self.sentence_history) - 1,
+        )
+
+        for sequence_size in range(
+            1,
+            max_sequence_size + 1,
+        ):
+            if (
+                self.sentence_history[-1]
+                == self.sentence_history[
+                    -1 - sequence_size
+                ]
+            ):
+                self.sentence_period_match_counts[
+                    sequence_size
+                ] += 1
+            else:
+                self.sentence_period_match_counts[
+                    sequence_size
+                ] = 0
+
+            required_match_count = (
+                sequence_size
+                * (MAX_REPEAT_SENTENCES - 1)
+            )
+
+            if (
+                self.sentence_period_match_counts[
+                    sequence_size
+                ]
+                < required_match_count
+            ):
+                continue
+
+            sequence = self.sentence_history[
+                -sequence_size:
+            ]
+
+            self.last_failure_reason = (
+                "Repeated sentence loop detected."
+            )
+            self.last_failure_preview = build_preview(
+                "".join(sequence)
+            )
+            self.last_failure_loop_preview = (
+                self.last_failure_preview
+            )
+
+            return False
+
+        return True
+
+    def validate_sentence(
+        self,
+        sentence: str,
+    ) -> bool:
+
+        if not any(
+            char.isalnum()
+            for char in sentence
+        ):
+            return True
+
+        return self.validate_sentence_sequence_loop(
+            sentence
+        )
 
     def validate_sentences(
         self,
         chunk: str,
-    ):
+    ) -> bool:
 
-        return True
-        self.current_sentence += chunk
-
-        complete_sentences = []
         sentence_start = 0
 
-        for index, char in enumerate(
-            self.current_sentence
-        ):
+        for index, char in enumerate(chunk):
 
-            if char not in [
-                ".",
-                "!",
-                "?",
-                "\n",
-            ]:
+            if char not in ".!?\n":
                 continue
 
-            raw_sentence = (
-                self.current_sentence[
-                    sentence_start:index + 1
-                ]
-                .strip()
+            self.current_sentence_parts.append(
+                chunk[sentence_start:index + 1]
             )
 
-            if raw_sentence:
-                complete_sentences.append(
-                    raw_sentence
-                )
+            raw_sentence = "".join(
+                self.current_sentence_parts
+            )
+            self.current_sentence_parts.clear()
+
+            if not self.validate_sentence(
+                raw_sentence
+            ):
+                return False
 
             sentence_start = index + 1
 
-        self.current_sentence = (
-            self.current_sentence[
-                sentence_start:
-            ]
-        )
-
-        if not complete_sentences:
-            return True
-
-        for raw_sentence in complete_sentences:
-
-            sentence = (
-                " ".join(
-                    raw_sentence
-                    .strip()
-                    .lstrip("*- \t")
-                    .rstrip(".!? \n")
-                    .split()
-                )
-                .casefold()
+        if sentence_start < len(chunk):
+            self.current_sentence_parts.append(
+                chunk[sentence_start:]
             )
-
-            if not sentence:
-                continue
-
-            words = [
-                word
-                for word in sentence.split()
-                if any(
-                    char.isalnum()
-                    for char in word
-                )
-            ]
-
-            if (
-                len(sentence) < MIN_REPEAT_SENTENCE_CHARS
-                or len(words) < MIN_REPEAT_SENTENCE_WORDS
-            ):
-                continue
-
-            self.recent_sentences.append(sentence)
-
-            self.recent_sentences = (
-                self.recent_sentences[-SENTENCE_REPEAT_WINDOW:]
-            )
-
-            if (
-                self.recent_sentences.count(sentence)
-                >= MAX_REPEAT_SENTENCES
-            ):
-
-                self.last_failure_reason = (
-                    "Repeated sentence loop detected."
-                )
-
-                self.last_failure_preview = build_preview(
-                    raw_sentence
-                )
-
-                return False
 
         return True
     # -----------------------------------------------------
@@ -649,6 +871,9 @@ class StreamValidator:
                 )
 
                 self.last_failure_preview = build_preview(paragraph)
+                self.last_failure_loop_preview = (
+                    self.last_failure_preview
+                )
 
                 return False
 
@@ -691,20 +916,10 @@ class StreamValidator:
             )
 
         # -------------------------------------------------
-        # WORD LOOPS
+        # REPETITION LOOPS
         # -------------------------------------------------
 
-        if not self.validate_word_loops(chunk):
-            return (
-                "",
-                False,
-            )
-
-        # -------------------------------------------------
-        # SENTENCES
-        # -------------------------------------------------
-
-        if not self.validate_sentences(chunk):
+        if not self.validate_repetitions(chunk):
             return (
                 "",
                 False,

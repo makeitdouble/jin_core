@@ -17,6 +17,7 @@ from rules.assembler import (
 )
 from rules.runtime import (
     NO_FOLLOW_UP_INTERNAL_ACTIONS,
+    REASONING_RECOVERY_MESSAGE,
 )
 
 from clients.search_client import (
@@ -76,6 +77,26 @@ def action_event_requires_follow_up(event) -> bool:
 
     return name not in NO_FOLLOW_UP_ACTION_NAMES
 
+
+def action_batch_requires_follow_up(
+        events,
+        response_text: str,
+) -> bool:
+
+    if not events:
+        return False
+
+    if len(events) != 1:
+        return True
+
+    event = events[0]
+
+    if action_event_requires_follow_up(event):
+        return True
+
+    return not str(response_text or "").strip()
+
+
 def prepare_asset_results_for_turn(
         context,
 ) -> None:
@@ -116,6 +137,15 @@ def prepare_asset_results_for_turn(
         return
 
     asset_results.clear()
+
+
+def build_reasoning_recovery_context() -> str:
+
+    return (
+        "<REASONING_RECOVERY>\n"
+        f"{REASONING_RECOVERY_MESSAGE}.\n"
+        "</REASONING_RECOVERY>"
+    )
 
 
 FOLLOWUP_SYSTEM_MESSAGE = (
@@ -328,6 +358,22 @@ class BrainNode(BaseNode):
             ),
             sequence_origin_request_context
         ]
+
+        if (
+            context is not None
+            and getattr(
+                context,
+                "runtime_reasoning_recovery_pending",
+                False,
+            )
+        ):
+            sections.append(
+                build_reasoning_recovery_context()
+            )
+            context.runtime_reasoning_recovery_pending = False
+            context.runtime_turn_interrupted = False
+            context.runtime_turn_interruption_reason = ""
+            context.runtime_turn_interruption_quote = ""
 
         if context is not None:
             mark_current_action_sequence(
@@ -825,6 +871,7 @@ class BrainNode(BaseNode):
         # record this turn even when the visible assistant text is empty
         # (e.g. the user explicitly asked JIN to emit only the marker).
         context.runtime_active_memory_created_this_turn = False
+        context.runtime_active_memory_refresh_tick = 0
 
         system_prompt = (
             build_brain_system_prompt(
@@ -930,21 +977,23 @@ class BrainNode(BaseNode):
                 "runtime_action_events",
                 [],
             )
-
-            return [
+            pending_action_events = [
                 event
                 for event in runtime_action_events[
                     action_event_followup_offset:
                 ]
-                if (
-                    belongs_to_current_turn(
-                        event
-                    )
-                    and action_event_requires_follow_up(
-                        event
-                    )
+                if belongs_to_current_turn(
+                    event
                 )
             ]
+
+            if not action_batch_requires_follow_up(
+                    pending_action_events,
+                    text,
+            ):
+                return []
+
+            return pending_action_events
 
         def consume_current_action_batch():
 
@@ -996,6 +1045,10 @@ class BrainNode(BaseNode):
             return pending_action_events
 
         while followup_count < max_followups:
+
+            context.runtime_active_memory_refresh_tick = (
+                followup_count + 1
+            )
 
             if context.runtime_search_queries:
 
@@ -1263,7 +1316,14 @@ class BrainNode(BaseNode):
                     collect_pending_action_events()
                 )
 
-                if not pending_action_events:
+                if (
+                    not pending_action_events
+                    and not getattr(
+                        context,
+                        "runtime_reasoning_recovery_pending",
+                        False,
+                    )
+                ):
                     break
 
                 followup_action_events = (
@@ -1366,6 +1426,9 @@ class BrainNode(BaseNode):
             continue
 
         if followup_count >= max_followups:
+            context.runtime_active_memory_refresh_tick = (
+                followup_count + 1
+            )
             stop_reason = (
                 "Brain workflow stopped after reaching the configured "
                 f"follow-up limit ({max_followups}). "

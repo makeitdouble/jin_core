@@ -205,6 +205,24 @@ def record_session_action_history(
         del history[:-MAX_SESSION_ACTION_HISTORY_ITEMS]
 
 
+def build_reasoning_loop_history_text(
+    quote: str,
+) -> str:
+
+    normalized_quote = str(
+        quote
+        or ""
+    ).strip()
+
+    if not normalized_quote:
+        return "stuck in a reasoning loop"
+
+    return (
+        "stuck in a reasoning loop with "
+        f'"{normalized_quote}"'
+    )
+
+
 def format_session_action_marker_names(
     marker_actions,
 ) -> str:

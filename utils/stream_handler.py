@@ -107,15 +107,27 @@ class StreamHandler:
         if self.thinking_validator:
 
             is_valid = (
-                self.thinking_validator.validate_sentences(
+                self.thinking_validator.validate_repetitions(
                     chunk
                 )
             )
 
             if not is_valid:
 
+                failure_reason = (
+                    self.thinking_validator.last_failure_reason
+                    or "Repeated thinking loop detected."
+                )
+
+                if failure_reason.startswith("Repeated "):
+                    failure_reason = failure_reason.replace(
+                        "Repeated ",
+                        "Repeated thinking ",
+                        1,
+                    )
+
                 self.thinking_validator.last_failure_reason = (
-                    "Repeated thinking sentence loop detected."
+                    failure_reason
                 )
 
                 raw_chunk_preview = (

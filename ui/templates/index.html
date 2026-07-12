@@ -292,6 +292,16 @@
             margin-top: var(--chat-question-gap) !important;
         }
 
+        #chat-history > :not(.jin-runtime-action-row) + .jin-runtime-action-row {
+            /* Первый action-бабл держим рядом с ответом JIN, а не как отдельный ход. */
+            margin-top: 0.45rem !important;
+        }
+
+        #chat-history > .jin-runtime-action-row + .jin-runtime-action-row {
+            /* Последовательные action-баблы визуально образуют один компактный стек. */
+            margin-top: 0.1rem !important;
+        }
+
         #chat-history > :last-child {
             /* Чтобы последний ход не прилипал к input-панели при автоскролле. */
             margin-bottom: 0.35rem;
@@ -593,6 +603,7 @@
 
         .jin-runtime-action-row {
             align-items: center;
+            margin-top: 0!important
         }
 
         .jin-chat-avatar {

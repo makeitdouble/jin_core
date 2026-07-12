@@ -13,6 +13,12 @@ from runtime import (
 from app_settings import (
     settings,
 )
+from clients.brain_context_builder import (
+    build_session_actions_history_context,
+)
+from utils.session_actions_history import (
+    record_session_action_history,
+)
 
 
 class FakeEmitter:
@@ -155,11 +161,10 @@ async def fake_cancelled_generator():
 async def fake_sentence_loop_generator():
 
     repeated = (
-        "* Wait, I'll check if I should use "
-        "`append_skill` first. Yes.\n"
+        "* Wait, I'll use the search marker.\n"
     )
 
-    for _ in range(6):
+    for _ in range(10):
         yield {
             "type": "content",
             "content": repeated,
@@ -169,11 +174,10 @@ async def fake_sentence_loop_generator():
 async def fake_thinking_sentence_loop_generator():
 
     repeated = (
-        "*Wait*, I'll check if I can use "
-        "`write_file` as a skill.\n"
+        "* Wait, I'll use the search marker.\n"
     )
 
-    for _ in range(6):
+    for _ in range(10):
         yield {
             "type": "thinking",
             "content": repeated,
@@ -411,7 +415,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             "partial answer",
         )
 
-    async def test_sentence_loop_content_is_preserved_without_interrupt(self):
+    async def test_sentence_loop_content_interrupts_and_arms_recovery(self):
 
         runtime_id = settings.SERVICE_MODEL_UID
         active_stream = FakeActiveStream()
@@ -428,6 +432,17 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             runtime_turn_interrupted=False,
             runtime_turn_interruption_reason="",
             runtime_turn_interruption_quote="",
+            runtime_reasoning_recovery_pending=False,
+            runtime_current_turn_id="turn-1",
+            runtime_turn_started_at=0,
+            runtime_action_sequence_turn_ids=[
+                "turn-1",
+            ],
+            runtime_session_action_history=[{
+                "text": "WEB_SEARCH",
+                "created_at": 1,
+                "runtime_turn_id": "turn-1",
+            }],
         )
 
         stream = RuntimeStream(
@@ -451,28 +466,64 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             fake_sentence_loop_generator()
         )
 
-        self.assertIsNotNone(
+        self.assertIsNone(
             result
         )
-        self.assertIn(
-            "append_skill",
-            result,
-        )
-        self.assertFalse(
+        self.assertTrue(
             context.runtime_turn_interrupted
+        )
+        self.assertTrue(
+            context.runtime_reasoning_recovery_pending
         )
         self.assertEqual(
             context.runtime_turn_interruption_reason,
-            "",
+            "Repeated sentence loop detected.",
         )
         self.assertEqual(
             context.active_streams,
-            {
-                1: active_stream,
-            },
+            {},
         )
-        self.assertFalse(
+        self.assertTrue(
             active_stream.closed
+        )
+
+        record_session_action_history(
+            context,
+            "WEB_SEARCH",
+        )
+        sequence_context = (
+            build_session_actions_history_context(
+                context,
+                current_sequence=True,
+            )
+        )
+
+        self.assertIn(
+            "Step 1 - WEB_SEARCH",
+            sequence_context,
+        )
+        self.assertIn(
+            (
+                "Step 2 - stuck in a reasoning loop with "
+                '"* Wait, I\'ll use the search marker."'
+            ),
+            sequence_context,
+        )
+        self.assertIn(
+            "Step 3 - WEB_SEARCH",
+            sequence_context,
+        )
+        self.assertLess(
+            sequence_context.index("Step 1 - WEB_SEARCH"),
+            sequence_context.index(
+                "Step 2 - stuck in a reasoning loop"
+            ),
+        )
+        self.assertLess(
+            sequence_context.index(
+                "Step 2 - stuck in a reasoning loop"
+            ),
+            sequence_context.index("Step 3 - WEB_SEARCH"),
         )
 
         errors = [
@@ -483,10 +534,11 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             len(errors),
-            0,
+            1,
         )
 
-    async def test_thinking_sentence_loop_is_preserved_without_interrupt(self):
+
+    async def test_thinking_sentence_loop_interrupts_and_arms_recovery(self):
 
         runtime_id = settings.SERVICE_MODEL_UID
         active_stream = FakeActiveStream()
@@ -503,6 +555,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             runtime_turn_interrupted=False,
             runtime_turn_interruption_reason="",
             runtime_turn_interruption_quote="",
+            runtime_reasoning_recovery_pending=False,
         )
 
         stream = RuntimeStream(
@@ -526,24 +579,24 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             fake_thinking_sentence_loop_generator()
         )
 
-        self.assertEqual(
-            result,
-            "",
+        self.assertIsNone(
+            result
         )
-        self.assertFalse(
+        self.assertTrue(
             context.runtime_turn_interrupted
+        )
+        self.assertTrue(
+            context.runtime_reasoning_recovery_pending
         )
         self.assertEqual(
             context.runtime_turn_interruption_reason,
-            "",
+            "Repeated thinking sentence loop detected.",
         )
         self.assertEqual(
             context.active_streams,
-            {
-                1: active_stream,
-            },
+            {},
         )
-        self.assertFalse(
+        self.assertTrue(
             active_stream.closed
         )
 
@@ -552,9 +605,9 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             for message in context.websocket.messages
             if message.get("type") == "thinking_chunk"
         ]
-        self.assertGreaterEqual(
+        self.assertEqual(
             len(thinking_chunks),
-            1,
+            9,
         )
 
         errors = [
@@ -565,8 +618,9 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             len(errors),
-            0,
+            1,
         )
+
 
     async def test_non_brain_stream_does_not_update_context_counter(self):
 

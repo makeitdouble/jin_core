@@ -7,6 +7,7 @@ from agent.nodes.brain import (
     FOLLOWUP_SYSTEM_MESSAGE,
     action_event_requires_follow_up,
     build_followup_system_message,
+    build_reasoning_recovery_context,
     format_followup_action_from_event,
     format_followup_actions_from_events,
     prepare_asset_results_for_turn,
@@ -195,6 +196,44 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(
             "<TOOL_RESULTS>\n</TOOL_RESULTS>",
             prompt,
+        )
+
+    async def test_followup_consumes_reasoning_recovery_block(self):
+
+        context = SimpleNamespace(
+            runtime_reasoning_recovery_pending=True,
+            runtime_turn_interrupted=True,
+            runtime_turn_interruption_reason=(
+                "Repeated thinking sentence loop detected."
+            ),
+            runtime_turn_interruption_quote="looped sentence",
+            runtime_recent_turns=[],
+            runtime_appended_delayed_memory={},
+        )
+
+        prompt = BrainNode.build_followup_system_prompt(
+            "system prompt",
+            "continue immediately",
+            context=context,
+        )
+
+        self.assertIn(
+            build_reasoning_recovery_context(),
+            prompt,
+        )
+        self.assertFalse(
+            context.runtime_reasoning_recovery_pending
+        )
+        self.assertFalse(
+            context.runtime_turn_interrupted
+        )
+        self.assertEqual(
+            context.runtime_turn_interruption_reason,
+            "",
+        )
+        self.assertEqual(
+            context.runtime_turn_interruption_quote,
+            "",
         )
 
     async def test_followup_event_formatter_keeps_only_action_name(self):
@@ -680,6 +719,86 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             state.brain_response,
             "Retrying the failed save.",
+        )
+
+    async def test_validator_interruption_runs_recovery_followup_without_action(self):
+
+        calls = []
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+            context = kwargs["context"]
+
+            if len(calls) == 1:
+                context.runtime_turn_interrupted = True
+                context.runtime_turn_interruption_reason = (
+                    "Repeated thinking sentence loop detected."
+                )
+                context.runtime_turn_interruption_quote = (
+                    "Wait, I'll use the search marker."
+                )
+                context.runtime_reasoning_recovery_pending = True
+                return "", "looped reasoning"
+
+            if len(calls) == 2:
+                self.assertEqual(
+                    kwargs["brain_payload"],
+                    "",
+                )
+                self.assertIn(
+                    build_reasoning_recovery_context(),
+                    kwargs["system_prompt"],
+                )
+                return "Recovered answer.", ""
+
+            self.fail(
+                "Recovery follow-up kept running without a new trigger"
+            )
+
+        context = _context()
+        context.runtime_current_turn_id = "turn_000002"
+        context.runtime_reasoning_recovery_pending = False
+        context.runtime_turn_interrupted = False
+        context.runtime_turn_interruption_reason = ""
+        context.runtime_turn_interruption_quote = ""
+        state = AgentState(
+            user_input="do the task",
+        )
+        state.translated_input = state.user_input
+        brain_runtime = _brain_runtime()
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=brain_runtime,
+        ), patch(
+            "agent.nodes.brain.build_brain_system_prompt",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            len(calls),
+            2,
+        )
+        self.assertEqual(
+            state.brain_response,
+            "Recovered answer.",
+        )
+        self.assertFalse(
+            context.runtime_reasoning_recovery_pending
+        )
+        self.assertFalse(
+            context.runtime_turn_interrupted
         )
 
     async def test_same_turn_list_skills_moves_followup_to_system_prompt(self):
@@ -1401,6 +1520,59 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
+    async def test_no_follow_up_action_without_visible_answer_triggers_tick(self):
+
+        calls = []
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+
+            if len(calls) == 1:
+                kwargs["context"].runtime_action_events.append({
+                    "name": "clean_tool_results",
+                })
+                return "", ""
+
+            return "Follow-up complete.", ""
+
+        context = _context()
+        state = AgentState(
+            user_input="clear search results",
+        )
+        state.translated_input = state.user_input
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=_brain_runtime(),
+        ), patch(
+            "agent.nodes.brain.build_brain_system_prompt",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.build_brain_payload",
+            return_value="brain payload",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            len(calls),
+            2,
+        )
+        self.assertEqual(
+            state.brain_response,
+            "Follow-up complete.",
+        )
+
+
     async def test_no_follow_up_action_keeps_visible_answer_without_tick(self):
 
         calls = []
@@ -1458,6 +1630,66 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 "name": "web_search",
             })
         )
+
+    async def test_no_follow_up_action_in_multi_marker_batch_triggers_tick(self):
+
+        calls = []
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+
+            if len(calls) == 1:
+                kwargs["context"].runtime_action_events.extend([
+                    {
+                        "name": "clean_tool_results",
+                    },
+                    {
+                        "name": "create_active_memory",
+                        "payload": "active_memory=test",
+                    },
+                ])
+                return "First action batch processed.", ""
+
+            return "Workflow complete.", ""
+
+        context = _context()
+        state = AgentState(
+            user_input="clear results and create memory",
+        )
+        state.translated_input = state.user_input
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=_brain_runtime(),
+        ), patch(
+            "agent.nodes.brain.build_brain_system_prompt",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.build_brain_payload",
+            return_value="brain payload",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            len(calls),
+            2,
+        )
+        self.assertEqual(
+            state.brain_response,
+            "Workflow complete.",
+        )
+
+
     async def test_every_action_message_triggers_followup_and_keeps_actions_enabled(self):
 
         calls = []

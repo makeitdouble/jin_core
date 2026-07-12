@@ -6,7 +6,10 @@ sys.path.insert(
     str(Path(__file__).resolve().parents[1]),
 )
 
-from utils.stream_validator import StreamValidator
+from utils.stream_validator import (
+    MAX_REPEAT_SENTENCES,
+    StreamValidator,
+)
 
 
 def collect(validator, chunks):
@@ -106,6 +109,60 @@ def test_stream_validator_allows_non_consecutive_repeated_sentences():
         + repeated
     )
     assert validator.last_failure_reason is None
+
+
+def test_stream_validator_stops_repeated_sentence_sequence_with_markers():
+    validator = StreamValidator()
+
+    repeated_block = (
+        "* *Actually*, I'll do:\n"
+        "- `<CREATE_ACTIVE_MEMORY: Experiment timer>`\n"
+        "- `<WEB_SEARCH: fusion energy>`\n"
+        "\n"
+        "* *Wait*, I'll just do the search.\n"
+        "\n"
+    )
+
+    for repeat_index in range(
+        MAX_REPEAT_SENTENCES
+    ):
+        clean, is_valid = validator.filter_chunk(
+            repeated_block
+        )
+
+        if repeat_index < MAX_REPEAT_SENTENCES - 1:
+            assert clean == repeated_block
+            assert is_valid
+            continue
+
+        assert clean == ""
+        assert not is_valid
+
+    assert validator.last_failure_reason == (
+        "Repeated sentence loop detected."
+    )
+    assert validator.last_failure_preview == (
+        "* *Actually*, I'll do:\\n"
+        "* *Wait*, I'll just do the search."
+    )
+    assert validator.last_failure_loop_preview == (
+        validator.last_failure_preview
+    )
+
+
+def test_stream_validator_keeps_single_word_loop_instance_for_history():
+    validator = StreamValidator()
+
+    clean, is_valid = validator.filter_chunk(
+        "wait " * 8
+    )
+
+    assert clean == ""
+    assert not is_valid
+    assert validator.last_failure_preview == (
+        "wait wait wait wait wait wait wait wait"
+    )
+    assert validator.last_failure_loop_preview == "wait"
 
 
 def test_stream_validator_allows_short_repeated_sentences():

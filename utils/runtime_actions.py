@@ -239,6 +239,12 @@ ACTIVE_MEMORY_LIFECYCLE_SUFFIX_NAMES = (
     "elapsed_jin_message_number",
 )
 
+ACTIVE_MEMORY_RUNTIME_MANAGED_SUFFIX_NAMES = (
+    "active_memory_id",
+    *ACTIVE_MEMORY_LIFECYCLE_SUFFIX_NAMES,
+    "status",
+)
+
 ACTIVE_MEMORY_LIFECYCLE_SUFFIX_RE = re.compile(
     (
         r"\s*\[\s*"
@@ -258,6 +264,56 @@ ACTIVE_MEMORY_TRACE_FIELD_RE = re.compile(
     r"\s*(?:\[\s*trace\s*:\s*[^\]]*\]|\(\s*trace\s*:\s*[^)]*\))\s*",
     re.IGNORECASE,
 )
+
+
+def strip_active_memory_managed_suffixes(
+    value: str,
+    *,
+    extra_suffix_names=(),
+) -> str:
+
+    suffix_names = []
+
+    for suffix_name in (
+        *ACTIVE_MEMORY_RUNTIME_MANAGED_SUFFIX_NAMES,
+        *(extra_suffix_names or ()),
+    ):
+        normalized_name = str(
+            suffix_name or ""
+        ).strip().casefold()
+
+        if (
+            normalized_name
+            and normalized_name not in suffix_names
+        ):
+            suffix_names.append(
+                normalized_name
+            )
+
+    if not suffix_names:
+        return str(value or "").strip()
+
+    managed_suffix_re = re.compile(
+        (
+            r"\s*\[\s*(?:"
+            + "|".join(
+                re.escape(name)
+                for name in suffix_names
+            )
+            + r")\s*:\s*[^\]]*\]\s*"
+        ),
+        re.IGNORECASE,
+    )
+    cleaned = managed_suffix_re.sub(
+        " ",
+        str(value or ""),
+    )
+
+    return re.sub(
+        r"\s+",
+        " ",
+        cleaned,
+    ).strip()
 
 
 def collect_active_memory_slot_ids(
@@ -903,17 +959,21 @@ def refresh_active_memory_runtime_metadata(
             ),
             current_datetime,
         )
+        previous_elapsed_seconds = (
+            _parse_runtime_elapsed_seconds(
+                _parse_active_memory_suffix(
+                    previous_value,
+                    "elapsed_time",
+                )
+            )
+            or 0
+        )
+        elapsed_seconds = max(
+            elapsed_seconds,
+            previous_elapsed_seconds,
+        )
 
         if add_runtime_user_idle_to_elapsed:
-            previous_elapsed_seconds = (
-                _parse_runtime_elapsed_seconds(
-                    _parse_active_memory_suffix(
-                        previous_value,
-                        "elapsed_time",
-                    )
-                )
-                or 0
-            )
             elapsed_seconds = max(
                 elapsed_seconds,
                 previous_elapsed_seconds
@@ -3025,10 +3085,23 @@ def _trailing_marker_prefix_length(
             ):
                 continue
 
-            if upper_text.endswith(
+            if not upper_text.endswith(
                 marker[:length]
             ):
-                return length
+                continue
+
+            marker_start = len(text) - length
+
+            if not marker.startswith("<"):
+                line_start = max(
+                    text.rfind("\n", 0, marker_start),
+                    text.rfind("\r", 0, marker_start),
+                ) + 1
+
+                if text[line_start:marker_start].strip():
+                    continue
+
+            return length
 
     return 0
 

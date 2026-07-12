@@ -96,6 +96,7 @@ from utils.runtime_actions import (
     parse_delayed_memory_content_payload,
     refresh_active_memory_runtime_metadata,
     strip_active_memory_runtime_metadata,
+    strip_active_memory_managed_suffixes,
 )
 from utils.session_actions_history import (
     build_asset_action_history_text,
@@ -307,16 +308,17 @@ def split_active_memory_payload(
     payload: str,
 ) -> tuple[tuple[str, str], ...]:
 
-    text = str(
-        payload or ""
-    ).strip()
-
-    if not text:
-        return ()
-
     marker_fields = get_create_active_memory_marker_fields()
 
     if not marker_fields:
+        return ()
+
+    text = strip_active_memory_managed_suffixes(
+        payload,
+        extra_suffix_names=marker_fields,
+    )
+
+    if not text:
         return ()
 
     max_splits = max(
@@ -347,6 +349,18 @@ def split_active_memory_payload(
             parts,
         )
         if value
+    )
+
+
+def normalize_active_memory_runtime_payload(
+    payload: str,
+) -> str:
+
+    return strip_active_memory_managed_suffixes(
+        payload,
+        extra_suffix_names=(
+            get_create_active_memory_marker_fields()
+        ),
     )
 
 
@@ -1959,9 +1973,19 @@ async def apply_runtime_action_calls(
             })
 
         elif action.payload:
-            action_event["payload"] = (
-                action.payload
-            )
+            action_event_payload = action.payload
+
+            if action.name == RUNTIME_ACTION_CREATE_ACTIVE_MEMORY:
+                action_event_payload = (
+                    normalize_active_memory_runtime_payload(
+                        action.payload
+                    )
+                )
+
+            if action_event_payload:
+                action_event["payload"] = (
+                    action_event_payload
+                )
 
         context.runtime_action_events.append(
             action_event
@@ -2880,10 +2904,15 @@ async def apply_runtime_action_calls(
             )
 
         for active_memory_text in (
-            action.payload
+            normalize_active_memory_runtime_payload(
+                action.payload
+            )
             for action in create_active_memory_actions
             if action.payload
         ):
+            if not active_memory_text:
+                continue
+
             records_before = list(
                 getattr(
                     context,
