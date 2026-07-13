@@ -35,6 +35,7 @@ from utils.assets_service import (
 )
 from utils.session_actions_history import (
     build_asset_action_history_text,
+    build_context_limit_history_text,
     build_reasoning_loop_history_text,
     record_session_action_history,
 )
@@ -42,6 +43,18 @@ from utils.tool_results import (
     TOOL_RESULT_KIND_DELAYED_MEMORY,
     record_runtime_tool_result,
 )
+from config_loader import (
+    config,
+)
+
+
+CONTEXT_LIMIT_FINISH_REASONS = frozenset({
+    "length",
+    "max_tokens",
+    "max_output_tokens",
+    "context_length",
+    "context_limit",
+})
 
 
 class RuntimeStream:
@@ -88,6 +101,7 @@ class RuntimeStream:
         self.append_skill_marker_names = self.build_appended_skill_name_set()
         self.repetition_guard = RuntimeActionRepetitionGuard()
         self.marker_repetition_aborted = False
+        self.context_limit_recovery_armed = False
         self.started_delayed_memory_action_ids = []
         self.delayed_memory_action_payload = ""
         self.action_filter = RuntimeActionStreamFilter(
@@ -347,6 +361,77 @@ class RuntimeStream:
 
         self.context.runtime_turn_assistant_response = (
             self.stream.response
+        )
+
+    def detect_context_limit_stage(self) -> str:
+
+        if self.stream.response.strip():
+            return "answer"
+
+        if self.stream.reasoning.strip():
+            return "reasoning"
+
+        return "generation"
+
+    def should_follow_up_on_context_limit(
+        self,
+        finish_reason: str,
+    ) -> bool:
+
+        normalized_reason = str(
+            finish_reason
+            or ""
+        ).strip().casefold()
+
+        return (
+            not self.context_limit_recovery_armed
+            and self.is_brain_context()
+            and bool(
+                getattr(
+                    config,
+                    "FOLLOW_UP_ON_LIMIT",
+                    True,
+                )
+            )
+            and normalized_reason
+            in CONTEXT_LIMIT_FINISH_REASONS
+        )
+
+    def mark_context_limit_recovery(
+        self,
+        finish_reason: str,
+    ) -> None:
+
+        if not self.should_follow_up_on_context_limit(
+            finish_reason
+        ):
+            return
+
+        self.context_limit_recovery_armed = True
+        stage = self.detect_context_limit_stage()
+        normalized_reason = str(
+            finish_reason
+            or "length"
+        ).strip().casefold()
+
+        self.capture_runtime_turn_response()
+        self.context.runtime_turn_interrupted = True
+        self.context.runtime_context_limit_recovery_pending = True
+        self.context.runtime_context_limit_stage = stage
+        self.context.runtime_context_limit_finish_reason = (
+            normalized_reason
+        )
+        self.context.runtime_turn_interruption_reason = (
+            "Context limit reached during "
+            f"{stage}."
+        )
+        self.context.runtime_turn_interruption_quote = ""
+
+        record_session_action_history(
+            self.context,
+            build_context_limit_history_text(
+                stage
+            ),
         )
 
     async def close_active_streams(self):
@@ -881,6 +966,20 @@ class RuntimeStream:
                 if chunk_type == "usage":
                     self.stream.update_usage(
                         chunk
+                    )
+
+                    continue
+
+                # -------------------------------------------------
+                # FINISH REASON
+                # -------------------------------------------------
+
+                if chunk_type == "finish":
+                    self.mark_context_limit_recovery(
+                        chunk.get(
+                            "finish_reason",
+                            "",
+                        )
                     )
 
                     continue

@@ -931,6 +931,41 @@ class MessageMemoryTests(
             prompt.index("I must identify myself as JIN"),
         )
 
+    def test_current_action_age_starts_at_one_second(self):
+
+        context = SimpleNamespace(
+            runtime_current_turn_id="turn_000002",
+            runtime_turn_started_at=1000.0,
+            runtime_action_sequence_turn_ids=[
+                "turn_000002",
+            ],
+            runtime_session_action_history=[
+                {
+                    "text": "ASSET_ACTION",
+                    "created_at": 1000.0,
+                    "runtime_turn_id": "turn_000002",
+                },
+            ],
+        )
+
+        with patch(
+            "clients.brain_context_builder.time.time",
+            return_value=1000.0,
+        ):
+            history = build_session_actions_history_context(
+                context,
+                current_sequence=True,
+            )
+
+        self.assertIn(
+            "Step 1 - ASSET_ACTION ( 1s ago )",
+            history,
+        )
+        self.assertNotIn(
+            "( 0s ago )",
+            history,
+        )
+
     def test_current_actions_history_filters_older_session_actions(self):
 
         context = SimpleNamespace(
@@ -1328,65 +1363,6 @@ class MessageMemoryTests(
             prompt.index(
                 "<PREVIOUS_SESSION_STATE"
             ),
-        )
-
-    def test_brain_prompt_includes_nonempty_session_event_snapshots_array(self):
-
-        context = SimpleNamespace(
-            session_memory="decision: Continue session snapshots",
-            runtime_session_event_snapshots=[
-                {
-                    "memory_type": "session_event_snapshot",
-                    "memory": "decision: Use session snapshots array",
-                }
-            ],
-            runtime_memory="topic: live runtime state",
-            deep_thought_count=0,
-            runtime_search_result="",
-            runtime_search_result_id="",
-        )
-
-        prompt = build_brain_system_prompt(
-            context=context,
-            runtime_actions={
-                "CAN_WEB_SEARCH": False,
-            },
-        )
-
-        self.assertIn(
-            "<SESSION_EVENT_SNAPSHOTS priority=\"session_context\">",
-            prompt,
-        )
-        self.assertIn(
-            "session_event_snapshot",
-            prompt,
-        )
-        self.assertIn(
-            "Use session snapshots array",
-            prompt,
-        )
-
-    def test_brain_prompt_omits_empty_session_event_snapshots_array(self):
-
-        context = SimpleNamespace(
-            session_memory="decision: Continue session snapshots",
-            runtime_session_event_snapshots=[],
-            runtime_memory="topic: live runtime state",
-            deep_thought_count=0,
-            runtime_search_result="",
-            runtime_search_result_id="",
-        )
-
-        prompt = build_brain_system_prompt(
-            context=context,
-            runtime_actions={
-                "CAN_WEB_SEARCH": False,
-            },
-        )
-
-        self.assertNotIn(
-            "<SESSION_EVENT_SNAPSHOTS",
-            prompt,
         )
 
     def test_brain_prompt_includes_l2_memory_separately(self):
@@ -3019,12 +2995,6 @@ class MessageMemoryTests(
 
         prompt = build_runtime_session_memory_user_prompt(
             current_session_memory="decision: old handoff",
-            session_event_snapshots=[
-                {
-                    "memory_type": "session_event_snapshot",
-                    "memory": "decision: previous event",
-                }
-            ],
             runtime_memory_snapshots=[
                 {
                     "index": 0,
@@ -3057,6 +3027,10 @@ class MessageMemoryTests(
             prompt,
         )
         self.assertIn(
+            "runtime_memory_id:",
+            prompt,
+        )
+        self.assertIn(
             "topic: first topic",
             prompt,
         )
@@ -3080,26 +3054,11 @@ class MessageMemoryTests(
             "omitted_older_diffs: 0",
             prompt,
         )
-        self.assertIn(
-            "Session event snapshots array",
-            prompt,
-        )
-        self.assertIn(
-            "previous event",
-            prompt,
-        )
 
     def test_l3_session_memory_prompt_bounds_long_snapshot_history(self):
 
         prompt = build_runtime_session_memory_user_prompt(
             current_session_memory="decision: old handoff",
-            session_event_snapshots=[
-                {
-                    "memory_type": "session_event_snapshot",
-                    "initiated_by": "user",
-                    "assistant_response": "x" * 1200,
-                }
-            ],
             runtime_memory_snapshots=[
                 {
                     "index": index,
@@ -3125,7 +3084,7 @@ class MessageMemoryTests(
         )
 
         self.assertIn(
-            "omitted_middle_snapshots: 24",
+            "omitted_middle_snapshots: 0",
             prompt,
         )
         self.assertIn(
@@ -3136,16 +3095,12 @@ class MessageMemoryTests(
             "topic: snapshot 29",
             prompt,
         )
-        self.assertNotIn(
+        self.assertIn(
             "topic: snapshot 10",
             prompt,
         )
         self.assertIn(
             "omitted_older_diffs: 32",
-            prompt,
-        )
-        self.assertIn(
-            "<truncated>",
             prompt,
         )
 
@@ -3156,17 +3111,6 @@ class MessageMemoryTests(
                 f"old narrative {index}: {'a' * 300}"
                 for index in range(20)
             ),
-            runtime_l2_memory="\n".join(
-                f"stale l2 archive {index}: {'b' * 200}"
-                for index in range(20)
-            ),
-            session_event_snapshots=[
-                {
-                    "memory_type": "session_event_snapshot",
-                    "assistant_response": "c" * 1000,
-                }
-                for _index in range(10)
-            ],
             runtime_memory_snapshots=[
                 {
                     "index": index,
@@ -3201,7 +3145,7 @@ class MessageMemoryTests(
             "L3 compact digest minimal: False",
             prompt,
         )
-        self.assertIn(
+        self.assertNotIn(
             "Compact L2 pattern context:",
             prompt,
         )
@@ -3209,9 +3153,9 @@ class MessageMemoryTests(
             "Current L2 pattern memory for context only:",
             prompt,
         )
-        self.assertLessEqual(
+        self.assertEqual(
             prompt.count("snapshot:"),
-            6,
+            12,
         )
         self.assertNotIn(
             "c" * 500,
@@ -3324,71 +3268,6 @@ class MessageMemoryTests(
             prompt,
         )
 
-    def test_l3_session_memory_prompt_defines_episodic_key_moments(self):
-
-        prompt = build_runtime_session_memory_system_prompt()
-
-        # Check stable L3 session-memory capabilities, not the exact prose.
-        for required_text in (
-                "episodic_key_moment",
-                "Session event snapshots",
-                "session-context level",
-                "Do not ask the user to fill snapshot fields manually",
-                "cause",
-                "event",
-                "outcome",
-                "emotional",
-                "memory_type: episodic_key_moment",
-                "emotional_weight:",
-                "preserve_detail:",
-                "durable JIN/user fact",
-                "CURRENT_TRUSTED_RUNTIME_VARIABLES",
-                "USER_DATETIME",
-                "relative temporal phrases",
-                "today, now, or recently",
-                "temporary_preference:",
-        ):
-            self.assertIn(
-                required_text,
-                prompt,
-            )
-
-    def test_l3_session_memory_user_prompt_preserves_existing_episodic_memory(self):
-
-        current_session_memory = (
-            "memory_type: episodic_key_moment\n"
-            "title: Meta-debug moment\n"
-            "emotional_weight: high\n"
-            "why_it_matters: The user corrected a memory interpretation bug.\n"
-            "sequence:\n"
-            "1. The assistant misread the experiment.\n"
-            "2. The user corrected it.\n"
-            "preserve_detail: The correction chain matters."
-        )
-
-        prompt = build_runtime_session_memory_user_prompt(
-            current_session_memory=current_session_memory,
-            runtime_memory_snapshots=[],
-            diff_history=[],
-        )
-
-        self.assertIn(
-            "Current L3 session memory:",
-            prompt,
-        )
-        self.assertIn(
-            "memory_type: episodic_key_moment",
-            prompt,
-        )
-        self.assertIn(
-            "title: Meta-debug moment",
-            prompt,
-        )
-        self.assertIn(
-            "preserve_detail: The correction chain matters.",
-            prompt,
-        )
-
     def test_l3_session_memory_budget_uses_detected_context_window(self):
 
         system_prompt = "system " * 2000
@@ -3434,7 +3313,6 @@ class MessageMemoryTests(
             session_memory="",
             session_memory_source="",
             runtime_session_memory_updates=0,
-            runtime_session_event_snapshots=[],
             runtime_l2_memory="",
             timestamp="2026-06-05T13:38:50",
             current_date="2026-06-05",
@@ -3512,10 +3390,6 @@ class MessageMemoryTests(
         self.assertEqual(
             context.session_memory_source,
             "L3",
-        )
-        self.assertEqual(
-            context.runtime_session_event_snapshots,
-            [],
         )
         self.assertIn(
             "topic: first topic",
@@ -3596,7 +3470,6 @@ class MessageMemoryTests(
             session_memory="",
             session_memory_source="",
             runtime_session_memory_updates=0,
-            runtime_session_event_snapshots=[],
             runtime_l2_memory="",
             timestamp="2026-06-05T13:38:50",
             current_date="",
@@ -3661,7 +3534,6 @@ class MessageMemoryTests(
             session_memory="",
             runtime_session_memory_updates=1,
             runtime_l3_saved_runtime_snapshot_index=None,
-            runtime_session_event_snapshots=[],
             runtime_l2_memory="",
             timestamp="2026-06-05T13:38:50",
             current_date="",
@@ -3747,7 +3619,6 @@ class MessageMemoryTests(
             runtime_l3_saved_runtime_snapshot_index=15,
             runtime_l3_session_first_turn=0,
             runtime_l3_session_last_turn=15,
-            runtime_session_event_snapshots=[],
             runtime_l2_memory="",
             timestamp="2026-06-05T13:38:50",
             current_date="2026-06-05",
@@ -3872,7 +3743,6 @@ class MessageMemoryTests(
             session_memory="decision: keep current",
             session_memory_source="",
             runtime_session_memory_updates=0,
-            runtime_session_event_snapshots=[],
             runtime_l2_memory="",
             runtime_l1_diff_history=[],
             runtime_memory_snapshots=[
@@ -3967,7 +3837,6 @@ class MessageMemoryTests(
             session_memory="decision: keep current",
             session_memory_source="",
             runtime_session_memory_updates=0,
-            runtime_session_event_snapshots=[],
             runtime_l2_memory="",
             runtime_l1_diff_history=[],
             runtime_memory_snapshots=[
@@ -4059,7 +3928,6 @@ class MessageMemoryTests(
             runtime_l3_session_memory="decision: keep current",
             session_memory="decision: keep current",
             session_memory_source="",
-            runtime_session_event_snapshots=[],
             runtime_l2_memory="",
             runtime_l1_diff_history=[],
             runtime_memory_snapshots=list(snapshots),

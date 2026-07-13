@@ -568,7 +568,7 @@ def format_session_action_age(
 ) -> str:
 
     seconds = max(
-        0,
+        1,
         int(
             elapsed_seconds
         ),
@@ -686,33 +686,6 @@ def append_L3_session_memory(
         "<PREVIOUS_SESSION_STATE priority=\"higher_than_runtime_memory\">\n"
         f"{indent_xml(escape(session_memory))}\n"
         "</PREVIOUS_SESSION_STATE>"
-    )
-
-
-def append_session_event_snapshots(
-    parts: list[str],
-    context=None,
-) -> None:
-
-    session_event_snapshots = []
-
-    if context is not None:
-        session_event_snapshots = list(
-            getattr(
-                context,
-                "runtime_session_event_snapshots",
-                [],
-            )
-            or []
-        )
-
-    if not session_event_snapshots:
-        return
-
-    parts.append(
-        "<SESSION_EVENT_SNAPSHOTS priority=\"session_context\">\n"
-        f"{indent_xml(escape(json.dumps(session_event_snapshots, ensure_ascii=False, indent=2)))}\n"
-        "</SESSION_EVENT_SNAPSHOTS>"
     )
 
 
@@ -2071,10 +2044,6 @@ def build_brain_runtime_context(
             context,
         )
     append_L3_session_memory(
-        parts,
-        context,
-    )
-    append_session_event_snapshots(
         parts,
         context,
     )

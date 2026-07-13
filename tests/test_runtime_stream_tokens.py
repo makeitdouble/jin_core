@@ -199,6 +199,32 @@ async def fake_prompt_only_usage_generator():
     }
 
 
+async def fake_reasoning_limit_generator():
+
+    yield {
+        "type": "thinking",
+        "content": "long reasoning",
+    }
+
+    yield {
+        "type": "finish",
+        "finish_reason": "length",
+    }
+
+
+async def fake_answer_limit_generator():
+
+    yield {
+        "type": "content",
+        "content": "partial answer",
+    }
+
+    yield {
+        "type": "finish",
+        "finish_reason": "max_tokens",
+    }
+
+
 async def fake_raw_asset_action_generator():
 
     yield {
@@ -224,6 +250,142 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             patch("utils.assets_service.PROMPTS_ROOT", assets_root / "prompts"),
             patch("utils.assets_service.TEMPLATES_ROOT", assets_root / "templates"),
             patch("utils.assets_service.OUTPUTS_ROOT", assets_root / "outputs"),
+        )
+
+    def build_limit_context(self):
+
+        return SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_turn_assistant_response="",
+            runtime_turn_interrupted=False,
+            runtime_turn_interruption_reason="",
+            runtime_turn_interruption_quote="",
+            runtime_reasoning_recovery_pending=False,
+            runtime_context_limit_recovery_pending=False,
+            runtime_context_limit_stage="",
+            runtime_context_limit_finish_reason="",
+            runtime_current_turn_id="turn-limit",
+            runtime_session_action_history=[],
+        )
+
+    async def test_reasoning_limit_arms_immediate_followup(self):
+
+        context = self.build_limit_context()
+        runtime_id = settings.SERVICE_MODEL_UID
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=runtime_id,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            context_snapshot={
+                "context_role": "brain",
+                "system_prompt": "system prompt",
+                "user_prompt": "user payload",
+            },
+        )
+
+        with patch(
+            "runtime.stream.config.FOLLOW_UP_ON_LIMIT",
+            True,
+        ):
+            result = await stream.run(
+                fake_reasoning_limit_generator()
+            )
+
+        self.assertEqual(result, "")
+        self.assertTrue(context.runtime_turn_interrupted)
+        self.assertTrue(
+            context.runtime_context_limit_recovery_pending
+        )
+        self.assertEqual(
+            context.runtime_context_limit_stage,
+            "reasoning",
+        )
+        self.assertEqual(
+            context.runtime_context_limit_finish_reason,
+            "length",
+        )
+        self.assertEqual(
+            context.runtime_session_action_history[-1]["text"],
+            "context limit reached during reasoning",
+        )
+
+    async def test_answer_limit_records_answer_stage(self):
+
+        context = self.build_limit_context()
+        runtime_id = settings.SERVICE_MODEL_UID
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=runtime_id,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            context_snapshot={
+                "context_role": "brain",
+                "system_prompt": "system prompt",
+                "user_prompt": "user payload",
+            },
+        )
+
+        with patch(
+            "runtime.stream.config.FOLLOW_UP_ON_LIMIT",
+            True,
+        ):
+            result = await stream.run(
+                fake_answer_limit_generator()
+            )
+
+        self.assertEqual(result, "partial answer")
+        self.assertEqual(
+            context.runtime_context_limit_stage,
+            "answer",
+        )
+        self.assertEqual(
+            context.runtime_turn_assistant_response,
+            "partial answer",
+        )
+        self.assertEqual(
+            context.runtime_session_action_history[-1]["text"],
+            "context limit reached during answer",
+        )
+
+    async def test_limit_followup_flag_can_disable_recovery(self):
+
+        context = self.build_limit_context()
+        runtime_id = settings.SERVICE_MODEL_UID
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=runtime_id,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            context_snapshot={
+                "context_role": "brain",
+                "system_prompt": "system prompt",
+                "user_prompt": "user payload",
+            },
+        )
+
+        with patch(
+            "runtime.stream.config.FOLLOW_UP_ON_LIMIT",
+            False,
+        ):
+            await stream.run(
+                fake_reasoning_limit_generator()
+            )
+
+        self.assertFalse(
+            context.runtime_context_limit_recovery_pending
+        )
+        self.assertFalse(context.runtime_turn_interrupted)
+        self.assertEqual(
+            context.runtime_session_action_history,
+            [],
         )
 
     async def test_runtime_context_counter_grows_during_stream(self):

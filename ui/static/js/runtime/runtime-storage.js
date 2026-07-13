@@ -968,7 +968,6 @@
             explicit_save: true,
             saved_at: savedAt,
             session_memory: sessionMemory,
-            session_event_snapshots: [],
             session_memory_updates: 1,
           }
         : null,

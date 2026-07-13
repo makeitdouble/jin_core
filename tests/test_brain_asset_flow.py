@@ -6,6 +6,7 @@ from agent.nodes.brain import (
     BrainNode,
     FOLLOWUP_SYSTEM_MESSAGE,
     action_event_requires_follow_up,
+    build_context_limit_recovery_context,
     build_followup_system_message,
     build_reasoning_recovery_context,
     format_followup_action_from_event,
@@ -234,6 +235,47 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             context.runtime_turn_interruption_quote,
             "",
+        )
+
+    async def test_followup_consumes_context_limit_recovery_block(self):
+
+        context = SimpleNamespace(
+            runtime_reasoning_recovery_pending=False,
+            runtime_context_limit_recovery_pending=True,
+            runtime_context_limit_stage="answer",
+            runtime_context_limit_finish_reason="length",
+            runtime_turn_interrupted=True,
+            runtime_turn_interruption_reason=(
+                "Context limit reached during answer."
+            ),
+            runtime_turn_interruption_quote="",
+            runtime_recent_turns=[],
+            runtime_appended_delayed_memory={},
+        )
+
+        prompt = BrainNode.build_followup_system_prompt(
+            "system prompt",
+            "continue immediately",
+            context=context,
+        )
+
+        self.assertIn(
+            build_context_limit_recovery_context("answer"),
+            prompt,
+        )
+        self.assertFalse(
+            context.runtime_context_limit_recovery_pending
+        )
+        self.assertEqual(
+            context.runtime_context_limit_stage,
+            "",
+        )
+        self.assertEqual(
+            context.runtime_context_limit_finish_reason,
+            "",
+        )
+        self.assertFalse(
+            context.runtime_turn_interrupted
         )
 
     async def test_followup_event_formatter_keeps_only_action_name(self):
@@ -796,6 +838,90 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(
             context.runtime_reasoning_recovery_pending
+        )
+        self.assertFalse(
+            context.runtime_turn_interrupted
+        )
+
+    async def test_context_limit_runs_followup_without_l1_break(self):
+
+        calls = []
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+            context = kwargs["context"]
+
+            if len(calls) == 1:
+                context.runtime_turn_interrupted = True
+                context.runtime_turn_interruption_reason = (
+                    "Context limit reached during reasoning."
+                )
+                context.runtime_context_limit_recovery_pending = True
+                context.runtime_context_limit_stage = "reasoning"
+                context.runtime_context_limit_finish_reason = "length"
+                return "", "long reasoning"
+
+            if len(calls) == 2:
+                self.assertEqual(
+                    kwargs["brain_payload"],
+                    "",
+                )
+                self.assertIn(
+                    build_context_limit_recovery_context(
+                        "reasoning"
+                    ),
+                    kwargs["system_prompt"],
+                )
+                return "Recovered concise answer.", ""
+
+            self.fail(
+                "Context-limit recovery kept running without a new limit"
+            )
+
+        context = _context()
+        context.runtime_current_turn_id = "turn_000003"
+        context.runtime_reasoning_recovery_pending = False
+        context.runtime_context_limit_recovery_pending = False
+        context.runtime_context_limit_stage = ""
+        context.runtime_context_limit_finish_reason = ""
+        context.runtime_turn_interrupted = False
+        context.runtime_turn_interruption_reason = ""
+        context.runtime_turn_interruption_quote = ""
+        state = AgentState(
+            user_input="do the task",
+        )
+        state.translated_input = state.user_input
+        brain_runtime = _brain_runtime()
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=brain_runtime,
+        ), patch(
+            "agent.nodes.brain.build_brain_system_prompt",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            len(calls),
+            2,
+        )
+        self.assertEqual(
+            state.brain_response,
+            "Recovered concise answer.",
+        )
+        self.assertFalse(
+            context.runtime_context_limit_recovery_pending
         )
         self.assertFalse(
             context.runtime_turn_interrupted

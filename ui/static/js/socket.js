@@ -1470,6 +1470,21 @@ function handleSocketMessage(event) {
 
   }
 
+  if (
+    data.type
+    === "session_actions_update"
+  ) {
+
+    if (window.updateSessionActionsLog) {
+      window.updateSessionActionsLog(
+        data
+      );
+    }
+
+    return;
+
+  }
+
   if (data.type === "fact_check_state") {
     if (data.active) {
       startFactCheckGlow();

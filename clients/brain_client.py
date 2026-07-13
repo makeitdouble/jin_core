@@ -33,6 +33,7 @@ from clients.brain_client_utils import (
 )
 from utils.session_actions_history import (
     build_asset_action_history_text,
+    emit_session_actions_update,
     replace_session_action_history_since,
 )
 
@@ -618,7 +619,7 @@ async def ask_brain_stream(
                     action
                 )
 
-    def finalize_session_action_history() -> None:
+    async def finalize_session_action_history() -> None:
 
         nonlocal session_action_history_finalized
 
@@ -631,6 +632,11 @@ async def ask_brain_stream(
             context,
             session_action_history_start,
             observed_action_markers,
+        )
+
+        await emit_session_actions_update(
+            context,
+            current_sequence=True,
         )
 
     async def emit_delayed_memory_bubble_started():
@@ -1022,7 +1028,7 @@ async def ask_brain_stream(
             if await stop_on_marker_repetition(
                 tail_result
             ):
-                finalize_session_action_history()
+                await finalize_session_action_history()
                 return
 
             await apply_runtime_action_result(
@@ -1039,16 +1045,16 @@ async def ask_brain_stream(
                     "content": content_tail,
                 }
 
-            finalize_session_action_history()
+            await finalize_session_action_history()
             return
 
         except asyncio.CancelledError:
-            finalize_session_action_history()
+            await finalize_session_action_history()
             raise
 
         except Exception as error:
 
-            finalize_session_action_history()
+            await finalize_session_action_history()
 
             formatted_error = (
                 format_client_error(
@@ -1117,7 +1123,7 @@ async def ask_brain_stream(
         if await stop_on_marker_repetition(
             tail_result
         ):
-            finalize_session_action_history()
+            await finalize_session_action_history()
             return
 
         await apply_runtime_action_result(
@@ -1134,15 +1140,15 @@ async def ask_brain_stream(
                 "content": content_tail,
             }
 
-        finalize_session_action_history()
+        await finalize_session_action_history()
 
     except asyncio.CancelledError:
-        finalize_session_action_history()
+        await finalize_session_action_history()
         raise
 
     except Exception as error:
 
-        finalize_session_action_history()
+        await finalize_session_action_history()
 
         formatted_error = (
             format_client_error(

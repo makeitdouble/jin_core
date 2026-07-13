@@ -48,7 +48,7 @@ from runtime.memory_common import (
     looks_like_incomplete_runtime_memory,
     refresh_runtime_memory_summarizer_usage,
 )
-from runtime.memory_events import (
+from runtime.L1_memory_utils import (
     emit_runtime_l1_diff_update,
     emit_runtime_memory_snapshot_refresh,
     rebuild_latest_runtime_memory_snapshot,

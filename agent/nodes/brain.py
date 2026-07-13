@@ -16,6 +16,7 @@ from rules.assembler import (
     build_brain_system_prompt,
 )
 from rules.runtime import (
+    CONTEXT_LIMIT_RECOVERY_MESSAGE,
     NO_FOLLOW_UP_INTERNAL_ACTIONS,
     REASONING_RECOVERY_MESSAGE,
 )
@@ -145,6 +146,32 @@ def build_reasoning_recovery_context() -> str:
         "<REASONING_RECOVERY>\n"
         f"{REASONING_RECOVERY_MESSAGE}.\n"
         "</REASONING_RECOVERY>"
+    )
+
+
+def build_context_limit_recovery_context(
+        stage: str,
+) -> str:
+
+    normalized_stage = str(
+        stage
+        or "generation"
+    ).strip().casefold()
+
+    if normalized_stage not in {
+        "reasoning",
+        "answer",
+        "generation",
+    }:
+        normalized_stage = "generation"
+
+    return (
+        "<CONTEXT_LIMIT_RECOVERY>\n"
+        + CONTEXT_LIMIT_RECOVERY_MESSAGE.format(
+            stage=normalized_stage,
+        )
+        + ".\n"
+        "</CONTEXT_LIMIT_RECOVERY>"
     )
 
 
@@ -371,6 +398,30 @@ class BrainNode(BaseNode):
                 build_reasoning_recovery_context()
             )
             context.runtime_reasoning_recovery_pending = False
+            context.runtime_turn_interrupted = False
+            context.runtime_turn_interruption_reason = ""
+            context.runtime_turn_interruption_quote = ""
+
+        if (
+            context is not None
+            and getattr(
+                context,
+                "runtime_context_limit_recovery_pending",
+                False,
+            )
+        ):
+            sections.append(
+                build_context_limit_recovery_context(
+                    getattr(
+                        context,
+                        "runtime_context_limit_stage",
+                        "generation",
+                    )
+                )
+            )
+            context.runtime_context_limit_recovery_pending = False
+            context.runtime_context_limit_stage = ""
+            context.runtime_context_limit_finish_reason = ""
             context.runtime_turn_interrupted = False
             context.runtime_turn_interruption_reason = ""
             context.runtime_turn_interruption_quote = ""
@@ -1050,6 +1101,70 @@ class BrainNode(BaseNode):
                 followup_count + 1
             )
 
+            if getattr(
+                context,
+                "runtime_context_limit_recovery_pending",
+                False,
+            ):
+                from utils.session_actions_history import (
+                    build_context_limit_history_text,
+                )
+
+                limit_stage = getattr(
+                    context,
+                    "runtime_context_limit_stage",
+                    "generation",
+                )
+                followup_action_events = (
+                    consume_current_action_batch()
+                )
+                followup_runtime_actions = {
+                    **runtime_actions,
+                }
+                latest_followup_action = (
+                    format_followup_actions_from_events(
+                        followup_action_events
+                    )
+                    or build_context_limit_history_text(
+                        limit_stage
+                    )
+                )
+
+                followup_system_prompt = (
+                    self.build_followup_system_prompt(
+                        build_brain_system_prompt(
+                            context,
+                            runtime_actions=followup_runtime_actions,
+                            commit_active_memory_refresh=True,
+                            include_previous_chat_messages=False,
+                        ),
+                        state.translated_input,
+                        context=context,
+                        latest_action=latest_followup_action,
+                    )
+                )
+
+                await emit_active_memory_records_update_if_dirty(
+                    context
+                )
+
+                text, reasoning = await self.run_brain_stream(
+                    state=state,
+                    context=context,
+                    brain_runtime=brain_runtime,
+                    brain_client=brain_client,
+                    system_prompt=followup_system_prompt,
+                    brain_payload="",
+                    runtime_actions=followup_runtime_actions,
+                    emit_content_to_chat=(
+                        not state.translate_response
+                    ),
+                    filter_runtime_actions=True,
+                )
+
+                followup_count += 1
+                continue
+
             if context.runtime_search_queries:
 
                 search_call = (
@@ -1321,6 +1436,11 @@ class BrainNode(BaseNode):
                     and not getattr(
                         context,
                         "runtime_reasoning_recovery_pending",
+                        False,
+                    )
+                    and not getattr(
+                        context,
+                        "runtime_context_limit_recovery_pending",
                         False,
                     )
                 ):

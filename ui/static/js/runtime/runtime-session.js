@@ -526,15 +526,8 @@
           || ""
         ).trim();
 
-      const eventSnapshots =
-        Array.isArray(data.event_snapshots)
-          ? data.event_snapshots
-          : [];
-
       if (!sessionMemory) {
-        if (!eventSnapshots.length) {
-          return;
-        }
+        return;
       }
 
       const latestSavedRuntimeMemory =
@@ -551,7 +544,6 @@
         explicit_save: true,
         saved_at: savedAt,
         session_memory: sessionMemory,
-        session_event_snapshots: eventSnapshots,
         session_memory_updates:
           data.updates || 0,
       });
@@ -1083,20 +1075,7 @@
         )
         || "";
 
-      const eventSnapshots =
-        (
-          sessionMemory
-          && Array.isArray(
-            sessionMemory.session_event_snapshots
-          )
-          && sessionMemory.session_event_snapshots
-        )
-        || [];
-
-      if (
-          !sessionText
-          && !eventSnapshots.length
-      ) {
+      if (!sessionText) {
         return null;
       }
 
@@ -1127,7 +1106,6 @@
             && sessionMemory.session_memory_updates
           )
           || 0,
-        session_event_snapshots: eventSnapshots,
         runtime_memory: runtimeText,
         runtime_memory_updates:
           (

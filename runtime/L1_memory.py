@@ -40,7 +40,7 @@ from runtime.memory_common import (
     refresh_runtime_memory_summarizer_usage,
     runtime_prompt_is_context_overloaded,
 )
-from runtime.memory_events import (
+from runtime.L1_memory_utils import (
     emit_runtime_memory_update,
 )
 from runtime.L1_memory_utils import (

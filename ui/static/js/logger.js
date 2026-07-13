@@ -1297,6 +1297,561 @@ function parseValidatorLogPayload(
   };
 }
 
+const SESSION_ACTIONS_PREVIEW_LIMIT = 5;
+
+const sessionActionsLogState = {
+  mode: "",
+  sequenceId: "",
+  items: [],
+  signature: "",
+  logDiv: null,
+  tagSpan: null,
+  list: null,
+  actions: null,
+  fullButton: null,
+};
+
+let sessionActionsModal = null;
+let sessionActionsModalTitle = null;
+let sessionActionsModalList = null;
+let sessionActionsModalMode = "";
+let sessionActionsModalSequenceId = "";
+let sessionActionsModalItems = [];
+let sessionActionsAgeTimer = null;
+
+function normalizeSessionActionItems(
+  items,
+) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  return items
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const text =
+        String(item.text || "").trim();
+
+      if (!text) {
+        return null;
+      }
+
+      const createdAt =
+        Number(item.created_at || 0);
+
+      return {
+        text,
+        createdAt:
+          Number.isFinite(createdAt)
+            ? createdAt
+            : 0,
+      };
+    })
+    .filter(Boolean);
+}
+
+function formatSessionActionAge(
+  createdAt,
+) {
+  const timestamp =
+    Number(createdAt || 0);
+
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return "now";
+  }
+
+  const seconds = Math.max(
+    0,
+    Math.floor(
+      (Date.now() / 1000) - timestamp
+    )
+  );
+
+  if (seconds < 60) {
+    return `${seconds}s ago`;
+  }
+
+  const minutes =
+    Math.floor(seconds / 60);
+
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+
+  const hours =
+    Math.floor(minutes / 60);
+
+  return `${hours}h ago`;
+}
+
+function refreshSessionActionAges() {
+  document
+    .querySelectorAll("[data-session-action-created-at]")
+    .forEach((node) => {
+      node.textContent =
+        formatSessionActionAge(
+          node.dataset.sessionActionCreatedAt
+        );
+    });
+}
+
+function ensureSessionActionsAgeTimer() {
+  if (sessionActionsAgeTimer !== null) {
+    return;
+  }
+
+  sessionActionsAgeTimer =
+    window.setInterval(
+      refreshSessionActionAges,
+      1000
+    );
+}
+
+function buildSessionActionRow(
+  item,
+  index,
+) {
+  const row =
+    document.createElement("div");
+
+  row.className =
+    "min-w-0 whitespace-pre-wrap break-words";
+
+  row.style.overflowWrap =
+    "anywhere";
+
+  const text =
+    document.createElement("span");
+
+  text.textContent =
+    `${index + 1}. ${item.text} (`;
+
+  const age =
+    document.createElement("span");
+
+  age.dataset.sessionActionCreatedAt =
+    String(item.createdAt || 0);
+
+  age.textContent =
+    formatSessionActionAge(
+      item.createdAt
+    );
+
+  const closing =
+    document.createTextNode(")");
+
+  row.appendChild(
+    text
+  );
+
+  row.appendChild(
+    age
+  );
+
+  row.appendChild(
+    closing
+  );
+
+  return row;
+}
+
+function getSessionActionsTitle(
+  mode,
+) {
+  return mode === "sequence"
+    ? "[ SEQUENCE ]"
+    : "[ SESSION ACTIONS ]";
+}
+
+function ensureSessionActionsModal() {
+  if (sessionActionsModal) {
+    return;
+  }
+
+  sessionActionsModal =
+    document.createElement("div");
+
+  sessionActionsModal.className =
+    "fixed inset-0 z-50 hidden items-center justify-center bg-black/70 p-4";
+
+  const panel =
+    document.createElement("div");
+
+  panel.className =
+    "w-full max-w-3xl max-h-[86vh] rounded border border-zinc-700 bg-zinc-950 shadow-2xl flex flex-col";
+
+  const header =
+    document.createElement("div");
+
+  header.className =
+    "h-11 shrink-0 border-b border-zinc-800 px-4 flex items-center justify-between";
+
+  sessionActionsModalTitle =
+    document.createElement("div");
+
+  sessionActionsModalTitle.className =
+    "font-mono text-xs font-bold text-zinc-300";
+
+  const closeButton =
+    document.createElement("button");
+
+  closeButton.type =
+    "button";
+
+  closeButton.className =
+    "text-xs text-zinc-400 hover:text-zinc-100 transition";
+
+  closeButton.textContent =
+    "close";
+
+  sessionActionsModalList =
+    document.createElement("div");
+
+  sessionActionsModalList.className =
+    "min-h-0 flex-1 overflow-auto p-4 font-mono text-[12px] leading-relaxed text-zinc-300 space-y-1";
+
+  header.appendChild(
+    sessionActionsModalTitle
+  );
+
+  header.appendChild(
+    closeButton
+  );
+
+  panel.appendChild(
+    header
+  );
+
+  panel.appendChild(
+    sessionActionsModalList
+  );
+
+  sessionActionsModal.appendChild(
+    panel
+  );
+
+  document.body.appendChild(
+    sessionActionsModal
+  );
+
+  function closeSessionActionsModal() {
+    sessionActionsModal.classList.add(
+      "hidden"
+    );
+
+    sessionActionsModal.classList.remove(
+      "flex"
+    );
+  }
+
+  closeButton.addEventListener(
+    "click",
+    closeSessionActionsModal
+  );
+
+  sessionActionsModal.addEventListener(
+    "click",
+    function (event) {
+      if (event.target === sessionActionsModal) {
+        closeSessionActionsModal();
+      }
+    }
+  );
+
+  document.addEventListener(
+    "keydown",
+    function (event) {
+      if (
+        event.key === "Escape"
+        && !sessionActionsModal.classList.contains("hidden")
+      ) {
+        closeSessionActionsModal();
+      }
+    }
+  );
+}
+
+function sessionActionItemMatches(
+  left,
+  right,
+) {
+  return Boolean(
+    left
+    && right
+    && left.text === right.text
+    && left.createdAt === right.createdAt
+  );
+}
+
+function syncSessionActionsModal(
+  mode,
+  sequenceId,
+  items,
+) {
+  if (!sessionActionsModal) {
+    return;
+  }
+
+  sessionActionsModalTitle.textContent =
+    getSessionActionsTitle(
+      mode
+    );
+
+  const sameStream = (
+    sessionActionsModalMode === mode
+    && sessionActionsModalSequenceId === sequenceId
+  );
+
+  const canAppend = (
+    sameStream
+    && sessionActionsModalItems.length <= items.length
+    && sessionActionsModalItems.every(
+      (item, index) => sessionActionItemMatches(
+        item,
+        items[index]
+      )
+    )
+  );
+
+  if (!canAppend) {
+    sessionActionsModalList.replaceChildren();
+    sessionActionsModalItems = [];
+  }
+
+  for (
+    let index = sessionActionsModalItems.length;
+    index < items.length;
+    index += 1
+  ) {
+    sessionActionsModalList.appendChild(
+      buildSessionActionRow(
+        items[index],
+        index
+      )
+    );
+  }
+
+  sessionActionsModalMode =
+    mode;
+
+  sessionActionsModalSequenceId =
+    sequenceId;
+
+  sessionActionsModalItems =
+    items.map((item) => ({
+      ...item,
+    }));
+
+  sessionActionsModalList.scrollTop =
+    sessionActionsModalList.scrollHeight;
+}
+
+function showSessionActionsModal() {
+  ensureSessionActionsModal();
+
+  syncSessionActionsModal(
+    sessionActionsLogState.mode,
+    sessionActionsLogState.sequenceId,
+    sessionActionsLogState.items
+  );
+
+  sessionActionsModal.classList.remove(
+    "hidden"
+  );
+
+  sessionActionsModal.classList.add(
+    "flex"
+  );
+}
+
+function ensureSessionActionsLog() {
+  if (sessionActionsLogState.logDiv) {
+    return sessionActionsLogState.logDiv;
+  }
+
+  const logDiv =
+    document.createElement("div");
+
+  logDiv.className =
+    "mb-1 min-w-0 whitespace-pre-wrap break-words font-mono text-[12px] bg-zinc-500/5 p-2 rounded border border-zinc-500/10";
+
+  logDiv.style.overflowWrap =
+    "anywhere";
+
+  logDiv.dataset.logKind =
+    "session-actions";
+
+  const tagSpan =
+    document.createElement("span");
+
+  tagSpan.className =
+    "text-zinc-300 font-bold logger-tag block";
+
+  const list =
+    document.createElement("div");
+
+  list.className =
+    "mt-1 text-zinc-400 space-y-1";
+
+  const actions =
+    document.createElement("div");
+
+  actions.className =
+    "mt-2 flex flex-wrap items-center gap-2 hidden";
+
+  const fullButton =
+    document.createElement("button");
+
+  fullButton.type =
+    "button";
+
+  fullButton.className =
+    "inline-flex items-center rounded border border-zinc-600/40 px-2 py-1 text-[10px] uppercase tracking-wider text-zinc-300 hover:bg-zinc-700/40 transition";
+
+  fullButton.textContent =
+    "full";
+
+  fullButton.addEventListener(
+    "click",
+    showSessionActionsModal
+  );
+
+  actions.appendChild(
+    fullButton
+  );
+
+  logDiv.appendChild(
+    tagSpan
+  );
+
+  logDiv.appendChild(
+    list
+  );
+
+  logDiv.appendChild(
+    actions
+  );
+
+  sessionActionsLogState.logDiv =
+    logDiv;
+
+  sessionActionsLogState.tagSpan =
+    tagSpan;
+
+  sessionActionsLogState.list =
+    list;
+
+  sessionActionsLogState.actions =
+    actions;
+
+  sessionActionsLogState.fullButton =
+    fullButton;
+
+  return logDiv;
+}
+
+function updateSessionActionsLog(
+  payload = {},
+) {
+  const mode =
+    String(payload.mode || "").toLowerCase() === "sequence"
+      ? "sequence"
+      : "session_actions";
+
+  const sequenceId =
+    String(payload.sequence_id || "");
+
+  const items =
+    normalizeSessionActionItems(
+      payload.items
+    );
+
+  if (!items.length) {
+    return;
+  }
+
+  const signature =
+    JSON.stringify({
+      mode,
+      sequenceId,
+      items,
+    });
+
+  if (signature === sessionActionsLogState.signature) {
+    return;
+  }
+
+  const logDiv =
+    ensureSessionActionsLog();
+
+  const wasConnected =
+    logDiv.isConnected;
+
+  sessionActionsLogState.mode =
+    mode;
+
+  sessionActionsLogState.sequenceId =
+    sequenceId;
+
+  sessionActionsLogState.items =
+    items;
+
+  sessionActionsLogState.signature =
+    signature;
+
+  sessionActionsLogState.tagSpan.textContent =
+    getSessionActionsTitle(
+      mode
+    );
+
+  sessionActionsLogState.list.replaceChildren(
+    ...items
+      .slice(
+        0,
+        SESSION_ACTIONS_PREVIEW_LIMIT
+      )
+      .map(
+        (item, index) => buildSessionActionRow(
+          item,
+          index
+        )
+      )
+  );
+
+  sessionActionsLogState.actions.classList.toggle(
+    "hidden",
+    items.length <= SESSION_ACTIONS_PREVIEW_LIMIT
+  );
+
+  if (wasConnected) {
+    moveLogToBottomWithFlip(
+      logDiv
+    );
+  } else {
+    consoleStream.appendChild(
+      logDiv
+    );
+  }
+
+  syncSessionActionsModal(
+    mode,
+    sequenceId,
+    items
+  );
+
+  ensureSessionActionsAgeTimer();
+  refreshSessionActionAges();
+
+  consoleStream.scrollTop =
+    consoleStream.scrollHeight;
+}
+
+window.updateSessionActionsLog =
+  updateSessionActionsLog;
+
 function findLiveFlowLog(
   flowId,
 ) {

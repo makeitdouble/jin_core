@@ -39,7 +39,6 @@ from runtime.L3_memory_utils import (
     resolve_l3_session_snapshot_range,
     select_l3_unsaved_diff_history,
     select_l3_unsaved_runtime_snapshots,
-    select_l3_unsaved_session_events,
 )
 from runtime.memory_common import (
     build_memory_failure_details,
@@ -54,7 +53,7 @@ from runtime.memory_common import (
     looks_like_incomplete_runtime_memory,
     refresh_runtime_memory_summarizer_usage,
 )
-from runtime.memory_events import (
+from runtime.L1_memory_utils import (
     emit_runtime_action_completed,
     emit_runtime_session_memory_update,
 )
@@ -76,7 +75,6 @@ async def ask_runtime_session_memory_model(
         current_session_memory: str,
         runtime_memory_snapshots: list[dict],
         diff_history: list[dict],
-        session_event_snapshots: list[dict] | None = None,
 ) -> dict:
 
     system_prompt = (
@@ -100,23 +98,6 @@ async def ask_runtime_session_memory_model(
             current_session_memory=current_session_memory,
             runtime_memory_snapshots=runtime_memory_snapshots,
             diff_history=diff_history,
-            runtime_l2_memory=getattr(
-                context,
-                "runtime_l2_memory",
-                "",
-            ),
-            session_event_snapshots=list(
-                session_event_snapshots
-                if session_event_snapshots is not None
-                else (
-                    getattr(
-                        context,
-                        "runtime_session_event_snapshots",
-                        [],
-                    )
-                    or []
-                )
-            ),
             context_window=detected_context_window,
         )
     )
@@ -308,17 +289,7 @@ async def maybe_summarize_runtime_session_memory(
         ),
         saved_runtime_snapshot_index=saved_runtime_snapshot_index,
     )
-    unsaved_session_event_snapshots = select_l3_unsaved_session_events(
-        list(
-            getattr(
-                context,
-                "runtime_session_event_snapshots",
-                [],
-            )
-            or []
-        ),
-        saved_runtime_snapshot_index=saved_runtime_snapshot_index,
-    )
+
 
     try:
         response = await ask_runtime_session_memory_model(
@@ -327,7 +298,6 @@ async def maybe_summarize_runtime_session_memory(
             current_session_memory=current_session_memory,
             runtime_memory_snapshots=unsaved_snapshots,
             diff_history=unsaved_diff_history,
-            session_event_snapshots=unsaved_session_event_snapshots,
         )
 
         updated_session_memory = extract_runtime_memory_text(

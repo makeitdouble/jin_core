@@ -223,6 +223,28 @@ def build_reasoning_loop_history_text(
     )
 
 
+def build_context_limit_history_text(
+    stage: str,
+) -> str:
+
+    normalized_stage = str(
+        stage
+        or "generation"
+    ).strip().casefold()
+
+    if normalized_stage not in {
+        "reasoning",
+        "answer",
+        "generation",
+    }:
+        normalized_stage = "generation"
+
+    return (
+        "context limit reached during "
+        f"{normalized_stage}"
+    )
+
+
 def format_session_action_marker_names(
     marker_actions,
 ) -> str:
@@ -394,6 +416,142 @@ def replace_session_action_history_since(
         context,
         formatted_marker_names,
     )
+
+
+def build_session_actions_update_items(
+    context,
+    *,
+    current_sequence: bool,
+) -> list[dict]:
+
+    if context is None:
+        return []
+
+    history = getattr(
+        context,
+        "runtime_session_action_history",
+        [],
+    )
+
+    if not isinstance(
+        history,
+        list,
+    ):
+        return []
+
+    runtime_turn_id = str(
+        getattr(
+            context,
+            "runtime_current_turn_id",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if current_sequence and not runtime_turn_id:
+        return []
+
+    items = []
+
+    for item in history:
+        if not isinstance(
+            item,
+            dict,
+        ):
+            continue
+
+        text = str(
+            item.get(
+                "text",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if not text:
+            continue
+
+        item_turn_id = str(
+            item.get(
+                "runtime_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if (
+            current_sequence
+            and item_turn_id != runtime_turn_id
+        ):
+            continue
+
+        try:
+            created_at = float(
+                item.get(
+                    "created_at",
+                    0,
+                )
+                or 0
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            created_at = 0.0
+
+        items.append({
+            "text": text,
+            "created_at": created_at,
+        })
+
+    return items
+
+
+async def emit_session_actions_update(
+    context,
+    *,
+    current_sequence: bool,
+) -> None:
+
+    items = build_session_actions_update_items(
+        context,
+        current_sequence=current_sequence,
+    )
+
+    if not items:
+        return
+
+    emitter = getattr(
+        context,
+        "emitter",
+        None,
+    )
+    emit = getattr(
+        emitter,
+        "emit",
+        None,
+    )
+
+    if emit is None:
+        return
+
+    await emit({
+        "type": "session_actions_update",
+        "mode": (
+            "sequence"
+            if current_sequence
+            else "session_actions"
+        ),
+        "sequence_id": str(
+            getattr(
+                context,
+                "runtime_current_turn_id",
+                "",
+            )
+            or ""
+        ),
+        "items": items,
+    })
 
 
 def mark_current_action_sequence(

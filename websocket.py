@@ -75,11 +75,9 @@ from runtime import (
     schedule_runtime_memory_update,
     send_telemetry,
 )
-from runtime.memory_events import (
+from runtime.L1_memory_utils import (
     emit_runtime_memory_snapshot_refresh,
     rebuild_latest_runtime_memory_snapshot,
-)
-from runtime.L1_memory_utils import (
     build_runtime_memory_context_text,
     canonicalize_runtime_memory_key,
     remove_runtime_user_idle_lines,
@@ -89,6 +87,9 @@ from utils.runtime_actions import (
     is_delayed_memory_report_id,
     refresh_active_memory_runtime_metadata,
     remove_active_memory_entries,
+)
+from utils.session_actions_history import (
+    emit_session_actions_update,
 )
 from runtime.L1_memory import (
     parse_runtime_memory_lines,
@@ -1451,27 +1452,6 @@ def apply_session_bootstrap(
         "runtime_snapshot",
         {},
     )
-    session_event_snapshots = message_data.get(
-        "session_event_snapshots",
-        message_data.get(
-            "runtime_session_event_snapshots",
-            [],
-        ),
-    )
-
-    if isinstance(
-        session_event_snapshots,
-        list,
-    ):
-        context.runtime_session_event_snapshots = [
-            snapshot
-            for snapshot in session_event_snapshots
-            if isinstance(
-                snapshot,
-                dict,
-            )
-        ]
-
     # Track whether runtime_memory was inferred from runtime_snapshot.raw_memory
     # rather than being sent explicitly by the client.
     runtime_memory_is_snapshot_fallback = False
@@ -1494,14 +1474,6 @@ def apply_session_bootstrap(
     has_bootstrap_content = bool(
         session_memory
         or runtime_memory
-        or (
-            session_event_snapshots
-            if isinstance(
-                session_event_snapshots,
-                list,
-            )
-            else []
-        )
     )
 
     if has_bootstrap_content:
@@ -1661,11 +1633,6 @@ def apply_session_bootstrap(
     return bool(
         session_memory
         or runtime_memory
-        or getattr(
-            context,
-            "runtime_session_event_snapshots",
-            [],
-        )
     )
 
 
@@ -2400,6 +2367,9 @@ async def process_message(
         context.runtime_turn_interruption_reason = ""
         context.runtime_turn_interruption_quote = ""
         context.runtime_reasoning_recovery_pending = False
+        context.runtime_context_limit_recovery_pending = False
+        context.runtime_context_limit_stage = ""
+        context.runtime_context_limit_finish_reason = ""
         await arm_save_session_from_user_text(
             context,
             user_text,
@@ -2440,6 +2410,11 @@ async def process_message(
         await runtime.run(
             state,
             context,
+        )
+
+        await emit_session_actions_update(
+            context,
+            current_sequence=False,
         )
 
         await logger.log(

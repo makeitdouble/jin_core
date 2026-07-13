@@ -5,9 +5,6 @@ import re
 from config_loader import (
     config,
 )
-from runtime.L2_memory_rules import (
-    MAX_SESSION_L2_LINES,
-)
 from runtime.memory_common import (
     build_runtime_summarizer_user_prompt,
 )
@@ -20,20 +17,15 @@ from runtime.L3_memory_rules import (
     L3_INPUT_TOKEN_TARGET_MAX,
     L3_OMITTED_MEMORY_LINES_TEMPLATE,
     L3_PROMPT_BUDGET_EXCEEDED_MESSAGE,
-    L3_SESSION_EVENT_DEFAULT_INITIATED_BY,
-    L3_SESSION_EVENT_DEFAULT_SOURCE,
-    L3_SESSION_EVENT_MEMORY_TYPE,
     L3_SESSION_META_KEYS,
     L3_SNAPSHOT_ROLE_LATEST,
     L3_SNAPSHOT_ROLE_SELECTED,
     L3_TEXT_TRUNCATED_SUFFIX,
-    MAX_SESSION_EVENT_TEXT_CHARS,
     MAX_SESSION_LATEST_MEMORY_TEXT_CHARS,
     MAX_SESSION_LINE_CHARS,
     MAX_SESSION_MEMORY_TEXT_CHARS,
     MAX_SESSION_OLD_SNAPSHOT_TEXT_CHARS,
     MAX_SESSION_PROMPT_DIFFS,
-    MAX_SESSION_PROMPT_EVENTS,
     MAX_SESSION_PROMPT_SNAPSHOTS,
     RUNTIME_L3_SESSION_MEMORY_SYSTEM_PROMPT,
     RUNTIME_L3_SNAPSHOT_INDEX_TEMPLATE,
@@ -44,14 +36,11 @@ from runtime.L3_memory_rules import (
     RUNTIME_L3_SNAPSHOT_TOTAL_DIFF_TEMPLATE,
     RUNTIME_L3_USER_PROMPT_COMPACT_DIGEST_TEMPLATE,
     RUNTIME_L3_USER_PROMPT_CURRENT_MEMORY_LABEL,
-    RUNTIME_L3_USER_PROMPT_L2_CONTEXT_LABEL,
     RUNTIME_L3_USER_PROMPT_OMITTED_DIFFS_TEMPLATE,
-    RUNTIME_L3_USER_PROMPT_OMITTED_EVENTS_TEMPLATE,
     RUNTIME_L3_USER_PROMPT_OMITTED_SNAPSHOTS_TEMPLATE,
     RUNTIME_L3_USER_PROMPT_RECENT_DIFFS_LABEL,
     RUNTIME_L3_USER_PROMPT_REWRITE_INSTRUCTION,
     RUNTIME_L3_USER_PROMPT_SELECTED_SNAPSHOTS_LABEL,
-    RUNTIME_L3_USER_PROMPT_SESSION_EVENTS_LABEL,
 )
 
 
@@ -127,8 +116,6 @@ async def build_budgeted_l3_session_user_prompt(
         current_session_memory: str,
         runtime_memory_snapshots: list[dict],
         diff_history: list[dict],
-        runtime_l2_memory: str,
-        session_event_snapshots: list[dict],
         context_window: int | None,
 ) -> tuple[str, dict]:
 
@@ -144,8 +131,6 @@ async def build_budgeted_l3_session_user_prompt(
             current_session_memory=current_session_memory,
             runtime_memory_snapshots=runtime_memory_snapshots,
             diff_history=diff_history,
-            runtime_l2_memory=runtime_l2_memory,
-            session_event_snapshots=session_event_snapshots,
             minimal=minimal,
         )
         user_prompt = build_runtime_summarizer_user_prompt(
@@ -514,113 +499,10 @@ def select_l3_unsaved_diff_history(
     ]
 
 
-def select_l3_unsaved_session_events(
-        session_event_snapshots: list[dict],
-        *,
-        saved_runtime_snapshot_index: int | None,
-) -> list[dict]:
-
-    valid_events = [
-        event
-        for event in (session_event_snapshots or [])
-        if isinstance(event, dict)
-    ]
-
-    if saved_runtime_snapshot_index is None:
-        return valid_events
-
-    return [
-        event
-        for event in valid_events
-        if (
-            _parse_int(
-                event.get(
-                    "runtime_snapshot_count",
-                ),
-                -1,
-            )
-            - 1
-            > saved_runtime_snapshot_index
-        )
-    ]
-
-def build_runtime_session_event_snapshot(
-        context,
-        *,
-        source: str = L3_SESSION_EVENT_DEFAULT_SOURCE,
-        initiated_by: str = L3_SESSION_EVENT_DEFAULT_INITIATED_BY,
-) -> dict:
-
-    existing_snapshots = list(
-        getattr(
-            context,
-            "runtime_session_event_snapshots",
-            [],
-        )
-        or []
-    )
-    runtime_snapshots = list(
-        getattr(
-            context,
-            "runtime_memory_snapshots",
-            [],
-        )
-        or []
-    )
-    diff_history = list(
-        getattr(
-            context,
-            "runtime_l1_diff_history",
-            [],
-        )
-        or []
-    )
-    user_message = getattr(
-        context,
-        "runtime_turn_user_message",
-        "",
-    )
-    assistant_response = getattr(
-        context,
-        "runtime_turn_assistant_response",
-        "",
-    )
-
-    return {
-        "index": len(existing_snapshots),
-        "memory_type": L3_SESSION_EVENT_MEMORY_TYPE,
-        "source": source,
-        "initiated_by": initiated_by,
-        "turn_number": getattr(
-            context,
-            "turn_number",
-            0,
-        ),
-        "user_message_count": getattr(
-            context,
-            "user_message_count",
-            0,
-        ),
-        "assistant_message_count": getattr(
-            context,
-            "assistant_message_count",
-            0,
-        ),
-        "runtime_snapshot_count": len(
-            runtime_snapshots
-        ),
-        "diff_count": len(
-            diff_history
-        ),
-        "user_message": user_message,
-        "assistant_response": assistant_response,
-    }
-
-
 def compact_session_prompt_text(
         value,
         *,
-        limit: int = MAX_SESSION_EVENT_TEXT_CHARS,
+        limit: int = MAX_SESSION_LINE_CHARS,
 ) -> str:
 
     text = str(
@@ -684,42 +566,6 @@ def compact_l3_text_block(
         )
 
     return text.strip() or L3_EMPTY_PROMPT_PLACEHOLDER
-
-
-def compact_l3_event(
-        entry: dict,
-) -> dict:
-
-    if not isinstance(
-        entry,
-        dict,
-    ):
-        return {}
-
-    keep_keys = (
-        "index",
-        "memory_type",
-        "source",
-        "initiated_by",
-        "turn_number",
-        "title",
-        "memory",
-        "user_message",
-        "assistant_response",
-    )
-
-    return {
-        key: (
-            compact_session_prompt_text(
-                value,
-                limit=MAX_SESSION_EVENT_TEXT_CHARS,
-            )
-            if isinstance(value, str)
-            else value
-        )
-        for key in keep_keys
-        if (value := entry.get(key)) is not None
-    }
 
 
 def select_l3_snapshots(
@@ -850,25 +696,18 @@ def build_l3_session_digest(
         current_session_memory: str,
         runtime_memory_snapshots: list[dict],
         diff_history: list[dict],
-        runtime_l2_memory: str = "",
-        session_event_snapshots: list[dict] | None = None,
         minimal: bool = False,
 ) -> dict:
 
     snapshot_count = (
         1
         if minimal
-        else MAX_SESSION_PROMPT_SNAPSHOTS
+        else max(1, len(runtime_memory_snapshots or []))
     )
     diff_count = (
         1
         if minimal
         else MAX_SESSION_PROMPT_DIFFS
-    )
-    event_count = (
-        1
-        if minimal
-        else MAX_SESSION_PROMPT_EVENTS
     )
     current_memory_chars = (
         1000
@@ -906,6 +745,7 @@ def build_l3_session_digest(
             )
         )
         compact_snapshots.append({
+            "runtime_memory_id": snapshot.get("runtime_memory_id", ""),
             "index": snapshot.get("index", 0),
             "total_diff": snapshot.get("total_diff", 0),
             "role": (
@@ -918,16 +758,6 @@ def build_l3_session_digest(
                 max_chars=max_chars,
             ),
         })
-
-    valid_events = [
-        event
-        for event in (session_event_snapshots or [])
-        if isinstance(event, dict)
-    ]
-    compact_events = [
-        compact_l3_event(event)
-        for event in valid_events[-event_count:]
-    ]
 
     useful_diffs = [
         diff
@@ -944,7 +774,6 @@ def build_l3_session_digest(
         for entry in selected_diffs
     ]
 
-    omitted_event_count = max(0, len(valid_events) - len(compact_events))
     omitted_diff_count = max(
         0,
         len(useful_diffs) - len(selected_diffs),
@@ -957,13 +786,6 @@ def build_l3_session_digest(
             max_chars=current_memory_chars,
             max_lines=8,
         ),
-        "l2_context": compact_l3_text_block(
-            runtime_l2_memory,
-            max_chars=600,
-            max_lines=0 if minimal else MAX_SESSION_L2_LINES,
-        ),
-        "session_events": compact_events,
-        "omitted_events_count": omitted_event_count,
         "snapshots": compact_snapshots,
         "omitted_middle_snapshots": omitted_snapshot_count,
         "diff_history": compact_diffs,
@@ -979,8 +801,6 @@ def build_runtime_session_memory_user_prompt(
         current_session_memory: str,
         runtime_memory_snapshots: list[dict],
         diff_history: list[dict],
-        runtime_l2_memory: str = "",
-        session_event_snapshots: list[dict] | None = None,
         minimal: bool = False,
 ) -> str:
 
@@ -988,8 +808,6 @@ def build_runtime_session_memory_user_prompt(
         current_session_memory=current_session_memory,
         runtime_memory_snapshots=runtime_memory_snapshots,
         diff_history=diff_history,
-        runtime_l2_memory=runtime_l2_memory,
-        session_event_snapshots=session_event_snapshots,
         minimal=minimal,
     )
 
@@ -998,6 +816,7 @@ def build_runtime_session_memory_user_prompt(
     for snapshot in digest["snapshots"]:
         snapshot_blocks.append(
             "\n".join([
+                f"runtime_memory_id: {snapshot.get('runtime_memory_id', '')}",
                 RUNTIME_L3_SNAPSHOT_INDEX_TEMPLATE.format(
                     index=snapshot.get(
                         "index",
@@ -1039,17 +858,6 @@ def build_runtime_session_memory_user_prompt(
         ),
         RUNTIME_L3_USER_PROMPT_CURRENT_MEMORY_LABEL,
         digest["current_session_memory"],
-        RUNTIME_L3_USER_PROMPT_L2_CONTEXT_LABEL,
-        digest["l2_context"],
-        RUNTIME_L3_USER_PROMPT_SESSION_EVENTS_LABEL,
-        RUNTIME_L3_USER_PROMPT_OMITTED_EVENTS_TEMPLATE.format(
-            count=digest["omitted_events_count"],
-        ),
-        json.dumps(
-            digest["session_events"],
-            ensure_ascii=False,
-            indent=2,
-        ),
         RUNTIME_L3_USER_PROMPT_SELECTED_SNAPSHOTS_LABEL,
         RUNTIME_L3_USER_PROMPT_OMITTED_SNAPSHOTS_TEMPLATE.format(
             count=digest["omitted_middle_snapshots"],

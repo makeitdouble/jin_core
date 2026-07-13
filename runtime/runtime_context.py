@@ -159,10 +159,6 @@ class RuntimeContext:
 
     runtime_session_memory_update_task: object | None = None
 
-    runtime_session_event_snapshots: list[dict] = field(
-        default_factory=list
-    )
-
     runtime_save_session_armed: bool = False
 
     runtime_save_session_requested: bool = False
@@ -234,6 +230,12 @@ class RuntimeContext:
     runtime_turn_interruption_quote: str = ""
 
     runtime_reasoning_recovery_pending: bool = False
+
+    runtime_context_limit_recovery_pending: bool = False
+
+    runtime_context_limit_stage: str = ""
+
+    runtime_context_limit_finish_reason: str = ""
 
     runtime_user_idle_seconds: int | None = None
 

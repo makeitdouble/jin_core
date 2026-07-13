@@ -16,12 +16,6 @@ MAX_SESSION_PROMPT_SNAPSHOTS = 6
 # Limits how many prompt diffs are kept in session memory context.
 MAX_SESSION_PROMPT_DIFFS = 8
 
-# Limits how many recent session events are included in memory context.
-MAX_SESSION_PROMPT_EVENTS = 3
-
-# Limits the text length for each captured session event.
-MAX_SESSION_EVENT_TEXT_CHARS = 300
-
 # Limits the total session memory text included in prompts.
 MAX_SESSION_MEMORY_TEXT_CHARS = 1800
 
@@ -40,11 +34,6 @@ L3_SESSION_META_KEYS = (
     "session_snapshot_first_turn",
     "session_snapshot_last_turn",
 )
-
-# Default values used when recording a runtime session event snapshot.
-L3_SESSION_EVENT_DEFAULT_SOURCE = "runtime_action"
-L3_SESSION_EVENT_DEFAULT_INITIATED_BY = "jin"
-L3_SESSION_EVENT_MEMORY_TYPE = "session_event_snapshot"
 
 # Common prompt placeholder text for empty compact sections.
 L3_EMPTY_PROMPT_PLACEHOLDER = "<empty>"
@@ -68,7 +57,7 @@ L3_SNAPSHOT_ROLE_SELECTED = "selected"
 # ─────────────────────────────────────────────────────────────────────────────
 ROLE = (
     "You are JIN's L3 session memory summarizer.\n"
-    "L3 is the layer above L1 runtime memory and L2 pattern memory.\n"
+    "L3 independently summarizes the complete L1 runtime snapshot history of the session.\n"
     "Return only the new compressed L3 session snapshot as plain text.\n"
     "Do not output JSON, Markdown headings, nested bullets, or numbered lists.\n"
     "Do not explain your reasoning or the summarization process.\n"
@@ -99,9 +88,6 @@ MERGE_STRATEGY = (
     "The provided L1 snapshots are the fresh runtime tail since the previous successful session save.\n"
     "Use the diff history to identify which topics or constraints actually changed during the session.\n"
     "Do not copy every L1 line. Compress repeated or superseded states.\n"
-    "Session event snapshots are stored by the runtime as an array and are always available "
-    "at session-context level. Treat that array as persistent event history for the session: "
-    "use it to preserve causal sequence, important moments, and prior session-level decisions.\n"
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -121,8 +107,6 @@ WHAT_TO_PRESERVE = (
     "an unresolved question or next step.\n"
     "Do not infer durable user personality traits, relationship claims, "
     "or preferences from weak signal.\n"
-    "Do not ask the user to fill snapshot fields manually; "
-    "infer event snapshot meaning from natural conversation and explicit user markings.\n"
     "When active_topic/current_task/user constraint is removed due to topic shift, preserve it as a dormant line, "
     "if it contains a useful re-entry point, user constraint, unresolved task, or viewing/work progress.\n"
 )
@@ -139,38 +123,28 @@ TIME_NORMALIZATION = (
     "session-relative phrases before preserving them.\n"
     "Session handoff memory must not contain ambiguous standalone words like "
     "today, now, or recently unless paired with a timestamp or date.\n"
-    "If a preference expires at end of day, encode that explicitly:\n"
-    "  temporary_preference: User requested X for 2026-06-05 only; "
-    "expires after that date unless renewed.\n"
+    "If a preference expires at end of day, preserve its resolved absolute date "
+    "and state that it expires after that date unless renewed.\n"
     "If the exact date cannot be inferred, write 'relative to current session' "
     "rather than pretending it is durable calendar time.\n"
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
-# EPISODIC KEY MOMENTS
-# Редкий тип записи для событий, которые изменили понимание проекта, пользователя
-# или системы. Используется только при наличии чёткой цепочки причина → событие →
-# результат. Обычные обновления прогресса, баги и casual-чат не подходят.
+# IMPORTANT SESSION EVENTS
+# L3 independently extracts important events from the supplied L1 runtime
+# snapshots. Events remain ordinary atomic L3 lines linked to source snapshots.
 # ─────────────────────────────────────────────────────────────────────────────
-EPISODIC_KEY_MOMENTS = (
-    "Session memory may include rare episodic_key_moment records.\n"
-    "Use episodic_key_moment only when the moment:\n"
-    "  - changed understanding of the project, user, or system;\n"
-    "  - has a clear cause → event → outcome chain;\n"
-    "  - was explicitly marked important by the user; or\n"
-    "  - carries high emotional or narrative weight.\n"
-    "Do not create episodic_key_moment entries for ordinary progress updates, "
-    "routine feature work, minor bugs, casual jokes, or low-signal chat.\n"
-    "When writing an episodic_key_moment, preserve the exact chain "
-    "rather than only the conclusion. Use this plain-text block format:\n"
-    "  memory_type: episodic_key_moment\n"
-    "  title: <short event title>\n"
-    "  emotional_weight: low|medium|high\n"
-    "  why_it_matters: <why this should survive the session>\n"
-    "  sequence:\n"
-    "  1. <first causal step>\n"
-    "  2. <next causal step>\n"
-    "  preserve_detail: <which exact details matter and why>\n"
+IMPORTANT_SESSION_EVENTS = (
+    "Identify important session events directly from the supplied L1 runtime snapshots.\n"
+    "An event should preserve a meaningful decision, turning point, correction, discovery, "
+    "failure and recovery, completed milestone, or other development needed to understand the session.\n"
+    "Do not create separate event objects or copy every routine update.\n"
+    "Write each event as exactly one atomic line in this format:\n"
+    "  event_descriptive_name: Event description with maximum three sentences "
+    "[ runtime_memory_ids: id1, id2, ... ]\n"
+    "Use a concise lowercase underscore key that describes the event.\n"
+    "List the runtime_memory_id values of the contributing snapshots in chronological order.\n"
+    "Use only IDs present in the supplied snapshots; never invent, reorder, or omit the suffix.\n"
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -182,7 +156,7 @@ RUNTIME_L3_SESSION_MEMORY_SYSTEM_PROMPT = (
         + MERGE_STRATEGY
         + WHAT_TO_PRESERVE
         + TIME_NORMALIZATION
-        + EPISODIC_KEY_MOMENTS
+        + IMPORTANT_SESSION_EVENTS
 )
 
 # Field templates used while rendering selected L1 snapshots for the L3 user prompt.
@@ -195,9 +169,6 @@ RUNTIME_L3_SNAPSHOT_PATCH_SUMMARY_LABEL = "patch_summary:"
 # Labels and templates used by the L3 user prompt builder.
 RUNTIME_L3_USER_PROMPT_COMPACT_DIGEST_TEMPLATE = "L3 compact digest minimal: {minimal}"
 RUNTIME_L3_USER_PROMPT_CURRENT_MEMORY_LABEL = "Current L3 session memory:"
-RUNTIME_L3_USER_PROMPT_L2_CONTEXT_LABEL = "Compact L2 pattern context:"
-RUNTIME_L3_USER_PROMPT_SESSION_EVENTS_LABEL = "Session event snapshots array:"
-RUNTIME_L3_USER_PROMPT_OMITTED_EVENTS_TEMPLATE = "omitted_events_count: {count}"
 RUNTIME_L3_USER_PROMPT_SELECTED_SNAPSHOTS_LABEL = "Selected L1 runtime memory snapshot history:"
 RUNTIME_L3_USER_PROMPT_OMITTED_SNAPSHOTS_TEMPLATE = "omitted_middle_snapshots: {count}"
 RUNTIME_L3_USER_PROMPT_SNAPSHOT_SEPARATOR = "\n\n---\n\n"

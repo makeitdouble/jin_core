@@ -197,7 +197,7 @@ L2_pattern_evidence_1_status: status: resolved; reason: identified as a test
 
 ### L3 memory snapshot (session)
 
-L3 is the session handoff layer. It is generated at save/restore points from selected L1 snapshots, L2 pattern context, recent diff history, and optional session event snapshots. It keeps what should survive a reload or a new tab: project direction, durable facts, decisions, unresolved tasks, constraints, and next step.
+L3 is the session handoff layer. It is generated at save/restore points independently from selected L1 runtime snapshots and recent diff history. It keeps what should survive a reload or a new tab: project direction, durable facts, decisions, unresolved tasks, constraints, and next step.
 
 ```text
 session_status: Runtime stabilization pass completed after the first public JIN Core release cycle.
@@ -209,18 +209,10 @@ behavior_probe_result: ASCII drawing fallback, movie recommendation closure, and
 next_step: Publish v0.6-runtime-stabilization and continue L1/L2 cleanup.
 ```
 
-For rare moments that need richer sequence memory, L3 can preserve an episodic key moment:
+L3 also extracts important session events directly from runtime snapshots and links them back to their source snapshots:
 
 ```text
-memory_type: episodic_key_moment
-title: Recall-word probe felt like a personal JIN moment
-emotional_weight: medium
-why_it_matters: Demonstrated that JIN can return to a shared contract at a natural conversational moment, not only as a mechanical timer.
-sequence:
-1. User asked JIN to choose a secret word and ask for it later.
-2. The conversation moved through ASCII drawing and haiku side tasks.
-3. JIN prompted the user to recall the secret word without revealing it.
-preserve_detail: The callback mattered because it felt like continuity inside the conversation, not a raw reminder.
+search_flow_recovery: JIN found and fixed a repeated follow-up loop, then completed the original search flow normally. [ runtime_memory_ids: a1b2c3, d4e5f6 ]
 ```
 
 ## Project Layout
@@ -614,7 +606,6 @@ Session memory update (L3 digest, sent after save or restore):
   "updates": 2,
   "source": "L3",
   "persist": true,
-  "event_snapshots": [],
   "session_first_turn": 1,
   "session_last_turn": 8
 }

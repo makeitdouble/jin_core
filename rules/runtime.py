@@ -23,6 +23,13 @@ REASONING_RECOVERY_MESSAGE = (
 )
 
 
+CONTEXT_LIMIT_RECOVERY_MESSAGE = (
+    "The previous generation reached the context limit during {stage}. "
+    "Continue the current task from CURRENT_SEQUENCE without restarting it. "
+    "Be much shorter and act faster"
+)
+
+
 INTERNAL_ACTION_WEB_SEARCH_MARKER = "<WEB_SEARCH: plain text query >"
 INTERNAL_ACTION_SAVE_SESSION_MARKER = "<SAVE_SESSION>"
 INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER = "<CREATE_ACTIVE_MEMORY: CONDITIONS >"
@@ -81,8 +88,8 @@ SKILL_ROUTING_RULES = ("\n"
     "\n"
 
     "\n"
-    "You MUST treat ALL actions appeared 0s ago as DONE.\n"
-    "Never repeat action ( 0s ago ) - even if conditions mandate to do it.\n"
+    "The minimum displayed action age is 1s. Every action already listed in CURRENT_SEQUENCE is DONE, including actions shown as ( 1s ago ).\n"
+    "Never repeat an action already listed in CURRENT_SEQUENCE - even if conditions mandate to do it.\n"
     "When the required actions are already completed - you must request done "
     "and immediately stop and send the final user-facing completion response for SEQUENCE_ORIGIN_REQUEST.\n"
     "\n"

@@ -5,6 +5,11 @@ TRANSLATION_ENABLED = False
 TRANSLATE_RESPONSE = False
 DEBUG_RULE_CITATIONS = True
 
+# When True, a brain generation stopped by the model/context output limit
+# continues immediately in an internal follow-up tick instead of ending the
+# workflow and sending the interrupted turn straight to L1 memory.
+FOLLOW_UP_ON_LIMIT = True
+
 CHAT_ENDPOINT = "/v1/chat/completions"
 MODELS_ENDPOINT = "/v1/models"
 

@@ -25,7 +25,7 @@ from .L2_memory_rules import (
 from .L3_memory import (
     maybe_summarize_runtime_session_memory,
 )
-from .memory_events import (
+from .L1_memory_utils import (
     emit_runtime_l1_diff_update,
     emit_runtime_session_memory_update,
 )
