@@ -104,6 +104,7 @@ from utils.session_actions_history import (
 )
 from utils.tool_results import (
     TOOL_RESULT_KIND_ASSET,
+    TOOL_RESULT_KIND_ACTIVE_MEMORY,
     TOOL_RESULT_KIND_DELAYED_MEMORY,
     clear_runtime_tool_results,
     record_runtime_tool_result,
@@ -1569,6 +1570,7 @@ async def apply_runtime_action_calls(
 
     search_calls = []
     filtered_actions = []
+    rejected_action_events = {}
     search_query_seen = False
     save_session_seen = bool(
         getattr(
@@ -1694,6 +1696,40 @@ async def apply_runtime_action_calls(
             if not should_execute_save_delayed_memory(
                 resolved_user_message
             ):
+                rejected_report = build_delayed_memory_report(
+                    context,
+                    action.payload,
+                )
+                rejected_title = ""
+
+                for report_value in rejected_report.values():
+                    if isinstance(
+                        report_value,
+                        dict,
+                    ):
+                        rejected_title = str(
+                            report_value.get(
+                                "title",
+                                "",
+                            )
+                            or ""
+                        ).strip()
+
+                    if rejected_title:
+                        break
+
+                context.runtime_delayed_memory_save_rejected_pending = True
+                context.runtime_delayed_memory_save_rejected_title = (
+                    rejected_title
+                )
+                rejected_action_events[id(action)] = {
+                    "status": "failed",
+                    "error": (
+                        "user_did_not_explicitly_request_report_save"
+                    ),
+                    "title": rejected_title,
+                }
+                save_delayed_memory_seen = True
                 continue
 
             if not build_delayed_memory_report(
@@ -1873,7 +1909,10 @@ async def apply_runtime_action_calls(
             action
         )
 
-    if not filtered_actions:
+    if (
+        not filtered_actions
+        and not rejected_action_events
+    ):
         return 0
 
     runtime_todo_results = []
@@ -1925,7 +1964,22 @@ async def apply_runtime_action_calls(
                     todo_item
                 )
 
-    for action in filtered_actions:
+    accepted_action_ids = {
+        id(action)
+        for action in filtered_actions
+    }
+
+    for action in actions:
+
+        rejected_event = rejected_action_events.get(
+            id(action)
+        )
+
+        if (
+            id(action) not in accepted_action_ids
+            and rejected_event is None
+        ):
+            continue
 
         action_event = {
             "name": action.name.lower(),
@@ -1987,9 +2041,19 @@ async def apply_runtime_action_calls(
                     action_event_payload
                 )
 
+        if rejected_event is not None:
+            action_event.update({
+                key: value
+                for key, value in rejected_event.items()
+                if value
+            })
+
         context.runtime_action_events.append(
             action_event
         )
+
+    if not filtered_actions:
+        return 0
 
     save_session_count = sum(
         1
@@ -2955,6 +3019,19 @@ async def apply_runtime_action_calls(
                 created_active_memory_texts.append(
                     active_memory_text
                 )
+                record_runtime_tool_result(
+                    context,
+                    TOOL_RESULT_KIND_ACTIVE_MEMORY,
+                    {
+                        "ok": True,
+                        "action": "create_active_memory",
+                        "destination": (
+                            "active_memory_records -> <ACTIVE_MEMORY>"
+                        ),
+                        "content": active_memory_text,
+                        "record": active_memory_line,
+                    },
+                )
 
             if (
                 log_runtime is not None
@@ -3078,6 +3155,31 @@ async def apply_runtime_action_calls(
                         context,
                         history_text,
                     )
+
+                saved_result = {
+                    "ok": True,
+                    "action": "save_delayed_memory_content",
+                    "destination": (
+                        "delayed_memory_reports (Delayed Memory storage)"
+                    ),
+                    "id": report_id,
+                    "title": str(
+                        report_value.get(
+                            "title",
+                            "",
+                        )
+                        or ""
+                    ).strip(),
+                    "report": {
+                        **report_value,
+                        "id": report_id,
+                    },
+                }
+                record_runtime_tool_result(
+                    context,
+                    TOOL_RESULT_KIND_DELAYED_MEMORY,
+                    saved_result,
+                )
 
         emitter = getattr(
             context,

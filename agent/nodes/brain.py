@@ -17,6 +17,7 @@ from rules.assembler import (
 )
 from rules.runtime import (
     CONTEXT_LIMIT_RECOVERY_MESSAGE,
+    DELAYED_MEMORY_SAVE_REJECTED_MESSAGE,
     NO_FOLLOW_UP_INTERNAL_ACTIONS,
     REASONING_RECOVERY_MESSAGE,
 )
@@ -146,6 +147,16 @@ def build_reasoning_recovery_context() -> str:
         "<REASONING_RECOVERY>\n"
         f"{REASONING_RECOVERY_MESSAGE}.\n"
         "</REASONING_RECOVERY>"
+    )
+
+
+def build_delayed_memory_save_rejected_context() -> str:
+
+    return (
+        "<DELAYED_MEMORY_SAVE_REJECTED>\n"
+        + DELAYED_MEMORY_SAVE_REJECTED_MESSAGE
+        + ".\n"
+        "</DELAYED_MEMORY_SAVE_REJECTED>"
     )
 
 
@@ -401,6 +412,20 @@ class BrainNode(BaseNode):
             context.runtime_turn_interrupted = False
             context.runtime_turn_interruption_reason = ""
             context.runtime_turn_interruption_quote = ""
+
+        if (
+            context is not None
+            and getattr(
+                context,
+                "runtime_delayed_memory_save_rejected_pending",
+                False,
+            )
+        ):
+            sections.append(
+                build_delayed_memory_save_rejected_context()
+            )
+            context.runtime_delayed_memory_save_rejected_pending = False
+            context.runtime_delayed_memory_save_rejected_title = ""
 
         if (
             context is not None

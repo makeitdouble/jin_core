@@ -1319,6 +1319,79 @@ let sessionActionsModalSequenceId = "";
 let sessionActionsModalItems = [];
 let sessionActionsAgeTimer = null;
 
+function normalizeSessionActionParts(
+  parts,
+  fallbackText,
+) {
+  const normalizedParts = Array.isArray(parts)
+    ? parts
+        .map((part) => {
+          if (!part || typeof part !== "object") {
+            return null;
+          }
+
+          const text =
+            String(part.text || "").trim();
+
+          if (!text) {
+            return null;
+          }
+
+          const detail =
+            String(part.detail || "").trim();
+
+          return {
+            text,
+            detail,
+          };
+        })
+        .filter(Boolean)
+    : [];
+
+  if (normalizedParts.length) {
+    return normalizedParts;
+  }
+
+  const text =
+    String(fallbackText || "").trim();
+
+  if (!text) {
+    return [];
+  }
+
+  const detailSeparator =
+    " - ";
+
+  const detailSeparatorIndex =
+    text.indexOf(
+      detailSeparator
+    );
+
+  if (detailSeparatorIndex < 0) {
+    return [{
+      text,
+      detail: "",
+    }];
+  }
+
+  const visibleText =
+    text.slice(
+      0,
+      detailSeparatorIndex
+    ).trim();
+
+  const detail =
+    text.slice(
+      detailSeparatorIndex
+      + detailSeparator.length
+    ).trim();
+
+  return [{
+    text: visibleText || text,
+    detail: visibleText ? detail : "",
+  }];
+}
+
 function normalizeSessionActionItems(
   items,
 ) {
@@ -1344,6 +1417,10 @@ function normalizeSessionActionItems(
 
       return {
         text,
+        parts: normalizeSessionActionParts(
+          item.parts,
+          text
+        ),
         createdAt:
           Number.isFinite(createdAt)
             ? createdAt
@@ -1423,11 +1500,51 @@ function buildSessionActionRow(
   row.style.overflowWrap =
     "anywhere";
 
-  const text =
+  const prefix =
     document.createElement("span");
 
-  text.textContent =
-    `${index + 1}. ${item.text} (`;
+  prefix.textContent =
+    `${index + 1}. `;
+
+  row.appendChild(
+    prefix
+  );
+
+  const parts =
+    normalizeSessionActionParts(
+      item.parts,
+      item.text
+    );
+
+  parts.forEach((part, partIndex) => {
+    const action =
+      document.createElement("span");
+
+    action.textContent =
+      part.text;
+
+    if (part.detail) {
+      action.title =
+        part.detail;
+
+      action.className =
+        "cursor-help";
+    }
+
+    row.appendChild(
+      action
+    );
+
+    if (partIndex < parts.length - 1) {
+      row.appendChild(
+        document.createTextNode(", ")
+      );
+    }
+  });
+
+  row.appendChild(
+    document.createTextNode(" (")
+  );
 
   const age =
     document.createElement("span");
@@ -1440,23 +1557,17 @@ function buildSessionActionRow(
       item.createdAt
     );
 
-  const closing =
-    document.createTextNode(")");
-
-  row.appendChild(
-    text
-  );
-
   row.appendChild(
     age
   );
 
   row.appendChild(
-    closing
+    document.createTextNode(")")
   );
 
   return row;
 }
+
 
 function getSessionActionsTitle(
   mode,
@@ -1583,6 +1694,8 @@ function sessionActionItemMatches(
     && right
     && left.text === right.text
     && left.createdAt === right.createdAt
+    && JSON.stringify(left.parts)
+      === JSON.stringify(right.parts)
   );
 }
 
@@ -1643,6 +1756,9 @@ function syncSessionActionsModal(
   sessionActionsModalItems =
     items.map((item) => ({
       ...item,
+      parts: item.parts.map((part) => ({
+        ...part,
+      })),
     }));
 
   sessionActionsModalList.scrollTop =

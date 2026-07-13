@@ -1,3 +1,4 @@
+import json
 import time
 
 
@@ -147,9 +148,130 @@ def build_asset_action_history_text(
     return text
 
 
+def _normalize_session_action_display_parts(
+    parts,
+) -> list[dict]:
+
+    normalized_parts = []
+
+    for part in parts or []:
+        if isinstance(
+            part,
+            dict,
+        ):
+            part_text = str(
+                part.get(
+                    "text",
+                    "",
+                )
+                or ""
+            ).strip()
+            detail = str(
+                part.get(
+                    "detail",
+                    "",
+                )
+                or ""
+            ).strip()
+        else:
+            part_text = str(
+                part
+                or ""
+            ).strip()
+            detail = ""
+
+        if not part_text:
+            continue
+
+        normalized_part = {
+            "text": part_text,
+        }
+
+        if detail:
+            normalized_part["detail"] = detail
+
+        normalized_parts.append(
+            normalized_part
+        )
+
+    return normalized_parts
+
+
+def _build_session_action_display_part(
+    text: str,
+) -> dict:
+
+    normalized_text = str(
+        text
+        or ""
+    ).strip()
+
+    if not normalized_text:
+        return {}
+
+    detail_separator = " - "
+    detail_separator_index = normalized_text.find(
+        detail_separator
+    )
+
+    if detail_separator_index < 0:
+        return {
+            "text": normalized_text,
+        }
+
+    visible_text = normalized_text[
+        :detail_separator_index
+    ].strip()
+    detail = normalized_text[
+        detail_separator_index
+        + len(detail_separator):
+    ].strip()
+
+    if not visible_text:
+        visible_text = normalized_text
+        detail = ""
+
+    part = {
+        "text": visible_text,
+    }
+
+    if detail:
+        part["detail"] = detail
+
+    return part
+
+
+def _format_session_action_display_part(
+    part: dict,
+) -> str:
+
+    normalized_parts = (
+        _normalize_session_action_display_parts([
+            part,
+        ])
+    )
+
+    if not normalized_parts:
+        return ""
+
+    normalized_part = normalized_parts[0]
+    text = normalized_part["text"]
+    detail = normalized_part.get(
+        "detail",
+        "",
+    )
+
+    if detail:
+        return f"{text} - {detail}"
+
+    return text
+
+
 def record_session_action_history(
     context,
     text: str,
+    *,
+    display_parts=None,
 ) -> None:
 
     if context is None:
@@ -180,10 +302,30 @@ def record_session_action_history(
             history,
         )
 
+    normalized_display_parts = (
+        _normalize_session_action_display_parts(
+            display_parts
+        )
+    )
+
+    if not normalized_display_parts:
+        fallback_part = (
+            _build_session_action_display_part(
+                normalized_text
+            )
+        )
+        if fallback_part:
+            normalized_display_parts = [
+                fallback_part,
+            ]
+
     item = {
         "text": normalized_text,
         "created_at": time.time(),
     }
+
+    if normalized_display_parts:
+        item["parts"] = normalized_display_parts
 
     runtime_turn_id = str(
         getattr(
@@ -245,9 +387,101 @@ def build_context_limit_history_text(
     )
 
 
-def format_session_action_marker_names(
-    marker_actions,
+def build_delayed_memory_save_rejected_history_text(
+    title: str = "",
 ) -> str:
+
+    normalized_title = str(
+        title
+        or ""
+    ).strip()
+
+    text = "SAVE_DELAYED_MEMORY_CONTENT - failed"
+
+    if normalized_title:
+        text = f"{text}: {normalized_title}"
+
+    return (
+        f"{text} "
+        "(user did not provided system allowed trigger words for this action)"
+    )
+
+
+def _find_saved_action_title(
+    value,
+) -> str:
+
+    if not isinstance(
+        value,
+        dict,
+    ):
+        return ""
+
+    title = str(
+        value.get(
+            "title",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if title:
+        return title
+
+    for nested_value in value.values():
+        title = _find_saved_action_title(
+            nested_value
+        )
+
+        if title:
+            return title
+
+    return ""
+
+
+def _build_session_action_marker_detail(
+    action_name: str,
+    action_payload: str,
+) -> str:
+
+    normalized_name = str(
+        action_name
+        or ""
+    ).strip().upper()
+    normalized_payload = str(
+        action_payload
+        or ""
+    ).strip()
+
+    if not normalized_payload:
+        return ""
+
+    if normalized_name == "CREATE_ACTIVE_MEMORY":
+        return normalized_payload
+
+    if not normalized_name.startswith(
+        "SAVE_"
+    ):
+        return ""
+
+    try:
+        parsed_payload = json.loads(
+            normalized_payload
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return ""
+
+    return _find_saved_action_title(
+        parsed_payload
+    )
+
+
+def _build_formatted_session_action_marker_parts(
+    marker_actions,
+) -> list[dict]:
 
     action_groups = {}
 
@@ -295,6 +529,7 @@ def format_session_action_marker_names(
             {
                 "count": 0,
                 "payload_counts": {},
+                "detail_counts": {},
             },
         )
         group["count"] += 1
@@ -316,7 +551,24 @@ def format_session_action_marker_names(
                 + 1
             )
 
-    formatted_names = []
+        detail = _build_session_action_marker_detail(
+            normalized_name,
+            normalized_payload,
+        )
+
+        if detail:
+            detail_counts = group[
+                "detail_counts"
+            ]
+            detail_counts[detail] = (
+                detail_counts.get(
+                    detail,
+                    0,
+                )
+                + 1
+            )
+
+    formatted_parts = []
 
     for action_name, group in action_groups.items():
         count = group[
@@ -325,6 +577,26 @@ def format_session_action_marker_names(
         payload_counts = group[
             "payload_counts"
         ]
+        detail_counts = group[
+            "detail_counts"
+        ]
+
+        if detail_counts:
+            for detail, detail_count in detail_counts.items():
+                formatted_detail = detail
+
+                if detail_count > 1:
+                    formatted_detail = (
+                        f"{formatted_detail} "
+                        f"( repeated_times: {detail_count} )"
+                    )
+
+                formatted_parts.append({
+                    "text": action_name,
+                    "detail": formatted_detail,
+                })
+
+            continue
 
         if (
             action_name in (
@@ -346,23 +618,47 @@ def format_session_action_marker_names(
                     payload
                 )
 
-            formatted_names.append(
-                f"{action_name}: {', '.join(formatted_payloads)}"
-            )
+            formatted_parts.append({
+                "text": (
+                    f"{action_name}: "
+                    f"{', '.join(formatted_payloads)}"
+                ),
+            })
             continue
 
         if count > 1:
-            formatted_names.append(
-                f"{action_name} ( repeated_times: {count} )"
-            )
+            formatted_parts.append({
+                "text": (
+                    f"{action_name} "
+                    f"( repeated_times: {count} )"
+                ),
+            })
             continue
 
-        formatted_names.append(
-            action_name
-        )
+        formatted_parts.append({
+            "text": action_name,
+        })
+
+    return formatted_parts
+
+
+def format_session_action_marker_names(
+    marker_actions,
+) -> str:
 
     return ", ".join(
-        formatted_names
+        formatted_part
+        for formatted_part in (
+            _format_session_action_display_part(
+                part
+            )
+            for part in (
+                _build_formatted_session_action_marker_parts(
+                    marker_actions
+                )
+            )
+        )
+        if formatted_part
     )
 
 
@@ -375,8 +671,20 @@ def replace_session_action_history_since(
     if context is None:
         return
 
-    formatted_marker_names = format_session_action_marker_names(
-        marker_actions
+    formatted_marker_parts = (
+        _build_formatted_session_action_marker_parts(
+            marker_actions
+        )
+    )
+    formatted_marker_names = ", ".join(
+        formatted_part
+        for formatted_part in (
+            _format_session_action_display_part(
+                part
+            )
+            for part in formatted_marker_parts
+        )
+        if formatted_part
     )
 
     if not formatted_marker_names:
@@ -415,7 +723,136 @@ def replace_session_action_history_since(
     record_session_action_history(
         context,
         formatted_marker_names,
+        display_parts=formatted_marker_parts,
     )
+
+
+def compact_session_action_history_since(
+    context,
+    start_index: int,
+) -> bool:
+
+    if context is None:
+        return False
+
+    history = getattr(
+        context,
+        "runtime_session_action_history",
+        None,
+    )
+
+    if not isinstance(
+        history,
+        list,
+    ):
+        return False
+
+    safe_start_index = max(
+        0,
+        min(
+            int(
+                start_index
+                or 0
+            ),
+            len(history),
+        ),
+    )
+    new_items = [
+        item
+        for item in history[safe_start_index:]
+        if isinstance(
+            item,
+            dict,
+        )
+        and str(
+            item.get(
+                "text",
+                "",
+            )
+            or ""
+        ).strip()
+    ]
+
+    if len(new_items) < 2:
+        return False
+
+    merged_item = dict(
+        new_items[0]
+    )
+    merged_item["text"] = ", ".join(
+        str(
+            item.get(
+                "text",
+                "",
+            )
+            or ""
+        ).strip()
+        for item in new_items
+    )
+
+    merged_parts = []
+
+    for item in new_items:
+        item_parts = (
+            _normalize_session_action_display_parts(
+                item.get(
+                    "parts",
+                    [],
+                )
+            )
+        )
+
+        if not item_parts:
+            fallback_part = (
+                _build_session_action_display_part(
+                    item.get(
+                        "text",
+                        "",
+                    )
+                )
+            )
+            if fallback_part:
+                item_parts = [
+                    fallback_part,
+                ]
+
+        merged_parts.extend(
+            item_parts
+        )
+
+    if merged_parts:
+        merged_item["parts"] = merged_parts
+
+    created_at_values = []
+
+    for item in new_items:
+        try:
+            created_at_values.append(
+                float(
+                    item.get(
+                        "created_at",
+                        0,
+                    )
+                    or 0
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            continue
+
+    if created_at_values:
+        merged_item["created_at"] = min(
+            created_at_values
+        )
+
+    del history[safe_start_index:]
+    history.append(
+        merged_item
+    )
+
+    return True
 
 
 def build_session_actions_update_items(
@@ -499,10 +936,35 @@ def build_session_actions_update_items(
         ):
             created_at = 0.0
 
-        items.append({
+        parts = _normalize_session_action_display_parts(
+            item.get(
+                "parts",
+                [],
+            )
+        )
+
+        if not parts:
+            fallback_part = (
+                _build_session_action_display_part(
+                    text
+                )
+            )
+            if fallback_part:
+                parts = [
+                    fallback_part,
+                ]
+
+        update_item = {
             "text": text,
             "created_at": created_at,
-        })
+        }
+
+        if parts:
+            update_item["parts"] = parts
+
+        items.append(
+            update_item
+        )
 
     return items
 

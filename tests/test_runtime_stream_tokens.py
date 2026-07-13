@@ -10,6 +10,9 @@ from runtime import (
     RuntimeStream,
     runtime_state,
 )
+from agent.nodes.brain import (
+    BrainNode,
+)
 from app_settings import (
     settings,
 )
@@ -1134,6 +1137,241 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             len(context.delayed_memory_reports),
             1,
+        )
+
+    async def test_unrequested_delayed_memory_save_reports_guard_failure(self):
+
+        async def delayed_memory_generator():
+
+            yield {
+                "type": "content",
+                "content": (
+                    "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+                    "title: Unrequested report\n"
+                    "summary: Runtime summary.\n"
+                    "tags: runtime, summary\n"
+                    "body: Full report.\n"
+                    "</SAVE_DELAYED_MEMORY_CONTENT>\n"
+                ),
+            }
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_asset_results=[],
+            runtime_delayed_memory_results=[],
+            runtime_session_action_history=[],
+            delayed_memory_reports={},
+            active_memory_records=[],
+            runtime_turn_user_message="выполни другое действие",
+            runtime_current_turn_id="turn_delayed_guard",
+            runtime_turn_started_at=0,
+            session_id="session-1",
+            timestamp="2026-07-13T17:00:00",
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=settings.SERVICE_MODEL_UID,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            runtime_actions={
+                "CAN_SAVE_DELAYED_MEMORY": True,
+            },
+        )
+
+        await stream.run(
+            delayed_memory_generator()
+        )
+
+        runtime_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "runtime_action"
+        ]
+        failure_result = context.runtime_delayed_memory_results[0]
+
+        self.assertEqual(
+            [event.get("status") for event in runtime_events],
+            ["started", "failed"],
+        )
+        self.assertEqual(
+            runtime_events[0]["id"],
+            runtime_events[1]["id"],
+        )
+        self.assertEqual(
+            failure_result["error"],
+            "user_did_not_explicitly_request_report_save",
+        )
+        self.assertEqual(
+            context.delayed_memory_reports,
+            {},
+        )
+        self.assertIn(
+            "SAVE_DELAYED_MEMORY_CONTENT - failed: Unrequested report",
+            context.runtime_session_action_history[-1]["text"],
+        )
+        self.assertTrue(
+            any(
+                event.get("type") == "session_actions_update"
+                for event in context.emitter.events
+            )
+        )
+
+        followup_prompt = BrainNode.build_followup_system_prompt(
+            "<TOOL_RESULTS>\n</TOOL_RESULTS>",
+            "выполни другое действие",
+            context=context,
+            latest_action="save_delayed_memory_content",
+        )
+
+        self.assertIn(
+            "Perform another required action immediately",
+            followup_prompt,
+        )
+        self.assertIn(
+            "Step 1 - SAVE_DELAYED_MEMORY_CONTENT - failed",
+            followup_prompt,
+        )
+        self.assertFalse(
+            context.runtime_delayed_memory_save_rejected_pending,
+        )
+
+    async def test_runtime_groups_inner_and_outer_markers_from_one_message(self):
+
+        async def mixed_marker_generator():
+
+            record_session_action_history(
+                context,
+                (
+                    "CREATE_ACTIVE_MEMORY - "
+                    "current session context and task status"
+                ),
+            )
+
+            yield {
+                "type": "content",
+                "content": (
+                    "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+                    "title: Unrequested report\n"
+                    "summary: Runtime summary.\n"
+                    "tags: runtime, summary\n"
+                    "body: Full report.\n"
+                    "</SAVE_DELAYED_MEMORY_CONTENT>\n"
+                ),
+            }
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_asset_results=[],
+            runtime_delayed_memory_results=[],
+            runtime_session_action_history=[],
+            delayed_memory_reports={},
+            active_memory_records=[],
+            runtime_turn_user_message=(
+                "сохрани ещё один стейт в active memory"
+            ),
+            runtime_current_turn_id="turn_mixed_markers",
+            runtime_turn_started_at=0,
+            runtime_action_sequence_turn_ids=[
+                "turn_mixed_markers",
+            ],
+            session_id="session-1",
+            timestamp="2026-07-13T17:00:00",
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=settings.SERVICE_MODEL_UID,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            runtime_actions={
+                "CAN_SAVE_DELAYED_MEMORY": True,
+            },
+        )
+
+        await stream.run(
+            mixed_marker_generator()
+        )
+
+        self.assertEqual(
+            len(
+                context.runtime_session_action_history
+            ),
+            1,
+        )
+        self.assertEqual(
+            context.runtime_session_action_history[0]["text"],
+            (
+                "CREATE_ACTIVE_MEMORY - "
+                "current session context and task status, "
+                "SAVE_DELAYED_MEMORY_CONTENT - failed: "
+                "Unrequested report "
+                "(user did not provided system allowed trigger words for this action)"
+            ),
+        )
+
+        sequence_context = (
+            build_session_actions_history_context(
+                context,
+                current_sequence=True,
+            )
+        )
+
+        self.assertIn(
+            (
+                "Step 1 - CREATE_ACTIVE_MEMORY - "
+                "current session context and task status, "
+                "SAVE_DELAYED_MEMORY_CONTENT - failed: "
+                "Unrequested report"
+            ),
+            sequence_context,
+        )
+        self.assertNotIn(
+            "Step 2 -",
+            sequence_context,
+        )
+
+        session_action_updates = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "session_actions_update"
+        ]
+
+        self.assertEqual(
+            len(
+                session_action_updates[-1]["items"]
+            ),
+            1,
+        )
+        self.assertEqual(
+            session_action_updates[-1]["items"][0]["text"],
+            context.runtime_session_action_history[0]["text"],
+        )
+        self.assertEqual(
+            session_action_updates[-1]["items"][0]["parts"],
+            [
+                {
+                    "text": "CREATE_ACTIVE_MEMORY",
+                    "detail": "current session context and task status",
+                },
+                {
+                    "text": "SAVE_DELAYED_MEMORY_CONTENT",
+                    "detail": (
+                        "failed: Unrequested report "
+                        "(user did not provided system allowed trigger words for this action)"
+                    ),
+                },
+            ],
         )
 
     async def test_unfinished_delayed_memory_bubble_fails_instead_of_staying_active(self):

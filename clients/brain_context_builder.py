@@ -47,6 +47,7 @@ from utils.runtime_todo import (
 )
 from utils.tool_results import (
     TOOL_RESULT_KIND_ASSET,
+    TOOL_RESULT_KIND_ACTIVE_MEMORY,
     TOOL_RESULT_KIND_DELAYED_MEMORY,
     TOOL_RESULT_KIND_SEARCH,
     get_runtime_tool_results,
@@ -83,6 +84,7 @@ def build_runtime_xml(
             system_state="ACTIVE",
             runtime_mode=get_brain_runtime_mode(),
             service_model_uid=settings.SERVICE_MODEL_UID,
+            brain_model_uid=settings.BRAIN_MODEL_UID,
             can_web_search=(
                 RUNTIME_ACTION_WEB_SEARCH
                 in enabled_actions
@@ -936,6 +938,7 @@ def build_sequence_origin_request_context(
 
     return (
         "<SEQUENCE_ORIGIN_REQUEST>\n"
+        "\n!!! WARNING: THIS IS NOT CURRENT USER REQUEST! TREAT IT AS A PAST! !!!\n"
         f"{escape(text)}\n"
         "</SEQUENCE_ORIGIN_REQUEST>"
     )
@@ -1531,6 +1534,44 @@ def format_asset_result_sections(
     ]
 
 
+def format_active_memory_result_sections(
+    payload,
+) -> list[tuple[str, str]]:
+
+    sections = []
+
+    for result in payload:
+        if not isinstance(
+            result,
+            dict,
+        ):
+            continue
+
+        if str(
+            result.get(
+                "action",
+                "",
+            )
+            or ""
+        ) != "create_active_memory":
+            continue
+
+        sections.append(
+            (
+                "CREATE_ACTIVE_MEMORY",
+                format_tool_result_payload(
+                    result
+                ),
+            )
+        )
+
+    return [
+        section
+        for section in sections
+        if section[1]
+    ]
+
+
 def format_delayed_memory_list_result(
     result: dict,
 ) -> str:
@@ -1590,6 +1631,13 @@ def format_delayed_memory_report_result(
 ) -> str:
 
     if result.get("ok") is False:
+        return format_tool_result_payload(
+            result
+        )
+
+    if result.get(
+        "destination"
+    ):
         return format_tool_result_payload(
             result
         )
@@ -1942,6 +1990,27 @@ def append_recorded_tool_results(
             ]
             parts.append(
                 "<TOOL_RESULTS>\n"
+                f"{chr(10).join(blocks)}\n"
+                "</TOOL_RESULTS>"
+            )
+            appended = True
+            continue
+
+        if kind == TOOL_RESULT_KIND_ACTIVE_MEMORY:
+            sections = format_active_memory_result_sections(
+                [result]
+            )
+            if not sections:
+                continue
+
+            blocks = [
+                f'    <TOOL_RESULT name="{escape(name)}">\n'
+                f"{indent_xml(escape(payload))}\n"
+                "    </TOOL_RESULT>"
+                for name, payload in sections
+            ]
+            parts.append(
+                "<TOOL_RESULTS type='active_memory'>\n"
                 f"{chr(10).join(blocks)}\n"
                 "</TOOL_RESULTS>"
             )

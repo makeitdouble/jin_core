@@ -4494,6 +4494,124 @@ class RuntimeActionTests(unittest.TestCase):
             float,
         )
 
+        tool_results = build_tool_results_context(
+            context
+        )
+        self.assertIn(
+            '<TOOL_RESULT name="SAVE_DELAYED_MEMORY_CONTENT">',
+            tool_results,
+        )
+        self.assertIn(
+            "delayed_memory_reports (Delayed Memory storage)",
+            tool_results,
+        )
+        self.assertIn(
+            f'"id": "{report_id}"',
+            tool_results,
+        )
+        self.assertIn(
+            "Radius of Influence Specs",
+            tool_results,
+        )
+        self.assertIn(
+            "Three-zone data priority model.",
+            tool_results,
+        )
+
+    def test_rejected_delayed_memory_is_recorded_with_other_turn_actions(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+        context.timestamp = "2026-07-13T18:00:00"
+        context.session_id = "session-1"
+        context.turn_number = 1
+        context.runtime_current_turn_id = "turn-mixed-memory-save"
+
+        delayed_memory_payload = json.dumps(
+            {
+                "session_state_snapshot": {
+                    "title": "Session State Snapshot",
+                    "summary": "Current session state.",
+                    "tags": [
+                        "session",
+                    ],
+                    "body": "Full report.",
+                },
+            },
+            ensure_ascii=False,
+        )
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="CREATE_ACTIVE_MEMORY",
+                        payload="current session state",
+                    ),
+                    RuntimeActionCall(
+                        name="SAVE_DELAYED_MEMORY_CONTENT",
+                        payload=delayed_memory_payload,
+                    ),
+                ),
+                user_message="save one state in active memory",
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertEqual(
+            [
+                event["name"]
+                for event in context.runtime_action_events
+            ],
+            [
+                "create_active_memory",
+                "save_delayed_memory_content",
+            ],
+        )
+        self.assertEqual(
+            context.runtime_action_events[1]["status"],
+            "failed",
+        )
+        self.assertEqual(
+            context.runtime_action_events[1]["error"],
+            "user_did_not_explicitly_request_report_save",
+        )
+        self.assertEqual(
+            context.runtime_action_events[1]["title"],
+            "Session State Snapshot",
+        )
+
+        from agent.nodes.brain import (
+            format_followup_actions_from_events,
+        )
+
+        self.assertEqual(
+            format_followup_actions_from_events(
+                context.runtime_action_events
+            ),
+            (
+                "create_active_memory, "
+                "save_delayed_memory_content"
+            ),
+        )
+        self.assertTrue(
+            context.runtime_delayed_memory_save_rejected_pending
+        )
+
     def test_apply_runtime_action_calls_suffixes_duplicate_delayed_memory_key(self):
 
         class Emitter:
@@ -5200,6 +5318,26 @@ class RuntimeActionTests(unittest.TestCase):
                 "action": "create_active_memory",
                 "status": "completed",
             },
+        )
+
+        tool_results = build_tool_results_context(
+            context
+        )
+        self.assertIn(
+            '<TOOL_RESULT name="CREATE_ACTIVE_MEMORY">',
+            tool_results,
+        )
+        self.assertIn(
+            "active_memory_records -&gt; &lt;ACTIVE_MEMORY&gt;",
+            tool_results,
+        )
+        self.assertIn(
+            "remind later",
+            tool_results,
+        )
+        self.assertIn(
+            "active_memory_1:",
+            tool_results,
         )
 
     def test_create_active_memory_replaces_model_runtime_suffixes(self):

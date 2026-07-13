@@ -30,6 +30,13 @@ CONTEXT_LIMIT_RECOVERY_MESSAGE = (
 )
 
 
+DELAYED_MEMORY_SAVE_REJECTED_MESSAGE = (
+    "JIN attempted to save a delayed memory report but the user did "
+    "not provide correct and allowed trigger words in his request.\n"
+    "Do not retry, perform another required actions or stop immediately.\n"
+)
+
+
 INTERNAL_ACTION_WEB_SEARCH_MARKER = "<WEB_SEARCH: plain text query >"
 INTERNAL_ACTION_SAVE_SESSION_MARKER = "<SAVE_SESSION>"
 INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER = "<CREATE_ACTIVE_MEMORY: CONDITIONS >"
@@ -74,19 +81,22 @@ NO_FOLLOW_UP_INTERNAL_ACTIONS = [ INTERNAL_ACTION_CLEAN_TOOL_RESULTS_MARKER ]
 SKILL_ROUTING_RULES = ("\n"
                        "You must check <CURRENT_APPENDED_SKILLS> and <CURRENT_SEQUENCE> during follow-up, or <SESSION_ACTIONS_HISTORY> outside follow-up, before appending any skill.\n"
                        "\n"
-                       "<MANDATORY SKILL ROUTING RULES>\n"
+                       "MANDATORY SKILL ROUTING RULES:\n"
                        "1. Determine whether the request requires a skill.\n"
                        "2. Check <CURRENT_APPENDED_SKILLS> for a suitable skill.\n"
                        "3. Never append skill already presented inside <CURRENT_APPENDED_SKILLS>.\n"
                        f"4. If no skill is present, you must emit {INTERNAL_ACTION_LIST_SKILLS_MARKER}\n"
                        f"5. If no specific skills are listed in <CURRENT_APPENDED_SKILLS> — you must use {INTERNAL_ACTION_LIST_SKILLS_MARKER}\n"
-                       "</MANDATORY SKILL ROUTING RULES>\n"
                        "\n"
     "If no skill or runtime action is needed, output the user-facing final result or usual response, never do redundant actions.\n"
     "If user ask for save action and you unsure what exactly to save - do not emit any runtime markers and ask one short clarification.\n"
     "If unsure about skill capabilities - you must append it and read what it does. Do not derive skill capabilities from a skill name or filename!\n"
     "\n"
-
+    "MANDATORY SEQUENCE RULES:\n"
+    "1. Determine whether the CURRENT_SEQUENCE latest action or actions satisfies SEQUENCE_ORIGIN_REQUEST.\n"
+    "2. Take latest result of a process and do not continue and notify the user about completed request.\n"
+    "3. Continue with a task only if CURRENT_SEQUENCE actions does not cover user initial intent.\n"
+    "4. DO NOT repeat actions already appeared in CURRENT_SEQUENCE, unless repeat count or repetition conditions explicitly stated by a user initial request.\n"
     "\n"
     "The minimum displayed action age is 1s. Every action already listed in CURRENT_SEQUENCE is DONE, including actions shown as ( 1s ago ).\n"
     "Never repeat an action already listed in CURRENT_SEQUENCE - even if conditions mandate to do it.\n"
@@ -112,7 +122,8 @@ APPEND_REMOVE_SKILL_RULES = (
 )
 
 RUNTIME_ACTIONS_RULES = (
-    "RUNTIME ACTION MARKERS are internal mechanics. Dummy markers are not allowed.\n"
+    "RUNTIME ACTION MARKERS are internal mechanics.\n"
+    "Dummy markers are not allowed.\n"
     "Runtime markers or actions can trigger follow up tick.\n"
     "You can emit any amount of markers in one message, you will receive single follow up tick with results of processed markers.\n"
     f"First emitted marker starts a sequence with max 50 steps.\n"
@@ -124,6 +135,7 @@ RUNTIME_ACTIONS_RULES = (
     "Never assume internal marker name!\n"
     "\n"
     "RUNTIME ACTION EXECUTION RULES:\n"
+    "DO NOT treat SEQUENCE_ORIGIN_REQUEST as new input, use time to track freshness.\n"
     "Runtime markers are commands for the runtime, pick first that lands and emit now.\n"
     "After emitting the required markers, stop generating text."
     "The runtime will execute them and automatically provide a response in a follow-up system tick."
@@ -196,7 +208,7 @@ RESOLVE_ACTIVE_MEMORY_RULES = (
 
 SAVE_DELAYED_MEMORY_RULES = (
     "SAVE_DELAYED_MEMORY_CONTENT:\n"
-    "Use this marker ONLY when the user explicitly asks to save a summary/digest/recap/report of the current state.\n"
+    "Use this marker ONLY when the user explicitly asks to save in delayed memory a summary/digest/recap/report of the current state.\n"
     "DO NOT ask for clarification, save all current runtime data available at the moment as structured summary.\n"
     "Do NOT use this marker for generic remember/store/track/remind requests.\n"
     "Do NOT use this marker for word recall tests, secret values, future questions, or next-N-message conditions.\n"

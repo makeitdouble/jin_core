@@ -36,7 +36,10 @@ from utils.assets_service import (
 from utils.session_actions_history import (
     build_asset_action_history_text,
     build_context_limit_history_text,
+    build_delayed_memory_save_rejected_history_text,
     build_reasoning_loop_history_text,
+    compact_session_action_history_since,
+    emit_session_actions_update,
     record_session_action_history,
 )
 from utils.tool_results import (
@@ -808,13 +811,54 @@ class RuntimeStream:
                 action_id
             )
 
+            save_rejected = bool(
+                getattr(
+                    self.context,
+                    "runtime_delayed_memory_save_rejected_pending",
+                    False,
+                )
+            )
+            rejected_title = str(
+                getattr(
+                    self.context,
+                    "runtime_delayed_memory_save_rejected_title",
+                    "",
+                )
+                or ""
+            ).strip()
+
             failure_result = {
                 "ok": False,
                 "action": "save_delayed_memory_content",
                 "id": action_id,
-                "error": "Delayed memory report was not saved",
+                "error": (
+                    "user_did_not_explicitly_request_report_save"
+                    if save_rejected
+                    else "Delayed memory report was not saved"
+                ),
                 "payload": self.delayed_memory_action_payload,
             }
+
+            if save_rejected:
+                failure_result["detail"] = (
+                    "JIN attempted to save a delayed memory report when "
+                    "the user did not explicitly request it.\n"
+                    "DO NOT repeat this action again in the current sequence!\n"
+                )
+
+                if rejected_title:
+                    failure_result["title"] = rejected_title
+
+                record_session_action_history(
+                    self.context,
+                    build_delayed_memory_save_rejected_history_text(
+                        rejected_title
+                    ),
+                )
+                await emit_session_actions_update(
+                    self.context,
+                    current_sequence=True,
+                )
             runtime_turn_id = str(
                 getattr(
                     self.context,
@@ -854,7 +898,12 @@ class RuntimeStream:
                     "action": "save_delayed_memory_content",
                     "id": action_id,
                     "status": "failed",
-                    "text": "Delayed memory report was not saved",
+                    "text": (
+                        "Delayed memory save rejected"
+                        if save_rejected
+                        else "Delayed memory report was not saved"
+                    ),
+                    "delayed_memory_result": failure_result,
                 })
 
         self.started_delayed_memory_action_ids.clear()
@@ -937,6 +986,18 @@ class RuntimeStream:
             self,
             generator,
     ):
+
+        # The inner brain filter and the outer runtime filter can strip
+        # different markers from the same model message. Keep one history
+        # boundary for the whole runtime message and compact it at the end.
+        session_action_history_start = len(
+            getattr(
+                self.context,
+                "runtime_session_action_history",
+                [],
+            )
+            or []
+        )
 
         try:
 
@@ -1238,3 +1299,21 @@ class RuntimeStream:
                     })
 
             return None
+
+        finally:
+
+            history_compacted = (
+                compact_session_action_history_since(
+                    self.context,
+                    session_action_history_start,
+                )
+            )
+
+            if history_compacted:
+                with contextlib.suppress(
+                    Exception
+                ):
+                    await emit_session_actions_update(
+                        self.context,
+                        current_sequence=True,
+                    )

@@ -231,6 +231,10 @@ class RuntimeContext:
 
     runtime_reasoning_recovery_pending: bool = False
 
+    runtime_delayed_memory_save_rejected_pending: bool = False
+
+    runtime_delayed_memory_save_rejected_title: str = ""
+
     runtime_context_limit_recovery_pending: bool = False
 
     runtime_context_limit_stage: str = ""
@@ -352,6 +356,7 @@ class ContextContract:
     system_state: str = "ACTIVE"
     runtime_mode: str = ""
     service_model_uid: str = ""
+    brain_model_uid: str = ""
     can_web_search: bool = True
     can_use_assets: bool = False
     can_save_session: bool = False
@@ -375,10 +380,16 @@ class ContextContract:
         fields = {}
 
         if self.runtime_mode:
-            fields["MODE"] = self.runtime_mode
+            fields["RUNTIME_MODE"] = self.runtime_mode
 
         if self.service_model_uid:
             fields["SERVICE_MODEL_UID"] = self.service_model_uid
+
+        if (
+            self.runtime_mode == "BRAIN"
+            and self.brain_model_uid
+        ):
+            fields["BRAIN_MODEL_UID"] = self.brain_model_uid
 
         fields["USER_DATETIME"] = format_user_datetime(
             self.current_date,

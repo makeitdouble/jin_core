@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from clients.brain_context_builder import (
     build_brain_runtime_context,
+    build_session_actions_history_context,
 )
 from clients.brain_client import (
     ask_brain,
@@ -680,7 +681,25 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertEqual(
             context.runtime_session_action_history[-1]["text"],
-            "WEB_SEARCH, CREATE_ACTIVE_MEMORY, LIST_SKILLS",
+            (
+                "WEB_SEARCH, CREATE_ACTIVE_MEMORY - "
+                "astronomical news tracker, LIST_SKILLS"
+            ),
+        )
+        self.assertEqual(
+            context.runtime_session_action_history[-1]["parts"],
+            [
+                {
+                    "text": "WEB_SEARCH",
+                },
+                {
+                    "text": "CREATE_ACTIVE_MEMORY",
+                    "detail": "astronomical news tracker",
+                },
+                {
+                    "text": "LIST_SKILLS",
+                },
+            ],
         )
 
     def test_stream_groups_two_action_markers_into_one_history_item(self):
@@ -887,6 +906,50 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 "APPEND_SKILL: wildcards ( repeated_times: 2 ), file_manager, "
                 "REMOVE_SKILL: image_prompt_generator ( repeated_times: 2 ), "
                 "file_manager"
+            ),
+        )
+
+    def test_session_history_includes_saved_content_title(self):
+
+        title = (
+            "Концептуальное позиционирование JIN Core: "
+            "Среда мышления vs Интерфейс чата"
+        )
+        action = RuntimeActionCall(
+            name="SAVE_DELAYED_MEMORY_CONTENT",
+            payload=(
+                '{"report_1":{"title":"'
+                + title
+                + '","body":"report"}}'
+            ),
+        )
+        context = SimpleNamespace(
+            runtime_session_action_history=[],
+            runtime_current_turn_id="turn-1",
+            runtime_turn_started_at=0,
+            runtime_action_sequence_turn_ids=[],
+        )
+
+        replace_session_action_history_since(
+            context,
+            0,
+            [action],
+        )
+
+        expected_text = (
+            "SAVE_DELAYED_MEMORY_CONTENT - "
+            + title
+        )
+
+        self.assertEqual(
+            context.runtime_session_action_history[0]["text"],
+            expected_text,
+        )
+        self.assertIn(
+            f"Step 1 - {expected_text}",
+            build_session_actions_history_context(
+                context,
+                current_sequence=True,
             ),
         )
 
@@ -2268,15 +2331,31 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         self.assertIn(
             (
-                "<MODE>SERVICE as BRAIN</MODE>"
+                "<RUNTIME_MODE>SERVICE as BRAIN</RUNTIME_MODE>"
                 if settings.USE_SERVICE_AS_BRAIN
-                else "<MODE>BRAIN</MODE>"
+                else "<RUNTIME_MODE>BRAIN</RUNTIME_MODE>"
             ),
             prompt,
         )
 
         self.assertIn(
             f"<SERVICE_MODEL_UID>{config.SERVICE_MODEL_UID}</SERVICE_MODEL_UID>",
+            prompt,
+        )
+
+        if settings.USE_SERVICE_AS_BRAIN:
+            self.assertNotIn(
+                "<BRAIN_MODEL_UID>",
+                prompt,
+            )
+        else:
+            self.assertIn(
+                f"<BRAIN_MODEL_UID>{config.BRAIN_MODEL_UID}</BRAIN_MODEL_UID>",
+                prompt,
+            )
+
+        self.assertNotIn(
+            "<MODE>",
             prompt,
         )
 
