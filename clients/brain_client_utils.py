@@ -99,6 +99,7 @@ from utils.runtime_actions import (
     strip_active_memory_managed_suffixes,
 )
 from utils.session_actions_history import (
+    build_active_memory_resolve_failed_history_text,
     build_asset_action_history_text,
     record_session_action_history,
 )
@@ -592,14 +593,184 @@ def remove_active_memory_slot_from_text(
     )
 
 
+def find_active_memory_slot_record(
+    context,
+    active_memory_id: str,
+) -> str:
+
+    normalized_id = str(
+        active_memory_id or ""
+    ).strip().casefold()
+
+    if not normalized_id:
+        return ""
+
+    active_records = getattr(
+        context,
+        "active_memory_records",
+        None,
+    )
+    sources = [
+        *(active_records or ()),
+        getattr(
+            context,
+            "runtime_memory",
+            "",
+        ),
+        getattr(
+            context,
+            "runtime_memory_stable",
+            "",
+        ),
+    ]
+
+    for source in sources:
+        for line in str(
+            source or ""
+        ).splitlines():
+            if (
+                ACTIVE_MEMORY_RUNTIME_LINE_RE.match(
+                    line
+                )
+                and normalized_id in collect_active_memory_slot_ids(
+                    line
+                )
+                and not is_active_memory_record_paused(
+                    line
+                )
+            ):
+                return line.strip()
+
+    return ""
+
+
+def build_active_memory_resolve_failure_result(
+    context,
+    payload: str,
+    *,
+    error: str = "",
+) -> dict:
+
+    requested = re.sub(
+        r"\s+",
+        " ",
+        str(
+            payload
+            or ""
+        ),
+    ).strip()
+    requested_id = extract_active_memory_resolve_slot_id(
+        payload
+    )
+    available_ids = sorted(
+        collect_context_active_memory_slot_ids(
+            context
+        )
+    )
+    normalized_error = str(
+        error
+        or (
+            "active_memory_not_found"
+            if requested_id
+            else "invalid_active_memory_id"
+        )
+    ).strip()
+    detail = (
+        "Active memory was not resolved. "
+        "Use an exact 6-character active_memory_id from <ACTIVE_MEMORY> "
+        "and retry only for a record that is still pending."
+    )
+
+    result = {
+        "ok": False,
+        "action": "resolve_active_memory",
+        "error": normalized_error,
+        "requested": requested,
+        "detail": detail,
+        "available_ids": available_ids,
+    }
+
+    if requested_id:
+        result["id"] = requested_id
+
+    return result
+
+
+def queue_active_memory_resolve_failure(
+    context,
+    result: dict,
+) -> None:
+
+    record_runtime_tool_result(
+        context,
+        TOOL_RESULT_KIND_ACTIVE_MEMORY,
+        result,
+    )
+
+    pending = getattr(
+        context,
+        "runtime_active_memory_resolve_failures_pending",
+        None,
+    )
+
+    if not isinstance(
+        pending,
+        list,
+    ):
+        pending = []
+        setattr(
+            context,
+            "runtime_active_memory_resolve_failures_pending",
+            pending,
+        )
+
+    pending.append(
+        dict(result)
+    )
+
+
+def flush_pending_active_memory_resolve_failure_history(
+    context,
+) -> None:
+
+    pending = getattr(
+        context,
+        "runtime_active_memory_resolve_failures_pending",
+        None,
+    )
+
+    if not isinstance(
+        pending,
+        list,
+    ) or not pending:
+        return
+
+    for result in pending:
+        if not isinstance(
+            result,
+            dict,
+        ):
+            continue
+
+        record_session_action_history(
+            context,
+            build_active_memory_resolve_failed_history_text(
+                result
+            ),
+        )
+
+    pending.clear()
+
+
 async def resolve_active_memory_runtime_record(
     context,
     payload: str,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, str]:
 
     if context is None:
         return (
             False,
+            "",
             "",
         )
 
@@ -614,8 +785,13 @@ async def resolve_active_memory_runtime_record(
         return (
             False,
             "",
+            "",
         )
 
+    resolved_record = find_active_memory_slot_record(
+        context,
+        active_memory_id,
+    )
     removed = False
 
     for attr_name in (
@@ -672,6 +848,7 @@ async def resolve_active_memory_runtime_record(
     return (
         removed,
         active_memory_id,
+        resolved_record,
     )
 
 
@@ -1571,6 +1748,7 @@ async def apply_runtime_action_calls(
     search_calls = []
     filtered_actions = []
     rejected_action_events = {}
+    rejected_active_memory_results = []
     search_query_seen = False
     save_session_seen = bool(
         getattr(
@@ -1587,6 +1765,7 @@ async def apply_runtime_action_calls(
         )
     )
     resolve_active_memory_ids_seen = set()
+    resolve_active_memory_failures_seen = set()
     save_delayed_memory_seen = False
     list_delayed_memory_seen = False
     list_skills_seen = False
@@ -1815,10 +1994,47 @@ async def apply_runtime_action_calls(
                 ),
             )
 
-            if (
-                not active_memory_id
-                or active_memory_id in resolve_active_memory_ids_seen
-            ):
+            if not active_memory_id:
+                failure_result = build_active_memory_resolve_failure_result(
+                    context,
+                    action.payload,
+                )
+                failure_key = str(
+                    failure_result.get(
+                        "id",
+                        "",
+                    )
+                    or failure_result.get(
+                        "requested",
+                        "",
+                    )
+                    or "unknown"
+                ).strip().casefold()
+
+                if failure_key in resolve_active_memory_failures_seen:
+                    continue
+
+                resolve_active_memory_failures_seen.add(
+                    failure_key
+                )
+                rejected_active_memory_results.append(
+                    failure_result
+                )
+                rejected_action_events[id(action)] = {
+                    "status": "failed",
+                    "error": failure_result["error"],
+                    "id": failure_result.get(
+                        "id",
+                        "",
+                    ),
+                    "requested": failure_result.get(
+                        "requested",
+                        "",
+                    ),
+                }
+                continue
+
+            if active_memory_id in resolve_active_memory_ids_seen:
                 continue
 
             resolve_active_memory_ids_seen.add(
@@ -2052,7 +2268,10 @@ async def apply_runtime_action_calls(
             action_event
         )
 
-    if not filtered_actions:
+    if (
+        not filtered_actions
+        and not rejected_active_memory_results
+    ):
         return 0
 
     save_session_count = sum(
@@ -2253,6 +2472,39 @@ async def apply_runtime_action_calls(
                 "action": "clean_tool_results",
                 "status": "completed",
                 "text": "Tool results cleared",
+            }))
+
+    if rejected_active_memory_results:
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        for result in rejected_active_memory_results:
+            queue_active_memory_resolve_failure(
+                context,
+                result,
+            )
+
+            if emit is None:
+                continue
+
+            await emit(with_action_context({
+                "type": "runtime_action",
+                "action": "resolve_active_memory",
+                "id": result.get(
+                    "id",
+                    "",
+                ),
+                "status": "failed",
+                "text": "Active memory resolve failed",
+                "active_memory_result": result,
             }))
 
     saved_asset_results = []
@@ -3294,7 +3546,11 @@ async def apply_runtime_action_calls(
         )
 
         for action in resolve_active_memory_actions:
-            record_resolved, active_memory_id = (
+            (
+                record_resolved,
+                active_memory_id,
+                resolved_record,
+            ) = (
                 await resolve_active_memory_runtime_record(
                     context,
                     action.payload,
@@ -3302,9 +3558,54 @@ async def apply_runtime_action_calls(
             )
 
             if not record_resolved:
+                failure_result = build_active_memory_resolve_failure_result(
+                    context,
+                    action.payload,
+                    error="active_memory_not_resolved",
+                )
+                if active_memory_id:
+                    failure_result["id"] = active_memory_id
+                failure_result["detail"] = (
+                    "Active memory was not resolved. The record may be paused "
+                    "or may no longer exist. Do not claim that the action "
+                    "completed."
+                )
+                queue_active_memory_resolve_failure(
+                    context,
+                    failure_result,
+                )
+
+                if emit is not None:
+                    await emit(with_action_context({
+                        "type": "runtime_action",
+                        "action": "resolve_active_memory",
+                        "id": active_memory_id,
+                        "status": "failed",
+                        "text": "Active memory resolve failed",
+                        "active_memory_result": failure_result,
+                    }))
                 continue
 
             resolved_active_memory_count += 1
+            record_runtime_tool_result(
+                context,
+                TOOL_RESULT_KIND_ACTIVE_MEMORY,
+                {
+                    "ok": True,
+                    "action": "resolve_active_memory",
+                    "destination": (
+                        "active_memory_records -> <ACTIVE_MEMORY> "
+                        "(resolved and removed)"
+                    ),
+                    "id": active_memory_id,
+                    "content": (
+                        normalize_active_memory_content_for_duplicate_check(
+                            resolved_record
+                        )
+                    ),
+                    "record": resolved_record,
+                },
+            )
 
             if emit is None:
                 continue

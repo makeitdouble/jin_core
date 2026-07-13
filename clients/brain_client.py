@@ -27,6 +27,7 @@ from rules.assembler import (
 
 from clients.brain_client_utils import (
     apply_runtime_action_calls,
+    flush_pending_active_memory_resolve_failure_history,
     log_runtime_action_marker_removals,
     should_execute_save_delayed_memory,
     should_execute_save_session,
@@ -633,6 +634,9 @@ async def ask_brain_stream(
             context,
             session_action_history_start,
             observed_action_markers,
+        )
+        flush_pending_active_memory_resolve_failure_history(
+            context
         )
 
         await emit_session_actions_update(

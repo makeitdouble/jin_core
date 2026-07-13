@@ -235,6 +235,10 @@ class RuntimeContext:
 
     runtime_delayed_memory_save_rejected_title: str = ""
 
+    runtime_active_memory_resolve_failures_pending: list[dict] = field(
+        default_factory=list
+    )
+
     runtime_context_limit_recovery_pending: bool = False
 
     runtime_context_limit_stage: str = ""

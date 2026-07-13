@@ -419,6 +419,35 @@ def build_delayed_memory_save_rejected_history_text(
     )
 
 
+def build_active_memory_resolve_failed_history_text(
+    result: dict,
+) -> str:
+
+    requested = str(
+        result.get(
+            "requested",
+            "",
+        )
+        or result.get(
+            "id",
+            "",
+        )
+        or "unknown"
+    ).strip()
+    error = str(
+        result.get(
+            "error",
+            "",
+        )
+        or "active_memory_not_resolved"
+    ).strip()
+
+    return (
+        "RESOLVE_ACTIVE_MEMORY - failed: "
+        f"{requested} ({error}; action was not executed)"
+    )
+
+
 def _find_saved_action_title(
     value,
 ) -> str:

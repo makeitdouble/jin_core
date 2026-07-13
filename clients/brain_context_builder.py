@@ -1547,23 +1547,34 @@ def format_active_memory_result_sections(
         ):
             continue
 
-        if str(
+        action = str(
             result.get(
                 "action",
                 "",
             )
             or ""
-        ) != "create_active_memory":
+        )
+
+        if action == "create_active_memory":
+            sections.append(
+                (
+                    "CREATE_ACTIVE_MEMORY",
+                    format_tool_result_payload(
+                        result
+                    ),
+                )
+            )
             continue
 
-        sections.append(
-            (
-                "CREATE_ACTIVE_MEMORY",
-                format_tool_result_payload(
-                    result
-                ),
+        if action == "resolve_active_memory":
+            sections.append(
+                (
+                    "RESOLVE_ACTIVE_MEMORY",
+                    format_tool_result_payload(
+                        result
+                    ),
+                )
             )
-        )
 
     return [
         section

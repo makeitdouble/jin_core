@@ -9,6 +9,9 @@ from unittest.mock import patch
 from clients import (
     apply_runtime_action_calls,
 )
+from clients.brain_client_utils import (
+    flush_pending_active_memory_resolve_failure_history,
+)
 from clients.brain_context_builder import (
     build_appended_delayed_memory_context,
     build_tool_results_context,
@@ -27,6 +30,7 @@ from utils.runtime_todo import (
     create_runtime_todo,
 )
 from utils.tool_results import (
+    TOOL_RESULT_KIND_ACTIVE_MEMORY,
     TOOL_RESULT_KIND_ASSET,
     TOOL_RESULT_KIND_DELAYED_MEMORY,
     TOOL_RESULT_KIND_SEARCH,
@@ -5715,6 +5719,48 @@ class RuntimeActionTests(unittest.TestCase):
             "5fdg4g",
         )
         self.assertEqual(
+            context.runtime_tool_results,
+            [
+                {
+                    "kind": TOOL_RESULT_KIND_ACTIVE_MEMORY,
+                    "result": {
+                        "ok": True,
+                        "action": "resolve_active_memory",
+                        "destination": (
+                            "active_memory_records -> <ACTIVE_MEMORY> "
+                            "(resolved and removed)"
+                        ),
+                        "id": "5fdg4g",
+                        "content": "remember cuckoo",
+                        "record": (
+                            "active_memory_1: remember cuckoo "
+                            "[ active_memory_id: 5fdg4g ] "
+                            "[ status: pending ]"
+                        ),
+                    },
+                },
+            ],
+        )
+        tool_results = build_tool_results_context(
+            context
+        )
+        self.assertIn(
+            '<TOOL_RESULT name="RESOLVE_ACTIVE_MEMORY">',
+            tool_results,
+        )
+        self.assertIn(
+            "remember cuckoo",
+            tool_results,
+        )
+        self.assertIn(
+            "active_memory_1:",
+            tool_results,
+        )
+        self.assertIn(
+            "5fdg4g",
+            tool_results,
+        )
+        self.assertEqual(
             context.emitter.events,
             [
                 {
@@ -5926,8 +5972,16 @@ class RuntimeActionTests(unittest.TestCase):
             context.runtime_memory,
         )
         self.assertEqual(
-            context.emitter.events,
-            [],
+            len(context.emitter.events),
+            1,
+        )
+        self.assertEqual(
+            context.emitter.events[0]["status"],
+            "failed",
+        )
+        self.assertEqual(
+            context.runtime_tool_results[0]["result"]["error"],
+            "active_memory_not_resolved",
         )
 
     def test_apply_runtime_action_calls_allows_multiple_create_active_memory_turns(self):
@@ -5986,17 +6040,28 @@ class RuntimeActionTests(unittest.TestCase):
             r"^active_memory_2: Second reminder ",
         )
 
-    def test_apply_runtime_action_calls_skips_unknown_active_memory_id(self):
+    def test_apply_runtime_action_calls_reports_invalid_active_memory_reference(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
 
         class Context:
             pass
 
         context = Context()
+        context.emitter = Emitter()
         context.runtime_memory = (
             "active_memory: remember cuckoo [ active_memory_id: 5fdg4g ] "
             "[ status: pending ]"
         )
         context.runtime_memory_stable = context.runtime_memory
+        context.active_memory_records = [
+            context.runtime_memory,
+        ]
 
         applied_count = asyncio.run(
             apply_runtime_action_calls(
@@ -6004,7 +6069,15 @@ class RuntimeActionTests(unittest.TestCase):
                 (
                     RuntimeActionCall(
                         name="RESOLVE_ACTIVE_MEMORY",
-                        payload="active_memory_id: abc123",
+                        payload="active_memory_10",
+                    ),
+                    RuntimeActionCall(
+                        name="RESOLVE_ACTIVE_MEMORY",
+                        payload="active_memory_10",
+                    ),
+                    RuntimeActionCall(
+                        name="CLEAN_TOOL_RESULTS",
+                        payload="",
                     ),
                 ),
             )
@@ -6012,15 +6085,83 @@ class RuntimeActionTests(unittest.TestCase):
 
         self.assertEqual(
             applied_count,
-            0,
+            1,
         )
         self.assertIn(
             "5fdg4g",
             context.runtime_memory,
         )
         self.assertEqual(
-            context.runtime_action_events,
-            [],
+            len(context.runtime_action_events),
+            2,
+        )
+        self.assertEqual(
+            context.runtime_action_events[0]["status"],
+            "failed",
+        )
+        self.assertEqual(
+            context.runtime_action_events[0]["requested"],
+            "active_memory_10",
+        )
+        self.assertEqual(
+            context.runtime_tool_results,
+            [
+                {
+                    "kind": TOOL_RESULT_KIND_ACTIVE_MEMORY,
+                    "result": {
+                        "ok": False,
+                        "action": "resolve_active_memory",
+                        "error": "invalid_active_memory_id",
+                        "requested": "active_memory_10",
+                        "detail": (
+                            "Active memory was not resolved. Use an exact "
+                            "6-character active_memory_id from <ACTIVE_MEMORY> "
+                            "and retry only for a record that is still pending."
+                        ),
+                        "available_ids": [
+                            "5fdg4g",
+                        ],
+                    },
+                },
+            ],
+        )
+        self.assertEqual(
+            [
+                event.get("status")
+                for event in context.emitter.events
+            ],
+            [
+                "completed",
+                "failed",
+            ],
+        )
+
+        tool_results = build_tool_results_context(
+            context
+        )
+        self.assertIn(
+            '<TOOL_RESULT name="RESOLVE_ACTIVE_MEMORY">',
+            tool_results,
+        )
+        self.assertIn(
+            '"ok": false',
+            tool_results,
+        )
+        self.assertIn(
+            '"requested": "active_memory_10"',
+            tool_results,
+        )
+        self.assertIn(
+            '"available_ids": [',
+            tool_results,
+        )
+
+        flush_pending_active_memory_resolve_failure_history(
+            context
+        )
+        self.assertIn(
+            "RESOLVE_ACTIVE_MEMORY - failed: active_memory_10",
+            context.runtime_session_action_history[-1]["text"],
         )
 
 
