@@ -55,6 +55,19 @@ from runtime.L3_memory_utils import (
 from runtime.L3_memory_rules import (
     L3_OUTPUT_MAX_TOKENS,
 )
+from runtime.L2_memory_rules import (
+    BEHAVIOR_VS_INTENT,
+    CONFIRMABLE_KEYS,
+    EVIDENCE_LINE_LIFECYCLE,
+    OCCURRENCE_COUNTING,
+    OUTPUT_FORMAT,
+    PATTERN_EVIDENCE_LINES,
+    PATTERN_FAMILY_DEDUPLICATION,
+    ROLE,
+    RUNTIME_L2_MEMORY_SYSTEM_PROMPT,
+    SELF_LEARNING_GUARD,
+    SPAN_METADATA,
+)
 from runtime.L2_memory_utils import (
     extract_runtime_l2_pattern_evidence_lines,
     merge_runtime_l2_pattern_evidence_memory,
@@ -624,35 +637,28 @@ class MessageMemoryTests(
 
         prompt = build_runtime_l2_memory_system_prompt()
 
-        # Verify the durable L2 contract without pinning every prompt sentence.
-        for required_text in (
-                "L2 pattern memory summarizer",
-                "hypothesis generator",
-                "possible pattern",
-                "Occurrences",
-                "first_seen_snapshot",
-                "last_seen_snapshot",
-                "L2_pattern_evidence_N",
-                "first_seen_turn_snapshot",
-                "last_seen_turn_snapshot",
-                "evidence summary",
-                "confidence",
-                "weak evidence",
-                "learn from itself",
-                "actual conversation evidence",
+        self.assertEqual(
+            prompt,
+            RUNTIME_L2_MEMORY_SYSTEM_PROMPT,
+        )
+
+        # Verify that the builder keeps every dedicated L2 rules section.
+        for rules_section in (
+                ROLE,
+                OUTPUT_FORMAT,
+                BEHAVIOR_VS_INTENT,
+                SPAN_METADATA,
+                OCCURRENCE_COUNTING,
+                PATTERN_EVIDENCE_LINES,
+                EVIDENCE_LINE_LIFECYCLE,
+                PATTERN_FAMILY_DEDUPLICATION,
+                SELF_LEARNING_GUARD,
+                CONFIRMABLE_KEYS,
         ):
             self.assertIn(
-                required_text,
+                rules_section,
                 prompt,
             )
-
-        self.assertNotIn(
-            "Do not output JSON",
-            prompt.replace(
-                "Do not output JSON, Markdown headings, nested bullets, or numbered lists.",
-                "",
-            ),
-        )
 
     def test_l2_pattern_evidence_merge_preserves_first_seen_and_deduplicates(self):
 
