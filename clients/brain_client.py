@@ -577,6 +577,7 @@ async def ask_brain_stream(
         #preserve_action_text=True
     )
     stop_for_runtime_action = False
+    runtime_action_boundary_seen = False
     delayed_memory_bubble_started = False
     asset_action_bubble_started = False
     action_context_snapshot = build_brain_context_snapshot(
@@ -828,6 +829,7 @@ async def ask_brain_stream(
     ):
 
         nonlocal stop_for_runtime_action
+        nonlocal runtime_action_boundary_seen
 
         chunk_type = action_chunk.get(
             "type"
@@ -869,20 +871,35 @@ async def ask_brain_stream(
         ):
             return None
 
-        if await apply_runtime_action_result(
+        action_applied = await apply_runtime_action_result(
             result
-        ):
+        )
 
-            if not stop_for_runtime_action:
-                if not result.text:
-                    return None
-
-                return {
-                    **action_chunk,
-                    "content": result.text,
-                }
+        if runtime_action_boundary_seen:
+            # A boundary action (for example WEB_SEARCH) used to stop the
+            # model stream immediately. That dropped any action markers
+            # emitted later in the same assistant message because they had
+            # not arrived from the token stream yet. Keep draining adjacent
+            # whitespace and action markers, but stop as soon as ordinary
+            # visible text resumes. Everything after the boundary stays
+            # hidden from chat.
+            if (
+                not action_applied
+                and result.text
+                and result.text.strip()
+            ):
+                stop_for_runtime_action = True
 
             return None
+
+        if action_applied:
+            if not result.text:
+                return None
+
+            return {
+                **action_chunk,
+                "content": result.text,
+            }
 
         if not result.text:
             return None
@@ -937,7 +954,7 @@ async def ask_brain_stream(
         result,
     ) -> bool:
 
-        nonlocal stop_for_runtime_action
+        nonlocal runtime_action_boundary_seen
 
         runtime_action_calls = tuple(
             result.actions
@@ -965,7 +982,7 @@ async def ask_brain_stream(
             )
             for action in runtime_action_calls
         ):
-            stop_for_runtime_action = True
+            runtime_action_boundary_seen = True
 
         return True
 
@@ -1039,6 +1056,7 @@ async def ask_brain_stream(
             if (
                 content_tail
                 and not stop_for_runtime_action
+                and not runtime_action_boundary_seen
             ):
                 yield {
                     "type": "content",
@@ -1134,6 +1152,7 @@ async def ask_brain_stream(
         if (
             content_tail
             and not stop_for_runtime_action
+            and not runtime_action_boundary_seen
         ):
             yield {
                 "type": "content",

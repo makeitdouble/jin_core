@@ -598,6 +598,91 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
+    def test_stream_drains_adjacent_markers_after_web_search_boundary(self):
+
+        class FakeBrainClient:
+            async def stream(self, **_kwargs):
+                for content in (
+                    "<WEB_SEARCH: Latest astronomical news 2026>",
+                    "\n",
+                    (
+                        "<CREATE_ACTIVE_MEMORY: "
+                        "astronomical news tracker>"
+                    ),
+                    "\n",
+                    "<LIST_SKILLS>",
+                ):
+                    yield {
+                        "type": "content",
+                        "content": content,
+                    }
+
+        class Context:
+            pass
+
+        async def collect(context):
+            return [
+                chunk
+                async for chunk in ask_brain_stream(
+                    client=FakeBrainClient(),
+                    text="perform three actions",
+                    context=context,
+                    system_prompt="system prompt",
+                    brain_payload="brain payload",
+                    runtime_actions={
+                        "CAN_WEB_SEARCH": True,
+                        "CAN_SAVE_ACTIVE_MEMORY": True,
+                        "CAN_USE_ASSETS": True,
+                    },
+                )
+            ]
+
+        context = Context()
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            chunks = asyncio.run(
+                collect(context)
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        self.assertEqual(chunks, [])
+        self.assertEqual(
+            [
+                event["name"]
+                for event in context.runtime_action_events
+            ],
+            [
+                "web_search",
+                "create_active_memory",
+                "list_skills",
+            ],
+        )
+        self.assertEqual(
+            context.runtime_search_queries,
+            [
+                "Latest astronomical news 2026",
+            ],
+        )
+        self.assertEqual(
+            len(context.active_memory_records),
+            1,
+        )
+        self.assertIn(
+            "astronomical news tracker",
+            context.active_memory_records[0],
+        )
+        self.assertEqual(
+            context.runtime_asset_results[-1]["action"],
+            "list_skills",
+        )
+        self.assertEqual(
+            context.runtime_session_action_history[-1]["text"],
+            "WEB_SEARCH, CREATE_ACTIVE_MEMORY, LIST_SKILLS",
+        )
+
     def test_stream_groups_two_action_markers_into_one_history_item(self):
 
         class FakeBrainClient:
