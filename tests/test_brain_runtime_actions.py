@@ -1629,12 +1629,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "<MANDATORY SKILL ROUTING RULES>",
-        )
-        assert_contains_text(
-            self,
-            prompt,
-            "If unsure about skill capabilities",
+            runtime_rules.SKILL_ROUTING_RULES,
         )
         assert_contains_text(
             self,

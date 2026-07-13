@@ -22,6 +22,9 @@ from clients.brain_context_builder import (
 from utils.session_actions_history import (
     record_session_action_history,
 )
+from rules.runtime import (
+    DELAYED_MEMORY_SAVE_REJECTED_MESSAGE,
+)
 
 
 class FakeEmitter:
@@ -1286,7 +1289,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn(
-            "Perform another required action immediately",
+            DELAYED_MEMORY_SAVE_REJECTED_MESSAGE.strip(),
             followup_prompt,
         )
         self.assertIn(
