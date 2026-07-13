@@ -24,9 +24,9 @@ REASONING_RECOVERY_MESSAGE = (
 
 
 CONTEXT_LIMIT_RECOVERY_MESSAGE = (
-    "The previous generation reached the context limit during {stage}. "
-    "Continue the current task from CURRENT_SEQUENCE without restarting it. "
-    "Be much shorter and act faster"
+    "The previous generation reached the {limit_label} during {stage}.\n"
+    "Continue the current task from CURRENT_SEQUENCE without restarting it.\n"
+    "You MUST be MUCH shorter and act FASTER.\n"
 )
 
 

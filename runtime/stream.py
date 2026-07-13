@@ -51,13 +51,21 @@ from config_loader import (
 )
 
 
-CONTEXT_LIMIT_FINISH_REASONS = frozenset({
+OUTPUT_LIMIT_FINISH_REASONS = frozenset({
     "length",
     "max_tokens",
     "max_output_tokens",
+})
+
+CONTEXT_LIMIT_FINISH_REASONS = frozenset({
     "context_length",
     "context_limit",
 })
+
+GENERATION_LIMIT_FINISH_REASONS = (
+    OUTPUT_LIMIT_FINISH_REASONS
+    | CONTEXT_LIMIT_FINISH_REASONS
+)
 
 
 class RuntimeStream:
@@ -397,8 +405,23 @@ class RuntimeStream:
                 )
             )
             and normalized_reason
-            in CONTEXT_LIMIT_FINISH_REASONS
+            in GENERATION_LIMIT_FINISH_REASONS
         )
+
+    @staticmethod
+    def classify_generation_limit(
+        finish_reason: str,
+    ) -> str:
+
+        normalized_reason = str(
+            finish_reason
+            or ""
+        ).strip().casefold()
+
+        if normalized_reason in OUTPUT_LIMIT_FINISH_REASONS:
+            return "output"
+
+        return "context"
 
     def mark_context_limit_recovery(
         self,
@@ -416,16 +439,25 @@ class RuntimeStream:
             finish_reason
             or "length"
         ).strip().casefold()
+        limit_kind = self.classify_generation_limit(
+            normalized_reason
+        )
+        limit_label = (
+            "Output token limit"
+            if limit_kind == "output"
+            else "Context limit"
+        )
 
         self.capture_runtime_turn_response()
         self.context.runtime_turn_interrupted = True
         self.context.runtime_context_limit_recovery_pending = True
         self.context.runtime_context_limit_stage = stage
+        self.context.runtime_context_limit_kind = limit_kind
         self.context.runtime_context_limit_finish_reason = (
             normalized_reason
         )
         self.context.runtime_turn_interruption_reason = (
-            "Context limit reached during "
+            f"{limit_label} reached during "
             f"{stage}."
         )
         self.context.runtime_turn_interruption_quote = ""
@@ -433,7 +465,8 @@ class RuntimeStream:
         record_session_action_history(
             self.context,
             build_context_limit_history_text(
-                stage
+                stage,
+                limit_kind,
             ),
         )
 

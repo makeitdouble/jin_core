@@ -2369,6 +2369,7 @@ async def process_message(
         context.runtime_reasoning_recovery_pending = False
         context.runtime_context_limit_recovery_pending = False
         context.runtime_context_limit_stage = ""
+        context.runtime_context_limit_kind = ""
         context.runtime_context_limit_finish_reason = ""
         await arm_save_session_from_user_text(
             context,

@@ -239,6 +239,8 @@ class RuntimeContext:
 
     runtime_context_limit_stage: str = ""
 
+    runtime_context_limit_kind: str = ""
+
     runtime_context_limit_finish_reason: str = ""
 
     runtime_user_idle_seconds: int | None = None

@@ -228,6 +228,19 @@ async def fake_answer_limit_generator():
     }
 
 
+async def fake_context_limit_generator():
+
+    yield {
+        "type": "thinking",
+        "content": "context-bound reasoning",
+    }
+
+    yield {
+        "type": "finish",
+        "finish_reason": "context_length",
+    }
+
+
 async def fake_raw_asset_action_generator():
 
     yield {
@@ -270,6 +283,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             runtime_reasoning_recovery_pending=False,
             runtime_context_limit_recovery_pending=False,
             runtime_context_limit_stage="",
+            runtime_context_limit_kind="",
             runtime_context_limit_finish_reason="",
             runtime_current_turn_id="turn-limit",
             runtime_session_action_history=[],
@@ -310,12 +324,16 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             "reasoning",
         )
         self.assertEqual(
+            context.runtime_context_limit_kind,
+            "output",
+        )
+        self.assertEqual(
             context.runtime_context_limit_finish_reason,
             "length",
         )
         self.assertEqual(
             context.runtime_session_action_history[-1]["text"],
-            "context limit reached during reasoning",
+            "output token limit reached during reasoning",
         )
 
     async def test_answer_limit_records_answer_stage(self):
@@ -353,8 +371,46 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             "partial answer",
         )
         self.assertEqual(
+            context.runtime_context_limit_kind,
+            "output",
+        )
+        self.assertEqual(
             context.runtime_session_action_history[-1]["text"],
-            "context limit reached during answer",
+            "output token limit reached during answer",
+        )
+
+    async def test_explicit_context_limit_keeps_context_label(self):
+
+        context = self.build_limit_context()
+        runtime_id = settings.SERVICE_MODEL_UID
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=runtime_id,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            context_snapshot={
+                "context_role": "brain",
+                "system_prompt": "system prompt",
+                "user_prompt": "user payload",
+            },
+        )
+
+        with patch(
+            "runtime.stream.config.FOLLOW_UP_ON_LIMIT",
+            True,
+        ):
+            await stream.run(
+                fake_context_limit_generator()
+            )
+
+        self.assertEqual(
+            context.runtime_context_limit_kind,
+            "context",
+        )
+        self.assertEqual(
+            context.runtime_session_action_history[-1]["text"],
+            "context limit reached during reasoning",
         )
 
     async def test_limit_followup_flag_can_disable_recovery(self):

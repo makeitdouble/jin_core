@@ -243,6 +243,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             runtime_reasoning_recovery_pending=False,
             runtime_context_limit_recovery_pending=True,
             runtime_context_limit_stage="answer",
+            runtime_context_limit_kind="output",
             runtime_context_limit_finish_reason="length",
             runtime_turn_interrupted=True,
             runtime_turn_interruption_reason=(
@@ -260,7 +261,10 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn(
-            build_context_limit_recovery_context("answer"),
+            build_context_limit_recovery_context(
+                "answer",
+                "output",
+            ),
             prompt,
         )
         self.assertFalse(
@@ -268,6 +272,10 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             context.runtime_context_limit_stage,
+            "",
+        )
+        self.assertEqual(
+            context.runtime_context_limit_kind,
             "",
         )
         self.assertEqual(
@@ -858,6 +866,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 )
                 context.runtime_context_limit_recovery_pending = True
                 context.runtime_context_limit_stage = "reasoning"
+                context.runtime_context_limit_kind = "output"
                 context.runtime_context_limit_finish_reason = "length"
                 return "", "long reasoning"
 
@@ -868,7 +877,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertIn(
                     build_context_limit_recovery_context(
-                        "reasoning"
+                        "reasoning",
+                        "output",
                     ),
                     kwargs["system_prompt"],
                 )
@@ -883,6 +893,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         context.runtime_reasoning_recovery_pending = False
         context.runtime_context_limit_recovery_pending = False
         context.runtime_context_limit_stage = ""
+        context.runtime_context_limit_kind = ""
         context.runtime_context_limit_finish_reason = ""
         context.runtime_turn_interrupted = False
         context.runtime_turn_interruption_reason = ""

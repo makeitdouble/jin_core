@@ -367,6 +367,7 @@ def build_reasoning_loop_history_text(
 
 def build_context_limit_history_text(
     stage: str,
+    limit_kind: str = "context",
 ) -> str:
 
     normalized_stage = str(
@@ -381,8 +382,19 @@ def build_context_limit_history_text(
     }:
         normalized_stage = "generation"
 
+    normalized_limit_kind = str(
+        limit_kind
+        or "context"
+    ).strip().casefold()
+
+    limit_label = (
+        "output token limit"
+        if normalized_limit_kind == "output"
+        else "context limit"
+    )
+
     return (
-        "context limit reached during "
+        f"{limit_label} reached during "
         f"{normalized_stage}"
     )
 

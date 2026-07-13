@@ -162,6 +162,7 @@ def build_delayed_memory_save_rejected_context() -> str:
 
 def build_context_limit_recovery_context(
         stage: str,
+        limit_kind: str = "context",
 ) -> str:
 
     normalized_stage = str(
@@ -176,10 +177,21 @@ def build_context_limit_recovery_context(
     }:
         normalized_stage = "generation"
 
+    normalized_limit_kind = str(
+        limit_kind
+        or "context"
+    ).strip().casefold()
+    limit_label = (
+        "output token limit"
+        if normalized_limit_kind == "output"
+        else "context limit"
+    )
+
     return (
         "<CONTEXT_LIMIT_RECOVERY>\n"
         + CONTEXT_LIMIT_RECOVERY_MESSAGE.format(
             stage=normalized_stage,
+            limit_label=limit_label,
         )
         + ".\n"
         "</CONTEXT_LIMIT_RECOVERY>"
@@ -441,11 +453,17 @@ class BrainNode(BaseNode):
                         context,
                         "runtime_context_limit_stage",
                         "generation",
-                    )
+                    ),
+                    getattr(
+                        context,
+                        "runtime_context_limit_kind",
+                        "context",
+                    ),
                 )
             )
             context.runtime_context_limit_recovery_pending = False
             context.runtime_context_limit_stage = ""
+            context.runtime_context_limit_kind = ""
             context.runtime_context_limit_finish_reason = ""
             context.runtime_turn_interrupted = False
             context.runtime_turn_interruption_reason = ""
@@ -1140,6 +1158,11 @@ class BrainNode(BaseNode):
                     "runtime_context_limit_stage",
                     "generation",
                 )
+                limit_kind = getattr(
+                    context,
+                    "runtime_context_limit_kind",
+                    "context",
+                )
                 followup_action_events = (
                     consume_current_action_batch()
                 )
@@ -1151,7 +1174,8 @@ class BrainNode(BaseNode):
                         followup_action_events
                     )
                     or build_context_limit_history_text(
-                        limit_stage
+                        limit_stage,
+                        limit_kind,
                     )
                 )
 
