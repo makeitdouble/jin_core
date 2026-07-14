@@ -1,3 +1,5 @@
+/* Динамический SVG-аватар и его состояния внутри runtime-панели. */
+
 #memory-drag-handle {
     position: relative;
     isolation: isolate;

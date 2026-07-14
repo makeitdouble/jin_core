@@ -1,0 +1,283 @@
+/* Runtime-memory, delayed memory и превью вложений. */
+
+.runtime-memory-line {
+    margin: 0 0 10px 0;
+    line-height: 1.5;
+}
+
+#runtime-memory-text .runtime-memory-line:last-child {
+    margin-bottom: 0;
+}
+
+.runtime-memory-active-row,
+.runtime-memory-removable-row {
+    cursor: pointer;
+    user-select: none;
+}
+
+.runtime-memory-removable-row {
+    border-radius: 4px;
+}
+
+.runtime-memory-delayed-row {
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 2px 3px;
+    transition:
+            background-color 0.18s ease,
+            color 0.18s ease;
+}
+
+.runtime-memory-delayed-row:hover,
+.runtime-memory-delayed-row:focus-visible {
+    outline: none;
+}
+
+.runtime-memory-delayed-row:hover .runtime-memory-key,
+.runtime-memory-delayed-row:hover .runtime-memory-value,
+.runtime-memory-delayed-row:focus-visible .runtime-memory-key,
+.runtime-memory-delayed-row:focus-visible .runtime-memory-value {
+    color: rgba(244, 244, 245, 0.86);
+}
+
+.runtime-memory-active-row[data-active-memory-status="paused"] {
+    opacity: 0.5;
+}
+
+.runtime-memory-key,
+.runtime-memory-value {
+    color: rgba(244,244,245,0.62);
+    transition:
+            color 1.3s ease,
+            text-shadow 1.3s ease;
+}
+
+.runtime-memory-value {
+    color: rgba(232, 232, 236, 0.55);
+    font-weight: 400;
+    text-shadow: none;
+    -webkit-font-smoothing: antialiased;
+}
+
+#runtime-memory-position {
+    cursor: pointer;
+    border-radius: 9999px;
+    padding: 0 3px;
+    transition:
+            color 0.25s ease,
+            text-shadow 0.25s ease,
+            background-color 0.25s ease;
+}
+
+#runtime-memory-position:hover {
+    color: rgba(167,243,208,0.98);
+    text-shadow:
+            0 0 8px rgba(16,185,129,0.35);
+}
+
+#runtime-memory-position.runtime-memory-position-pinned {
+    color: rgba(134,239,172,0.98);
+    background-color: rgba(16,185,129,0.15);
+    text-shadow:
+            0 0 6px rgba(187,247,208,0.95),
+            0 0 14px rgba(34,197,94,0.85),
+            0 0 20px rgba(24,190,114,0.75),
+            0 0 28px rgba(16,185,129,0.55),
+            0 0 42px rgba(5,150,105,0.35);
+}
+
+#runtime-memory-text.runtime-memory-text-pinned {
+    text-shadow:
+            0 0 12px rgba(34,197,94,0.12);
+}
+
+.runtime-memory-user-idle {
+    opacity: 0.72;
+    margin-bottom: 0px;
+}
+
+.runtime-memory-key {
+    font-weight: 600!important;
+}
+
+#runtime-memory-title.runtime-memory-title-clickable {
+    cursor: pointer;
+    transition:
+            color 0.2s ease,
+            text-shadow 0.2s ease;
+}
+
+#runtime-memory-title.runtime-memory-title-clickable:hover {
+    color: rgba(167,243,208,0.98);
+    text-shadow:
+            0 0 8px rgba(16,185,129,0.35);
+}
+
+.delayed-memory-modal-panel {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.delayed-memory-modal-content {
+    overflow-wrap: anywhere;
+}
+
+.delayed-memory-modal-fields {
+    display: grid;
+    gap: 10px;
+}
+
+.delayed-memory-modal-field {
+    display: grid;
+    grid-template-columns: minmax(78px, 0.18fr) minmax(0, 1fr);
+    gap: 12px;
+    border-bottom: 1px solid rgba(39, 39, 42, 0.86);
+    padding-bottom: 10px;
+}
+
+.delayed-memory-modal-label,
+.delayed-memory-modal-section-title {
+    color: rgba(161, 161, 170, 0.88);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.delayed-memory-modal-value {
+    min-width: 0;
+    white-space: pre-wrap;
+    color: rgba(244, 244, 245, 0.86);
+}
+
+.delayed-memory-modal-section {
+    margin-top: 18px;
+}
+
+.delayed-memory-modal-body {
+    margin-top: 8px;
+    max-width: none;
+    white-space: pre-wrap;
+    word-break: break-word;
+    border: 1px solid rgba(39, 39, 42, 0.92);
+    background: rgba(9, 9, 11, 0.55);
+    padding: 14px;
+    color: rgba(244, 244, 245, 0.88);
+}
+
+.jin-attachment-bubble {
+    cursor: pointer;
+    user-select: none;
+}
+
+.jin-attachment-bubble:focus-visible {
+    outline: 1px solid rgba(125, 211, 252, 0.74);
+    outline-offset: 2px;
+}
+
+.jin-attachment-hover-preview {
+    position: fixed;
+    z-index: 80;
+    pointer-events: none;
+    max-width: 200px;
+    max-height: 200px;
+    overflow: hidden;
+    border: 1px solid rgba(125, 211, 252, 0.46);
+    border-radius: 4px;
+    background: rgba(9, 9, 11, 0.92);
+    box-shadow:
+            0 14px 42px rgba(0, 0, 0, 0.46),
+            0 0 22px rgba(56, 189, 248, 0.14);
+}
+
+.jin-attachment-hover-preview img {
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: 200px;
+    max-height: 200px;
+    object-fit: contain;
+}
+
+.jin-attachment-modal-image-wrap {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+}
+
+.jin-attachment-modal-image {
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: min(100%, 72vw);
+    max-height: 58vh;
+    object-fit: contain;
+    border: 1px solid rgba(39, 39, 42, 0.92);
+    background: rgba(9, 9, 11, 0.55);
+}
+
+.jin-attachment-modal-info {
+    max-width: 100%;
+    color: rgba(161, 161, 170, 0.88);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+    text-align: center;
+}
+
+.jin-attachment-modal-text {
+    margin-top: 10px;
+    max-width: none;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    border: 1px solid rgba(39, 39, 42, 0.92);
+    background: rgba(9, 9, 11, 0.55);
+    padding: 14px;
+    color: rgba(244, 244, 245, 0.88);
+}
+
+
+.runtime-memory-user-idle .runtime-memory-key {
+    font-weight: 500!important;
+}
+
+.runtime-memory-user-idle .runtime-memory-key,
+.runtime-memory-user-idle .runtime-memory-value {
+    color: rgba(148, 163, 184, 0.88);
+    text-shadow: none;
+}
+
+.runtime-memory-flash-off {
+    transition: none !important;
+}
+
+.runtime-memory-key.flash-new,
+.runtime-memory-value.flash-new {
+    color: rgba(134,239,172,0.96);
+    text-shadow:
+            0 0 10px rgba(34,197,94,0.35);
+}
+
+.runtime-memory-key.flash-changed {
+    color: rgba(216,180,254,0.96);
+    text-shadow:
+            0 0 10px rgba(168,85,247,0.35);
+}
+
+.runtime-memory-value.flash-changed {
+    color: rgba(
+            134,
+            239,
+            172,
+            var(--memory-change-alpha, 0.80)
+    );
+
+    text-shadow:
+            0 0 10px rgba(
+                    34,
+                    197,
+                    94,
+                    var(--memory-change-glow, 0.22)
+            );
+}
