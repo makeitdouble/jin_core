@@ -2521,5 +2521,82 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
 
+    def test_idle_history_keeps_payloads_and_separate_turn_entries(self):
+
+        context = SimpleNamespace(
+            runtime_session_action_history=[],
+            runtime_current_turn_id="turn-1",
+        )
+
+        replace_session_action_history_since(
+            context,
+            0,
+            [
+                RuntimeActionCall(
+                    name="IDLE",
+                    payload="5s",
+                ),
+                RuntimeActionCall(
+                    name="IDLE",
+                    payload="12s",
+                ),
+            ],
+        )
+
+        self.assertEqual(
+            len(context.runtime_session_action_history),
+            1,
+        )
+        self.assertEqual(
+            context.runtime_session_action_history[0]["parts"],
+            [
+                {
+                    "text": "IDLE",
+                    "detail": "5s",
+                },
+                {
+                    "text": "IDLE",
+                    "detail": "12s",
+                },
+            ],
+        )
+
+        context.runtime_current_turn_id = "turn-2"
+        replace_session_action_history_since(
+            context,
+            len(context.runtime_session_action_history),
+            [
+                RuntimeActionCall(
+                    name="IDLE",
+                    payload="7s",
+                ),
+            ],
+        )
+
+        self.assertEqual(
+            len(context.runtime_session_action_history),
+            2,
+        )
+        self.assertEqual(
+            context.runtime_session_action_history[1]["parts"],
+            [
+                {
+                    "text": "IDLE",
+                    "detail": "7s",
+                },
+            ],
+        )
+        self.assertEqual(
+            [
+                item.get("runtime_turn_id")
+                for item in context.runtime_session_action_history
+            ],
+            [
+                "turn-1",
+                "turn-2",
+            ],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

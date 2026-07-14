@@ -1904,7 +1904,6 @@ async def apply_runtime_action_calls(
     list_skills_seen = False
     hide_skills_seen = False
     clean_tool_results_seen = False
-    idle_seconds_seen = set()
     resolved_user_message = resolve_runtime_action_user_message(
         context,
         user_message,
@@ -1979,13 +1978,11 @@ async def apply_runtime_action_calls(
             seconds = parse_idle_seconds(
                 action.payload
             )
-            if (
-                seconds is None
-                or seconds in idle_seconds_seen
-            ):
+            if seconds is None:
                 continue
 
-            idle_seconds_seen.add(seconds)
+            # Every IDLE occurrence is an independent timer, including
+            # repeated markers with the same payload in one model message.
             accepted_action_names.add(
                 action_event_name
             )
@@ -2599,6 +2596,48 @@ async def apply_runtime_action_calls(
                 f"idle scheduled for {seconds}s "
                 f"id={idle_record['id']!r}"
             )
+
+    if idle_records:
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is not None:
+            for idle_record in idle_records:
+                idle_id = str(
+                    idle_record.get(
+                        "id",
+                        "",
+                    )
+                    or ""
+                )
+                idle_payload = (
+                    f"{int(idle_record.get('seconds', 0) or 0)}s"
+                )
+                await emit(with_action_context({
+                    "type": "runtime_action",
+                    "action": "idle",
+                    "id": idle_id,
+                    "status": "started",
+                    "text": "IDLE",
+                    "payload": idle_payload,
+                    "detail": idle_payload,
+                }))
+                await emit(with_action_context({
+                    "type": "runtime_action",
+                    "action": "idle",
+                    "id": idle_id,
+                    "status": "completed",
+                    "payload": idle_payload,
+                    "detail": idle_payload,
+                }))
 
     if (
         log_runtime is not None

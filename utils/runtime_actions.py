@@ -1474,6 +1474,13 @@ class RuntimeActionRepetitionGuard:
         if self.triggered:
             return True
 
+        # Repeated IDLE markers are a valid scheduling primitive: one model
+        # message may intentionally arm several independent future ticks.
+        # The sequence/runtime limits still bound the total amount of work,
+        # so the generic loop guard must not collapse or reject them.
+        if action.name == RUNTIME_ACTION_IDLE:
+            return False
+
         key = self.marker_key(
             action
         )
@@ -2150,10 +2157,14 @@ def extract_runtime_actions(
                 action.payload,
             )
 
-            if action_key not in seen_action_keys:
-                seen_action_keys.add(
-                    action_key
-                )
+            if (
+                action.name == RUNTIME_ACTION_IDLE
+                or action_key not in seen_action_keys
+            ):
+                if action.name != RUNTIME_ACTION_IDLE:
+                    seen_action_keys.add(
+                        action_key
+                    )
                 actions.append(
                     action
                 )

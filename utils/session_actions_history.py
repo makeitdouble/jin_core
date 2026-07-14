@@ -497,7 +497,10 @@ def _build_session_action_marker_detail(
     if not normalized_payload:
         return ""
 
-    if normalized_name == "CREATE_ACTIVE_MEMORY":
+    if normalized_name in {
+        "CREATE_ACTIVE_MEMORY",
+        "IDLE",
+    }:
         return normalized_payload
 
     if not normalized_name.startswith(
@@ -525,6 +528,7 @@ def _build_formatted_session_action_marker_parts(
 ) -> list[dict]:
 
     action_groups = {}
+    idle_group_index = 0
 
     for marker_action in marker_actions or []:
         if isinstance(
@@ -565,9 +569,19 @@ def _build_formatted_session_action_marker_parts(
         if not normalized_name:
             continue
 
+        group_key = normalized_name
+
+        if normalized_name == "IDLE":
+            idle_group_index += 1
+            group_key = (
+                normalized_name,
+                idle_group_index,
+            )
+
         group = action_groups.setdefault(
-            normalized_name,
+            group_key,
             {
+                "action_name": normalized_name,
                 "count": 0,
                 "payload_counts": {},
                 "detail_counts": {},
@@ -611,7 +625,10 @@ def _build_formatted_session_action_marker_parts(
 
     formatted_parts = []
 
-    for action_name, group in action_groups.items():
+    for group in action_groups.values():
+        action_name = group[
+            "action_name"
+        ]
         count = group[
             "count"
         ]

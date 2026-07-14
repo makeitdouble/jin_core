@@ -2357,6 +2357,25 @@ function updateRuntimeActionRow(
   label.textContent =
     text;
 
+  const detail =
+    String(
+      options.detail || ""
+    ).trim();
+
+  if (detail) {
+    label.title = detail;
+    label.classList.add(
+      "cursor-help"
+    );
+  } else {
+    label.removeAttribute(
+      "title"
+    );
+    label.classList.remove(
+      "cursor-help"
+    );
+  }
+
   if (action === "asset_action") {
     bindAssetResultPreview(
       label,
@@ -2494,6 +2513,18 @@ function appendRuntimeAction(
   label.textContent =
     actionText;
 
+  const detail =
+    String(
+      options.detail || ""
+    ).trim();
+
+  if (detail) {
+    label.title = detail;
+    label.classList.add(
+      "cursor-help"
+    );
+  }
+
   if (action === "asset_action") {
     bindAssetResultPreview(
       label,
@@ -2545,6 +2576,8 @@ function queueRuntimeActionAfterNextResponse(
       options.contextSnapshot || null,
     assetResult:
       options.assetResult || null,
+    detail:
+      options.detail || "",
     completed: false,
   });
 
@@ -2589,6 +2622,8 @@ function flushRuntimeActionsAfterResponse(
           entry.contextSnapshot || null,
         assetResult:
           entry.assetResult || null,
+        detail:
+          entry.detail || "",
         activateScene: !entry.completed,
       }
     );

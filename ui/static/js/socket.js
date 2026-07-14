@@ -1780,6 +1780,8 @@ function handleSocketMessage(event) {
               data.context || null,
             assetResult:
               data.asset_result || null,
+            detail:
+              data.detail || data.payload || "",
           }
         );
 
@@ -1819,6 +1821,8 @@ function handleSocketMessage(event) {
           data.context || null,
         assetResult:
           data.asset_result || null,
+        detail:
+          data.detail || data.payload || "",
       }
     );
 

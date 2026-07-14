@@ -6233,6 +6233,174 @@ class RuntimeActionTests(unittest.TestCase):
                     "10s",
                 )
 
+    def test_repeated_idle_markers_remain_independent_actions(self):
+
+        result = extract_runtime_actions(
+            "<IDLE: 0s /><IDLE: 0s /><IDLE: 0s /><IDLE: 0s />",
+            enabled_actions=(
+                runtime_rules.RUNTIME_ACTION_IDLE,
+            ),
+            repetition_guard=RuntimeActionRepetitionGuard(),
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertFalse(
+            result.marker_repetition_exceeded
+        )
+        self.assertEqual(
+            [
+                action.payload
+                for action in result.actions
+            ],
+            [
+                "0s",
+                "0s",
+                "0s",
+                "0s",
+            ],
+        )
+
+    def test_stream_filter_keeps_repeated_idle_markers_across_chunks(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=(
+                runtime_rules.RUNTIME_ACTION_IDLE,
+            ),
+            repetition_guard=RuntimeActionRepetitionGuard(),
+        )
+
+        first = stream_filter.filter(
+            "<IDLE: 3s />"
+        )
+        second = stream_filter.filter(
+            "<IDLE: 3s />"
+        )
+
+        self.assertEqual(
+            [
+                action.payload
+                for action in (
+                    *first.actions,
+                    *second.actions,
+                )
+            ],
+            [
+                "3s",
+                "3s",
+            ],
+        )
+        self.assertFalse(
+            first.marker_repetition_exceeded
+        )
+        self.assertFalse(
+            second.marker_repetition_exceeded
+        )
+
+    def test_multiple_idle_actions_queue_requests_and_flash_bubbles(self):
+
+        class Emitter:
+
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, payload):
+                self.events.append(payload)
+
+        async def run_case():
+            queue = asyncio.Queue()
+            emitter = Emitter()
+            context = SimpleNamespace(
+                background_tasks=set(),
+                runtime_action_events=[],
+                runtime_search_calls=[],
+                runtime_appended_skills=[],
+                runtime_visible_skills_result={},
+                runtime_pending_requests_queue=queue,
+                runtime_pending_idle_followups=[],
+                runtime_idle_action_sequence=0,
+                runtime_save_session_requested=False,
+                runtime_save_session_action_emitted=False,
+                runtime_skill_state_barrier_active=False,
+                runtime_current_turn_id="turn_000001",
+                logger=None,
+                emitter=emitter,
+            )
+            actions = (
+                RuntimeActionCall(
+                    name=runtime_rules.RUNTIME_ACTION_IDLE,
+                    payload="0s",
+                ),
+                RuntimeActionCall(
+                    name=runtime_rules.RUNTIME_ACTION_IDLE,
+                    payload="0s",
+                ),
+                RuntimeActionCall(
+                    name=runtime_rules.RUNTIME_ACTION_IDLE,
+                    payload="0s",
+                ),
+            )
+
+            applied_count = await apply_runtime_action_calls(
+                context,
+                actions,
+                user_message="schedule three ticks",
+                context_snapshot={
+                    "system_prompt": "frozen prompt",
+                    "user_prompt": "schedule three ticks",
+                },
+                assistant_message=(
+                    "<IDLE: 0s /><IDLE: 0s /><IDLE: 0s />"
+                ),
+            )
+            queued = [
+                await asyncio.wait_for(
+                    queue.get(),
+                    timeout=1,
+                )
+                for _ in actions
+            ]
+
+            self.assertEqual(
+                applied_count,
+                3,
+            )
+            self.assertEqual(
+                [
+                    item["idle_followup"]["id"]
+                    for item in queued
+                ],
+                [
+                    "idle_001",
+                    "idle_002",
+                    "idle_003",
+                ],
+            )
+            self.assertEqual(
+                [
+                    (
+                        event.get("id"),
+                        event.get("status"),
+                        event.get("text", ""),
+                        event.get("detail", ""),
+                    )
+                    for event in emitter.events
+                ],
+                [
+                    ("idle_001", "started", "IDLE", "0s"),
+                    ("idle_001", "completed", "", "0s"),
+                    ("idle_002", "started", "IDLE", "0s"),
+                    ("idle_002", "completed", "", "0s"),
+                    ("idle_003", "started", "IDLE", "0s"),
+                    ("idle_003", "completed", "", "0s"),
+                ],
+            )
+
+        asyncio.run(run_case())
+
+
     def test_zero_second_idle_queues_followup_with_full_source_message(self):
 
         async def run_case():
