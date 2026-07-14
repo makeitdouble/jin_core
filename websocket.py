@@ -9,6 +9,7 @@ from starlette.websockets import (
 
 import asyncio
 import contextlib
+from collections import deque
 import json
 import re
 import time
@@ -121,6 +122,47 @@ ACTIVE_MEMORY_LINE_RE = re.compile(
     r"^\s*active_memory(?:_\d+)?\s*:",
     re.IGNORECASE,
 )
+
+
+class PendingRequestQueue(asyncio.Queue):
+
+    def _init(self, maxsize):
+        self._idle_followups = deque()
+        self._regular_requests = deque()
+
+    @staticmethod
+    def _is_idle_followup(item) -> bool:
+        return (
+            isinstance(item, dict)
+            and item.get("type") == "idle_followup"
+            and isinstance(
+                item.get("idle_followup"),
+                dict,
+            )
+        )
+
+    def qsize(self) -> int:
+        return (
+            len(self._idle_followups)
+            + len(self._regular_requests)
+        )
+
+    def empty(self) -> bool:
+        return self.qsize() == 0
+
+    def _put(self, item) -> None:
+        target = (
+            self._idle_followups
+            if self._is_idle_followup(item)
+            else self._regular_requests
+        )
+        target.append(item)
+
+    def _get(self):
+        if self._idle_followups:
+            return self._idle_followups.popleft()
+
+        return self._regular_requests.popleft()
 
 
 def clean_active_memory_records(value) -> list[str]:
@@ -2662,7 +2704,7 @@ async def websocket_endpoint(
     )
 
     current_task = None
-    pending_requests = asyncio.Queue()
+    pending_requests = PendingRequestQueue()
     context.runtime_pending_requests_queue = pending_requests
 
     pending_idle_followups = list(

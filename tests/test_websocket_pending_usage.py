@@ -11,8 +11,10 @@ from config_loader import (
 )
 from clients.brain_client_utils import (
     get_brain_runtime_config,
+    schedule_idle_followup,
 )
 from websocket import (
+    PendingRequestQueue,
     apply_runtime_resume,
     apply_session_bootstrap,
     arm_save_session_from_user_text,
@@ -141,6 +143,65 @@ class FakeWebSocket:
 
 
 class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
+
+    async def test_due_idle_followup_runs_before_queued_dialogue_requests(self):
+
+        queue = PendingRequestQueue()
+        context = SimpleNamespace(
+            background_tasks=set(),
+            runtime_pending_requests_queue=queue,
+            runtime_pending_idle_followups=[],
+            runtime_idle_action_sequence=0,
+            runtime_turn_attachments=[],
+        )
+
+        await queue.put({
+            "type": "message",
+            "text": "queued user request",
+        })
+
+        schedule_idle_followup(
+            context,
+            seconds=0,
+            source_message="wait and continue <IDLE: 0s />",
+            user_message="start idle",
+            context_snapshot={
+                "system_prompt": "frozen context",
+            },
+        )
+
+        for _ in range(3):
+            await asyncio.sleep(0)
+
+        self.assertEqual(
+            queue.qsize(),
+            2,
+        )
+
+        idle_request = await asyncio.wait_for(
+            queue.get(),
+            timeout=1,
+        )
+        queued_user_request = await asyncio.wait_for(
+            queue.get(),
+            timeout=1,
+        )
+
+        self.assertEqual(
+            idle_request["type"],
+            "idle_followup",
+        )
+        self.assertEqual(
+            idle_request["idle_followup"]["origin_user_request"],
+            "start idle",
+        )
+        self.assertEqual(
+            queued_user_request["text"],
+            "queued user request",
+        )
+
+        queue.task_done()
+        queue.task_done()
 
     async def test_arm_save_session_prearms_without_banner(self):
 
