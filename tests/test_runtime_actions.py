@@ -2816,6 +2816,40 @@ class RuntimeActionTests(unittest.TestCase):
             context.runtime_save_session_requested,
         )
 
+    def test_save_session_marker_is_ignored_after_same_turn_l3_commit(self):
+
+        class Context:
+            pass
+
+        context = Context()
+        context.runtime_save_session_memory_committed_this_turn = True
+        result = extract_runtime_actions(
+            "<INTERNAL_ACTION_SAVE_SESSION>",
+            enabled_actions=[
+                "CAN_SAVE_SESSION",
+            ],
+        )
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                result.actions,
+                user_message="сохрани сессию",
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            0,
+        )
+        self.assertFalse(
+            getattr(
+                context,
+                "runtime_save_session_requested",
+                False,
+            ),
+        )
+
     def test_bracketed_save_session_marker_allowed_by_bedtime_pause(self):
 
         class Context:

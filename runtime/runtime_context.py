@@ -217,6 +217,14 @@ class RuntimeContext:
 
     runtime_turn_user_message: str = ""
 
+    runtime_turn_memory_user_message: str = ""
+
+    runtime_save_session_memory_committed_this_turn: bool = False
+
+    runtime_save_session_result: dict = field(
+        default_factory=dict
+    )
+
     runtime_turn_attachments: list[dict] = field(
         default_factory=list
     )

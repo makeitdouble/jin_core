@@ -5,6 +5,7 @@ TOOL_RESULT_KIND_SEARCH = "search"
 TOOL_RESULT_KIND_ASSET = "asset"
 TOOL_RESULT_KIND_ACTIVE_MEMORY = "active_memory"
 TOOL_RESULT_KIND_DELAYED_MEMORY = "delayed_memory"
+TOOL_RESULT_KIND_SESSION = "session"
 
 
 def begin_runtime_tool_results_turn(

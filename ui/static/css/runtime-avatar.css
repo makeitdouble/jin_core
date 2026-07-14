@@ -162,6 +162,7 @@
         opacity 0.32s ease,
         filter 0.32s ease,
         transform 0.32s ease;
+    mix-blend-mode: screen;
 }
 
 .jin-avatar-orbit-entry {
@@ -178,9 +179,29 @@
 .jin-runtime-avatar[data-memory-layer="l1"] .jin-avatar-layer-l1,
 .jin-runtime-avatar[data-memory-layer="l2"] .jin-avatar-layer-l2,
 .jin-runtime-avatar[data-memory-layer="l3"] .jin-avatar-layer-l3 {
-    opacity: 0.92;
-    filter: saturate(1.12) brightness(1.22);
+    opacity: 0.36;
     animation: jin-avatar-layer-breathe 3.8s ease-in-out infinite;
+}
+
+.jin-runtime-avatar[data-memory-layer="l1"] .jin-avatar-layer-l1 {
+    filter:
+        saturate(1.36)
+        brightness(1.2)
+        drop-shadow(0 0 26px rgba(226, 165, 75, 0.22));
+}
+
+.jin-runtime-avatar[data-memory-layer="l2"] .jin-avatar-layer-l2 {
+    filter:
+        saturate(1.18)
+        brightness(1.22)
+        drop-shadow(0 0 28px rgba(244, 247, 245, 0.20));
+}
+
+.jin-runtime-avatar[data-memory-layer="l3"] .jin-avatar-layer-l3 {
+    filter:
+        saturate(1.44)
+        brightness(1.24)
+        drop-shadow(0 0 30px rgba(154, 117, 220, 0.28));
 }
 
 @keyframes jin-avatar-orbit-enter {

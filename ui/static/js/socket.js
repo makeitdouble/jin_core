@@ -2056,7 +2056,9 @@ if (factCheckTrigger) {
     (event) => {
       event.preventDefault();
       event.stopPropagation();
-      triggerManualFactCheck();
+      if (window.JinRuntime && window.JinRuntime.avatar && typeof window.JinRuntime.avatar.refresh === "function") {
+        window.JinRuntime.avatar.refresh();
+      }
     }
   );
 }

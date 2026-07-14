@@ -2366,6 +2366,8 @@ async def process_message(
         context.runtime_turn_interrupted = False
         context.runtime_turn_interruption_reason = ""
         context.runtime_turn_interruption_quote = ""
+        context.runtime_save_session_memory_committed_this_turn = False
+        context.runtime_turn_memory_user_message = ""
         context.runtime_reasoning_recovery_pending = False
         context.runtime_context_limit_recovery_pending = False
         context.runtime_context_limit_stage = ""
@@ -2386,6 +2388,12 @@ async def process_message(
         apply_runtime_pattern_context(
             context,
             message_data,
+        )
+        context.runtime_turn_memory_user_message = (
+            format_runtime_memory_user_message(
+                context,
+                user_text,
+            )
         )
         context.user_message_count += 1
 
@@ -2460,9 +2468,17 @@ async def process_message(
                 context=context,
             )
         else:
+            # SAVE_SESSION now completes before its follow-up using the
+            # snapshots that already existed. The user's save request and
+            # JIN's final confirmation are therefore committed here through
+            # the ordinary post-response L1/L2 path.
             memory_update_task = schedule_runtime_memory_update(
                 context=context,
-                user_message=format_runtime_memory_user_message(
+                user_message=getattr(
+                    context,
+                    "runtime_turn_memory_user_message",
+                    "",
+                ) or format_runtime_memory_user_message(
                     context,
                     user_text,
                 ),

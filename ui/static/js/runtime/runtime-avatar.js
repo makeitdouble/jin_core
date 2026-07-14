@@ -9,6 +9,8 @@
   const CENTER = 180;
   const MIN_RING_RADIUS = 48;
   const MAX_RING_RADIUS = 160;
+  const SNAPSHOT_GLOW_CLEAR_DELAY_MS = 360;
+  const FULL_PANEL_GLOW_RADIUS = 252;
 
   // Add custom high-priority word groups here. A matching line paints its ring
   // with the supplied color and softly affects rings at neighbouring radii.
@@ -470,12 +472,12 @@
       gradient.appendChild(createSvgElement("stop", {
         offset: "0%",
         "stop-color": color,
-        "stop-opacity": "0.78",
+        "stop-opacity": "0.26",
       }));
       gradient.appendChild(createSvgElement("stop", {
         offset: "42%",
         "stop-color": color,
-        "stop-opacity": "0.26",
+        "stop-opacity": "0.085",
       }));
       gradient.appendChild(createSvgElement("stop", {
         offset: "100%",
@@ -738,7 +740,7 @@
       class: "jin-avatar-layer-glow jin-avatar-layer-l1",
       cx: CENTER,
       cy: CENTER,
-      r: 34,
+      r: FULL_PANEL_GLOW_RADIUS,
       fill: "url(#jin-avatar-l1-glow)",
     }));
 
@@ -746,7 +748,7 @@
       class: "jin-avatar-layer-glow jin-avatar-layer-l2",
       cx: CENTER,
       cy: CENTER,
-      r: 25,
+      r: FULL_PANEL_GLOW_RADIUS,
       fill: "url(#jin-avatar-l2-glow)",
     }));
 
@@ -754,7 +756,7 @@
       class: "jin-avatar-layer-glow jin-avatar-layer-l3",
       cx: CENTER,
       cy: CENTER,
-      r: 17,
+      r: FULL_PANEL_GLOW_RADIUS,
       fill: "url(#jin-avatar-l3-glow)",
     }));
 
@@ -808,14 +810,17 @@
   }
 
   let lastRenderSignature = null;
+  let avatarRefreshNonce = 0;
+  let suppressedMemoryLayer = null;
 
-  function renderAvatar(snapshot) {
+  function renderAvatar(snapshot, options = {}) {
     const sourceLines = getSnapshotLines(snapshot);
     const lines = sourceLines.length ? sourceLines : [];
     const seed = [
       snapshot && snapshot.runtime_memory_id,
       snapshot && snapshot.index,
       lines.map(line => line.text).join("|"),
+      options.seedNonce || avatarRefreshNonce,
     ].join(":");
     const random = createRandom(seed || "jin-avatar");
     const records = lines.length ? computeRingRecords(lines, seed || "jin-avatar") : [];
@@ -825,7 +830,7 @@
     const diffPercent = lines.length
       ? getSnapshotDiff(snapshot, lines)
       : 0;
-    const signature = buildRenderSignature(snapshot, lines);
+    const signature = buildRenderSignature(snapshot, lines) + `:${options.seedNonce || avatarRefreshNonce}`;
     const shouldAnimate = Boolean(lastRenderSignature) && signature !== lastRenderSignature;
 
     const svg = createSvgElement("svg", {
@@ -853,6 +858,23 @@
     lastRenderSignature = signature;
   }
 
+  function reinitializeAvatar() {
+    avatarRefreshNonce += 1;
+    snapshotRenderSequence += 1;
+
+    if (snapshotRenderTimer) {
+      clearTimeout(snapshotRenderTimer);
+      snapshotRenderTimer = null;
+    }
+
+    memoryLayerSuppressedForSnapshot = false;
+    suppressedMemoryLayer = null;
+    syncMemoryLayer();
+    renderAvatar(getLatestSnapshot(), {
+      seedNonce: avatarRefreshNonce,
+    });
+  }
+
   function getLatestSnapshot() {
     const runtime = window.JinRuntime && window.JinRuntime.runtime;
 
@@ -867,33 +889,64 @@
       : null;
   }
 
-  function syncMemoryLayer() {
+  let memoryLayerSuppressedForSnapshot = false;
+  let snapshotRenderTimer = null;
+  let snapshotRenderSequence = 0;
+
+  function resolveMemoryLayer() {
     if (!settingsPanel) {
-      delete avatarRoot.dataset.memoryLayer;
-      return;
+      return null;
     }
 
     const classes = settingsPanel.classList;
-    let nextLayer = null;
 
     if (
       classes.contains("memory-l3-updating")
       || classes.contains("memory-l3-pulse")
       || classes.contains("memory-l3-fading")
     ) {
-      nextLayer = "l3";
-    } else if (
+      return "l3";
+    }
+
+    if (
       classes.contains("memory-l2-updating")
       || classes.contains("memory-l2-pulse")
       || classes.contains("memory-l2-fading")
     ) {
-      nextLayer = "l2";
-    } else if (
+      return "l2";
+    }
+
+    if (
       classes.contains("memory-updating")
       || classes.contains("memory-pulse")
       || classes.contains("memory-fading")
     ) {
-      nextLayer = "l1";
+      return "l1";
+    }
+
+    return null;
+  }
+
+  function syncMemoryLayer() {
+    const nextLayer = resolveMemoryLayer();
+
+    if (memoryLayerSuppressedForSnapshot) {
+      if (!nextLayer) {
+        memoryLayerSuppressedForSnapshot = false;
+        suppressedMemoryLayer = null;
+        delete avatarRoot.dataset.memoryLayer;
+        return;
+      }
+
+      if (suppressedMemoryLayer && nextLayer !== suppressedMemoryLayer) {
+        memoryLayerSuppressedForSnapshot = false;
+        suppressedMemoryLayer = null;
+        avatarRoot.dataset.memoryLayer = nextLayer;
+        return;
+      }
+
+      delete avatarRoot.dataset.memoryLayer;
+      return;
     }
 
     if (nextLayer) {
@@ -904,9 +957,49 @@
     delete avatarRoot.dataset.memoryLayer;
   }
 
+  function scheduleSnapshotRender(snapshot) {
+    const resolvedSnapshot = snapshot || getLatestSnapshot();
+    const activeLayer = resolveMemoryLayer();
+
+    snapshotRenderSequence += 1;
+    const sequence = snapshotRenderSequence;
+
+    if (snapshotRenderTimer) {
+      clearTimeout(snapshotRenderTimer);
+      snapshotRenderTimer = null;
+    }
+
+    if (!activeLayer) {
+      memoryLayerSuppressedForSnapshot = false;
+      suppressedMemoryLayer = null;
+      renderAvatar(resolvedSnapshot);
+      return;
+    }
+
+    // Start fading the center first. Replacing the orbital SVG only after
+    // that short transition prevents the new snapshot from appearing under
+    // the old L1/L2/L3 glow. Keep the current layer suppressed until it
+    // genuinely changes or fully clears, so the same glow does not flash
+    // back for a single frame after the new rings are rendered.
+    memoryLayerSuppressedForSnapshot = true;
+    suppressedMemoryLayer = activeLayer;
+    syncMemoryLayer();
+
+    snapshotRenderTimer = setTimeout(() => {
+      snapshotRenderTimer = null;
+
+      if (sequence !== snapshotRenderSequence) {
+        return;
+      }
+
+      renderAvatar(resolvedSnapshot);
+      syncMemoryLayer();
+    }, SNAPSHOT_GLOW_CLEAR_DELAY_MS);
+  }
+
   window.addEventListener(AVATAR_EVENT, (event) => {
     const snapshot = event && event.detail && event.detail.snapshot;
-    renderAvatar(snapshot || getLatestSnapshot());
+    scheduleSnapshotRender(snapshot);
   });
 
   if (settingsPanel && typeof MutationObserver !== "undefined") {
@@ -921,6 +1014,7 @@
     factCheckTrigger.addEventListener("mousedown", (event) => {
       event.stopPropagation();
     });
+
   }
 
   syncMemoryLayer();
@@ -928,6 +1022,7 @@
 
   window.JinRuntime.avatar = {
     render: renderAvatar,
+    refresh: reinitializeAvatar,
     get aggressivePalette() {
       return AGGRESSIVE_PALETTE;
     },
