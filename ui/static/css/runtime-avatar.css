@@ -262,17 +262,18 @@
 
 body.theme-win95 #memory-drag-handle {
     position: relative;
-    flex: 0 0 128px;
-    height: 128px;
-    min-height: 128px;
+    /* Theme switching must not resize the live avatar workspace. */
+    flex: 0 0 clamp(248px, 30vh, 286px);
+    height: clamp(248px, 30vh, 286px);
+    min-height: clamp(248px, 30vh, 286px);
     justify-content: center;
-    padding: 6px;
+    padding: 8px 10px;
     overflow: hidden;
     background: var(--win95-title);
 }
 
 body.theme-win95 .jin-runtime-avatar-shell {
-    width: 116px;
+    width: min(100%, 278px);
 }
 
 body.theme-win95 .jin-runtime-avatar {
@@ -280,8 +281,8 @@ body.theme-win95 .jin-runtime-avatar {
 }
 
 body.theme-win95 .jin-runtime-avatar-core-button {
-    width: 34px;
-    height: 34px;
+    width: 44px;
+    height: 44px;
 }
 
 body.theme-win95 #memory-drag-handle .win95-window-controls {
