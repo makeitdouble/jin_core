@@ -28,6 +28,7 @@ from utils.runtime_actions import (
 from rules.runtime import (
     RUNTIME_ACTION_APPEND_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
+    RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
 )
 from utils.assets_service import (
@@ -115,6 +116,8 @@ class RuntimeStream:
         self.context_limit_recovery_armed = False
         self.started_delayed_memory_action_ids = []
         self.delayed_memory_action_payload = ""
+        self.raw_content_parts = []
+        self.pending_idle_actions = []
         self.action_filter = RuntimeActionStreamFilter(
             enabled_actions=self.runtime_actions,
             preserve_action_marker=self.should_preserve_action_marker,
@@ -639,11 +642,27 @@ class RuntimeStream:
                 result,
                 source="runtime stream content",
             )
-            await apply_runtime_action_calls(
-                self.context,
-                result.actions,
-                context_snapshot=self.context_snapshot,
+
+            idle_actions = tuple(
+                action
+                for action in result.actions
+                if action.name == RUNTIME_ACTION_IDLE
             )
+            immediate_actions = tuple(
+                action
+                for action in result.actions
+                if action.name != RUNTIME_ACTION_IDLE
+            )
+            self.pending_idle_actions.extend(
+                idle_actions
+            )
+
+            if immediate_actions:
+                await apply_runtime_action_calls(
+                    self.context,
+                    immediate_actions,
+                    context_snapshot=self.context_snapshot,
+                )
 
         if getattr(
             result,
@@ -942,6 +961,32 @@ class RuntimeStream:
         self.started_delayed_memory_action_ids.clear()
         self.delayed_memory_action_payload = ""
 
+    async def flush_pending_idle_actions(
+        self,
+    ) -> None:
+
+        if not self.pending_idle_actions:
+            return
+
+        from clients.brain_client_utils import (
+            apply_runtime_action_calls,
+        )
+
+        idle_actions = tuple(
+            self.pending_idle_actions
+        )
+        self.pending_idle_actions.clear()
+
+        await apply_runtime_action_calls(
+            self.context,
+            idle_actions,
+            context_snapshot=self.context_snapshot,
+            assistant_message="".join(
+                self.raw_content_parts
+            ),
+        )
+
+
     async def flush_runtime_action_content(
         self,
     ) -> str | None:
@@ -1124,6 +1169,15 @@ class RuntimeStream:
 
                 if chunk_type == "content":
 
+                    self.raw_content_parts.append(
+                        str(
+                            chunk.get(
+                                "content",
+                                "",
+                            )
+                            or ""
+                        )
+                    )
                     content = await self.filter_runtime_action_content(
                         chunk.get(
                             "content",
@@ -1187,6 +1241,8 @@ class RuntimeStream:
                         and self.emit_content_to_chat
                     ),
                 )
+
+            await self.flush_pending_idle_actions()
 
             await self.stream.finish(
                 emit=self.emit_to_chat

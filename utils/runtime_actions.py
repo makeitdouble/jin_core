@@ -17,6 +17,7 @@ from rules.runtime import (
     RUNTIME_ACTION_LIST_DELAYED_MEMORY,
     RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_HIDE_SKILLS,
+    RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_REMOVE_SKILL,
     RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
@@ -39,6 +40,7 @@ KNOWN_RUNTIME_ACTIONS = tuple(
             RUNTIME_ACTION_WEB_SEARCH,
             RUNTIME_ACTION_LIST_SKILLS,
             RUNTIME_ACTION_HIDE_SKILLS,
+            RUNTIME_ACTION_IDLE,
             RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
             RUNTIME_ACTION_APPEND_SKILL,
             RUNTIME_ACTION_REMOVE_SKILL,
@@ -55,7 +57,7 @@ BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
     (
         r"(?:"
         r"<\s*(?:INTERNAL_ACTION_)?"
-        r"(?P<bracketed_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|LIST_SKILLS|HIDE_SKILLS|CLEAN_TOOL_RESULTS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
+        r"(?P<bracketed_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|LIST_SKILLS|HIDE_SKILLS|CLEAN_TOOL_RESULTS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO|IDLE)"
         r"(?:\s*:\s*(?P<bracketed_query>(?:(?!</\s*>)[^\r\n>])*?))?"
         r"(?:\s*</\s*>+|\s*/?\s*>+)"
         r"|"
@@ -67,12 +69,12 @@ BRACKETED_INTERNAL_ACTION_PATTERN = re.compile(
         r"\s*/?\s*>+"
         r"|"
         r"<\s*(?:INTERNAL_ACTION_)?"
-        r"(?P<bracketed_line_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|HIDE_SKILLS|CLEAN_TOOL_RESULTS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
+        r"(?P<bracketed_line_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|HIDE_SKILLS|CLEAN_TOOL_RESULTS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO|IDLE)"
         r"(?:\s*:\s*(?P<bracketed_line_query>[^\r\n>]*))?"
         r"[^\S\r\n]*(?=\r?\n)"
         r"|"
         r"(?m:^\s*(?:INTERNAL_ACTION_)?"
-        r"(?P<bare_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|HIDE_SKILLS|CLEAN_TOOL_RESULTS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
+        r"(?P<bare_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_SKILLS|HIDE_SKILLS|CLEAN_TOOL_RESULTS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO|IDLE)"
         r"(?:\s*:\s*(?P<bare_query>[^\r\n]*))?"
         r"\s*$)"
         r")"
@@ -95,12 +97,12 @@ MALFORMED_CALL_INTERNAL_ACTION_PATTERN = re.compile(
     (
         r"(?:"
         r"<\|?tool_call\>\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
-        r"(?P<tool_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_DELAYED_MEMORY|APPEND_DELAYED_MEMORY|REMOVE_DELAYED_MEMORY|LIST_SKILLS|HIDE_SKILLS|CLEAN_TOOL_RESULTS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
+        r"(?P<tool_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_DELAYED_MEMORY|APPEND_DELAYED_MEMORY|REMOVE_DELAYED_MEMORY|LIST_SKILLS|HIDE_SKILLS|CLEAN_TOOL_RESULTS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO|IDLE)"
         r"(?:\s*:\s*(?P<tool_call_query>(?:(?!</\s*>)[^\r\n>])*?))?"
         r"(?:\s*</\s*>+|\s*/?\s*>+|[^\S\r\n]*(?=\r?\n|$))"
         r"|"
         r"(?m:^\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
-        r"(?P<bare_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_DELAYED_MEMORY|APPEND_DELAYED_MEMORY|REMOVE_DELAYED_MEMORY|LIST_SKILLS|HIDE_SKILLS|CLEAN_TOOL_RESULTS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO)"
+        r"(?P<bare_call_name>WEB_SEARCH|SAVE_SESSION|CREATE_ACTIVE_MEMORY|RESOLVE_ACTIVE_MEMORY|SAVE_DELAYED_MEMORY_CONTENT|LIST_DELAYED_MEMORY|APPEND_DELAYED_MEMORY|REMOVE_DELAYED_MEMORY|LIST_SKILLS|HIDE_SKILLS|CLEAN_TOOL_RESULTS|APPEND_SKILLS?|REMOVE_SKILLS?|RESOLVE_TODO|CHECK_TODO|IDLE)"
         r"(?:\s*:\s*(?P<bare_call_query>[^\r\n]*))?"
         r"\s*$)"
         r")"
@@ -1544,6 +1546,7 @@ def normalize_runtime_action_name(
         "INTERNAL_ACTION_CREATE_TODO_LIST": RUNTIME_ACTION_CREATE_TODO_LIST,
         "RESOLVE_TODO": RUNTIME_ACTION_RESOLVE_TODO,
         "CHECK_TODO": RUNTIME_ACTION_CHECK_TODO,
+        "IDLE": RUNTIME_ACTION_IDLE,
     }
 
     return aliases.get(
@@ -1716,6 +1719,34 @@ def _is_placeholder_create_active_memory_query(
     )
 
 
+IDLE_SECONDS_RE = re.compile(
+    r"^\s*(?P<seconds>\d+)\s*s\s*$",
+    re.IGNORECASE,
+)
+
+
+def parse_idle_seconds(
+    payload: str,
+) -> int | None:
+
+    match = IDLE_SECONDS_RE.fullmatch(
+        str(payload or "")
+    )
+
+    if match is None:
+        return None
+
+    try:
+        return int(
+            match.group("seconds")
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return None
+
+
 def _build_internal_action_call(
     action_name: str,
     query: str = "",
@@ -1731,7 +1762,17 @@ def _build_internal_action_call(
     payload = ""
     placeholder_payloads = _get_internal_action_placeholder_payloads()
 
-    if normalized_name == RUNTIME_ACTION_WEB_SEARCH:
+    if normalized_name == RUNTIME_ACTION_IDLE:
+        seconds = parse_idle_seconds(
+            query
+        )
+
+        if seconds is None:
+            return None
+
+        payload = f"{seconds}s"
+
+    elif normalized_name == RUNTIME_ACTION_WEB_SEARCH:
         query = _clean_internal_action_query(
             query
         )
@@ -2451,6 +2492,18 @@ def _enabled_action_start_markers(
     )
 
     markers = []
+
+    if RUNTIME_ACTION_IDLE in enabled_action_names:
+        markers.extend((
+            "<IDLE:",
+            "<INTERNAL_ACTION_IDLE:",
+            "<|tool_call>call:INTERNAL_ACTION_IDLE",
+            "<tool_call>call:INTERNAL_ACTION_IDLE",
+            "<|tool_call>call:IDLE",
+            "<tool_call>call:IDLE",
+            "call:INTERNAL_ACTION_IDLE",
+            "call:IDLE",
+        ))
 
     if RUNTIME_ACTION_SAVE_SESSION in enabled_action_names:
         markers.append(

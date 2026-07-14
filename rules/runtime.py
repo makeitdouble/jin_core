@@ -15,6 +15,7 @@ RUNTIME_ACTION_ASSET_ACTION = "ASSET_ACTION"
 RUNTIME_ACTION_CREATE_TODO_LIST = "CREATE_TODO_LIST"
 RUNTIME_ACTION_RESOLVE_TODO = "RESOLVE_TODO"
 RUNTIME_ACTION_CHECK_TODO = "CHECK_TODO"
+RUNTIME_ACTION_IDLE = "IDLE"
 
 
 REASONING_RECOVERY_MESSAGE = (
@@ -27,6 +28,12 @@ CONTEXT_LIMIT_RECOVERY_MESSAGE = (
     "The previous generation reached the {limit_label} during {stage}.\n"
     "Continue the current task from CURRENT_SEQUENCE without restarting it.\n"
     "You MUST be MUCH shorter and act FASTER.\n"
+)
+
+
+IDLE_FOLLOWUP_MESSAGE = (
+    "This is a follow-up tick from an IDLE timer JIN chose to set.\n"
+    "The reason and the complete source message are provided in TOOL_RESULTS.\n"
 )
 
 
@@ -52,6 +59,7 @@ INTERNAL_ACTION_ASSET_ACTION_MARKER = "<ASSET_ACTION>"
 INTERNAL_ACTION_CREATE_TODO_LIST_MARKER = "<TODO_LIST>"
 INTERNAL_ACTION_RESOLVE_TODO_MARKER = "<RESOLVE_TODO: todo_item_id >"
 INTERNAL_ACTION_CHECK_TODO_MARKER = "<CHECK_TODO: todo_item_id >"
+INTERNAL_ACTION_IDLE_MARKER = "<IDLE: Ns >"
 
 INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_MARKER = "<SAVE_DELAYED_MEMORY_CONTENT>"
 DELAYED_MEMORY_LIST_MARKER = "<LIST_DELAYED_MEMORY>"
@@ -74,9 +82,13 @@ INTERNAL_ACTIONS_WITH_PAYLOAD = [
     INTERNAL_ACTION_REMOVE_SKILL_MARKER,
     INTERNAL_ACTION_RESOLVE_TODO_MARKER,
     INTERNAL_ACTION_CHECK_TODO_MARKER,
+    INTERNAL_ACTION_IDLE_MARKER,
 ]
 
-NO_FOLLOW_UP_INTERNAL_ACTIONS = [ INTERNAL_ACTION_CLEAN_TOOL_RESULTS_MARKER ]
+NO_FOLLOW_UP_INTERNAL_ACTIONS = [
+    INTERNAL_ACTION_CLEAN_TOOL_RESULTS_MARKER,
+    INTERNAL_ACTION_IDLE_MARKER,
+]
 
 SKILL_ROUTING_RULES = ("\n"
                        "You must check <CURRENT_APPENDED_SKILLS> and <CURRENT_SEQUENCE> during follow-up, or <SESSION_ACTIONS_HISTORY> outside follow-up, before appending any skill.\n"
@@ -145,6 +157,7 @@ RUNTIME_ACTIONS_RULES = (
     "CURRENT_SEQUENCE lists steps already done for SEQUENCE_ORIGIN_REQUEST.\n"
     "SESSION_ACTIONS_HISTORY lists completed actions from the whole session.\n"
     "When sequence is done stop instantly and notify user naturally.\n"
+    f"Emit {INTERNAL_ACTION_IDLE_MARKER} to setup follow up tick for future, that will be triggered after exact time inside the marker.\n"
 )
 
 RUNTIME_TODO_RULES = (

@@ -46,8 +46,10 @@ def get_brain_runtime_config():
     }
 
 
+import asyncio
 import json
 import re
+import time
 from copy import deepcopy
 from xml.etree import ElementTree
 
@@ -61,6 +63,7 @@ from rules.runtime import (
     RUNTIME_ACTION_LIST_DELAYED_MEMORY,
     RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_HIDE_SKILLS,
+    RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
     RUNTIME_ACTION_REMOVE_SKILL,
@@ -94,6 +97,7 @@ from utils.runtime_actions import (
     is_delayed_memory_report_id,
     is_active_memory_record_paused,
     parse_delayed_memory_content_payload,
+    parse_idle_seconds,
     refresh_active_memory_runtime_metadata,
     strip_active_memory_runtime_metadata,
     strip_active_memory_managed_suffixes,
@@ -1683,11 +1687,140 @@ async def log_runtime_action_marker_removals(
             )
 
 
+def _track_background_task(
+    context,
+    task: asyncio.Task,
+) -> None:
+
+    tasks = getattr(
+        context,
+        "background_tasks",
+        None,
+    )
+
+    if not isinstance(tasks, set):
+        tasks = set()
+        setattr(
+            context,
+            "background_tasks",
+            tasks,
+        )
+
+    tasks.add(task)
+    task.add_done_callback(
+        tasks.discard
+    )
+
+
+async def _enqueue_idle_followup_after_delay(
+    context,
+    record: dict,
+) -> None:
+
+    seconds = max(
+        0,
+        int(record.get("seconds", 0) or 0),
+    )
+
+    await asyncio.sleep(seconds)
+
+    record = {
+        **record,
+        "fired_at": time.time(),
+    }
+    queue = getattr(
+        context,
+        "runtime_pending_requests_queue",
+        None,
+    )
+
+    if queue is not None:
+        await queue.put({
+            "type": "idle_followup",
+            "idle_followup": record,
+        })
+        return
+
+    pending = getattr(
+        context,
+        "runtime_pending_idle_followups",
+        None,
+    )
+    if not isinstance(pending, list):
+        pending = []
+        setattr(
+            context,
+            "runtime_pending_idle_followups",
+            pending,
+        )
+
+    pending.append(record)
+
+
+def schedule_idle_followup(
+    context,
+    *,
+    seconds: int,
+    source_message: str,
+    user_message: str,
+    context_snapshot: dict | None,
+) -> dict:
+
+    sequence = int(
+        getattr(
+            context,
+            "runtime_idle_action_sequence",
+            0,
+        )
+        or 0
+    ) + 1
+    context.runtime_idle_action_sequence = sequence
+
+    scheduled_at = time.time()
+    record = {
+        "id": build_runtime_action_id(
+            RUNTIME_ACTION_IDLE,
+            sequence,
+        ),
+        "action": "idle",
+        "seconds": seconds,
+        "scheduled_at": scheduled_at,
+        "due_at": scheduled_at + seconds,
+        "source_message": str(source_message or ""),
+        "origin_user_request": str(user_message or ""),
+        "context_snapshot": deepcopy(context_snapshot)
+        if isinstance(context_snapshot, dict)
+        else {},
+        "attachments": deepcopy(
+            getattr(
+                context,
+                "runtime_turn_attachments",
+                [],
+            )
+            or []
+        ),
+    }
+
+    task = asyncio.create_task(
+        _enqueue_idle_followup_after_delay(
+            context,
+            record,
+        )
+    )
+    _track_background_task(
+        context,
+        task,
+    )
+
+    return record
+
+
 async def apply_runtime_action_calls(
     context,
     actions,
     user_message: str | None = None,
     context_snapshot: dict | None = None,
+    assistant_message: str | None = None,
 ) -> int:
 
     if (
@@ -1771,6 +1904,7 @@ async def apply_runtime_action_calls(
     list_skills_seen = False
     hide_skills_seen = False
     clean_tool_results_seen = False
+    idle_seconds_seen = set()
     resolved_user_message = resolve_runtime_action_user_message(
         context,
         user_message,
@@ -1784,6 +1918,7 @@ async def apply_runtime_action_calls(
         RUNTIME_ACTION_LIST_SKILLS,
         RUNTIME_ACTION_HIDE_SKILLS,
         RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+        RUNTIME_ACTION_IDLE,
     }
     todo_action_names = {
         RUNTIME_ACTION_CREATE_TODO_LIST,
@@ -1839,6 +1974,25 @@ async def apply_runtime_action_calls(
     for action in actions:
 
         action_event_name = action.name.lower()
+
+        if action.name == RUNTIME_ACTION_IDLE:
+            seconds = parse_idle_seconds(
+                action.payload
+            )
+            if (
+                seconds is None
+                or seconds in idle_seconds_seen
+            ):
+                continue
+
+            idle_seconds_seen.add(seconds)
+            accepted_action_names.add(
+                action_event_name
+            )
+            filtered_actions.append(
+                action
+            )
+            continue
 
         if action.name == RUNTIME_ACTION_SAVE_SESSION:
             if getattr(
@@ -2252,6 +2406,15 @@ async def apply_runtime_action_calls(
                 "context": action_context_snapshot,
             })
 
+        elif action.name == RUNTIME_ACTION_IDLE:
+            idle_seconds = parse_idle_seconds(
+                action.payload
+            )
+            if idle_seconds is not None:
+                action_event["seconds"] = idle_seconds
+                action_event["payload"] = f"{idle_seconds}s"
+                action_event["deferred_follow_up"] = True
+
         elif action.payload:
             action_event_payload = action.payload
 
@@ -2350,6 +2513,12 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_CLEAN_TOOL_RESULTS
     ]
 
+    idle_actions = [
+        action
+        for action in filtered_actions
+        if action.name == RUNTIME_ACTION_IDLE
+    ]
+
     append_skill_actions = [
         action
         for action in filtered_actions
@@ -2405,6 +2574,31 @@ async def apply_runtime_action_calls(
         "log_runtime",
         None,
     )
+
+    idle_records = []
+
+    for action in idle_actions:
+        seconds = parse_idle_seconds(
+            action.payload
+        )
+        if seconds is None:
+            continue
+
+        idle_record = schedule_idle_followup(
+            context,
+            seconds=seconds,
+            source_message=str(assistant_message or ""),
+            user_message=resolved_user_message,
+            context_snapshot=action_context_snapshot,
+        )
+        idle_records.append(idle_record)
+
+        if log_runtime is not None:
+            await log_runtime(
+                "[RUNTIME ACTION] "
+                f"idle scheduled for {seconds}s "
+                f"id={idle_record['id']!r}"
+            )
 
     if (
         log_runtime is not None
@@ -3654,6 +3848,9 @@ async def apply_runtime_action_calls(
         )
         + len(
             clean_tool_result_actions
+        )
+        + len(
+            idle_records
         )
         + min(
             save_session_count,

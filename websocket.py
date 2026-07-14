@@ -2330,8 +2330,24 @@ async def process_message(
 
     try:
 
+        idle_followup = message_data.get(
+            "idle_followup",
+            {},
+        )
+        if not isinstance(idle_followup, dict):
+            idle_followup = {}
+        is_idle_followup = bool(idle_followup)
+
         user_text = (
-            build_user_text_with_attachments(
+            str(
+                idle_followup.get(
+                    "origin_user_request",
+                    "",
+                )
+                or ""
+            )
+            if is_idle_followup
+            else build_user_text_with_attachments(
                 message_data,
             )
         )
@@ -2347,20 +2363,40 @@ async def process_message(
             + 1
         )
         context.runtime_current_turn_id = (
-            f"turn_{context.runtime_turn_counter:06d}"
+            f"idle_{context.runtime_turn_counter:06d}"
+            if is_idle_followup
+            else f"turn_{context.runtime_turn_counter:06d}"
         )
         context.runtime_turn_attachments = (
-            message_data.get(
+            idle_followup.get(
                 "attachments",
                 [],
             )
-            if isinstance(
+            if (
+                is_idle_followup
+                and isinstance(
+                    idle_followup.get(
+                        "attachments",
+                    ),
+                    list,
+                )
+            )
+            else (
                 message_data.get(
                     "attachments",
-                ),
-                list,
+                    [],
+                )
+                if (
+                    not is_idle_followup
+                    and isinstance(
+                        message_data.get(
+                            "attachments",
+                        ),
+                        list,
+                    )
+                )
+                else []
             )
-            else []
         )
         context.runtime_turn_assistant_response = ""
         context.runtime_turn_interrupted = False
@@ -2373,33 +2409,36 @@ async def process_message(
         context.runtime_context_limit_stage = ""
         context.runtime_context_limit_kind = ""
         context.runtime_context_limit_finish_reason = ""
-        await arm_save_session_from_user_text(
-            context,
-            user_text,
-        )
-        apply_user_idle_context(
-            context,
-            message_data,
-        )
-        apply_active_memory_records(
-            context,
-            message_data,
-        )
-        apply_runtime_pattern_context(
-            context,
-            message_data,
-        )
-        context.runtime_turn_memory_user_message = (
-            format_runtime_memory_user_message(
+        if not is_idle_followup:
+            await arm_save_session_from_user_text(
                 context,
                 user_text,
             )
-        )
-        context.user_message_count += 1
+            apply_user_idle_context(
+                context,
+                message_data,
+            )
+            apply_active_memory_records(
+                context,
+                message_data,
+            )
+            apply_runtime_pattern_context(
+                context,
+                message_data,
+            )
+            context.runtime_turn_memory_user_message = (
+                format_runtime_memory_user_message(
+                    context,
+                    user_text,
+                )
+            )
+            context.user_message_count += 1
 
         state = AgentState(
             user_input=user_text
         )
+        if is_idle_followup:
+            state.metadata["idle_followup"] = idle_followup
 
         if hasattr(
             context,
@@ -2449,17 +2488,27 @@ async def process_message(
 
         append_runtime_recent_turn(
             context,
-            user_message=user_text,
+            user_message=(
+                ""
+                if is_idle_followup
+                else user_text
+            ),
             assistant_message=assistant_message,
-            user_created_at=getattr(
-                context,
-                "runtime_turn_started_at",
-                None,
+            user_created_at=(
+                idle_followup.get("fired_at")
+                if is_idle_followup
+                else getattr(
+                    context,
+                    "runtime_turn_started_at",
+                    None,
+                )
             ),
             assistant_created_at=time.time(),
         )
 
-        if getattr(
+        if is_idle_followup:
+            memory_update_task = None
+        elif getattr(
             context,
             "runtime_turn_interrupted",
             False,
@@ -2495,7 +2544,8 @@ async def process_message(
             )
 
         context.assistant_message_count += 1
-        context.turn_number += 1
+        if not is_idle_followup:
+            context.turn_number += 1
 
         # Background fact-checking is intentionally not armed here.
         # Fact-checking runs only from the explicit UI request path.
@@ -2613,6 +2663,17 @@ async def websocket_endpoint(
 
     current_task = None
     pending_requests = asyncio.Queue()
+    context.runtime_pending_requests_queue = pending_requests
+
+    pending_idle_followups = list(
+        getattr(
+            context,
+            "runtime_pending_idle_followups",
+            [],
+        )
+        or []
+    )
+    context.runtime_pending_idle_followups = []
 
     async def process_pending_requests():
         nonlocal current_task
@@ -2623,11 +2684,25 @@ async def websocket_endpoint(
 
             try:
 
+                is_idle_followup = (
+                    message_data.get("type") == "idle_followup"
+                    and isinstance(
+                        message_data.get("idle_followup"),
+                        dict,
+                    )
+                )
                 user_text = (
                     str(
-                        message_data.get(
-                            "text",
-                            "",
+                        (
+                            message_data.get("idle_followup", {}).get(
+                                "origin_user_request",
+                                "",
+                            )
+                            if is_idle_followup
+                            else message_data.get(
+                                "text",
+                                "",
+                            )
                         )
                     ).strip()
                 )
@@ -2636,22 +2711,23 @@ async def websocket_endpoint(
                     context
                 )
 
-                await apply_runtime_response_feedback(
-                    context,
-                    (
-                        message_data.get(
-                            "pending_last_response_rating",
-                        )
-                        or message_data.get(
-                            "runtime_response_feedback",
-                        )
-                    ),
-                )
+                if not is_idle_followup:
+                    await apply_runtime_response_feedback(
+                        context,
+                        (
+                            message_data.get(
+                                "pending_last_response_rating",
+                            )
+                            or message_data.get(
+                                "runtime_response_feedback",
+                            )
+                        ),
+                    )
 
-                await refresh_pending_brain_usage(
-                    context,
-                    user_text,
-                )
+                    await refresh_pending_brain_usage(
+                        context,
+                        user_text,
+                    )
 
                 active_task = asyncio.create_task(
                     process_message(
@@ -2689,6 +2765,12 @@ async def websocket_endpoint(
             context,
             skip_initial_runtime_state=skip_initial_runtime_state,
         )
+
+        for idle_followup in pending_idle_followups:
+            await pending_requests.put({
+                "type": "idle_followup",
+                "idle_followup": idle_followup,
+            })
 
         while True:
 
@@ -2977,6 +3059,13 @@ async def websocket_endpoint(
         )
 
     finally:
+        if getattr(
+            context,
+            "runtime_pending_requests_queue",
+            None,
+        ) is pending_requests:
+            context.runtime_pending_requests_queue = None
+
         pending_processor.cancel()
 
         with contextlib.suppress(
@@ -2984,3 +3073,53 @@ async def websocket_endpoint(
             Exception,
         ):
             await pending_processor
+
+        pending_idle_records = getattr(
+            context,
+            "runtime_pending_idle_followups",
+            None,
+        )
+        if not isinstance(pending_idle_records, list):
+            pending_idle_records = []
+            context.runtime_pending_idle_followups = (
+                pending_idle_records
+            )
+
+        pending_idle_ids = {
+            str(record.get("id", "") or "")
+            for record in pending_idle_records
+            if isinstance(record, dict)
+        }
+
+        while True:
+            try:
+                queued_message = pending_requests.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+            try:
+                idle_record = queued_message.get(
+                    "idle_followup",
+                )
+                if not isinstance(idle_record, dict):
+                    continue
+
+                idle_id = str(
+                    idle_record.get(
+                        "id",
+                        "",
+                    )
+                    or ""
+                )
+                if idle_id and idle_id in pending_idle_ids:
+                    continue
+
+                pending_idle_records.append(
+                    idle_record
+                )
+                if idle_id:
+                    pending_idle_ids.add(
+                        idle_id
+                    )
+            finally:
+                pending_requests.task_done()

@@ -24,6 +24,7 @@ from .runtime import (
     INTERNAL_ACTION_APPEND_SKILL_MARKER,
     INTERNAL_ACTION_LIST_SKILLS_MARKER,
     INTERNAL_ACTION_HIDE_SKILLS_MARKER,
+    INTERNAL_ACTION_IDLE_MARKER,
     INTERNAL_ACTION_CLEAN_TOOL_RESULTS_MARKER,
     INTERNAL_ACTION_REMOVE_SKILL_MARKER,
     INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY_MARKER,
@@ -40,6 +41,7 @@ from .runtime import (
     RUNTIME_ACTION_APPEND_SKILL,
     RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_HIDE_SKILLS,
+    RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_REMOVE_SKILL,
     RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
@@ -66,6 +68,7 @@ SERVICE_AS_BRAIN_RUNTIME_ACTIONS = {
     "CAN_SAVE_ACTIVE_MEMORY": True,
     "CAN_RUNTIME_TODO": False,
     "CAN_CLEAN_TOOL_RESULTS": True,
+    "CAN_IDLE": True,
 }
 
 BRAIN_RUNTIME_ACTIONS = {
@@ -76,6 +79,7 @@ BRAIN_RUNTIME_ACTIONS = {
     "CAN_SAVE_ACTIVE_MEMORY": True,
     "CAN_RUNTIME_TODO": False,
     "CAN_CLEAN_TOOL_RESULTS": True,
+    "CAN_IDLE": True,
 }
 
 
@@ -120,6 +124,10 @@ def get_enabled_runtime_actions(
         (
             RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
             "CAN_CLEAN_TOOL_RESULTS",
+        ),
+        (
+            RUNTIME_ACTION_IDLE,
+            "CAN_IDLE",
         ),
         (
             RUNTIME_ACTION_APPEND_SKILL,
@@ -303,6 +311,13 @@ def _build_allowed_markers(
         "clean_tool_results",
     ):
         markers.append(INTERNAL_ACTION_CLEAN_TOOL_RESULTS_MARKER)
+
+    if _action_enabled(
+        enabled_actions,
+        RUNTIME_ACTION_IDLE,
+        "idle",
+    ):
+        markers.append(INTERNAL_ACTION_IDLE_MARKER)
 
     if (
         _action_enabled(enabled_actions, RUNTIME_ACTION_LIST_SKILLS, "list_skills")

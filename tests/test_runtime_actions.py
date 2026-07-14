@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from clients import (
@@ -6197,6 +6198,99 @@ class RuntimeActionTests(unittest.TestCase):
             "RESOLVE_ACTIVE_MEMORY - failed: active_memory_10",
             context.runtime_session_action_history[-1]["text"],
         )
+
+
+    def test_idle_marker_variants_are_removed_and_normalized(self):
+
+        for marker in (
+            "<IDLE: 10s >",
+            "<IDLE: 10s />",
+            "<IDLE:10s>",
+            "<INTERNAL_ACTION_IDLE: 10s />",
+        ):
+            with self.subTest(marker=marker):
+                result = extract_runtime_actions(
+                    f"before {marker} after",
+                    enabled_actions=(
+                        runtime_rules.RUNTIME_ACTION_IDLE,
+                    ),
+                )
+
+                self.assertEqual(
+                    result.text,
+                    "before  after",
+                )
+                self.assertEqual(
+                    len(result.actions),
+                    1,
+                )
+                self.assertEqual(
+                    result.actions[0].name,
+                    runtime_rules.RUNTIME_ACTION_IDLE,
+                )
+                self.assertEqual(
+                    result.actions[0].payload,
+                    "10s",
+                )
+
+    def test_zero_second_idle_queues_followup_with_full_source_message(self):
+
+        async def run_case():
+            queue = asyncio.Queue()
+            context = SimpleNamespace(
+                background_tasks=set(),
+                runtime_action_events=[],
+                runtime_search_calls=[],
+                runtime_appended_skills=[],
+                runtime_visible_skills_result={},
+                runtime_pending_requests_queue=queue,
+                runtime_pending_idle_followups=[],
+                runtime_idle_action_sequence=0,
+                runtime_save_session_requested=False,
+                runtime_save_session_action_emitted=False,
+                runtime_skill_state_barrier_active=False,
+                runtime_current_turn_id="turn_000001",
+                logger=None,
+            )
+            source_message = (
+                "I will check this again. "
+                "<IDLE: 0s /> "
+                "The rest of the same message."
+            )
+            result = extract_runtime_actions(
+                source_message,
+                enabled_actions=(
+                    runtime_rules.RUNTIME_ACTION_IDLE,
+                ),
+            )
+
+            applied_count = await apply_runtime_action_calls(
+                context,
+                result.actions,
+                user_message="original request",
+                context_snapshot={
+                    "system_prompt": "frozen prompt",
+                    "user_prompt": "original request",
+                },
+                assistant_message=source_message,
+            )
+            queued = await asyncio.wait_for(
+                queue.get(),
+                timeout=1,
+            )
+
+            self.assertEqual(applied_count, 1)
+            self.assertEqual(queued["type"], "idle_followup")
+            self.assertEqual(
+                queued["idle_followup"]["source_message"],
+                source_message,
+            )
+            self.assertEqual(
+                queued["idle_followup"]["seconds"],
+                0,
+            )
+
+        asyncio.run(run_case())
 
 
     def test_extract_search_query_unnests_json_string(self):

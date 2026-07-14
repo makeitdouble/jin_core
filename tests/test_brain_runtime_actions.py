@@ -75,6 +75,11 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
             "CLEAN_TOOL_RESULTS"
         )
 
+    if bool(runtime_actions.get("CAN_IDLE", False)):
+        expected_actions.append(
+            "IDLE"
+        )
+
     if bool(runtime_actions.get("CAN_USE_ASSETS", False)):
         expected_actions.extend(
             (

@@ -10,6 +10,7 @@ from rules.runtime import (
     RUNTIME_ACTION_LIST_DELAYED_MEMORY,
     RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_HIDE_SKILLS,
+    RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
@@ -346,6 +347,7 @@ async def ask_brain(
                 content_actions.actions,
                 user_message=text,
                 context_snapshot=action_context_snapshot,
+                assistant_message=content,
             )
 
             return content_actions.text
@@ -439,6 +441,7 @@ async def ask_brain(
             content_actions.actions,
             user_message=text,
             context_snapshot=action_context_snapshot,
+            assistant_message=content,
         )
 
         if content_actions.text:
@@ -596,6 +599,8 @@ async def ask_brain_stream(
         or []
     )
     observed_action_markers = []
+    raw_content_parts = []
+    pending_idle_action_calls = []
     session_action_history_finalized = False
 
     def capture_observed_action_markers(
@@ -848,6 +853,16 @@ async def ask_brain_stream(
         if chunk_type == "thinking":
             return action_chunk
 
+        raw_content_parts.append(
+            str(
+                action_chunk.get(
+                    "content",
+                    "",
+                )
+                or ""
+            )
+        )
+
         if not filter_runtime_actions:
             return action_chunk
 
@@ -967,12 +982,28 @@ async def ask_brain_stream(
         if not runtime_action_calls:
             return False
 
-        await apply_runtime_action_calls(
-            context,
-            runtime_action_calls,
-            user_message=text,
-            context_snapshot=action_context_snapshot,
+        idle_action_calls = tuple(
+            action
+            for action in runtime_action_calls
+            if action.name == RUNTIME_ACTION_IDLE
         )
+        immediate_action_calls = tuple(
+            action
+            for action in runtime_action_calls
+            if action.name != RUNTIME_ACTION_IDLE
+        )
+
+        pending_idle_action_calls.extend(
+            idle_action_calls
+        )
+
+        if immediate_action_calls:
+            await apply_runtime_action_calls(
+                context,
+                immediate_action_calls,
+                user_message=text,
+                context_snapshot=action_context_snapshot,
+            )
 
         if any(
             action.name in (
@@ -984,11 +1015,31 @@ async def ask_brain_stream(
                 RUNTIME_ACTION_HIDE_SKILLS,
                 RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
             )
-            for action in runtime_action_calls
+            for action in immediate_action_calls
         ):
             runtime_action_boundary_seen = True
 
         return True
+
+    async def flush_pending_idle_actions() -> None:
+
+        if not pending_idle_action_calls:
+            return
+
+        idle_actions = tuple(
+            pending_idle_action_calls
+        )
+        pending_idle_action_calls.clear()
+
+        await apply_runtime_action_calls(
+            context,
+            idle_actions,
+            user_message=text,
+            context_snapshot=action_context_snapshot,
+            assistant_message="".join(
+                raw_content_parts
+            ),
+        )
 
     # -----------------------------------------------------
     # SERVICE AS BRAIN
@@ -1055,6 +1106,7 @@ async def ask_brain_stream(
             await apply_runtime_action_result(
                 tail_result
             )
+            await flush_pending_idle_actions()
 
             content_tail = tail_result.text
             if (
@@ -1151,6 +1203,7 @@ async def ask_brain_stream(
         await apply_runtime_action_result(
             tail_result
         )
+        await flush_pending_idle_actions()
 
         content_tail = tail_result.text
         if (

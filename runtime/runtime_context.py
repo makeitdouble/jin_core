@@ -105,6 +105,14 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_idle_action_sequence: int = 0
+
+    runtime_pending_idle_followups: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_pending_requests_queue: object | None = None
+
     runtime_session_action_history: list[dict] = field(
         default_factory=list
     )

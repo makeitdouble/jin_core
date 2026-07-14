@@ -1,4 +1,5 @@
 from copy import deepcopy
+from xml.sax.saxutils import escape
 
 from agent.nodes.base import BaseNode
 
@@ -21,6 +22,8 @@ from rules.assembler import (
 from rules.runtime import (
     CONTEXT_LIMIT_RECOVERY_MESSAGE,
     DELAYED_MEMORY_SAVE_REJECTED_MESSAGE,
+    IDLE_FOLLOWUP_MESSAGE,
+    RUNTIME_ACTION_IDLE,
     NO_FOLLOW_UP_INTERNAL_ACTIONS,
     REASONING_RECOVERY_MESSAGE,
 )
@@ -84,6 +87,19 @@ def action_event_requires_follow_up(event) -> bool:
     return name not in NO_FOLLOW_UP_ACTION_NAMES
 
 
+def action_event_defers_follow_up(event) -> bool:
+
+    if not isinstance(event, dict):
+        return False
+
+    name = str(event.get("name", "") or "").strip().casefold()
+
+    return (
+        name == RUNTIME_ACTION_IDLE.casefold()
+        or bool(event.get("deferred_follow_up"))
+    )
+
+
 def action_batch_requires_follow_up(
         events,
         response_text: str,
@@ -92,10 +108,19 @@ def action_batch_requires_follow_up(
     if not events:
         return False
 
+    if all(
+        action_event_defers_follow_up(event)
+        for event in events
+    ):
+        return False
+
     if len(events) != 1:
         return True
 
     event = events[0]
+
+    if action_event_defers_follow_up(event):
+        return False
 
     if action_event_requires_follow_up(event):
         return True
@@ -394,6 +419,101 @@ def rename_runtime_memory_for_followup(
         + prompt[opening_index + len(opening_tag):closing_index]
         + "</LATEST_RUNTIME_MEMORY>"
         + prompt[closing_index + len(closing_tag):]
+    )
+
+
+def build_idle_followup_tool_results(
+        idle_followup: dict,
+) -> str:
+
+    seconds = int(
+        idle_followup.get(
+            "seconds",
+            0,
+        )
+        or 0
+    )
+    source_message = escape(
+        str(
+            idle_followup.get(
+                "source_message",
+                "",
+            )
+            or ""
+        )
+    )
+    origin_user_request = escape(
+        str(
+            idle_followup.get(
+                "origin_user_request",
+                "",
+            )
+            or ""
+        )
+    )
+    idle_id = escape(
+        str(
+            idle_followup.get(
+                "id",
+                "",
+            )
+            or ""
+        )
+    )
+
+    return (
+        '<TOOL_RESULTS type="idle">\n'
+        "  <IDLE_FOLLOWUP>\n"
+        f"    <id>{idle_id}</id>\n"
+        f"    <elapsed_seconds>{seconds}</elapsed_seconds>\n"
+        "    <origin_user_request>"
+        f"{origin_user_request}"
+        "</origin_user_request>\n"
+        "    <source_message>"
+        f"{source_message}"
+        "</source_message>\n"
+        "  </IDLE_FOLLOWUP>\n"
+        "</TOOL_RESULTS>"
+    )
+
+
+def build_idle_followup_system_prompt(
+        idle_followup: dict,
+) -> str:
+
+    snapshot = idle_followup.get(
+        "context_snapshot",
+        {},
+    )
+    if not isinstance(snapshot, dict):
+        snapshot = {}
+
+    frozen_system_prompt = str(
+        snapshot.get(
+            "system_prompt",
+            "",
+        )
+        or ""
+    )
+
+    sections = [
+        IDLE_FOLLOWUP_MESSAGE.strip(),
+        build_idle_followup_tool_results(
+            idle_followup
+        ),
+    ]
+
+    if frozen_system_prompt:
+        sections.append(
+            rename_runtime_memory_for_followup(
+                frozen_system_prompt
+            )
+        )
+
+    return "\n\n".join(
+        section
+        for section in sections
+        if str(section or "").strip()
     )
 
 
@@ -1029,26 +1149,37 @@ class BrainNode(BaseNode):
         context.runtime_save_session_memory_committed_this_turn = False
         context.runtime_save_session_result = {}
 
-        system_prompt = (
-            build_brain_system_prompt(
-                context,
-                runtime_actions=runtime_actions,
-                commit_active_memory_refresh=True,
-            )
+        idle_followup = state.metadata.get(
+            "idle_followup",
         )
+        if not isinstance(idle_followup, dict):
+            idle_followup = {}
+
+        if idle_followup:
+            system_prompt = build_idle_followup_system_prompt(
+                idle_followup
+            )
+            brain_payload = ""
+        else:
+            system_prompt = (
+                build_brain_system_prompt(
+                    context,
+                    runtime_actions=runtime_actions,
+                    commit_active_memory_refresh=True,
+                )
+            )
+            brain_payload = (
+                build_brain_payload(
+                    state.translated_input,
+                    context=context,
+                )
+            )
 
         await emit_active_memory_records_update_if_dirty(
             context
         )
 
         context.runtime_zero_diff_alert = None
-
-        brain_payload = (
-            build_brain_payload(
-                state.translated_input,
-                context=context,
-            )
-        )
 
         runtime_action_event_offset = len(
             getattr(

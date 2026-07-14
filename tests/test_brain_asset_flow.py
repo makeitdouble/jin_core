@@ -5,7 +5,9 @@ from unittest.mock import patch
 from agent.nodes.brain import (
     BrainNode,
     FOLLOWUP_SYSTEM_MESSAGE,
+    action_batch_requires_follow_up,
     action_event_requires_follow_up,
+    build_idle_followup_system_prompt,
     build_context_limit_recovery_context,
     build_followup_system_message,
     build_reasoning_recovery_context,
@@ -1656,6 +1658,66 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "Created prompt batch `assets/prompts/test_prompts.txt` with 20 lines.",
         )
 
+
+    async def test_idle_action_never_triggers_immediate_follow_up(self):
+
+        self.assertFalse(
+            action_batch_requires_follow_up(
+                [
+                    {
+                        "name": "idle",
+                        "seconds": 0,
+                        "deferred_follow_up": True,
+                    },
+                ],
+                "",
+            )
+        )
+
+        self.assertFalse(
+            action_batch_requires_follow_up(
+                [
+                    {
+                        "name": "idle",
+                        "seconds": 1,
+                        "deferred_follow_up": True,
+                    },
+                    {
+                        "name": "idle",
+                        "seconds": 2,
+                        "deferred_follow_up": True,
+                    },
+                ],
+                "",
+            )
+        )
+
+    async def test_idle_followup_prompt_contains_tool_result_and_frozen_context(self):
+
+        prompt = build_idle_followup_system_prompt({
+            "id": "idle_1",
+            "seconds": 5,
+            "origin_user_request": "original request",
+            "source_message": "reason <IDLE: 5s />",
+            "context_snapshot": {
+                "system_prompt": (
+                    "<RUNTIME_MEMORY>frozen state</RUNTIME_MEMORY>"
+                ),
+            },
+        })
+
+        self.assertIn(
+            '<TOOL_RESULTS type="idle">',
+            prompt,
+        )
+        self.assertIn(
+            "reason &lt;IDLE: 5s /&gt;",
+            prompt,
+        )
+        self.assertIn(
+            "<LATEST_RUNTIME_MEMORY>frozen state</LATEST_RUNTIME_MEMORY>",
+            prompt,
+        )
 
     async def test_no_follow_up_action_without_visible_answer_triggers_tick(self):
 
