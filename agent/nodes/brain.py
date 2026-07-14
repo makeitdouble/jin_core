@@ -2,6 +2,9 @@ from copy import deepcopy
 
 from agent.nodes.base import BaseNode
 
+from runtime.L3_memory import (
+    maybe_summarize_runtime_session_memory,
+)
 from runtime.stream import (
     RuntimeStream,
 )
@@ -36,6 +39,7 @@ from utils.language import (
 )
 from utils.tool_results import (
     TOOL_RESULT_KIND_SEARCH,
+    TOOL_RESULT_KIND_SESSION,
     begin_runtime_tool_results_turn,
     clear_runtime_tool_results,
     record_runtime_tool_result,
@@ -97,6 +101,62 @@ def action_batch_requires_follow_up(
         return True
 
     return not str(response_text or "").strip()
+
+
+async def complete_save_session_memory_before_follow_up(
+        *,
+        context,
+        state,
+        response_text: str,
+) -> bool:
+
+    if not getattr(
+        context,
+        "runtime_save_session_requested",
+        False,
+    ):
+        return False
+
+    # SAVE_SESSION is completed directly against the already accumulated
+    # runtime snapshots. The current user request and JIN's final confirmation
+    # are deliberately not pushed through L1 before this follow-up. They are
+    # handled later by the normal post-response L1/L2 pipeline, exactly like
+    # any ordinary user -> JIN exchange.
+    context.runtime_save_session_result = {}
+
+    await maybe_summarize_runtime_session_memory(
+        context=context,
+    )
+
+    save_result = getattr(
+        context,
+        "runtime_save_session_result",
+        None,
+    )
+    if not isinstance(
+        save_result,
+        dict,
+    ) or not save_result:
+        save_result = {
+            "action": "save_session",
+            "ok": False,
+            "status": "failed",
+            "reason": "l3_save_result_missing",
+            "message": (
+                "Session snapshot was not saved because the L3 save "
+                "operation did not produce a result."
+            ),
+            "destination": "L3 session memory",
+        }
+        context.runtime_save_session_result = save_result
+
+    record_runtime_tool_result(
+        context,
+        TOOL_RESULT_KIND_SESSION,
+        save_result,
+    )
+
+    return True
 
 
 def prepare_asset_results_for_turn(
@@ -966,6 +1026,8 @@ class BrainNode(BaseNode):
         # (e.g. the user explicitly asked JIN to emit only the marker).
         context.runtime_active_memory_created_this_turn = False
         context.runtime_active_memory_refresh_tick = 0
+        context.runtime_save_session_memory_committed_this_turn = False
+        context.runtime_save_session_result = {}
 
         system_prompt = (
             build_brain_system_prompt(
@@ -1008,6 +1070,15 @@ class BrainNode(BaseNode):
             emit_content_to_chat=(
                 not state.translate_response
             ),
+        )
+
+        # SAVE_SESSION resolves against the snapshots that already exist, then
+        # immediately enters the normal follow-up loop. The current request and
+        # final confirmation reach L1/L2 only after the complete JIN response.
+        await complete_save_session_memory_before_follow_up(
+            context=context,
+            state=state,
+            response_text=text,
         )
 
         asset_result_offset = 0

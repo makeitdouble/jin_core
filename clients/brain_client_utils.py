@@ -1841,6 +1841,16 @@ async def apply_runtime_action_calls(
         action_event_name = action.name.lower()
 
         if action.name == RUNTIME_ACTION_SAVE_SESSION:
+            if getattr(
+                context,
+                "runtime_save_session_memory_committed_this_turn",
+                False,
+            ):
+                # L3 already completed this turn. A SAVE_SESSION marker
+                # repeated by the deferred follow-up must not start a second
+                # memory pipeline.
+                continue
+
             if not should_execute_save_session(
                 resolved_user_message
             ):

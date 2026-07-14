@@ -1,0 +1,316 @@
+/* Динамический SVG-аватар и его состояния внутри runtime-панели. */
+
+#memory-drag-handle {
+    position: relative;
+    isolation: isolate;
+    flex: 0 0 clamp(248px, 30vh, 286px);
+    height: clamp(248px, 30vh, 286px);
+    min-height: clamp(248px, 30vh, 286px);
+    justify-content: center;
+    padding: 8px 10px;
+    overflow: hidden;
+    border-bottom-color: rgba(34, 211, 238, 0.13);
+    background:
+        radial-gradient(circle at 50% 47%, rgba(12, 91, 89, 0.16), transparent 42%),
+        radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0) 46%, rgba(0, 0, 0, 0.44) 100%),
+        linear-gradient(180deg, rgba(7, 14, 18, 0.96), rgba(5, 10, 14, 0.92));
+}
+
+#memory-drag-handle::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.34;
+    background-image:
+        linear-gradient(rgba(33, 226, 210, 0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(33, 226, 210, 0.025) 1px, transparent 1px);
+    background-size: 18px 18px;
+    mask-image: radial-gradient(circle at center, black 8%, transparent 72%);
+}
+
+#memory-drag-handle::after {
+    content: "";
+    position: absolute;
+    right: 14%;
+    bottom: -16%;
+    left: 14%;
+    height: 38%;
+    z-index: -1;
+    pointer-events: none;
+    border-radius: 50%;
+    opacity: 0.35;
+    filter: blur(28px);
+    background: rgba(12, 187, 165, 0.16);
+}
+
+.jin-runtime-avatar-shell {
+    position: relative;
+    display: grid;
+    width: min(100%, 278px);
+    aspect-ratio: 1;
+    place-items: center;
+    flex: 0 0 auto;
+    user-select: none;
+}
+
+.jin-runtime-avatar {
+    position: absolute;
+    inset: 0;
+    display: block;
+    pointer-events: none;
+    filter:
+        drop-shadow(0 0 8px rgba(24, 224, 207, 0.10))
+        drop-shadow(0 0 20px rgba(0, 0, 0, 0.65));
+}
+
+.jin-runtime-avatar svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.jin-runtime-avatar-core-button {
+    position: absolute;
+    z-index: 4;
+    left: 50%;
+    top: 50%;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    outline: none;
+    transform: translate(-50%, -50%);
+    cursor: pointer;
+    background: transparent;
+    box-shadow: 0 0 0 1px rgba(74, 235, 220, 0.07);
+    transition:
+        box-shadow 0.18s ease,
+        transform 0.18s ease,
+        background 0.18s ease;
+}
+
+.jin-runtime-avatar-core-button::before {
+    content: "";
+    position: absolute;
+    inset: 9px;
+    border: 1px solid rgba(121, 255, 239, 0.13);
+    border-radius: inherit;
+    opacity: 0;
+    transform: scale(0.82);
+    transition:
+        opacity 0.18s ease,
+        transform 0.18s ease;
+}
+
+.jin-runtime-avatar-core-button:hover,
+.jin-runtime-avatar-core-button:focus-visible {
+    transform: translate(-50%, -50%) scale(1.055);
+    background: radial-gradient(circle, rgba(82, 255, 231, 0.06), transparent 68%);
+    box-shadow:
+        0 0 0 1px rgba(96, 246, 230, 0.16),
+        0 0 18px rgba(25, 224, 207, 0.13);
+}
+
+.jin-runtime-avatar-core-button:hover::before,
+.jin-runtime-avatar-core-button:focus-visible::before {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.jin-runtime-avatar-core-button:active {
+    transform: translate(-50%, -50%) scale(0.96);
+}
+
+.jin-avatar-orbit {
+    transform-origin: 180px 180px;
+    animation-name: jin-avatar-orbit-rotation;
+    animation-duration: var(--jin-avatar-duration, 36s);
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+    animation-direction: var(--jin-avatar-direction, normal);
+    animation-play-state: var(--jin-avatar-play-state, running);
+    will-change: transform;
+}
+
+.jin-avatar-counter-orbit {
+    transform-origin: 180px 180px;
+    animation-name: jin-avatar-counter-rotation;
+    animation-duration: var(--jin-avatar-duration, 36s);
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+    animation-direction: var(--jin-avatar-direction, normal);
+    animation-play-state: var(--jin-avatar-play-state, running);
+    will-change: transform;
+}
+
+@keyframes jin-avatar-orbit-rotation {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+@keyframes jin-avatar-counter-rotation {
+    from { transform: rotate(360deg); }
+    to { transform: rotate(0deg); }
+}
+
+.jin-avatar-layer-glow {
+    transform-origin: 180px 180px;
+    opacity: 0;
+    transition:
+        opacity 0.32s ease,
+        filter 0.32s ease,
+        transform 0.32s ease;
+    mix-blend-mode: screen;
+}
+
+.jin-avatar-orbit-entry {
+    opacity: 1;
+    transform-origin: 180px 180px;
+}
+
+.jin-avatar-orbit-entry[style*="--jin-avatar-entry-delay"] {
+    opacity: 0;
+    animation: jin-avatar-orbit-enter 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+    animation-delay: var(--jin-avatar-entry-delay, 0s);
+}
+
+.jin-runtime-avatar[data-memory-layer="l1"] .jin-avatar-layer-l1,
+.jin-runtime-avatar[data-memory-layer="l2"] .jin-avatar-layer-l2,
+.jin-runtime-avatar[data-memory-layer="l3"] .jin-avatar-layer-l3 {
+    opacity: 0.36;
+    animation: jin-avatar-layer-breathe 3.8s ease-in-out infinite;
+}
+
+.jin-runtime-avatar[data-memory-layer="l1"] .jin-avatar-layer-l1 {
+    filter:
+        saturate(1.36)
+        brightness(1.2)
+        drop-shadow(0 0 26px rgba(226, 165, 75, 0.22));
+}
+
+.jin-runtime-avatar[data-memory-layer="l2"] .jin-avatar-layer-l2 {
+    filter:
+        saturate(1.18)
+        brightness(1.22)
+        drop-shadow(0 0 28px rgba(244, 247, 245, 0.20));
+}
+
+.jin-runtime-avatar[data-memory-layer="l3"] .jin-avatar-layer-l3 {
+    filter:
+        saturate(1.44)
+        brightness(1.24)
+        drop-shadow(0 0 30px rgba(154, 117, 220, 0.28));
+}
+
+@keyframes jin-avatar-orbit-enter {
+    0% {
+        opacity: 0;
+        transform: scale(0.88);
+        filter: blur(1.2px);
+    }
+
+    58% {
+        opacity: 0.82;
+    }
+
+    100% {
+        opacity: 1;
+        transform: scale(1);
+        filter: none;
+    }
+}
+
+@keyframes jin-avatar-layer-breathe {
+    0%, 100% { transform: scale(0.97); }
+    50% { transform: scale(1.055); }
+}
+
+#settings-panel.fact-check-running .jin-runtime-avatar-core-button {
+    box-shadow:
+        0 0 0 1px rgba(125, 211, 252, 0.32),
+        0 0 24px rgba(56, 189, 248, 0.23);
+}
+
+#settings-panel.panel-collapsed #memory-drag-handle {
+    flex-basis: 40px;
+    height: 40px;
+    min-height: 40px;
+    padding: 2px 10px;
+}
+
+#settings-panel.panel-collapsed #memory-drag-handle::before,
+#settings-panel.panel-collapsed #memory-drag-handle::after {
+    display: none;
+}
+
+#settings-panel.panel-collapsed .jin-runtime-avatar-shell {
+    width: 36px;
+}
+
+#settings-panel.panel-collapsed .jin-runtime-avatar-core-button {
+    width: 24px;
+    height: 24px;
+}
+
+#settings-panel.panel-collapsed .jin-runtime-avatar {
+    filter: drop-shadow(0 0 5px rgba(24, 224, 207, 0.16));
+}
+
+body.theme-win95 #memory-drag-handle {
+    position: relative;
+    flex: 0 0 128px;
+    height: 128px;
+    min-height: 128px;
+    justify-content: center;
+    padding: 6px;
+    overflow: hidden;
+    background: var(--win95-title);
+}
+
+body.theme-win95 .jin-runtime-avatar-shell {
+    width: 116px;
+}
+
+body.theme-win95 .jin-runtime-avatar {
+    filter: none;
+}
+
+body.theme-win95 .jin-runtime-avatar-core-button {
+    width: 34px;
+    height: 34px;
+}
+
+body.theme-win95 #memory-drag-handle .win95-window-controls {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    z-index: 6;
+}
+
+body.theme-win95 #settings-panel.panel-collapsed #memory-drag-handle {
+    flex-basis: 28px;
+    height: 28px;
+    min-height: 28px;
+    padding: 1px 5px;
+}
+
+body.theme-win95 #settings-panel.panel-collapsed .jin-runtime-avatar-shell {
+    width: 26px;
+}
+
+body.theme-win95 #settings-panel.panel-collapsed .jin-runtime-avatar-core-button {
+    width: 18px;
+    height: 18px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .jin-avatar-orbit,
+    .jin-avatar-counter-orbit,
+    .jin-runtime-avatar[data-memory-layer] .jin-avatar-layer-glow {
+        animation: none !important;
+    }
+}

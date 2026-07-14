@@ -68,6 +68,86 @@ def complete_runtime_save_session_request(
     context.runtime_save_session_action_emitted = False
 
 
+def set_runtime_save_session_result(
+        context,
+        *,
+        ok: bool,
+        status: str,
+        message: str,
+        reason: str = "",
+        session_snapshot: str = "",
+        details=None,
+) -> dict:
+
+    result = {
+        "action": "save_session",
+        "ok": bool(ok),
+        "status": str(status or "").strip(),
+        "message": str(message or "").strip(),
+        "destination": "L3 session memory",
+    }
+
+    normalized_reason = str(
+        reason
+        or ""
+    ).strip()
+    if normalized_reason:
+        result["reason"] = normalized_reason
+
+    if details not in (
+        None,
+        "",
+        [],
+        {},
+    ):
+        result["details"] = details
+
+    normalized_snapshot = str(
+        session_snapshot
+        or ""
+    )
+    if normalized_snapshot:
+        result["session_snapshot"] = normalized_snapshot
+
+    if ok:
+        for source_name, result_name in (
+            (
+                "runtime_l3_session_first_turn",
+                "session_snapshot_first_turn",
+            ),
+            (
+                "runtime_l3_session_last_turn",
+                "session_snapshot_last_turn",
+            ),
+            (
+                "runtime_l3_saved_runtime_snapshot_index",
+                "saved_runtime_snapshot_index",
+            ),
+        ):
+            value = getattr(
+                context,
+                source_name,
+                None,
+            )
+            if value is not None:
+                result[result_name] = value
+
+    runtime_turn_id = str(
+        getattr(
+            context,
+            "runtime_current_turn_id",
+            "",
+        )
+        or ""
+    ).strip()
+    if runtime_turn_id:
+        result["runtime_turn_id"] = runtime_turn_id
+
+    context.runtime_save_session_result = result
+
+    return result
+
+
 async def ask_runtime_session_memory_model(
         *,
         context=None,
@@ -192,6 +272,16 @@ async def maybe_summarize_runtime_session_memory(
     )
 
     if service_client is None:
+        set_runtime_save_session_result(
+            context,
+            ok=False,
+            status="failed",
+            reason="service_client_unavailable",
+            message=(
+                "Session snapshot was not saved because the service "
+                "model is unavailable."
+            ),
+        )
         complete_runtime_save_session_request(
             context
         )
@@ -224,6 +314,16 @@ async def maybe_summarize_runtime_session_memory(
             fallback_channel="runtime",
         )
 
+        set_runtime_save_session_result(
+            context,
+            ok=False,
+            status="failed",
+            reason="no_runtime_snapshots",
+            message=(
+                "Session snapshot was not saved because there are no "
+                "runtime snapshots to summarize."
+            ),
+        )
         complete_runtime_save_session_request(
             context
         )
@@ -267,6 +367,16 @@ async def maybe_summarize_runtime_session_memory(
             fallback_channel="runtime",
         )
 
+        set_runtime_save_session_result(
+            context,
+            ok=False,
+            status="failed",
+            reason="no_new_runtime_snapshots",
+            message=(
+                "Session snapshot was not saved because there are no "
+                "new runtime snapshots since the previous save."
+            ),
+        )
         complete_runtime_save_session_request(
             context
         )
@@ -343,6 +453,19 @@ async def maybe_summarize_runtime_session_memory(
                 fallback_channel="error",
             )
 
+            set_runtime_save_session_result(
+                context,
+                ok=False,
+                status="failed",
+                reason=skip_reason,
+                message=(
+                    "Session snapshot was not saved because the L3 "
+                    "candidate was rejected."
+                ),
+                details={
+                    "candidate_session_snapshot": updated_session_memory,
+                },
+            )
             complete_runtime_save_session_request(
                 context
             )
@@ -452,6 +575,25 @@ async def maybe_summarize_runtime_session_memory(
                 persist_browser=True,
             )
 
+            set_runtime_save_session_result(
+                context,
+                ok=True,
+                status="saved",
+                message="Session snapshot saved successfully.",
+                session_snapshot=updated_session_memory,
+            )
+        else:
+            set_runtime_save_session_result(
+                context,
+                ok=False,
+                status="failed",
+                reason="empty_session_snapshot",
+                message=(
+                    "Session snapshot was not saved because the L3 "
+                    "summarizer returned empty content."
+                ),
+            )
+
         complete_runtime_save_session_request(
             context
         )
@@ -485,6 +627,17 @@ async def maybe_summarize_runtime_session_memory(
             fallback_channel="error",
         )
 
+        set_runtime_save_session_result(
+            context,
+            ok=False,
+            status="failed",
+            reason="prompt_budget_exceeded",
+            message=(
+                "Session snapshot was not saved because the L3 prompt "
+                "could not fit within the available context budget."
+            ),
+            details=error.diagnostic,
+        )
         complete_runtime_save_session_request(
             context
         )
@@ -513,6 +666,14 @@ async def maybe_summarize_runtime_session_memory(
             fallback_channel="error",
         )
 
+        set_runtime_save_session_result(
+            context,
+            ok=False,
+            status="failed",
+            reason=type(error).__name__,
+            message="Session snapshot save failed.",
+            details=str(error),
+        )
         complete_runtime_save_session_request(
             context
         )

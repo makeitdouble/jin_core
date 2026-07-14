@@ -50,6 +50,7 @@ from utils.tool_results import (
     TOOL_RESULT_KIND_ACTIVE_MEMORY,
     TOOL_RESULT_KIND_DELAYED_MEMORY,
     TOOL_RESULT_KIND_SEARCH,
+    TOOL_RESULT_KIND_SESSION,
     get_runtime_tool_results,
 )
 
@@ -1671,6 +1672,42 @@ def format_delayed_memory_report_result(
     )
 
 
+def format_session_result_sections(
+    payload,
+) -> list[tuple[str, str]]:
+
+    sections = []
+
+    for result in payload:
+        if not isinstance(
+            result,
+            dict,
+        ):
+            continue
+
+        if str(
+            result.get(
+                "action",
+                "",
+            )
+            or ""
+        ) != "save_session":
+            continue
+
+        sections.append((
+            "SAVE_SESSION",
+            format_tool_result_payload(
+                result
+            ),
+        ))
+
+    return [
+        section
+        for section in sections
+        if section[1]
+    ]
+
+
 def format_delayed_memory_result_sections(
     payload,
 ) -> list[tuple[str, str]]:
@@ -2022,6 +2059,27 @@ def append_recorded_tool_results(
             ]
             parts.append(
                 "<TOOL_RESULTS type='active_memory'>\n"
+                f"{chr(10).join(blocks)}\n"
+                "</TOOL_RESULTS>"
+            )
+            appended = True
+            continue
+
+        if kind == TOOL_RESULT_KIND_SESSION:
+            sections = format_session_result_sections(
+                [result]
+            )
+            if not sections:
+                continue
+
+            blocks = [
+                f'    <TOOL_RESULT name="{escape(name)}">\n'
+                f"{indent_xml(escape(payload))}\n"
+                "    </TOOL_RESULT>"
+                for name, payload in sections
+            ]
+            parts.append(
+                "<TOOL_RESULTS type='session'>\n"
                 f"{chr(10).join(blocks)}\n"
                 "</TOOL_RESULTS>"
             )

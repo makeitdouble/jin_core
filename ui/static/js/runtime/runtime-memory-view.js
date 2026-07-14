@@ -548,6 +548,22 @@
         runtimeMemoryHistory.snapshots.length - 1;
   }
 
+  function dispatchRuntimeAvatarSnapshot(snapshot) {
+    window.dispatchEvent(
+      new CustomEvent("jin:runtime-avatar-snapshot", {
+        detail: {
+          snapshot: snapshot || null,
+          index: runtimeMemoryHistory
+            ? runtimeMemoryHistory.index
+            : -1,
+          count: runtimeMemoryHistory
+            ? runtimeMemoryHistory.snapshots.length
+            : 0,
+        },
+      })
+    );
+  }
+
   function renderRuntimeMemorySnapshot(options = {}) {
     requireRuntimeMemoryHistory();
     clampRuntimeMemoryHistoryIndex();
@@ -582,6 +598,7 @@
       updateRuntimeMemoryArrows();
       updateRuntimeMemoryPinGlow();
       updateRuntimeMemoryTitleState();
+      dispatchRuntimeAvatarSnapshot(null);
       return;
     }
 
@@ -622,6 +639,7 @@
     updateRuntimeMemoryArrows();
     updateRuntimeMemoryPinGlow();
     updateRuntimeMemoryTitleState();
+    dispatchRuntimeAvatarSnapshot(sourceSnapshot);
   }
 
   function isLatestRuntimeMemorySnapshot() {

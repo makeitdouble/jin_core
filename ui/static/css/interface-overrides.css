@@ -1,0 +1,27 @@
+/* Финальные геометрические правки и системные элементы интерфейса. */
+
+/* Final bubble geometry pass: both message bubbles use avatar-like corners. */
+.jin-chat-bubble,
+.jin-chat-bubble-service,
+.jin-chat-bubble-user {
+    border-radius: 4px;
+}
+
+.jin-chat-bubble-user .jin-chat-pre {
+    color: rgba(226, 235, 246, 0.76);
+    text-shadow:
+            0 0 10px rgba(96, 165, 250, 0.030);
+}
+
+#app-title {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+}
+
+.win95-window-controls {
+    display: none;
+}
