@@ -1202,16 +1202,16 @@ class MessageMemoryTests(
         )
         self.assertTrue(
             prompt.startswith(
-                "<RUNTIME_MEMORY>"
+                "<LATEST_USER_FEEDBACK priority=HIGH_PRIORITY>"
             ),
+        )
+        self.assertLess(
+            prompt.index("<LATEST_USER_FEEDBACK priority=HIGH_PRIORITY>"),
+            prompt.index("<RUNTIME_MEMORY>"),
         )
         self.assertLess(
             prompt.index("<RUNTIME_MEMORY>"),
             prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
-        )
-        self.assertLess(
-            prompt.index("<CURRENT_SESSION_STATE>"),
-            prompt.index("<LATEST_USER_FEEDBACK priority=HIGH_PRIORITY>"),
         )
         self.assertNotIn(
             "User feedback:",

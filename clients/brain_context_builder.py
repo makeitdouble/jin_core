@@ -625,6 +625,10 @@ def build_brain_top_runtime_context(
 
     parts = []
 
+    append_user_feedback(
+        parts,
+        context,
+    )
     append_L1_runtime_memory(
         parts,
         context,
@@ -2159,16 +2163,15 @@ def build_brain_runtime_context(
     parts = []
 
     if include_top_runtime_context:
+        append_user_feedback(
+            parts,
+            context,
+        )
         append_L1_runtime_memory(
             parts,
             context,
             commit_active_memory_refresh=commit_active_memory_refresh,
         )
-
-    append_user_feedback(
-        parts,
-        context,
-    )
 
     if include_top_runtime_context:
         parts.append(
