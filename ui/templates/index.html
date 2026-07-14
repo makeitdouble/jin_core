@@ -2573,6 +2573,7 @@
             color: #7950b8;
         }
     </style>
+    <link rel="stylesheet" href="/static/css/runtime-avatar.css?v=runtime-avatar-2">
 </head>
 <body class="h-screen overflow-hidden flex flex-col font-mono antialiased bg-zinc-950 text-zinc-100">
 
@@ -2854,21 +2855,28 @@
                         flex flex-col overflow-hidden">
 
         <div id="memory-drag-handle"
-             class="h-10 border-b border-zinc-800/80
-                           flex items-center px-4
+             class="border-b border-zinc-800/80
+                           flex items-center
                            bg-zinc-900/50
                            cursor-grab active:cursor-grabbing
                            select-none">
 
-            <button
-                    id="fact-check-trigger"
-                    type="button"
-                    title="Run fact check"
-                    class="text-xs font-bold uppercase tracking-widest text-zinc-100
-                           transition hover:text-cyan-200 hover:drop-shadow-[0_0_8px_rgba(34,211,238,0.55)]
-                           cursor-pointer">
-                JIN
-            </button>
+            <div class="jin-runtime-avatar-shell">
+                <div
+                        id="jin-runtime-avatar"
+                        class="jin-runtime-avatar"
+                        data-memory-layer="l1"
+                        aria-hidden="true">
+                </div>
+
+                <button
+                        id="fact-check-trigger"
+                        type="button"
+                        title="Run fact check"
+                        aria-label="Run fact check"
+                        class="jin-runtime-avatar-core-button">
+                </button>
+            </div>
 
             <div class="win95-window-controls" aria-hidden="true">
                 <span class="win95-window-button win95-window-button-min">_</span>
@@ -3489,6 +3497,7 @@
 <script src="/static/js/runtime/runtime-panel.js?v=runtime-panel-1"></script>
 <script src="/static/js/runtime/runtime-memory-view.js?v=runtime-memory-view-4"></script>
 <script src="/static/js/runtime/runtime.js?v=runtime-facade-5"></script>
+<script src="/static/js/runtime/runtime-avatar.js?v=runtime-avatar-2"></script>
 <script src="/static/js/status.js?v=status-check-4"></script>
 <script src="/static/js/dragdrop.js?v=attachments-2"></script>
 <script src="/static/js/logger.js?v=l1-live-summarizer-stream-1"></script>
