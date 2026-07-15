@@ -26,7 +26,7 @@ JIN uses short-term continuity to dynamically guide conversation strategy:
 
 Main runtime view: chat, live avatar, telemetry, and inspectable memory panels in one browser workspace.
 
-### Think Citations
+### Reasoning Citations
 
 ![Think citation highlighting](ui/static/images/think-highlight.jpg)
 
@@ -66,7 +66,7 @@ Runtime memory snapshots can be stepped through visually, with new or changed fa
 
 ## Architecture
 
-![shema](ui/static/images/shema.jpg)
+![schema](ui/static/images/schema.jpg)
 
 ## Runtime Flow
 
