@@ -527,8 +527,6 @@ def build_brain_system_prompt(
     )
     tool_results_section = (
         f"{tool_results_context}\n\n"
-        if tool_results_context
-        else ""
     )
     previous_chat_messages_context = (
         build_previous_chat_messages_context(
@@ -570,10 +568,10 @@ def build_brain_system_prompt(
     )
 
     prompt_prefix = (
+        f"{tool_results_section}"
         f"{top_runtime_section}"
         f"{previous_chat_messages_section}"
         f"{session_actions_history_section}"
-        f"{tool_results_section}"
         f"{runtime_action_instructions_section}"
         f"{IDENTITY}"
         "\n"

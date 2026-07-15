@@ -6203,10 +6203,14 @@ class RuntimeActionTests(unittest.TestCase):
     def test_idle_marker_variants_are_removed_and_normalized(self):
 
         for marker in (
+            "<IDLE: 10>",
             "<IDLE: 10s >",
-            "<IDLE: 10s />",
+            "<IDLE: 10 s>",
+            "<IDLE: 10ms>",
+            "<IDLE: 10 ms />",
             "<IDLE:10s>",
-            "<INTERNAL_ACTION_IDLE: 10s />",
+            "<INTERNAL_ACTION_IDLE: 10 />",
+            "<INTERNAL_ACTION_IDLE: 10ms />",
         ):
             with self.subTest(marker=marker):
                 result = extract_runtime_actions(
@@ -6232,6 +6236,112 @@ class RuntimeActionTests(unittest.TestCase):
                     result.actions[0].payload,
                     "10s",
                 )
+
+    def test_idle_marker_unit_suffix_is_ignored_and_value_means_seconds(self):
+
+        for marker in (
+            "<IDLE: 20>",
+            "<IDLE: 20 s>",
+            "<IDLE: 20ms>",
+        ):
+            with self.subTest(marker=marker):
+                result = extract_runtime_actions(
+                    marker,
+                    enabled_actions=(
+                        runtime_rules.RUNTIME_ACTION_IDLE,
+                    ),
+                )
+
+                self.assertEqual(
+                    result.text,
+                    "",
+                )
+                self.assertEqual(
+                    len(result.actions),
+                    1,
+                )
+                self.assertEqual(
+                    result.actions[0].payload,
+                    "20s",
+                )
+
+    def test_non_marker_idle_text_is_preserved(self):
+
+        for text in (
+            "idle",
+            "before idle after",
+            "<IDLE>",
+            "<IDLE: test >",
+            "<IDLE: 20seconds>",
+            "<IDLE: 20.5s>",
+            "<IDLE: -20s>",
+            "IDLE: test",
+        ):
+            with self.subTest(text=text):
+                result = extract_runtime_actions(
+                    text,
+                    enabled_actions=(
+                        runtime_rules.RUNTIME_ACTION_IDLE,
+                    ),
+                )
+
+                self.assertEqual(
+                    result.text,
+                    text,
+                )
+                self.assertEqual(
+                    result.actions,
+                    (),
+                )
+                self.assertEqual(
+                    result.removed_markers,
+                    (),
+                )
+
+    def test_stream_filter_preserves_idle_word_emitted_as_own_chunk(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=(
+                runtime_rules.RUNTIME_ACTION_IDLE,
+            ),
+        )
+
+        results = [
+            stream_filter.filter(
+                "Привет, вставляю слово "
+            ),
+            stream_filter.filter(
+                "idle"
+            ),
+            stream_filter.filter(
+                " в середине сообщения."
+            ),
+            stream_filter.flush_result(),
+        ]
+
+        self.assertEqual(
+            "".join(
+                result.text
+                for result in results
+            ),
+            "Привет, вставляю слово idle в середине сообщения.",
+        )
+        self.assertEqual(
+            tuple(
+                action
+                for result in results
+                for action in result.actions
+            ),
+            (),
+        )
+        self.assertEqual(
+            tuple(
+                marker
+                for result in results
+                for marker in result.removed_markers
+            ),
+            (),
+        )
 
     def test_repeated_idle_markers_remain_independent_actions(self):
 

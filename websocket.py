@@ -2115,6 +2115,107 @@ def append_runtime_recent_turn(
     ]
 
 
+def merge_runtime_idle_followup_turn(
+    context,
+    *,
+    origin_user_request: str,
+    assistant_message: str,
+    assistant_created_at: float | None = None,
+    idle_followup_id: str = "",
+) -> None:
+
+    if context is None:
+        return
+
+    origin_user_request = str(
+        origin_user_request
+        or ""
+    ).strip()
+    assistant_message = str(
+        assistant_message
+        or ""
+    ).strip()
+
+    if not assistant_message:
+        return
+
+    recent_turns = getattr(
+        context,
+        "runtime_recent_turns",
+        None,
+    )
+    if not isinstance(
+        recent_turns,
+        list,
+    ):
+        recent_turns = []
+        context.runtime_recent_turns = recent_turns
+
+    target_turn = None
+    for turn in reversed(
+        recent_turns
+    ):
+        if not isinstance(
+            turn,
+            dict,
+        ):
+            continue
+
+        turn_user = str(
+            turn.get(
+                "user",
+                "",
+            )
+            or ""
+        ).strip()
+        turn_origin = str(
+            turn.get(
+                "idle_origin_user_request",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if origin_user_request and (
+            turn_user == origin_user_request
+            or turn_origin == origin_user_request
+        ):
+            target_turn = turn
+            break
+
+    if target_turn is None:
+        target_turn = {
+            "user": origin_user_request,
+            "jin": "",
+            "idle_origin_user_request": origin_user_request,
+        }
+        recent_turns.append(
+            target_turn
+        )
+
+    target_turn["jin"] = assistant_message
+    target_turn["idle_origin_user_request"] = origin_user_request
+
+    normalized_idle_followup_id = str(
+        idle_followup_id
+        or ""
+    ).strip()
+    if normalized_idle_followup_id:
+        target_turn["idle_followup_id"] = normalized_idle_followup_id
+
+    if isinstance(
+        assistant_created_at,
+        (int, float),
+    ):
+        target_turn["jin_created_at"] = float(
+            assistant_created_at
+        )
+
+    context.runtime_recent_turns = recent_turns[
+        -RECENT_MESSAGES_MAX_PAIRS:
+    ]
+
+
 def format_runtime_memory_user_message(
     context,
     user_text: str,
@@ -2409,6 +2510,33 @@ async def process_message(
             if is_idle_followup
             else f"turn_{context.runtime_turn_counter:06d}"
         )
+
+        if is_idle_followup:
+            context.runtime_current_sequence_turn_id = str(
+                idle_followup.get(
+                    "sequence_turn_id",
+                    "",
+                )
+                or context.runtime_current_turn_id
+            ).strip()
+            sequence_started_at = idle_followup.get(
+                "sequence_started_at"
+            )
+            if not isinstance(
+                sequence_started_at,
+                (int, float),
+            ) or sequence_started_at <= 0:
+                sequence_started_at = context.runtime_turn_started_at
+            context.runtime_current_sequence_started_at = float(
+                sequence_started_at
+            )
+        else:
+            context.runtime_current_sequence_turn_id = (
+                context.runtime_current_turn_id
+            )
+            context.runtime_current_sequence_started_at = (
+                context.runtime_turn_started_at
+            )
         context.runtime_turn_attachments = (
             idle_followup.get(
                 "attachments",
@@ -2528,25 +2656,33 @@ async def process_message(
                 or context.runtime_turn_assistant_response
         )
 
-        append_runtime_recent_turn(
-            context,
-            user_message=(
-                ""
-                if is_idle_followup
-                else user_text
-            ),
-            assistant_message=assistant_message,
-            user_created_at=(
-                idle_followup.get("fired_at")
-                if is_idle_followup
-                else getattr(
+        assistant_created_at = time.time()
+        if is_idle_followup:
+            merge_runtime_idle_followup_turn(
+                context,
+                origin_user_request=user_text,
+                assistant_message=assistant_message,
+                assistant_created_at=assistant_created_at,
+                idle_followup_id=str(
+                    idle_followup.get(
+                        "id",
+                        "",
+                    )
+                    or ""
+                ),
+            )
+        else:
+            append_runtime_recent_turn(
+                context,
+                user_message=user_text,
+                assistant_message=assistant_message,
+                user_created_at=getattr(
                     context,
                     "runtime_turn_started_at",
                     None,
-                )
-            ),
-            assistant_created_at=time.time(),
-        )
+                ),
+                assistant_created_at=assistant_created_at,
+            )
 
         if is_idle_followup:
             memory_update_task = None

@@ -47,6 +47,11 @@ from utils.tool_results import (
     clear_runtime_tool_results,
     record_runtime_tool_result,
 )
+from utils.tool_results_context import (
+    build_tools_results_context,
+    is_idle_tool_results_block,
+    split_tools_results_context,
+)
 
 from config_loader import (
     config,
@@ -433,24 +438,6 @@ def build_idle_followup_tool_results(
         )
         or 0
     )
-    source_message = escape(
-        str(
-            idle_followup.get(
-                "source_message",
-                "",
-            )
-            or ""
-        )
-    )
-    origin_user_request = escape(
-        str(
-            idle_followup.get(
-                "origin_user_request",
-                "",
-            )
-            or ""
-        )
-    )
     idle_id = escape(
         str(
             idle_followup.get(
@@ -466,12 +453,6 @@ def build_idle_followup_tool_results(
         "  <IDLE_FOLLOWUP>\n"
         f"    <id>{idle_id}</id>\n"
         f"    <elapsed_seconds>{seconds}</elapsed_seconds>\n"
-        "    <origin_user_request>"
-        f"{origin_user_request}"
-        "</origin_user_request>\n"
-        "    <source_message>"
-        f"{source_message}"
-        "</source_message>\n"
         "  </IDLE_FOLLOWUP>\n"
         "</TOOL_RESULTS>"
     )
@@ -495,12 +476,29 @@ def build_idle_followup_system_prompt(
         )
         or ""
     )
-
-    sections = [
-        IDLE_FOLLOWUP_MESSAGE.strip(),
+    inherited_tool_results, frozen_system_prompt = (
+        split_tools_results_context(
+            frozen_system_prompt
+        )
+    )
+    inherited_tool_results = [
+        block
+        for block in inherited_tool_results
+        if not is_idle_tool_results_block(
+            block
+        )
+    ]
+    inherited_tool_results.append(
         build_idle_followup_tool_results(
             idle_followup
+        )
+    )
+
+    sections = [
+        build_tools_results_context(
+            inherited_tool_results
         ),
+        IDLE_FOLLOWUP_MESSAGE.strip(),
     ]
 
     if frozen_system_prompt:
@@ -561,6 +559,7 @@ class BrainNode(BaseNode):
             strip_actions_history_context,
         )
         from utils.session_actions_history import (
+            get_current_action_sequence_started_at,
             mark_current_action_sequence,
         )
 
@@ -568,10 +567,8 @@ class BrainNode(BaseNode):
             sequence_origin_request_context = (
                 build_sequence_origin_request_context(
                     initial_user_request,
-                    created_at=getattr(
-                        context,
-                        "runtime_turn_started_at",
-                        None,
+                    created_at=get_current_action_sequence_started_at(
+                        context
                     ),
                 )
             )
@@ -582,7 +579,16 @@ class BrainNode(BaseNode):
                 )
             )
 
+        tool_result_blocks, system_prompt = (
+            split_tools_results_context(
+                system_prompt
+            )
+        )
+
         sections = [
+            build_tools_results_context(
+                tool_result_blocks
+            ),
             build_followup_system_message(
                 latest_action
             ),
@@ -696,11 +702,6 @@ class BrainNode(BaseNode):
         if instruction.strip():
             sections.append(
                 instruction.strip()
-            )
-
-        if "<TOOL_RESULTS" not in system_prompt:
-            sections.append(
-                "<TOOL_RESULTS>\n</TOOL_RESULTS>"
             )
 
         sections.append(
@@ -1156,8 +1157,27 @@ class BrainNode(BaseNode):
             idle_followup = {}
 
         if idle_followup:
-            system_prompt = build_idle_followup_system_prompt(
+            idle_system_prompt = build_idle_followup_system_prompt(
                 idle_followup
+            )
+            sequence_origin_request = str(
+                idle_followup.get(
+                    "origin_user_request",
+                    "",
+                )
+                or state.translated_input
+                or getattr(
+                    context,
+                    "runtime_turn_user_message",
+                    "",
+                )
+                or ""
+            ).strip()
+            system_prompt = self.build_followup_system_prompt(
+                idle_system_prompt,
+                sequence_origin_request,
+                context=context,
+                latest_action="idle",
             )
             brain_payload = ""
         else:

@@ -115,6 +115,9 @@ from utils.tool_results import (
     record_runtime_tool_result,
     remove_runtime_tool_results,
 )
+from utils.tool_results_context import (
+    strip_tools_results_context,
+)
 from utils.runtime_todo import (
     apply_runtime_todo_action_result,
     attach_runtime_todo_item_to_result,
@@ -1724,8 +1727,47 @@ async def _enqueue_idle_followup_after_delay(
 
     await asyncio.sleep(seconds)
 
+    scheduled_generation = int(
+        record.get(
+            "tool_results_generation",
+            0,
+        )
+        or 0
+    )
+    current_generation = int(
+        getattr(
+            context,
+            "runtime_tool_results_generation",
+            0,
+        )
+        or 0
+    )
+    context_snapshot = deepcopy(
+        record.get(
+            "context_snapshot",
+            {},
+        )
+    )
+    if not isinstance(
+        context_snapshot,
+        dict,
+    ):
+        context_snapshot = {}
+
+    if scheduled_generation != current_generation:
+        context_snapshot["system_prompt"] = (
+            strip_tools_results_context(
+                context_snapshot.get(
+                    "system_prompt",
+                    "",
+                )
+            )
+        )
+
     record = {
         **record,
+        "context_snapshot": context_snapshot,
+        "tool_results_generation": current_generation,
         "fired_at": time.time(),
     }
     queue = getattr(
@@ -1777,6 +1819,39 @@ def schedule_idle_followup(
     context.runtime_idle_action_sequence = sequence
 
     scheduled_at = time.time()
+    sequence_turn_id = str(
+        getattr(
+            context,
+            "runtime_current_sequence_turn_id",
+            "",
+        )
+        or getattr(
+            context,
+            "runtime_current_turn_id",
+            "",
+        )
+        or ""
+    ).strip()
+    sequence_started_at = getattr(
+        context,
+        "runtime_current_sequence_started_at",
+        None,
+    )
+    if not isinstance(
+        sequence_started_at,
+        (int, float),
+    ) or sequence_started_at <= 0:
+        sequence_started_at = getattr(
+            context,
+            "runtime_turn_started_at",
+            scheduled_at,
+        )
+    if not isinstance(
+        sequence_started_at,
+        (int, float),
+    ) or sequence_started_at <= 0:
+        sequence_started_at = scheduled_at
+
     record = {
         "id": build_runtime_action_id(
             RUNTIME_ACTION_IDLE,
@@ -1788,9 +1863,19 @@ def schedule_idle_followup(
         "due_at": scheduled_at + seconds,
         "source_message": str(source_message or ""),
         "origin_user_request": str(user_message or ""),
+        "sequence_turn_id": sequence_turn_id,
+        "sequence_started_at": float(sequence_started_at),
         "context_snapshot": deepcopy(context_snapshot)
         if isinstance(context_snapshot, dict)
         else {},
+        "tool_results_generation": int(
+            getattr(
+                context,
+                "runtime_tool_results_generation",
+                0,
+            )
+            or 0
+        ),
         "attachments": deepcopy(
             getattr(
                 context,

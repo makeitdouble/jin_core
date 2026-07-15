@@ -893,8 +893,12 @@ class MessageMemoryTests(
 
         self.assertTrue(
             prompt.startswith(
-                "<RUNTIME_MEMORY>"
+                "<TOOLS_RESULTS>"
             ),
+        )
+        self.assertLess(
+            prompt.index("</TOOLS_RESULTS>"),
+            prompt.index("<RUNTIME_MEMORY>"),
         )
         self.assertLess(
             prompt.index("<RUNTIME_MEMORY>"),
@@ -1202,6 +1206,12 @@ class MessageMemoryTests(
         )
         self.assertTrue(
             prompt.startswith(
+                "<TOOLS_RESULTS>"
+            ),
+        )
+        self.assertLess(
+            prompt.index("</TOOLS_RESULTS>"),
+            prompt.index(
                 "<LATEST_USER_FEEDBACK priority=HIGH_PRIORITY>"
             ),
         )

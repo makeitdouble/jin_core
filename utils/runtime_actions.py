@@ -1727,7 +1727,7 @@ def _is_placeholder_create_active_memory_query(
 
 
 IDLE_SECONDS_RE = re.compile(
-    r"^\s*(?P<seconds>\d+)\s*s\s*$",
+    r"^\s*(?P<seconds>\d+)(?:\s*(?:m?s))?\s*$",
     re.IGNORECASE,
 )
 
@@ -2112,6 +2112,13 @@ def extract_runtime_actions(
         )
 
         if action is None:
+            # IDLE is intentionally numeric: ``IDLE: <digits>`` with an
+            # optional ``s``/``ms`` suffix is a runtime marker. The suffix is
+            # ignored and the number always means seconds. Plain prose and
+            # malformed candidates such as ``<IDLE: test>`` stay visible.
+            if normalized_action_name == RUNTIME_ACTION_IDLE:
+                return raw_marker
+
             if not preserve_action_text:
                 removed_markers.append(
                     raw_marker

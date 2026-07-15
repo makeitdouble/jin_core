@@ -5,6 +5,66 @@ import time
 MAX_SESSION_ACTION_HISTORY_ITEMS = 200
 
 
+def get_current_action_sequence_turn_id(
+    context,
+) -> str:
+
+    if context is None:
+        return ""
+
+    return str(
+        getattr(
+            context,
+            "runtime_current_sequence_turn_id",
+            "",
+        )
+        or getattr(
+            context,
+            "runtime_current_turn_id",
+            "",
+        )
+        or ""
+    ).strip()
+
+
+def get_current_action_sequence_started_at(
+    context,
+):
+
+    if context is None:
+        return None
+
+    sequence_started_at = getattr(
+        context,
+        "runtime_current_sequence_started_at",
+        None,
+    )
+
+    if isinstance(
+        sequence_started_at,
+        (int, float),
+    ) and sequence_started_at > 0:
+        return float(
+            sequence_started_at
+        )
+
+    turn_started_at = getattr(
+        context,
+        "runtime_turn_started_at",
+        None,
+    )
+
+    if isinstance(
+        turn_started_at,
+        (int, float),
+    ) and turn_started_at > 0:
+        return float(
+            turn_started_at
+        )
+
+    return None
+
+
 ACTION_DISPLAY_ALIASES = {
     "append_asset_file": "Appended asset file",
     "append_delayed_memory": "Appended delayed memory",
@@ -327,14 +387,9 @@ def record_session_action_history(
     if normalized_display_parts:
         item["parts"] = normalized_display_parts
 
-    runtime_turn_id = str(
-        getattr(
-            context,
-            "runtime_current_turn_id",
-            "",
-        )
-        or ""
-    ).strip()
+    runtime_turn_id = get_current_action_sequence_turn_id(
+        context
+    )
 
     if runtime_turn_id:
         item["runtime_turn_id"] = runtime_turn_id
@@ -934,14 +989,9 @@ def build_session_actions_update_items(
     ):
         return []
 
-    runtime_turn_id = str(
-        getattr(
-            context,
-            "runtime_current_turn_id",
-            "",
-        )
-        or ""
-    ).strip()
+    runtime_turn_id = get_current_action_sequence_turn_id(
+        context
+    )
 
     if current_sequence and not runtime_turn_id:
         return []
@@ -1062,13 +1112,8 @@ async def emit_session_actions_update(
             if current_sequence
             else "session_actions"
         ),
-        "sequence_id": str(
-            getattr(
-                context,
-                "runtime_current_turn_id",
-                "",
-            )
-            or ""
+        "sequence_id": get_current_action_sequence_turn_id(
+            context
         ),
         "items": items,
     })
@@ -1081,14 +1126,9 @@ def mark_current_action_sequence(
     if context is None:
         return ""
 
-    runtime_turn_id = str(
-        getattr(
-            context,
-            "runtime_current_turn_id",
-            "",
-        )
-        or ""
-    ).strip()
+    runtime_turn_id = get_current_action_sequence_turn_id(
+        context
+    )
 
     if not runtime_turn_id:
         return ""

@@ -134,6 +134,19 @@ def clear_runtime_tool_results(
     get_runtime_tool_results(
         context
     ).clear()
+    generation = int(
+        getattr(
+            context,
+            "runtime_tool_results_generation",
+            0,
+        )
+        or 0
+    )
+    setattr(
+        context,
+        "runtime_tool_results_generation",
+        generation + 1,
+    )
     setattr(
         context,
         "runtime_tool_results_turn_count",

@@ -13,6 +13,9 @@ from clients.brain_client_utils import (
     get_brain_runtime_config,
     schedule_idle_followup,
 )
+from utils.tool_results import (
+    clear_runtime_tool_results,
+)
 from websocket import (
     PendingRequestQueue,
     apply_runtime_resume,
@@ -21,6 +24,7 @@ from websocket import (
     reject_when_all_models_offline,
     refresh_pending_brain_usage,
     wait_for_runtime_memory_update,
+    merge_runtime_idle_followup_turn,
 )
 
 
@@ -143,6 +147,145 @@ class FakeWebSocket:
 
 
 class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
+
+    def test_idle_followups_replace_same_recent_turn_instead_of_duplicating_it(self):
+
+        context = SimpleNamespace(
+            runtime_recent_turns=[
+                {
+                    "user": "run the timed experiment",
+                    "jin": "Timer armed.",
+                },
+            ],
+        )
+
+        merge_runtime_idle_followup_turn(
+            context,
+            origin_user_request="run the timed experiment",
+            assistant_message="First follow-up result.",
+            assistant_created_at=10.0,
+            idle_followup_id="idle_001",
+        )
+        merge_runtime_idle_followup_turn(
+            context,
+            origin_user_request="run the timed experiment",
+            assistant_message="Final follow-up result.",
+            assistant_created_at=20.0,
+            idle_followup_id="idle_002",
+        )
+
+        self.assertEqual(
+            len(context.runtime_recent_turns),
+            1,
+        )
+        self.assertEqual(
+            context.runtime_recent_turns[0]["user"],
+            "run the timed experiment",
+        )
+        self.assertEqual(
+            context.runtime_recent_turns[0]["jin"],
+            "Final follow-up result.",
+        )
+        self.assertEqual(
+            context.runtime_recent_turns[0]["idle_followup_id"],
+            "idle_002",
+        )
+
+    async def test_clean_tool_results_invalidates_pending_idle_snapshot(self):
+
+        queue = asyncio.Queue()
+        context = SimpleNamespace(
+            background_tasks=set(),
+            runtime_pending_requests_queue=queue,
+            runtime_pending_idle_followups=[],
+            runtime_idle_action_sequence=0,
+            runtime_tool_results_generation=0,
+            runtime_tool_results=[],
+            runtime_tool_results_turn_count=1,
+            runtime_search_result="old search",
+            runtime_search_result_id="search_1",
+            runtime_visible_skills_result={},
+            runtime_asset_results=[],
+            runtime_asset_retry_results=[],
+            runtime_asset_retry_context=[],
+            runtime_delayed_memory_results=[],
+            runtime_turn_attachments=[],
+        )
+
+        schedule_idle_followup(
+            context,
+            seconds=0,
+            source_message="<IDLE: 0s>",
+            user_message="continue later",
+            context_snapshot={
+                "system_prompt": (
+                    "<TOOLS_RESULTS>\n"
+                    "<TOOL_RESULTS type='external'>old</TOOL_RESULTS>\n"
+                    "</TOOLS_RESULTS>\n\nRULES"
+                ),
+            },
+        )
+        clear_runtime_tool_results(
+            context
+        )
+
+        queued = await asyncio.wait_for(
+            queue.get(),
+            timeout=1,
+        )
+        frozen_prompt = queued[
+            "idle_followup"
+        ]["context_snapshot"]["system_prompt"]
+
+        self.assertEqual(
+            frozen_prompt,
+            "RULES",
+        )
+        self.assertEqual(
+            queued["idle_followup"]["tool_results_generation"],
+            1,
+        )
+
+    async def test_idle_followup_preserves_root_sequence_identity(self):
+
+        queue = asyncio.Queue()
+        context = SimpleNamespace(
+            background_tasks=set(),
+            runtime_pending_requests_queue=queue,
+            runtime_pending_idle_followups=[],
+            runtime_idle_action_sequence=0,
+            runtime_tool_results_generation=0,
+            runtime_turn_attachments=[],
+            runtime_current_turn_id="idle_000002",
+            runtime_current_sequence_turn_id="turn_000001",
+            runtime_turn_started_at=1031.0,
+            runtime_current_sequence_started_at=1000.0,
+        )
+
+        schedule_idle_followup(
+            context,
+            seconds=0,
+            source_message="<IDLE: 0s>",
+            user_message="timed sequence",
+            context_snapshot={
+                "system_prompt": "frozen prompt",
+            },
+        )
+
+        queued = await asyncio.wait_for(
+            queue.get(),
+            timeout=1,
+        )
+        followup = queued["idle_followup"]
+
+        self.assertEqual(
+            followup["sequence_turn_id"],
+            "turn_000001",
+        )
+        self.assertEqual(
+            followup["sequence_started_at"],
+            1000.0,
+        )
 
     async def test_due_idle_followup_runs_before_queued_dialogue_requests(self):
 

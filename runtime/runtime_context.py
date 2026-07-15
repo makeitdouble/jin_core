@@ -67,6 +67,8 @@ class RuntimeContext:
 
     runtime_tool_results_turn_count: int = 0
 
+    runtime_tool_results_generation: int = 0
+
     runtime_asset_results: list[dict] = field(
         default_factory=list
     )
@@ -191,7 +193,11 @@ class RuntimeContext:
 
     runtime_current_turn_id: str = ""
 
+    runtime_current_sequence_turn_id: str = ""
+
     runtime_turn_started_at: float = 0.0
+
+    runtime_current_sequence_started_at: float = 0.0
 
     user_message_count: int = 0
 

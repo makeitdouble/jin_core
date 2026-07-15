@@ -54,6 +54,14 @@ from utils.tool_results import (
     get_runtime_tool_results,
 )
 
+from utils.tool_results_context import (
+    build_tools_results_context,
+)
+from utils.session_actions_history import (
+    get_current_action_sequence_started_at,
+    get_current_action_sequence_turn_id,
+)
+
 
 def get_brain_runtime_mode() -> str:
 
@@ -425,18 +433,11 @@ def build_session_actions_history_context(
     ]
 
     if current_sequence:
-        current_turn_id = str(
-            getattr(
-                context,
-                "runtime_current_turn_id",
-                "",
-            )
-            or ""
-        ).strip()
-        turn_started_at = getattr(
-            context,
-            "runtime_turn_started_at",
-            None,
+        current_turn_id = get_current_action_sequence_turn_id(
+            context
+        )
+        turn_started_at = get_current_action_sequence_started_at(
+            context
         )
         history_items = [
             item
@@ -556,6 +557,8 @@ def strip_actions_history_context(
         "SESSION_ACTIONS_HISTORY",
         "CURRENT_SEQUENCE",
         "CURRENT_ACTIONS_HISTORY",
+        "SEQUENCE_ORIGIN_REQUEST",
+        "PREVIOUS_CHAT_MESSAGES",
     ):
         prompt = re.sub(
             rf"(?:^|\n)<{tag_name}>.*?</{tag_name}>\n*",
@@ -2116,35 +2119,42 @@ def build_tool_results_context(
     context=None,
 ) -> str:
 
-    parts = []
+    tool_result_blocks = []
+    extra_parts = []
 
     if append_recorded_tool_results(
-        parts,
+        tool_result_blocks,
         context,
     ):
         append_appended_skills(
-            parts,
+            extra_parts,
             context,
         )
-        return "\n".join(
-            parts
+    else:
+        append_tool_results(
+            tool_result_blocks,
+            context,
+        )
+        append_asset_results(
+            tool_result_blocks,
+            context,
+        )
+        append_delayed_memory_results(
+            tool_result_blocks,
+            context,
+        )
+        append_appended_skills(
+            extra_parts,
+            context,
         )
 
-    append_tool_results(
-        parts,
-        context,
-    )
-    append_asset_results(
-        parts,
-        context,
-    )
-    append_delayed_memory_results(
-        parts,
-        context,
-    )
-    append_appended_skills(
-        parts,
-        context,
+    parts = [
+        build_tools_results_context(
+            tool_result_blocks
+        )
+    ]
+    parts.extend(
+        extra_parts
     )
 
     return "\n".join(

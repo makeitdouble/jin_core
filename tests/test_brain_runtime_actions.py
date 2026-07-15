@@ -1781,7 +1781,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             "APPEND / REMOVE SKILLS:",
         )
 
-    def test_prompt_places_tool_results_after_session_history(self):
+    def test_prompt_places_tool_results_at_context_top(self):
 
         context = SimpleNamespace(
             runtime_memory="session_status: active",
@@ -1838,13 +1838,18 @@ class BrainRuntimeActionTests(unittest.TestCase):
             },
         )
 
-        self.assertLess(
-            prompt.index("<SESSION_ACTIONS_HISTORY>"),
-            prompt.index("<TOOL_RESULTS"),
+        self.assertTrue(
+            prompt.startswith(
+                "<TOOLS_RESULTS>"
+            )
         )
         self.assertLess(
             prompt.index("<TOOL_RESULTS"),
             prompt.index("<APPENDED_SKILLS_CONTENT>"),
+        )
+        self.assertLess(
+            prompt.index("<APPENDED_SKILLS_CONTENT>"),
+            prompt.index("<SESSION_ACTIONS_HISTORY>"),
         )
         self.assertLess(
             prompt.index("<APPENDED_SKILLS_CONTENT>"),
@@ -2091,8 +2096,14 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertTrue(
             prompt.startswith(
-                "<ACTIVE_MEMORY priority=\"active_runtime_contracts\">"
+                "<TOOLS_RESULTS>"
             )
+        )
+        self.assertLess(
+            prompt.index("</TOOLS_RESULTS>"),
+            prompt.index(
+                "<ACTIVE_MEMORY priority=\"active_runtime_contracts\">"
+            ),
         )
         self.assertLess(
             prompt.index("<ACTIVE_MEMORY"),

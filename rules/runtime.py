@@ -33,7 +33,8 @@ CONTEXT_LIMIT_RECOVERY_MESSAGE = (
 
 IDLE_FOLLOWUP_MESSAGE = (
     "This is a follow-up tick from an IDLE timer JIN chose to set.\n"
-    "The reason and the complete source message are provided in TOOL_RESULTS.\n"
+    "Timer metadata is provided in TOOLS_RESULTS. Continue the existing "
+    "sequence from SEQUENCE_ORIGIN_REQUEST and CURRENT_SEQUENCE.\n"
 )
 
 
