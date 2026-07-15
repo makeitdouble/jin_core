@@ -934,7 +934,7 @@ class MessageMemoryTests(
         )
         self.assertLess(
             prompt.index("<SESSION_ACTIONS_HISTORY>"),
-            prompt.index("I must identify myself as JIN"),
+            prompt.index("I identify myself as JIN"),
         )
 
     def test_current_action_age_starts_at_one_second(self):

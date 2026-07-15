@@ -1852,7 +1852,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertLess(
             prompt.index("RUNTIME ACTION MARKERS are internal mechanics"),
-            prompt.index("I must identify myself as JIN"),
+            prompt.index("I identify myself as JIN"),
         )
         self.assertNotIn(
             "first line\\nsecond line",
@@ -1946,7 +1946,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 "<APPENDED_DELAYED_MEMORY>"
             ),
             prompt.index(
-                "I must identify myself as JIN"
+                "I identify myself as JIN"
             ),
         )
 
