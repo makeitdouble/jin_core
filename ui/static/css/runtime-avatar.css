@@ -178,9 +178,9 @@
     filter:
         brightness(1.48)
         saturate(1.72)
-        drop-shadow(0 0 5px rgba(190, 252, 255, 0.88))
-        drop-shadow(0 0 15px rgba(52, 211, 222, 0.54))
-        drop-shadow(0 0 28px rgba(34, 211, 238, 0.24));
+        drop-shadow(0 0 5px var(--jin-avatar-cited-glow-near, rgba(190, 252, 255, 0.88)))
+        drop-shadow(0 0 15px var(--jin-avatar-cited-glow-mid, rgba(52, 211, 222, 0.54)))
+        drop-shadow(0 0 28px var(--jin-avatar-cited-glow-far, rgba(34, 211, 238, 0.24)));
 }
 
 .jin-avatar-orbit.is-runtime-cited circle,

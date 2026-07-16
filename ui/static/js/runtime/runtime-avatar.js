@@ -653,6 +653,7 @@
       );
     }
 
+    const ringRgb = hexToRgb(ringColor);
     const baseSpeed = 11 + random() * 36;
     const effectiveSpeed = baseSpeed * (diffPercent / 100);
     const duration = effectiveSpeed > 0.05 ? 360 / effectiveSpeed : 9999;
@@ -663,6 +664,9 @@
         `--jin-avatar-duration:${duration.toFixed(2)}s`,
         `--jin-avatar-direction:${direction}`,
         `--jin-avatar-play-state:${effectiveSpeed > 0.05 ? "running" : "paused"}`,
+        `--jin-avatar-cited-glow-near:rgba(${ringRgb.r},${ringRgb.g},${ringRgb.b},0.88)`,
+        `--jin-avatar-cited-glow-mid:rgba(${ringRgb.r},${ringRgb.g},${ringRgb.b},0.54)`,
+        `--jin-avatar-cited-glow-far:rgba(${ringRgb.r},${ringRgb.g},${ringRgb.b},0.24)`,
       ].join(";"),
     });
     const shouldAnimate = Boolean(options.animate);
