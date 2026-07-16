@@ -134,6 +134,9 @@
     animation-direction: var(--jin-avatar-direction, normal);
     animation-play-state: var(--jin-avatar-play-state, running);
     will-change: transform;
+    transition:
+        filter 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+        opacity 0.38s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 .jin-avatar-counter-orbit {
@@ -145,6 +148,9 @@
     animation-direction: var(--jin-avatar-direction, normal);
     animation-play-state: var(--jin-avatar-play-state, running);
     will-change: transform;
+    transition:
+        filter 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+        opacity 0.38s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 @keyframes jin-avatar-orbit-rotation {
@@ -155,6 +161,39 @@
 @keyframes jin-avatar-counter-rotation {
     from { transform: rotate(360deg); }
     to { transform: rotate(0deg); }
+}
+
+.jin-avatar-orbit circle,
+.jin-avatar-orbit line,
+.jin-avatar-counter-orbit circle,
+.jin-avatar-counter-orbit line {
+    transition:
+        stroke-opacity 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+        fill-opacity 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+        opacity 0.38s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.jin-avatar-orbit.is-runtime-cited,
+.jin-avatar-counter-orbit.is-runtime-cited {
+    filter:
+        brightness(1.48)
+        saturate(1.72)
+        drop-shadow(0 0 5px rgba(190, 252, 255, 0.88))
+        drop-shadow(0 0 15px rgba(52, 211, 222, 0.54))
+        drop-shadow(0 0 28px rgba(34, 211, 238, 0.24));
+}
+
+.jin-avatar-orbit.is-runtime-cited circle,
+.jin-avatar-orbit.is-runtime-cited line,
+.jin-avatar-counter-orbit.is-runtime-cited circle,
+.jin-avatar-counter-orbit.is-runtime-cited line {
+    opacity: 1;
+    stroke-opacity: 0.96 !important;
+}
+
+.jin-avatar-orbit.is-runtime-cited circle[fill]:not([fill="none"]),
+.jin-avatar-counter-orbit.is-runtime-cited circle[fill]:not([fill="none"]) {
+    fill-opacity: 1 !important;
 }
 
 .jin-avatar-layer-glow {

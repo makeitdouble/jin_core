@@ -317,6 +317,10 @@ function buildMatch(
     layer: fragment.layer,
     sourceText: fragment.sourceText,
     titleText: fragment.titleText || fragment.sourceText,
+    sourceLineIndex: fragment.sourceLineIndex,
+    sourceSnapshotIndex: fragment.sourceSnapshotIndex,
+    sourceLineKey: fragment.sourceLineKey,
+    sourceLineText: fragment.sourceLineText,
   };
 }
 

@@ -5,6 +5,7 @@
 
   const SVG_NS = "http://www.w3.org/2000/svg";
   const AVATAR_EVENT = "jin:runtime-avatar-snapshot";
+  const THINK_RUNTIME_CITATION_HOVER_EVENT = "jin:think-runtime-citation-hover";
 
   const CENTER = 180;
   const MIN_RING_RADIUS = 48;
@@ -218,6 +219,18 @@
           value: line.slice(separatorIndex + 1).trim(),
         };
       });
+  }
+
+  function normalizeRuntimeCitationIdentity(value) {
+    const source = String(value || "");
+    const normalized = source.normalize
+      ? source.normalize("NFKC")
+      : source;
+
+    return normalized
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
   }
 
   function getSnapshotLines(snapshot) {
@@ -656,7 +669,15 @@
     const entryGroup = createSvgElement("g", shouldAnimate ? {
       class: "jin-avatar-orbit-entry",
       style: `--jin-avatar-entry-delay:${Number(options.entryDelay || 0).toFixed(3)}s`,
-    } : {});
+    } : {
+      class: "jin-avatar-orbit-entry",
+    });
+
+    orbitGroup.dataset.runtimeLineIndex = String(record.index);
+    orbitGroup.dataset.runtimeLineKey =
+      normalizeRuntimeCitationIdentity(record.key);
+    orbitGroup.dataset.runtimeLineText =
+      normalizeRuntimeCitationIdentity(record.text);
 
     appendTitle(
       orbitGroup,
@@ -800,6 +821,89 @@
     svg.appendChild(center);
   }
 
+  let currentRenderedSnapshotIndex = null;
+  const activeThinkRuntimeCitationSources = new Map();
+
+  function normalizeThinkRuntimeCitationHoverDetail(detail) {
+    if (!detail || detail.active !== true) {
+      return null;
+    }
+
+    const sourceId =
+      String(detail.sourceId || "unknown-think");
+    const lineKeys =
+      new Set(
+        (Array.isArray(detail.lineKeys) ? detail.lineKeys : [])
+          .map(normalizeRuntimeCitationIdentity)
+          .filter(Boolean)
+      );
+    const lineTexts =
+      new Set(
+        (Array.isArray(detail.lineTexts) ? detail.lineTexts : [])
+          .map(normalizeRuntimeCitationIdentity)
+          .filter(Boolean)
+      );
+
+    if (!lineKeys.size && !lineTexts.size) {
+      return null;
+    }
+
+    return {
+      sourceId,
+      lineKeys,
+      lineTexts,
+    };
+  }
+
+  function getActiveThinkRuntimeCitationIdentitySets() {
+    const lineKeys = new Set();
+    const lineTexts = new Set();
+
+    activeThinkRuntimeCitationSources.forEach((state) => {
+      state.lineKeys.forEach(key => lineKeys.add(key));
+      state.lineTexts.forEach(line => lineTexts.add(line));
+    });
+
+    return {
+      lineKeys,
+      lineTexts,
+    };
+  }
+
+  function applyThinkRuntimeCitationGlow() {
+    const svg = avatarRoot.querySelector("svg");
+
+    if (!svg) {
+      return;
+    }
+
+    const activeIdentities =
+      getActiveThinkRuntimeCitationIdentitySets();
+
+    Array.from(
+      svg.querySelectorAll(
+        ".jin-avatar-orbit[data-runtime-line-key], .jin-avatar-counter-orbit[data-runtime-line-key]"
+      )
+    ).forEach((orbitGroup) => {
+      const lineKey =
+        normalizeRuntimeCitationIdentity(
+          orbitGroup.dataset.runtimeLineKey
+        );
+      const lineText =
+        normalizeRuntimeCitationIdentity(
+          orbitGroup.dataset.runtimeLineText
+        );
+      const cited =
+        (lineKey && activeIdentities.lineKeys.has(lineKey))
+        || (lineText && activeIdentities.lineTexts.has(lineText));
+
+      orbitGroup.classList.toggle(
+        "is-runtime-cited",
+        Boolean(cited)
+      );
+    });
+  }
+
   function buildRenderSignature(snapshot, lines) {
     return [
       snapshot && snapshot.runtime_memory_id,
@@ -853,8 +957,17 @@
     appendCenter(svg, overallColor);
 
     avatarRoot.replaceChildren(svg);
+    currentRenderedSnapshotIndex = Number.isInteger(Number(options.snapshotIndex))
+      ? Number(options.snapshotIndex)
+      : null;
     avatarRoot.dataset.diff = String(Math.round(diffPercent));
+    if (currentRenderedSnapshotIndex !== null) {
+      avatarRoot.dataset.snapshotIndex = String(currentRenderedSnapshotIndex);
+    } else {
+      delete avatarRoot.dataset.snapshotIndex;
+    }
     avatarRoot.style.setProperty("--jin-avatar-overall-color", overallColor);
+    applyThinkRuntimeCitationGlow();
     lastRenderSignature = signature;
   }
 
@@ -872,6 +985,7 @@
     syncMemoryLayer();
     renderAvatar(getLatestSnapshot(), {
       seedNonce: avatarRefreshNonce,
+      snapshotIndex: getLatestSnapshotIndex(),
     });
   }
 
@@ -886,6 +1000,20 @@
 
     return Array.isArray(snapshots) && snapshots.length
       ? snapshots[snapshots.length - 1]
+      : null;
+  }
+
+  function getLatestSnapshotIndex() {
+    const runtime = window.JinRuntime && window.JinRuntime.runtime;
+
+    if (!runtime || typeof runtime.getRuntimeMemorySnapshots !== "function") {
+      return null;
+    }
+
+    const snapshots = runtime.getRuntimeMemorySnapshots();
+
+    return Array.isArray(snapshots) && snapshots.length
+      ? snapshots.length - 1
       : null;
   }
 
@@ -957,7 +1085,7 @@
     delete avatarRoot.dataset.memoryLayer;
   }
 
-  function scheduleSnapshotRender(snapshot) {
+  function scheduleSnapshotRender(snapshot, snapshotIndex = null) {
     const resolvedSnapshot = snapshot || getLatestSnapshot();
     const activeLayer = resolveMemoryLayer();
 
@@ -972,7 +1100,9 @@
     if (!activeLayer) {
       memoryLayerSuppressedForSnapshot = false;
       suppressedMemoryLayer = null;
-      renderAvatar(resolvedSnapshot);
+      renderAvatar(resolvedSnapshot, {
+        snapshotIndex,
+      });
       return;
     }
 
@@ -992,14 +1122,41 @@
         return;
       }
 
-      renderAvatar(resolvedSnapshot);
+      renderAvatar(resolvedSnapshot, {
+        snapshotIndex,
+      });
       syncMemoryLayer();
     }, SNAPSHOT_GLOW_CLEAR_DELAY_MS);
   }
 
   window.addEventListener(AVATAR_EVENT, (event) => {
-    const snapshot = event && event.detail && event.detail.snapshot;
-    scheduleSnapshotRender(snapshot);
+    const detail = event && event.detail;
+    const snapshot = detail && detail.snapshot;
+    const snapshotIndex = Number.isInteger(Number(detail && detail.index))
+      ? Number(detail.index)
+      : null;
+    scheduleSnapshotRender(snapshot, snapshotIndex);
+  });
+
+  window.addEventListener(THINK_RUNTIME_CITATION_HOVER_EVENT, (event) => {
+    const detail = event && event.detail || {};
+    const sourceId =
+      String(detail.sourceId || "unknown-think");
+    const state =
+      normalizeThinkRuntimeCitationHoverDetail(detail);
+
+    if (state) {
+      activeThinkRuntimeCitationSources.set(
+        sourceId,
+        state
+      );
+    } else {
+      activeThinkRuntimeCitationSources.delete(
+        sourceId
+      );
+    }
+
+    applyThinkRuntimeCitationGlow();
   });
 
   if (settingsPanel && typeof MutationObserver !== "undefined") {
@@ -1018,7 +1175,9 @@
   }
 
   syncMemoryLayer();
-  renderAvatar(getLatestSnapshot());
+  renderAvatar(getLatestSnapshot(), {
+    snapshotIndex: getLatestSnapshotIndex(),
+  });
 
   window.JinRuntime.avatar = {
     render: renderAvatar,

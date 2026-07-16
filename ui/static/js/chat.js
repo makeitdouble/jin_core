@@ -11,7 +11,9 @@ const STREAM_NEAR_BOTTOM_PX = 72;
 const THINK_RULE_CITATIONS_ENDPOINT =
   "/api/debug/rule-citations";
 const THINK_RULE_WORKER_URL =
-  "/static/js/think-rule-worker.js?v=rule-citations-3";
+  "/static/js/think-rule-worker.js?v=rule-citations-4";
+const THINK_RUNTIME_CITATION_HOVER_EVENT =
+  "jin:think-runtime-citation-hover";
 
 let streamFrameScheduled = false;
 let thinkRuleCitationWorker = null;
@@ -1220,6 +1222,7 @@ function buildMemoryCitationFragments(
     layer,
     idPrefix,
     defaultConstantName,
+    sourceSnapshotIndex = null,
   } = options;
 
   const fragments = [];
@@ -1278,6 +1281,10 @@ function buildMemoryCitationFragments(
           constantName: key || defaultConstantName,
           sourceText,
           titleText: line,
+          sourceLineIndex: index,
+          sourceSnapshotIndex,
+          sourceLineKey: key || defaultConstantName,
+          sourceLineText: line,
           minScore: 0.72,
         }
       );
@@ -1380,6 +1387,7 @@ function buildRuntimeCitationFragments(
       layer: "runtime",
       idPrefix: `runtime:${snapshotIndex}`,
       defaultConstantName: "runtime_memory",
+      sourceSnapshotIndex: snapshotIndex,
     }
   );
 
@@ -1427,6 +1435,129 @@ function buildSessionCitationFragments() {
       idPrefix: "session",
       defaultConstantName: "session_memory",
     }
+  );
+
+}
+
+function normalizeThinkRuntimeCitationIdentity(value) {
+
+  const source = String(value || "");
+  const normalized = source.normalize
+    ? source.normalize("NFKC")
+    : source;
+
+  return normalized
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+}
+
+function buildThinkRuntimeCitationHoverState(matches) {
+
+  const runtimeMatches =
+    (Array.isArray(matches) ? matches : [])
+      .filter(match => match && match.sourceType === "runtime");
+
+  const lineKeys =
+    Array.from(new Set(
+      runtimeMatches
+        .map(match => normalizeThinkRuntimeCitationIdentity(
+          match.sourceLineKey
+          || match.constantName
+        ))
+        .filter(Boolean)
+    ));
+
+  const lineTexts =
+    Array.from(new Set(
+      runtimeMatches
+        .map(match => normalizeThinkRuntimeCitationIdentity(
+          match.sourceLineText
+          || match.titleText
+          || match.sourceText
+        ))
+        .filter(Boolean)
+    ));
+
+  if (!lineKeys.length && !lineTexts.length) {
+    return null;
+  }
+
+  return {
+    lineKeys,
+    lineTexts,
+  };
+
+}
+
+function dispatchThinkRuntimeCitationHover(
+  thinkContent,
+  active
+) {
+
+  if (!thinkContent) {
+    return;
+  }
+
+  const state =
+    active
+      ? thinkContent.__jinRuntimeCitationHoverState
+      : null;
+  const sourceId =
+    String(thinkContent.dataset.thinkId || "unknown-think");
+
+  window.dispatchEvent(
+    new CustomEvent(
+      THINK_RUNTIME_CITATION_HOVER_EVENT,
+      {
+        detail: state
+          ? {
+            active: true,
+            sourceId,
+            lineKeys: [...state.lineKeys],
+            lineTexts: [...state.lineTexts],
+          }
+          : {
+            active: false,
+            sourceId,
+            lineKeys: [],
+            lineTexts: [],
+          },
+      }
+    )
+  );
+
+}
+
+function shouldRevealThinkRuntimeCitations(thinkContent) {
+
+  if (
+    !thinkContent
+    || !thinkContent.__jinRuntimeCitationHoverState
+  ) {
+    return false;
+  }
+
+  const hovered =
+    typeof thinkContent.matches === "function"
+    && thinkContent.matches(":hover");
+  const autoRevealing =
+    thinkContent.classList.contains(
+      "is-rule-highlight-revealing"
+    );
+
+  return hovered || autoRevealing;
+
+}
+
+function syncThinkRuntimeCitationHighlight(thinkContent) {
+
+  dispatchThinkRuntimeCitationHover(
+    thinkContent,
+    shouldRevealThinkRuntimeCitations(
+      thinkContent
+    )
   );
 
 }
@@ -1555,6 +1686,15 @@ function renderThinkRuleHighlights(job) {
   job.matches =
     matches;
 
+  element.__jinRuntimeCitationHoverState =
+    buildThinkRuntimeCitationHoverState(
+      matches
+    );
+
+  syncThinkRuntimeCitationHighlight(
+    element
+  );
+
   return true;
 
 }
@@ -1587,12 +1727,20 @@ function pulseThinkRuleHighlights(job) {
     "is-rule-highlight-revealing"
   );
 
+  syncThinkRuntimeCitationHighlight(
+    element
+  );
+
   element.__jinThinkRulePulseTimer = setTimeout(
     () => {
       element.classList.remove(
         "is-rule-highlight-revealing"
       );
       element.__jinThinkRulePulseTimer = null;
+
+      syncThinkRuntimeCitationHighlight(
+        element
+      );
     },
       5000
     );
@@ -2839,6 +2987,20 @@ function createStreamGroup(
 
     }
   );
+
+  [
+    "mouseenter",
+    "mouseleave",
+  ].forEach((eventName) => {
+    thinkContent.addEventListener(
+      eventName,
+      () => {
+        syncThinkRuntimeCitationHighlight(
+          thinkContent
+        );
+      }
+    );
+  });
 
   thinkWrapper.appendChild(
     thinkContent

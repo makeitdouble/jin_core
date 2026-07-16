@@ -16,10 +16,13 @@
 
   const ACTIVE_MEMORY_PAUSE_HOLD_MS = 500;
   const MEMORY_DELETE_HOLD_MS = 1500;
+  const THINK_RUNTIME_CITATION_HOVER_EVENT = "jin:think-runtime-citation-hover";
+  const RUNTIME_MEMORY_LINE_HOVER_SOURCE_ID = "runtime-memory-line-hover";
 
   const pinnedRuntimeMemorySnapshotIndexes = new Set();
 
   const autoFlashedRuntimeMemorySnapshots = new WeakSet();
+
 
   let delayedMemoryModal = null;
   let delayedMemoryModalPanel = null;
@@ -566,6 +569,7 @@
 
   function renderRuntimeMemorySnapshot(options = {}) {
     requireRuntimeMemoryHistory();
+    clearRuntimeMemoryLineAvatarHover();
     clampRuntimeMemoryHistoryIndex();
     updateRuntimeMemoryTitleState();
 
@@ -774,6 +778,64 @@
     return true;
   }
 
+  function normalizeRuntimeCitationIdentity(value) {
+    const source = String(value || "");
+    const normalized = source.normalize
+      ? source.normalize("NFKC")
+      : source;
+
+    return normalized
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function dispatchRuntimeMemoryLineAvatarHover(
+      row,
+      active
+  ) {
+    const lineKey =
+        row
+          ? normalizeRuntimeCitationIdentity(
+              row.dataset.runtimeMemoryLineKey
+            )
+          : "";
+    const lineText =
+        row
+          ? normalizeRuntimeCitationIdentity(
+              row.dataset.runtimeMemoryLineText
+            )
+          : "";
+
+    window.dispatchEvent(
+      new CustomEvent(
+        THINK_RUNTIME_CITATION_HOVER_EVENT,
+        {
+          detail: active && (lineKey || lineText)
+            ? {
+              active: true,
+              sourceId: RUNTIME_MEMORY_LINE_HOVER_SOURCE_ID,
+              lineKeys: lineKey ? [lineKey] : [],
+              lineTexts: lineText ? [lineText] : [],
+            }
+            : {
+              active: false,
+              sourceId: RUNTIME_MEMORY_LINE_HOVER_SOURCE_ID,
+              lineKeys: [],
+              lineTexts: [],
+            },
+        }
+      )
+    );
+  }
+
+  function clearRuntimeMemoryLineAvatarHover() {
+    dispatchRuntimeMemoryLineAvatarHover(
+      null,
+      false
+    );
+  }
+
   function renderRuntimeMemoryLines(
       snapshot,
       persistGlow = false,
@@ -856,6 +918,37 @@
       row.className =
           "runtime-memory-line";
 
+      row.dataset.runtimeMemoryLineIndex =
+          String(index);
+      row.dataset.runtimeMemoryLineKey =
+          normalizeRuntimeCitationIdentity(
+            line.key || "note"
+          );
+      row.dataset.runtimeMemoryLineText =
+          normalizeRuntimeCitationIdentity(
+            `${line.key || "note"}: ${line.value || ""}`
+          );
+
+      row.addEventListener(
+        "mouseenter",
+        () => {
+          dispatchRuntimeMemoryLineAvatarHover(
+            row,
+            true
+          );
+        }
+      );
+
+      row.addEventListener(
+        "mouseleave",
+        () => {
+          dispatchRuntimeMemoryLineAvatarHover(
+            row,
+            false
+          );
+        }
+      );
+
       const key =
           line.key || "note";
 
@@ -934,6 +1027,7 @@
         );
       }
     });
+
   }
 
   function getRuntimeMemoryLineStatus(line) {
