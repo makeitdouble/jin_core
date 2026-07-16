@@ -7,6 +7,7 @@
 ![Tests](https://github.com/makeitdouble/jin_core/actions/workflows/tests.yml/badge.svg)
 
 **JIN Core Engine** is a local AI runtime for OpenAI-compatible models with visible memory, visible reasoning traces, and inspectable session state.
+Without context, there is no **JIN**, only a generic response engine. **JIN Core Engine** is what makes this interaction **last**.
 
 ### 3-Layer Memory + Active Contracts
 JIN uses short-term continuity to dynamically guide conversation strategy:
