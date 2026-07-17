@@ -1753,6 +1753,21 @@ function handleSocketMessage(event) {
     }
 
     if (
+      action === "append_delayed_memory"
+      && data.delayed_memory_result
+      && data.delayed_memory_result.report
+      && data.delayed_memory_result.id
+      && window.JinRuntime
+      && window.JinRuntime.runtime
+      && window.JinRuntime.runtime.appendDelayedMemoryReports
+    ) {
+      window.JinRuntime.runtime.appendDelayedMemoryReports({
+        [data.delayed_memory_result.id]:
+          data.delayed_memory_result.report,
+      });
+    }
+
+    if (
       status === "completed"
       || status === "complete"
       || status === "done"

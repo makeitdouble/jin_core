@@ -51,6 +51,7 @@ import json
 import re
 import time
 from copy import deepcopy
+from datetime import datetime
 from xml.etree import ElementTree
 
 from rules.runtime import (
@@ -192,8 +193,6 @@ def build_delayed_memory_report(
     ).strip()
 
     if not created_time:
-        from datetime import datetime
-
         created_time = datetime.now().isoformat()
 
     used_ids = {
@@ -253,9 +252,263 @@ def build_delayed_memory_report(
                 ).strip()
                 or created_time
             ),
+            "created_date": (
+                str(
+                    value.get(
+                        "created_date",
+                        "",
+                    )
+                    or value.get(
+                        "created_time",
+                        "",
+                    )
+                    or ""
+                ).strip()
+                or created_time
+            ),
+            "appended_times": int(
+                normalize_delayed_memory_counter(
+                    value.get(
+                        "appended_times",
+                        0,
+                    )
+                )
+            ),
+            "append_streak": int(
+                normalize_delayed_memory_counter(
+                    value.get(
+                        "append_streak",
+                        0,
+                    )
+                )
+            ),
+            "last_appended_date": str(
+                value.get(
+                    "last_appended_date",
+                    "",
+                )
+                or ""
+            ).strip(),
+            "last_appended_session_id": str(
+                value.get(
+                    "last_appended_session_id",
+                    "",
+                )
+                or ""
+            ).strip(),
+            "all_appended_session_ids": (
+                normalize_delayed_memory_session_ids(
+                    value.get(
+                        "all_appended_session_ids",
+                        [],
+                    )
+                )
+            ),
         }
 
     return enriched_report
+
+
+def normalize_delayed_memory_counter(
+    value,
+) -> int:
+
+    try:
+        return max(
+            int(
+                value
+                or 0
+            ),
+            0,
+        )
+    except (TypeError, ValueError):
+        return 0
+
+
+def normalize_delayed_memory_session_ids(
+    value,
+) -> list[str]:
+
+    source = (
+        value
+        if isinstance(
+            value,
+            list,
+        )
+        else []
+    )
+    session_ids = []
+    seen = set()
+
+    for item in source:
+        session_id = str(
+            item
+            or ""
+        ).strip()
+
+        if (
+            not session_id
+            or session_id in seen
+        ):
+            continue
+
+        seen.add(
+            session_id
+        )
+        session_ids.append(
+            session_id
+        )
+
+    return session_ids
+
+
+def update_delayed_memory_append_metadata(
+    context,
+    report: dict,
+) -> dict:
+
+    if not isinstance(
+        report,
+        dict,
+    ):
+        return {}
+
+    updated_report = dict(
+        report
+    )
+    now = str(
+        getattr(
+            context,
+            "timestamp",
+            "",
+        )
+        or ""
+    ).strip() or datetime.now().isoformat()
+    session_id = str(
+        getattr(
+            context,
+            "session_id",
+            "",
+        )
+        or getattr(
+            context,
+            "runtime_session_id",
+            "",
+        )
+        or ""
+    ).strip()
+    previous_last_session_id = str(
+        updated_report.get(
+            "last_appended_session_id",
+            "",
+        )
+        or ""
+    ).strip()
+    appended_session_ids = normalize_delayed_memory_session_ids(
+        updated_report.get(
+            "all_appended_session_ids",
+            [],
+        )
+    )
+
+    if (
+        session_id
+        and session_id not in appended_session_ids
+    ):
+        appended_session_ids.append(
+            session_id
+        )
+
+    updated_report["created_date"] = (
+        str(
+            updated_report.get(
+                "created_date",
+                "",
+            )
+            or updated_report.get(
+                "created_time",
+                "",
+            )
+            or ""
+        ).strip()
+        or now
+    )
+    updated_report["created_time"] = (
+        str(
+            updated_report.get(
+                "created_time",
+                "",
+            )
+            or ""
+        ).strip()
+        or updated_report["created_date"]
+    )
+    updated_report["appended_times"] = (
+        normalize_delayed_memory_counter(
+            updated_report.get(
+                "appended_times",
+                0,
+            )
+        )
+        + 1
+    )
+    updated_report["append_streak"] = normalize_delayed_memory_counter(
+        updated_report.get(
+            "append_streak",
+            0,
+        )
+    )
+
+    if (
+        session_id
+        and (
+            not previous_last_session_id
+            or previous_last_session_id != session_id
+        )
+    ):
+        updated_report["append_streak"] += 1
+
+    updated_report["last_appended_date"] = now
+    updated_report["last_appended_session_id"] = session_id
+    updated_report["all_appended_session_ids"] = appended_session_ids
+
+    return updated_report
+
+
+def record_appended_delayed_memory_id(
+    context,
+    report_id: str,
+) -> None:
+
+    normalized_report_id = str(
+        report_id
+        or ""
+    ).strip().casefold()
+
+    if not normalized_report_id:
+        return
+
+    appended_ids = getattr(
+        context,
+        "runtime_appended_delayed_memory_ids",
+        None,
+    )
+
+    if not isinstance(
+        appended_ids,
+        list,
+    ):
+        appended_ids = []
+        setattr(
+            context,
+            "runtime_appended_delayed_memory_ids",
+            appended_ids,
+        )
+
+    if normalized_report_id not in appended_ids:
+        appended_ids.append(
+            normalized_report_id
+        )
 
 
 def deduplicate_delayed_memory_report_keys(
@@ -1408,19 +1661,29 @@ def append_delayed_memory_report(
             "error": "delayed_memory_not_found",
         }
 
+    updated_report = update_delayed_memory_append_metadata(
+        context,
+        report,
+    )
+    reports[report_id] = updated_report
+    record_appended_delayed_memory_id(
+        context,
+        report_id,
+    )
+
     return {
         "ok": True,
         "action": "append_delayed_memory",
         "id": report_id,
         "title": str(
-            report.get(
+            updated_report.get(
                 "title",
                 "",
             )
             or ""
         ).strip(),
         "report": {
-            **report,
+            **updated_report,
             "id": report_id,
         },
     }

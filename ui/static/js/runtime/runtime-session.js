@@ -66,6 +66,7 @@
       writeLatestSavedRuntimeMemory,
       readLatestSavedRuntimeMemory,
       buildPersistedRuntimeSnapshot,
+      collectCurrentSessionAppendedMemoryIds,
       collectOtherLatestRuntimeMemorySnapshots,
       clearOtherLatestRuntimeMemorySnapshots,
       getSavedRuntimeMemoryFallback,
@@ -543,6 +544,8 @@
         version: 1,
         explicit_save: true,
         saved_at: savedAt,
+        appended_memory_ids:
+          collectCurrentSessionAppendedMemoryIds(),
         session_memory: sessionMemory,
         session_memory_updates:
           data.updates || 0,
@@ -1106,6 +1109,15 @@
             && sessionMemory.session_memory_updates
           )
           || 0,
+        appended_memory_ids:
+          (
+            sessionMemory
+            && Array.isArray(sessionMemory.appended_memory_ids)
+          )
+            ? sessionMemory.appended_memory_ids
+                .map(item => String(item || "").trim())
+                .filter(Boolean)
+            : [],
         runtime_memory: runtimeText,
         runtime_memory_updates:
           (

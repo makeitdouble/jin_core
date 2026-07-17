@@ -4510,6 +4510,18 @@ class RuntimeActionTests(unittest.TestCase):
             "2026-06-29T12:00:00",
         )
         self.assertEqual(
+            report["created_date"],
+            "2026-06-29T12:00:00",
+        )
+        self.assertEqual(
+            report["appended_times"],
+            0,
+        )
+        self.assertEqual(
+            report["append_streak"],
+            0,
+        )
+        self.assertEqual(
             context.emitter.events,
             [
                 {
@@ -5118,6 +5130,137 @@ class RuntimeActionTests(unittest.TestCase):
             [
                 "Delayed memory appended: First report",
                 "Delayed memory appended: Second report",
+            ],
+        )
+
+    def test_append_delayed_memory_tracks_session_metadata(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+        context.session_id = "session-a"
+        context.timestamp = "2026-07-17T19:40:00+03:00"
+        context.runtime_action_events = []
+        context.runtime_search_calls = []
+        context.runtime_appended_skills = []
+        context.runtime_asset_results = []
+        context.delayed_memory_reports = {
+            "a1b2c3": {
+                "title": "Pinned report",
+                "summary": "Summary",
+                "tags": [
+                    "tag",
+                ],
+                "body": "Body",
+                "created_time": "2026-07-16T10:00:00+03:00",
+            },
+        }
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="APPEND_DELAYED_MEMORY",
+                        payload="a1b2c3",
+                    ),
+                    RuntimeActionCall(
+                        name="APPEND_DELAYED_MEMORY",
+                        payload="a1b2c3",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            2,
+        )
+        report = context.delayed_memory_reports["a1b2c3"]
+        self.assertEqual(
+            report["appended_times"],
+            2,
+        )
+        self.assertEqual(
+            report["append_streak"],
+            1,
+        )
+        self.assertEqual(
+            report["created_date"],
+            "2026-07-16T10:00:00+03:00",
+        )
+        self.assertEqual(
+            report["last_appended_date"],
+            "2026-07-17T19:40:00+03:00",
+        )
+        self.assertEqual(
+            report["last_appended_session_id"],
+            "session-a",
+        )
+        self.assertEqual(
+            report["all_appended_session_ids"],
+            [
+                "session-a",
+            ],
+        )
+        self.assertEqual(
+            context.runtime_appended_delayed_memory_ids,
+            [
+                "a1b2c3",
+            ],
+        )
+
+        next_context = Context()
+        next_context.emitter = Emitter()
+        next_context.session_id = "session-b"
+        next_context.timestamp = "2026-07-19T12:15:00+03:00"
+        next_context.runtime_action_events = []
+        next_context.runtime_search_calls = []
+        next_context.runtime_appended_skills = []
+        next_context.runtime_asset_results = []
+        next_context.delayed_memory_reports = (
+            context.delayed_memory_reports
+        )
+
+        asyncio.run(
+            apply_runtime_action_calls(
+                next_context,
+                (
+                    RuntimeActionCall(
+                        name="APPEND_DELAYED_MEMORY",
+                        payload="a1b2c3",
+                    ),
+                ),
+            )
+        )
+
+        report = next_context.delayed_memory_reports["a1b2c3"]
+        self.assertEqual(
+            report["appended_times"],
+            3,
+        )
+        self.assertEqual(
+            report["append_streak"],
+            2,
+        )
+        self.assertEqual(
+            report["last_appended_session_id"],
+            "session-b",
+        )
+        self.assertEqual(
+            report["all_appended_session_ids"],
+            [
+                "session-a",
+                "session-b",
             ],
         )
 

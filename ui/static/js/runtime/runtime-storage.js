@@ -5,6 +5,9 @@
   const latestSavedSessionMemoryStorageKey =
     "jin.latestSavedSessionMemory.v1";
 
+  const savedSessionMemoryHistoryStorageKey =
+    "jin.savedSessionMemoryHistory.v1";
+
   const runtimeSessionIdSessionStorageKey =
     "jin.runtimeSessionId.v1";
 
@@ -331,9 +334,68 @@
     value
   ) {
 
+    archiveLatestSavedSessionMemory();
+
     writeBrowserMemory(
       latestSavedSessionMemoryStorageKey,
       value
+    );
+
+  }
+
+
+  function readSavedSessionMemoryHistory() {
+
+    const history =
+      readBrowserMemory(
+        savedSessionMemoryHistoryStorageKey
+      );
+
+    return Array.isArray(history)
+      ? history.filter(
+          item => item && typeof item === "object"
+        )
+      : [];
+
+  }
+
+
+  function writeSavedSessionMemoryHistory(
+    history
+  ) {
+
+    writeBrowserMemory(
+      savedSessionMemoryHistoryStorageKey,
+      Array.isArray(history)
+        ? history.filter(
+            item => item && typeof item === "object"
+          )
+        : []
+    );
+
+  }
+
+
+  function archiveLatestSavedSessionMemory() {
+
+    const previous =
+      readLatestSavedSessionMemory();
+
+    if (
+        !previous
+        || typeof previous !== "object"
+        || Array.isArray(previous)
+    ) {
+      return;
+    }
+
+    writeSavedSessionMemoryHistory(
+      readSavedSessionMemoryHistory().concat([
+        {
+          ...previous,
+          archived_at: new Date().toISOString(),
+        },
+      ])
     );
 
   }
@@ -505,6 +567,14 @@
           normalizedKey
         );
 
+        const createdDate =
+          String(
+            report.created_date
+            || report.created_time
+            || ""
+          ).trim()
+          || new Date().toISOString();
+
         reports[normalizedKey] = {
           title,
           summary:
@@ -523,12 +593,103 @@
           created_session_id:
             String(report.created_session_id || "").trim(),
           created_time:
-            String(report.created_time || "").trim(),
+            String(report.created_time || "").trim()
+            || createdDate,
+          created_date:
+            createdDate,
+          appended_times:
+            normalizeDelayedMemoryCounter(
+              report.appended_times
+            ),
+          append_streak:
+            normalizeDelayedMemoryCounter(
+              report.append_streak
+            ),
+          last_appended_date:
+            String(report.last_appended_date || "").trim(),
+          last_appended_session_id:
+            String(report.last_appended_session_id || "").trim(),
+          all_appended_session_ids:
+            normalizeDelayedMemorySessionIds(
+              report.all_appended_session_ids
+            ),
         };
       }
     );
 
     return reports;
+
+  }
+
+
+  function normalizeDelayedMemoryCounter(
+    value
+  ) {
+
+    const numericValue =
+      Number(value || 0);
+
+    return Number.isFinite(numericValue)
+      ? Math.max(
+          Math.floor(numericValue),
+          0
+        )
+      : 0;
+
+  }
+
+
+  function normalizeDelayedMemorySessionIds(
+    value
+  ) {
+
+    const source =
+      Array.isArray(value)
+        ? value
+        : [];
+    const seen = new Set();
+    const sessionIds = [];
+
+    source.forEach(function (item) {
+      const sessionId =
+        String(item || "").trim();
+
+      if (
+          !sessionId
+          || seen.has(sessionId)
+      ) {
+        return;
+      }
+
+      seen.add(sessionId);
+      sessionIds.push(sessionId);
+    });
+
+    return sessionIds;
+
+  }
+
+
+  function collectCurrentSessionAppendedMemoryIds() {
+
+    const sessionId =
+      getCurrentRuntimeSessionId();
+    const reports =
+      readDelayedMemoryReports();
+
+    if (!sessionId) {
+      return [];
+    }
+
+    return Object.entries(reports)
+      .filter(function ([, report]) {
+        return (
+          report
+          && Array.isArray(report.all_appended_session_ids)
+          && report.all_appended_session_ids.includes(sessionId)
+        );
+      })
+      .map(([reportId]) => reportId);
 
   }
 
@@ -1048,6 +1209,7 @@
   const storage = {
     keys: {
       latestSavedSessionMemoryStorageKey,
+      savedSessionMemoryHistoryStorageKey,
       runtimeSessionIdSessionStorageKey,
       latestRuntimeMemoryStorageKeyPrefix,
       latestRuntimeMemoryStorageKeyVersion,
@@ -1071,6 +1233,9 @@
     writeLatestRuntimeMemory,
     readLatestSavedSessionMemory,
     writeLatestSavedSessionMemory,
+    readSavedSessionMemoryHistory,
+    writeSavedSessionMemoryHistory,
+    collectCurrentSessionAppendedMemoryIds,
     readLatestSavedRuntimeMemory,
     writeLatestSavedRuntimeMemory,
     normalizeActiveMemoryRecords,

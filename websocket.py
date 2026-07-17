@@ -222,6 +222,58 @@ def active_memory_records_text(context) -> str:
     )
 
 
+def clean_delayed_memory_counter(value) -> int:
+
+    try:
+        return max(
+            int(
+                value
+                or 0
+            ),
+            0,
+        )
+    except (TypeError, ValueError):
+        return 0
+
+
+def clean_delayed_memory_session_ids(value) -> list[str]:
+
+    source = (
+        value
+        if isinstance(
+            value,
+            list,
+        )
+        else []
+    )
+    session_ids = []
+    seen = set()
+
+    for item in source:
+        session_id = clean_bootstrap_memory(
+            str(
+                item
+                or ""
+            ),
+            limit=200,
+        )
+
+        if (
+            not session_id
+            or session_id in seen
+        ):
+            continue
+
+        seen.add(
+            session_id
+        )
+        session_ids.append(
+            session_id
+        )
+
+    return session_ids
+
+
 def clean_delayed_memory_reports(value) -> dict:
 
     if not isinstance(
@@ -341,6 +393,58 @@ def clean_delayed_memory_reports(value) -> dict:
                     or ""
                 ),
                 limit=100,
+            ),
+            "created_date": clean_bootstrap_memory(
+                str(
+                    report.get(
+                        "created_date",
+                        "",
+                    )
+                    or report.get(
+                        "created_time",
+                        "",
+                    )
+                    or ""
+                ),
+                limit=100,
+            ),
+            "appended_times": clean_delayed_memory_counter(
+                report.get(
+                    "appended_times",
+                    0,
+                )
+            ),
+            "append_streak": clean_delayed_memory_counter(
+                report.get(
+                    "append_streak",
+                    0,
+                )
+            ),
+            "last_appended_date": clean_bootstrap_memory(
+                str(
+                    report.get(
+                        "last_appended_date",
+                        "",
+                    )
+                    or ""
+                ),
+                limit=100,
+            ),
+            "last_appended_session_id": clean_bootstrap_memory(
+                str(
+                    report.get(
+                        "last_appended_session_id",
+                        "",
+                    )
+                    or ""
+                ),
+                limit=200,
+            ),
+            "all_appended_session_ids": clean_delayed_memory_session_ids(
+                report.get(
+                    "all_appended_session_ids",
+                    [],
+                )
             ),
         }
 
