@@ -16,7 +16,7 @@ from agent.nodes.brain import (
 from app_settings import (
     settings,
 )
-from clients.brain_context_builder import (
+from utils.context.brain_context_builder import (
     build_session_actions_history_context,
 )
 from utils.session_actions_history import (

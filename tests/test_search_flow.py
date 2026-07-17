@@ -19,7 +19,7 @@ from clients import (
     normalize_search_results,
     normalize_serper_item,
 )
-from clients.brain_context_builder import (
+from utils.context.brain_context_builder import (
     build_sequence_origin_request_context,
 )
 from runtime import (

@@ -80,7 +80,7 @@ UNEXPECTED_TEXT_ANSWER_1 = []
 UNEXPECTED_TEXT_MEMORY_1 = []
 UNEXPECTED_RUNTIME_ACTION_1 = []
 
-USER_TEXT_2 = "сохрани отчёт"
+USER_TEXT_2 = "сохрани отчёт о текущей беседе в delayed memory"
 EXPECTED_TEXT_ANSWER_2 = []
 EXPECTED_TEXT_MEMORY_2 = []
 EXPECTED_RUNTIME_ACTION_2 = ["save_delayed_memory_content"]
@@ -796,13 +796,13 @@ class BehaviorProbeShapeTests(unittest.TestCase):
         steps = collect_dialogue_steps()
         self.assertEqual(len(steps), 2)
 
-        self.assertEqual(steps[0]["user_text"], "напомни мне через 10 минут выпить кофе")
+        self.assertEqual(steps[0]["user_text"], USER_TEXT_1)
         self.assertEqual(steps[0]["expected_answer"], [])
         self.assertEqual(steps[0]["expected_memory"], [])
         self.assertEqual(steps[0]["expected_runtime_actions"], ["create_active_memory"])
         self.assertEqual(steps[0]["unexpected_runtime_actions"], [])
 
-        self.assertEqual(steps[1]["user_text"], "сохрани отчёт")
+        self.assertEqual(steps[1]["user_text"], USER_TEXT_2)
         self.assertEqual(steps[1]["expected_answer"], [])
         self.assertEqual(steps[1]["expected_memory"], [])
         self.assertEqual(steps[1]["expected_runtime_actions"], ["save_delayed_memory_content"])

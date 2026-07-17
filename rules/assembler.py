@@ -511,7 +511,7 @@ def build_brain_system_prompt(
     include_previous_chat_messages: bool = True,
 ) -> str:
 
-    from clients.brain_context_builder import (
+    from utils.context.brain_context_builder import (
         build_brain_runtime_context,
         build_brain_top_runtime_context,
         build_previous_chat_messages_context,

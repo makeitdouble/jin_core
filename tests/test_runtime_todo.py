@@ -1,7 +1,7 @@
 import unittest
 from dataclasses import dataclass, field
 
-from clients.brain_context_builder import append_current_runtime_todo
+from utils.context.brain_context_builder import append_current_runtime_todo
 from clients.brain_client import build_brain_context_snapshot
 from utils.runtime_actions import RuntimeActionStreamFilter, extract_runtime_actions
 from utils.runtime_todo import (

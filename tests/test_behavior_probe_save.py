@@ -96,7 +96,7 @@ EXPECTED_TEXT_MEMORY_3 = []
 UNEXPECTED_TEXT_ANSWER_3 = []
 UNEXPECTED_TEXT_MEMORY_3 = []
 
-USER_TEXT_4 = f'теперь забудь слово "{WORD_TO_SAVE}", зарезолви таск'
+USER_TEXT_4 = f'теперь забудь слово "{WORD_TO_SAVE}" и зарезолви active memory'
 EXPECTED_TEXT_ANSWER_4 = []
 EXPECTED_TEXT_MEMORY_4 = []
 EXPECTED_RUNTIME_ACTION_4 = ["resolve_active_memory"]

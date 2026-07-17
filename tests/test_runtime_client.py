@@ -153,7 +153,7 @@ class RuntimeClientTests(
 
         self.assertEqual(
             http_client.post_calls[0]["json"]["max_tokens"],
-            1584,
+            1840,
         )
         self.assertIsNone(
             client.detected_context_window,
@@ -337,7 +337,7 @@ class RuntimeClientTests(
             8192,
         )
 
-    async def test_uses_detected_context_window_as_max_tokens_when_configured_cap_is_default(self):
+    async def test_preserves_configured_max_tokens_when_context_window_is_detected(self):
 
         http_client = FakeHttpClient(
             models_payload={
@@ -367,10 +367,10 @@ class RuntimeClientTests(
 
         self.assertEqual(
             http_client.post_calls[0]["json"]["max_tokens"],
-            7678,
+            4096,
         )
 
-    async def test_uses_detected_explicit_max_tokens_before_context_window_for_output_cap(self):
+    async def test_preserves_configured_max_tokens_when_explicit_server_output_cap_is_higher(self):
 
         http_client = FakeHttpClient(
             models_payload={
@@ -401,7 +401,7 @@ class RuntimeClientTests(
 
         self.assertEqual(
             http_client.post_calls[0]["json"]["max_tokens"],
-            6144,
+            4096,
         )
 
     async def test_preserves_smaller_per_call_max_tokens_when_server_max_fallback_is_enabled(self):

@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from clients.brain_context_builder import (
+from utils.context.brain_context_builder import (
     build_brain_runtime_context,
     build_session_actions_history_context,
 )

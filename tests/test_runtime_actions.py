@@ -13,7 +13,7 @@ from clients import (
 from clients.brain_client_utils import (
     flush_pending_active_memory_resolve_failure_history,
 )
-from clients.brain_context_builder import (
+from utils.context.brain_context_builder import (
     build_appended_delayed_memory_context,
     build_tool_results_context,
 )

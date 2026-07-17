@@ -15,7 +15,7 @@ from agent.nodes.brain import (
     format_followup_actions_from_events,
     prepare_asset_results_for_turn,
 )
-from clients.brain_context_builder import (
+from utils.context.brain_context_builder import (
     build_appended_delayed_memory_context,
     build_previous_chat_messages_context,
     build_sequence_origin_request_context,
@@ -542,7 +542,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with patch(
-            "clients.brain_context_builder.time.time",
+            "utils.context.brain_context_builder.time.time",
             return_value=1000.0,
         ):
             prompt = BrainNode.build_followup_system_prompt(
@@ -605,7 +605,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with patch(
-            "clients.brain_context_builder.time.time",
+            "utils.context.brain_context_builder.time.time",
             return_value=1032.0,
         ):
             prompt = BrainNode.build_followup_system_prompt(
@@ -1892,7 +1892,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "run_brain_stream",
             staticmethod(fake_run_brain_stream),
         ), patch(
-            "clients.brain_context_builder.time.time",
+            "utils.context.brain_context_builder.time.time",
             return_value=1030.0,
         ):
             await BrainNode().run(

@@ -7,7 +7,7 @@ import httpx
 from rules.assembler import (
     build_brain_system_prompt,
 )
-from clients.brain_context_builder import (
+from utils.context.brain_context_builder import (
     build_session_actions_history_context,
 )
 from runtime import (
@@ -880,7 +880,7 @@ class MessageMemoryTests(
         )
 
         with patch(
-            "clients.brain_context_builder.time.time",
+            "utils.context.brain_context_builder.time.time",
             return_value=1000.0,
         ):
             prompt = build_brain_system_prompt(
@@ -959,7 +959,7 @@ class MessageMemoryTests(
         )
 
         with patch(
-            "clients.brain_context_builder.time.time",
+            "utils.context.brain_context_builder.time.time",
             return_value=1000.0,
         ):
             history = build_session_actions_history_context(
@@ -1009,7 +1009,7 @@ class MessageMemoryTests(
         )
 
         with patch(
-            "clients.brain_context_builder.time.time",
+            "utils.context.brain_context_builder.time.time",
             return_value=1000.0,
         ):
             history = build_session_actions_history_context(
@@ -1066,7 +1066,7 @@ class MessageMemoryTests(
         )
 
         with patch(
-            "clients.brain_context_builder.time.time",
+            "utils.context.brain_context_builder.time.time",
             return_value=1000.0,
         ):
             history = build_session_actions_history_context(

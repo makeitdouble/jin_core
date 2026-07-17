@@ -553,7 +553,7 @@ class BrainNode(BaseNode):
             latest_action: str = "",
     ) -> str:
 
-        from clients.brain_context_builder import (
+        from utils.context.brain_context_builder import (
             build_sequence_origin_request_context,
             build_session_actions_history_context,
             strip_actions_history_context,
@@ -671,7 +671,7 @@ class BrainNode(BaseNode):
                     current_actions_history_context
                 )
 
-            from clients.brain_context_builder import (
+            from utils.context.brain_context_builder import (
                 build_appended_delayed_memory_context,
                 build_previous_chat_messages_context,
             )
