@@ -31,7 +31,6 @@
       "PROJECT ASSETS:",
       "After the relevant skill appears in APPENDED_SKILLS, DO NOT follow its instructions, only by user request."
     ],
-    "close_tag": true,
-    "failure_followup_message": []
+    "close_tag": true
   }
 }

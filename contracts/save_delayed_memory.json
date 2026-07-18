@@ -39,10 +39,6 @@
       "When saving a summary/report NEVER skip template fields; you must fulfill all fields of delayed memory form so it will be valid for processing by runtime.",
       "DO NOT add any other text while making a report! Do not notify user or acknowledge saving and immediately proceed with marker in response."
     ],
-    "close_tag": true,
-    "failure_followup_message": [
-      "JIN attempted to save a delayed memory report when the user did not explicitly request it.",
-      "DO NOT repeat this action again in the current sequence!"
-    ]
+    "close_tag": true
   }
 }

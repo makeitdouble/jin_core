@@ -297,17 +297,6 @@ def get_runtime_action_regexps(runtime_action: str) -> tuple[str, ...]:
     )
 
 
-def get_runtime_action_failure_followup_message(
-    runtime_action: str,
-) -> tuple[str, ...]:
-    _, contract = get_action_contract_for_runtime_action(runtime_action)
-    return tuple(
-        message
-        for message in _as_list(contract.get("failure_followup_message"))
-        if isinstance(message, str) and message.strip()
-    )
-
-
 def get_close_tag_runtime_actions() -> tuple[str, ...]:
     actions = []
 

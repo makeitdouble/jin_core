@@ -30,7 +30,6 @@
       "id is a placeholder; replace it with an actual 6-character delayed memory id from TOOL_RESULTS.",
       "After APPEND_DELAYED_MEMORY returns the report, use its content to answer the latest user request."
     ],
-    "close_tag": false,
-    "failure_followup_message": []
+    "close_tag": false
   }
 }

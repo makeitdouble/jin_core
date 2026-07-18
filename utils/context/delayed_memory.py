@@ -4,6 +4,9 @@ from xml.sax.saxutils import escape
 from clients.brain_client_utils import (
     indent_xml,
 )
+from rules.runtime import (
+    NO_ENTRIES_FOUND_MESSAGE,
+)
 
 from .formatting import (
     format_tool_result_payload,
@@ -28,7 +31,7 @@ def format_delayed_memory_list_result(
     ]
 
     if not reports:
-        return "No delayed memory reports saved."
+        return NO_ENTRIES_FOUND_MESSAGE
 
     lines = []
 
@@ -69,7 +72,7 @@ def format_delayed_memory_report_result(
 ) -> str:
 
     if result.get("ok") is False:
-        return format_tool_result_payload(
+        return format_delayed_memory_failure_result(
             result
         )
 
@@ -95,6 +98,37 @@ def format_delayed_memory_report_result(
 
     return format_tool_result_payload(
         report
+    )
+
+
+def format_delayed_memory_failure_result(
+    result: dict,
+) -> str:
+
+    failure = str(
+        result.get(
+            "failure",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if failure:
+        return failure
+
+    failure_followup_message = str(
+        result.get(
+            "failure_followup_message",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if failure_followup_message:
+        return f"Failure: {failure_followup_message}"
+
+    return format_tool_result_payload(
+        result
     )
 
 
@@ -130,15 +164,32 @@ def format_delayed_memory_result_sections(
             )
             continue
 
+        if action == "append_delayed_memory":
+            if result.get("ok") is False:
+                sections.append(
+                    (
+                        "APPEND_DELAYED_MEMORY",
+                        format_delayed_memory_failure_result(
+                            result
+                        ),
+                    )
+                )
+            continue
+
         if action == "remove_delayed_memory":
             sections.append(
                 (
                     "REMOVE_DELAYED_MEMORY",
-                    format_tool_result_payload(
+                    (
+                        format_delayed_memory_failure_result
+                        if result.get("ok") is False
+                        else format_tool_result_payload
+                    )(
                         result
                     ),
                 )
             )
+            continue
 
         if action == "save_delayed_memory_content":
             sections.append(
@@ -191,10 +242,8 @@ def append_delayed_memory_results(
     if not tool_result_blocks:
         return
 
-    parts.append(
-        '<TOOL_RESULTS type=\'delayed_memory\'>\n'
-        f"{chr(10).join(tool_result_blocks)}\n"
-        "</TOOL_RESULTS>"
+    parts.extend(
+        tool_result_blocks
     )
 
 

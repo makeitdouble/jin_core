@@ -28,7 +28,6 @@
       "<RESOLVE_ACTIVE_MEMORY: active_memory_id >",
       "active_memory_id - is a placeholder, replace it with actual id required to resolve specific active_memory."
     ],
-    "close_tag": false,
-    "failure_followup_message": []
+    "close_tag": false
   }
 }

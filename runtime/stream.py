@@ -32,13 +32,15 @@ from runtime.behavior_contract import (
     should_pause_action_guard_for_confirmation,
 )
 from contracts.rules_assembler import (
-    get_runtime_action_failure_followup_message,
-)
-from contracts.rules_assembler import (
     RUNTIME_ACTION_APPEND_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+)
+from rules.runtime import (
+    ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE,
+    ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
+    format_runtime_trigger_words_message,
 )
 from utils.assets_service import (
     normalize_skill_name,
@@ -787,6 +789,10 @@ class RuntimeStream:
             )
 
             if decision != "reject":
+                self.append_action_guard_missing_trigger_message(
+                    guard_name,
+                    ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE,
+                )
                 confirmed_action_ids.add(
                     id(action)
                 )
@@ -832,6 +838,10 @@ class RuntimeStream:
             if decision == "reject":
                 return action
 
+            self.append_action_guard_missing_trigger_message(
+                guard_name,
+                ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE,
+            )
             self.confirmed_action_guard_names.add(
                 guard_name
             )
@@ -914,6 +924,23 @@ class RuntimeStream:
                 "",
             )
         )
+        self.append_action_guard_missing_trigger_message(
+            guard_name,
+            ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
+        )
+
+        self.delayed_memory_action_payload = (
+            rejected_payload
+            or self.delayed_memory_action_payload
+            or "<SAVE_DELAYED_MEMORY_CONTENT>"
+        )
+
+    def append_action_guard_missing_trigger_message(
+        self,
+        guard_name: str,
+        template: str,
+    ) -> None:
+
         failure_messages = getattr(
             self.context,
             "runtime_action_failure_followup_messages",
@@ -927,16 +954,17 @@ class RuntimeStream:
             self.context.runtime_action_failure_followup_messages = (
                 failure_messages
             )
-        failure_messages.extend(
-            get_runtime_action_failure_followup_message(
-                action.name
+
+        message = format_runtime_trigger_words_message(
+            template,
+            get_action_guard_triggers(
+                guard_name
+            ),
+        )
+        if message:
+            failure_messages.append(
+                message
             )
-        )
-        self.delayed_memory_action_payload = (
-            rejected_payload
-            or self.delayed_memory_action_payload
-            or "<SAVE_DELAYED_MEMORY_CONTENT>"
-        )
 
     async def wait_for_action_guard_confirmation(
         self,
@@ -1285,9 +1313,19 @@ class RuntimeStream:
 
             if save_rejected:
                 failure_result["detail"] = "\n".join(
-                    get_runtime_action_failure_followup_message(
-                        RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                    str(
+                        message
+                        or ""
+                    ).strip()
+                    for message in getattr(
+                        self.context,
+                        "runtime_action_failure_followup_messages",
+                        [],
                     )
+                    if str(
+                        message
+                        or ""
+                    ).strip()
                 )
 
                 if rejected_title:

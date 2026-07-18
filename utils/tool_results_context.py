@@ -9,6 +9,10 @@ TOOL_RESULTS_BLOCK_RE = re.compile(
     r"<TOOL_RESULTS(?:\s[^>]*)?>.*?</TOOL_RESULTS>",
     re.IGNORECASE | re.DOTALL,
 )
+TOOL_RESULT_BLOCK_RE = re.compile(
+    r"<TOOL_RESULT(?:\s[^>]*)?>.*?</TOOL_RESULT>",
+    re.IGNORECASE | re.DOTALL,
+)
 IDLE_TOOL_RESULTS_RE = re.compile(
     r"<TOOL_RESULTS\b[^>]*\btype\s*=\s*['\"]idle['\"][^>]*>",
     re.IGNORECASE,
@@ -45,12 +49,23 @@ def split_tools_results_context(
         if matched.upper().startswith(
             "<TOOLS_RESULTS"
         ):
-            blocks.extend(
+            child_blocks = [
                 block.strip()
                 for block in TOOL_RESULTS_BLOCK_RE.findall(
                     matched
                 )
                 if block.strip()
+            ]
+            if not child_blocks:
+                child_blocks = [
+                    block.strip()
+                    for block in TOOL_RESULT_BLOCK_RE.findall(
+                        matched
+                    )
+                    if block.strip()
+                ]
+            blocks.extend(
+                child_blocks
             )
         elif matched:
             blocks.append(

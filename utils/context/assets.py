@@ -204,8 +204,6 @@ def append_asset_results(
             "    </TOOL_RESULT>"
         )
 
-    parts.append(
-        '<TOOL_RESULTS>\n'
-        f"{chr(10).join(tool_result_blocks)}\n"
-        "</TOOL_RESULTS>"
+    parts.extend(
+        tool_result_blocks
     )

@@ -3231,6 +3231,54 @@ class RuntimeActionTests(unittest.TestCase):
                     "turn_000002",
                 )
 
+    def test_empty_list_skills_returns_default_no_entries_tool_result(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                context = Context()
+                context.emitter = Emitter()
+
+                applied_count = asyncio.run(
+                    apply_runtime_action_calls(
+                        context,
+                        (
+                            RuntimeActionCall(
+                                name="LIST_SKILLS",
+                                payload="",
+                            ),
+                        ),
+                    )
+                )
+
+                self.assertEqual(
+                    applied_count,
+                    1,
+                )
+                self.assertEqual(
+                    context.runtime_asset_results[0]["skills"],
+                    [],
+                )
+                self.assertIn(
+                    "No entries found.",
+                    build_tool_results_context(
+                        context
+                    ),
+                )
+
     def test_apply_runtime_action_calls_appends_and_removes_skill(self):
 
         class Emitter:
@@ -4860,7 +4908,7 @@ class RuntimeActionTests(unittest.TestCase):
         )
         self.assertLess(
             tool_results.index("file_manager"),
-            tool_results.index("No delayed memory reports saved."),
+            tool_results.index("No entries found."),
         )
         self.assertEqual(
             len(context.runtime_tool_results),
@@ -5104,7 +5152,11 @@ class RuntimeActionTests(unittest.TestCase):
             context
         )
         self.assertIn(
-            "<TOOL_RESULTS type='delayed_memory'>",
+            "<TOOLS_RESULTS>",
+            tool_results,
+        )
+        self.assertNotIn(
+            "<TOOL_RESULTS",
             tool_results,
         )
         self.assertIn(
@@ -5259,6 +5311,84 @@ class RuntimeActionTests(unittest.TestCase):
                 "Delayed memory appended: First report",
                 "Delayed memory appended: Second report",
             ],
+        )
+
+    def test_invalid_append_delayed_memory_id_returns_failure_tool_result(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+        context.runtime_action_events = []
+        context.runtime_search_calls = []
+        context.runtime_appended_skills = []
+        context.runtime_asset_results = []
+        context.runtime_delayed_memory_results = []
+        context.delayed_memory_reports = {
+            "a1b2c3": {
+                "title": "Saved report",
+                "summary": "Summary",
+                "tags": [
+                    "tag",
+                ],
+                "body": "Body",
+            },
+        }
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="APPEND_DELAYED_MEMORY",
+                        payload="c7dtso",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertEqual(
+            context.emitter.events[0]["status"],
+            "failed",
+        )
+        self.assertEqual(
+            context.runtime_delayed_memory_results[0]["ok"],
+            False,
+        )
+        self.assertEqual(
+            context.runtime_delayed_memory_results[0]["error"],
+            "delayed_memory_not_found",
+        )
+        tool_results = build_tool_results_context(
+            context
+        )
+        self.assertEqual(
+            tool_results.count("<TOOLS_RESULTS>"),
+            1,
+        )
+        self.assertNotIn(
+            "<TOOL_RESULTS",
+            tool_results,
+        )
+        self.assertIn(
+            '<TOOL_RESULT name="APPEND_DELAYED_MEMORY">',
+            tool_results,
+        )
+        self.assertIn(
+            "No entries found.",
+            tool_results,
         )
 
     def test_append_delayed_memory_tracks_session_metadata(self):
@@ -5547,6 +5677,96 @@ class RuntimeActionTests(unittest.TestCase):
             build_tool_results_context(
                 context
             ),
+        )
+        self.assertNotIn(
+            "<TOOL_RESULTS",
+            build_tool_results_context(
+                context
+            ),
+        )
+        self.assertIn(
+            "No entries found.",
+            build_tool_results_context(
+                context
+            ),
+        )
+
+    def test_missing_remove_delayed_memory_id_returns_failed_result(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+        context.runtime_action_events = []
+        context.runtime_search_calls = []
+        context.runtime_appended_skills = []
+        context.runtime_asset_results = []
+        context.runtime_delayed_memory_results = []
+        context.delayed_memory_reports = {
+            "a1b2c3": {
+                "title": "Saved report",
+                "summary": "Summary",
+                "tags": [
+                    "tag",
+                ],
+                "body": "Body",
+            },
+        }
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="REMOVE_DELAYED_MEMORY",
+                        payload="c7dtso",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            1,
+        )
+        self.assertEqual(
+            context.emitter.events[0]["status"],
+            "failed",
+        )
+        self.assertEqual(
+            context.runtime_delayed_memory_results[0]["ok"],
+            False,
+        )
+        self.assertEqual(
+            context.runtime_delayed_memory_results[0]["error"],
+            "delayed_memory_not_found",
+        )
+        tool_results = build_tool_results_context(
+            context
+        )
+        self.assertEqual(
+            tool_results.count("<TOOLS_RESULTS>"),
+            1,
+        )
+        self.assertNotIn(
+            "<TOOL_RESULTS",
+            tool_results,
+        )
+        self.assertIn(
+            '<TOOL_RESULT name="REMOVE_DELAYED_MEMORY">',
+            tool_results,
+        )
+        self.assertIn(
+            "No entries found.",
+            tool_results,
         )
 
     def test_apply_runtime_action_calls_emits_create_active_memory_bubble(self):

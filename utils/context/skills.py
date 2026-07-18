@@ -9,6 +9,9 @@ from clients.brain_client_utils import (
 from .formatting import (
     format_tool_result_payload,
 )
+from rules.runtime import (
+    NO_ENTRIES_FOUND_MESSAGE,
+)
 
 
 def build_current_appended_skills_context(
@@ -157,7 +160,7 @@ def format_list_skills_result(
 
     if not skills:
         lines.append(
-            "No skills found."
+            NO_ENTRIES_FOUND_MESSAGE
         )
         return "\n".join(
             lines

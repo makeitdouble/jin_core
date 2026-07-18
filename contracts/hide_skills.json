@@ -23,7 +23,6 @@
       "Emit <HIDE_SKILLS> to hide the list of skills; all appended skills will remain in the context.",
       "You should hide skills when <CURRENT_APPENDED_SKILLS> contains all potentially needed skills. If unsure, keep list of skills in the context."
     ],
-    "close_tag": false,
-    "failure_followup_message": []
+    "close_tag": false
   }
 }

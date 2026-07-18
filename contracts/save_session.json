@@ -32,9 +32,6 @@
       "Emit using exactly this schema <SAVE_SESSION> once when the user clearly and explicitly ends session or asks to save the session.",
       "Do not emit for topic changes, brief silence, casual pause, bare ambiguous save commands, or while active work continues."
     ],
-    "close_tag": false,
-    "failure_followup_message": [
-      "The SAVE_SESSION action was blocked or rejected. Do not continue saving the session. Tell the user briefly that the session was not saved, then continue only with any other required non-save work."
-    ]
+    "close_tag": false
   }
 }

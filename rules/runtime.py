@@ -18,6 +18,55 @@ IDLE_FOLLOWUP_MESSAGE = (
 )
 
 
+NO_ENTRIES_FOUND_MESSAGE = "No entries found. MANDATORY: DO NOT RETRY THIS ACTION AGAIN!"
+
+ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE = (
+    "Action failed. User rejected an action and didn't provide any of "
+    "trigger words: {trigger_words}"
+)
+
+ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE = (
+    "User accepted an action and didn't provide any of action trigger "
+    "words: {trigger_words}"
+)
+
+ACTION_BLOCKED_TRIGGER_WORD_MESSAGE = (
+    "Action failed. Blocked trigger word: {blocked_trigger_word}"
+)
+
+
+def format_runtime_trigger_words_message(
+    template: str,
+    trigger_words,
+) -> str:
+
+    return template.format(
+        trigger_words=", ".join(
+            str(
+                trigger_word
+                or ""
+            ).strip()
+            for trigger_word in trigger_words
+            if str(
+                trigger_word
+                or ""
+            ).strip()
+        )
+    )
+
+
+def format_runtime_blocked_trigger_word_message(
+    blocked_trigger_word: str,
+) -> str:
+
+    return ACTION_BLOCKED_TRIGGER_WORD_MESSAGE.format(
+        blocked_trigger_word=str(
+            blocked_trigger_word
+            or ""
+        ).strip()
+    )
+
+
 PROPOSAL_RULES = (
             "MEMORY AND SESSION PROPOSALS:\n"
             "A proposal is optional user-facing text, not a runtime action. Never emit a save or memory marker during proposal until the user clearly accepts it.\n"

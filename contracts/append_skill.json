@@ -43,7 +43,6 @@
       "You may append multiple skills at once.",
       "Never append a skill that is already listed in <CURRENT_APPENDED_SKILLS>! Continue or notify user!"
     ],
-    "close_tag": false,
-    "failure_followup_message": []
+    "close_tag": false
   }
 }

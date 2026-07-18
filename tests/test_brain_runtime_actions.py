@@ -1847,7 +1847,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             )
         )
         self.assertLess(
-            prompt.index("<TOOL_RESULTS"),
+            prompt.index("<TOOL_RESULT"),
             prompt.index("<APPENDED_SKILLS_CONTENT>"),
         )
         self.assertLess(

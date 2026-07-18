@@ -84,8 +84,8 @@ class AgentRoutingTests(
         tool_results_context = build_tool_results_context(
             context
         )
-        self.assertIn(
-            "<TOOL_RESULTS type='session'>",
+        self.assertNotIn(
+            "<TOOL_RESULTS",
             tool_results_context,
         )
         self.assertIn(

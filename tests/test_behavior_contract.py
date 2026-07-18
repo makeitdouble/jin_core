@@ -12,6 +12,14 @@ from runtime.behavior_contract import (
     should_pause_action_guard_for_confirmation,
     should_execute_action_guard,
 )
+from rules.runtime import (
+    ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE,
+    ACTION_BLOCKED_TRIGGER_WORD_MESSAGE,
+    ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
+    NO_ENTRIES_FOUND_MESSAGE,
+    format_runtime_blocked_trigger_word_message,
+    format_runtime_trigger_words_message,
+)
 
 
 class BehaviorContractTests(unittest.TestCase):
@@ -56,7 +64,6 @@ class BehaviorContractTests(unittest.TestCase):
         for name, contract in get_behavior_contract()["action_guards"].items():
             for field in (
                 "rules",
-                "failure_followup_message",
             ):
                 values = contract.get(
                     field,
@@ -78,6 +85,61 @@ class BehaviorContractTests(unittest.TestCase):
                         value,
                         msg=f"{name}.{field} contains embedded newline",
                     )
+
+    def test_contracts_do_not_define_failure_followup_message(self):
+
+        for name, contract in get_behavior_contract()["action_guards"].items():
+            self.assertNotIn(
+                "failure_followup_message",
+                contract,
+                msg=(
+                    f"{name}.failure_followup_message must come from "
+                    "rules.runtime defaults"
+                ),
+            )
+
+    def test_runtime_default_messages_are_formatted(self):
+
+        self.assertEqual(
+            NO_ENTRIES_FOUND_MESSAGE,
+            "No entries found.",
+        )
+        self.assertEqual(
+            format_runtime_trigger_words_message(
+                ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
+                (
+                    "save session",
+                    "save summary",
+                ),
+            ),
+            (
+                "Action failed. User rejected an action and didn't provide "
+                "any of trigger words: save session, save summary"
+            ),
+        )
+        self.assertEqual(
+            format_runtime_trigger_words_message(
+                ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE,
+                (
+                    "save session",
+                    "save summary",
+                ),
+            ),
+            (
+                "User accepted an action and didn't provide any of action "
+                "trigger words: save session, save summary"
+            ),
+        )
+        self.assertEqual(
+            ACTION_BLOCKED_TRIGGER_WORD_MESSAGE,
+            "Action failed. Blocked trigger word: {blocked_trigger_word}",
+        )
+        self.assertEqual(
+            format_runtime_blocked_trigger_word_message(
+                "show tag"
+            ),
+            "Action failed. Blocked trigger word: show tag",
+        )
 
     def test_save_session_guard_exists(self):
 

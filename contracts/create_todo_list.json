@@ -43,7 +43,6 @@
       "Never emit TODO_LIST marker if <CURRENT_RUNTIME_TODO_LIST> already created and present in the context.",
       "If all TODO items are done, stop internal actions and answer the user."
     ],
-    "close_tag": true,
-    "failure_followup_message": []
+    "close_tag": true
   }
 }

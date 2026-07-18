@@ -22,7 +22,6 @@
     "rules": [
       "Emit <IDLE: Ns > to setup follow up tick for future, that will be triggered after exact time inside the marker."
     ],
-    "close_tag": false,
-    "failure_followup_message": []
+    "close_tag": false
   }
 }

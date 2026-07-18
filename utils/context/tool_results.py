@@ -71,11 +71,9 @@ def append_tool_results(
         )
 
     parts.append(
-        '<TOOL_RESULTS type=\'external_untrusted_evidence\'>\n'
         f"    <TOOL_RESULT {tool_result_attrs}>\n"
         f"{indent_xml(search_result)}\n"
-        "    </TOOL_RESULT>\n"
-        "</TOOL_RESULTS>"
+        "    </TOOL_RESULT>"
     )
 
 
@@ -131,11 +129,9 @@ def append_recorded_tool_results(
                 attrs += f' id="{escape(result_id)}"'
 
             parts.append(
-                "<TOOL_RESULTS type='external_untrusted_evidence'>\n"
                 f"    <TOOL_RESULT {attrs}>\n"
                 f"{indent_xml(search_result)}\n"
-                "    </TOOL_RESULT>\n"
-                "</TOOL_RESULTS>"
+                "    </TOOL_RESULT>"
             )
             appended = True
             continue
@@ -154,10 +150,8 @@ def append_recorded_tool_results(
                 "    </TOOL_RESULT>"
                 for name, payload in sections
             ]
-            parts.append(
-                "<TOOL_RESULTS>\n"
-                f"{chr(10).join(blocks)}\n"
-                "</TOOL_RESULTS>"
+            parts.extend(
+                blocks
             )
             appended = True
             continue
@@ -175,10 +169,8 @@ def append_recorded_tool_results(
                 "    </TOOL_RESULT>"
                 for name, payload in sections
             ]
-            parts.append(
-                "<TOOL_RESULTS type='active_memory'>\n"
-                f"{chr(10).join(blocks)}\n"
-                "</TOOL_RESULTS>"
+            parts.extend(
+                blocks
             )
             appended = True
             continue
@@ -196,10 +188,8 @@ def append_recorded_tool_results(
                 "    </TOOL_RESULT>"
                 for name, payload in sections
             ]
-            parts.append(
-                "<TOOL_RESULTS type='session'>\n"
-                f"{chr(10).join(blocks)}\n"
-                "</TOOL_RESULTS>"
+            parts.extend(
+                blocks
             )
             appended = True
             continue
@@ -217,10 +207,8 @@ def append_recorded_tool_results(
                 "    </TOOL_RESULT>"
                 for name, payload in sections
             ]
-            parts.append(
-                "<TOOL_RESULTS type='delayed_memory'>\n"
-                f"{chr(10).join(blocks)}\n"
-                "</TOOL_RESULTS>"
+            parts.extend(
+                blocks
             )
             appended = True
 

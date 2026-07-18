@@ -27,7 +27,6 @@
       "Always use CREATE_ACTIVE_MEMORY for generic non-summary remember/store/track/remind requests.",
       "Use CREATE_ACTIVE_MEMORY for word recall tests and next-N-message reminders."
     ],
-    "close_tag": false,
-    "failure_followup_message": []
+    "close_tag": false
   }
 }

@@ -24,7 +24,6 @@
       "If tool results are explicitly present you must immediately clean redundant tool results obviously not needed for continuing conversation.",
       "NEVER emit <CLEAN_TOOL_RESULTS> if <TOOLS_RESULTS> block is empty, stop and notify user."
     ],
-    "close_tag": false,
-    "failure_followup_message": []
+    "close_tag": false
   }
 }

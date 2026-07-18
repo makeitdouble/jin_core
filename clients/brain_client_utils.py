@@ -77,11 +77,15 @@ from contracts.rules_assembler import (
 from runtime.behavior_contract import (
     get_action_guard_blocker_match,
     get_action_guard_name_for_runtime_action,
+    get_action_guard_triggers,
     should_execute_action_guard,
     should_prearm_action_guard,
 )
-from contracts.rules_assembler import (
-    get_runtime_action_failure_followup_message,
+from rules.runtime import (
+    ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
+    NO_ENTRIES_FOUND_MESSAGE,
+    format_runtime_blocked_trigger_word_message,
+    format_runtime_trigger_words_message,
 )
 from utils.assets_service import (
     ensure_assets_tree,
@@ -163,6 +167,22 @@ def should_execute_save_delayed_memory(
     return should_execute_action_guard(
         "save_delayed_memory",
         user_message
+    )
+
+
+def build_action_missing_trigger_words_message(
+    runtime_action: str,
+    template: str,
+) -> str:
+
+    guard_name = get_action_guard_name_for_runtime_action(
+        runtime_action
+    )
+    return format_runtime_trigger_words_message(
+        template,
+        get_action_guard_triggers(
+            guard_name
+        ),
     )
 
 
@@ -1622,6 +1642,25 @@ def normalize_delayed_memory_action_id(
     return ""
 
 
+def build_delayed_memory_failure_result(
+    *,
+    action: str,
+    requested: str,
+    error: str,
+) -> dict:
+
+    return {
+        "ok": False,
+        "action": action,
+        "requested": str(
+            requested
+            or ""
+        ).strip(),
+        "error": error,
+        "failure": NO_ENTRIES_FOUND_MESSAGE,
+    }
+
+
 def list_delayed_memory_reports(
     context,
 ) -> dict:
@@ -1672,12 +1711,16 @@ def append_delayed_memory_report(
         report,
         dict,
     ):
-        return {
-            "ok": False,
-            "action": "append_delayed_memory",
-            "requested": report_id,
-            "error": "delayed_memory_not_found",
-        }
+        return build_delayed_memory_failure_result(
+            action="append_delayed_memory",
+            requested=report_id
+            or payload,
+            error=(
+                "invalid_delayed_memory_id"
+                if not report_id
+                else "delayed_memory_not_found"
+            ),
+        )
 
     updated_report = update_delayed_memory_append_metadata(
         context,
@@ -1717,15 +1760,11 @@ def remove_delayed_memory_report(
     )
 
     if not report_id:
-        return {
-            "ok": False,
-            "action": "remove_delayed_memory",
-            "requested": str(
-                payload
-                or ""
-            ).strip(),
-            "error": "invalid_delayed_memory_id",
-        }
+        return build_delayed_memory_failure_result(
+            action="remove_delayed_memory",
+            requested=payload,
+            error="invalid_delayed_memory_id",
+        )
 
     reports = get_delayed_memory_reports(
         context
@@ -1737,6 +1776,16 @@ def remove_delayed_memory_report(
         if report_id
         else None
     )
+
+    if not isinstance(
+        report,
+        dict,
+    ):
+        return build_delayed_memory_failure_result(
+            action="remove_delayed_memory",
+            requested=report_id,
+            error="delayed_memory_not_found",
+        )
 
     return {
         "ok": True,
@@ -2370,16 +2419,16 @@ async def apply_runtime_action_calls(
         )
 
         if blocker_match:
-            failure_messages = get_runtime_action_failure_followup_message(
-                action.name
+            failure_followup_message = (
+                format_runtime_blocked_trigger_word_message(
+                    blocker_match
+                )
             )
             rejected_action_events[id(action)] = {
                 "status": "failed",
                 "error": "behavior_contract_blocker_matched",
                 "blocker": blocker_match,
-                "failure_followup_message": "\n".join(
-                    failure_messages
-                ),
+                "failure_followup_message": failure_followup_message,
                 "confirmation_id": guard_confirmation_ids.get(
                     id(action),
                     "",
@@ -2423,6 +2472,20 @@ async def apply_runtime_action_calls(
                     resolved_user_message
                 )
             ):
+                rejected_action_events[id(action)] = {
+                    "status": "failed",
+                    "error": "user_did_not_explicitly_request_session_save",
+                    "failure_followup_message": (
+                        build_action_missing_trigger_words_message(
+                            action.name,
+                            ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
+                        )
+                    ),
+                    "confirmation_id": guard_confirmation_ids.get(
+                        id(action),
+                        "",
+                    ),
+                }
                 continue
 
             if save_session_seen:
@@ -2491,9 +2554,10 @@ async def apply_runtime_action_calls(
                         "user_did_not_explicitly_request_report_save"
                     ),
                     "title": rejected_title,
-                    "failure_followup_message": "\n".join(
-                        get_runtime_action_failure_followup_message(
-                            action.name
+                    "failure_followup_message": (
+                        build_action_missing_trigger_words_message(
+                            action.name,
+                            ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
                         )
                     ),
                     "confirmation_id": guard_confirmation_ids.get(
@@ -2533,11 +2597,6 @@ async def apply_runtime_action_calls(
             continue
 
         if action.name == RUNTIME_ACTION_APPEND_DELAYED_MEMORY:
-            if not normalize_delayed_memory_action_id(
-                action.payload
-            ):
-                continue
-
             accepted_action_names.add(
                 action_event_name
             )
@@ -3618,6 +3677,11 @@ async def apply_runtime_action_calls(
                 context,
                 result,
             )
+            if result.get("ok") is False:
+                append_delayed_memory_runtime_result(
+                    context,
+                    result,
+                )
             if did_append_delayed_memory:
                 history_text = build_delayed_memory_history_text(
                     result
@@ -3660,6 +3724,19 @@ async def apply_runtime_action_calls(
                 ),
             )
             result["detached"] = did_remove_delayed_memory
+            if (
+                result.get("ok") is not False
+                and not did_remove_delayed_memory
+            ):
+                result = build_delayed_memory_failure_result(
+                    action="remove_delayed_memory",
+                    requested=result.get(
+                        "id",
+                        "",
+                    ),
+                    error="delayed_memory_not_appended",
+                )
+                result["detached"] = False
             append_delayed_memory_runtime_result(
                 context,
                 result,
