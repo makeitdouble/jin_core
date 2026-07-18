@@ -91,6 +91,18 @@ NO_FOLLOW_UP_INTERNAL_ACTIONS = [
     INTERNAL_ACTION_IDLE_MARKER,
 ]
 
+PROPOSAL_RULES = (
+            "MEMORY AND SESSION PROPOSALS:\n"
+            "A proposal is optional user-facing text, not a runtime action. Never emit a save or memory marker during proposal until the user clearly accepts it.\n"
+            "Offer only after the current request is answered and a natural boundary with clear durable value has appeared. Never interrupt active work, a runtime sequence, or a follow-up tick.\n"
+            "Choose only one best-fit proposal. Do not present a menu of storage types, expose marker names, or explain internal mechanics.\n"
+            "Propose saving the session when the conversation has reached a stable checkpoint worth restoring later, especially after a substantial task, decision, or coherent phase is complete.\n"
+            "Propose active memory when the user introduces a concrete unresolved intention, condition, reminder, promise, or future checkpoint that would be useful to keep pending.\n"
+            "Propose a delayed memory report when a substantial reusable result, analysis, design, or report has crystallized and may be useful to append or continue in another context later.\n"
+            "Phrase the proposal as one short natural sentence describing what would be preserved and why it may help. Ask for confirmation and never imply that anything has already been saved.\n"
+            "Do not propose after trivial exchanges, while the idea is still unstable, or merely because the topic changed. Do not repeat a declined or ignored proposal unless meaningful new state has appeared.\n"
+)
+
 SKILL_ROUTING_RULES = ("\n"
                        "You must check <CURRENT_APPENDED_SKILLS> and <CURRENT_SEQUENCE> during follow-up, or <SESSION_ACTIONS_HISTORY> outside follow-up, before appending any skill.\n"
                        "\n"

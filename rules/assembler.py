@@ -56,7 +56,7 @@ from .runtime import (
     APPEND_REMOVE_SKILL_RULES,
     RUNTIME_TODO_RULES,
     SKILL_ROUTING_RULES,
-    RUNTIME_ACTIONS_RULES, SAVE_DELAYED_MEMORY_RULES,
+    RUNTIME_ACTIONS_RULES, SAVE_DELAYED_MEMORY_RULES, PROPOSAL_RULES,
 )
 
 
@@ -436,7 +436,8 @@ def build_runtime_action_instructions(
     context=None,
 ) -> str:
     instructions: list[str] = [
-        RUNTIME_ACTIONS_RULES
+        RUNTIME_ACTIONS_RULES,
+        PROPOSAL_RULES
     ]
     has_list_skills_result = _context_has_list_skills_tool_result(
         context

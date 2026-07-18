@@ -109,9 +109,11 @@ def build_sequence_origin_request_context(
     )
 
     return (
-        "<SEQUENCE_ORIGIN_REQUEST>\n"
-        "\n!!! WARNING: THIS IS NOT CURRENT USER REQUEST! TREAT IT AS A PAST! !!!\n"
-        f"{escape(text)}\n"
+        "<SEQUENCE_ORIGIN_REQUEST>\n\n"
+        "------\n\n"
+        "!!! WARNING: THIS IS NOT CURRENT USER REQUEST! TREAT IT AS A PAST! !!!\n"
+        "------\n\n"
+        f"<USER>{escape(text)}\n\n"
         "</SEQUENCE_ORIGIN_REQUEST>"
     )
 

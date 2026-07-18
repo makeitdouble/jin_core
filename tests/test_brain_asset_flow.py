@@ -17,7 +17,6 @@ from agent.nodes.brain import (
 )
 from utils.context.brain_context_builder import (
     build_appended_delayed_memory_context,
-    build_previous_chat_messages_context,
     build_sequence_origin_request_context,
     build_tool_results_context,
 )
@@ -97,27 +96,13 @@ def _assert_latest_request_payload(
             user_input
         )
     )
-    previous_chat_messages = (
-        build_previous_chat_messages_context(
-            extra_user_message=user_input,
-        )
-    )
-
     test_case.assertIn(
         sequence_origin_request,
         system_prompt,
     )
-    test_case.assertIn(
-        previous_chat_messages,
+    test_case.assertNotIn(
+        "<PREVIOUS_CHAT_MESSAGES>",
         system_prompt,
-    )
-    test_case.assertLess(
-        system_prompt.index(
-            sequence_origin_request
-        ),
-        system_prompt.index(
-            previous_chat_messages
-        ),
     )
 
 
@@ -211,6 +196,24 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(
             "<TOOLS_RESULTS>\n</TOOLS_RESULTS>",
             prompt,
+        )
+
+    async def test_sequence_origin_request_marks_past_user_message(self):
+
+        context = build_sequence_origin_request_context(
+            "keep <this> in delayed memory"
+        )
+
+        self.assertEqual(
+            context,
+            (
+                "<SEQUENCE_ORIGIN_REQUEST>\n\n"
+                "------\n\n"
+                "!!! WARNING: THIS IS NOT CURRENT USER REQUEST! TREAT IT AS A PAST! !!!\n"
+                "------\n\n"
+                "<USER>keep &lt;this&gt; in delayed memory\n\n"
+                "</SEQUENCE_ORIGIN_REQUEST>"
+            ),
         )
 
     async def test_followup_collects_scattered_tool_results_at_context_top(self):
@@ -457,15 +460,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 context
             )
         )
-        previous_chat_messages = (
-            build_previous_chat_messages_context(
-                context,
-                extra_user_message=(
-                    "append the delayed memory"
-                ),
-            )
-        )
-
         self.assertTrue(
             prompt.startswith(
                 "<TOOLS_RESULTS>"
@@ -484,8 +478,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             appended_delayed_memory,
             prompt,
         )
-        self.assertIn(
-            previous_chat_messages,
+        self.assertNotIn(
+            "<PREVIOUS_CHAT_MESSAGES>",
             prompt,
         )
         self.assertLess(
@@ -494,14 +488,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             ),
             prompt.index(
                 appended_delayed_memory
-            ),
-        )
-        self.assertLess(
-            prompt.index(
-                appended_delayed_memory
-            ),
-            prompt.index(
-                previous_chat_messages
             ),
         )
 
@@ -575,9 +561,9 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             prompt.index("</SEQUENCE_ORIGIN_REQUEST>"),
             prompt.index("<CURRENT_SEQUENCE>"),
         )
-        self.assertLess(
-            prompt.index("<CURRENT_SEQUENCE>"),
-            prompt.index("<PREVIOUS_CHAT_MESSAGES>"),
+        self.assertNotIn(
+            "<PREVIOUS_CHAT_MESSAGES>",
+            prompt,
         )
 
     async def test_idle_followup_keeps_original_sequence_action_history(self):
@@ -1917,7 +1903,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             prompt.count("<PREVIOUS_CHAT_MESSAGES>"),
-            1,
+            0,
             prompt,
         )
         self.assertIn(

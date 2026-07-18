@@ -673,7 +673,6 @@ class BrainNode(BaseNode):
 
             from utils.context.brain_context_builder import (
                 build_appended_delayed_memory_context,
-                build_previous_chat_messages_context,
             )
 
             appended_delayed_memory_context = (
@@ -685,18 +684,6 @@ class BrainNode(BaseNode):
             if appended_delayed_memory_context:
                 sections.append(
                     appended_delayed_memory_context
-                )
-
-            previous_chat_messages_context = (
-                build_previous_chat_messages_context(
-                    context,
-                    extra_user_message=initial_user_request,
-                )
-            )
-
-            if previous_chat_messages_context:
-                sections.append(
-                    previous_chat_messages_context
                 )
 
         if instruction.strip():
