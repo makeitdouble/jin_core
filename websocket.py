@@ -71,6 +71,7 @@ from runtime import (
     emit_runtime_l1_diff_update,
     emit_runtime_session_memory_update,
     refresh_runtime_state,
+    record_runtime_memory_reasoning_quotes,
     run_fact_check_once,
     schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
@@ -2795,6 +2796,14 @@ async def process_message(
             "runtime_turn_interrupted",
             False,
         ):
+            record_runtime_memory_reasoning_quotes(
+                context,
+                getattr(
+                    context,
+                    "runtime_turn_reasoning_content",
+                    "",
+                ),
+            )
             memory_update_task = schedule_interrupted_runtime_memory_update(
                 context=context,
             )
@@ -2803,6 +2812,14 @@ async def process_message(
             # snapshots that already existed. The user's save request and
             # JIN's final confirmation are therefore committed here through
             # the ordinary post-response L1/L2 path.
+            record_runtime_memory_reasoning_quotes(
+                context,
+                getattr(
+                    context,
+                    "runtime_turn_reasoning_content",
+                    "",
+                ),
+            )
             memory_update_task = schedule_runtime_memory_update(
                 context=context,
                 user_message=getattr(

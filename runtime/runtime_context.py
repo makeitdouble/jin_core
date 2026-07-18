@@ -219,6 +219,14 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_memory_quote_history: dict = field(
+        default_factory=dict
+    )
+
+    runtime_memory_pending_quote_identities: set = field(
+        default_factory=set
+    )
+
     runtime_memory_snapshot_index: int = 0
 
     identity_details: str = ""
@@ -244,6 +252,8 @@ class RuntimeContext:
     )
 
     runtime_turn_assistant_response: str = ""
+
+    runtime_turn_reasoning_content: str = ""
 
     runtime_turn_interrupted: bool = False
 

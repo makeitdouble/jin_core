@@ -665,6 +665,35 @@
     );
   }
 
+  function runtimeMemoryTraceFontWeight(line) {
+    const strength =
+        Number(line && line.strength);
+
+    if (!Number.isFinite(strength)) {
+      return 400;
+    }
+
+    const normalized =
+        clampMemoryRatio(strength);
+    const eased =
+        Math.sqrt(
+            Math.max(
+                0,
+                normalized - 0.5
+            ) / 0.5
+        );
+
+    return Math.round(
+        Math.max(
+            400,
+            Math.min(
+                500,
+                400 + eased * 100
+            )
+        )
+    );
+  }
+
   function applyRuntimeMemoryFlash(
       element,
       status,
@@ -981,6 +1010,10 @@
 
       valueSpan.textContent =
           ` ${valuePresentation.text}`;
+      valueSpan.style.fontWeight =
+          String(
+              runtimeMemoryTraceFontWeight(line)
+          );
 
       const hoverTitle =
           formatRuntimeMemoryHoverTitle(fullRawLine);

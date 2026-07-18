@@ -1,5 +1,6 @@
 import json
 import re
+import unicodedata
 from difflib import SequenceMatcher
 
 from runtime.L1_memory_rules import (
@@ -24,6 +25,7 @@ from runtime.L1_memory_rules import (
     STRENGTH_DECAY,
     STRENGTH_NEW_KEY,
     STRENGTH_PRESENCE_BOOST,
+    STRENGTH_QUOTE_BOOST,
 )
 from rules.signal import (
     RUNTIME_RESPONSE_FEEDBACK_DISLIKED_VALUE,
@@ -71,6 +73,55 @@ RUNTIME_RESPONSE_FEEDBACK_CLICK_COUNT_KEYS = {
 RUNTIME_MEMORY_KEY_PREFIX_RE = re.compile(
     r"^\s*-?\s*[A-Za-z][A-Za-z0-9_ #]{0,80}\s*:",
 )
+
+RUNTIME_MEMORY_TRACE_SUFFIX_RE = re.compile(
+    r"\s*(?:\[\s*trace\s*:\s*[^\]]*\]|\(\s*trace\s*:\s*[^)]*\))\s*",
+    re.IGNORECASE,
+)
+
+RUNTIME_MEMORY_QUOTE_COUNT_SUFFIX_RE = re.compile(
+    (
+        r"\s*\[\s*"
+        r"(?:total_quotes_count|messages_quote_count)"
+        r"\s*:\s*\d+\s*\]\s*"
+    ),
+    re.IGNORECASE,
+)
+
+RUNTIME_QUOTE_MIN_MATCH_CHARS = 24
+RUNTIME_QUOTE_MIN_MATCH_TOKENS = 4
+RUNTIME_QUOTE_MIN_RARE_TOKENS = 3
+
+RUNTIME_QUOTE_STOP_WORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "for",
+    "from",
+    "i",
+    "if",
+    "in",
+    "into",
+    "is",
+    "it",
+    "my",
+    "not",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "this",
+    "to",
+    "use",
+    "when",
+    "with",
+}
 
 
 def _line_starts_runtime_memory_entry(
@@ -835,6 +886,22 @@ def build_runtime_response_feedback_value(
     return value
 
 
+def strip_runtime_memory_line_metadata(
+        value: str,
+) -> str:
+
+    cleaned = RUNTIME_MEMORY_TRACE_SUFFIX_RE.sub(
+        " ",
+        str(value or ""),
+    )
+    cleaned = RUNTIME_MEMORY_QUOTE_COUNT_SUFFIX_RE.sub(
+        " ",
+        cleaned,
+    )
+
+    return cleaned.strip()
+
+
 def canonicalize_runtime_memory_entry(
         key: str,
         value: str,
@@ -1357,6 +1424,9 @@ def parse_runtime_memory_lines(memory: str) -> list[dict]:
             key,
             value,
         )
+        value = strip_runtime_memory_line_metadata(
+            value
+        )
 
         lines.append({
             "key": key,
@@ -1396,6 +1466,7 @@ def compute_line_strength(
         change_ratio_val: float,
         is_durable: bool,
         is_new: bool,
+        quote_boost: float = 0.0,
 ) -> float:
     if is_new:
         raw = STRENGTH_NEW_KEY
@@ -1405,6 +1476,13 @@ def compute_line_strength(
             + STRENGTH_PRESENCE_BOOST
             + change_ratio_val * STRENGTH_BOOST
         )
+
+    raw += max(
+        0.0,
+        float(
+            quote_boost or 0.0
+        ),
+    )
 
     floor = DURABLE_FLOOR if is_durable else 0.0
 
@@ -1418,6 +1496,528 @@ def compute_line_strength(
         ),
         4,
     )
+
+
+def runtime_memory_line_identity(
+        line: dict,
+) -> str:
+
+    key = str(
+        line.get(
+            "key",
+            "",
+        )
+        or ""
+    ).strip()
+    value = str(
+        line.get(
+            "value",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if not key and not value:
+        return ""
+
+    return f"{key}\0{value}"
+
+
+def _normalize_runtime_quote_text(
+        text: str,
+) -> str:
+
+    normalized = unicodedata.normalize(
+        "NFKC",
+        str(text or ""),
+    ).lower()
+    output = []
+
+    for char in normalized:
+        if char.isalnum():
+            output.append(
+                char
+            )
+            continue
+
+        if (
+                output
+                and output[-1] != " "
+        ):
+            output.append(
+                " "
+            )
+
+    while (
+            output
+            and output[-1] == " "
+    ):
+        output.pop()
+
+    return "".join(
+        output
+    )
+
+
+def _runtime_quote_tokens(
+        text: str,
+) -> list[str]:
+
+    return [
+        token
+        for token in _normalize_runtime_quote_text(
+            text
+        ).split(" ")
+        if token
+    ]
+
+
+def _runtime_quote_rare_token_count(
+        tokens: list[str],
+) -> int:
+
+    return len({
+        token
+        for token in tokens
+        if (
+                len(token) >= 4
+                and token not in RUNTIME_QUOTE_STOP_WORDS
+        )
+    })
+
+
+def _runtime_quote_phrase_is_usable(
+        tokens: list[str],
+) -> bool:
+
+    phrase = " ".join(
+        tokens
+    )
+
+    return (
+            len(tokens) >= RUNTIME_QUOTE_MIN_MATCH_TOKENS
+            and len(phrase) >= RUNTIME_QUOTE_MIN_MATCH_CHARS
+            and _runtime_quote_rare_token_count(
+                tokens
+            ) >= RUNTIME_QUOTE_MIN_RARE_TOKENS
+    )
+
+
+def runtime_memory_line_was_quoted(
+        *,
+        line: dict,
+        normalized_reasoning: str,
+) -> bool:
+
+    key = str(
+        line.get(
+            "key",
+            "",
+        )
+        or "note"
+    ).strip()
+    value = str(
+        line.get(
+            "value",
+            "",
+        )
+        or ""
+    ).strip()
+
+    candidates = [
+        f"{key}: {value}",
+        value,
+    ]
+
+    for candidate in candidates:
+        source_tokens = _runtime_quote_tokens(
+            candidate
+        )
+
+        if not _runtime_quote_phrase_is_usable(
+            source_tokens
+        ):
+            continue
+
+        full_phrase = " ".join(
+            source_tokens
+        )
+
+        if full_phrase in normalized_reasoning:
+            return True
+
+        max_window_size = min(
+            14,
+            len(source_tokens) - 1,
+        )
+
+        for size in range(
+                max_window_size,
+                RUNTIME_QUOTE_MIN_MATCH_TOKENS - 1,
+                -1,
+        ):
+            for start in range(
+                    0,
+                    len(source_tokens) - size + 1,
+            ):
+                phrase_tokens = source_tokens[
+                    start:start + size
+                ]
+
+                if not _runtime_quote_phrase_is_usable(
+                    phrase_tokens
+                ):
+                    continue
+
+                if (
+                        " ".join(
+                            phrase_tokens
+                        )
+                        in normalized_reasoning
+                ):
+                    return True
+
+    return False
+
+
+def _runtime_memory_quote_response_id(
+        context,
+) -> str:
+
+    return str(
+        getattr(
+            context,
+            "runtime_current_turn_id",
+            "",
+        )
+        or getattr(
+            context,
+            "runtime_current_sequence_turn_id",
+            "",
+        )
+        or getattr(
+            context,
+            "assistant_message_count",
+            0,
+        )
+        or getattr(
+            context,
+            "turn_number",
+            0,
+        )
+        or "current"
+    )
+
+
+def ensure_runtime_memory_quote_history(
+        context,
+) -> dict:
+
+    history = getattr(
+        context,
+        "runtime_memory_quote_history",
+        None,
+    )
+
+    if not isinstance(
+            history,
+            dict,
+    ):
+        history = {}
+        context.runtime_memory_quote_history = history
+
+    return history
+
+
+def _runtime_memory_quote_stats(
+        context,
+        identity: str,
+) -> dict:
+
+    history = ensure_runtime_memory_quote_history(
+        context
+    )
+    stats = history.get(
+        identity,
+    )
+
+    if not isinstance(
+            stats,
+            dict,
+    ):
+        stats = {}
+        history[identity] = stats
+
+    stats["total_quotes_count"] = int(
+        stats.get(
+            "total_quotes_count",
+            0,
+        )
+        or 0
+    )
+    stats["messages_quote_count"] = int(
+        stats.get(
+            "messages_quote_count",
+            0,
+        )
+        or 0
+    )
+
+    return stats
+
+
+def collect_runtime_memory_reasoning_quote_identities(
+        *,
+        memory: str,
+        reasoning: str,
+        context=None,
+) -> set[str]:
+
+    normalized_reasoning = _normalize_runtime_quote_text(
+        reasoning
+    )
+
+    if not normalized_reasoning:
+        return set()
+
+    display_memory = build_runtime_memory_context_text(
+        memory,
+        context,
+    )
+    lines = parse_runtime_memory_lines(
+        display_memory
+    )
+    identities = set()
+
+    for line in lines:
+        identity = runtime_memory_line_identity(
+            line
+        )
+
+        if (
+                identity
+                and runtime_memory_line_was_quoted(
+                    line=line,
+                    normalized_reasoning=normalized_reasoning,
+                )
+        ):
+            identities.add(
+                identity
+            )
+
+    return identities
+
+
+def record_runtime_memory_reasoning_quotes(
+        context,
+        reasoning: str,
+        *,
+        memory: str | None = None,
+        response_id: str | None = None,
+) -> dict:
+
+    cited_identities = collect_runtime_memory_reasoning_quote_identities(
+        memory=(
+            getattr(
+                context,
+                "runtime_memory",
+                "",
+            )
+            if memory is None
+            else memory
+        ),
+        reasoning=reasoning,
+        context=context,
+    )
+
+    if not cited_identities:
+        context.runtime_memory_pending_quote_identities = set()
+        return {
+            "quoted_line_count": 0,
+            "quoted_identities": [],
+        }
+
+    response_key = str(
+        response_id
+        or _runtime_memory_quote_response_id(
+            context
+        )
+    )
+    history = ensure_runtime_memory_quote_history(
+        context
+    )
+
+    for identity in cited_identities:
+        stats = _runtime_memory_quote_stats(
+            context,
+            identity,
+        )
+        last_response_id = str(
+            stats.get(
+                "last_response_id",
+                "",
+            )
+            or ""
+        )
+
+        if last_response_id == response_key:
+            continue
+
+        stats["total_quotes_count"] += 1
+        stats["messages_quote_count"] += 1
+        stats["last_response_id"] = response_key
+
+    context.runtime_memory_quote_history = history
+    context.runtime_memory_pending_quote_identities = set(
+        cited_identities
+    )
+
+    return {
+        "quoted_line_count": len(
+            cited_identities
+        ),
+        "quoted_identities": sorted(
+            cited_identities
+        ),
+    }
+
+
+def apply_runtime_memory_quote_stats(
+        line: dict,
+        context,
+        *,
+        pending_quote_identities: set[str] | None = None,
+) -> float:
+
+    identity = runtime_memory_line_identity(
+        line
+    )
+
+    if not identity or context is None:
+        line["total_quotes_count"] = 0
+        line["messages_quote_count"] = 0
+        line["quote_boost"] = 0.0
+        return 0.0
+
+    stats = ensure_runtime_memory_quote_history(
+        context
+    ).get(
+        identity,
+        {},
+    )
+
+    line["total_quotes_count"] = int(
+        stats.get(
+            "total_quotes_count",
+            0,
+        )
+        or 0
+    )
+    line["messages_quote_count"] = int(
+        stats.get(
+            "messages_quote_count",
+            0,
+        )
+        or 0
+    )
+
+    quote_boost = (
+        STRENGTH_QUOTE_BOOST
+        if (
+                pending_quote_identities
+                and identity in pending_quote_identities
+        )
+        else 0.0
+    )
+    line["quote_boost"] = quote_boost
+
+    return quote_boost
+
+
+def format_runtime_memory_quote_suffix(
+        line: dict,
+) -> str:
+
+    total_quotes_count = int(
+        line.get(
+            "total_quotes_count",
+            0,
+        )
+        or 0
+    )
+    messages_quote_count = int(
+        line.get(
+            "messages_quote_count",
+            0,
+        )
+        or 0
+    )
+
+    if (
+            total_quotes_count <= 0
+            and messages_quote_count <= 0
+    ):
+        return ""
+
+    return (
+        f" [ total_quotes_count: {total_quotes_count} ]"
+        f" [ messages_quote_count: {messages_quote_count} ]"
+    )
+
+
+def format_runtime_memory_trace_suffix(
+        line: dict,
+) -> str:
+
+    strength = line.get(
+        "strength",
+    )
+
+    if strength is None:
+        return ""
+
+    try:
+        return f" [trace: {float(strength):.2f}]"
+    except (
+            TypeError,
+            ValueError,
+    ):
+        return f" [trace: {strength}]"
+
+
+def build_runtime_memory_annotated_text(
+        lines: list[dict],
+) -> str:
+
+    annotated_lines = []
+
+    for line in lines:
+        key = str(
+            line.get(
+                "key",
+                "note",
+            )
+            or "note"
+        ).strip()
+        value = str(
+            line.get(
+                "value",
+                "",
+            )
+            or ""
+        ).strip()
+
+        annotated_lines.append(
+            (
+                f"{key}: {value}"
+                f"{format_runtime_memory_trace_suffix(line)}"
+                f"{format_runtime_memory_quote_suffix(line)}"
+            ).strip()
+        )
+
+    return "\n".join(
+        annotated_lines
+    ).strip()
 
 
 def get_strength_zones(
@@ -1704,10 +2304,17 @@ def find_best_previous_line(
 def apply_runtime_memory_diff(
         current_lines: list[dict],
         previous_snapshot: dict | None,
+        context=None,
+        pending_quote_identities: set[str] | None = None,
 ) -> list[dict]:
 
     if not previous_snapshot:
         for line in current_lines:
+            quote_boost = apply_runtime_memory_quote_stats(
+                line,
+                context,
+                pending_quote_identities=pending_quote_identities,
+            )
             line["key_status"] = "new"
             line["value_status"] = "new"
             line["key_change_ratio"] = 1.0
@@ -1720,6 +2327,7 @@ def apply_runtime_memory_diff(
                     line.get("key", "")
                 ),
                 is_new=True,
+                quote_boost=quote_boost,
             )
 
         return current_lines
@@ -1733,6 +2341,7 @@ def apply_runtime_memory_diff(
     )
 
     previous_by_normalized_key = {}
+    previous_by_identity = {}
 
     for previous_line in previous_lines:
         normalized_key = normalize_memory_key(
@@ -1745,7 +2354,19 @@ def apply_runtime_memory_diff(
         if normalized_key:
             previous_by_normalized_key[normalized_key] = previous_line
 
+        identity = runtime_memory_line_identity(
+            previous_line
+        )
+
+        if identity:
+            previous_by_identity[identity] = previous_line
+
     for line in current_lines:
+        quote_boost = apply_runtime_memory_quote_stats(
+            line,
+            context,
+            pending_quote_identities=pending_quote_identities,
+        )
 
         key = (
                 line.get(
@@ -1766,9 +2387,18 @@ def apply_runtime_memory_diff(
         normalized_key = normalize_memory_key(
             key
         )
+        current_identity = runtime_memory_line_identity(
+            line
+        )
+        exact_previous_line = previous_by_identity.get(
+            current_identity
+        )
 
-        previous_line = previous_by_normalized_key.get(
-            normalized_key
+        previous_line = (
+            exact_previous_line
+            or previous_by_normalized_key.get(
+                normalized_key
+            )
         )
 
         if not should_match_previous_memory_line(
@@ -1800,6 +2430,7 @@ def apply_runtime_memory_diff(
                 change_ratio_val=1.0,
                 is_durable=is_durable_memory_key(key),
                 is_new=True,
+                quote_boost=quote_boost,
             )
 
             continue
@@ -1854,11 +2485,25 @@ def apply_runtime_memory_diff(
         else:
             line["status"] = "same"
 
+        exact_identity_match = (
+                exact_previous_line is not None
+                and exact_previous_line is previous_line
+        )
+
         line["strength"] = compute_line_strength(
-            prev_strength=previous_line.get("strength"),
-            change_ratio_val=max(key_delta, value_delta),
+            prev_strength=(
+                previous_line.get("strength")
+                if exact_identity_match
+                else None
+            ),
+            change_ratio_val=(
+                max(key_delta, value_delta)
+                if exact_identity_match
+                else 1.0
+            ),
             is_durable=is_durable_memory_key(key),
-            is_new=False,
+            is_new=not exact_identity_match,
+            quote_boost=quote_boost,
         )
 
     return current_lines
@@ -1891,6 +2536,14 @@ def build_runtime_memory_patch(
                     "strength",
                     0.0,
                 ),
+                "total_quotes_count": line.get(
+                    "total_quotes_count",
+                    0,
+                ),
+                "messages_quote_count": line.get(
+                    "messages_quote_count",
+                    0,
+                ),
             })
             total_diff += 30
 
@@ -1908,6 +2561,7 @@ def build_runtime_memory_patch(
     )
 
     previous_by_normalized_key = {}
+    previous_by_identity = {}
 
     for previous_line in previous_lines:
         normalized_key = normalize_memory_key(
@@ -1919,6 +2573,13 @@ def build_runtime_memory_patch(
 
         if normalized_key:
             previous_by_normalized_key[normalized_key] = previous_line
+
+        identity = runtime_memory_line_identity(
+            previous_line
+        )
+
+        if identity:
+            previous_by_identity[identity] = previous_line
 
     matched_previous_ids = set()
 
@@ -1944,7 +2605,11 @@ def build_runtime_memory_patch(
             key
         )
 
-        previous_line = previous_by_normalized_key.get(
+        previous_line = previous_by_identity.get(
+            runtime_memory_line_identity(
+                line
+            )
+        ) or previous_by_normalized_key.get(
             normalized_key
         )
 
@@ -1972,6 +2637,14 @@ def build_runtime_memory_patch(
                 "strength": line.get(
                     "strength",
                     0.0,
+                ),
+                "total_quotes_count": line.get(
+                    "total_quotes_count",
+                    0,
+                ),
+                "messages_quote_count": line.get(
+                    "messages_quote_count",
+                    0,
                 ),
             })
             total_diff += 30
@@ -2015,6 +2688,22 @@ def build_runtime_memory_patch(
                     "strength",
                     0.0,
                 ),
+                "previous_total_quotes_count": previous_line.get(
+                    "total_quotes_count",
+                    0,
+                ),
+                "previous_messages_quote_count": previous_line.get(
+                    "messages_quote_count",
+                    0,
+                ),
+                "current_total_quotes_count": line.get(
+                    "total_quotes_count",
+                    0,
+                ),
+                "current_messages_quote_count": line.get(
+                    "messages_quote_count",
+                    0,
+                ),
             })
             total_diff += round(
                 (
@@ -2041,6 +2730,14 @@ def build_runtime_memory_patch(
             "strength": previous_line.get(
                 "strength",
                 0.0,
+            ),
+            "total_quotes_count": previous_line.get(
+                "total_quotes_count",
+                0,
+            ),
+            "messages_quote_count": previous_line.get(
+                "messages_quote_count",
+                0,
             ),
         })
         total_diff += 20
@@ -2076,9 +2773,17 @@ def build_runtime_memory_snapshot(
         display_memory
     )
 
+    pending_quote_identities = getattr(
+        context,
+        "runtime_memory_pending_quote_identities",
+        set(),
+    )
+
     lines = apply_runtime_memory_diff(
         lines,
         previous_snapshot,
+        context=context,
+        pending_quote_identities=pending_quote_identities,
     )
 
     patch_details = build_runtime_memory_patch(
@@ -2106,6 +2811,9 @@ def build_runtime_memory_snapshot(
             0,
         ),
         "raw_memory": display_memory,
+        "annotated_memory": build_runtime_memory_annotated_text(
+            lines
+        ),
         "lines": lines,
         "patch": patch_details["patch"],
         "total_diff": patch_details["total_diff"],
@@ -2159,6 +2867,7 @@ async def emit_runtime_memory_update(
 
     context.runtime_memory_snapshots.append(snapshot)
     context.runtime_memory_snapshot_index = snapshot["index"]
+    context.runtime_memory_pending_quote_identities = set()
 
     emit = getattr(
         emitter,
@@ -2240,6 +2949,12 @@ def rebuild_latest_runtime_memory_snapshot(
     lines = apply_runtime_memory_diff(
         lines,
         previous_snapshot,
+        context=context,
+        pending_quote_identities=getattr(
+            context,
+            "runtime_memory_pending_quote_identities",
+            set(),
+        ),
     )
 
     patch_details = build_runtime_memory_patch(
@@ -2250,6 +2965,9 @@ def rebuild_latest_runtime_memory_snapshot(
     refreshed_snapshot = {
         **latest_snapshot,
         "raw_memory": display_memory,
+        "annotated_memory": build_runtime_memory_annotated_text(
+            lines
+        ),
         "lines": lines,
         "patch": patch_details["patch"],
         "total_diff": patch_details["total_diff"],

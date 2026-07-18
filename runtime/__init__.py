@@ -28,6 +28,7 @@ from .L3_memory import (
 from .L1_memory_utils import (
     emit_runtime_l1_diff_update,
     emit_runtime_session_memory_update,
+    record_runtime_memory_reasoning_quotes,
 )
 from .L1_memory_utils import (
     build_interrupted_assistant_message,
@@ -74,6 +75,7 @@ __all__ = [
     "maybe_summarize_runtime_l2_memory",
     "maybe_summarize_runtime_session_memory",
     "record_runtime_l1_diff",
+    "record_runtime_memory_reasoning_quotes",
     "refresh_runtime_state",
     "run_fact_check_once",
     "runtime_state",

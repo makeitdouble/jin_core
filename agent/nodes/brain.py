@@ -1089,6 +1089,20 @@ class BrainNode(BaseNode):
             generator
         )
 
+        if runtime.stream.reasoning:
+            context.runtime_turn_reasoning_content = "\n".join(
+                part
+                for part in (
+                    getattr(
+                        context,
+                        "runtime_turn_reasoning_content",
+                        "",
+                    ),
+                    runtime.stream.reasoning,
+                )
+                if str(part or "").strip()
+            )
+
         return (
             text or "",
             runtime.stream.reasoning,
@@ -1126,6 +1140,7 @@ class BrainNode(BaseNode):
         begin_runtime_tool_results_turn(
             context
         )
+        context.runtime_turn_reasoning_content = ""
         context.runtime_search_queries.clear()
         context.runtime_search_calls.clear()
         context.runtime_search_result = ""

@@ -13,6 +13,9 @@ STRENGTH_PRESENCE_BOOST = 0.08
 # Boosts memory strength based on the amount of value change.
 STRENGTH_BOOST = 0.8
 
+# Adds a small strength boost when reasoning cites an exact runtime memory line.
+STRENGTH_QUOTE_BOOST = 0.06
+
 # Sets the starting strength for newly observed memory keys.
 STRENGTH_NEW_KEY = 0.5
 

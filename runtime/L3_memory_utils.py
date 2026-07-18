@@ -754,7 +754,13 @@ def build_l3_session_digest(
                 else L3_SNAPSHOT_ROLE_SELECTED
             ),
             "memory": compact_l3_text_block(
-                snapshot.get("raw_memory", ""),
+                snapshot.get(
+                    "annotated_memory",
+                )
+                or snapshot.get(
+                    "raw_memory",
+                    "",
+                ),
                 max_chars=max_chars,
             ),
         })

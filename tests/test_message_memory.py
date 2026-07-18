@@ -43,6 +43,7 @@ from runtime.L1_memory_utils import (
     normalize_compound_runtime_memory_lines,
     parse_runtime_memory_lines,
     quote_runtime_user_message_value,
+    record_runtime_memory_reasoning_quotes,
 )
 from utils.runtime_actions import (
     refresh_active_memory_runtime_metadata,
@@ -537,6 +538,165 @@ class MessageMemoryTests(
         self.assertEqual(
             snapshot["raw_memory"],
             "topic: reconnect counters",
+        )
+
+    def test_runtime_memory_reasoning_quotes_boost_trace_once_per_response(self):
+
+        context = RuntimeContext(
+            websocket=object(),
+            emitter=object(),
+            logger=object(),
+            clients={},
+        )
+        context.runtime_memory = (
+            "topic: The user is tuning runtime memory trace "
+            "through reasoning citations"
+        )
+        context.runtime_current_turn_id = "turn-1"
+
+        reasoning = (
+            "I should lean on this memory: The user is tuning runtime "
+            "memory trace through reasoning citations. Repeating it: "
+            "The user is tuning runtime memory trace through reasoning "
+            "citations."
+        )
+
+        result = record_runtime_memory_reasoning_quotes(
+            context,
+            reasoning,
+        )
+        snapshot = build_runtime_memory_snapshot(
+            context,
+            context.runtime_memory,
+        )
+        line = snapshot["lines"][0]
+
+        self.assertEqual(
+            result["quoted_line_count"],
+            1,
+        )
+        self.assertEqual(
+            line["total_quotes_count"],
+            1,
+        )
+        self.assertEqual(
+            line["messages_quote_count"],
+            1,
+        )
+        self.assertEqual(
+            line["quote_boost"],
+            0.06,
+        )
+        self.assertEqual(
+            line["strength"],
+            0.56,
+        )
+        self.assertIn(
+            "[ total_quotes_count: 1 ]",
+            snapshot["annotated_memory"],
+        )
+        self.assertIn(
+            "[ messages_quote_count: 1 ]",
+            snapshot["annotated_memory"],
+        )
+
+    def test_runtime_memory_reasoning_quotes_accumulate_across_responses(self):
+
+        context = RuntimeContext(
+            websocket=object(),
+            emitter=object(),
+            logger=object(),
+            clients={},
+        )
+        context.runtime_memory = (
+            "topic: The exact memory line keeps guiding later reasoning"
+        )
+        context.runtime_current_turn_id = "turn-1"
+
+        record_runtime_memory_reasoning_quotes(
+            context,
+            "The exact memory line keeps guiding later reasoning.",
+        )
+        first_snapshot = build_runtime_memory_snapshot(
+            context,
+            context.runtime_memory,
+        )
+        context.runtime_memory_snapshots.append(
+            first_snapshot
+        )
+        context.runtime_memory_pending_quote_identities = set()
+        context.runtime_current_turn_id = "turn-2"
+
+        record_runtime_memory_reasoning_quotes(
+            context,
+            "Again, the exact memory line keeps guiding later reasoning.",
+        )
+        second_snapshot = build_runtime_memory_snapshot(
+            context,
+            context.runtime_memory,
+        )
+        line = second_snapshot["lines"][0]
+
+        self.assertEqual(
+            line["total_quotes_count"],
+            2,
+        )
+        self.assertEqual(
+            line["messages_quote_count"],
+            2,
+        )
+        self.assertGreater(
+            line["strength"],
+            first_snapshot["lines"][0]["strength"],
+        )
+
+    def test_runtime_memory_quote_history_uses_exact_key_value_identity(self):
+
+        context = RuntimeContext(
+            websocket=object(),
+            emitter=object(),
+            logger=object(),
+            clients={},
+        )
+        original_memory = (
+            "topic: The exact memory line keeps guiding later reasoning"
+        )
+        context.runtime_memory = original_memory
+        context.runtime_current_turn_id = "turn-1"
+
+        record_runtime_memory_reasoning_quotes(
+            context,
+            "The exact memory line keeps guiding later reasoning.",
+        )
+        first_snapshot = build_runtime_memory_snapshot(
+            context,
+            original_memory,
+        )
+        context.runtime_memory_snapshots.append(
+            first_snapshot
+        )
+        context.runtime_memory_pending_quote_identities = set()
+
+        context.runtime_memory = (
+            "topic: The summarizer rewrote the thought into a new value"
+        )
+        second_snapshot = build_runtime_memory_snapshot(
+            context,
+            context.runtime_memory,
+        )
+        line = second_snapshot["lines"][0]
+
+        self.assertEqual(
+            line["total_quotes_count"],
+            0,
+        )
+        self.assertEqual(
+            line["messages_quote_count"],
+            0,
+        )
+        self.assertEqual(
+            line["strength"],
+            0.5,
         )
 
     def test_runtime_memory_context_replaces_stale_user_idle(self):
