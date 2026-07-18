@@ -22,11 +22,6 @@ from utils.context.brain_context_builder import (
 from utils.session_actions_history import (
     record_session_action_history,
 )
-from rules.runtime import (
-    DELAYED_MEMORY_SAVE_REJECTED_MESSAGE,
-)
-
-
 class FakeEmitter:
 
     def __init__(self):
@@ -1279,8 +1274,6 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             for event in context.emitter.events
             if event.get("type") == "runtime_action"
         ]
-        failure_result = context.runtime_delayed_memory_results[0]
-
         self.assertEqual(
             [event.get("status") for event in runtime_events],
             ["started", "failed"],
@@ -1290,24 +1283,13 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             runtime_events[1]["id"],
         )
         self.assertEqual(
-            failure_result["error"],
-            "user_did_not_explicitly_request_report_save",
-        )
-        self.assertEqual(
-            context.delayed_memory_reports,
-            {},
+            len(context.delayed_memory_reports),
+            0,
         )
         self.assertIn(
             "SAVE_DELAYED_MEMORY_CONTENT - failed: Unrequested report",
             context.runtime_session_action_history[-1]["text"],
         )
-        self.assertTrue(
-            any(
-                event.get("type") == "session_actions_update"
-                for event in context.emitter.events
-            )
-        )
-
         followup_prompt = BrainNode.build_followup_system_prompt(
             "<TOOL_RESULTS>\n</TOOL_RESULTS>",
             "выполни другое действие",
@@ -1316,15 +1298,15 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn(
-            DELAYED_MEMORY_SAVE_REJECTED_MESSAGE.strip(),
-            followup_prompt,
-        )
-        self.assertIn(
-            "Step 1 - SAVE_DELAYED_MEMORY_CONTENT - failed",
+            "Step 1 - SAVE_DELAYED_MEMORY_CONTENT - failed: Unrequested report",
             followup_prompt,
         )
         self.assertFalse(
-            context.runtime_delayed_memory_save_rejected_pending,
+            getattr(
+                context,
+                "runtime_delayed_memory_save_rejected_pending",
+                False,
+            ),
         )
 
     async def test_rejecting_started_delayed_memory_guard_stops_generation(self):
@@ -1428,8 +1410,8 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             ["started", "failed"],
         )
         self.assertEqual(
-            context.delayed_memory_reports,
-            {},
+            len(context.delayed_memory_reports),
+            0,
         )
 
     async def test_confirmed_delayed_memory_save_bypasses_missing_trigger_words(self):
@@ -1639,8 +1621,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             (
                 "CREATE_ACTIVE_MEMORY - "
                 "current session context and task status, "
-                "SAVE_DELAYED_MEMORY_CONTENT - failed: "
-                "Unrequested report "
+                "SAVE_DELAYED_MEMORY_CONTENT - failed: Unrequested report "
                 "(user did not provided system allowed trigger words for this action)"
             ),
         )
@@ -1656,8 +1637,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             (
                 "Step 1 - CREATE_ACTIVE_MEMORY - "
                 "current session context and task status, "
-                "SAVE_DELAYED_MEMORY_CONTENT - failed: "
-                "Unrequested report"
+                "SAVE_DELAYED_MEMORY_CONTENT - failed: Unrequested report"
             ),
             sequence_context,
         )

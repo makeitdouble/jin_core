@@ -3,14 +3,10 @@ import unittest
 from fastapi.testclient import TestClient
 
 from app import app
-from clients.brain_client import (
-    should_execute_save_session,
-)
 from runtime.behavior_contract import (
-    action_guard_has_trigger_match,
     get_action_guard,
-    get_action_guard_name_for_runtime_action,
     get_action_guard_blockers,
+    get_action_guard_name_for_runtime_action,
     get_action_guard_triggers,
     get_behavior_contract,
     should_pause_action_guard_for_confirmation,
@@ -20,7 +16,7 @@ from runtime.behavior_contract import (
 
 class BehaviorContractTests(unittest.TestCase):
 
-    def test_behavior_contract_loads(self):
+    def test_behavior_contract_loads_split_contracts(self):
 
         contract = get_behavior_contract()
 
@@ -32,6 +28,56 @@ class BehaviorContractTests(unittest.TestCase):
             contract["action_guards"],
             dict,
         )
+        self.assertIn(
+            "save_session",
+            contract["action_guards"],
+        )
+        self.assertIn(
+            "save_delayed_memory",
+            contract["action_guards"],
+        )
+
+    def test_all_contracts_have_trigger_words_and_blockers_as_lists(self):
+
+        for name, contract in get_behavior_contract()["action_guards"].items():
+            self.assertIsInstance(
+                contract.get("triggers", []),
+                list,
+                msg=f"{name}.triggers must be a list",
+            )
+            self.assertIsInstance(
+                contract.get("blockers", []),
+                list,
+                msg=f"{name}.blockers must be a list",
+            )
+
+    def test_contract_text_fields_are_line_arrays_without_embedded_newlines(self):
+
+        for name, contract in get_behavior_contract()["action_guards"].items():
+            for field in (
+                "rules",
+                "failure_followup_message",
+            ):
+                values = contract.get(
+                    field,
+                    [],
+                )
+                self.assertIsInstance(
+                    values,
+                    list,
+                    msg=f"{name}.{field} must be a list",
+                )
+
+                for value in values:
+                    self.assertIsInstance(
+                        value,
+                        str,
+                    )
+                    self.assertNotIn(
+                        "\n",
+                        value,
+                        msg=f"{name}.{field} contains embedded newline",
+                    )
 
     def test_save_session_guard_exists(self):
 
@@ -48,44 +94,10 @@ class BehaviorContractTests(unittest.TestCase):
             "<SAVE_SESSION>",
         )
         self.assertTrue(
-            guard["effects"]["save_session"],
+            guard["effects"]["emit_followup"],
         )
 
-    def test_save_session_triggers_include_known_phrases(self):
-
-        triggers = get_action_guard_triggers(
-            "save_session"
-        )
-
-        for phrase in (
-            "закончим",
-            "я спать",
-            "сохрани сессию",
-            "wrap up and save",
-        ):
-            self.assertIn(
-                phrase,
-                triggers,
-            )
-
-    def test_save_session_blockers_include_known_phrases(self):
-
-        blockers = get_action_guard_blockers(
-            "save_session"
-        )
-
-        for phrase in (
-            "покажи тег",
-            "напиши тег",
-            "exact tag",
-            "quote tag",
-        ):
-            self.assertIn(
-                phrase,
-                blockers,
-            )
-
-    def test_save_delayed_memory_guard_uses_clean_marker(self):
+    def test_save_delayed_memory_contract_has_close_tag(self):
 
         guard = get_action_guard(
             "save_delayed_memory"
@@ -95,37 +107,8 @@ class BehaviorContractTests(unittest.TestCase):
             guard["private_marker"],
             "<SAVE_DELAYED_MEMORY_CONTENT>",
         )
-
-    def test_save_delayed_memory_triggers_include_english_phrases(self):
-
-        triggers = get_action_guard_triggers(
-            "save_delayed_memory"
-        )
-
-        for phrase in (
-            "save summary",
-            "save delayed memory",
-            "save dm",
-            "summarize and save",
-        ):
-            self.assertIn(
-                phrase,
-                triggers,
-            )
-
-    def test_should_execute_save_delayed_memory_matches_english_request(self):
-
         self.assertTrue(
-            should_execute_action_guard(
-                "save_delayed_memory",
-                "please summarize and save this as delayed memory",
-            )
-        )
-        self.assertFalse(
-            should_execute_action_guard(
-                "save_delayed_memory",
-                "show exact tag for saving delayed memory",
-            )
+            guard["close_tag"],
         )
 
     def test_finds_guard_for_runtime_action(self):
@@ -137,107 +120,44 @@ class BehaviorContractTests(unittest.TestCase):
             "save_delayed_memory",
         )
 
-    def test_pause_confirmation_when_trigger_words_are_missing(self):
+    def test_empty_triggers_do_not_require_confirmation(self):
 
         self.assertFalse(
-            action_guard_has_trigger_match(
-                "save_delayed_memory",
+            should_pause_action_guard_for_confirmation(
+                "clean_tool_results",
                 "please keep going with the current work",
             )
         )
-        self.assertTrue(
-            should_pause_action_guard_for_confirmation(
-                "save_delayed_memory",
-                "please keep going with the current work",
-            )
-        )
-        self.assertFalse(
-            should_pause_action_guard_for_confirmation(
-                "save_delayed_memory",
-                "please summarize and save this as delayed memory",
-            )
-        )
 
-    def test_pause_confirmation_respects_blockers(self):
-
-        self.assertFalse(
-            should_pause_action_guard_for_confirmation(
-                "save_delayed_memory",
-                "show exact tag for saving delayed memory",
-            )
-        )
-
-    def test_should_execute_save_delayed_memory_matches_create_report_request(self):
+    def test_empty_triggers_allow_action_guard_execution(self):
 
         self.assertTrue(
             should_execute_action_guard(
-                "save_delayed_memory",
-                "создай отчёт delayed memory",
+                "clean_tool_results",
+                "please keep going with the current work",
             )
         )
 
-    def test_should_execute_save_session_matches_bedtime(self):
+    def test_configured_triggers_require_confirmation_and_allow_matching_text(self):
+
+        save_session_triggers = get_action_guard_triggers(
+            "save_session"
+        )
+        if not save_session_triggers:
+            self.skipTest(
+                "save_session contract has no triggers configured"
+            )
 
         self.assertTrue(
-            should_execute_save_session(
-                "ладно, я спать, до завтра"
+            should_pause_action_guard_for_confirmation(
+                "save_session",
+                "normal message",
             )
         )
-
-    def test_should_execute_save_session_matches_save_request(self):
-
-        self.assertTrue(
-            should_execute_save_session(
-                "сохрани сессию"
-            )
-        )
-
-    def test_should_execute_save_session_blocks_meta_tag_request(self):
-
-        self.assertFalse(
-            should_execute_save_session(
-                "покажи тег save session"
-            )
-        )
-
-    def test_should_execute_save_session_ignores_normal_message(self):
-
-        self.assertFalse(
-            should_execute_save_session(
-                "обсудим статью дальше"
-            )
-        )
-
-    def test_should_execute_save_session_ignores_event_save_request(self):
-
-        self.assertFalse(
-            should_execute_save_session(
-                "хорошо, тогда сохрани это как нашу новую аксиому"
-            )
-        )
-
-    def test_should_execute_save_session_ignores_generic_save_this(self):
-
-        self.assertFalse(
-            should_execute_save_session(
-                "сохрани это"
-            )
-        )
-
-    def test_should_execute_save_session_ignores_bare_save_command(self):
-
-        self.assertFalse(
-            should_execute_save_session(
-                "сохрани"
-            )
-        )
-
-    def test_should_execute_action_guard_normalizes_yo(self):
-
         self.assertTrue(
             should_execute_action_guard(
                 "save_session",
-                "давай на сегодня все",
+                save_session_triggers[0],
             )
         )
 

@@ -1,0 +1,37 @@
+{
+  "asset_action": {
+    "version": 1,
+    "description": "Allows the model to run an asset action block.",
+    "runtime_action": "ASSET_ACTION",
+    "private_marker": "<ASSET_ACTION>",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": true
+    },
+    "regexp": [
+      "<ASSET_ACTION>",
+      "< ASSET_ACTION",
+      "</ASSET_ACTION>",
+      "< /ASSET_ACTION",
+      "< / ASSET_ACTION",
+      "<INTERNAL_ACTION_ASSET_ACTION>",
+      "< INTERNAL_ACTION_ASSET_ACTION",
+      "</INTERNAL_ACTION_ASSET_ACTION>",
+      "< /INTERNAL_ACTION_ASSET_ACTION",
+      "< / INTERNAL_ACTION_ASSET_ACTION",
+      "<|tool_call>call:INTERNAL_ACTION_ASSET_ACTION",
+      "<tool_call>call:INTERNAL_ACTION_ASSET_ACTION",
+      "<|tool_call>call:ASSET_ACTION",
+      "<tool_call>call:ASSET_ACTION",
+      "call:INTERNAL_ACTION_ASSET_ACTION",
+      "call:ASSET_ACTION"
+    ],
+    "rules": [
+      "PROJECT ASSETS:",
+      "After the relevant skill appears in APPENDED_SKILLS, DO NOT follow its instructions, only by user request."
+    ],
+    "close_tag": true,
+    "failure_followup_message": []
+  }
+}

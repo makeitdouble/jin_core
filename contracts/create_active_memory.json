@@ -1,0 +1,33 @@
+{
+  "create_active_memory": {
+    "version": 1,
+    "description": "Allows the model to create active memory.",
+    "runtime_action": "CREATE_ACTIVE_MEMORY",
+    "private_marker": "<CREATE_ACTIVE_MEMORY: CONDITIONS >",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": true
+    },
+    "regexp": [
+      "<CREATE_ACTIVE_MEMORY:",
+      "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:",
+      "INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:",
+      "<|tool_call>call:INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:",
+      "<tool_call>call:INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:",
+      "<|tool_call>call:CREATE_ACTIVE_MEMORY:",
+      "<tool_call>call:CREATE_ACTIVE_MEMORY:",
+      "call:INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:",
+      "call:CREATE_ACTIVE_MEMORY:"
+    ],
+    "rules": [
+      "CREATE_ACTIVE_MEMORY:",
+      "When user asks to remember, remind, track, ask later, or keep a pending live-session condition, emit fulfilled <CREATE_ACTIVE_MEMORY: CONDITIONS >",
+      "CONDITIONS is a placeholder word; replace it with description, value, or conditions.",
+      "Always use CREATE_ACTIVE_MEMORY for generic non-summary remember/store/track/remind requests.",
+      "Use CREATE_ACTIVE_MEMORY for word recall tests and next-N-message reminders."
+    ],
+    "close_tag": false,
+    "failure_followup_message": []
+  }
+}

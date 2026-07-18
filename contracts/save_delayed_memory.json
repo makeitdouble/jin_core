@@ -1,0 +1,48 @@
+{
+  "save_delayed_memory": {
+    "version": 1,
+    "description": "Allows the model to save a delayed memory report.",
+    "runtime_action": "SAVE_DELAYED_MEMORY_CONTENT",
+    "private_marker": "<SAVE_DELAYED_MEMORY_CONTENT>",
+    "triggers": [
+      "создай отчёт",
+      "save summary"
+    ],
+    "blockers": [],
+    "effects": {
+      "emit_followup": true
+    },
+    "regexp": [
+      "<SAVE_DELAYED_MEMORY_CONTENT>",
+      "</SAVE_DELAYED_MEMORY_CONTENT>",
+      "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>",
+      "</INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>",
+      "<|tool_call>call:INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT",
+      "<tool_call>call:INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT",
+      "<|tool_call>call:SAVE_DELAYED_MEMORY_CONTENT",
+      "<tool_call>call:SAVE_DELAYED_MEMORY_CONTENT",
+      "call:INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT",
+      "call:SAVE_DELAYED_MEMORY_CONTENT"
+    ],
+    "rules": [
+      "SAVE_DELAYED_MEMORY_CONTENT:",
+      "Use this marker ONLY when the user explicitly asks to save in delayed memory a summary/digest/recap/report of the current state.",
+      "Emit fulfilled form inside marker only for explicit summary-save requests:",
+      "<SAVE_DELAYED_MEMORY_CONTENT>",
+      "title:",
+      "summary:",
+      "tags:",
+      "body:",
+      "</SAVE_DELAYED_MEMORY_CONTENT>",
+      "",
+      "The opening tag must be the first content line. Emit every field immediately, then always emit the matching closing tag.",
+      "When saving a summary/report NEVER skip template fields; you must fulfill all fields of delayed memory form so it will be valid for processing by runtime.",
+      "DO NOT add any other text while making a report! Do not notify user or acknowledge saving and immediately proceed with marker in response."
+    ],
+    "close_tag": true,
+    "failure_followup_message": [
+      "JIN attempted to save a delayed memory report when the user did not explicitly request it.",
+      "DO NOT repeat this action again in the current sequence!"
+    ]
+  }
+}

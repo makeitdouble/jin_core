@@ -1,0 +1,40 @@
+{
+  "save_session": {
+    "version": 1,
+    "description": "Allows the model to request saving the current session.",
+    "runtime_action": "SAVE_SESSION",
+    "private_marker": "<SAVE_SESSION>",
+    "triggers": [
+      "сохрани сессию",
+      "save session"
+    ],
+    "blockers": [
+      "покажи тег",
+      "show tag",
+      "покажи",
+      "show"
+    ],
+    "effects": {
+      "emit_followup": true
+    },
+    "regexp": [
+      "<SAVE_SESSION>",
+      "<INTERNAL_ACTION_SAVE_SESSION>",
+      "<|tool_call>call:INTERNAL_ACTION_SAVE_SESSION",
+      "<tool_call>call:INTERNAL_ACTION_SAVE_SESSION",
+      "<|tool_call>call:SAVE_SESSION",
+      "<tool_call>call:SAVE_SESSION",
+      "call:INTERNAL_ACTION_SAVE_SESSION",
+      "call:SAVE_SESSION"
+    ],
+    "rules": [
+      "SAVE_SESSION: high priority action",
+      "Emit using exactly this schema <SAVE_SESSION> once when the user clearly and explicitly ends session or asks to save the session.",
+      "Do not emit for topic changes, brief silence, casual pause, bare ambiguous save commands, or while active work continues."
+    ],
+    "close_tag": false,
+    "failure_followup_message": [
+      "The SAVE_SESSION action was blocked or rejected. Do not continue saving the session. Tell the user briefly that the session was not saved, then continue only with any other required non-save work."
+    ]
+  }
+}

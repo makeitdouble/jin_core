@@ -1,0 +1,35 @@
+{
+  "append_delayed_memory": {
+    "version": 1,
+    "description": "Allows the model to append a delayed memory report into the session context.",
+    "runtime_action": "APPEND_DELAYED_MEMORY",
+    "private_marker": "<APPEND_DELAYED_MEMORY: id >",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": true
+    },
+    "regexp": [
+      "<APPEND_DELAYED_MEMORY:",
+      "<INTERNAL_ACTION_APPEND_DELAYED_MEMORY:",
+      "<|tool_call>call:INTERNAL_ACTION_APPEND_DELAYED_MEMORY:",
+      "<tool_call>call:INTERNAL_ACTION_APPEND_DELAYED_MEMORY:",
+      "<|tool_call>call:APPEND_DELAYED_MEMORY:",
+      "<tool_call>call:APPEND_DELAYED_MEMORY:",
+      "call:INTERNAL_ACTION_APPEND_DELAYED_MEMORY:",
+      "call:APPEND_DELAYED_MEMORY:"
+    ],
+    "rules": [
+      "DELAYED MEMORY ACTIONS:",
+      "Use delayed memory actions only for already saved delayed memory reports.",
+      "Emit <LIST_DELAYED_MEMORY> when you need the current saved delayed memory report ids before choosing one.",
+      "Runtime returns delayed memory lists as trusted TOOL_RESULTS type='delayed_memory'.",
+      "Emit <APPEND_DELAYED_MEMORY: id > to append one saved delayed memory, use when user asks to include or append summary/report into the session context.",
+      "Emit <REMOVE_DELAYED_MEMORY: id > only when the user explicitly asks to remove a saved delayed memory from the current session context; it never deletes the saved report from storage.",
+      "id is a placeholder; replace it with an actual 6-character delayed memory id from TOOL_RESULTS.",
+      "After APPEND_DELAYED_MEMORY returns the report, use its content to answer the latest user request."
+    ],
+    "close_tag": false,
+    "failure_followup_message": []
+  }
+}

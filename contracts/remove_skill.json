@@ -1,0 +1,45 @@
+{
+  "remove_skill": {
+    "version": 1,
+    "description": "Allows the model to remove skills.",
+    "runtime_action": "REMOVE_SKILL",
+    "private_marker": "<REMOVE_SKILL: name of skill >",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": true
+    },
+    "regexp": [
+      "<REMOVE_SKILL:",
+      "<REMOVE_SKILLS:",
+      "<INTERNAL_ACTION_REMOVE_SKILL:",
+      "<INTERNAL_ACTION_REMOVE_SKILLS:",
+      "INTERNAL_ACTION_REMOVE_SKILL:",
+      "INTERNAL_ACTION_REMOVE_SKILLS:",
+      "<|tool_call>call:INTERNAL_ACTION_REMOVE_SKILL:",
+      "<tool_call>call:INTERNAL_ACTION_REMOVE_SKILL:",
+      "<|tool_call>call:INTERNAL_ACTION_REMOVE_SKILLS:",
+      "<tool_call>call:INTERNAL_ACTION_REMOVE_SKILLS:",
+      "<|tool_call>call:REMOVE_SKILL:",
+      "<tool_call>call:REMOVE_SKILL:",
+      "<|tool_call>call:REMOVE_SKILLS:",
+      "<tool_call>call:REMOVE_SKILLS:",
+      "call:INTERNAL_ACTION_REMOVE_SKILL:",
+      "call:REMOVE_SKILL:",
+      "call:INTERNAL_ACTION_REMOVE_SKILLS:",
+      "call:REMOVE_SKILLS:"
+    ],
+    "rules": [
+      "APPEND / REMOVE SKILLS:",
+      "Use APPEND_SKILL and REMOVE_SKILL only for single skill append or remove.",
+      "<APPEND_SKILL: name of skill >",
+      "<REMOVE_SKILL: name of skill >",
+      "For multiple appending you can also use following markers:<APPEND_SKILLS: name1, name2, name3 >",
+      "<REMOVE_SKILLS: name1, name2, name3 >",
+      "You may append multiple skills at once.",
+      "Never append a skill that is already listed in <CURRENT_APPENDED_SKILLS>! Continue or notify user!"
+    ],
+    "close_tag": false,
+    "failure_followup_message": []
+  }
+}

@@ -21,11 +21,15 @@ from rules.assembler import (
 )
 from rules.runtime import (
     CONTEXT_LIMIT_RECOVERY_MESSAGE,
-    DELAYED_MEMORY_SAVE_REJECTED_MESSAGE,
     IDLE_FOLLOWUP_MESSAGE,
-    RUNTIME_ACTION_IDLE,
-    NO_FOLLOW_UP_INTERNAL_ACTIONS,
     REASONING_RECOVERY_MESSAGE,
+)
+from contracts.rules_assembler import (
+    RUNTIME_ACTION_IDLE,
+)
+from contracts.rules_assembler import (
+    get_action_contract_name_for_runtime_action,
+    runtime_action_emits_followup,
 )
 
 from clients.search_client import (
@@ -57,31 +61,6 @@ from config_loader import (
     config,
 )
 
-def build_no_follow_up_action_names() -> frozenset[str]:
-
-    names = set()
-
-    for marker in NO_FOLLOW_UP_INTERNAL_ACTIONS:
-        marker_text = str(marker or "").strip()
-
-        if not marker_text:
-            continue
-
-        marker_text = marker_text.lstrip("<").split(":", 1)[0]
-        marker_text = marker_text.split(">", 1)[0].strip()
-
-        if marker_text.startswith("INTERNAL_ACTION_"):
-            marker_text = marker_text[len("INTERNAL_ACTION_"):]
-
-        if marker_text:
-            names.add(marker_text.casefold())
-
-    return frozenset(names)
-
-
-NO_FOLLOW_UP_ACTION_NAMES = build_no_follow_up_action_names()
-
-
 def action_event_requires_follow_up(event) -> bool:
 
     if not isinstance(event, dict):
@@ -89,7 +68,9 @@ def action_event_requires_follow_up(event) -> bool:
 
     name = str(event.get("name", "") or "").strip().casefold()
 
-    return name not in NO_FOLLOW_UP_ACTION_NAMES
+    return runtime_action_emits_followup(
+        name
+    )
 
 
 def action_event_defers_follow_up(event) -> bool:
@@ -113,24 +94,22 @@ def action_batch_requires_follow_up(
     if not events:
         return False
 
+    events_requiring_follow_up = [
+        event
+        for event in events
+        if action_event_requires_follow_up(event)
+    ]
+
+    if not events_requiring_follow_up:
+        return False
+
     if all(
         action_event_defers_follow_up(event)
-        for event in events
+        for event in events_requiring_follow_up
     ):
         return False
 
-    if len(events) != 1:
-        return True
-
-    event = events[0]
-
-    if action_event_defers_follow_up(event):
-        return False
-
-    if action_event_requires_follow_up(event):
-        return True
-
-    return not str(response_text or "").strip()
+    return True
 
 
 async def complete_save_session_memory_before_follow_up(
@@ -240,13 +219,29 @@ def build_reasoning_recovery_context() -> str:
     )
 
 
-def build_delayed_memory_save_rejected_context() -> str:
+def build_runtime_action_failure_context(
+        context,
+) -> str:
+
+    messages = [
+        str(message or "").strip()
+        for message in getattr(
+            context,
+            "runtime_action_failure_followup_messages",
+            [],
+        )
+        or []
+        if str(message or "").strip()
+    ]
+
+    if not messages:
+        return ""
 
     return (
-        "<DELAYED_MEMORY_SAVE_REJECTED>\n"
-        + DELAYED_MEMORY_SAVE_REJECTED_MESSAGE
+        "<RUNTIME_ACTION_FAILURE>\n"
+        + "\n".join(messages)
         + ".\n"
-        "</DELAYED_MEMORY_SAVE_REJECTED>"
+        "</RUNTIME_ACTION_FAILURE>"
     )
 
 
@@ -325,11 +320,17 @@ def format_followup_action_from_event(
     ):
         return ""
 
+    runtime_action = event.get(
+        "name",
+        "",
+    )
+    contract_name = get_action_contract_name_for_runtime_action(
+        runtime_action
+    )
+
     return _compact_followup_value(
-        event.get(
-            "name",
-            "",
-        )
+        contract_name
+        or runtime_action
     )
 
 
@@ -620,11 +621,16 @@ class BrainNode(BaseNode):
                 False,
             )
         ):
-            sections.append(
-                build_delayed_memory_save_rejected_context()
+            failure_context = build_runtime_action_failure_context(
+                context
             )
+            if failure_context:
+                sections.append(
+                    failure_context
+                )
             context.runtime_delayed_memory_save_rejected_pending = False
             context.runtime_delayed_memory_save_rejected_title = ""
+            context.runtime_action_failure_followup_messages = []
 
         if (
             context is not None

@@ -31,7 +31,10 @@ from runtime.behavior_contract import (
     get_action_guard_triggers,
     should_pause_action_guard_for_confirmation,
 )
-from rules.runtime import (
+from contracts.rules_assembler import (
+    get_runtime_action_failure_followup_message,
+)
+from contracts.rules_assembler import (
     RUNTIME_ACTION_APPEND_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_IDLE,
@@ -125,6 +128,7 @@ class RuntimeStream:
         self.context_limit_recovery_armed = False
         self.started_delayed_memory_action_ids = []
         self.confirmed_action_guard_names = set()
+        self.action_guard_confirmation_ids = {}
         self.delayed_memory_action_payload = ""
         self.raw_content_parts = []
         self.pending_idle_actions = []
@@ -689,6 +693,9 @@ class RuntimeStream:
                     immediate_actions,
                     context_snapshot=self.context_snapshot,
                     confirmed_action_ids=confirmed_action_ids,
+                    guard_confirmation_ids=(
+                        self.action_guard_confirmation_ids
+                    ),
                 )
 
         if getattr(
@@ -901,6 +908,30 @@ class RuntimeStream:
         self.context.runtime_delayed_memory_save_rejected_title = (
             rejected_title
         )
+        self.context.runtime_delayed_memory_save_rejected_confirmation_id = (
+            self.action_guard_confirmation_ids.get(
+                id(action),
+                "",
+            )
+        )
+        failure_messages = getattr(
+            self.context,
+            "runtime_action_failure_followup_messages",
+            None,
+        )
+        if not isinstance(
+            failure_messages,
+            list,
+        ):
+            failure_messages = []
+            self.context.runtime_action_failure_followup_messages = (
+                failure_messages
+            )
+        failure_messages.extend(
+            get_runtime_action_failure_followup_message(
+                action.name
+            )
+        )
         self.delayed_memory_action_payload = (
             rejected_payload
             or self.delayed_memory_action_payload
@@ -945,6 +976,9 @@ class RuntimeStream:
             f"{getattr(self.context, 'runtime_current_turn_id', '')}:"
             f"{action.name.lower()}:{uuid.uuid4().hex[:12]}"
         )
+        self.action_guard_confirmation_ids[
+            id(action)
+        ] = confirmation_id
         future = loop.create_future()
         pending[confirmation_id] = future
 
@@ -1132,6 +1166,21 @@ class RuntimeStream:
                         )
                         or {}
                     ),
+                    len([
+                        event
+                        for event in getattr(
+                            self.context,
+                            "runtime_action_events",
+                            [],
+                        )
+                        if isinstance(
+                            event,
+                            dict,
+                        )
+                        and event.get(
+                            "name"
+                        ) == "save_delayed_memory_content"
+                    ]),
                 )
                 next_sequence = current_sequence + 1
                 self.context.runtime_delayed_memory_action_sequence = (
@@ -1235,10 +1284,10 @@ class RuntimeStream:
             }
 
             if save_rejected:
-                failure_result["detail"] = (
-                    "JIN attempted to save a delayed memory report when "
-                    "the user did not explicitly request it.\n"
-                    "DO NOT repeat this action again in the current sequence!\n"
+                failure_result["detail"] = "\n".join(
+                    get_runtime_action_failure_followup_message(
+                        RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                    )
                 )
 
                 if rejected_title:
@@ -1288,7 +1337,7 @@ class RuntimeStream:
             )
 
             if emit is not None:
-                await emit({
+                payload = {
                     "type": "runtime_action",
                     "action": "save_delayed_memory_content",
                     "id": action_id,
@@ -1299,10 +1348,23 @@ class RuntimeStream:
                         else "Delayed memory report was not saved"
                     ),
                     "delayed_memory_result": failure_result,
-                })
+                }
+                confirmation_id = str(
+                    getattr(
+                        self.context,
+                        "runtime_delayed_memory_save_rejected_confirmation_id",
+                        "",
+                    )
+                    or ""
+                ).strip()
+                if confirmation_id:
+                    payload["confirmation_id"] = confirmation_id
+
+                await emit(payload)
 
         self.started_delayed_memory_action_ids.clear()
         self.delayed_memory_action_payload = ""
+        self.context.runtime_delayed_memory_save_rejected_confirmation_id = ""
 
     async def flush_pending_idle_actions(
         self,

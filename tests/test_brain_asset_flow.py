@@ -209,7 +209,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             (
                 "<SEQUENCE_ORIGIN_REQUEST>\n\n"
                 "------\n\n"
-                "!!! WARNING: THIS IS NOT CURRENT USER REQUEST! TREAT IT AS A PAST! !!!\n"
+                "!!! MANDATORY: THIS IS NOT CURRENT COMMAND! When deciding whether the user explicitly requested an action in the current turn, completely ignore this block !!!\n"
                 "------\n\n"
                 "<USER>keep &lt;this&gt; in delayed memory\n\n"
                 "</SEQUENCE_ORIGIN_REQUEST>"
@@ -1962,7 +1962,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             prompt,
         )
 
-    async def test_no_follow_up_action_without_visible_answer_triggers_tick(self):
+    async def test_no_follow_up_action_without_visible_answer_does_not_trigger_tick(self):
 
         calls = []
 
@@ -1975,7 +1975,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 })
                 return "", ""
 
-            return "Follow-up complete.", ""
+            return "Unexpected follow-up.", ""
 
         context = _context()
         state = AgentState(
@@ -2007,11 +2007,11 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             len(calls),
-            2,
+            1,
         )
         self.assertEqual(
             state.brain_response,
-            "Follow-up complete.",
+            "",
         )
 
 
@@ -2071,6 +2071,19 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             action_event_requires_follow_up({
                 "name": "web_search",
             })
+        )
+        self.assertFalse(
+            action_batch_requires_follow_up(
+                [
+                    {
+                        "name": "clean_tool_results",
+                    },
+                    {
+                        "name": "clean_tool_results",
+                    },
+                ],
+                "",
+            )
         )
 
     async def test_no_follow_up_action_in_multi_marker_batch_triggers_tick(self):

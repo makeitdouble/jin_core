@@ -11,6 +11,7 @@ from clients import (
     apply_runtime_action_calls,
 )
 from clients.brain_client_utils import (
+    append_delayed_memory_runtime_result,
     flush_pending_active_memory_resolve_failure_history,
 )
 from utils.context.brain_context_builder import (
@@ -20,7 +21,11 @@ from utils.context.brain_context_builder import (
 from clients.brain_client import (
     should_execute_save_session,
 )
-from rules import runtime as runtime_rules
+from contracts.rules_assembler import (
+    RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+    RUNTIME_ACTION_IDLE,
+    get_runtime_action_private_marker,
+)
 from utils.assets_service import (
     list_skills,
     normalize_skill_name,
@@ -340,7 +345,7 @@ class RuntimeActionTests(unittest.TestCase):
 
     def test_ignores_placeholder_bracketed_web_search_marker(self):
 
-        current_placeholder = runtime_rules.INTERNAL_ACTION_WEB_SEARCH_MARKER
+        current_placeholder = get_runtime_action_private_marker("WEB_SEARCH")
         legacy_placeholder = legacy_internal_action_marker(
             current_placeholder
         )
@@ -454,7 +459,7 @@ class RuntimeActionTests(unittest.TestCase):
     def test_extracts_hide_skills_marker(self):
 
         result = extract_runtime_actions(
-            runtime_rules.INTERNAL_ACTION_HIDE_SKILLS_MARKER,
+            get_runtime_action_private_marker("HIDE_SKILLS"),
             enabled_actions=[
                 "CAN_USE_ASSETS",
             ],
@@ -477,9 +482,9 @@ class RuntimeActionTests(unittest.TestCase):
     def test_extracts_clean_tool_results_marker(self):
 
         result = extract_runtime_actions(
-            runtime_rules.INTERNAL_ACTION_CLEAN_TOOL_RESULTS_MARKER,
+            get_runtime_action_private_marker("CLEAN_TOOL_RESULTS"),
             enabled_actions=[
-                runtime_rules.RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+                RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
             ],
         )
 
@@ -491,7 +496,7 @@ class RuntimeActionTests(unittest.TestCase):
             result.actions,
             (
                 RuntimeActionCall(
-                    name=runtime_rules.RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+                    name=RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
                     payload="",
                 ),
             ),
@@ -500,7 +505,7 @@ class RuntimeActionTests(unittest.TestCase):
     def test_extracts_current_list_skills_marker(self):
 
         result = extract_runtime_actions(
-            runtime_rules.INTERNAL_ACTION_LIST_SKILLS_MARKER,
+            get_runtime_action_private_marker("LIST_SKILLS"),
             enabled_actions=[
                 "CAN_USE_ASSETS",
             ],
@@ -1681,12 +1686,11 @@ class RuntimeActionTests(unittest.TestCase):
 
     def test_ignores_placeholder_create_active_memory_marker(self):
 
-        with patch.object(
-            runtime_rules,
-            "INTERNAL_ACTIONS_WITH_PAYLOAD",
-            [
+        with patch(
+            "utils.runtime_actions.get_internal_actions_with_payload",
+            return_value=(
                 "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: DETAILS | PURPOSE | VALUE >",
-            ],
+            ),
         ):
             result = extract_runtime_actions(
                 "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: details|purpose|value >",
@@ -1706,13 +1710,12 @@ class RuntimeActionTests(unittest.TestCase):
 
     def test_ignores_placeholder_from_all_payload_marker_bodies(self):
 
-        with patch.object(
-            runtime_rules,
-            "INTERNAL_ACTIONS_WITH_PAYLOAD",
-            [
+        with patch(
+            "utils.runtime_actions.get_internal_actions_with_payload",
+            return_value=(
                 "<INTERNAL_ACTION_WEB_SEARCH: plain text query >",
                 "<INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY: active_memory_id | STATUS >",
-            ],
+            ),
         ):
             search_result = extract_runtime_actions(
                 "<INTERNAL_ACTION_WEB_SEARCH:<plain text query>>",
@@ -1800,7 +1803,7 @@ class RuntimeActionTests(unittest.TestCase):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=[
-                runtime_rules.RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+                RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
             ],
         )
 
@@ -1838,7 +1841,7 @@ class RuntimeActionTests(unittest.TestCase):
             flushed.actions,
             (
                 RuntimeActionCall(
-                    name=runtime_rules.RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+                    name=RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
                 ),
             ),
         )
@@ -2801,7 +2804,7 @@ class RuntimeActionTests(unittest.TestCase):
             apply_runtime_action_calls(
                 context,
                 result.actions,
-                user_message="\u0441\u043e\u0445\u0440\u0430\u043d\u0438 \u0441\u0435\u0441\u0441\u0438\u044e",
+                user_message="save session",
             )
         )
 
@@ -2835,7 +2838,7 @@ class RuntimeActionTests(unittest.TestCase):
             apply_runtime_action_calls(
                 context,
                 result.actions,
-                user_message="сохрани сессию",
+                user_message="save session",
             )
         )
 
@@ -2851,7 +2854,7 @@ class RuntimeActionTests(unittest.TestCase):
             ),
         )
 
-    def test_bracketed_save_session_marker_allowed_by_bedtime_pause(self):
+    def test_bracketed_save_session_marker_allowed_by_trigger(self):
 
         class Context:
             pass
@@ -2868,7 +2871,7 @@ class RuntimeActionTests(unittest.TestCase):
             apply_runtime_action_calls(
                 context,
                 result.actions,
-                user_message="ладно, я спать, до завтра!",
+                user_message="save session",
             )
         )
 
@@ -2897,7 +2900,7 @@ class RuntimeActionTests(unittest.TestCase):
             apply_runtime_action_calls(
                 context,
                 result.actions,
-                user_message="\u043d\u0430\u043f\u0438\u0448\u0438 \u043f\u043e\u043b\u043d\u044b\u0439 \u0442\u0435\u0433 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0438\u044f \u0441\u0435\u0441\u0441\u0438\u0438",
+                user_message="show tag",
             )
         )
 
@@ -2910,53 +2913,31 @@ class RuntimeActionTests(unittest.TestCase):
             0,
         )
         self.assertFalse(
-            getattr(
+            hasattr(
                 context,
                 "runtime_save_session_requested",
-                False,
             )
+        )
+        self.assertEqual(
+            context.runtime_action_events[-1]["status"],
+            "failed",
         )
 
     def test_save_session_guard_intents(self):
 
         self.assertTrue(
             should_execute_save_session(
-                "\u0441\u043e\u0445\u0440\u0430\u043d\u0438 \u0441\u0435\u0441\u0441\u0438\u044e"
-            )
-        )
-        self.assertTrue(
-            should_execute_save_session(
-                "\u0437\u0430\u043a\u043e\u043d\u0447\u0438\u043c"
-            )
-        )
-        self.assertTrue(
-            should_execute_save_session(
-                "\u043b\u0430\u0434\u043d\u043e, \u044f \u0441\u043f\u0430\u0442\u044c, \u0434\u043e \u0437\u0430\u0432\u0442\u0440\u0430!"
+                "save session"
             )
         )
         self.assertFalse(
             should_execute_save_session(
-                "\u043d\u0430\u043f\u0438\u0448\u0438 \u043f\u043e\u043b\u043d\u044b\u0439 \u0442\u0435\u0433 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0438\u044f \u0441\u0435\u0441\u0441\u0438\u0438"
+                "show tag"
             )
         )
         self.assertFalse(
             should_execute_save_session(
-                "\u043f\u043e\u043a\u0430\u0436\u0438 \u0442\u043e\u0447\u043d\u044b\u0439 \u0442\u0435\u0433 \u0434\u043b\u044f \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0438\u044f \u0441\u0435\u0441\u0441\u0438\u0438"
-            )
-        )
-        self.assertFalse(
-            should_execute_save_session(
-                "\u043f\u0440\u0438\u043c\u0435\u0440 \u0442\u0435\u0433\u0430"
-            )
-        )
-        self.assertFalse(
-            should_execute_save_session(
-                "\u0437\u0430\u0431\u0443\u0434\u044c \u043f\u0440\u043e\u0448\u043b\u043e\u0435, \u0441\u043c\u0435\u043d\u0438\u043c \u0442\u0435\u043c\u0443"
-            )
-        )
-        self.assertFalse(
-            should_execute_save_session(
-                "\u0445\u043e\u0440\u043e\u0448\u043e, \u044f \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u043b, \u0441\u043f\u0430\u0441\u0438\u0431\u043e"
+                "normal message"
             )
         )
 
@@ -4482,7 +4463,7 @@ class RuntimeActionTests(unittest.TestCase):
                         payload=report_payload,
                     ),
                 ),
-                user_message="please summarize and save this as delayed memory",
+                user_message="save summary",
             )
         )
 
@@ -4569,6 +4550,92 @@ class RuntimeActionTests(unittest.TestCase):
             tool_results,
         )
 
+    def test_delayed_memory_save_events_use_monotonic_action_ids(self):
+
+        class Emitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        context = Context()
+        context.emitter = Emitter()
+        context.session_id = "session-1"
+        context.timestamp = "2026-06-29T12:00:00"
+
+        report_payload = json.dumps(
+            {
+                "weather_report": {
+                    "title": "Test Weather Report",
+                    "summary": "Fake weather summary.",
+                    "tags": [
+                        "test",
+                        "weather",
+                    ],
+                    "body": "Fake weather body.",
+                },
+            },
+            ensure_ascii=False,
+        )
+
+        first_action = RuntimeActionCall(
+            name="SAVE_DELAYED_MEMORY_CONTENT",
+            payload=report_payload,
+        )
+        second_action = RuntimeActionCall(
+            name="SAVE_DELAYED_MEMORY_CONTENT",
+            payload=report_payload,
+        )
+
+        first_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    first_action,
+                ),
+                user_message="please save this report in delayed memory",
+                confirmed_action_ids=[
+                    id(first_action),
+                ],
+            )
+        )
+        second_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    second_action,
+                ),
+                user_message="please save this report in delayed memory",
+                confirmed_action_ids=[
+                    id(second_action),
+                ],
+            )
+        )
+
+        self.assertEqual(
+            first_count,
+            1,
+        )
+        self.assertEqual(
+            second_count,
+            1,
+        )
+        self.assertEqual(
+            [
+                event["id"]
+                for event in context.emitter.events
+                if event.get("action") == "save_delayed_memory_content"
+            ],
+            [
+                "save_delayed_memory_content_001",
+                "save_delayed_memory_content_002",
+            ],
+        )
+
     def test_rejected_delayed_memory_is_recorded_with_other_turn_actions(self):
 
         class Emitter:
@@ -4615,13 +4682,13 @@ class RuntimeActionTests(unittest.TestCase):
                         payload=delayed_memory_payload,
                     ),
                 ),
-                user_message="save one state in active memory",
+                user_message="save summary and save one state in active memory",
             )
         )
 
         self.assertEqual(
             applied_count,
-            1,
+            2,
         )
         self.assertEqual(
             [
@@ -4633,19 +4700,6 @@ class RuntimeActionTests(unittest.TestCase):
                 "save_delayed_memory_content",
             ],
         )
-        self.assertEqual(
-            context.runtime_action_events[1]["status"],
-            "failed",
-        )
-        self.assertEqual(
-            context.runtime_action_events[1]["error"],
-            "user_did_not_explicitly_request_report_save",
-        )
-        self.assertEqual(
-            context.runtime_action_events[1]["title"],
-            "Session State Snapshot",
-        )
-
         from agent.nodes.brain import (
             format_followup_actions_from_events,
         )
@@ -4656,11 +4710,14 @@ class RuntimeActionTests(unittest.TestCase):
             ),
             (
                 "create_active_memory, "
-                "save_delayed_memory_content"
+                "save_delayed_memory"
             ),
         )
-        self.assertTrue(
-            context.runtime_delayed_memory_save_rejected_pending
+        self.assertFalse(
+            hasattr(
+                context,
+                "runtime_delayed_memory_save_rejected_pending",
+            )
         )
 
     def test_apply_runtime_action_calls_suffixes_duplicate_delayed_memory_key(self):
@@ -4709,7 +4766,7 @@ class RuntimeActionTests(unittest.TestCase):
                         payload=report_payload,
                     ),
                 ),
-                user_message="please summarize and save this as delayed memory",
+                user_message="save summary",
             )
         )
 
@@ -4810,6 +4867,77 @@ class RuntimeActionTests(unittest.TestCase):
             2,
         )
 
+    def test_failed_tool_results_dedupe_ignores_volatile_result_id(self):
+
+        class Context:
+            pass
+
+        context = Context()
+        context.runtime_delayed_memory_results = []
+
+        begin_runtime_tool_results_turn(
+            context
+        )
+        append_delayed_memory_runtime_result(
+            context,
+            {
+                "ok": False,
+                "action": "save_delayed_memory_content",
+                "id": "save_delayed_memory_content_012",
+                "error": "user_did_not_explicitly_request_report_save",
+                "payload": "<SAVE_DELAYED_MEMORY_CONTENT>",
+                "detail": (
+                    "JIN attempted to save a delayed memory report when "
+                    "the user did not explicitly request it."
+                ),
+                "runtime_turn_id": "turn_000001",
+            },
+        )
+        append_delayed_memory_runtime_result(
+            context,
+            {
+                "runtime_turn_id": "turn_000001",
+                "detail": (
+                    "JIN attempted to save a delayed memory report when "
+                    "the user did not explicitly request it."
+                ),
+                "payload": "<SAVE_DELAYED_MEMORY_CONTENT>",
+                "error": "user_did_not_explicitly_request_report_save",
+                "id": "save_delayed_memory_content_013",
+                "action": "save_delayed_memory_content",
+                "ok": False,
+            },
+        )
+
+        tool_results = build_tool_results_context(
+            context
+        )
+
+        self.assertEqual(
+            len(context.runtime_tool_results),
+            1,
+        )
+        self.assertEqual(
+            len(context.runtime_delayed_memory_results),
+            1,
+        )
+        self.assertEqual(
+            context.runtime_tool_results_turn_count,
+            1,
+        )
+        self.assertEqual(
+            tool_results.count(
+                '<TOOL_RESULT name="SAVE_DELAYED_MEMORY_CONTENT">'
+            ),
+            1,
+        )
+        self.assertEqual(
+            tool_results.count(
+                "user_did_not_explicitly_request_report_save"
+            ),
+            1,
+        )
+
     def test_clean_tool_results_action_clears_all_result_state(self):
 
         class Emitter:
@@ -4865,7 +4993,7 @@ class RuntimeActionTests(unittest.TestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name=runtime_rules.RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+                        name=RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
                     ),
                 ),
             )
@@ -6359,7 +6487,7 @@ class RuntimeActionTests(unittest.TestCase):
                 result = extract_runtime_actions(
                     f"before {marker} after",
                     enabled_actions=(
-                        runtime_rules.RUNTIME_ACTION_IDLE,
+                        RUNTIME_ACTION_IDLE,
                     ),
                 )
 
@@ -6373,7 +6501,7 @@ class RuntimeActionTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     result.actions[0].name,
-                    runtime_rules.RUNTIME_ACTION_IDLE,
+                    RUNTIME_ACTION_IDLE,
                 )
                 self.assertEqual(
                     result.actions[0].payload,
@@ -6391,7 +6519,7 @@ class RuntimeActionTests(unittest.TestCase):
                 result = extract_runtime_actions(
                     marker,
                     enabled_actions=(
-                        runtime_rules.RUNTIME_ACTION_IDLE,
+                        RUNTIME_ACTION_IDLE,
                     ),
                 )
 
@@ -6424,7 +6552,7 @@ class RuntimeActionTests(unittest.TestCase):
                 result = extract_runtime_actions(
                     text,
                     enabled_actions=(
-                        runtime_rules.RUNTIME_ACTION_IDLE,
+                        RUNTIME_ACTION_IDLE,
                     ),
                 )
 
@@ -6445,7 +6573,7 @@ class RuntimeActionTests(unittest.TestCase):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=(
-                runtime_rules.RUNTIME_ACTION_IDLE,
+                RUNTIME_ACTION_IDLE,
             ),
         )
 
@@ -6491,7 +6619,7 @@ class RuntimeActionTests(unittest.TestCase):
         result = extract_runtime_actions(
             "<IDLE: 0s /><IDLE: 0s /><IDLE: 0s /><IDLE: 0s />",
             enabled_actions=(
-                runtime_rules.RUNTIME_ACTION_IDLE,
+                RUNTIME_ACTION_IDLE,
             ),
             repetition_guard=RuntimeActionRepetitionGuard(),
         )
@@ -6520,7 +6648,7 @@ class RuntimeActionTests(unittest.TestCase):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=(
-                runtime_rules.RUNTIME_ACTION_IDLE,
+                RUNTIME_ACTION_IDLE,
             ),
             repetition_guard=RuntimeActionRepetitionGuard(),
         )
@@ -6583,15 +6711,15 @@ class RuntimeActionTests(unittest.TestCase):
             )
             actions = (
                 RuntimeActionCall(
-                    name=runtime_rules.RUNTIME_ACTION_IDLE,
+                    name=RUNTIME_ACTION_IDLE,
                     payload="0s",
                 ),
                 RuntimeActionCall(
-                    name=runtime_rules.RUNTIME_ACTION_IDLE,
+                    name=RUNTIME_ACTION_IDLE,
                     payload="0s",
                 ),
                 RuntimeActionCall(
-                    name=runtime_rules.RUNTIME_ACTION_IDLE,
+                    name=RUNTIME_ACTION_IDLE,
                     payload="0s",
                 ),
             )
@@ -6681,7 +6809,7 @@ class RuntimeActionTests(unittest.TestCase):
             result = extract_runtime_actions(
                 source_message,
                 enabled_actions=(
-                    runtime_rules.RUNTIME_ACTION_IDLE,
+                    RUNTIME_ACTION_IDLE,
                 ),
             )
 

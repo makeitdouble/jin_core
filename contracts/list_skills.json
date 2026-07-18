@@ -1,0 +1,32 @@
+{
+  "list_skills": {
+    "version": 1,
+    "description": "Allows the model to list available skills.",
+    "runtime_action": "LIST_SKILLS",
+    "private_marker": "<LIST_SKILLS>",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": true
+    },
+    "regexp": [
+      "<LIST_SKILLS:",
+      "<LIST_SKILLS>",
+      "<INTERNAL_ACTION_LIST_SKILLS:",
+      "<INTERNAL_ACTION_LIST_SKILLS>",
+      "<|tool_call>call:INTERNAL_ACTION_LIST_SKILLS:",
+      "<tool_call>call:INTERNAL_ACTION_LIST_SKILLS:",
+      "<|tool_call>call:LIST_SKILLS:",
+      "<tool_call>call:LIST_SKILLS:",
+      "call:INTERNAL_ACTION_LIST_SKILLS:",
+      "call:LIST_SKILLS:"
+    ],
+    "rules": [
+      "PROJECT ASSETS:",
+      "Emit <LIST_SKILLS> when you need to inspect available skills.",
+      "After the relevant skill appears in APPENDED_SKILLS, DO NOT follow its instructions, only by user request."
+    ],
+    "close_tag": false,
+    "failure_followup_message": []
+  }
+}

@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 
 
@@ -6,6 +7,44 @@ TOOL_RESULT_KIND_ASSET = "asset"
 TOOL_RESULT_KIND_ACTIVE_MEMORY = "active_memory"
 TOOL_RESULT_KIND_DELAYED_MEMORY = "delayed_memory"
 TOOL_RESULT_KIND_SESSION = "session"
+
+
+def _failed_tool_result_dedupe_key(
+    entry: dict,
+) -> tuple | None:
+
+    result = entry.get(
+        "result"
+    )
+    if not isinstance(
+        result,
+        dict,
+    ):
+        return None
+
+    if result.get(
+        "ok"
+    ) is not False:
+        return None
+
+    stable_result = {
+        key: value
+        for key, value in result.items()
+        if key != "id"
+    }
+
+    return (
+        entry.get(
+            "kind",
+            "",
+        ),
+        json.dumps(
+            stable_result,
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        ),
+    )
 
 
 def begin_runtime_tool_results_turn(
@@ -100,6 +139,25 @@ def record_runtime_tool_result(
     if normalized_result_id:
         entry["id"] = normalized_result_id
 
+    dedupe_key = _failed_tool_result_dedupe_key(
+        entry
+    )
+    if dedupe_key is not None:
+        for existing_entry in tool_results:
+            if not isinstance(
+                existing_entry,
+                dict,
+            ):
+                continue
+
+            if (
+                _failed_tool_result_dedupe_key(
+                    existing_entry
+                )
+                == dedupe_key
+            ):
+                return False
+
     tool_results.append(
         entry
     )
@@ -108,6 +166,7 @@ def record_runtime_tool_result(
         "runtime_tool_results_turn_count",
         turn_count + 1,
     )
+    return True
 
 
 def remove_runtime_tool_results(

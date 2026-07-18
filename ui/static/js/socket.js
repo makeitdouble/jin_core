@@ -1839,13 +1839,18 @@ function handleSocketMessage(event) {
           action,
           displayText,
           {
-            id: data.id || "",
-            updateExisting:
-              action !== "list_skills",
+          id: data.id || "",
+          guardConfirmationId:
+            data.confirmation_id
+            || data.guard_confirmation_id
+            || "",
+          updateExisting:
+            action !== "list_skills",
             contextSnapshot:
               data.context || null,
             assetResult:
               data.asset_result || null,
+            completed: true,
             detail:
               data.detail || data.payload || "",
           }
@@ -1883,6 +1888,10 @@ function handleSocketMessage(event) {
       displayText,
       {
         id: data.id || "",
+        guardConfirmationId:
+          data.confirmation_id
+          || data.guard_confirmation_id
+          || "",
         contextSnapshot:
           data.context || null,
         assetResult:

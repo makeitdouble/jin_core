@@ -15,7 +15,7 @@ from rules.assembler import (
     build_zero_diff_stall_instruction,
     get_enabled_runtime_actions,
 )
-from rules.runtime import (
+from contracts.rules_assembler import (
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_LIST_SKILLS,

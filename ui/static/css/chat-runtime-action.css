@@ -1,13 +1,19 @@
 .jin-runtime-action-row {
+    --jin-runtime-action-label-nudge: 8px;
     perspective: 520px;
     transform-style: preserve-3d;
 }
 
+.jin-runtime-action-label {
+    margin-left: var(--jin-runtime-action-label-nudge);
+}
+
 .jin-runtime-action-guard-label {
+    margin-left: var(--jin-runtime-action-label-nudge);
     --jin-runtime-action-guard-motion: 3.2s;
     --jin-runtime-action-guard-perspective: 360px;
-    --jin-runtime-action-guard-green-x: 10px;
-    --jin-runtime-action-guard-red-x: 20px;
+    --jin-runtime-action-guard-green-x: 2px;
+    --jin-runtime-action-guard-red-x: -2px;
     --jin-runtime-action-guard-green-rotate: -8deg;
     --jin-runtime-action-guard-red-rotate: 5deg;
     --jin-runtime-action-guard-z: 5px;

@@ -1,0 +1,34 @@
+{
+  "resolve_active_memory": {
+    "version": 1,
+    "description": "Allows the model to resolve active memory.",
+    "runtime_action": "RESOLVE_ACTIVE_MEMORY",
+    "private_marker": "<RESOLVE_ACTIVE_MEMORY: active_memory_id >",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": true
+    },
+    "regexp": [
+      "<RESOLVE_ACTIVE_MEMORY:",
+      "<INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY:",
+      "INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY:",
+      "<|tool_call>call:INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY:",
+      "<tool_call>call:INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY:",
+      "<|tool_call>call:RESOLVE_ACTIVE_MEMORY:",
+      "<tool_call>call:RESOLVE_ACTIVE_MEMORY:",
+      "call:INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY:",
+      "call:RESOLVE_ACTIVE_MEMORY:"
+    ],
+    "rules": [
+      "RESOLVE_ACTIVE_MEMORY:",
+      "Emit fulfilled markers when user explicitly want to cancel/clear/resolve active memory conditions.",
+      "You need manually resolve all pending active memory slots.",
+      "Emit fulfilled markers when active_memory slot CONDITIONS are met or resolved due timings, or elapsed time past conditions.",
+      "<RESOLVE_ACTIVE_MEMORY: active_memory_id >",
+      "active_memory_id - is a placeholder, replace it with actual id required to resolve specific active_memory."
+    ],
+    "close_tag": false,
+    "failure_followup_message": []
+  }
+}

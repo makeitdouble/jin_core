@@ -1470,10 +1470,10 @@ const runtimeActionGuardDecisionClasses = [
 const RUNTIME_ACTION_GUARD_CONFIRMATION_DELAY_MS = 15000;
 const RUNTIME_ACTION_GUARD_ANIMATION_DURATION_MS = 3200;
 const RUNTIME_ACTION_GUARD_GEOMETRY_REFERENCE_WIDTH = 10;
-const RUNTIME_ACTION_GUARD_GREEN_BASE_X = 10;
-const RUNTIME_ACTION_GUARD_RED_BASE_X = 10;
-const RUNTIME_ACTION_GUARD_GREEN_WIDTH_FACTOR = 0.02;
-const RUNTIME_ACTION_GUARD_RED_WIDTH_FACTOR = 0.02;
+const RUNTIME_ACTION_GUARD_GREEN_BASE_X = 1;
+const RUNTIME_ACTION_GUARD_RED_BASE_X = -1;
+const RUNTIME_ACTION_GUARD_GREEN_WIDTH_FACTOR = 0.006;
+const RUNTIME_ACTION_GUARD_RED_WIDTH_FACTOR = -0.006;
 const RUNTIME_ACTION_GUARD_BASE_PERSPECTIVE = 100;
 const RUNTIME_ACTION_GUARD_GREEN_BASE_ROTATE_DEG = -1;
 const RUNTIME_ACTION_GUARD_RED_BASE_ROTATE_DEG = 1;
@@ -1900,6 +1900,15 @@ function bindRuntimeActionGuardConfirmation(
     label
   );
 
+  window.requestAnimationFrame(
+    () => {
+      updateRuntimeActionGuardGeometry(
+        row,
+        label
+      );
+    }
+  );
+
   const timeoutMs =
     resolveRuntimeActionGuardConfirmationDelayMs(
       confirmation
@@ -2074,7 +2083,78 @@ function updateRuntimeActionRow(
     );
   }
 
+  if (options.completed) {
+    markRuntimeActionRowCompleted(
+      row
+    );
+  }
+
   return true;
+
+}
+
+function normalizeCompletedRuntimeActionLabel(
+  row
+) {
+
+  const label =
+    row
+      ? row.querySelector(
+        ".jin-runtime-action-label"
+      )
+      : null;
+
+  if (!label) {
+    return;
+  }
+
+  const normalizedText =
+    String(
+      label.textContent || ""
+    ).replace(
+      /^CONFIRM:\s*/i,
+      ""
+    ).trim();
+
+  if (normalizedText) {
+    label.textContent =
+      normalizedText;
+  }
+
+}
+
+function markRuntimeActionRowCompleted(
+  row
+) {
+
+  if (!row) {
+    return;
+  }
+
+  row.dataset.runtimeActionCompleted =
+    "true";
+
+  clearRuntimeActionGuardConfirmation(
+    row
+  );
+
+  normalizeCompletedRuntimeActionLabel(
+    row
+  );
+
+  row.classList.add(
+    "opacity-45"
+  );
+
+  row
+    .querySelectorAll("div, button")
+    .forEach((element) => {
+      element.classList.add(
+        "border-zinc-700/50",
+        "bg-zinc-900/30",
+        "text-zinc-400"
+      );
+    });
 
 }
 
@@ -2102,14 +2182,59 @@ function appendRuntimeAction(
       options
     );
 
-  if (
+  if (shouldUpdateExisting) {
+    const existingRows =
       options.id
-      && shouldUpdateExisting
-  ) {
-    const existingRow =
-      chatHistory.querySelector(
-        `[data-runtime-action-key="${actionKey}"]`
-      );
+        ? chatHistory.querySelectorAll(
+          `[data-runtime-action-key="${actionKey}"]`
+        )
+        : [];
+
+    let existingRow =
+      Array.from(
+        existingRows
+      ).find((row) => {
+        return row.dataset.runtimeActionCompleted !== "true";
+      });
+
+    const guardConfirmationId =
+      String(
+        options.guardConfirmationId
+        || options.confirmationId
+        || ""
+      ).trim();
+
+    if (
+        !existingRow
+        && guardConfirmationId
+    ) {
+      existingRow =
+        Array.from(
+          chatHistory.querySelectorAll(
+            ".jin-runtime-action-row.jin-runtime-action-guard-pending"
+          )
+        ).find((row) => {
+          return (
+            row.dataset.runtimeActionCompleted !== "true"
+            && row.dataset.runtimeActionGuardConfirmationId
+              === guardConfirmationId
+          );
+        });
+    }
+
+    if (
+        !existingRow
+        && action
+    ) {
+      existingRow =
+        Array.from(
+          chatHistory.querySelectorAll(
+            `.jin-runtime-action-row[data-runtime-action="${action}"].jin-runtime-action-guard-pending`
+          )
+        ).find((row) => {
+          return row.dataset.runtimeActionCompleted !== "true";
+        });
+    }
 
     if (
         existingRow
@@ -2142,6 +2267,11 @@ function appendRuntimeAction(
 
   row.dataset.runtimeActionKey =
     actionKey || "";
+
+  if (options.completed) {
+    row.dataset.runtimeActionCompleted =
+      "true";
+  }
 
   const icon =
     document.createElement(
@@ -2240,6 +2370,12 @@ function appendRuntimeAction(
     label
   );
 
+  if (options.completed) {
+    markRuntimeActionRowCompleted(
+      row
+    );
+  }
+
   chatHistory.appendChild(
     row
   );
@@ -2335,6 +2471,8 @@ function flushRuntimeActionsAfterResponse(
           entry.assetResult || null,
         detail:
           entry.detail || "",
+        completed:
+          entry.completed,
         activateScene: !entry.completed,
       }
     );
@@ -2389,23 +2527,9 @@ function fadeRuntimeAction(
       );
 
   rows.forEach((row) => {
-    clearRuntimeActionGuardConfirmation(
+    markRuntimeActionRowCompleted(
       row
     );
-
-    row.classList.add(
-      "opacity-45"
-    );
-
-    row
-      .querySelectorAll("div, button")
-      .forEach((element) => {
-        element.classList.add(
-          "border-zinc-700/50",
-          "bg-zinc-900/30",
-          "text-zinc-400"
-        );
-      });
   });
 
 }

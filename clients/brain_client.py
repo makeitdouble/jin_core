@@ -3,7 +3,7 @@ import asyncio
 from config_loader import (
     config,
 )
-from rules.runtime import (
+from contracts.rules_assembler import (
     RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
     RUNTIME_ACTION_APPEND_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
@@ -14,7 +14,8 @@ from rules.runtime import (
     RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
-    RUNTIME_ACTION_WEB_SEARCH, INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_MARKER,
+    RUNTIME_ACTION_WEB_SEARCH,
+    get_runtime_action_private_marker,
 )
 
 from clients.errors import (
@@ -665,8 +666,13 @@ async def ask_brain_stream(
             or ""
         ).upper()
 
+        delayed_memory_marker = get_runtime_action_private_marker(
+            RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+        ).upper()
+
         if (
-            INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_MARKER not in pending
+            not delayed_memory_marker
+            or delayed_memory_marker not in pending
         ):
             return
 
@@ -718,6 +724,21 @@ async def ask_brain_stream(
                 )
                 or {}
             ),
+            len([
+                event
+                for event in getattr(
+                    context,
+                    "runtime_action_events",
+                    [],
+                )
+                if isinstance(
+                    event,
+                    dict,
+                )
+                and event.get(
+                    "name"
+                ) == "save_delayed_memory_content"
+            ]),
         )
         next_sequence = current_sequence + 1
         context.runtime_delayed_memory_action_sequence = (

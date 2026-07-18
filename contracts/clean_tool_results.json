@@ -1,0 +1,30 @@
+{
+  "clean_tool_results": {
+    "version": 1,
+    "description": "Allows the model to clean redundant tool results.",
+    "runtime_action": "CLEAN_TOOL_RESULTS",
+    "private_marker": "<CLEAN_TOOL_RESULTS>",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": false
+    },
+    "regexp": [
+      "<CLEAN_TOOL_RESULTS>",
+      "<INTERNAL_ACTION_CLEAN_TOOL_RESULTS>",
+      "<|tool_call>call:INTERNAL_ACTION_CLEAN_TOOL_RESULTS",
+      "<tool_call>call:INTERNAL_ACTION_CLEAN_TOOL_RESULTS",
+      "<|tool_call>call:CLEAN_TOOL_RESULTS",
+      "<tool_call>call:CLEAN_TOOL_RESULTS",
+      "call:INTERNAL_ACTION_CLEAN_TOOL_RESULTS",
+      "call:CLEAN_TOOL_RESULTS"
+    ],
+    "rules": [
+      "Emit <CLEAN_TOOL_RESULTS> at any moment, emit in the same response or with another actions.",
+      "If tool results are explicitly present you must immediately clean redundant tool results obviously not needed for continuing conversation.",
+      "NEVER emit <CLEAN_TOOL_RESULTS> if <TOOLS_RESULTS> block is empty, stop and notify user."
+    ],
+    "close_tag": false,
+    "failure_followup_message": []
+  }
+}

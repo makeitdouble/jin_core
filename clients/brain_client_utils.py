@@ -54,7 +54,7 @@ from copy import deepcopy
 from datetime import datetime
 from xml.etree import ElementTree
 
-from rules.runtime import (
+from contracts.rules_assembler import (
     RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
     RUNTIME_ACTION_APPEND_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
@@ -75,7 +75,13 @@ from rules.runtime import (
     RUNTIME_ACTION_WEB_SEARCH,
 )
 from runtime.behavior_contract import (
+    get_action_guard_blocker_match,
+    get_action_guard_name_for_runtime_action,
     should_execute_action_guard,
+    should_prearm_action_guard,
+)
+from contracts.rules_assembler import (
+    get_runtime_action_failure_followup_message,
 )
 from utils.assets_service import (
     ensure_assets_tree,
@@ -137,6 +143,15 @@ def should_execute_save_session(
     user_message: str,
 ) -> bool:
     return should_execute_action_guard(
+        "save_session",
+        user_message
+    )
+
+
+def should_prearm_save_session(
+    user_message: str,
+) -> bool:
+    return should_prearm_action_guard(
         "save_session",
         user_message
     )
@@ -1401,13 +1416,16 @@ def append_delayed_memory_runtime_result(
         ):
             result["runtime_turn_id"] = runtime_turn_id
 
-    delayed_memory_results.append(
-        result
-    )
-    record_runtime_tool_result(
+    recorded_result = record_runtime_tool_result(
         context,
         TOOL_RESULT_KIND_DELAYED_MEMORY,
         result,
+    )
+    if not recorded_result:
+        return
+
+    delayed_memory_results.append(
+        result
     )
 
 
@@ -2170,6 +2188,7 @@ async def apply_runtime_action_calls(
     context_snapshot: dict | None = None,
     assistant_message: str | None = None,
     confirmed_action_ids=None,
+    guard_confirmation_ids=None,
 ) -> int:
 
     if (
@@ -2215,6 +2234,14 @@ async def apply_runtime_action_calls(
             int,
         )
     }
+    guard_confirmation_ids = (
+        dict(guard_confirmation_ids)
+        if isinstance(
+            guard_confirmation_ids,
+            dict,
+        )
+        else {}
+    )
 
     def with_action_context(payload: dict) -> dict:
         if not action_context_snapshot:
@@ -2330,6 +2357,35 @@ async def apply_runtime_action_calls(
     for action in actions:
 
         action_event_name = action.name.lower()
+        guard_name = get_action_guard_name_for_runtime_action(
+            action.name
+        )
+        blocker_match = (
+            get_action_guard_blocker_match(
+                guard_name,
+                resolved_user_message,
+            )
+            if guard_name
+            else ""
+        )
+
+        if blocker_match:
+            failure_messages = get_runtime_action_failure_followup_message(
+                action.name
+            )
+            rejected_action_events[id(action)] = {
+                "status": "failed",
+                "error": "behavior_contract_blocker_matched",
+                "blocker": blocker_match,
+                "failure_followup_message": "\n".join(
+                    failure_messages
+                ),
+                "confirmation_id": guard_confirmation_ids.get(
+                    id(action),
+                    "",
+                ),
+            }
+            continue
 
         if action.name == RUNTIME_ACTION_IDLE:
             seconds = parse_idle_seconds(
@@ -2435,6 +2491,15 @@ async def apply_runtime_action_calls(
                         "user_did_not_explicitly_request_report_save"
                     ),
                     "title": rejected_title,
+                    "failure_followup_message": "\n".join(
+                        get_runtime_action_failure_followup_message(
+                            action.name
+                        )
+                    ),
+                    "confirmation_id": guard_confirmation_ids.get(
+                        id(action),
+                        "",
+                    ),
                 }
                 save_delayed_memory_seen = True
                 continue
@@ -2800,14 +2865,94 @@ async def apply_runtime_action_calls(
                 for key, value in rejected_event.items()
                 if value
             })
+            failure_followup_message = str(
+                rejected_event.get(
+                    "failure_followup_message",
+                    "",
+                )
+                or ""
+            ).strip()
+            if failure_followup_message:
+                messages = getattr(
+                    context,
+                    "runtime_action_failure_followup_messages",
+                    None,
+                )
+                if not isinstance(
+                    messages,
+                    list,
+                ):
+                    messages = []
+                    context.runtime_action_failure_followup_messages = (
+                        messages
+                    )
+                messages.append(
+                    failure_followup_message
+                )
 
         context.runtime_action_events.append(
             action_event
         )
 
+    if rejected_action_events:
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is not None:
+            for action in actions:
+                rejected_event = rejected_action_events.get(
+                    id(action)
+                )
+                if rejected_event is None:
+                    continue
+                if (
+                    not rejected_event.get("confirmation_id")
+                    and not rejected_event.get(
+                        "failure_followup_message"
+                    )
+                    and rejected_event.get("error")
+                    != "behavior_contract_blocker_matched"
+                ):
+                    continue
+
+                payload = {
+                    "type": "runtime_action",
+                    "action": action.name.lower(),
+                    "status": "failed",
+                    "text": (
+                        rejected_event.get("title")
+                        or rejected_event.get("error")
+                        or f"{action.name} blocked"
+                    ),
+                    "detail": rejected_event.get(
+                        "failure_followup_message",
+                        "",
+                    ),
+                }
+                confirmation_id = str(
+                    rejected_event.get(
+                        "confirmation_id",
+                        "",
+                    )
+                    or ""
+                ).strip()
+                if confirmation_id:
+                    payload["confirmation_id"] = confirmation_id
+
+                await emit(with_action_context(payload))
+
     if (
         not filtered_actions
         and not rejected_active_memory_results
+        and not rejected_action_events
     ):
         return 0
 
@@ -4107,6 +4252,21 @@ async def apply_runtime_action_calls(
                         )
                         or 0
                     )
+                    save_action_event_count = len([
+                        event
+                        for event in getattr(
+                            context,
+                            "runtime_action_events",
+                            [],
+                        )
+                        if isinstance(
+                            event,
+                            dict,
+                        )
+                        and event.get(
+                            "name"
+                        ) == "save_delayed_memory_content"
+                    ])
                     action_sequence = max(
                         current_action_sequence + 1,
                         len(
@@ -4117,6 +4277,7 @@ async def apply_runtime_action_calls(
                             )
                             or {}
                         ),
+                        save_action_event_count,
                     )
                     setattr(
                         context,

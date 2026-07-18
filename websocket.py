@@ -27,15 +27,13 @@ from agent import (
 from clients import (
     build_brain_payload,
 )
-from clients.brain_client import (
-    should_execute_save_session,
-)
 from rules.assembler import (
     build_brain_system_prompt,
 )
 
 from clients.brain_client_utils import (
     get_brain_runtime_config,
+    should_prearm_save_session,
 )
 
 from utils.language import (
@@ -1945,7 +1943,7 @@ async def arm_save_session_from_user_text(
     ):
         return False
 
-    if not should_execute_save_session(
+    if not should_prearm_save_session(
         user_text,
     ):
         return False

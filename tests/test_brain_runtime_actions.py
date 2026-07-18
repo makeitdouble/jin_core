@@ -29,6 +29,9 @@ from rules.assembler import (
     SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
 )
 from rules import runtime as runtime_rules
+from contracts.rules_assembler import (
+    get_runtime_action_private_marker,
+)
 from utils.session_actions_history import (
     format_session_action_marker_names,
     replace_session_action_history_since,
@@ -241,7 +244,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             )
         )
 
-    def test_non_stream_preserves_save_session_marker_without_user_request(self):
+    def test_non_stream_preserves_save_session_marker_without_trigger(self):
 
         class FakeBrainClient:
             async def ask(self, **_kwargs):
@@ -292,7 +295,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             )
         )
 
-    def test_non_stream_preserves_delayed_memory_marker_without_user_request(self):
+    def test_non_stream_preserves_delayed_memory_marker_without_trigger(self):
 
         marker_text = (
             "Example:\n"
@@ -1606,9 +1609,9 @@ class BrainRuntimeActionTests(unittest.TestCase):
             )
 
         for private_marker in (
-            runtime_rules.INTERNAL_ACTION_SAVE_SESSION_MARKER,
-            runtime_rules.INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_MARKER,
-            runtime_rules.INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER,
+            get_runtime_action_private_marker("SAVE_SESSION"),
+            get_runtime_action_private_marker("SAVE_DELAYED_MEMORY_CONTENT"),
+            get_runtime_action_private_marker("CREATE_ACTIVE_MEMORY"),
             "Use WEB_SEARCH when freshness",
         ):
             assert_contains_text(
@@ -1639,17 +1642,17 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            runtime_rules.INTERNAL_ACTION_LIST_SKILLS_MARKER,
+            get_runtime_action_private_marker("LIST_SKILLS"),
         )
         assert_not_contains_text(
             self,
             prompt,
-            runtime_rules.INTERNAL_ACTION_APPEND_SKILL_MARKER,
+            get_runtime_action_private_marker("APPEND_SKILL"),
         )
         assert_not_contains_text(
             self,
             prompt,
-            runtime_rules.INTERNAL_ACTION_REMOVE_SKILL_MARKER,
+            get_runtime_action_private_marker("REMOVE_SKILL"),
         )
         assert_not_contains_text(
             self,
@@ -1709,12 +1712,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            runtime_rules.INTERNAL_ACTION_APPEND_SKILL_MARKER,
+            get_runtime_action_private_marker("APPEND_SKILL"),
         )
         assert_contains_text(
             self,
             prompt,
-            runtime_rules.INTERNAL_ACTION_REMOVE_SKILL_MARKER,
+            get_runtime_action_private_marker("REMOVE_SKILL"),
         )
 
     def test_prompt_keeps_listed_skills_until_hidden(self):
@@ -2486,11 +2489,11 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
         self.assertIn(
-            runtime_rules.INTERNAL_ACTION_SAVE_SESSION_MARKER,
+            get_runtime_action_private_marker("SAVE_SESSION"),
             prompt,
         )
         self.assertIn(
-            runtime_rules.INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER,
+            get_runtime_action_private_marker("CREATE_ACTIVE_MEMORY"),
             prompt,
         )
         assert_contains_text(

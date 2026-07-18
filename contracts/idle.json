@@ -1,0 +1,28 @@
+{
+  "idle": {
+    "version": 1,
+    "description": "Allows the model to schedule an idle follow-up tick.",
+    "runtime_action": "IDLE",
+    "private_marker": "<IDLE: Ns >",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": true
+    },
+    "regexp": [
+      "<IDLE:",
+      "<INTERNAL_ACTION_IDLE:",
+      "<|tool_call>call:INTERNAL_ACTION_IDLE",
+      "<tool_call>call:INTERNAL_ACTION_IDLE",
+      "<|tool_call>call:IDLE",
+      "<tool_call>call:IDLE",
+      "call:INTERNAL_ACTION_IDLE",
+      "call:IDLE"
+    ],
+    "rules": [
+      "Emit <IDLE: Ns > to setup follow up tick for future, that will be triggered after exact time inside the marker."
+    ],
+    "close_tag": false,
+    "failure_followup_message": []
+  }
+}

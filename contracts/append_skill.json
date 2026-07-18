@@ -1,0 +1,49 @@
+{
+  "append_skill": {
+    "version": 1,
+    "description": "Allows the model to append skills.",
+    "runtime_action": "APPEND_SKILL",
+    "private_marker": "<APPEND_SKILL: name of skill >",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": true
+    },
+    "regexp": [
+      "<APPEND_SKILL",
+      "<APPEND_SKILL:",
+      "<APPEND_SKILLS",
+      "<APPEND_SKILLS:",
+      "<INTERNAL_ACTION_APPEND_SKILL",
+      "<INTERNAL_ACTION_APPEND_SKILL:",
+      "<INTERNAL_ACTION_APPEND_SKILLS",
+      "<INTERNAL_ACTION_APPEND_SKILLS:",
+      "INTERNAL_ACTION_APPEND_SKILL:",
+      "INTERNAL_ACTION_APPEND_SKILLS:",
+      "<|tool_call>call:INTERNAL_ACTION_APPEND_SKILL:",
+      "<tool_call>call:INTERNAL_ACTION_APPEND_SKILL:",
+      "<|tool_call>call:INTERNAL_ACTION_APPEND_SKILLS:",
+      "<tool_call>call:INTERNAL_ACTION_APPEND_SKILLS:",
+      "<|tool_call>call:APPEND_SKILL:",
+      "<tool_call>call:APPEND_SKILL:",
+      "<|tool_call>call:APPEND_SKILLS:",
+      "<tool_call>call:APPEND_SKILLS:",
+      "call:INTERNAL_ACTION_APPEND_SKILL:",
+      "call:APPEND_SKILL:",
+      "call:INTERNAL_ACTION_APPEND_SKILLS:",
+      "call:APPEND_SKILLS:"
+    ],
+    "rules": [
+      "APPEND / REMOVE SKILLS:",
+      "Use APPEND_SKILL and REMOVE_SKILL only for single skill append or remove.",
+      "<APPEND_SKILL: name of skill >",
+      "<REMOVE_SKILL: name of skill >",
+      "For multiple appending you can also use following markers:<APPEND_SKILLS: name1, name2, name3 >",
+      "<REMOVE_SKILLS: name1, name2, name3 >",
+      "You may append multiple skills at once.",
+      "Never append a skill that is already listed in <CURRENT_APPENDED_SKILLS>! Continue or notify user!"
+    ],
+    "close_tag": false,
+    "failure_followup_message": []
+  }
+}

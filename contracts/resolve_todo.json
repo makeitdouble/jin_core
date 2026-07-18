@@ -1,0 +1,43 @@
+{
+  "resolve_todo": {
+    "version": 1,
+    "description": "Allows the model to resolve a TODO item.",
+    "runtime_action": "RESOLVE_TODO",
+    "private_marker": "<RESOLVE_TODO: todo_item_id >",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": true
+    },
+    "regexp": [
+      "<RESOLVE_TODO:",
+      "<INTERNAL_ACTION_RESOLVE_TODO:",
+      "INTERNAL_ACTION_RESOLVE_TODO:",
+      "<|tool_call>call:INTERNAL_ACTION_RESOLVE_TODO:",
+      "<tool_call>call:INTERNAL_ACTION_RESOLVE_TODO:",
+      "<|tool_call>call:RESOLVE_TODO:",
+      "<tool_call>call:RESOLVE_TODO:",
+      "call:INTERNAL_ACTION_RESOLVE_TODO:",
+      "call:RESOLVE_TODO:"
+    ],
+    "rules": [
+      "RUNTIME TODO LEDGER:",
+      "If <CURRENT_RUNTIME_TODO_LIST> is present in the context - NEVER EMIT ANOTHER TODO_LIST MARKER.Always list and check all available files before creating them.",
+      "When starting task, you MUST ALWAYS take as FIRST STEP by emitting fulfilled <TODO_LIST>",
+      "TODO_LIST is raw numbered text with one sentence each only and any count of items inside.",
+      "Valid TODO_LIST format example:",
+      "<TODO_LIST>",
+      "1. First step description",
+      "2. Second step description",
+      "3. Third step description",
+      "</TODO_LIST>",
+      "You must explicitly fulfill TODO_LIST with execution plan. You can't proceed with multi-step tasks without TODO_LIST.",
+      "Emit <CHECK_TODO: todo_item_id > instead of resolving, when a TODO item needs another verification/sub-action before it can be resolved.",
+      "After an action result satisfies the active TODO item, emit <RESOLVE_TODO: todo_item_id > before moving to the next TODO item.",
+      "Never emit TODO_LIST marker if <CURRENT_RUNTIME_TODO_LIST> already created and present in the context.",
+      "If all TODO items are done, stop internal actions and answer the user."
+    ],
+    "close_tag": false,
+    "failure_followup_message": []
+  }
+}
