@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import traceback
+import uuid
 
 import httpx
 
@@ -24,6 +25,11 @@ from utils.runtime_actions import (
     build_runtime_action_id,
     RuntimeActionRepetitionGuard,
     RuntimeActionStreamFilter,
+)
+from runtime.behavior_contract import (
+    get_action_guard_name_for_runtime_action,
+    get_action_guard_triggers,
+    should_pause_action_guard_for_confirmation,
 )
 from rules.runtime import (
     RUNTIME_ACTION_APPEND_SKILL,
@@ -67,6 +73,8 @@ GENERATION_LIMIT_FINISH_REASONS = (
     OUTPUT_LIMIT_FINISH_REASONS
     | CONTEXT_LIMIT_FINISH_REASONS
 )
+
+ACTION_GUARD_CONFIRMATION_TIMEOUT_SECONDS = 15.0
 
 
 class RuntimeStream:
@@ -113,8 +121,10 @@ class RuntimeStream:
         self.append_skill_marker_names = self.build_appended_skill_name_set()
         self.repetition_guard = RuntimeActionRepetitionGuard()
         self.marker_repetition_aborted = False
+        self.action_guard_rejected_aborted = False
         self.context_limit_recovery_armed = False
         self.started_delayed_memory_action_ids = []
+        self.confirmed_action_guard_names = set()
         self.delayed_memory_action_payload = ""
         self.raw_content_parts = []
         self.pending_idle_actions = []
@@ -630,6 +640,17 @@ class RuntimeStream:
             await self.emit_started_runtime_actions(
                 result.started_actions,
             )
+            rejected = await self.confirm_started_runtime_action_guards(
+                result.started_actions,
+            )
+
+            if rejected:
+                self.action_guard_rejected_aborted = True
+                self.mark_started_runtime_action_guard_rejected(
+                    rejected,
+                    result,
+                )
+                return None
 
         if result.actions:
             from clients.brain_client_utils import (
@@ -658,10 +679,16 @@ class RuntimeStream:
             )
 
             if immediate_actions:
+                confirmed_action_ids = (
+                    await self.confirm_unmatched_action_guards(
+                        immediate_actions
+                    )
+                )
                 await apply_runtime_action_calls(
                     self.context,
                     immediate_actions,
                     context_snapshot=self.context_snapshot,
+                    confirmed_action_ids=confirmed_action_ids,
                 )
 
         if getattr(
@@ -684,6 +711,322 @@ class RuntimeStream:
             return None
 
         return result.text
+
+    def get_runtime_action_display_id(
+        self,
+        action,
+    ) -> str:
+
+        if (
+            action.name
+            == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+            and self.started_delayed_memory_action_ids
+        ):
+            return self.started_delayed_memory_action_ids[-1]
+
+        return ""
+
+    async def confirm_unmatched_action_guards(
+        self,
+        actions,
+    ) -> set[int]:
+
+        confirmed_action_ids = set()
+        user_message = str(
+            getattr(
+                self.context,
+                "runtime_turn_user_message",
+                "",
+            )
+            or ""
+        )
+        emitter = getattr(
+            self.context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is None:
+            return confirmed_action_ids
+
+        for action in actions:
+            guard_name = get_action_guard_name_for_runtime_action(
+                action.name
+            )
+
+            if not guard_name:
+                continue
+
+            if guard_name in self.confirmed_action_guard_names:
+                confirmed_action_ids.add(
+                    id(action)
+                )
+                continue
+
+            if not should_pause_action_guard_for_confirmation(
+                guard_name,
+                user_message,
+            ):
+                continue
+
+            decision = await self.wait_for_action_guard_confirmation(
+                action,
+                guard_name,
+            )
+
+            if decision != "reject":
+                confirmed_action_ids.add(
+                    id(action)
+                )
+
+        return confirmed_action_ids
+
+    async def confirm_started_runtime_action_guards(
+        self,
+        actions,
+    ):
+
+        user_message = str(
+            getattr(
+                self.context,
+                "runtime_turn_user_message",
+                "",
+            )
+            or ""
+        )
+
+        for action in actions:
+            guard_name = get_action_guard_name_for_runtime_action(
+                action.name
+            )
+
+            if not guard_name:
+                continue
+
+            if guard_name in self.confirmed_action_guard_names:
+                continue
+
+            if not should_pause_action_guard_for_confirmation(
+                guard_name,
+                user_message,
+            ):
+                continue
+
+            decision = await self.wait_for_action_guard_confirmation(
+                action,
+                guard_name,
+            )
+
+            if decision == "reject":
+                return action
+
+            self.confirmed_action_guard_names.add(
+                guard_name
+            )
+
+        return None
+
+    def mark_started_runtime_action_guard_rejected(
+        self,
+        action,
+        result=None,
+    ) -> None:
+
+        guard_name = get_action_guard_name_for_runtime_action(
+            action.name
+        )
+
+        if guard_name != "save_delayed_memory":
+            return
+
+        rejected_payload = ""
+
+        for completed_action in getattr(
+            result,
+            "actions",
+            (),
+        ):
+            if (
+                getattr(
+                    completed_action,
+                    "name",
+                    "",
+                )
+                == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+            ):
+                rejected_payload = str(
+                    getattr(
+                        completed_action,
+                        "payload",
+                        "",
+                    )
+                    or ""
+                )
+                break
+
+        rejected_title = ""
+
+        if rejected_payload:
+            from clients.brain_client_utils import (
+                build_delayed_memory_report,
+            )
+
+            rejected_report = build_delayed_memory_report(
+                self.context,
+                rejected_payload,
+            )
+
+            for report_value in rejected_report.values():
+                if isinstance(
+                    report_value,
+                    dict,
+                ):
+                    rejected_title = str(
+                        report_value.get(
+                            "title",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+
+                if rejected_title:
+                    break
+
+        self.context.runtime_delayed_memory_save_rejected_pending = True
+        self.context.runtime_delayed_memory_save_rejected_title = (
+            rejected_title
+        )
+        self.delayed_memory_action_payload = (
+            rejected_payload
+            or self.delayed_memory_action_payload
+            or "<SAVE_DELAYED_MEMORY_CONTENT>"
+        )
+
+    async def wait_for_action_guard_confirmation(
+        self,
+        action,
+        guard_name: str,
+    ) -> str:
+
+        emitter = getattr(
+            self.context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is None:
+            return "continue"
+
+        pending = getattr(
+            self.context,
+            "runtime_action_guard_confirmations",
+            None,
+        )
+
+        if not isinstance(
+            pending,
+            dict,
+        ):
+            pending = {}
+            self.context.runtime_action_guard_confirmations = pending
+
+        loop = asyncio.get_running_loop()
+        confirmation_id = (
+            f"{getattr(self.context, 'runtime_current_turn_id', '')}:"
+            f"{action.name.lower()}:{uuid.uuid4().hex[:12]}"
+        )
+        future = loop.create_future()
+        pending[confirmation_id] = future
+
+        action_id = self.get_runtime_action_display_id(
+            action
+        )
+        action_name = action.name.lower()
+        triggers = list(
+            get_action_guard_triggers(
+                guard_name
+            )
+        )
+
+        action_context_snapshot = (
+            dict(self.context_snapshot)
+            if isinstance(
+                self.context_snapshot,
+                dict,
+            )
+            else None
+        )
+        payload = {
+            "type": "runtime_action_guard_confirmation",
+            "action": action_name,
+            "id": action_id,
+            "confirmation_id": confirmation_id,
+            "guard": guard_name,
+            "status": "pending",
+            "text": self.build_action_guard_confirmation_text(
+                action_name
+            ),
+            "detail": (
+                "Runtime action marker emitted without matching "
+                "behavior-contract trigger words in the user message."
+            ),
+            "missing_triggers": triggers,
+            "timeout_ms": int(
+                ACTION_GUARD_CONFIRMATION_TIMEOUT_SECONDS
+                * 1000
+            ),
+        }
+
+        if action_context_snapshot:
+            payload["context"] = action_context_snapshot
+
+        try:
+            await emit(
+                payload
+            )
+
+            return str(
+                await asyncio.wait_for(
+                    future,
+                    timeout=ACTION_GUARD_CONFIRMATION_TIMEOUT_SECONDS,
+                )
+                or "continue"
+            ).strip().casefold()
+
+        except asyncio.TimeoutError:
+            return "continue"
+
+        finally:
+            pending.pop(
+                confirmation_id,
+                None,
+            )
+
+    @staticmethod
+    def build_action_guard_confirmation_text(
+        action_name: str,
+    ) -> str:
+
+        if action_name == "save_delayed_memory_content":
+            return "Saving delayed memory report"
+
+        if action_name == "save_session":
+            return "Saving session"
+
+        return action_name.replace(
+            "_",
+            " ",
+        )
 
     async def emit_started_runtime_actions(
         self,
@@ -1191,6 +1534,13 @@ class RuntimeStream:
                     ):
                         break
 
+                    if self.action_guard_rejected_aborted:
+                        await self.close_active_streams()
+                        await self.close_generator(
+                            generator
+                        )
+                        break
+
                     if content is None:
                         continue
 
@@ -1230,7 +1580,10 @@ class RuntimeStream:
 
             content_tail = (
                 None
-                if self.marker_repetition_aborted
+                if (
+                    self.marker_repetition_aborted
+                    or self.action_guard_rejected_aborted
+                )
                 else await self.flush_runtime_action_content()
             )
             if content_tail:
@@ -1243,6 +1596,9 @@ class RuntimeStream:
                 )
 
             await self.flush_pending_idle_actions()
+
+            if self.action_guard_rejected_aborted:
+                await self.fail_unfinished_delayed_memory_actions()
 
             await self.stream.finish(
                 emit=self.emit_to_chat

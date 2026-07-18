@@ -225,7 +225,7 @@ CREATE_ACTIVE_MEMORY_RULES = (
 
 RESOLVE_ACTIVE_MEMORY_RULES = (
     "RESOLVE_ACTIVE_MEMORY:\n"
-    "You must emit fulfilled markers when user explicitly want to cancel/clear/resolve active memory conditions.\n"
+    "Emit fulfilled markers when user explicitly want to cancel/clear/resolve active memory conditions.\n"
     "You need manually resolve all pending active memory slots.\n"
     "Emit fulfilled markers when active_memory slot CONDITIONS are met or resolved due timings, or elapsed time past conditions.\n"
     f"{INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY_MARKER}\n"
@@ -235,14 +235,11 @@ RESOLVE_ACTIVE_MEMORY_RULES = (
 SAVE_DELAYED_MEMORY_RULES = (
     "SAVE_DELAYED_MEMORY_CONTENT:\n"
     "Use this marker ONLY when the user explicitly asks to save in delayed memory a summary/digest/recap/report of the current state.\n"
-    "DO NOT ask for clarification, save all current runtime data available at the moment as structured summary.\n"
-    "Do NOT use this marker for generic remember/store/track/remind requests.\n"
-    "Do NOT use this marker for word recall tests, secret values, future questions, or next-N-message conditions.\n"
     f"Emit fulfilled form inside marker only for explicit summary-save requests:\n"
     f"{INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_EMPTY_EXAMPLE}\n"
     "The opening tag must be the first content line. Emit every field immediately, then always emit the matching closing tag.\n"
-    "Never announce, explain, or promise this action instead of emitting the complete block.\n"
-    "When saving a summary/report NEVER skip form fields; you must fulfill all fields of delayed memory form so it will be valid for processing by runtime.\n"
+    "When saving a summary/report NEVER skip template fields; you must fulfill all fields of delayed memory form so it will be valid for processing by runtime.\n"
+    "DO NOT add any other text while making a report! Do not notify user or acknowledge saving and immediately proceed with marker in response."
 )
 
 DELAYED_MEMORY_ACTION_RULES = (

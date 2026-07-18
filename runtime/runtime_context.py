@@ -113,6 +113,10 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_action_guard_confirmations: dict[str, object] = field(
+        default_factory=dict
+    )
+
     runtime_pending_requests_queue: object | None = None
 
     runtime_session_action_history: list[dict] = field(

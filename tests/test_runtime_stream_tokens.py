@@ -1217,12 +1217,13 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         context = SimpleNamespace(
             websocket=FakeWebSocket(),
             logger=FakeLogger(),
-            emitter=FakeEmitter(),
+            emitter=None,
             runtime_action_events=[],
             runtime_usage_events=[],
             runtime_asset_results=[],
             runtime_delayed_memory_results=[],
             runtime_session_action_history=[],
+            runtime_action_guard_confirmations={},
             delayed_memory_reports={},
             active_memory_records=[],
             runtime_turn_user_message="выполни другое действие",
@@ -1231,6 +1232,32 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             session_id="session-1",
             timestamp="2026-07-13T17:00:00",
         )
+
+        class RejectingEmitter(FakeEmitter):
+
+            async def emit(
+                self,
+                event,
+            ):
+
+                await super().emit(
+                    event
+                )
+
+                if (
+                    event.get("type")
+                    != "runtime_action_guard_confirmation"
+                ):
+                    return
+
+                future = context.runtime_action_guard_confirmations[
+                    event["confirmation_id"]
+                ]
+                future.set_result(
+                    "reject"
+                )
+
+        context.emitter = RejectingEmitter()
 
         stream = RuntimeStream(
             context=context,
@@ -1300,6 +1327,218 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             context.runtime_delayed_memory_save_rejected_pending,
         )
 
+    async def test_rejecting_started_delayed_memory_guard_stops_generation(self):
+
+        state = {
+            "body_requested": False,
+        }
+
+        async def delayed_memory_generator():
+
+            yield {
+                "type": "content",
+                "content": "<SAVE_DELAYED_MEMORY_CONTENT>\n",
+            }
+
+            state["body_requested"] = True
+
+            yield {
+                "type": "content",
+                "content": (
+                    "title: Should not be generated\n"
+                    "summary: Runtime summary.\n"
+                    "tags: runtime, summary\n"
+                    "body: Full report.\n"
+                    "</SAVE_DELAYED_MEMORY_CONTENT>\n"
+                ),
+            }
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=None,
+            active_streams={},
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_asset_results=[],
+            runtime_delayed_memory_results=[],
+            runtime_session_action_history=[],
+            runtime_action_guard_confirmations={},
+            delayed_memory_reports={},
+            active_memory_records=[],
+            runtime_turn_user_message="please keep going with the current work",
+            runtime_current_turn_id="turn_delayed_guard_early_reject",
+            runtime_turn_started_at=0,
+            session_id="session-1",
+            timestamp="2026-07-13T17:00:00",
+        )
+
+        class RejectingEmitter(FakeEmitter):
+
+            async def emit(
+                self,
+                event,
+            ):
+
+                await super().emit(
+                    event
+                )
+
+                if (
+                    event.get("type")
+                    != "runtime_action_guard_confirmation"
+                ):
+                    return
+
+                future = context.runtime_action_guard_confirmations[
+                    event["confirmation_id"]
+                ]
+                future.set_result(
+                    "reject"
+                )
+
+        context.emitter = RejectingEmitter()
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=settings.SERVICE_MODEL_UID,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            runtime_actions={
+                "CAN_SAVE_DELAYED_MEMORY": True,
+            },
+        )
+
+        await stream.run(
+            delayed_memory_generator()
+        )
+
+        runtime_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "runtime_action"
+        ]
+
+        self.assertFalse(
+            state["body_requested"],
+        )
+        self.assertEqual(
+            [event.get("status") for event in runtime_events],
+            ["started", "failed"],
+        )
+        self.assertEqual(
+            context.delayed_memory_reports,
+            {},
+        )
+
+    async def test_confirmed_delayed_memory_save_bypasses_missing_trigger_words(self):
+
+        async def delayed_memory_generator():
+
+            yield {
+                "type": "content",
+                "content": (
+                    "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+                    "title: Confirmed report\n"
+                    "summary: Runtime summary.\n"
+                    "tags: runtime, summary\n"
+                    "body: Full report.\n"
+                    "</SAVE_DELAYED_MEMORY_CONTENT>\n"
+                ),
+            }
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=None,
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_asset_results=[],
+            runtime_delayed_memory_results=[],
+            runtime_session_action_history=[],
+            runtime_action_guard_confirmations={},
+            delayed_memory_reports={},
+            active_memory_records=[],
+            runtime_turn_user_message="please keep going with the current work",
+            runtime_current_turn_id="turn_delayed_guard_continue",
+            runtime_turn_started_at=0,
+            session_id="session-1",
+            timestamp="2026-07-13T17:00:00",
+        )
+
+        class ContinuingEmitter(FakeEmitter):
+
+            async def emit(
+                self,
+                event,
+            ):
+
+                await super().emit(
+                    event
+                )
+
+                if (
+                    event.get("type")
+                    != "runtime_action_guard_confirmation"
+                ):
+                    return
+
+                future = context.runtime_action_guard_confirmations[
+                    event["confirmation_id"]
+                ]
+                future.set_result(
+                    "continue"
+                )
+
+        context.emitter = ContinuingEmitter()
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=settings.SERVICE_MODEL_UID,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            runtime_actions={
+                "CAN_SAVE_DELAYED_MEMORY": True,
+            },
+        )
+
+        await stream.run(
+            delayed_memory_generator()
+        )
+
+        runtime_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "runtime_action"
+        ]
+        confirmation_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "runtime_action_guard_confirmation"
+        ]
+
+        self.assertEqual(
+            len(confirmation_events),
+            1,
+        )
+        self.assertEqual(
+            [event.get("status") for event in runtime_events],
+            ["started", "completed"],
+        )
+        self.assertEqual(
+            len(context.delayed_memory_reports),
+            1,
+        )
+        self.assertFalse(
+            getattr(
+                context,
+                "runtime_delayed_memory_save_rejected_pending",
+                False,
+            )
+        )
+
     async def test_runtime_groups_inner_and_outer_markers_from_one_message(self):
 
         async def mixed_marker_generator():
@@ -1327,12 +1566,13 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         context = SimpleNamespace(
             websocket=FakeWebSocket(),
             logger=FakeLogger(),
-            emitter=FakeEmitter(),
+            emitter=None,
             runtime_action_events=[],
             runtime_usage_events=[],
             runtime_asset_results=[],
             runtime_delayed_memory_results=[],
             runtime_session_action_history=[],
+            runtime_action_guard_confirmations={},
             delayed_memory_reports={},
             active_memory_records=[],
             runtime_turn_user_message=(
@@ -1346,6 +1586,32 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             session_id="session-1",
             timestamp="2026-07-13T17:00:00",
         )
+
+        class RejectingEmitter(FakeEmitter):
+
+            async def emit(
+                self,
+                event,
+            ):
+
+                await super().emit(
+                    event
+                )
+
+                if (
+                    event.get("type")
+                    != "runtime_action_guard_confirmation"
+                ):
+                    return
+
+                future = context.runtime_action_guard_confirmations[
+                    event["confirmation_id"]
+                ]
+                future.set_result(
+                    "reject"
+                )
+
+        context.emitter = RejectingEmitter()
 
         stream = RuntimeStream(
             context=context,

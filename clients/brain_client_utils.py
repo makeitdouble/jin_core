@@ -2169,6 +2169,7 @@ async def apply_runtime_action_calls(
     user_message: str | None = None,
     context_snapshot: dict | None = None,
     assistant_message: str | None = None,
+    confirmed_action_ids=None,
 ) -> int:
 
     if (
@@ -2206,6 +2207,14 @@ async def apply_runtime_action_calls(
         if isinstance(context_snapshot, dict)
         else None
     )
+    confirmed_action_ids = {
+        int(action_id)
+        for action_id in (confirmed_action_ids or ())
+        if isinstance(
+            action_id,
+            int,
+        )
+    }
 
     def with_action_context(payload: dict) -> dict:
         if not action_context_snapshot:
@@ -2340,6 +2349,8 @@ async def apply_runtime_action_calls(
             continue
 
         if action.name == RUNTIME_ACTION_SAVE_SESSION:
+            guard_confirmed = id(action) in confirmed_action_ids
+
             if getattr(
                 context,
                 "runtime_save_session_memory_committed_this_turn",
@@ -2350,8 +2361,11 @@ async def apply_runtime_action_calls(
                 # memory pipeline.
                 continue
 
-            if not should_execute_save_session(
-                resolved_user_message
+            if (
+                not guard_confirmed
+                and not should_execute_save_session(
+                    resolved_user_message
+                )
             ):
                 continue
 
@@ -2378,11 +2392,16 @@ async def apply_runtime_action_calls(
             continue
 
         if action.name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT:
+            guard_confirmed = id(action) in confirmed_action_ids
+
             if save_delayed_memory_seen:
                 continue
 
-            if not should_execute_save_delayed_memory(
-                resolved_user_message
+            if (
+                not guard_confirmed
+                and not should_execute_save_delayed_memory(
+                    resolved_user_message
+                )
             ):
                 rejected_report = build_delayed_memory_report(
                     context,

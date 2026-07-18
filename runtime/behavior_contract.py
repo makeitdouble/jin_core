@@ -101,6 +101,40 @@ def get_action_guard_blockers(
     )
 
 
+def get_action_guard_name_for_runtime_action(
+    runtime_action: str,
+) -> str:
+    normalized_action = str(
+        runtime_action
+        or ""
+    ).strip().casefold()
+
+    if not normalized_action:
+        return ""
+
+    for name, guard in get_action_guards().items():
+        if not isinstance(
+            guard,
+            dict,
+        ):
+            continue
+
+        guard_action = str(
+            guard.get(
+                "runtime_action",
+                "",
+            )
+            or ""
+        ).strip().casefold()
+
+        if guard_action == normalized_action:
+            return str(
+                name
+            )
+
+    return ""
+
+
 def _normalize_guard_text(
     text: str,
 ) -> str:
@@ -152,7 +186,7 @@ def _has_guard_trigger(
         start = index + 1
 
 
-def should_execute_action_guard(
+def action_guard_has_blocker_match(
     name: str,
     user_text: str,
 ) -> bool:
@@ -163,7 +197,7 @@ def should_execute_action_guard(
     if not normalized_text:
         return False
 
-    has_blocker = any(
+    return any(
         _has_guard_trigger(
             normalized_text,
             _normalize_guard_text(
@@ -175,7 +209,16 @@ def should_execute_action_guard(
         )
     )
 
-    if has_blocker:
+
+def action_guard_has_trigger_match(
+    name: str,
+    user_text: str,
+) -> bool:
+    normalized_text = _normalize_guard_text(
+        user_text
+    )
+
+    if not normalized_text:
         return False
 
     return any(
@@ -188,4 +231,44 @@ def should_execute_action_guard(
         for trigger in get_action_guard_triggers(
             name
         )
+    )
+
+
+def should_pause_action_guard_for_confirmation(
+    name: str,
+    user_text: str,
+) -> bool:
+    return (
+        bool(get_action_guard_triggers(name))
+        and not action_guard_has_blocker_match(
+            name,
+            user_text,
+        )
+        and not action_guard_has_trigger_match(
+            name,
+            user_text,
+        )
+    )
+
+
+def should_execute_action_guard(
+    name: str,
+    user_text: str,
+) -> bool:
+    normalized_text = _normalize_guard_text(
+        user_text
+    )
+
+    if not normalized_text:
+        return False
+
+    if action_guard_has_blocker_match(
+        name,
+        user_text,
+    ):
+        return False
+
+    return action_guard_has_trigger_match(
+        name,
+        user_text,
     )

@@ -1462,6 +1462,255 @@ window.formatJinAttachmentChipLabel =
 
 // RUNTIME ACTION
 
+const runtimeActionGuardDecisionClasses = [
+  "jin-runtime-action-guard-pending",
+  "jin-runtime-action-guard-rejected",
+  "jin-runtime-action-guard-continued",
+];
+const RUNTIME_ACTION_GUARD_CONFIRMATION_DELAY_MS = 15000;
+const RUNTIME_ACTION_GUARD_ANIMATION_DURATION_MS = 3200;
+const RUNTIME_ACTION_GUARD_GEOMETRY_REFERENCE_WIDTH = 10;
+const RUNTIME_ACTION_GUARD_GREEN_BASE_X = 10;
+const RUNTIME_ACTION_GUARD_RED_BASE_X = 10;
+const RUNTIME_ACTION_GUARD_GREEN_WIDTH_FACTOR = 0.02;
+const RUNTIME_ACTION_GUARD_RED_WIDTH_FACTOR = 0.02;
+const RUNTIME_ACTION_GUARD_BASE_PERSPECTIVE = 100;
+const RUNTIME_ACTION_GUARD_GREEN_BASE_ROTATE_DEG = -1;
+const RUNTIME_ACTION_GUARD_RED_BASE_ROTATE_DEG = 1;
+const RUNTIME_ACTION_GUARD_BASE_Z = 10;
+const RUNTIME_ACTION_GUARD_BASE_SCALE_X = 1.00;
+const RUNTIME_ACTION_GUARD_MIN_MOTION_SCALE = 0.62;
+const RUNTIME_ACTION_GUARD_MAX_MOTION_SCALE = 1.18;
+const RUNTIME_ACTION_GUARD_MIN_ROTATION_SCALE = 2;
+const RUNTIME_ACTION_GUARD_MAX_ROTATION_SCALE = 0.15;
+const RUNTIME_ACTION_GUARD_MIN_ROTATION_WIDTH = 220;
+const RUNTIME_ACTION_GUARD_MAX_ROTATION_WIDTH = 760;
+const RUNTIME_ACTION_GUARD_MIN_ICON_GAP = 8;
+let runtimeActionGuardGeometryFrame = null;
+
+function resolveRuntimeActionGuardConfirmationDelayMs(
+  confirmation = {}
+) {
+
+  const configuredDelay =
+    Number(
+      confirmation.timeoutMs
+      || confirmation.timeout_ms
+      || RUNTIME_ACTION_GUARD_CONFIRMATION_DELAY_MS
+    );
+
+  return Number.isFinite(
+    configuredDelay
+  ) && configuredDelay > 0
+    ? configuredDelay
+    : RUNTIME_ACTION_GUARD_CONFIRMATION_DELAY_MS;
+
+}
+
+function clampRuntimeActionGuardValue(
+  value,
+  min,
+  max
+) {
+
+  return Math.min(
+    max,
+    Math.max(
+      min,
+      value
+    )
+  );
+
+}
+
+function updateRuntimeActionGuardGeometry(
+  row,
+  label
+) {
+
+  if (
+      !row
+      || !label
+  ) {
+    return;
+  }
+
+  const labelRect =
+    label.getBoundingClientRect();
+  const icon =
+    row.querySelector(
+      ":scope > div:not(.jin-runtime-action-label), :scope > button"
+    );
+  const iconRect =
+    icon
+      ? icon.getBoundingClientRect()
+      : null;
+
+  const width =
+    Math.max(
+      0,
+      Number(
+        labelRect.width || 0
+      )
+    );
+  const extraWidth =
+    Math.max(
+      0,
+      width - RUNTIME_ACTION_GUARD_GEOMETRY_REFERENCE_WIDTH
+    );
+  const currentGap =
+    iconRect
+      ? labelRect.left - iconRect.right
+      : RUNTIME_ACTION_GUARD_MIN_ICON_GAP;
+  const gapCompensation =
+    Math.max(
+      0,
+      RUNTIME_ACTION_GUARD_MIN_ICON_GAP - currentGap
+    );
+  const greenX =
+    RUNTIME_ACTION_GUARD_GREEN_BASE_X
+    + gapCompensation
+    + (
+      extraWidth
+      * RUNTIME_ACTION_GUARD_GREEN_WIDTH_FACTOR
+    );
+  const redX =
+    RUNTIME_ACTION_GUARD_RED_BASE_X
+    + gapCompensation
+    + (
+      extraWidth
+      * RUNTIME_ACTION_GUARD_RED_WIDTH_FACTOR
+    );
+  const rotationWidthSpan =
+    Math.max(
+      1,
+      RUNTIME_ACTION_GUARD_MAX_ROTATION_WIDTH
+      - RUNTIME_ACTION_GUARD_MIN_ROTATION_WIDTH
+    );
+  const rotationWidthProgress =
+    clampRuntimeActionGuardValue(
+      (
+        width
+        - RUNTIME_ACTION_GUARD_MIN_ROTATION_WIDTH
+      )
+      / rotationWidthSpan,
+      0,
+      1
+    );
+  const rotationScale =
+    RUNTIME_ACTION_GUARD_MIN_ROTATION_SCALE
+    + (
+      rotationWidthProgress
+      * (
+        RUNTIME_ACTION_GUARD_MAX_ROTATION_SCALE
+        - RUNTIME_ACTION_GUARD_MIN_ROTATION_SCALE
+      )
+    );
+  const motionScale =
+    clampRuntimeActionGuardValue(
+      Math.sqrt(
+        RUNTIME_ACTION_GUARD_GEOMETRY_REFERENCE_WIDTH
+        / Math.max(
+          width,
+          1
+        )
+      ),
+      RUNTIME_ACTION_GUARD_MIN_MOTION_SCALE,
+      RUNTIME_ACTION_GUARD_MAX_MOTION_SCALE
+    );
+  const perspective =
+    RUNTIME_ACTION_GUARD_BASE_PERSPECTIVE
+    / motionScale;
+  const greenRotate =
+    RUNTIME_ACTION_GUARD_GREEN_BASE_ROTATE_DEG
+    * rotationScale;
+  const redRotate =
+    RUNTIME_ACTION_GUARD_RED_BASE_ROTATE_DEG
+    * rotationScale;
+  const depthZ =
+    RUNTIME_ACTION_GUARD_BASE_Z
+    * motionScale;
+  const scaleX =
+    1
+    + (
+      (
+        RUNTIME_ACTION_GUARD_BASE_SCALE_X
+        - 1
+      )
+      * motionScale
+    );
+
+  label.style.setProperty(
+    "--jin-runtime-action-guard-green-x",
+    `${greenX.toFixed(2)}px`
+  );
+  label.style.setProperty(
+    "--jin-runtime-action-guard-red-x",
+    `${redX.toFixed(2)}px`
+  );
+  label.style.setProperty(
+    "--jin-runtime-action-guard-perspective",
+    `${perspective.toFixed(2)}px`
+  );
+  label.style.setProperty(
+    "--jin-runtime-action-guard-green-rotate",
+    `${greenRotate.toFixed(2)}deg`
+  );
+  label.style.setProperty(
+    "--jin-runtime-action-guard-red-rotate",
+    `${redRotate.toFixed(2)}deg`
+  );
+  label.style.setProperty(
+    "--jin-runtime-action-guard-z",
+    `${depthZ.toFixed(2)}px`
+  );
+  label.style.setProperty(
+    "--jin-runtime-action-guard-scale-x",
+    scaleX.toFixed(4)
+  );
+
+}
+
+function updateRuntimeActionGuardGeometries(
+  root = document
+) {
+
+  const scope =
+    root instanceof Element
+      ? root
+      : document;
+
+  scope
+    .querySelectorAll(
+      ".jin-runtime-action-guard-pending"
+    )
+    .forEach((row) => {
+      updateRuntimeActionGuardGeometry(
+        row,
+        row.querySelector(
+          ".jin-runtime-action-guard-label"
+        )
+      );
+    });
+
+}
+
+function scheduleRuntimeActionGuardGeometryUpdate() {
+
+  if (runtimeActionGuardGeometryFrame) {
+    return;
+  }
+
+  runtimeActionGuardGeometryFrame =
+    window.requestAnimationFrame(
+      () => {
+        runtimeActionGuardGeometryFrame = null;
+        updateRuntimeActionGuardGeometries();
+      }
+    );
+
+}
+
 function normalizeRuntimeActionKeyPart(value) {
 
   return String(
@@ -1492,6 +1741,278 @@ function buildRuntimeActionVisibleKey(
   runtimeActionRowCounter += 1;
 
   return `${jinConversationTurnCounter}:${actionName}:${runtimeActionRowCounter}`;
+
+}
+
+function clearRuntimeActionGuardConfirmation(
+  row
+) {
+
+  if (!row) {
+    return;
+  }
+
+  if (row._runtimeActionGuardTimer) {
+    window.clearTimeout(
+      row._runtimeActionGuardTimer
+    );
+    row._runtimeActionGuardTimer = null;
+  }
+
+  row.classList.remove(
+    ...runtimeActionGuardDecisionClasses
+  );
+
+  const label =
+    row.querySelector(
+      ".jin-runtime-action-label"
+    );
+
+  if (!label) {
+    return;
+  }
+
+  label.classList.remove(
+    "jin-runtime-action-guard-label"
+  );
+  label.style.removeProperty(
+    "--jin-runtime-action-guard-motion"
+  );
+  label.style.removeProperty(
+    "--jin-runtime-action-guard-green-x"
+  );
+  label.style.removeProperty(
+    "--jin-runtime-action-guard-red-x"
+  );
+  label.style.removeProperty(
+    "--jin-runtime-action-guard-perspective"
+  );
+  label.style.removeProperty(
+    "--jin-runtime-action-guard-green-rotate"
+  );
+  label.style.removeProperty(
+    "--jin-runtime-action-guard-red-rotate"
+  );
+  label.style.removeProperty(
+    "--jin-runtime-action-guard-z"
+  );
+  label.style.removeProperty(
+    "--jin-runtime-action-guard-scale-x"
+  );
+
+  label
+    .querySelectorAll(
+      ":scope > .jin-runtime-action-guard-zones"
+    )
+    .forEach((zones) => {
+      zones.remove();
+    });
+
+  delete row.dataset.runtimeActionGuardConfirmationId;
+  delete row.dataset.runtimeActionGuardDecision;
+
+}
+
+function settleRuntimeActionGuardConfirmation(
+  row,
+  decision
+) {
+
+  if (!row) {
+    return;
+  }
+
+  if (row._runtimeActionGuardTimer) {
+    window.clearTimeout(
+      row._runtimeActionGuardTimer
+    );
+    row._runtimeActionGuardTimer = null;
+  }
+
+  row.classList.remove(
+    "jin-runtime-action-guard-pending"
+  );
+
+  row.classList.add(
+    decision === "reject"
+      ? "jin-runtime-action-guard-rejected"
+      : "jin-runtime-action-guard-continued"
+  );
+
+  row.dataset.runtimeActionGuardDecision =
+    decision;
+
+  const zones =
+    row.querySelector(
+      ".jin-runtime-action-guard-zones"
+    );
+
+  if (zones) {
+    zones.remove();
+  }
+
+}
+
+function bindRuntimeActionGuardConfirmation(
+  row,
+  label,
+  action,
+  options = {}
+) {
+
+  const confirmation =
+    options.guardConfirmation || {};
+  const confirmationId =
+    String(
+      confirmation.confirmationId
+      || confirmation.confirmation_id
+      || ""
+    ).trim();
+
+  if (
+      !row
+      || !label
+      || !confirmationId
+  ) {
+    return;
+  }
+
+  row.classList.remove(
+    "opacity-45",
+    "jin-runtime-action-guard-rejected",
+    "jin-runtime-action-guard-continued"
+  );
+  row.classList.add(
+    "jin-runtime-action-guard-pending"
+  );
+  row.dataset.runtimeActionGuardConfirmationId =
+    confirmationId;
+
+  label.classList.add(
+    "jin-runtime-action-guard-label"
+  );
+  label.style.setProperty(
+    "--jin-runtime-action-guard-motion",
+    `${RUNTIME_ACTION_GUARD_ANIMATION_DURATION_MS}ms`
+  );
+  updateRuntimeActionGuardGeometry(
+    row,
+    label
+  );
+
+  const timeoutMs =
+    resolveRuntimeActionGuardConfirmationDelayMs(
+      confirmation
+    );
+
+  if (
+    label.querySelector(
+      ":scope > .jin-runtime-action-guard-zones"
+    )
+  ) {
+    return;
+  }
+
+  const zones =
+    document.createElement("div");
+  zones.className =
+    "jin-runtime-action-guard-zones";
+  zones.setAttribute(
+    "aria-hidden",
+    "true"
+  );
+
+  [
+    [
+      "reject",
+      "jin-runtime-action-guard-zone jin-runtime-action-guard-zone-reject",
+      "cancel this action",
+    ],
+    [
+      "continue",
+      "jin-runtime-action-guard-zone jin-runtime-action-guard-zone-continue",
+      "continue this action",
+    ],
+  ].forEach(([decision, className, title]) => {
+    const zone =
+      document.createElement("button");
+    zone.type =
+      "button";
+    zone.className =
+      className;
+    zone.title =
+      title;
+    zone.dataset.runtimeActionGuardDecision =
+      decision;
+
+    zone.addEventListener(
+      "click",
+      (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (
+          row.dataset.runtimeActionGuardDecision
+        ) {
+          return;
+        }
+
+        const sent =
+          window.sendSocketMessage
+            ? window.sendSocketMessage({
+              type: "runtime_action_guard_confirmation",
+              confirmation_id: confirmationId,
+              action: action || "",
+              id: options.id || "",
+              guard: confirmation.guard || "",
+              decision,
+            })
+            : false;
+
+        if (!sent) {
+          return;
+        }
+
+        settleRuntimeActionGuardConfirmation(
+          row,
+          decision
+        );
+      }
+    );
+
+    zones.appendChild(
+      zone
+    );
+  });
+
+  label.appendChild(
+    zones
+  );
+
+  if (timeoutMs > 0) {
+    if (row._runtimeActionGuardTimer) {
+      window.clearTimeout(
+        row._runtimeActionGuardTimer
+      );
+    }
+
+    row._runtimeActionGuardTimer =
+      window.setTimeout(
+        () => {
+          if (
+            row.dataset.runtimeActionGuardDecision
+          ) {
+            return;
+          }
+
+          settleRuntimeActionGuardConfirmation(
+            row,
+            "continue"
+          );
+        },
+        timeoutMs
+      );
+  }
 
 }
 
@@ -1537,6 +2058,19 @@ function updateRuntimeActionRow(
     bindAssetResultPreview(
       label,
       options.assetResult || null
+    );
+  }
+
+  if (options.guardConfirmation) {
+    bindRuntimeActionGuardConfirmation(
+      row,
+      label,
+      action,
+      options
+    );
+  } else {
+    clearRuntimeActionGuardConfirmation(
+      row
     );
   }
 
@@ -1689,6 +2223,15 @@ function appendRuntimeAction(
     );
   }
 
+  if (options.guardConfirmation) {
+    bindRuntimeActionGuardConfirmation(
+      row,
+      label,
+      action,
+      options
+    );
+  }
+
   row.appendChild(
     icon
   );
@@ -1707,6 +2250,17 @@ function appendRuntimeAction(
   return true;
 
 }
+
+window.addEventListener(
+  "resize",
+  scheduleRuntimeActionGuardGeometryUpdate
+);
+
+window.requestAnimationFrame(
+  () => {
+    updateRuntimeActionGuardGeometries();
+  }
+);
 
 
 function queueRuntimeActionAfterNextResponse(
@@ -1835,6 +2389,10 @@ function fadeRuntimeAction(
       );
 
   rows.forEach((row) => {
+    clearRuntimeActionGuardConfirmation(
+      row
+    );
+
     row.classList.add(
       "opacity-45"
     );

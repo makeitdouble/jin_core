@@ -669,6 +669,8 @@ function sendSocketMessage(
 
 }
 
+window.sendSocketMessage = sendSocketMessage;
+
 window.sendRuntimeMemoryDeleteSlot = function (payload) {
   const key = String(
     payload
@@ -1671,6 +1673,55 @@ function handleSocketMessage(event) {
 
     return;
 
+  }
+
+  // -----------------------------
+  // RUNTIME ACTION GUARD CONFIRMATION
+  // -----------------------------
+
+  if (
+    data.type
+    === "runtime_action_guard_confirmation"
+  ) {
+    const action =
+      String(
+        data.action || ""
+      ).toLowerCase();
+    const text =
+      String(
+        data.text || ""
+      );
+
+    if (
+      text.trim()
+      && window.appendRuntimeAction
+    ) {
+      window.appendRuntimeAction(
+        action,
+        `CONFIRM: ${text}`,
+        {
+          id: data.id || "",
+          contextSnapshot:
+            data.context || null,
+          detail:
+            data.detail || "",
+          guardConfirmation: {
+            confirmationId:
+              data.confirmation_id || "",
+            guard:
+              data.guard || "",
+            missingTriggers:
+              Array.isArray(data.missing_triggers)
+                ? data.missing_triggers
+                : [],
+            timeoutMs:
+              Number(data.timeout_ms || 0),
+          },
+        }
+      );
+    }
+
+    return;
   }
 
   // -----------------------------

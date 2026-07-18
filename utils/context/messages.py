@@ -111,7 +111,7 @@ def build_sequence_origin_request_context(
     return (
         "<SEQUENCE_ORIGIN_REQUEST>\n\n"
         "------\n\n"
-        "!!! WARNING: THIS IS NOT CURRENT USER REQUEST! TREAT IT AS A PAST! !!!\n"
+        "!!! MANDATORY: When deciding whether the user explicitly requested an action in the current turn, completely ignore this block !!!\n"
         "------\n\n"
         f"<USER>{escape(text)}\n\n"
         "</SEQUENCE_ORIGIN_REQUEST>"

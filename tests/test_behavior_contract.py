@@ -7,10 +7,13 @@ from clients.brain_client import (
     should_execute_save_session,
 )
 from runtime.behavior_contract import (
+    action_guard_has_trigger_match,
     get_action_guard,
+    get_action_guard_name_for_runtime_action,
     get_action_guard_blockers,
     get_action_guard_triggers,
     get_behavior_contract,
+    should_pause_action_guard_for_confirmation,
     should_execute_action_guard,
 )
 
@@ -120,6 +123,45 @@ class BehaviorContractTests(unittest.TestCase):
         )
         self.assertFalse(
             should_execute_action_guard(
+                "save_delayed_memory",
+                "show exact tag for saving delayed memory",
+            )
+        )
+
+    def test_finds_guard_for_runtime_action(self):
+
+        self.assertEqual(
+            get_action_guard_name_for_runtime_action(
+                "SAVE_DELAYED_MEMORY_CONTENT"
+            ),
+            "save_delayed_memory",
+        )
+
+    def test_pause_confirmation_when_trigger_words_are_missing(self):
+
+        self.assertFalse(
+            action_guard_has_trigger_match(
+                "save_delayed_memory",
+                "please keep going with the current work",
+            )
+        )
+        self.assertTrue(
+            should_pause_action_guard_for_confirmation(
+                "save_delayed_memory",
+                "please keep going with the current work",
+            )
+        )
+        self.assertFalse(
+            should_pause_action_guard_for_confirmation(
+                "save_delayed_memory",
+                "please summarize and save this as delayed memory",
+            )
+        )
+
+    def test_pause_confirmation_respects_blockers(self):
+
+        self.assertFalse(
+            should_pause_action_guard_for_confirmation(
                 "save_delayed_memory",
                 "show exact tag for saving delayed memory",
             )

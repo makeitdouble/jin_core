@@ -1859,6 +1859,69 @@ async def receive_message(
         return None
 
 
+async def resolve_runtime_action_guard_confirmation(
+    context,
+    message_data: dict,
+) -> bool:
+
+    confirmation_id = str(
+        message_data.get(
+            "confirmation_id",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if not confirmation_id:
+        return False
+
+    pending = getattr(
+        context,
+        "runtime_action_guard_confirmations",
+        {},
+    )
+
+    if not isinstance(
+        pending,
+        dict,
+    ):
+        return False
+
+    future = pending.get(
+        confirmation_id
+    )
+
+    if (
+        future is None
+        or not hasattr(
+            future,
+            "done",
+        )
+        or future.done()
+    ):
+        return False
+
+    decision = str(
+        message_data.get(
+            "decision",
+            "",
+        )
+        or ""
+    ).strip().casefold()
+
+    if decision not in {
+        "continue",
+        "reject",
+    }:
+        return False
+
+    future.set_result(
+        decision
+    )
+
+    return True
+
+
 # ---------------------------------------------------------
 # PROCESS MESSAGE
 # ---------------------------------------------------------
@@ -3185,6 +3248,20 @@ async def websocket_endpoint(
 
                     await emit_runtime_session_memory_update(
                         context
+                    )
+
+                continue
+
+            if message_type == "runtime_action_guard_confirmation":
+
+                handled = await resolve_runtime_action_guard_confirmation(
+                    context,
+                    message_data,
+                )
+
+                if handled:
+                    await logger.log_runtime(
+                        "[RUNTIME ACTION] guard confirmation received"
                     )
 
                 continue
