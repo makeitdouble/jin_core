@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from utils.context.context_exports import (
+    build_runtime_xml,
     build_session_actions_history_context,
 )
 from clients.brain_client import (
@@ -37,6 +38,9 @@ from utils.session_actions_history import (
 )
 from utils.runtime_actions import (
     RuntimeActionCall,
+)
+from runtime.runtime_context import (
+    DEFAULT_JIN_COLOR,
 )
 
 
@@ -80,6 +84,11 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
     if bool(runtime_actions.get("CAN_IDLE", False)):
         expected_actions.append(
             "IDLE"
+        )
+
+    if bool(runtime_actions.get("CAN_JIN_COLOR", False)):
+        expected_actions.append(
+            "JIN_COLOR"
         )
 
     if bool(runtime_actions.get("CAN_USE_ASSETS", False)):
@@ -1623,6 +1632,45 @@ class BrainRuntimeActionTests(unittest.TestCase):
             self,
             runtime_context,
             "<CURRENT_TRUSTED_RUNTIME_VARIABLES>",
+        )
+
+    def test_runtime_xml_exposes_current_jin_color_default(self):
+
+        runtime_xml = build_runtime_xml(
+            context=SimpleNamespace(
+                runtime_action_events=[],
+            ),
+        )
+
+        self.assertIn(
+            f"<JIN_COLOR>{DEFAULT_JIN_COLOR}</JIN_COLOR>",
+            runtime_xml,
+        )
+
+    def test_runtime_xml_exposes_last_valid_jin_color(self):
+
+        runtime_xml = build_runtime_xml(
+            context=SimpleNamespace(
+                runtime_action_events=[
+                    {
+                        "name": "jin_color",
+                        "color": "#00f2ff",
+                    },
+                    {
+                        "action": "jin_color",
+                        "payload": "bad-color",
+                    },
+                    {
+                        "action": "jin_color",
+                        "payload": "f0a",
+                    },
+                ],
+            ),
+        )
+
+        self.assertIn(
+            "<JIN_COLOR>#ff00aa</JIN_COLOR>",
+            runtime_xml,
         )
 
     def test_prompt_routes_uncertain_operational_tasks_to_skills(self):

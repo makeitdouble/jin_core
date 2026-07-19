@@ -25,6 +25,7 @@ SERVICE_AS_BRAIN_RUNTIME_ACTIONS = {
     "CAN_RUNTIME_TODO": False,
     "CAN_CLEAN_TOOL_RESULTS": True,
     "CAN_IDLE": True,
+    "CAN_JIN_COLOR": True,
 }
 
 BRAIN_RUNTIME_ACTIONS = {
@@ -36,6 +37,7 @@ BRAIN_RUNTIME_ACTIONS = {
     "CAN_RUNTIME_TODO": False,
     "CAN_CLEAN_TOOL_RESULTS": True,
     "CAN_IDLE": True,
+    "CAN_JIN_COLOR": True,
 }
 
 

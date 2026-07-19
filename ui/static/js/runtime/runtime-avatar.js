@@ -12,6 +12,7 @@
   const MAX_RING_RADIUS = 160;
   const SNAPSHOT_GLOW_CLEAR_DELAY_MS = 360;
   const FULL_PANEL_GLOW_RADIUS = 252;
+  const CENTER_COLOR_STEP_MS = 120;
 
   // Add custom high-priority word groups here. A matching line paints its ring
   // with the supplied color and softly affects rings at neighbouring radii.
@@ -33,6 +34,7 @@
   ];
 
   const DEFAULT_RING_COLOR = "#28cfc7";
+  const DEFAULT_CENTER_COLOR = "#70a9dc";
   const ACCENT_RING_COLOR = "#5be8df";
   const AMBER_ACCENT = "#e3a64e";
 
@@ -43,6 +45,10 @@
   if (!avatarRoot) {
     return;
   }
+
+  let centerColor = DEFAULT_CENTER_COLOR;
+  let centerColorTransitionQueue = [];
+  let centerColorTransitionTimer = null;
 
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, Number(value) || 0));
@@ -139,6 +145,23 @@
       .padStart(2, "0");
 
     return `#${channel(rgb.r)}${channel(rgb.g)}${channel(rgb.b)}`;
+  }
+
+  function normalizeHexColor(color) {
+    const normalized =
+      String(color || "")
+        .trim()
+        .replace(/^#/, "");
+
+    if (!/^([0-9a-f]{3}|[0-9a-f]{6})$/i.test(normalized)) {
+      return "";
+    }
+
+    const expanded = normalized.length === 3
+      ? normalized.split("").map(char => `${char}${char}`).join("")
+      : normalized;
+
+    return `#${expanded.toLowerCase()}`;
   }
 
   function mixColors(firstColor, secondColor, amount) {
@@ -411,7 +434,7 @@
     };
   }
 
-  function appendDefs(svg, overallColor) {
+  function appendDefs(svg, overallColor, currentCenterColor) {
     const defs = createSvgElement("defs");
 
     const softGlow = createSvgElement("filter", {
@@ -470,6 +493,38 @@
       "stop-opacity": "0",
     }));
     defs.appendChild(halo);
+
+    const centerGlow = createSvgElement("radialGradient", {
+      id: "jin-avatar-center-glow",
+      cx: "50%",
+      cy: "50%",
+      r: "50%",
+    });
+    centerGlow.appendChild(createSvgElement("stop", {
+      class: "jin-avatar-center-glow-stop",
+      offset: "0%",
+      "stop-color": currentCenterColor,
+      "stop-opacity": "0.34",
+    }));
+    centerGlow.appendChild(createSvgElement("stop", {
+      class: "jin-avatar-center-glow-stop",
+      offset: "24%",
+      "stop-color": currentCenterColor,
+      "stop-opacity": "0.18",
+    }));
+    centerGlow.appendChild(createSvgElement("stop", {
+      class: "jin-avatar-center-glow-stop",
+      offset: "62%",
+      "stop-color": currentCenterColor,
+      "stop-opacity": "0.065",
+    }));
+    centerGlow.appendChild(createSvgElement("stop", {
+      class: "jin-avatar-center-glow-stop",
+      offset: "100%",
+      "stop-color": currentCenterColor,
+      "stop-opacity": "0",
+    }));
+    defs.appendChild(centerGlow);
 
     [
       ["l1", "#e2a54b"],
@@ -756,7 +811,7 @@
     svg.appendChild(entryGroup);
   }
 
-  function appendCenter(svg, overallColor) {
+  function appendCenter(svg, overallColor, currentCenterColor) {
     const center = createSvgElement("g", {
       "pointer-events": "none",
     });
@@ -799,27 +854,38 @@
     });
 
     center.appendChild(createSvgElement("circle", {
+      class: "jin-avatar-center-glow-fill",
+      cx: CENTER,
+      cy: CENTER,
+      r: 58,
+      fill: "url(#jin-avatar-center-glow)",
+    }));
+
+    center.appendChild(createSvgElement("circle", {
+      class: "jin-avatar-center-soft",
       cx: CENTER,
       cy: CENTER,
       r: 8,
-      fill: mixColors(overallColor, "#ffffff", 0.26),
-      "fill-opacity": 0.24,
+      fill: currentCenterColor,
+      "fill-opacity": 0.34,
     }));
 
     center.appendChild(createSvgElement("circle", {
+      class: "jin-avatar-center-core",
       cx: CENTER,
       cy: CENTER,
       r: 4.2,
-      fill: mixColors(overallColor, "#ffffff", 0.54),
-      "fill-opacity": 0.58,
+      fill: mixColors(currentCenterColor, "#ffffff", 0.14),
+      "fill-opacity": 0.86,
     }));
 
     center.appendChild(createSvgElement("circle", {
+      class: "jin-avatar-center-point",
       cx: CENTER,
       cy: CENTER,
-      r: 1.8,
-      fill: "#ffffff",
-      "fill-opacity": 0.90,
+      r: 2.1,
+      fill: currentCenterColor,
+      "fill-opacity": 1,
     }));
 
     svg.appendChild(center);
@@ -948,7 +1014,7 @@
       preserveAspectRatio: "xMidYMid meet",
     });
 
-    appendDefs(svg, overallColor);
+    appendDefs(svg, overallColor, centerColor);
     appendStaticScaffold(svg, overallColor, random);
 
     records.forEach((record, index) => {
@@ -958,7 +1024,7 @@
       });
     });
 
-    appendCenter(svg, overallColor);
+    appendCenter(svg, overallColor, centerColor);
 
     avatarRoot.replaceChildren(svg);
     currentRenderedSnapshotIndex = Number.isInteger(Number(options.snapshotIndex))
@@ -971,8 +1037,88 @@
       delete avatarRoot.dataset.snapshotIndex;
     }
     avatarRoot.style.setProperty("--jin-avatar-overall-color", overallColor);
+    avatarRoot.style.setProperty("--jin-avatar-center-color", centerColor);
     applyThinkRuntimeCitationGlow();
     lastRenderSignature = signature;
+  }
+
+  function applyCenterColor(color) {
+    const svg = avatarRoot.querySelector("svg");
+    const overallColor =
+      avatarRoot.style.getPropertyValue("--jin-avatar-overall-color").trim()
+      || DEFAULT_RING_COLOR;
+
+    centerColor = color;
+    avatarRoot.style.setProperty("--jin-avatar-center-color", centerColor);
+
+    if (!svg) {
+      renderAvatar(getLatestSnapshot(), {
+        seedNonce: avatarRefreshNonce,
+        snapshotIndex: getLatestSnapshotIndex(),
+      });
+      return;
+    }
+
+    svg.querySelectorAll(".jin-avatar-center-glow-stop")
+      .forEach(stop => stop.setAttribute("stop-color", centerColor));
+
+    const soft = svg.querySelector(".jin-avatar-center-soft");
+    if (soft) {
+      soft.setAttribute(
+        "fill",
+        centerColor
+      );
+    }
+
+    const core = svg.querySelector(".jin-avatar-center-core");
+    if (core) {
+      core.setAttribute(
+        "fill",
+        mixColors(centerColor, "#ffffff", 0.14)
+      );
+    }
+
+    const point = svg.querySelector(".jin-avatar-center-point");
+    if (point) {
+      point.setAttribute("fill", centerColor);
+    }
+  }
+
+  function processCenterColorQueue() {
+    const nextColor = centerColorTransitionQueue.shift();
+
+    if (!nextColor) {
+      centerColorTransitionTimer = null;
+      return;
+    }
+
+    applyCenterColor(nextColor);
+
+    centerColorTransitionTimer =
+      setTimeout(processCenterColorQueue, CENTER_COLOR_STEP_MS);
+  }
+
+  function setCenterColor(color) {
+    const normalizedColor = normalizeHexColor(color);
+
+    if (!normalizedColor) {
+      return false;
+    }
+
+    if (
+      normalizedColor === centerColor
+      && centerColorTransitionQueue.length === 0
+    ) {
+      return true;
+    }
+
+    centerColorTransitionQueue.push(normalizedColor);
+
+    if (!centerColorTransitionTimer) {
+      processCenterColorQueue();
+    }
+
+    return true;
   }
 
   function reinitializeAvatar() {
@@ -1186,6 +1332,7 @@
   window.JinRuntime.avatar = {
     render: renderAvatar,
     refresh: reinitializeAvatar,
+    setCenterColor,
     get aggressivePalette() {
       return AGGRESSIVE_PALETTE;
     },

@@ -23,6 +23,10 @@ from rules.runtime import (
 )
 from runtime.runtime_context import (
     ContextContract,
+    DEFAULT_JIN_COLOR,
+)
+from utils.runtime_actions import (
+    normalize_jin_color_payload,
 )
 
 
@@ -66,6 +70,44 @@ def get_brain_runtime_mode() -> str:
     return "BRAIN"
 
 
+def get_current_jin_color(
+    context=None,
+) -> str:
+
+    current_color = DEFAULT_JIN_COLOR
+
+    for event in getattr(
+        context,
+        "runtime_action_events",
+        [],
+    ) or []:
+        if not isinstance(
+            event,
+            dict,
+        ):
+            continue
+
+        event_name = str(
+            event.get("name")
+            or event.get("action")
+            or ""
+        ).strip().casefold()
+
+        if event_name != "jin_color":
+            continue
+
+        color = normalize_jin_color_payload(
+            event.get("color")
+            or event.get("payload")
+            or ""
+        )
+
+        if color:
+            current_color = color
+
+    return current_color
+
+
 def build_runtime_xml(
     context=None,
     runtime_actions=None,
@@ -89,6 +131,9 @@ def build_runtime_xml(
             runtime_mode=get_brain_runtime_mode(),
             service_model_uid=settings.SERVICE_MODEL_UID,
             brain_model_uid=settings.BRAIN_MODEL_UID,
+            jin_color=get_current_jin_color(
+                context
+            ),
             can_web_search=(
                 RUNTIME_ACTION_WEB_SEARCH
                 in enabled_actions

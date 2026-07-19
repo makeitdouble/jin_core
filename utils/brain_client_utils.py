@@ -65,6 +65,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_HIDE_SKILLS,
     RUNTIME_ACTION_IDLE,
+    RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
     RUNTIME_ACTION_REMOVE_SKILL,
@@ -100,6 +101,7 @@ from utils.runtime_actions import (
     is_active_memory_record_paused,
     parse_delayed_memory_content_payload,
     parse_idle_seconds,
+    normalize_jin_color_payload,
     refresh_active_memory_runtime_metadata,
     strip_active_memory_runtime_metadata,
     strip_active_memory_managed_suffixes,
@@ -2472,6 +2474,21 @@ async def apply_runtime_action_calls(
             )
             continue
 
+        if action.name == RUNTIME_ACTION_JIN_COLOR:
+            color = normalize_jin_color_payload(
+                action.payload
+            )
+            if not color:
+                continue
+
+            accepted_action_names.add(
+                action_event_name
+            )
+            filtered_actions.append(
+                action
+            )
+            continue
+
         if action.name == RUNTIME_ACTION_SAVE_SESSION:
             guard_confirmed = id(action) in confirmed_action_ids
 
@@ -2922,6 +2939,14 @@ async def apply_runtime_action_calls(
                 action_event["payload"] = f"{idle_seconds}s"
                 action_event["deferred_follow_up"] = True
 
+        elif action.name == RUNTIME_ACTION_JIN_COLOR:
+            color = normalize_jin_color_payload(
+                action.payload
+            )
+            if color:
+                action_event["color"] = color
+                action_event["payload"] = color
+
         elif action.payload:
             action_event_payload = action.payload
 
@@ -3106,6 +3131,12 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_IDLE
     ]
 
+    jin_color_actions = [
+        action
+        for action in filtered_actions
+        if action.name == RUNTIME_ACTION_JIN_COLOR
+    ]
+
     append_skill_actions = [
         action
         for action in filtered_actions
@@ -3227,6 +3258,41 @@ async def apply_runtime_action_calls(
                     "status": "completed",
                     "payload": idle_payload,
                     "detail": idle_payload,
+                }))
+
+    if jin_color_actions:
+        if log_runtime is not None:
+            await log_runtime(
+                "[RUNTIME ACTION] "
+                f"jin_color x{len(jin_color_actions)}"
+            )
+
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is not None:
+            for action in jin_color_actions:
+                color = normalize_jin_color_payload(
+                    action.payload
+                )
+                if not color:
+                    continue
+
+                await emit(with_action_context({
+                    "type": "runtime_action",
+                    "action": "jin_color",
+                    "status": "completed",
+                    "text": "JIN color updated",
+                    "color": color,
+                    "payload": color,
                 }))
 
     if (
@@ -4514,6 +4580,9 @@ async def apply_runtime_action_calls(
         )
         + len(
             idle_records
+        )
+        + len(
+            jin_color_actions
         )
         + min(
             save_session_count,

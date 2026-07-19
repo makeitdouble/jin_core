@@ -1767,6 +1767,21 @@ function handleSocketMessage(event) {
       );
 
     if (
+      action === "jin_color"
+      && (
+        data.color
+        || data.payload
+      )
+      && window.JinRuntime
+      && window.JinRuntime.avatar
+      && typeof window.JinRuntime.avatar.setCenterColor === "function"
+    ) {
+      window.JinRuntime.avatar.setCenterColor(
+        data.color || data.payload
+      );
+    }
+
+    if (
       action === "create_active_memory"
       && data.active_memory
       && window.JinRuntime

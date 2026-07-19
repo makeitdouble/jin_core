@@ -1,0 +1,36 @@
+{
+  "jin_color": {
+    "version": 1,
+    "description": "Allows the model to update the JIN runtime avatar center point color and its subtle glow for the current live session.",
+    "runtime_action": "JIN_COLOR",
+    "private_marker": "<JIN_COLOR: #00f2ff>",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": false
+    },
+    "regexp": [
+      "<JIN_COLOR:",
+      "<INTERNAL_ACTION_JIN_COLOR:",
+      "<|tool_call>call:INTERNAL_ACTION_JIN_COLOR:",
+      "<tool_call>call:INTERNAL_ACTION_JIN_COLOR:",
+      "<|tool_call>call:JIN_COLOR:",
+      "<tool_call>call:JIN_COLOR:",
+      "call:INTERNAL_ACTION_JIN_COLOR:",
+      "call:JIN_COLOR:"
+    ],
+    "rules": [
+      "JIN_COLOR:",
+      "Emit using exactly this schema <JIN_COLOR: #00f2ff>",
+      "Use JIN_COLOR only to update the live JIN avatar center point color and its subtle glow.",
+      "When a visible answer is needed, place JIN_COLOR after the normal user-facing response instead of in a separate reasoning or planning block.",
+      "The payload must be a hex color with optional leading # and exactly 3 or 6 hex characters.",
+      "Do not include color names, rgba(), hsl(), extra symbols, extra fields, prose, or multiple colors in one JIN_COLOR marker.",
+      "Invalid JIN_COLOR payloads are ignored by runtime and must not be retried blindly.",
+      "JIN_COLOR is ephemeral: it does not save memory, session state, tool results, or user preferences.",
+      "JIN_COLOR does not request or require a follow-up tick; follow-up behavior is controlled only by effects.emit_followup.",
+      "Multiple JIN_COLOR markers may be emitted in one response when a sequence needs fast live color changes; runtime applies them in order and the last valid color remains visible."
+    ],
+    "close_tag": false
+  }
+}

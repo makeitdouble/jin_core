@@ -206,6 +206,20 @@
     mix-blend-mode: screen;
 }
 
+.jin-avatar-center-glow-fill,
+.jin-avatar-center-soft,
+.jin-avatar-center-core,
+.jin-avatar-center-point {
+    transition:
+        fill 0.16s ease-out,
+        fill-opacity 0.16s ease-out,
+        opacity 0.16s ease-out;
+}
+
+.jin-avatar-center-glow-stop {
+    transition: stop-color 0.16s ease-out;
+}
+
 .jin-avatar-orbit-entry {
     opacity: 1;
     transform-origin: 180px 180px;

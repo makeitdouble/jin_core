@@ -26,6 +26,7 @@ from clients.brain_client import (
 from contracts.rules_assembler import (
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_IDLE,
+    RUNTIME_ACTION_JIN_COLOR,
     get_runtime_action_private_marker,
 )
 from utils.assets_service import (
@@ -55,6 +56,7 @@ from utils.runtime_actions import (
     get_create_active_memory_marker_fields,
     get_create_active_memory_placeholder_payload,
     parse_delayed_memory_content_payload,
+    normalize_jin_color_payload,
 )
 
 
@@ -1049,7 +1051,7 @@ class RuntimeActionTests(unittest.TestCase):
 
         self.assertEqual(
             result.text,
-            "before  after",
+            "before after",
         )
         self.assertEqual(
             result.count("CREATE_ACTIVE_MEMORY"),
@@ -1076,7 +1078,7 @@ class RuntimeActionTests(unittest.TestCase):
 
         self.assertEqual(
             result.text,
-            "before  after",
+            "before after",
         )
         self.assertEqual(
             result.actions,
@@ -1469,7 +1471,7 @@ class RuntimeActionTests(unittest.TestCase):
                         payload="Remind to drink coffee",
                     ),
                 ),
-                "Before  middle  after",
+                "Before middle after",
             ),
             (
                 (
@@ -1487,7 +1489,7 @@ class RuntimeActionTests(unittest.TestCase):
                         name="SAVE_SESSION",
                     ),
                 ),
-                "Before  middle  after",
+                "Before middle after",
             ),
             (
                 (
@@ -1563,7 +1565,7 @@ class RuntimeActionTests(unittest.TestCase):
 
         self.assertEqual(
             result.text,
-            "Я напомню.\n",
+            "Я напомню.",
         )
         self.assertEqual(
             result.count("CREATE_ACTIVE_MEMORY"),
@@ -1636,7 +1638,7 @@ class RuntimeActionTests(unittest.TestCase):
 
         self.assertEqual(
             result.text,
-            "before  after",
+            "before after",
         )
         self.assertEqual(
             result.count("RESOLVE_ACTIVE_MEMORY"),
@@ -1818,7 +1820,7 @@ class RuntimeActionTests(unittest.TestCase):
 
         self.assertEqual(
             first.text,
-            "visible answer\n\n",
+            "visible answer",
         )
         self.assertEqual(
             first.actions,
@@ -6715,7 +6717,7 @@ class RuntimeActionTests(unittest.TestCase):
 
                 self.assertEqual(
                     result.text,
-                    "before  after",
+                    "before after",
                 )
                 self.assertEqual(
                     len(result.actions),
@@ -6790,6 +6792,358 @@ class RuntimeActionTests(unittest.TestCase):
                     result.removed_markers,
                     (),
                 )
+
+    def test_jin_color_marker_validates_and_normalizes_hex(self):
+
+        for marker, expected_color in (
+            ("<JIN_COLOR: #00f2ff>", "#00f2ff"),
+            ("<JIN_COLOR: 00F2FF>", "#00f2ff"),
+            ("<JIN_COLOR: 0ff>", "#00ffff"),
+            ("<INTERNAL_ACTION_JIN_COLOR: #f0A />", "#ff00aa"),
+        ):
+            with self.subTest(marker=marker):
+                result = extract_runtime_actions(
+                    f"before {marker} after",
+                    enabled_actions=(
+                        RUNTIME_ACTION_JIN_COLOR,
+                    ),
+                )
+
+                self.assertEqual(
+                    result.text,
+                    "before after",
+                )
+                self.assertEqual(
+                    len(result.actions),
+                    1,
+                )
+                self.assertEqual(
+                    result.actions[0].name,
+                    RUNTIME_ACTION_JIN_COLOR,
+                )
+                self.assertEqual(
+                    result.actions[0].payload,
+                    expected_color,
+                )
+
+    def test_runtime_action_marker_removal_compacts_inline_whitespace(self):
+
+        cases = (
+            (
+                "before <JIN_COLOR: #00f2ff> after",
+                "before after",
+            ),
+            (
+                "<JIN_COLOR: #00f2ff> after",
+                "after",
+            ),
+            (
+                "before <JIN_COLOR: #00f2ff>",
+                "before",
+            ),
+            (
+                "before\n<JIN_COLOR: #00f2ff>\n\nafter",
+                "before\nafter",
+            ),
+            (
+                "before\n\n<JIN_COLOR: #00f2ff>",
+                "before",
+            ),
+        )
+
+        for source, expected_text in cases:
+            with self.subTest(source=source):
+                result = extract_runtime_actions(
+                    source,
+                    enabled_actions=(
+                        RUNTIME_ACTION_JIN_COLOR,
+                    ),
+                )
+
+                self.assertEqual(
+                    result.text,
+                    expected_text,
+                )
+                self.assertEqual(
+                    len(result.actions),
+                    1,
+                )
+
+    def test_stream_filter_holds_trailing_blank_space_before_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=(
+                RUNTIME_ACTION_JIN_COLOR,
+            ),
+        )
+
+        first = stream_filter.filter(
+            "before\n\n"
+        )
+        second = stream_filter.filter(
+            "<JIN_COLOR: #00f2ff>"
+        )
+        final = stream_filter.flush_result()
+
+        self.assertEqual(
+            first.text,
+            "before",
+        )
+        self.assertEqual(
+            second.text,
+            "",
+        )
+        self.assertEqual(
+            final.text,
+            "",
+        )
+        self.assertEqual(
+            [
+                action.payload
+                for action in second.actions
+            ],
+            [
+                "#00f2ff",
+            ],
+        )
+
+    def test_stream_filter_holds_trailing_blank_space_before_partial_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=(
+                RUNTIME_ACTION_JIN_COLOR,
+            ),
+        )
+
+        first = stream_filter.filter(
+            "before\n\n"
+        )
+        second = stream_filter.filter(
+            "<JIN"
+        )
+        third = stream_filter.filter(
+            "_COLOR: #00f2ff>"
+        )
+
+        self.assertEqual(
+            first.text,
+            "before",
+        )
+        self.assertEqual(
+            second.text,
+            "",
+        )
+        self.assertEqual(
+            third.text,
+            "",
+        )
+        self.assertEqual(
+            [
+                action.payload
+                for action in third.actions
+            ],
+            [
+                "#00f2ff",
+            ],
+        )
+
+    def test_stream_filter_holds_inline_trailing_blank_space_before_partial_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=(
+                RUNTIME_ACTION_JIN_COLOR,
+            ),
+        )
+
+        first = stream_filter.filter(
+            "before\n\n<JIN"
+        )
+        second = stream_filter.filter(
+            "_COLOR: #00f2ff>"
+        )
+
+        self.assertEqual(
+            first.text,
+            "before",
+        )
+        self.assertEqual(
+            second.text,
+            "",
+        )
+        self.assertEqual(
+            [
+                action.payload
+                for action in second.actions
+            ],
+            [
+                "#00f2ff",
+            ],
+        )
+
+    def test_stream_filter_releases_held_blank_space_before_plain_text(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=(
+                RUNTIME_ACTION_JIN_COLOR,
+            ),
+        )
+
+        first = stream_filter.filter(
+            "before\n\n"
+        )
+        second = stream_filter.filter(
+            "after"
+        )
+
+        self.assertEqual(
+            first.text,
+            "before",
+        )
+        self.assertEqual(
+            second.text,
+            "\n\nafter",
+        )
+        self.assertEqual(
+            second.actions,
+            (),
+        )
+
+    def test_jin_color_invalid_payload_does_not_emit_action(self):
+
+        for marker in (
+            "<JIN_COLOR:>",
+            "<JIN_COLOR: #>",
+            "<JIN_COLOR: #00f2ff00>",
+            "<JIN_COLOR: blue>",
+            "<JIN_COLOR: #00f2fg>",
+        ):
+            with self.subTest(marker=marker):
+                result = extract_runtime_actions(
+                    marker,
+                    enabled_actions=(
+                        RUNTIME_ACTION_JIN_COLOR,
+                    ),
+                )
+
+                self.assertEqual(
+                    result.text,
+                    "",
+                )
+                self.assertEqual(
+                    result.actions,
+                    (),
+                )
+
+    def test_jin_color_multiple_markers_keep_order(self):
+
+        result = extract_runtime_actions(
+            "<JIN_COLOR: #00f2ff><JIN_COLOR: f0a><JIN_COLOR: 101820><JIN_COLOR: #00f2ff>",
+            enabled_actions=(
+                RUNTIME_ACTION_JIN_COLOR,
+            ),
+            repetition_guard=RuntimeActionRepetitionGuard(),
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            [
+                action.payload
+                for action in result.actions
+            ],
+            [
+                "#00f2ff",
+                "#ff00aa",
+                "#101820",
+                "#00f2ff",
+            ],
+        )
+        self.assertFalse(
+            result.marker_repetition_exceeded
+        )
+
+    def test_normalize_jin_color_payload_rejects_bad_colors(self):
+
+        self.assertEqual(
+            normalize_jin_color_payload("#abc"),
+            "#aabbcc",
+        )
+        self.assertEqual(
+            normalize_jin_color_payload("abcd"),
+            "",
+        )
+
+    def test_apply_runtime_action_calls_emits_jin_color_in_order(self):
+
+        class Emitter:
+
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, payload):
+                self.events.append(payload)
+
+        async def run_case():
+            emitter = Emitter()
+            context = SimpleNamespace(
+                runtime_action_events=[],
+                runtime_search_calls=[],
+                runtime_appended_skills=[],
+                runtime_visible_skills_result={},
+                runtime_save_session_requested=False,
+                runtime_save_session_action_emitted=False,
+                runtime_skill_state_barrier_active=False,
+                logger=None,
+                emitter=emitter,
+            )
+            actions = (
+                RuntimeActionCall(
+                    name=RUNTIME_ACTION_JIN_COLOR,
+                    payload="#00f2ff",
+                ),
+                RuntimeActionCall(
+                    name=RUNTIME_ACTION_JIN_COLOR,
+                    payload="bad-color",
+                ),
+                RuntimeActionCall(
+                    name=RUNTIME_ACTION_JIN_COLOR,
+                    payload="f0a",
+                ),
+            )
+
+            applied_count = await apply_runtime_action_calls(
+                context,
+                actions,
+            )
+
+            self.assertEqual(
+                applied_count,
+                2,
+            )
+            self.assertEqual(
+                [
+                    event.get("payload")
+                    for event in context.runtime_action_events
+                ],
+                [
+                    "#00f2ff",
+                    "#ff00aa",
+                ],
+            )
+            self.assertEqual(
+                [
+                    event.get("color")
+                    for event in emitter.events
+                ],
+                [
+                    "#00f2ff",
+                    "#ff00aa",
+                ],
+            )
+
+        asyncio.run(run_case())
 
     def test_stream_filter_preserves_idle_word_emitted_as_own_chunk(self):
 

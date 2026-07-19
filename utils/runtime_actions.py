@@ -17,6 +17,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_HIDE_SKILLS,
     RUNTIME_ACTION_IDLE,
+    RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_REMOVE_SKILL,
     RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
@@ -1512,11 +1513,14 @@ class RuntimeActionRepetitionGuard:
         if self.triggered:
             return True
 
-        # Repeated IDLE markers are a valid scheduling primitive: one model
-        # message may intentionally arm several independent future ticks.
-        # The sequence/runtime limits still bound the total amount of work,
-        # so the generic loop guard must not collapse or reject them.
-        if action.name == RUNTIME_ACTION_IDLE:
+        # Repeated IDLE and JIN_COLOR markers are valid sequencing
+        # primitives. IDLE arms independent timers; JIN_COLOR drives a
+        # lightweight visual transition where the final repeated color still
+        # matters when it appears after another color.
+        if action.name in (
+            RUNTIME_ACTION_IDLE,
+            RUNTIME_ACTION_JIN_COLOR,
+        ):
             return False
 
         key = self.marker_key(
@@ -1770,6 +1774,12 @@ IDLE_SECONDS_RE = re.compile(
 )
 
 
+JIN_COLOR_RE = re.compile(
+    r"^\s*#?(?P<hex>[0-9a-f]{3}|[0-9a-f]{6})\s*$",
+    re.IGNORECASE,
+)
+
+
 def parse_idle_seconds(
     payload: str,
 ) -> int | None:
@@ -1790,6 +1800,28 @@ def parse_idle_seconds(
         ValueError,
     ):
         return None
+
+
+def normalize_jin_color_payload(
+    payload: str,
+) -> str:
+
+    match = JIN_COLOR_RE.fullmatch(
+        str(payload or "")
+    )
+
+    if match is None:
+        return ""
+
+    color = match.group("hex").lower()
+
+    if len(color) == 3:
+        color = "".join(
+            char * 2
+            for char in color
+        )
+
+    return f"#{color}"
 
 
 def _build_internal_action_call(
@@ -1816,6 +1848,14 @@ def _build_internal_action_call(
             return None
 
         payload = f"{seconds}s"
+
+    elif normalized_name == RUNTIME_ACTION_JIN_COLOR:
+        payload = normalize_jin_color_payload(
+            query
+        )
+
+        if not payload:
+            return None
 
     elif normalized_name == RUNTIME_ACTION_WEB_SEARCH:
         query = _clean_internal_action_query(
@@ -1994,6 +2034,22 @@ def _action_match_removal_span(
         removal_start = line_start
         removal_end = after_line_end
 
+        while removal_start > 0:
+            previous_line_end = removal_start - 1
+            previous_line_start = text.rfind(
+                "\n",
+                0,
+                previous_line_end,
+            ) + 1
+            previous_line = text[
+                previous_line_start:previous_line_end
+            ]
+
+            if previous_line.strip():
+                break
+
+            removal_start = previous_line_start
+
         while removal_end < len(
             text
         ):
@@ -2021,14 +2077,117 @@ def _action_match_removal_span(
 
             removal_end = next_position
 
+        if removal_end >= len(
+            text
+        ):
+            while (
+                removal_start > 0
+                and text[removal_start - 1].isspace()
+            ):
+                removal_start -= 1
+
         return (
             removal_start,
             removal_end,
         )
 
+    removal_start = start
+    removal_end = end
+
+    if not line_prefix.strip():
+        removal_start = line_start
+
+    if (
+        removal_end < line_end
+        and text[removal_end] in " \t"
+    ):
+        while (
+            removal_end < line_end
+            and text[removal_end] in " \t"
+        ):
+            removal_end += 1
+
+    elif (
+        removal_start > line_start
+        and text[removal_start - 1] in " \t"
+    ):
+        while (
+            removal_start > line_start
+            and text[removal_start - 1] in " \t"
+        ):
+            removal_start -= 1
+
     return (
-        start,
-        end,
+        removal_start,
+        removal_end,
+    )
+
+
+def _trailing_marker_spacing_start(
+    text: str,
+) -> int | None:
+
+    if not text:
+        return None
+
+    index = len(
+        text
+    )
+
+    while (
+        index > 0
+        and text[index - 1].isspace()
+    ):
+        index -= 1
+
+    if index == len(
+        text
+    ):
+        return None
+
+    trailing = text[
+        index:
+    ]
+
+    if (
+        "\n" not in trailing
+        and "\r" not in trailing
+    ):
+        return None
+
+    return index
+
+
+def _split_pending_marker_prefix(
+    text: str,
+    marker_start: int,
+) -> tuple[int, str]:
+
+    before_marker = text[
+        :marker_start
+    ]
+
+    if not before_marker.strip():
+        return (
+            0,
+            "",
+        )
+
+    spacing_start = _trailing_marker_spacing_start(
+        before_marker
+    )
+
+    if spacing_start is not None:
+        return (
+            spacing_start,
+            before_marker[
+                :spacing_start
+            ],
+        )
+
+    return (
+        marker_start,
+        before_marker,
     )
 
 
@@ -2203,10 +2362,16 @@ def extract_runtime_actions(
             )
 
             if (
-                action.name == RUNTIME_ACTION_IDLE
+                action.name in (
+                    RUNTIME_ACTION_IDLE,
+                    RUNTIME_ACTION_JIN_COLOR,
+                )
                 or action_key not in seen_action_keys
             ):
-                if action.name != RUNTIME_ACTION_IDLE:
+                if action.name not in (
+                    RUNTIME_ACTION_IDLE,
+                    RUNTIME_ACTION_JIN_COLOR,
+                ):
                     seen_action_keys.add(
                         action_key
                     )
@@ -3127,6 +3292,11 @@ class RuntimeActionStreamFilter:
             self.pending
             + chunk
         )
+        pending_was_spacing = (
+            bool(self.pending)
+            and not self.pending.strip()
+            and not self.pending_is_action
+        )
 
         if not self.pending:
             hold_length = _trailing_marker_prefix_length(
@@ -3136,12 +3306,16 @@ class RuntimeActionStreamFilter:
 
             if hold_length:
 
-                self.pending = combined[
-                    -hold_length:
-                ]
+                prefix_start = len(
+                    combined
+                ) - hold_length
+                pending_start, ready_text = _split_pending_marker_prefix(
+                    combined,
+                    prefix_start,
+                )
 
-                ready_text = combined[
-                    :-hold_length
+                self.pending = combined[
+                    pending_start:
                 ]
                 started_actions = self._find_started_actions(
                     ready_text
@@ -3160,6 +3334,30 @@ class RuntimeActionStreamFilter:
                 return self._attach_started_actions(
                     result,
                     started_actions,
+                )
+
+            spacing_start = _trailing_marker_spacing_start(
+                combined
+            )
+
+            if (
+                spacing_start is not None
+                and not _action_text_may_contain_marker(
+                    combined
+                )
+                and "<" not in combined
+            ):
+                self.pending = combined[
+                    spacing_start:
+                ]
+                self.pending_is_action = False
+
+                ready_text = combined[
+                    :spacing_start
+                ]
+
+                return RuntimeActionResult(
+                    text=ready_text,
                 )
 
         if (
@@ -3199,15 +3397,18 @@ class RuntimeActionStreamFilter:
 
         if unclosed_start is not None:
 
+            pending_start, ready_text = _split_pending_marker_prefix(
+                combined,
+                unclosed_start,
+            )
+
             self.pending = combined[
-                unclosed_start:
+                pending_start:
             ]
             self.pending_is_action = True
 
             result = _extract_runtime_actions_if_needed(
-                combined[
-                    :unclosed_start
-                ],
+                ready_text,
                 enabled_actions=self.enabled_actions,
                 preserve_action_text=self.preserve_action_text,
                 seen_action_keys=self.seen_action_keys,
@@ -3227,14 +3428,31 @@ class RuntimeActionStreamFilter:
 
         if hold_length:
 
+            prefix_start = len(
+                combined
+            ) - hold_length
+            pending_start, ready_text = _split_pending_marker_prefix(
+                combined,
+                prefix_start,
+            )
+
+            if (
+                pending_was_spacing
+                and not ready_text.strip()
+            ):
+                self.pending = combined
+                self.pending_is_action = True
+
+                return RuntimeActionResult(
+                    text="",
+                )
+
             self.pending = combined[
-                -hold_length:
+                pending_start:
             ]
 
             result = _extract_runtime_actions_if_needed(
-                combined[
-                    :-hold_length
-                ],
+                ready_text,
                 enabled_actions=self.enabled_actions,
                 preserve_action_text=self.preserve_action_text,
                 seen_action_keys=self.seen_action_keys,

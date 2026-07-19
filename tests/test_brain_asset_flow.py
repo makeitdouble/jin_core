@@ -2016,7 +2016,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "",
         )
 
-
     async def test_no_follow_up_action_keeps_visible_answer_without_tick(self):
 
         calls = []
@@ -2067,6 +2066,11 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(
             action_event_requires_follow_up({
                 "name": "clean_tool_results",
+            })
+        )
+        self.assertFalse(
+            action_event_requires_follow_up({
+                "name": "jin_color",
             })
         )
         self.assertTrue(
