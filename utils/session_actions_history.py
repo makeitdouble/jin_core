@@ -1,8 +1,69 @@
 import json
+import re
 import time
 
 
 MAX_SESSION_ACTION_HISTORY_ITEMS = 200
+
+
+JIN_COLOR_HEX_RE = re.compile(
+    r"#?(?P<hex>[0-9a-fA-F]{3}|[0-9a-fA-F]{6})"
+)
+
+
+def _normalize_session_action_display_colors(
+    colors,
+) -> list[str]:
+
+    if isinstance(
+        colors,
+        (str, bytes),
+    ):
+        raw_colors = [
+            colors,
+        ]
+    elif isinstance(
+        colors,
+        (list, tuple, set),
+    ):
+        raw_colors = list(
+            colors
+        )
+    else:
+        raw_colors = []
+
+    normalized_colors = []
+    seen = set()
+
+    for raw_color in raw_colors:
+        match = JIN_COLOR_HEX_RE.fullmatch(
+            str(raw_color or "")
+        )
+
+        if match is None:
+            continue
+
+        color = match.group("hex").lower()
+
+        if len(color) == 3:
+            color = "".join(
+                char * 2
+                for char in color
+            )
+
+        normalized_color = f"#{color}"
+
+        if normalized_color in seen:
+            continue
+
+        seen.add(
+            normalized_color
+        )
+        normalized_colors.append(
+            normalized_color
+        )
+
+    return normalized_colors
 
 
 def get_current_action_sequence_turn_id(
@@ -233,12 +294,19 @@ def _normalize_session_action_display_parts(
                 )
                 or ""
             ).strip()
+            colors = _normalize_session_action_display_colors(
+                part.get(
+                    "colors",
+                    [],
+                )
+            )
         else:
             part_text = str(
                 part
                 or ""
             ).strip()
             detail = ""
+            colors = []
 
         if not part_text:
             continue
@@ -249,6 +317,9 @@ def _normalize_session_action_display_parts(
 
         if detail:
             normalized_part["detail"] = detail
+
+        if colors:
+            normalized_part["colors"] = colors
 
         normalized_parts.append(
             normalized_part
@@ -710,6 +781,18 @@ def _build_formatted_session_action_marker_parts(
                 })
 
             continue
+
+        if action_name == "JIN_COLOR":
+            colors = _normalize_session_action_display_colors(
+                list(payload_counts)
+            )
+
+            if colors:
+                formatted_parts.append({
+                    "text": action_name,
+                    "colors": colors,
+                })
+                continue
 
         if (
             action_name in (

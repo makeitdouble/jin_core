@@ -33,6 +33,7 @@ from contracts.rules_assembler import (
     get_runtime_action_private_marker,
 )
 from utils.session_actions_history import (
+    build_session_actions_update_items,
     format_session_action_marker_names,
     replace_session_action_history_since,
 )
@@ -923,6 +924,61 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 "REMOVE_SKILL: image_prompt_generator ( repeated_times: 2 ), "
                 "file_manager"
             ),
+        )
+
+    def test_jin_color_history_exposes_unique_color_swatches(self):
+
+        context = SimpleNamespace(
+            runtime_session_action_history=[],
+            runtime_current_turn_id="turn-1",
+        )
+
+        replace_session_action_history_since(
+            context,
+            0,
+            [
+                RuntimeActionCall(
+                    name="JIN_COLOR",
+                    payload="#ff0000",
+                ),
+                RuntimeActionCall(
+                    name="JIN_COLOR",
+                    payload="#00ff00",
+                ),
+                RuntimeActionCall(
+                    name="JIN_COLOR",
+                    payload="#ff0000",
+                ),
+            ],
+        )
+
+        self.assertEqual(
+            context.runtime_session_action_history[0]["parts"],
+            [
+                {
+                    "text": "JIN_COLOR",
+                    "colors": [
+                        "#ff0000",
+                        "#00ff00",
+                    ],
+                },
+            ],
+        )
+
+        self.assertEqual(
+            build_session_actions_update_items(
+                context,
+                current_sequence=False,
+            )[0]["parts"],
+            [
+                {
+                    "text": "JIN_COLOR",
+                    "colors": [
+                        "#ff0000",
+                        "#00ff00",
+                    ],
+                },
+            ],
         )
 
     def test_session_history_includes_saved_content_title(self):

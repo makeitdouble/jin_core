@@ -503,19 +503,19 @@
       class: "jin-avatar-center-glow-stop",
       offset: "0%",
       "stop-color": currentCenterColor,
-      "stop-opacity": "0.34",
+      "stop-opacity": "0.68",
     }));
     centerGlow.appendChild(createSvgElement("stop", {
       class: "jin-avatar-center-glow-stop",
       offset: "24%",
       "stop-color": currentCenterColor,
-      "stop-opacity": "0.18",
+      "stop-opacity": "0.32",
     }));
     centerGlow.appendChild(createSvgElement("stop", {
       class: "jin-avatar-center-glow-stop",
       offset: "62%",
       "stop-color": currentCenterColor,
-      "stop-opacity": "0.065",
+      "stop-opacity": "0.11",
     }));
     centerGlow.appendChild(createSvgElement("stop", {
       class: "jin-avatar-center-glow-stop",

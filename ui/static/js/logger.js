@@ -1340,9 +1340,21 @@ function normalizeSessionActionParts(
           const detail =
             String(part.detail || "").trim();
 
+          const colors = Array.isArray(part.colors)
+            ? part.colors
+                .map((color) =>
+                  String(color || "").trim().toLowerCase()
+                )
+                .filter((color, index, array) => (
+                  /^#[0-9a-f]{6}$/.test(color)
+                  && array.indexOf(color) === index
+                ))
+            : [];
+
           return {
             text,
             detail,
+            colors,
           };
         })
         .filter(Boolean)
@@ -1371,6 +1383,7 @@ function normalizeSessionActionParts(
     return [{
       text,
       detail: "",
+      colors: [],
     }];
   }
 
@@ -1389,6 +1402,7 @@ function normalizeSessionActionParts(
   return [{
     text: visibleText || text,
     detail: visibleText ? detail : "",
+    colors: [],
   }];
 }
 
@@ -1487,6 +1501,37 @@ function ensureSessionActionsAgeTimer() {
     );
 }
 
+function buildSessionActionColorSwatches(
+  colors,
+) {
+  const swatches =
+    document.createElement("span");
+
+  swatches.className =
+    "inline-flex items-center gap-1 align-middle";
+
+  colors.forEach((color) => {
+    const swatch =
+      document.createElement("span");
+
+    swatch.textContent =
+      "■";
+
+    swatch.style.color =
+      color;
+
+    swatch.title =
+      color;
+
+    swatches.appendChild(
+      swatch
+    );
+  });
+
+  return swatches;
+}
+
+
 function buildSessionActionRow(
   item,
   index,
@@ -1520,8 +1565,22 @@ function buildSessionActionRow(
     const action =
       document.createElement("span");
 
-    action.textContent =
-      part.text;
+    action.className =
+      "inline-flex items-center gap-1";
+
+    if (part.colors.length) {
+      action.appendChild(
+        buildSessionActionColorSwatches(
+          part.colors
+        )
+      );
+    }
+
+    action.appendChild(
+      document.createTextNode(
+        part.text
+      )
+    );
 
     if (part.detail) {
       action.title =
