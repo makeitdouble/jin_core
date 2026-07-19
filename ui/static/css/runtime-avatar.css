@@ -196,16 +196,6 @@
     fill-opacity: 1 !important;
 }
 
-.jin-avatar-layer-glow {
-    transform-origin: 180px 180px;
-    opacity: 0;
-    transition:
-        opacity 0.32s ease,
-        filter 0.32s ease,
-        transform 0.32s ease;
-    mix-blend-mode: screen;
-}
-
 .jin-avatar-center-glow-fill,
 .jin-avatar-center-soft,
 .jin-avatar-center-core,
@@ -231,34 +221,6 @@
     animation-delay: var(--jin-avatar-entry-delay, 0s);
 }
 
-.jin-runtime-avatar[data-memory-layer="l1"] .jin-avatar-layer-l1,
-.jin-runtime-avatar[data-memory-layer="l2"] .jin-avatar-layer-l2,
-.jin-runtime-avatar[data-memory-layer="l3"] .jin-avatar-layer-l3 {
-    opacity: 0.36;
-    animation: jin-avatar-layer-breathe 3.8s ease-in-out infinite;
-}
-
-.jin-runtime-avatar[data-memory-layer="l1"] .jin-avatar-layer-l1 {
-    filter:
-        saturate(1.36)
-        brightness(1.2)
-        drop-shadow(0 0 26px rgba(226, 165, 75, 0.22));
-}
-
-.jin-runtime-avatar[data-memory-layer="l2"] .jin-avatar-layer-l2 {
-    filter:
-        saturate(1.18)
-        brightness(1.22)
-        drop-shadow(0 0 28px rgba(244, 247, 245, 0.20));
-}
-
-.jin-runtime-avatar[data-memory-layer="l3"] .jin-avatar-layer-l3 {
-    filter:
-        saturate(1.44)
-        brightness(1.24)
-        drop-shadow(0 0 30px rgba(154, 117, 220, 0.28));
-}
-
 @keyframes jin-avatar-orbit-enter {
     0% {
         opacity: 0;
@@ -275,11 +237,6 @@
         transform: scale(1);
         filter: none;
     }
-}
-
-@keyframes jin-avatar-layer-breathe {
-    0%, 100% { transform: scale(0.97); }
-    50% { transform: scale(1.055); }
 }
 
 #settings-panel.fact-check-running .jin-runtime-avatar-core-button {
@@ -363,8 +320,7 @@ body.theme-win95 #settings-panel.panel-collapsed .jin-runtime-avatar-core-button
 
 @media (prefers-reduced-motion: reduce) {
     .jin-avatar-orbit,
-    .jin-avatar-counter-orbit,
-    .jin-runtime-avatar[data-memory-layer] .jin-avatar-layer-glow {
+    .jin-avatar-counter-orbit {
         animation: none !important;
     }
 }

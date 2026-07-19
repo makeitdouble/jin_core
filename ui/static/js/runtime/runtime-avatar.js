@@ -11,7 +11,6 @@
   const MIN_RING_RADIUS = 48;
   const MAX_RING_RADIUS = 160;
   const SNAPSHOT_GLOW_CLEAR_DELAY_MS = 360;
-  const FULL_PANEL_GLOW_RADIUS = 252;
   const CENTER_COLOR_STEP_MS = 120;
 
   // Add custom high-priority word groups here. A matching line paints its ring
@@ -526,35 +525,6 @@
     }));
     defs.appendChild(centerGlow);
 
-    [
-      ["l1", "#e2a54b"],
-      ["l2", "#f4f7f5"],
-      ["l3", "#9a75dc"],
-    ].forEach(([name, color]) => {
-      const gradient = createSvgElement("radialGradient", {
-        id: `jin-avatar-${name}-glow`,
-        cx: "50%",
-        cy: "50%",
-        r: "50%",
-      });
-      gradient.appendChild(createSvgElement("stop", {
-        offset: "0%",
-        "stop-color": color,
-        "stop-opacity": "0.26",
-      }));
-      gradient.appendChild(createSvgElement("stop", {
-        offset: "42%",
-        "stop-color": color,
-        "stop-opacity": "0.085",
-      }));
-      gradient.appendChild(createSvgElement("stop", {
-        offset: "100%",
-        "stop-color": color,
-        "stop-opacity": "0",
-      }));
-      defs.appendChild(gradient);
-    });
-
     svg.appendChild(defs);
   }
 
@@ -815,30 +785,6 @@
     const center = createSvgElement("g", {
       "pointer-events": "none",
     });
-
-    center.appendChild(createSvgElement("circle", {
-      class: "jin-avatar-layer-glow jin-avatar-layer-l1",
-      cx: CENTER,
-      cy: CENTER,
-      r: FULL_PANEL_GLOW_RADIUS,
-      fill: "url(#jin-avatar-l1-glow)",
-    }));
-
-    center.appendChild(createSvgElement("circle", {
-      class: "jin-avatar-layer-glow jin-avatar-layer-l2",
-      cx: CENTER,
-      cy: CENTER,
-      r: FULL_PANEL_GLOW_RADIUS,
-      fill: "url(#jin-avatar-l2-glow)",
-    }));
-
-    center.appendChild(createSvgElement("circle", {
-      class: "jin-avatar-layer-glow jin-avatar-layer-l3",
-      cx: CENTER,
-      cy: CENTER,
-      r: FULL_PANEL_GLOW_RADIUS,
-      fill: "url(#jin-avatar-l3-glow)",
-    }));
 
     [24, 31, 39].forEach((radius, index) => {
       center.appendChild(createSvgElement("circle", {
@@ -1256,11 +1202,8 @@
       return;
     }
 
-    // Start fading the center first. Replacing the orbital SVG only after
-    // that short transition prevents the new snapshot from appearing under
-    // the old L1/L2/L3 glow. Keep the current layer suppressed until it
-    // genuinely changes or fully clears, so the same glow does not flash
-    // back for a single frame after the new rings are rendered.
+    // Keep request-layer state suppressed while the snapshot swaps, so
+    // the panel glow remains the only L1/L2/L3 request accent around updates.
     memoryLayerSuppressedForSnapshot = true;
     suppressedMemoryLayer = activeLayer;
     syncMemoryLayer();
