@@ -17,6 +17,8 @@ from rules.runtime import (
     ACTION_BLOCKED_TRIGGER_WORD_MESSAGE,
     ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
     NO_ENTRIES_FOUND_MESSAGE,
+)
+from utils.context.runtime_state import (
     format_runtime_blocked_trigger_word_message,
     format_runtime_trigger_words_message,
 )

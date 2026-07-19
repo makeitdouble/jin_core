@@ -1,18 +1,14 @@
 # Builds runtime state, feedback, todo, and activity alert context blocks.
 from datetime import datetime
-from xml.sax.saxutils import escape
-
 from app_settings import (
     settings,
 )
-from clients.brain_client_utils import (
+from utils.brain_client_utils import (
     get_conversation_activity_diff,
     get_conversation_activity_percent,
-    indent_xml,
 )
-from rules.assembler import (
+from rules.brain_context_builder import (
     build_conversation_activity_instruction,
-    build_zero_diff_stall_instruction,
     get_enabled_runtime_actions,
 )
 from contracts.rules_assembler import (
@@ -22,17 +18,44 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
 )
-from runtime.L1_memory_utils import (
-    build_runtime_response_feedback_value,
+from rules.runtime import (
+    ACTION_BLOCKED_TRIGGER_WORD_MESSAGE,
 )
 from runtime.runtime_context import (
     ContextContract,
-    format_session_state,
-    format_user_feedback,
 )
-from utils.runtime_todo import (
-    format_runtime_todo_xml,
-)
+
+
+def format_runtime_trigger_words_message(
+    template: str,
+    trigger_words,
+) -> str:
+
+    return template.format(
+        trigger_words=", ".join(
+            str(
+                trigger_word
+                or ""
+            ).strip()
+            for trigger_word in trigger_words
+            if str(
+                trigger_word
+                or ""
+            ).strip()
+        )
+    )
+
+
+def format_runtime_blocked_trigger_word_message(
+    blocked_trigger_word: str,
+) -> str:
+
+    return ACTION_BLOCKED_TRIGGER_WORD_MESSAGE.format(
+        blocked_trigger_word=str(
+            blocked_trigger_word
+            or ""
+        ).strip()
+    )
 
 
 def get_brain_runtime_mode() -> str:
@@ -171,85 +194,6 @@ def get_visible_turn_count(
     )
 
 
-def append_visible_session_state(
-    parts: list[str],
-    context=None,
-) -> None:
-
-    if context is None:
-        return
-
-    parts.append(
-        format_session_state(
-            turn_number=get_visible_turn_count(
-                context
-            ),
-            user_message_count=getattr(context, "user_message_count", 0),
-            assistant_message_count=get_visible_assistant_message_count(
-                context
-            ),
-        )
-    )
-
-
-def append_user_feedback(
-    parts: list[str],
-    context=None,
-) -> None:
-
-    if context is None:
-        return
-
-    runtime_response_feedback = getattr(
-        context,
-        "runtime_last_response_feedback",
-        None,
-    )
-
-    if not isinstance(
-        runtime_response_feedback,
-        dict,
-    ):
-        return
-
-    user_feedback = build_runtime_response_feedback_value(
-        runtime_response_feedback
-    )
-
-    if not user_feedback:
-        return
-
-    parts.append(
-        format_user_feedback(
-            user_feedback
-        )
-    )
-
-
-def append_current_runtime_todo(
-    parts: list[str],
-    context=None,
-) -> None:
-
-    if context is None:
-        return
-
-    runtime_todo_xml = format_runtime_todo_xml(
-        getattr(
-            context,
-            "runtime_todo",
-            [],
-        )
-    )
-
-    if not runtime_todo_xml:
-        return
-
-    parts.append(
-        runtime_todo_xml
-    )
-
-
 def get_conversation_activity_instruction(
     context=None,
 ) -> str:
@@ -275,68 +219,3 @@ def get_conversation_activity_instruction(
     return activity_instruction
 
 
-def append_zero_diff_alert(
-    parts: list[str],
-    context=None,
-) -> None:
-
-    if context is None:
-        return
-
-    zero_diff_alert = getattr(
-        context,
-        "runtime_zero_diff_alert",
-        None,
-    )
-
-    if not zero_diff_alert:
-        return
-
-    alert_user_message = (
-        zero_diff_alert.get(
-            "user_message",
-            "",
-        )
-        if isinstance(
-            zero_diff_alert,
-            dict,
-        )
-        else ""
-    )
-    alert_assistant_message = (
-        zero_diff_alert.get(
-            "assistant_message",
-            "",
-        )
-        if isinstance(
-            zero_diff_alert,
-            dict,
-        )
-        else ""
-    )
-    alert_turn_number = (
-        zero_diff_alert.get(
-            "turn_number",
-            0,
-        )
-        if isinstance(
-            zero_diff_alert,
-            dict,
-        )
-        else 0
-    )
-
-    parts.append(
-        "<ZERO_DIFF_STALL_ALERT>\n"
-        "    <INSTRUCTION>\n"
-        f"        {build_zero_diff_stall_instruction()}\n"
-        "    </INSTRUCTION>\n"
-        f"    <TRIGGER_TURN>{alert_turn_number}</TRIGGER_TURN>\n"
-        "    <TRIGGER_USER_MESSAGE>\n"
-        f"{indent_xml(escape(alert_user_message))}\n"
-        "    </TRIGGER_USER_MESSAGE>\n"
-        "    <TRIGGER_JIN_RESPONSE>\n"
-        f"{indent_xml(escape(alert_assistant_message))}\n"
-        "    </TRIGGER_JIN_RESPONSE>\n"
-        "</ZERO_DIFF_STALL_ALERT>"
-    )

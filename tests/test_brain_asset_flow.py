@@ -15,8 +15,10 @@ from agent.nodes.brain import (
     format_followup_actions_from_events,
     prepare_asset_results_for_turn,
 )
-from utils.context.brain_context_builder import (
+from rules.brain_context_builder import (
     build_appended_delayed_memory_context,
+)
+from utils.context.context_exports import (
     build_sequence_origin_request_context,
     build_tool_results_context,
 )
@@ -528,7 +530,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with patch(
-            "utils.context.brain_context_builder.time.time",
+            "utils.context.context_exports.time.time",
             return_value=1000.0,
         ):
             prompt = BrainNode.build_followup_system_prompt(
@@ -591,7 +593,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with patch(
-            "utils.context.brain_context_builder.time.time",
+            "utils.context.context_exports.time.time",
             return_value=1032.0,
         ):
             prompt = BrainNode.build_followup_system_prompt(
@@ -677,7 +679,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -770,7 +772,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -862,7 +864,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             side_effect=lambda current_context, **_kwargs: (
                 "system prompt\n"
                 + build_tool_results_context(
@@ -944,7 +946,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
@@ -1031,7 +1033,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
@@ -1119,7 +1121,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
@@ -1201,7 +1203,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
@@ -1318,7 +1320,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -1414,7 +1416,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -1490,7 +1492,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -1618,7 +1620,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -1752,7 +1754,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -1878,7 +1880,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "run_brain_stream",
             staticmethod(fake_run_brain_stream),
         ), patch(
-            "utils.context.brain_context_builder.time.time",
+            "utils.context.context_exports.time.time",
             return_value=1030.0,
         ):
             await BrainNode().run(
@@ -1987,7 +1989,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=_brain_runtime(),
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -2036,7 +2038,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=_brain_runtime(),
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -2117,7 +2119,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=_brain_runtime(),
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -2185,7 +2187,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -2296,7 +2298,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -2358,7 +2360,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=_brain_runtime(),
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -2435,7 +2437,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=_brain_runtime(),
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -2527,7 +2529,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -2583,3 +2585,6 @@ async def _async_noop():
 
 if __name__ == "__main__":
     unittest.main()
+
+
+

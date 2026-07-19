@@ -2259,6 +2259,7 @@
 
   window.JinRuntime.memoryView = {
     init,
+    openDelayedMemoryReportModal,
     render: renderRuntimeMemorySnapshot,
     renderRuntimeMemorySnapshot,
     renderDiffs: renderRuntimeDiffs,

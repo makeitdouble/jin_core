@@ -10,12 +10,14 @@ from unittest.mock import patch
 from clients import (
     apply_runtime_action_calls,
 )
-from clients.brain_client_utils import (
+from utils.brain_client_utils import (
     append_delayed_memory_runtime_result,
     flush_pending_active_memory_resolve_failure_history,
 )
-from utils.context.brain_context_builder import (
+from rules.brain_context_builder import (
     build_appended_delayed_memory_context,
+)
+from utils.context.context_exports import (
     build_tool_results_context,
 )
 from clients.brain_client import (
@@ -7083,3 +7085,5 @@ class RuntimeActionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+

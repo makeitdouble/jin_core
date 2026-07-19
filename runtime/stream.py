@@ -40,7 +40,6 @@ from contracts.rules_assembler import (
 from rules.runtime import (
     ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE,
     ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
-    format_runtime_trigger_words_message,
 )
 from utils.assets_service import (
     normalize_skill_name,
@@ -659,7 +658,7 @@ class RuntimeStream:
                 return None
 
         if result.actions:
-            from clients.brain_client_utils import (
+            from utils.brain_client_utils import (
                 apply_runtime_action_calls,
                 log_runtime_action_marker_removals,
             )
@@ -889,7 +888,7 @@ class RuntimeStream:
         rejected_title = ""
 
         if rejected_payload:
-            from clients.brain_client_utils import (
+            from utils.brain_client_utils import (
                 build_delayed_memory_report,
             )
 
@@ -940,6 +939,9 @@ class RuntimeStream:
         guard_name: str,
         template: str,
     ) -> None:
+        from utils.context.runtime_state import (
+            format_runtime_trigger_words_message,
+        )
 
         failure_messages = getattr(
             self.context,
@@ -1411,7 +1413,7 @@ class RuntimeStream:
         if not self.pending_idle_actions:
             return
 
-        from clients.brain_client_utils import (
+        from utils.brain_client_utils import (
             apply_runtime_action_calls,
         )
 

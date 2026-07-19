@@ -55,10 +55,10 @@ RUNTIME_L2_TRACE_SUFFIX_TEMPLATE = " [trace: {strength}]"
 RUNTIME_L2_CHANGED_TRACE_SUFFIX_TEMPLATE = " [trace: {previous_strength} -> {current_strength}]"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # ROLE
 # L2 хранит только повторяющиеся гипотезы поверх L1, а не текущий live-state.
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 ROLE = (
     "You are JIN's L2 pattern memory summarizer.\n"
     "L1 already stores current facts, tasks, topics, and live interaction signals.\n"
@@ -67,9 +67,9 @@ ROLE = (
     "Return only updated L2 memory as plain text, without explanations.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # OUTPUT FORMAT
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 OUTPUT_FORMAT = (
     "Write atomic one-line entries in the format: <key>: <value>\n"
     "Allowed pattern types: possible pattern, emerging signal, observed tendency, "
@@ -80,10 +80,10 @@ OUTPUT_FORMAT = (
     "If no recurring evidence changes L2, return the current L2 memory unchanged.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # BEHAVIOR vs INTENT
 # L1 уже хранит live-state; L2 агрегирует только повторяемое поведение и вероятный интент.
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 BEHAVIOR_VS_INTENT = (
     "Store repeated observed behavior separately from inferred intent.\n"
     "Ignore one-off events and temporary session state already represented by L1.\n"
@@ -91,17 +91,17 @@ BEHAVIOR_VS_INTENT = (
     "Use 'likes', 'prefers', or 'wants' only when explicitly stated by the user.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # SPAN METADATA
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 SPAN_METADATA = (
     "Each possible pattern, emerging signal, or observed tendency must include "
     "first_seen_snapshot, last_seen_snapshot, short evidence, and confidence: low|medium|high.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # OCCURRENCE COUNTING
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 OCCURRENCE_COUNTING = (
     "Count evidence by unique L1 patch snapshots, not duplicate rows inside one patch.\n"
     "The same user_message in user_messages and changes counts once.\n"
@@ -111,9 +111,9 @@ OCCURRENCE_COUNTING = (
     "Do not create a new pattern from evidence confined to one unique snapshot.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # PATTERN EVIDENCE LINES (L2_pattern_evidence_N)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 PATTERN_EVIDENCE_LINES = (
     "For each concrete recurring pattern, keep exactly one companion line:\n"
     "  L2_pattern_evidence_N: <short pattern description> "
@@ -127,9 +127,9 @@ PATTERN_EVIDENCE_LINES = (
     "The line must end at the closing bracket of last_seen_turn_snapshot, with nothing after it.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # EVIDENCE LINE LIFECYCLE
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 EVIDENCE_LINE_LIFECYCLE = (
     "For a new family, derive first_seen_turn_snapshot and last_seen_turn_snapshot "
     "from matching unique visible snapshots.\n"
@@ -141,35 +141,35 @@ EVIDENCE_LINE_LIFECYCLE = (
     "A clearly cancelled or abandoned pattern may be removed.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # PATTERN FAMILY DEDUPLICATION
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 PATTERN_FAMILY_DEDUPLICATION = (
     "Define a pattern family by the same underlying user action, target, and tactic.\n"
     "Merge wording, politeness, adjective, and contextual variants into that family.\n"
     "Keep one pattern entry and one L2_pattern_evidence_N line per family.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # SELF-LEARNING GUARD
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 SELF_LEARNING_GUARD = (
     "Existing L2 summaries are context, never evidence.\n"
     "Create and count patterns only from actual supplied L1 patches.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # CONFIRMABLE KEYS
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 CONFIRMABLE_KEYS = (
     "If L2 writes user_fact, jin_fact, pending_fact, jin_recommendation, or "
     "user_recommendation, include a confirmation marker.\n"
     "Use (confirmed: none) unless the supplied patch explicitly confirms it.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # ASSEMBLED PROMPT
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 RUNTIME_L2_MEMORY_SYSTEM_PROMPT = (
         ROLE
         + OUTPUT_FORMAT

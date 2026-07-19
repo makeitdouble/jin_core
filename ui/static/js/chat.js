@@ -884,6 +884,163 @@ function bindAssetResultPreview(element, assetResult) {
   );
 }
 
+function normalizeDelayedMemoryReportForModal(
+  delayedMemoryReport,
+  delayedMemoryReportId = ""
+) {
+
+  if (
+    !delayedMemoryReport
+    || typeof delayedMemoryReport !== "object"
+    || Array.isArray(delayedMemoryReport)
+  ) {
+    return null;
+  }
+
+  const requestedId =
+    String(
+      delayedMemoryReportId || ""
+    ).trim();
+
+  if (
+    requestedId
+    && delayedMemoryReport[requestedId]
+    && typeof delayedMemoryReport[requestedId] === "object"
+  ) {
+    return {
+      _storage_key: requestedId,
+      ...delayedMemoryReport[requestedId],
+    };
+  }
+
+  if (
+    delayedMemoryReport.title
+    || delayedMemoryReport.summary
+    || delayedMemoryReport.body
+  ) {
+    return {
+      _storage_key:
+        requestedId
+        || String(delayedMemoryReport.id || "").trim(),
+      ...delayedMemoryReport,
+    };
+  }
+
+  const reportEntry =
+    Object.entries(
+      delayedMemoryReport
+    ).find(([, report]) => {
+      return (
+        report
+        && typeof report === "object"
+        && !Array.isArray(report)
+      );
+    });
+
+  if (!reportEntry) {
+    return null;
+  }
+
+  return {
+    _storage_key: reportEntry[0],
+    ...reportEntry[1],
+  };
+
+}
+
+function bindDelayedMemoryReportPreview(
+  element,
+  delayedMemoryReport,
+  delayedMemoryReportId = ""
+) {
+
+  if (!element) {
+    return;
+  }
+
+  const report =
+    normalizeDelayedMemoryReportForModal(
+      delayedMemoryReport,
+      delayedMemoryReportId
+    );
+
+  element._jinDelayedMemoryReport =
+    report;
+
+  if (!report) {
+    element.removeAttribute(
+      "role"
+    );
+    element.removeAttribute(
+      "tabindex"
+    );
+    return;
+  }
+
+  element.setAttribute(
+    "role",
+    "button"
+  );
+  element.tabIndex = 0;
+  element.classList.add(
+    "cursor-help"
+  );
+
+  if (!element.title) {
+    element.title =
+      "Open delayed memory report";
+  }
+
+  if (element._jinDelayedMemoryReportBound) {
+    return;
+  }
+
+  element._jinDelayedMemoryReportBound =
+    true;
+
+  const openReport = () => {
+    const currentReport =
+      element._jinDelayedMemoryReport;
+
+    if (
+      !currentReport
+      || !window.JinRuntime
+      || !window.JinRuntime.memoryView
+      || !window.JinRuntime.memoryView.openDelayedMemoryReportModal
+    ) {
+      return;
+    }
+
+    window.JinRuntime.memoryView.openDelayedMemoryReportModal(
+      currentReport
+    );
+  };
+
+  element.addEventListener(
+    "click",
+    (event) => {
+      event.preventDefault();
+      openReport();
+    }
+  );
+
+  element.addEventListener(
+    "keydown",
+    (event) => {
+      if (
+        event.key !== "Enter"
+        && event.key !== " "
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      openReport();
+    }
+  );
+
+}
+
 function isStreamDebugEnabled() {
 
   return Boolean(
@@ -1851,6 +2008,10 @@ function settleRuntimeActionGuardConfirmation(
     zones.remove();
   }
 
+  normalizeCompletedRuntimeActionLabel(
+    row
+  );
+
 }
 
 function bindRuntimeActionGuardConfirmation(
@@ -2067,6 +2228,14 @@ function updateRuntimeActionRow(
     bindAssetResultPreview(
       label,
       options.assetResult || null
+    );
+  }
+
+  if (action === "save_delayed_memory_content") {
+    bindDelayedMemoryReportPreview(
+      label,
+      options.delayedMemoryReport || null,
+      options.delayedMemoryReportId || ""
     );
   }
 
@@ -2350,6 +2519,14 @@ function appendRuntimeAction(
     bindAssetResultPreview(
       label,
       options.assetResult || null
+    );
+  }
+
+  if (action === "save_delayed_memory_content") {
+    bindDelayedMemoryReportPreview(
+      label,
+      options.delayedMemoryReport || null,
+      options.delayedMemoryReportId || ""
     );
   }
 

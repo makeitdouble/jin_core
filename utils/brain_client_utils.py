@@ -1,6 +1,6 @@
 from app_settings import settings
 
-from rules.assembler import (
+from rules.brain_context_builder import (
     BRAIN_RUNTIME_ACTIONS,
     SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
 )
@@ -74,18 +74,9 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
 )
-from runtime.behavior_contract import (
-    get_action_guard_blocker_match,
-    get_action_guard_name_for_runtime_action,
-    get_action_guard_triggers,
-    should_execute_action_guard,
-    should_prearm_action_guard,
-)
 from rules.runtime import (
     ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
     NO_ENTRIES_FOUND_MESSAGE,
-    format_runtime_blocked_trigger_word_message,
-    format_runtime_trigger_words_message,
 )
 from utils.assets_service import (
     ensure_assets_tree,
@@ -146,6 +137,10 @@ from utils.runtime_todo import (
 def should_execute_save_session(
     user_message: str,
 ) -> bool:
+    from runtime.behavior_contract import (
+        should_execute_action_guard,
+    )
+
     return should_execute_action_guard(
         "save_session",
         user_message
@@ -155,6 +150,10 @@ def should_execute_save_session(
 def should_prearm_save_session(
     user_message: str,
 ) -> bool:
+    from runtime.behavior_contract import (
+        should_prearm_action_guard,
+    )
+
     return should_prearm_action_guard(
         "save_session",
         user_message
@@ -164,6 +163,10 @@ def should_prearm_save_session(
 def should_execute_save_delayed_memory(
     user_message: str,
 ) -> bool:
+    from runtime.behavior_contract import (
+        should_execute_action_guard,
+    )
+
     return should_execute_action_guard(
         "save_delayed_memory",
         user_message
@@ -174,6 +177,13 @@ def build_action_missing_trigger_words_message(
     runtime_action: str,
     template: str,
 ) -> str:
+    from runtime.behavior_contract import (
+        get_action_guard_name_for_runtime_action,
+        get_action_guard_triggers,
+    )
+    from utils.context.runtime_state import (
+        format_runtime_trigger_words_message,
+    )
 
     guard_name = get_action_guard_name_for_runtime_action(
         runtime_action
@@ -2403,6 +2413,11 @@ async def apply_runtime_action_calls(
             or action.name in todo_action_names
         ]
 
+    from runtime.behavior_contract import (
+        get_action_guard_blocker_match,
+        get_action_guard_name_for_runtime_action,
+    )
+
     for action in actions:
 
         action_event_name = action.name.lower()
@@ -2419,6 +2434,10 @@ async def apply_runtime_action_calls(
         )
 
         if blocker_match:
+            from utils.context.runtime_state import (
+                format_runtime_blocked_trigger_word_message,
+            )
+
             failure_followup_message = (
                 format_runtime_blocked_trigger_word_message(
                     blocker_match
@@ -4691,5 +4710,6 @@ def has_zero_diff_stall_alert(
             None,
         )
     )
+
 
 

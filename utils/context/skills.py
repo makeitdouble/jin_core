@@ -1,75 +1,9 @@
 # Formats appended skill state and skill listing results for runtime context output.
 import re
-from xml.sax.saxutils import escape
 
-from clients.brain_client_utils import (
-    indent_xml,
-)
-
-from .formatting import (
-    format_tool_result_payload,
-)
 from rules.runtime import (
     NO_ENTRIES_FOUND_MESSAGE,
 )
-
-
-def build_current_appended_skills_context(
-    context=None,
-) -> str:
-
-    if context is None:
-        return ""
-
-    appended_skills = list(
-        getattr(
-            context,
-            "runtime_appended_skills",
-            [],
-        )
-        or []
-    )
-    skill_names = []
-
-    for skill in appended_skills:
-        if isinstance(
-            skill,
-            dict,
-        ):
-            name = str(
-                skill.get(
-                    "name",
-                    "",
-                )
-                or ""
-            ).strip()
-        else:
-            name = str(
-                skill
-                or ""
-            ).strip()
-
-        if name:
-            skill_names.append(
-                name
-            )
-
-    if not skill_names:
-        return ""
-
-    lines = [
-        f"{index}. {name}"
-        for index, name in enumerate(
-            skill_names,
-            start=1,
-        )
-    ]
-
-    return (
-        "<CURRENT_APPENDED_SKILLS>\n"
-        f"{indent_xml(escape(chr(10).join(lines)), spaces=4)}\n"
-        "</CURRENT_APPENDED_SKILLS>"
-    )
 
 
 def _normalize_skill_status_name(
@@ -233,29 +167,3 @@ def format_missing_skill_result(
         f"{requested}"
     )
 
-
-def append_appended_skills(
-    parts: list[str],
-    context=None,
-) -> None:
-
-    if context is None:
-        return
-
-    appended_skills = list(
-        getattr(
-            context,
-            "runtime_appended_skills",
-            [],
-        )
-        or []
-    )
-
-    if not appended_skills:
-        return
-
-    parts.append(
-        "<APPENDED_SKILLS_CONTENT>\n"
-        f"{indent_xml(escape(format_tool_result_payload(appended_skills)))}\n"
-        "</APPENDED_SKILLS_CONTENT>"
-    )

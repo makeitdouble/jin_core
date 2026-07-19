@@ -4,10 +4,10 @@ from unittest.mock import patch
 
 import httpx
 
-from rules.assembler import (
-    build_brain_system_prompt,
+from rules.brain_context_builder import (
+    build_brain_context,
 )
-from utils.context.brain_context_builder import (
+from utils.context.context_exports import (
     build_session_actions_history_context,
 )
 from runtime import (
@@ -429,7 +429,7 @@ class MessageMemoryTests(
             clients={},
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
@@ -455,7 +455,7 @@ class MessageMemoryTests(
         )
         context.runtime_user_idle_seconds = 2
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
@@ -713,7 +713,7 @@ class MessageMemoryTests(
         )
         context.runtime_user_idle_seconds = 9
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
@@ -992,7 +992,7 @@ class MessageMemoryTests(
             runtime_search_result_id="",
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
@@ -1040,10 +1040,10 @@ class MessageMemoryTests(
         )
 
         with patch(
-            "utils.context.brain_context_builder.time.time",
+            "utils.context.context_exports.time.time",
             return_value=1000.0,
         ):
-            prompt = build_brain_system_prompt(
+            prompt = build_brain_context(
                 context=context,
                 runtime_actions={
                     "CAN_WEB_SEARCH": False,
@@ -1119,7 +1119,7 @@ class MessageMemoryTests(
         )
 
         with patch(
-            "utils.context.brain_context_builder.time.time",
+            "utils.context.context_exports.time.time",
             return_value=1000.0,
         ):
             history = build_session_actions_history_context(
@@ -1169,7 +1169,7 @@ class MessageMemoryTests(
         )
 
         with patch(
-            "utils.context.brain_context_builder.time.time",
+            "utils.context.context_exports.time.time",
             return_value=1000.0,
         ):
             history = build_session_actions_history_context(
@@ -1226,7 +1226,7 @@ class MessageMemoryTests(
         )
 
         with patch(
-            "utils.context.brain_context_builder.time.time",
+            "utils.context.context_exports.time.time",
             return_value=1000.0,
         ):
             history = build_session_actions_history_context(
@@ -1266,7 +1266,7 @@ class MessageMemoryTests(
             ],
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
@@ -1297,7 +1297,7 @@ class MessageMemoryTests(
             runtime_search_result_id="",
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
@@ -1330,7 +1330,7 @@ class MessageMemoryTests(
             runtime_search_result_id="",
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
@@ -1509,7 +1509,7 @@ class MessageMemoryTests(
             runtime_search_result_id="",
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
@@ -1551,7 +1551,7 @@ class MessageMemoryTests(
             runtime_search_result_id="",
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
@@ -1598,7 +1598,7 @@ class MessageMemoryTests(
             runtime_search_result_id="",
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
@@ -1668,7 +1668,7 @@ class MessageMemoryTests(
             runtime_search_result_id="",
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
@@ -1734,7 +1734,7 @@ class MessageMemoryTests(
             runtime_search_result_id="",
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
@@ -1782,7 +1782,7 @@ class MessageMemoryTests(
             runtime_search_result_id="",
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
@@ -1818,7 +1818,7 @@ class MessageMemoryTests(
             runtime_search_result_id="",
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
@@ -1854,7 +1854,7 @@ class MessageMemoryTests(
             runtime_search_result_id="",
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
@@ -4678,3 +4678,5 @@ class MessageMemoryTests(
 
 if __name__ == "__main__":
     unittest.main()
+
+

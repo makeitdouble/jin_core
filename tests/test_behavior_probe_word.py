@@ -37,7 +37,7 @@ sys.path.insert(0, str(ROOT))
 
 from agent import AgentRuntime, AgentState  # noqa: E402
 from clients import build_clients  # noqa: E402
-from clients.brain_client_utils import create_active_memory_runtime_record  # noqa: E402
+from utils.brain_client_utils import create_active_memory_runtime_record  # noqa: E402
 from runtime import (  # noqa: E402
     RuntimeContext,
     RuntimeEmitter,

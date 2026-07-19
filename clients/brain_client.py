@@ -22,12 +22,12 @@ from clients.errors import (
     format_client_error,
 )
 
-from rules.assembler import (
-    build_brain_system_prompt,
+from rules.brain_context_builder import (
+    build_brain_context,
     get_enabled_runtime_actions,
 )
 
-from clients.brain_client_utils import (
+from utils.brain_client_utils import (
     apply_runtime_action_calls,
     flush_pending_active_memory_resolve_failure_history,
     log_runtime_action_marker_removals,
@@ -238,7 +238,7 @@ def build_brain_context_snapshot(
         return snapshot
 
     snapshot["hide_internal_action_rules"] = True
-    snapshot["visible_system_prompt"] = build_brain_system_prompt(
+    snapshot["visible_system_prompt"] = build_brain_context(
         context,
         runtime_actions,
         user_input=user_prompt,
@@ -268,7 +268,7 @@ async def ask_brain(
     )
 
     system_prompt = (
-        build_brain_system_prompt(
+        build_brain_context(
             context,
             runtime_actions,
             user_input=brain_payload,
@@ -503,7 +503,7 @@ async def ask_brain_stream(
 
     resolved_system_prompt: str = (
         system_prompt
-        or build_brain_system_prompt(
+        or build_brain_context(
             context,
             runtime_actions,
             user_input=resolved_brain_payload,
@@ -1259,3 +1259,5 @@ async def ask_brain_stream(
         raise RuntimeError(
             formatted_error
         )
+
+

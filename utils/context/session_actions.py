@@ -3,7 +3,7 @@ import re
 import time
 from xml.sax.saxutils import escape
 
-from clients.brain_client_utils import (
+from utils.brain_client_utils import (
     indent_xml,
 )
 from utils.session_actions_history import (

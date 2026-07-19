@@ -27,11 +27,11 @@ from agent import (
 from clients import (
     build_brain_payload,
 )
-from rules.assembler import (
-    build_brain_system_prompt,
+from rules.brain_context_builder import (
+    build_brain_context,
 )
 
-from clients.brain_client_utils import (
+from utils.brain_client_utils import (
     get_brain_runtime_config,
     should_prearm_save_session,
 )
@@ -1997,7 +1997,7 @@ async def refresh_pending_brain_usage(
     )
 
     system_prompt = (
-        build_brain_system_prompt(
+        build_brain_context(
             context,
             runtime_actions=runtime_actions,
         )
@@ -3497,3 +3497,5 @@ async def websocket_endpoint(
                     )
             finally:
                 pending_requests.task_done()
+
+

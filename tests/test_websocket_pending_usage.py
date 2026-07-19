@@ -9,7 +9,7 @@ from runtime import (
 from config_loader import (
     config,
 )
-from clients.brain_client_utils import (
+from utils.brain_client_utils import (
     get_brain_runtime_config,
     schedule_idle_followup,
 )

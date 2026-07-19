@@ -16,8 +16,8 @@ from clients.brain_client import (
     build_brain_payload,
     emit_active_memory_records_update_if_dirty,
 )
-from rules.assembler import (
-    build_brain_system_prompt,
+from rules.brain_context_builder import (
+    build_brain_context,
 )
 from rules.runtime import (
     CONTEXT_LIMIT_RECOVERY_MESSAGE,
@@ -37,7 +37,7 @@ from clients.search_client import (
     run_search_service,
 )
 
-from clients.brain_client_utils import (
+from utils.brain_client_utils import (
     get_brain_runtime_config,
 )
 
@@ -555,7 +555,7 @@ class BrainNode(BaseNode):
             latest_action: str = "",
     ) -> str:
 
-        from utils.context.brain_context_builder import (
+        from utils.context.context_exports import (
             build_sequence_origin_request_context,
             build_session_actions_history_context,
             strip_actions_history_context,
@@ -678,7 +678,7 @@ class BrainNode(BaseNode):
                     current_actions_history_context
                 )
 
-            from utils.context.brain_context_builder import (
+            from rules.brain_context_builder import (
                 build_appended_delayed_memory_context,
             )
 
@@ -1191,7 +1191,7 @@ class BrainNode(BaseNode):
             brain_payload = ""
         else:
             system_prompt = (
-                build_brain_system_prompt(
+                build_brain_context(
                     context,
                     runtime_actions=runtime_actions,
                     commit_active_memory_refresh=True,
@@ -1412,7 +1412,7 @@ class BrainNode(BaseNode):
 
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
-                        build_brain_system_prompt(
+                        build_brain_context(
                             context,
                             runtime_actions=followup_runtime_actions,
                             commit_active_memory_refresh=True,
@@ -1523,7 +1523,7 @@ class BrainNode(BaseNode):
 
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
-                        build_brain_system_prompt(
+                        build_brain_context(
                             context,
                             runtime_actions=followup_runtime_actions,
                             commit_active_memory_refresh=True,
@@ -1592,7 +1592,7 @@ class BrainNode(BaseNode):
 
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
-                        build_brain_system_prompt(
+                        build_brain_context(
                             context,
                             runtime_actions=followup_runtime_actions,
                             commit_active_memory_refresh=True,
@@ -1660,7 +1660,7 @@ class BrainNode(BaseNode):
 
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
-                        build_brain_system_prompt(
+                        build_brain_context(
                             context,
                             runtime_actions=followup_runtime_actions,
                             commit_active_memory_refresh=True,
@@ -1741,7 +1741,7 @@ class BrainNode(BaseNode):
 
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
-                        build_brain_system_prompt(
+                        build_brain_context(
                             context,
                             runtime_actions=followup_runtime_actions,
                             commit_active_memory_refresh=True,
@@ -1792,7 +1792,7 @@ class BrainNode(BaseNode):
 
             followup_system_prompt = (
                 self.build_followup_system_prompt(
-                    build_brain_system_prompt(
+                    build_brain_context(
                         context,
                         runtime_actions=followup_runtime_actions,
                         commit_active_memory_refresh=True,
@@ -1862,7 +1862,7 @@ class BrainNode(BaseNode):
 
             final_system_prompt = (
                 self.build_followup_system_prompt(
-                    build_brain_system_prompt(
+                    build_brain_context(
                         context,
                         runtime_actions=final_runtime_actions,
                         commit_active_memory_refresh=True,
@@ -1938,3 +1938,6 @@ class BrainNode(BaseNode):
             )
 
         state.brain_response = text or ""
+
+
+

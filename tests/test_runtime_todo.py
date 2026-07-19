@@ -1,7 +1,6 @@
 import unittest
 from dataclasses import dataclass, field
 
-from utils.context.brain_context_builder import append_current_runtime_todo
 from clients.brain_client import build_brain_context_snapshot
 from utils.runtime_actions import RuntimeActionStreamFilter, extract_runtime_actions
 from utils.runtime_todo import (
@@ -12,9 +11,9 @@ from utils.runtime_todo import (
     parse_runtime_todo_payload,
     resolve_runtime_todo_item,
 )
-from rules.assembler import (
+from rules.brain_context_builder import (
     BRAIN_RUNTIME_ACTIONS,
-    build_brain_system_prompt,
+    build_brain_context,
     get_enabled_runtime_actions,
 )
 
@@ -196,9 +195,10 @@ class RuntimeTodoTests(unittest.TestCase):
         context = DummyContext(
             runtime_todo=parse_runtime_todo_payload("1. LIST_SKILLS\n2. Save file")
         )
-        parts = []
-        append_current_runtime_todo(parts, context)
-        rendered = "\n".join(parts)
+        rendered = build_brain_context(
+            context,
+            runtime_actions=BRAIN_RUNTIME_ACTIONS,
+        )
 
         self.assertIn("<CURRENT_RUNTIME_TODO_LIST>", rendered)
         self.assertIn('<ITEM id="1" status="pending">LIST_SKILLS</ITEM>', rendered)
@@ -208,7 +208,7 @@ class RuntimeTodoTests(unittest.TestCase):
         context = DummyContext(
             runtime_todo=parse_runtime_todo_payload("1. Generate prompt batch")
         )
-        system_prompt = build_brain_system_prompt(
+        system_prompt = build_brain_context(
             context,
             runtime_actions=BRAIN_RUNTIME_ACTIONS,
         )
@@ -270,9 +270,10 @@ class RuntimeTodoTests(unittest.TestCase):
             "create_wildcard_file",
         )
 
-        parts = []
-        append_current_runtime_todo(parts, context)
-        rendered = "\n".join(parts)
+        rendered = build_brain_context(
+            context,
+            runtime_actions=BRAIN_RUNTIME_ACTIONS,
+        )
 
         self.assertIn(
             'actual_path="assets/wildcards/shoes.txt"',
@@ -334,3 +335,5 @@ class RuntimeTodoTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+

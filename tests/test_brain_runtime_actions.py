@@ -6,16 +6,15 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from utils.context.brain_context_builder import (
-    build_brain_runtime_context,
+from utils.context.context_exports import (
     build_session_actions_history_context,
 )
 from clients.brain_client import (
     ask_brain,
     ask_brain_stream,
 )
-from rules.assembler import (
-    build_brain_system_prompt,
+from rules.brain_context_builder import (
+    build_brain_context,
     get_enabled_runtime_actions,
 )
 from config_loader import (
@@ -24,7 +23,7 @@ from config_loader import (
 from app_settings import (
     settings,
 )
-from rules.assembler import (
+from rules.brain_context_builder import (
     BRAIN_RUNTIME_ACTIONS,
     SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
 )
@@ -146,7 +145,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": True,
@@ -766,7 +765,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_SAVE_SESSION": True,
@@ -865,7 +864,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             "RESOLVE_ACTIVE_MEMORY ( repeated_times: 24 )",
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={},
         )
@@ -1582,10 +1581,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
             "CAN_SAVE_ACTIVE_MEMORY": True,
         }
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             runtime_actions=runtime_actions
         )
-        runtime_context = build_brain_runtime_context(
+        runtime_context = build_brain_context(
             runtime_actions=runtime_actions
         )
 
@@ -1628,7 +1627,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
     def test_prompt_routes_uncertain_operational_tasks_to_skills(self):
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             runtime_actions={
                 "CAN_USE_ASSETS": True,
             }
@@ -1692,7 +1691,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             runtime_appended_skills=[],
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_USE_ASSETS": True,
@@ -1742,7 +1741,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             runtime_appended_skills=[],
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_USE_ASSETS": True,
@@ -1766,7 +1765,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         context.runtime_visible_skills_result = {}
-        hidden_prompt = build_brain_system_prompt(
+        hidden_prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_USE_ASSETS": True,
@@ -1828,13 +1827,13 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_USE_ASSETS": True,
             },
         )
-        runtime_context = build_brain_runtime_context(
+        runtime_context = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_USE_ASSETS": True,
@@ -1927,7 +1926,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             },
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_SAVE_DELAYED_MEMORY": True,
@@ -1968,7 +1967,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             delayed_memory_reports={},
         )
 
-        prompt_without_reports = build_brain_system_prompt(
+        prompt_without_reports = build_brain_context(
             context=empty_context,
             runtime_actions={
                 "CAN_SAVE_DELAYED_MEMORY": True,
@@ -1992,7 +1991,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             },
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_SAVE_DELAYED_MEMORY": True,
@@ -2026,7 +2025,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             runtime_appended_skills=[],
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_USE_ASSETS": True,
@@ -2064,13 +2063,13 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_SAVE_ACTIVE_MEMORY": True,
             },
         )
-        runtime_context = build_brain_runtime_context(
+        runtime_context = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_SAVE_ACTIVE_MEMORY": True,
@@ -2162,7 +2161,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             runtime_active_memory_refresh_tick=0,
         )
 
-        build_brain_runtime_context(
+        build_brain_context(
             context=context,
             runtime_actions={},
             commit_active_memory_refresh=True,
@@ -2180,7 +2179,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         context.timestamp = "2026-06-20T10:01:00"
         context.runtime_active_memory_refresh_tick = 1
 
-        build_brain_runtime_context(
+        build_brain_context(
             context=context,
             runtime_actions={},
             commit_active_memory_refresh=True,
@@ -2198,7 +2197,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         context.timestamp = "2026-06-20T10:06:00"
         context.runtime_active_memory_refresh_tick = 2
 
-        build_brain_runtime_context(
+        build_brain_context(
             context=context,
             runtime_actions={},
             commit_active_memory_refresh=True,
@@ -2232,7 +2231,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
-        runtime_context = build_brain_runtime_context(
+        runtime_context = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_SAVE_ACTIVE_MEMORY": True,
@@ -2279,7 +2278,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             active_memory_records=[],
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_SAVE_ACTIVE_MEMORY": True,
@@ -2299,7 +2298,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
     def test_prompt_uses_passed_agent_runtime_actions(self):
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             runtime_actions={
                 "CAN_WEB_SEARCH": True,
             }
@@ -2405,7 +2404,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
     def test_prompt_can_flip_agent_actions_dynamically(self):
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
             }
@@ -2431,7 +2430,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
     def test_search_prompt_requires_plain_query_and_exact_subject(self):
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             runtime_actions={
                 "CAN_WEB_SEARCH": True,
             }
@@ -2455,7 +2454,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
     def test_prompt_includes_save_session_only_when_enabled(self):
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
                 "CAN_SAVE_SESSION": True,
@@ -2512,7 +2511,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             runtime_turn_user_message="помнишь кодовое слово?",
         )
 
-        prompt = build_brain_system_prompt(
+        prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": False,
@@ -2614,3 +2613,5 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+

@@ -19,7 +19,7 @@ from clients import (
     normalize_search_results,
     normalize_serper_item,
 )
-from utils.context.brain_context_builder import (
+from utils.context.context_exports import (
     build_sequence_origin_request_context,
 )
 from runtime import (
@@ -29,7 +29,7 @@ from runtime import (
 from websocket_logger import (
     WebSocketLogger,
 )
-from rules.assembler import (
+from rules.brain_context_builder import (
     SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
 )
 
@@ -915,3 +915,4 @@ class SearchFlowTests(
 
 if __name__ == "__main__":
     unittest.main()
+

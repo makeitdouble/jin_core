@@ -6,6 +6,8 @@
     "private_marker": "<SAVE_DELAYED_MEMORY_CONTENT>",
     "triggers": [
       "создай отчёт",
+      "сохрани отчёт",
+      "create summary",
       "save summary"
     ],
     "blockers": [],

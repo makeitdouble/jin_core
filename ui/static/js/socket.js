@@ -1850,6 +1850,10 @@ function handleSocketMessage(event) {
               data.context || null,
             assetResult:
               data.asset_result || null,
+            delayedMemoryReportId:
+              data.delayed_memory_report_id || "",
+            delayedMemoryReport:
+              data.delayed_memory_report || null,
             completed: true,
             detail:
               data.detail || data.payload || "",
