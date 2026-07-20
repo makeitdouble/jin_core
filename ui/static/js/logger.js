@@ -1318,6 +1318,160 @@ let sessionActionsModalMode = "";
 let sessionActionsModalSequenceId = "";
 let sessionActionsModalItems = [];
 let sessionActionsAgeTimer = null;
+const pendingCancelledSessionActions = [];
+const cancelledSessionActionPartKeys = new Set();
+
+function normalizeSessionActionName(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase();
+}
+
+function normalizeSessionActionColor(value) {
+  const match = String(value || "")
+    .trim()
+    .match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i);
+
+  if (!match) {
+    return "";
+  }
+
+  let hex = match[1].toLowerCase();
+
+  if (hex.length === 3) {
+    hex = hex
+      .split("")
+      .map((char) => char + char)
+      .join("");
+  }
+
+  return `#${hex}`;
+}
+
+function buildSessionActionPartKey(
+  item,
+  part,
+  partIndex,
+) {
+  return [
+    String(item.createdAt || 0),
+    String(partIndex),
+    normalizeSessionActionName(part.text),
+    (part.colors || []).join(","),
+  ].join("|");
+}
+
+function sessionActionPartMatchesCancellation(
+  part,
+  cancellation,
+) {
+  const normalizedText =
+    normalizeSessionActionName(part.text);
+  const actionName =
+    cancellation.actionName;
+
+  if (
+    normalizedText !== actionName
+    && !normalizedText.startsWith(`${actionName} `)
+    && !normalizedText.startsWith(`${actionName}:`)
+  ) {
+    return false;
+  }
+
+  return (
+    !cancellation.color
+    || (part.colors || []).includes(
+      cancellation.color
+    )
+  );
+}
+
+function applyCancelledSessionActions(
+  items,
+) {
+  items.forEach((item) => {
+    item.parts.forEach((part, partIndex) => {
+      const partKey =
+        buildSessionActionPartKey(
+          item,
+          part,
+          partIndex
+        );
+
+      if (part.cancelled) {
+        cancelledSessionActionPartKeys.add(
+          partKey
+        );
+      } else if (
+        cancelledSessionActionPartKeys.has(
+          partKey
+        )
+      ) {
+        part.cancelled = true;
+      }
+    });
+  });
+
+  while (pendingCancelledSessionActions.length) {
+    const cancellation =
+      pendingCancelledSessionActions[0];
+    let matched = false;
+
+    for (
+      let itemIndex = items.length - 1;
+      itemIndex >= 0 && !matched;
+      itemIndex -= 1
+    ) {
+      const item = items[itemIndex];
+
+      if (
+        item.createdAt
+        && item.createdAt < cancellation.createdAfter
+      ) {
+        continue;
+      }
+
+      for (
+        let partIndex = item.parts.length - 1;
+        partIndex >= 0;
+        partIndex -= 1
+      ) {
+        const part = item.parts[partIndex];
+
+        if (
+          !sessionActionPartMatchesCancellation(
+            part,
+            cancellation
+          )
+        ) {
+          continue;
+        }
+
+        if (!part.cancelled) {
+          part.cancelled = true;
+          cancelledSessionActionPartKeys.add(
+            buildSessionActionPartKey(
+              item,
+              part,
+              partIndex
+            )
+          );
+        }
+
+        matched = true;
+        break;
+      }
+    }
+
+    if (!matched) {
+      break;
+    }
+
+    pendingCancelledSessionActions.shift();
+  }
+
+  return items;
+}
 
 function normalizeSessionActionParts(
   parts,
@@ -1355,6 +1509,8 @@ function normalizeSessionActionParts(
             text,
             detail,
             colors,
+            cancelled:
+              Boolean(part.cancelled),
           };
         })
         .filter(Boolean)
@@ -1384,6 +1540,7 @@ function normalizeSessionActionParts(
       text,
       detail: "",
       colors: [],
+      cancelled: false,
     }];
   }
 
@@ -1403,6 +1560,7 @@ function normalizeSessionActionParts(
     text: visibleText || text,
     detail: visibleText ? detail : "",
     colors: [],
+    cancelled: false,
   }];
 }
 
@@ -1413,7 +1571,7 @@ function normalizeSessionActionItems(
     return [];
   }
 
-  return items
+  const normalizedItems = items
     .map((item) => {
       if (!item || typeof item !== "object") {
         return null;
@@ -1442,6 +1600,10 @@ function normalizeSessionActionItems(
       };
     })
     .filter(Boolean);
+
+  return applyCancelledSessionActions(
+    normalizedItems
+  );
 }
 
 function formatSessionActionAge(
@@ -1576,10 +1738,22 @@ function buildSessionActionRow(
       );
     }
 
+    const actionName =
+      document.createElement("span");
+
+    actionName.textContent =
+      part.text;
+
+    if (part.cancelled) {
+      actionName.classList.add(
+        "line-through",
+        "decoration-1",
+        "opacity-60"
+      );
+    }
+
     action.appendChild(
-      document.createTextNode(
-        part.text
-      )
+      actionName
     );
 
     if (part.detail) {
@@ -1982,16 +2156,21 @@ function updateSessionActionsLog(
       mode
     );
 
+  const previewStartIndex =
+    Math.max(
+      0,
+      items.length - SESSION_ACTIONS_PREVIEW_LIMIT
+    );
+
   sessionActionsLogState.list.replaceChildren(
     ...items
       .slice(
-        0,
-        SESSION_ACTIONS_PREVIEW_LIMIT
+        previewStartIndex
       )
       .map(
         (item, index) => buildSessionActionRow(
           item,
-          index
+          previewStartIndex + index
         )
       )
   );
@@ -2026,6 +2205,57 @@ function updateSessionActionsLog(
 
 window.updateSessionActionsLog =
   updateSessionActionsLog;
+
+function markSessionActionCancelled(
+  actionName,
+  color = "",
+) {
+  const normalizedName =
+    normalizeSessionActionName(
+      actionName
+    );
+
+  if (!normalizedName) {
+    return;
+  }
+
+  pendingCancelledSessionActions.push({
+    actionName: normalizedName,
+    color: normalizeSessionActionColor(
+      color
+    ),
+    createdAfter:
+      (Date.now() / 1000) - 2,
+  });
+
+  if (!sessionActionsLogState.items.length) {
+    return;
+  }
+
+  const payloadItems =
+    sessionActionsLogState.items.map((item) => ({
+      text: item.text,
+      created_at: item.createdAt,
+      parts: item.parts.map((part) => ({
+        text: part.text,
+        detail: part.detail,
+        colors: part.colors,
+        cancelled: part.cancelled,
+      })),
+    }));
+
+  sessionActionsLogState.signature =
+    "";
+
+  updateSessionActionsLog({
+    mode: sessionActionsLogState.mode,
+    sequence_id: sessionActionsLogState.sequenceId,
+    items: payloadItems,
+  });
+}
+
+window.markSessionActionCancelled =
+  markSessionActionCancelled;
 
 function findLiveFlowLog(
   flowId,
@@ -2517,6 +2747,14 @@ function log_internal_action(
       data
     );
 
+  const cancelledByUser =
+    String(data.status || "").toLowerCase() === "failed"
+    && Boolean(
+      data.confirmation_id
+      || data.guard_confirmation_id
+    )
+    && /\bcancelled\s*$/i.test(text);
+
   const logDiv =
     document.createElement("div");
 
@@ -2538,6 +2776,13 @@ function log_internal_action(
   tagSpan.textContent =
     title;
 
+  if (cancelledByUser) {
+    tagSpan.classList.add(
+      "line-through",
+      "opacity-60"
+    );
+  }
+
   logDiv.appendChild(
     tagSpan
   );
@@ -2554,6 +2799,13 @@ function log_internal_action(
 
     messageSpan.textContent =
       text;
+
+    if (cancelledByUser) {
+      messageSpan.classList.add(
+        "line-through",
+        "opacity-60"
+      );
+    }
 
     logDiv.appendChild(
       messageSpan

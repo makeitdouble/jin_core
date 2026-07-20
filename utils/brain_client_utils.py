@@ -2249,7 +2249,9 @@ async def apply_runtime_action_calls(
     context_snapshot: dict | None = None,
     assistant_message: str | None = None,
     confirmed_action_ids=None,
+    rejected_action_ids=None,
     guard_confirmation_ids=None,
+    action_display_ids=None,
 ) -> int:
 
     if (
@@ -2295,10 +2297,26 @@ async def apply_runtime_action_calls(
             int,
         )
     }
+    rejected_action_ids = {
+        int(action_id)
+        for action_id in (rejected_action_ids or ())
+        if isinstance(
+            action_id,
+            int,
+        )
+    }
     guard_confirmation_ids = (
         dict(guard_confirmation_ids)
         if isinstance(
             guard_confirmation_ids,
+            dict,
+        )
+        else {}
+    )
+    action_display_ids = (
+        dict(action_display_ids)
+        if isinstance(
+            action_display_ids,
             dict,
         )
         else {}
@@ -2418,11 +2436,26 @@ async def apply_runtime_action_calls(
     from runtime.behavior_contract import (
         get_action_guard_blocker_match,
         get_action_guard_name_for_runtime_action,
+        should_pause_action_guard_for_confirmation,
     )
 
     for action in actions:
 
         action_event_name = action.name.lower()
+        action_guard_confirmed = id(action) in confirmed_action_ids
+
+        if id(action) in rejected_action_ids:
+            rejected_action_events[id(action)] = {
+                "status": "failed",
+                "error": "user_rejected_runtime_action",
+                "title": f"{action.name} cancelled",
+                "confirmation_id": guard_confirmation_ids.get(
+                    id(action),
+                    "",
+                ),
+            }
+            continue
+
         guard_name = get_action_guard_name_for_runtime_action(
             action.name
         )
@@ -2455,6 +2488,75 @@ async def apply_runtime_action_calls(
                     "",
                 ),
             }
+            continue
+
+        if (
+            guard_name
+            and not action_guard_confirmed
+            and should_pause_action_guard_for_confirmation(
+                guard_name,
+                resolved_user_message,
+            )
+        ):
+            rejection_event = {
+                "status": "failed",
+                "error": "user_did_not_confirm_runtime_action",
+                "failure_followup_message": (
+                    build_action_missing_trigger_words_message(
+                        action.name,
+                        ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
+                    )
+                ),
+                "confirmation_id": guard_confirmation_ids.get(
+                    id(action),
+                    "",
+                ),
+            }
+
+            if action.name == RUNTIME_ACTION_SAVE_SESSION:
+                rejection_event["error"] = (
+                    "user_did_not_explicitly_request_session_save"
+                )
+
+            elif (
+                action.name
+                == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+            ):
+                rejected_report = build_delayed_memory_report(
+                    context,
+                    action.payload,
+                )
+                rejected_title = ""
+
+                for report_value in rejected_report.values():
+                    if isinstance(
+                        report_value,
+                        dict,
+                    ):
+                        rejected_title = str(
+                            report_value.get(
+                                "title",
+                                "",
+                            )
+                            or ""
+                        ).strip()
+
+                    if rejected_title:
+                        break
+
+                context.runtime_delayed_memory_save_rejected_pending = True
+                context.runtime_delayed_memory_save_rejected_title = (
+                    rejected_title
+                )
+                rejection_event.update({
+                    "error": (
+                        "user_did_not_explicitly_request_report_save"
+                    ),
+                    "title": rejected_title,
+                })
+                save_delayed_memory_seen = True
+
+            rejected_action_events[id(action)] = rejection_event
             continue
 
         if action.name == RUNTIME_ACTION_IDLE:
@@ -2490,8 +2592,6 @@ async def apply_runtime_action_calls(
             continue
 
         if action.name == RUNTIME_ACTION_SAVE_SESSION:
-            guard_confirmed = id(action) in confirmed_action_ids
-
             if getattr(
                 context,
                 "runtime_save_session_memory_committed_this_turn",
@@ -2500,28 +2600,6 @@ async def apply_runtime_action_calls(
                 # L3 already completed this turn. A SAVE_SESSION marker
                 # repeated by the deferred follow-up must not start a second
                 # memory pipeline.
-                continue
-
-            if (
-                not guard_confirmed
-                and not should_execute_save_session(
-                    resolved_user_message
-                )
-            ):
-                rejected_action_events[id(action)] = {
-                    "status": "failed",
-                    "error": "user_did_not_explicitly_request_session_save",
-                    "failure_followup_message": (
-                        build_action_missing_trigger_words_message(
-                            action.name,
-                            ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
-                        )
-                    ),
-                    "confirmation_id": guard_confirmation_ids.get(
-                        id(action),
-                        "",
-                    ),
-                }
                 continue
 
             if save_session_seen:
@@ -2547,61 +2625,7 @@ async def apply_runtime_action_calls(
             continue
 
         if action.name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT:
-            guard_confirmed = id(action) in confirmed_action_ids
-
             if save_delayed_memory_seen:
-                continue
-
-            if (
-                not guard_confirmed
-                and not should_execute_save_delayed_memory(
-                    resolved_user_message
-                )
-            ):
-                rejected_report = build_delayed_memory_report(
-                    context,
-                    action.payload,
-                )
-                rejected_title = ""
-
-                for report_value in rejected_report.values():
-                    if isinstance(
-                        report_value,
-                        dict,
-                    ):
-                        rejected_title = str(
-                            report_value.get(
-                                "title",
-                                "",
-                            )
-                            or ""
-                        ).strip()
-
-                    if rejected_title:
-                        break
-
-                context.runtime_delayed_memory_save_rejected_pending = True
-                context.runtime_delayed_memory_save_rejected_title = (
-                    rejected_title
-                )
-                rejected_action_events[id(action)] = {
-                    "status": "failed",
-                    "error": (
-                        "user_did_not_explicitly_request_report_save"
-                    ),
-                    "title": rejected_title,
-                    "failure_followup_message": (
-                        build_action_missing_trigger_words_message(
-                            action.name,
-                            ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
-                        )
-                    ),
-                    "confirmation_id": guard_confirmation_ids.get(
-                        id(action),
-                        "",
-                    ),
-                }
-                save_delayed_memory_seen = True
                 continue
 
             if not build_delayed_memory_report(
@@ -2888,6 +2912,15 @@ async def apply_runtime_action_calls(
         action_event = {
             "name": action.name.lower(),
         }
+        action_display_id = str(
+            action_display_ids.get(
+                id(action),
+                "",
+            )
+            or ""
+        ).strip()
+        if action_display_id:
+            action_event["id"] = action_display_id
         runtime_turn_id = str(
             getattr(
                 context,
@@ -3040,6 +3073,23 @@ async def apply_runtime_action_calls(
                         "",
                     ),
                 }
+                action_display_id = str(
+                    action_display_ids.get(
+                        id(action),
+                        "",
+                    )
+                    or ""
+                ).strip()
+                if action_display_id:
+                    payload["id"] = action_display_id
+
+                if action.name == RUNTIME_ACTION_JIN_COLOR:
+                    color = normalize_jin_color_payload(
+                        action.payload
+                    )
+                    if color:
+                        payload["color"] = color
+                        payload["payload"] = color
                 confirmation_id = str(
                     rejected_event.get(
                         "confirmation_id",
@@ -3289,8 +3339,15 @@ async def apply_runtime_action_calls(
                 await emit(with_action_context({
                     "type": "runtime_action",
                     "action": "jin_color",
+                    "id": str(
+                        action_display_ids.get(
+                            id(action),
+                            "",
+                        )
+                        or ""
+                    ).strip(),
                     "status": "completed",
-                    "text": "JIN color updated",
+                    "text": "JIN_COLOR",
                     "color": color,
                     "payload": color,
                 }))

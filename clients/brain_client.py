@@ -34,6 +34,9 @@ from utils.brain_client_utils import (
     should_execute_save_delayed_memory,
     should_execute_save_session,
 )
+from runtime.action_guard import (
+    confirm_runtime_action_guards,
+)
 from utils.session_actions_history import (
     build_asset_action_history_text,
     emit_session_actions_update,
@@ -343,12 +346,28 @@ async def ask_brain(
                 source="brain content",
             )
 
+            (
+                confirmed_action_ids,
+                rejected_action_ids,
+                guard_confirmation_ids,
+                action_display_ids,
+            ) = await confirm_runtime_action_guards(
+                context,
+                content_actions.actions,
+                user_message=text,
+                context_snapshot=action_context_snapshot,
+            )
+
             await apply_runtime_action_calls(
                 context,
                 content_actions.actions,
                 user_message=text,
                 context_snapshot=action_context_snapshot,
                 assistant_message=content,
+                confirmed_action_ids=confirmed_action_ids,
+                rejected_action_ids=rejected_action_ids,
+                guard_confirmation_ids=guard_confirmation_ids,
+                action_display_ids=action_display_ids,
             )
 
             return content_actions.text
@@ -437,12 +456,28 @@ async def ask_brain(
             source="brain content",
         )
 
+        (
+            confirmed_action_ids,
+            rejected_action_ids,
+            guard_confirmation_ids,
+            action_display_ids,
+        ) = await confirm_runtime_action_guards(
+            context,
+            content_actions.actions,
+            user_message=text,
+            context_snapshot=action_context_snapshot,
+        )
+
         await apply_runtime_action_calls(
             context,
             content_actions.actions,
             user_message=text,
             context_snapshot=action_context_snapshot,
             assistant_message=content,
+            confirmed_action_ids=confirmed_action_ids,
+            rejected_action_ids=rejected_action_ids,
+            guard_confirmation_ids=guard_confirmation_ids,
+            action_display_ids=action_display_ids,
         )
 
         if content_actions.text:
@@ -602,6 +637,9 @@ async def ask_brain_stream(
     observed_action_markers = []
     raw_content_parts = []
     pending_idle_action_calls = []
+    confirmed_action_guard_names = set()
+    rejected_action_guard_names = set()
+    action_guard_display_state = {}
     session_action_history_finalized = False
 
     def capture_observed_action_markers(
@@ -1019,11 +1057,30 @@ async def ask_brain_stream(
         )
 
         if immediate_action_calls:
+            (
+                confirmed_action_ids,
+                rejected_action_ids,
+                guard_confirmation_ids,
+                action_display_ids,
+            ) = await confirm_runtime_action_guards(
+                context,
+                immediate_action_calls,
+                user_message=text,
+                context_snapshot=action_context_snapshot,
+                confirmed_guard_names=confirmed_action_guard_names,
+                rejected_guard_names=rejected_action_guard_names,
+                display_state=action_guard_display_state,
+            )
+
             await apply_runtime_action_calls(
                 context,
                 immediate_action_calls,
                 user_message=text,
                 context_snapshot=action_context_snapshot,
+                confirmed_action_ids=confirmed_action_ids,
+                rejected_action_ids=rejected_action_ids,
+                guard_confirmation_ids=guard_confirmation_ids,
+                action_display_ids=action_display_ids,
             )
 
         if any(
@@ -1052,6 +1109,21 @@ async def ask_brain_stream(
         )
         pending_idle_action_calls.clear()
 
+        (
+            confirmed_action_ids,
+            rejected_action_ids,
+            guard_confirmation_ids,
+            action_display_ids,
+        ) = await confirm_runtime_action_guards(
+            context,
+            idle_actions,
+            user_message=text,
+            context_snapshot=action_context_snapshot,
+            confirmed_guard_names=confirmed_action_guard_names,
+            rejected_guard_names=rejected_action_guard_names,
+            display_state=action_guard_display_state,
+        )
+
         await apply_runtime_action_calls(
             context,
             idle_actions,
@@ -1060,6 +1132,10 @@ async def ask_brain_stream(
             assistant_message="".join(
                 raw_content_parts
             ),
+            confirmed_action_ids=confirmed_action_ids,
+            rejected_action_ids=rejected_action_ids,
+            guard_confirmation_ids=guard_confirmation_ids,
+            action_display_ids=action_display_ids,
         )
 
     # -----------------------------------------------------

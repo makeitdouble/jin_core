@@ -12,6 +12,15 @@
     margin-left: var(--jin-runtime-action-label-nudge);
 }
 
+.jin-runtime-action-confirm-prefix {
+    display: inline-block;
+    margin-right: 0.45em;
+}
+
+.jin-runtime-action-color-row .jin-runtime-action-confirm-prefix {
+    margin-right: 0;
+}
+
 .jin-runtime-action-guard-label {
     margin-left: var(--jin-runtime-action-label-nudge);
     --jin-runtime-action-guard-motion: 3.2s;
@@ -183,4 +192,39 @@
     50% {
         opacity: 0.02;
     }
+}
+
+.jin-runtime-action-color-row:not([data-runtime-action-completed="true"]) .jin-runtime-action-label {
+    box-shadow:
+            0 12px 34px rgba(0, 0, 0, 0.24),
+            0 0 24px color-mix(in srgb, var(--jin-color, #00f2ff) 24%, transparent),
+            inset 0 0 18px color-mix(in srgb, var(--jin-color, #00f2ff) 8%, transparent);
+    filter: brightness(1.08) saturate(1.08);
+}
+
+.jin-runtime-action-color-row .jin-runtime-action-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.jin-runtime-action-color-swatch {
+    width: 9px;
+    height: 9px;
+    flex: 0 0 9px;
+    border-radius: 1px;
+    border: 1px solid rgba(255, 255, 255, 0.34);
+    box-shadow:
+            0 0 0 1px rgba(0, 0, 0, 0.38),
+            0 0 9px currentColor;
+}
+
+.jin-runtime-action-name {
+    line-height: 1;
+}
+
+.jin-runtime-action-cancelled .jin-runtime-action-name {
+    text-decoration-line: line-through;
+    text-decoration-thickness: 1px;
+    text-decoration-color: currentColor;
 }

@@ -1,8 +1,13 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from app import app
+from contracts import rules_assembler
 from runtime.behavior_contract import (
     get_action_guard,
     get_action_guard_blockers,
@@ -46,6 +51,41 @@ class BehaviorContractTests(unittest.TestCase):
             "save_delayed_memory",
             contract["action_guards"],
         )
+
+    def test_contract_edits_are_loaded_without_runtime_restart(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+            contracts_dir = Path(directory)
+            contract_path = contracts_dir / "jin_color.json"
+
+            def write_contract(trigger: str) -> None:
+                contract_path.write_text(
+                    json.dumps({
+                        "jin_color": {
+                            "runtime_action": "JIN_COLOR",
+                            "triggers": [trigger],
+                            "blockers": [],
+                        },
+                    }),
+                    encoding="utf-8",
+                )
+
+            with patch.object(
+                rules_assembler,
+                "CONTRACTS_DIR",
+                contracts_dir,
+            ):
+                write_contract("first trigger")
+                self.assertEqual(
+                    get_action_guard_triggers("jin_color"),
+                    ("first trigger",),
+                )
+
+                write_contract("second trigger")
+                self.assertEqual(
+                    get_action_guard_triggers("jin_color"),
+                    ("second trigger",),
+                )
 
     def test_all_contracts_have_trigger_words_and_blockers_as_lists(self):
 
@@ -222,6 +262,29 @@ class BehaviorContractTests(unittest.TestCase):
             should_execute_action_guard(
                 "save_session",
                 save_session_triggers[0],
+            )
+        )
+
+    def test_matching_blocker_skips_without_confirmation(self):
+
+        blockers = get_action_guard_blockers(
+            "save_session"
+        )
+        if not blockers:
+            self.skipTest(
+                "save_session contract has no blockers configured"
+            )
+
+        self.assertFalse(
+            should_pause_action_guard_for_confirmation(
+                "save_session",
+                blockers[0],
+            )
+        )
+        self.assertFalse(
+            should_execute_action_guard(
+                "save_session",
+                blockers[0],
             )
         )
 

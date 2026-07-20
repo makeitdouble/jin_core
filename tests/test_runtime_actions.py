@@ -7116,6 +7116,7 @@ class RuntimeActionTests(unittest.TestCase):
             applied_count = await apply_runtime_action_calls(
                 context,
                 actions,
+                user_message="поставь цвет бирюзовый, затем розовый",
             )
 
             self.assertEqual(
@@ -7144,6 +7145,64 @@ class RuntimeActionTests(unittest.TestCase):
             )
 
         asyncio.run(run_case())
+
+    def test_apply_runtime_action_calls_rejects_jin_color_without_trigger_or_confirmation(self):
+
+        class Emitter:
+
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, payload):
+                self.events.append(payload)
+
+        async def run_case():
+            emitter = Emitter()
+            context = SimpleNamespace(
+                runtime_action_events=[],
+                runtime_search_calls=[],
+                runtime_appended_skills=[],
+                runtime_visible_skills_result={},
+                runtime_save_session_requested=False,
+                runtime_save_session_action_emitted=False,
+                runtime_skill_state_barrier_active=False,
+                runtime_action_failure_followup_messages=[],
+                logger=None,
+                emitter=emitter,
+            )
+            action = RuntimeActionCall(
+                name=RUNTIME_ACTION_JIN_COLOR,
+                payload="#ff0000",
+            )
+
+            applied_count = await apply_runtime_action_calls(
+                context,
+                (action,),
+                user_message="поставь себе красный яркий",
+            )
+
+            self.assertEqual(
+                applied_count,
+                0,
+            )
+            self.assertEqual(
+                context.runtime_action_events[-1]["error"],
+                "user_did_not_confirm_runtime_action",
+            )
+            self.assertEqual(
+                [event.get("status") for event in emitter.events],
+                ["failed"],
+            )
+            self.assertFalse(
+                any(
+                    event.get("status") == "completed"
+                    for event in emitter.events
+                )
+            )
+
+        asyncio.run(
+            run_case()
+        )
 
     def test_stream_filter_preserves_idle_word_emitted_as_own_chunk(self):
 

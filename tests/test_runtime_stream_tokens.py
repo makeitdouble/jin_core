@@ -1309,7 +1309,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-    async def test_rejecting_started_delayed_memory_guard_stops_generation(self):
+    async def test_rejecting_started_delayed_memory_guard_continues_generation(self):
 
         state = {
             "body_requested": False,
@@ -1402,7 +1402,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             if event.get("type") == "runtime_action"
         ]
 
-        self.assertFalse(
+        self.assertTrue(
             state["body_requested"],
         )
         self.assertEqual(
@@ -1519,6 +1519,261 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                 "runtime_delayed_memory_save_rejected_pending",
                 False,
             )
+        )
+
+    async def test_jin_color_missing_trigger_uses_generic_confirmation_and_rejects_action(self):
+
+        state = {
+            "generation_continued": False,
+        }
+
+        async def color_generator():
+
+            yield {
+                "type": "content",
+                "content": "<JIN_COLOR: #ff0000>",
+            }
+
+            state["generation_continued"] = True
+
+            yield {
+                "type": "content",
+                "content": "generation continues",
+            }
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=None,
+            active_streams={},
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_asset_results=[],
+            runtime_delayed_memory_results=[],
+            runtime_session_action_history=[],
+            runtime_action_guard_confirmations={},
+            delayed_memory_reports={},
+            active_memory_records=[],
+            runtime_turn_user_message="поставь себе красный яркий",
+            runtime_current_turn_id="turn_color_missing_trigger",
+            runtime_turn_started_at=0,
+            session_id="session-1",
+            timestamp="2026-07-20T18:00:00",
+        )
+
+        class RejectingEmitter(FakeEmitter):
+
+            async def emit(
+                self,
+                event,
+            ):
+
+                await super().emit(
+                    event
+                )
+
+                if (
+                    event.get("type")
+                    != "runtime_action_guard_confirmation"
+                ):
+                    return
+
+                future = context.runtime_action_guard_confirmations[
+                    event["confirmation_id"]
+                ]
+                future.set_result(
+                    "reject"
+                )
+
+        context.emitter = RejectingEmitter()
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=settings.SERVICE_MODEL_UID,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            runtime_actions={
+                "CAN_JIN_COLOR": True,
+            },
+        )
+
+        await stream.run(
+            color_generator()
+        )
+
+        confirmation_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type")
+            == "runtime_action_guard_confirmation"
+        ]
+        runtime_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "runtime_action"
+        ]
+
+        self.assertTrue(
+            state["generation_continued"],
+        )
+        self.assertEqual(
+            len(confirmation_events),
+            1,
+        )
+        self.assertEqual(
+            confirmation_events[0]["guard"],
+            "jin_color",
+        )
+        self.assertEqual(
+            confirmation_events[0]["color"],
+            "#ff0000",
+        )
+        self.assertEqual(
+            [event.get("status") for event in runtime_events],
+            ["failed"],
+        )
+        self.assertEqual(
+            context.runtime_action_events[-1]["error"],
+            "user_rejected_runtime_action",
+        )
+
+    async def test_jin_color_matching_trigger_applies_without_confirmation(self):
+
+        async def color_generator():
+
+            yield {
+                "type": "content",
+                "content": "<JIN_COLOR: #ff0000>",
+            }
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            active_streams={},
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_asset_results=[],
+            runtime_delayed_memory_results=[],
+            runtime_session_action_history=[],
+            runtime_action_guard_confirmations={},
+            delayed_memory_reports={},
+            active_memory_records=[],
+            runtime_turn_user_message="поставь цвет красный",
+            runtime_current_turn_id="turn_color_matching_trigger",
+            runtime_turn_started_at=0,
+            session_id="session-1",
+            timestamp="2026-07-20T18:00:00",
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=settings.SERVICE_MODEL_UID,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            runtime_actions={
+                "CAN_JIN_COLOR": True,
+            },
+        )
+
+        await stream.run(
+            color_generator()
+        )
+
+        confirmation_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type")
+            == "runtime_action_guard_confirmation"
+        ]
+        runtime_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "runtime_action"
+        ]
+
+        self.assertEqual(
+            confirmation_events,
+            [],
+        )
+        self.assertEqual(
+            [event.get("status") for event in runtime_events],
+            ["completed"],
+        )
+        self.assertEqual(
+            context.runtime_action_events[-1]["color"],
+            "#ff0000",
+        )
+
+    async def test_matching_blocker_skips_action_without_confirmation(self):
+
+        async def save_session_generator():
+
+            yield {
+                "type": "content",
+                "content": "<SAVE_SESSION>",
+            }
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            active_streams={},
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_asset_results=[],
+            runtime_delayed_memory_results=[],
+            runtime_session_action_history=[],
+            runtime_action_guard_confirmations={},
+            delayed_memory_reports={},
+            active_memory_records=[],
+            runtime_turn_user_message="покажи тег",
+            runtime_current_turn_id="turn_save_session_blocker",
+            runtime_turn_started_at=0,
+            session_id="session-1",
+            timestamp="2026-07-20T18:00:00",
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=settings.SERVICE_MODEL_UID,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            runtime_actions={
+                "CAN_SAVE_SESSION": True,
+            },
+        )
+
+        await stream.run(
+            save_session_generator()
+        )
+
+        confirmation_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type")
+            == "runtime_action_guard_confirmation"
+        ]
+        runtime_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "runtime_action"
+        ]
+
+        self.assertEqual(
+            confirmation_events,
+            [],
+        )
+        self.assertEqual(
+            [event.get("status") for event in runtime_events],
+            ["failed"],
+        )
+        self.assertEqual(
+            context.runtime_action_events[-1]["error"],
+            "behavior_contract_blocker_matched",
         )
 
     async def test_runtime_groups_inner_and_outer_markers_from_one_message(self):

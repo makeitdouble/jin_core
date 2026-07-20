@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -98,7 +97,6 @@ def _load_contract_file(path: Path) -> tuple[str, dict[str, Any]] | None:
     return normalized["name"], normalized
 
 
-@lru_cache(maxsize=1)
 def get_action_contracts() -> dict[str, dict[str, Any]]:
     contracts: dict[str, dict[str, Any]] = {}
 

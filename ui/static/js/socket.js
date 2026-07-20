@@ -1698,9 +1698,15 @@ function handleSocketMessage(event) {
     ) {
       window.appendRuntimeAction(
         action,
-        `CONFIRM: ${text}`,
+        text,
         {
           id: data.id || "",
+          color:
+            data.color
+            || data.payload
+            || "",
+          reuseCompleted:
+            action === "jin_color",
           contextSnapshot:
             data.context || null,
           detail:
@@ -1748,6 +1754,30 @@ function handleSocketMessage(event) {
         data.text || ""
       );
 
+    const guardConfirmationId =
+      String(
+        data.confirmation_id
+        || data.guard_confirmation_id
+        || ""
+      ).trim();
+
+    const cancelledByUser =
+      status === "failed"
+      && Boolean(guardConfirmationId)
+      && /\bcancelled\s*$/i.test(
+        text.trim()
+      );
+
+    if (
+      cancelledByUser
+      && window.markSessionActionCancelled
+    ) {
+      window.markSessionActionCancelled(
+        action,
+        data.color || data.payload || ""
+      );
+    }
+
     const displayText =
       action === "resolve_active_memory"
         ? buildResolveActiveMemoryRuntimeActionText(
@@ -1766,19 +1796,88 @@ function handleSocketMessage(event) {
         status
       );
 
-    if (
-      action === "jin_color"
-      && (
-        data.color
-        || data.payload
-      )
-      && window.JinRuntime
-      && window.JinRuntime.avatar
-      && typeof window.JinRuntime.avatar.setCenterColor === "function"
-    ) {
-      window.JinRuntime.avatar.setCenterColor(
-        data.color || data.payload
-      );
+    if (action === "jin_color") {
+      const color =
+        String(
+          data.color
+          || data.payload
+          || ""
+        );
+      const actionId =
+        data.id || "";
+
+      if (
+        displayText.trim()
+        && window.appendRuntimeAction
+      ) {
+        window.appendRuntimeAction(
+          action,
+          "JIN_COLOR",
+          {
+            id: actionId,
+            color,
+            detail: color,
+            reuseCompleted: true,
+            contextSnapshot:
+              data.context || null,
+            guardConfirmationId,
+            cancelled:
+              cancelledByUser,
+            preserveLabel:
+              cancelledByUser,
+          }
+        );
+      }
+
+      if (
+        (
+          status === "completed"
+          || status === "complete"
+          || status === "done"
+        )
+        && color
+        && window.JinRuntime
+        && window.JinRuntime.avatar
+        && typeof window.JinRuntime.avatar.setCenterColor === "function"
+      ) {
+        window.JinRuntime.avatar.setCenterColor(
+          color
+        );
+      }
+
+      if (
+        shouldLogRuntimeAction
+        && window.log_internal_action
+      ) {
+        window.log_internal_action(
+          action,
+          data
+        );
+      }
+
+      if (
+        (
+          status === "completed"
+          || status === "complete"
+          || status === "done"
+          || status === "failed"
+        )
+        && window.fadeRuntimeAction
+      ) {
+        window.setTimeout(
+          () => {
+            window.fadeRuntimeAction(
+              action,
+              {
+                id: actionId,
+              }
+            );
+          },
+          60
+        );
+      }
+
+      return;
     }
 
     if (
@@ -1855,10 +1954,7 @@ function handleSocketMessage(event) {
           displayText,
           {
           id: data.id || "",
-          guardConfirmationId:
-            data.confirmation_id
-            || data.guard_confirmation_id
-            || "",
+          guardConfirmationId,
           updateExisting:
             action !== "list_skills",
             contextSnapshot:
@@ -1907,10 +2003,11 @@ function handleSocketMessage(event) {
       displayText,
       {
         id: data.id || "",
-        guardConfirmationId:
-          data.confirmation_id
-          || data.guard_confirmation_id
-          || "",
+        guardConfirmationId,
+        cancelled:
+          cancelledByUser,
+        preserveLabel:
+          cancelledByUser,
         contextSnapshot:
           data.context || null,
         assetResult:

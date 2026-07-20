@@ -1648,7 +1648,7 @@ const runtimeActionGuardDecisionClasses = [
   "jin-runtime-action-guard-rejected",
   "jin-runtime-action-guard-continued",
 ];
-const RUNTIME_ACTION_GUARD_CONFIRMATION_DELAY_MS = 15000;
+const RUNTIME_ACTION_GUARD_CONFIRMATION_DELAY_MS = 0;
 const RUNTIME_ACTION_GUARD_ANIMATION_DURATION_MS = 3200;
 const RUNTIME_ACTION_GUARD_GEOMETRY_REFERENCE_WIDTH = 10;
 const RUNTIME_ACTION_GUARD_GREEN_BASE_X = 1;
@@ -1673,16 +1673,29 @@ function resolveRuntimeActionGuardConfirmationDelayMs(
   confirmation = {}
 ) {
 
+  const hasConfiguredDelay =
+    Object.prototype.hasOwnProperty.call(
+      confirmation,
+      "timeoutMs"
+    )
+    || Object.prototype.hasOwnProperty.call(
+      confirmation,
+      "timeout_ms"
+    );
   const configuredDelay =
     Number(
-      confirmation.timeoutMs
-      || confirmation.timeout_ms
-      || RUNTIME_ACTION_GUARD_CONFIRMATION_DELAY_MS
+      hasConfiguredDelay
+        ? (
+          confirmation.timeoutMs
+          ?? confirmation.timeout_ms
+          ?? 0
+        )
+        : RUNTIME_ACTION_GUARD_CONFIRMATION_DELAY_MS
     );
 
   return Number.isFinite(
     configuredDelay
-  ) && configuredDelay > 0
+  ) && configuredDelay >= 0
     ? configuredDelay
     : RUNTIME_ACTION_GUARD_CONFIRMATION_DELAY_MS;
 
@@ -1900,6 +1913,159 @@ function normalizeRuntimeActionKeyPart(value) {
 
 }
 
+function normalizeRuntimeActionColor(value) {
+
+  const match =
+    String(
+      value || ""
+    ).trim().match(
+      /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i
+    );
+
+  if (!match) {
+    return "";
+  }
+
+  let hex =
+    match[1].toLowerCase();
+
+  if (hex.length === 3) {
+    hex = hex
+      .split("")
+      .map((char) => char + char)
+      .join("");
+  }
+
+  return `#${hex}`;
+
+}
+
+function normalizeRuntimeActionLabelText(text) {
+
+  return String(
+    text || ""
+  ).replace(
+    /^CONFIRM:\s*/i,
+    ""
+  ).trim();
+
+}
+
+function appendRuntimeActionConfirmPrefix(
+  label
+) {
+
+  if (!label) {
+    return;
+  }
+
+  const prefix =
+    document.createElement("span");
+
+  prefix.className =
+    "jin-runtime-action-confirm-prefix";
+  prefix.textContent =
+    "CONFIRM:";
+
+  label.appendChild(
+    prefix
+  );
+
+}
+
+function removeRuntimeActionConfirmPrefix(
+  label
+) {
+
+  if (!label) {
+    return;
+  }
+
+  label
+    .querySelectorAll(
+      ":scope > .jin-runtime-action-confirm-prefix"
+    )
+    .forEach((prefix) => {
+      prefix.remove();
+    });
+
+}
+
+function renderRuntimeActionLabel(
+  label,
+  action,
+  text,
+  options = {}
+) {
+
+  if (!label) {
+    return;
+  }
+
+  label.replaceChildren();
+
+  if (options.guardConfirmation) {
+    appendRuntimeActionConfirmPrefix(
+      label
+    );
+  }
+
+  if (action === "jin_color") {
+    const color =
+      normalizeRuntimeActionColor(
+        options.color
+        || options.payload
+        || options.detail
+      );
+
+    if (color) {
+      const swatch =
+        document.createElement("span");
+
+      swatch.className =
+        "jin-runtime-action-color-swatch";
+      swatch.style.backgroundColor =
+        color;
+      swatch.style.color =
+        color;
+      swatch.title =
+        color;
+
+      label.appendChild(
+        swatch
+      );
+    }
+
+    const name =
+      document.createElement("span");
+
+    name.className =
+      "jin-runtime-action-name";
+    name.textContent =
+      "JIN_COLOR";
+
+    label.appendChild(
+      name
+    );
+    return;
+  }
+
+  const name =
+    document.createElement("span");
+
+  name.className =
+    "jin-runtime-action-name";
+  name.textContent =
+    normalizeRuntimeActionLabelText(
+      text
+    );
+
+  label.appendChild(
+    name
+  );
+
+}
+
 function buildRuntimeActionVisibleKey(
   action,
   options = {}
@@ -2022,6 +2188,18 @@ function settleRuntimeActionGuardConfirmation(
 
   row.dataset.runtimeActionGuardDecision =
     decision;
+
+  row.classList.toggle(
+    "jin-runtime-action-cancelled",
+    decision === "reject"
+  );
+
+  if (decision === "reject") {
+    row.dataset.runtimeActionCancelled =
+      "true";
+  } else {
+    delete row.dataset.runtimeActionCancelled;
+  }
 
   const zones =
     row.querySelector(
@@ -2226,8 +2404,32 @@ function updateRuntimeActionRow(
     return false;
   }
 
-  label.textContent =
-    text;
+  if (options.reviveExisting) {
+    reviveRuntimeActionRow(
+      row
+    );
+  }
+
+  if (!options.preserveLabel) {
+    renderRuntimeActionLabel(
+      label,
+      action,
+      text,
+      options
+    );
+  }
+
+  row.classList.toggle(
+    "jin-runtime-action-cancelled",
+    Boolean(options.cancelled)
+  );
+
+  if (options.cancelled) {
+    row.dataset.runtimeActionCancelled =
+      "true";
+  } else if (options.reviveExisting) {
+    delete row.dataset.runtimeActionCancelled;
+  }
 
   const detail =
     String(
@@ -2301,18 +2503,70 @@ function normalizeCompletedRuntimeActionLabel(
     return;
   }
 
-  const normalizedText =
-    String(
-      label.textContent || ""
-    ).replace(
-      /^CONFIRM:\s*/i,
-      ""
-    ).trim();
+  removeRuntimeActionConfirmPrefix(
+    label
+  );
 
-  if (normalizedText) {
-    label.textContent =
-      normalizedText;
+  if (
+      row.dataset.runtimeAction
+      === "jin_color"
+  ) {
+    return;
   }
+
+  const normalizedText =
+    normalizeRuntimeActionLabelText(
+      label.textContent
+    );
+
+  if (!normalizedText) {
+    return;
+  }
+
+  let name =
+    label.querySelector(
+      ":scope > .jin-runtime-action-name"
+    );
+
+  if (!name) {
+    label.replaceChildren();
+    name = document.createElement("span");
+    name.className =
+      "jin-runtime-action-name";
+    label.appendChild(
+      name
+    );
+  }
+
+  name.textContent =
+    normalizedText;
+
+}
+
+function reviveRuntimeActionRow(
+  row
+) {
+
+  if (!row) {
+    return;
+  }
+
+  delete row.dataset.runtimeActionCompleted;
+  delete row.dataset.runtimeActionCancelled;
+  row.classList.remove(
+    "opacity-45",
+    "jin-runtime-action-cancelled"
+  );
+
+  row
+    .querySelectorAll("div, button")
+    .forEach((element) => {
+      element.classList.remove(
+        "border-zinc-700/50",
+        "bg-zinc-900/30",
+        "text-zinc-400"
+      );
+    });
 
 }
 
@@ -2387,7 +2641,10 @@ function appendRuntimeAction(
       Array.from(
         existingRows
       ).find((row) => {
-        return row.dataset.runtimeActionCompleted !== "true";
+        return (
+          options.reuseCompleted
+          || row.dataset.runtimeActionCompleted !== "true"
+        );
       });
 
     const guardConfirmationId =
@@ -2404,7 +2661,7 @@ function appendRuntimeAction(
       existingRow =
         Array.from(
           chatHistory.querySelectorAll(
-            ".jin-runtime-action-row.jin-runtime-action-guard-pending"
+            ".jin-runtime-action-row"
           )
         ).find((row) => {
           return (
@@ -2422,10 +2679,16 @@ function appendRuntimeAction(
       existingRow =
         Array.from(
           chatHistory.querySelectorAll(
-            `.jin-runtime-action-row[data-runtime-action="${action}"].jin-runtime-action-guard-pending`
+            `.jin-runtime-action-row[data-runtime-action="${action}"]`
           )
         ).find((row) => {
-          return row.dataset.runtimeActionCompleted !== "true";
+          return (
+            row.dataset.runtimeActionCompleted !== "true"
+            && Boolean(
+              row.dataset.runtimeActionGuardConfirmationId
+              || row.dataset.runtimeActionGuardDecision
+            )
+          );
         });
     }
 
@@ -2435,7 +2698,13 @@ function appendRuntimeAction(
           existingRow,
           action,
           actionText,
-          options
+          {
+            ...options,
+            reviveExisting:
+              Boolean(
+                options.reuseCompleted
+              ),
+          }
         )
     ) {
       return true;
@@ -2455,11 +2724,25 @@ function appendRuntimeAction(
   row.className =
     "jin-message-row jin-runtime-action-row mx-auto w-full max-w-4xl text-xs text-cyan-100 transition duration-500";
 
+  if (action === "jin_color") {
+    row.classList.add(
+      "jin-runtime-action-color-row"
+    );
+  }
+
   row.dataset.runtimeAction =
     action || "";
 
   row.dataset.runtimeActionKey =
     actionKey || "";
+
+  if (options.cancelled) {
+    row.dataset.runtimeActionCancelled =
+      "true";
+    row.classList.add(
+      "jin-runtime-action-cancelled"
+    );
+  }
 
   if (options.completed) {
     row.dataset.runtimeActionCompleted =
@@ -2524,8 +2807,12 @@ function appendRuntimeAction(
   label.className =
     "jin-runtime-action-label px-3 py-2 rounded-lg border border-cyan-700/70 bg-cyan-950/40 font-mono transition duration-500";
 
-  label.textContent =
-    actionText;
+  renderRuntimeActionLabel(
+    label,
+    action,
+    actionText,
+    options
+  );
 
   const detail =
     String(

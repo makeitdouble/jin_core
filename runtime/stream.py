@@ -23,6 +23,7 @@ from utils.tokens import (
 )
 from utils.runtime_actions import (
     build_runtime_action_id,
+    normalize_jin_color_payload,
     RuntimeActionRepetitionGuard,
     RuntimeActionStreamFilter,
 )
@@ -35,6 +36,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_APPEND_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_IDLE,
+    RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
 )
 from rules.runtime import (
@@ -77,9 +79,6 @@ GENERATION_LIMIT_FINISH_REASONS = (
     OUTPUT_LIMIT_FINISH_REASONS
     | CONTEXT_LIMIT_FINISH_REASONS
 )
-
-ACTION_GUARD_CONFIRMATION_TIMEOUT_SECONDS = 15.0
-
 
 class RuntimeStream:
 
@@ -129,7 +128,9 @@ class RuntimeStream:
         self.context_limit_recovery_armed = False
         self.started_delayed_memory_action_ids = []
         self.confirmed_action_guard_names = set()
+        self.rejected_action_guard_names = set()
         self.action_guard_confirmation_ids = {}
+        self.jin_color_action_id = ""
         self.delayed_memory_action_payload = ""
         self.raw_content_parts = []
         self.pending_idle_actions = []
@@ -645,17 +646,9 @@ class RuntimeStream:
             await self.emit_started_runtime_actions(
                 result.started_actions,
             )
-            rejected = await self.confirm_started_runtime_action_guards(
+            await self.confirm_started_runtime_action_guards(
                 result.started_actions,
             )
-
-            if rejected:
-                self.action_guard_rejected_aborted = True
-                self.mark_started_runtime_action_guard_rejected(
-                    rejected,
-                    result,
-                )
-                return None
 
         if result.actions:
             from utils.brain_client_utils import (
@@ -684,21 +677,51 @@ class RuntimeStream:
             )
 
             if immediate_actions:
-                confirmed_action_ids = (
-                    await self.confirm_unmatched_action_guards(
-                        immediate_actions
-                    )
-                )
-                await apply_runtime_action_calls(
-                    self.context,
-                    immediate_actions,
-                    context_snapshot=self.context_snapshot,
-                    confirmed_action_ids=confirmed_action_ids,
-                    guard_confirmation_ids=(
-                        self.action_guard_confirmation_ids
-                    ),
+                (
+                    confirmed_action_ids,
+                    rejected_action_ids,
+                ) = await self.confirm_unmatched_action_guards(
+                    immediate_actions
                 )
 
+                for action in immediate_actions:
+                    if (
+                        id(action) in rejected_action_ids
+                        and action.name
+                        == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                    ):
+                        self.mark_started_runtime_action_guard_rejected(
+                            action,
+                            result,
+                        )
+
+                actions_to_apply = tuple(
+                    action
+                    for action in immediate_actions
+                    if not (
+                        id(action) in rejected_action_ids
+                        and action.name
+                        == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                    )
+                )
+
+                if actions_to_apply:
+                    await apply_runtime_action_calls(
+                        self.context,
+                        actions_to_apply,
+                        context_snapshot=self.context_snapshot,
+                        confirmed_action_ids=confirmed_action_ids,
+                        rejected_action_ids=rejected_action_ids,
+                        guard_confirmation_ids=(
+                            self.action_guard_confirmation_ids
+                        ),
+                        action_display_ids={
+                            id(action): self.get_runtime_action_display_id(
+                                action
+                            )
+                            for action in actions_to_apply
+                        },
+                    )
         if getattr(
             result,
             "marker_repetition_exceeded",
@@ -725,6 +748,24 @@ class RuntimeStream:
         action,
     ) -> str:
 
+        if action.name == RUNTIME_ACTION_JIN_COLOR:
+            if not self.jin_color_action_id:
+                sequence = int(
+                    getattr(
+                        self.context,
+                        "runtime_jin_color_action_sequence",
+                        0,
+                    )
+                    or 0
+                ) + 1
+                self.context.runtime_jin_color_action_sequence = sequence
+                self.jin_color_action_id = build_runtime_action_id(
+                    RUNTIME_ACTION_JIN_COLOR,
+                    sequence,
+                )
+
+            return self.jin_color_action_id
+
         if (
             action.name
             == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
@@ -737,9 +778,10 @@ class RuntimeStream:
     async def confirm_unmatched_action_guards(
         self,
         actions,
-    ) -> set[int]:
+    ) -> tuple[set[int], set[int]]:
 
         confirmed_action_ids = set()
+        rejected_action_ids = set()
         user_message = str(
             getattr(
                 self.context,
@@ -760,7 +802,10 @@ class RuntimeStream:
         )
 
         if emit is None:
-            return confirmed_action_ids
+            return (
+                confirmed_action_ids,
+                rejected_action_ids,
+            )
 
         for action in actions:
             guard_name = get_action_guard_name_for_runtime_action(
@@ -768,6 +813,12 @@ class RuntimeStream:
             )
 
             if not guard_name:
+                continue
+
+            if guard_name in self.rejected_action_guard_names:
+                rejected_action_ids.add(
+                    id(action)
+                )
                 continue
 
             if guard_name in self.confirmed_action_guard_names:
@@ -787,21 +838,39 @@ class RuntimeStream:
                 guard_name,
             )
 
-            if decision != "reject":
-                self.append_action_guard_missing_trigger_message(
-                    guard_name,
-                    ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE,
+            if decision == "reject":
+                self.rejected_action_guard_names.add(
+                    guard_name
                 )
-                confirmed_action_ids.add(
+                rejected_action_ids.add(
                     id(action)
                 )
+                self.append_action_guard_missing_trigger_message(
+                    guard_name,
+                    ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
+                )
+                continue
 
-        return confirmed_action_ids
+            self.confirmed_action_guard_names.add(
+                guard_name
+            )
+            self.append_action_guard_missing_trigger_message(
+                guard_name,
+                ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE,
+            )
+            confirmed_action_ids.add(
+                id(action)
+            )
+
+        return (
+            confirmed_action_ids,
+            rejected_action_ids,
+        )
 
     async def confirm_started_runtime_action_guards(
         self,
         actions,
-    ):
+    ) -> None:
 
         user_message = str(
             getattr(
@@ -820,7 +889,10 @@ class RuntimeStream:
             if not guard_name:
                 continue
 
-            if guard_name in self.confirmed_action_guard_names:
+            if (
+                guard_name in self.confirmed_action_guard_names
+                or guard_name in self.rejected_action_guard_names
+            ):
                 continue
 
             if not should_pause_action_guard_for_confirmation(
@@ -835,17 +907,22 @@ class RuntimeStream:
             )
 
             if decision == "reject":
-                return action
+                self.rejected_action_guard_names.add(
+                    guard_name
+                )
+                self.append_action_guard_missing_trigger_message(
+                    guard_name,
+                    ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
+                )
+                continue
 
+            self.confirmed_action_guard_names.add(
+                guard_name
+            )
             self.append_action_guard_missing_trigger_message(
                 guard_name,
                 ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE,
             )
-            self.confirmed_action_guard_names.add(
-                guard_name
-            )
-
-        return None
 
     def mark_started_runtime_action_guard_rejected(
         self,
@@ -986,7 +1063,7 @@ class RuntimeStream:
         )
 
         if emit is None:
-            return "continue"
+            return "reject"
 
         pending = getattr(
             self.context,
@@ -1045,11 +1122,16 @@ class RuntimeStream:
                 "behavior-contract trigger words in the user message."
             ),
             "missing_triggers": triggers,
-            "timeout_ms": int(
-                ACTION_GUARD_CONFIRMATION_TIMEOUT_SECONDS
-                * 1000
-            ),
+            "timeout_ms": 0,
         }
+
+        if action.name == RUNTIME_ACTION_JIN_COLOR:
+            color = normalize_jin_color_payload(
+                action.payload
+            )
+            if color:
+                payload["color"] = color
+                payload["payload"] = color
 
         if action_context_snapshot:
             payload["context"] = action_context_snapshot
@@ -1060,15 +1142,9 @@ class RuntimeStream:
             )
 
             return str(
-                await asyncio.wait_for(
-                    future,
-                    timeout=ACTION_GUARD_CONFIRMATION_TIMEOUT_SECONDS,
-                )
-                or "continue"
+                await future
+                or "reject"
             ).strip().casefold()
-
-        except asyncio.TimeoutError:
-            return "continue"
 
         finally:
             pending.pop(
@@ -1233,6 +1309,24 @@ class RuntimeStream:
                     "id": action_id,
                     "status": "started",
                     "text": "Saving delayed memory report",
+                }
+            elif action.name == RUNTIME_ACTION_JIN_COLOR:
+                color = normalize_jin_color_payload(
+                    action.payload
+                )
+                if not color:
+                    continue
+
+                payload = {
+                    "type": "runtime_action",
+                    "action": "jin_color",
+                    "id": self.get_runtime_action_display_id(
+                        action
+                    ),
+                    "status": "started",
+                    "text": "JIN_COLOR",
+                    "color": color,
+                    "payload": color,
                 }
             else:
                 continue
