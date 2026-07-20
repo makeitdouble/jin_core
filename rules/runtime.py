@@ -48,7 +48,7 @@ RUNTIME_ACTIONS_RULES = (
     "RUNTIME ACTION EXECUTION RULES:\n"
     "DO NOT treat SEQUENCE_ORIGIN_REQUEST as new input, use time to track freshness.\n"
     "Runtime markers are commands for the runtime, pick first that lands and emit now.\n"
-    "After emitting the required markers, stop generating text."
+    "After emitting the required markers, you must wait follow-up tick with required result success or not."
     "The runtime will execute them and automatically provide a response in a follow-up system tick."
     "Use follow-up system ticks in sequence for multi-step tasks.\n"
     "In case of conflict, ignore PREVIOUS_CHAT_MESSAGES and accept SEQUENCE_ORIGIN_REQUEST already in progress.\n"

@@ -741,7 +741,7 @@ body.theme-win95 .jin-chat-bubble::after {
 body.theme-win95 .jin-chat-bubble .jin-chat-pre {
     color: var(--win95-text);
     font-family: Calibri, Arial, sans-serif;
-    font-size: 14px;
+    font-size: var(--theme-light-font-size);
     font-weight: 500;
     line-height: 1.45;
     text-shadow: none;
@@ -800,7 +800,7 @@ body.theme-win95 .jin-think-content {
     border-radius: 2px;
     color: var(--win95-text);
     font-family: Calibri, Arial, sans-serif;
-    font-size: 14px;
+    font-size: var(--theme-light-think-font-size);
     font-weight: 500;
     line-height: 1.55;
     text-shadow: none;

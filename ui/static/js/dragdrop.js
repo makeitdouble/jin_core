@@ -254,11 +254,28 @@ function hideDropOverlay() {
   chatColumn.classList.remove("jin-drop-zone-active");
 }
 
+function hideRenderedAttachmentPreviews() {
+  if (!attachedFiles) {
+    return;
+  }
+
+  attachedFiles
+    .querySelectorAll(".jin-attachment-bubble")
+    .forEach((item) => {
+      item.dispatchEvent(
+        new Event("mouseleave")
+      );
+    });
+}
+
 function renderFiles() {
   if (!attachedFiles) {
     return;
   }
 
+  // A hover preview lives under document.body, outside the attachment list.
+  // Dismiss it before replacing/removing bubbles so it cannot become orphaned.
+  hideRenderedAttachmentPreviews();
   attachedFiles.innerHTML = "";
 
   droppedFiles.forEach((file, index) => {

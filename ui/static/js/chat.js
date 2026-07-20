@@ -274,6 +274,23 @@ function formatAttachmentChipLabel(attachment) {
     : name;
 }
 
+function getAttachmentChipEmoji(attachment) {
+  const kind =
+    getAttachmentKind(
+      attachment
+    );
+
+  if (kind === "image") {
+    return "🖼️";
+  }
+
+  if (kind === "text") {
+    return "📄";
+  }
+
+  return "📎";
+}
+
 function ensureAttachmentHoverPreview() {
   if (attachmentHoverPreview) {
     return attachmentHoverPreview;
@@ -1544,16 +1561,23 @@ function createMessageAttachmentChips(
   attachments.forEach((attachment) => {
     const chip =
       document.createElement("button");
+    const label =
+      formatAttachmentChipLabel(
+        attachment
+      );
 
     chip.type =
       "button";
     chip.className =
-      "max-w-full rounded border border-sky-400/25 bg-sky-950/35 px-2 py-1 text-left font-mono text-[11px] text-sky-100 transition hover:border-sky-300/50 hover:bg-sky-900/45";
-
+      "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-sky-400/25 bg-sky-950/35 p-0 text-[18px] leading-none text-sky-100 transition hover:border-sky-300/50 hover:bg-sky-900/45";
     chip.textContent =
-      formatAttachmentChipLabel(
+      getAttachmentChipEmoji(
         attachment
       );
+    chip.setAttribute(
+      "aria-label",
+      label
+    );
 
     bindJinAttachmentBubble(
       chip,

@@ -996,6 +996,7 @@
 
     centerColor = color;
     avatarRoot.style.setProperty("--jin-avatar-center-color", centerColor);
+    document.documentElement.style.setProperty("--jin-color", centerColor);
 
     if (!svg) {
       renderAvatar(getLatestSnapshot(), {

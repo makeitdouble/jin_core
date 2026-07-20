@@ -21,12 +21,11 @@
     ],
     "rules": [
       "JIN_COLOR:",
-      "Emit using exactly this schema <JIN_COLOR: #00f2ff >",
-      "Use JIN_COLOR only to update the live JIN avatar center point color and its subtle glow.",
-      "When a visible answer is needed, place JIN_COLOR after the normal user-facing response instead of in a separate reasoning or planning block.",
-      "The payload must be a hex color with optional leading # and exactly 3 or 6 hex characters.",
-      "Invalid JIN_COLOR payloads are ignored by runtime and must not be retried blindly.",
-      "Multiple JIN_COLOR markers may be emitted in one response"
+      "Use JIN_COLOR to set single color for the live JIN avatar center point color and chat interface background tint.",
+      "Emit marker using exactly this schema <JIN_COLOR: #00f2ff > after the normal user-facing response.",
+      "Emit two or more JIN_COLOR markers in one message for consecutive color change, last color in sequence will be used as current.",
+      "If user asks you to blink or you want blinking animation - you must emit several markers with different colors in single response.",
+      "The payload must be a hex color with optional leading # and exactly 3 or 6 hex characters."
     ],
     "close_tag": false
   }

@@ -1,0 +1,10 @@
+/* Central font-size controls for the dark and light (Win95) themes. */
+
+:root {
+    --theme-dark-font-size: 14px;
+    --theme-light-font-size: 14px;
+
+    /* Keep the dark think block one step quieter; Win95 uses the main size. */
+    --theme-dark-think-font-size: calc(var(--theme-dark-font-size) - 1px);
+    --theme-light-think-font-size: calc(var(--theme-light-font-size) - 1px);
+}

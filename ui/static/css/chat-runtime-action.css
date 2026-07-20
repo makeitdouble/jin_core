@@ -4,6 +4,10 @@
     transform-style: preserve-3d;
 }
 
+.jin-runtime-action-row[data-runtime-action-completed="true"] {
+    opacity: 0.45;
+}
+
 .jin-runtime-action-label {
     margin-left: var(--jin-runtime-action-label-nudge);
 }

@@ -280,7 +280,7 @@
     font-family: inherit;
 
     /* Размер и ритм текста в сообщениях. */
-    font-size: 13px;
+    font-size: var(--theme-dark-font-size);
     line-height: 1.72;
     letter-spacing: 0.01em;
 
@@ -314,7 +314,7 @@
     color: var(--jin-chat-muted);
 
     /* Think чуть мельче обычного ответа. */
-    font-size: 12px;
+    font-size: var(--theme-dark-think-font-size);
     line-height: 1.65;
 
     /* Курсив отделяет мысль от обычного голоса. */
