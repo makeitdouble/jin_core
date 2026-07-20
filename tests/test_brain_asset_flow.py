@@ -2391,7 +2391,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "list_skills",
         )
 
-    async def test_multi_step_tool_results_clear_after_sequence(self):
+    async def test_multi_step_tool_results_remain_after_sequence(self):
 
         calls = []
 
@@ -2464,8 +2464,18 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             3,
         )
         self.assertEqual(
-            context.runtime_tool_results,
-            [],
+            len(context.runtime_tool_results),
+            2,
+        )
+        self.assertEqual(
+            [
+                entry["result"]["action"]
+                for entry in context.runtime_tool_results
+            ],
+            [
+                "list_skills",
+                "read_asset_file",
+            ],
         )
         self.assertEqual(
             context.runtime_asset_results,

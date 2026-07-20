@@ -4862,7 +4862,40 @@ class RuntimeActionTests(unittest.TestCase):
             },
         )
 
-    def test_recorded_tool_results_replace_then_append_in_order(self):
+    def test_begin_tool_results_turn_keeps_previous_results(self):
+
+        class Context:
+            pass
+
+        context = Context()
+        context.runtime_tool_results = [
+            {
+                "kind": TOOL_RESULT_KIND_SEARCH,
+                "result": "<RESULTS>persisted result</RESULTS>",
+            },
+        ]
+        context.runtime_tool_results_turn_count = 1
+
+        begin_runtime_tool_results_turn(
+            context
+        )
+
+        self.assertEqual(
+            context.runtime_tool_results_turn_count,
+            0,
+        )
+        self.assertEqual(
+            len(context.runtime_tool_results),
+            1,
+        )
+        self.assertIn(
+            "persisted result",
+            build_tool_results_context(
+                context
+            ),
+        )
+
+    def test_recorded_tool_results_persist_then_append_in_order(self):
 
         class Context:
             pass
@@ -4906,9 +4939,13 @@ class RuntimeActionTests(unittest.TestCase):
             context
         )
 
-        self.assertNotIn(
+        self.assertIn(
             "old result",
             tool_results,
+        )
+        self.assertLess(
+            tool_results.index("old result"),
+            tool_results.index("file_manager"),
         )
         self.assertLess(
             tool_results.index("file_manager"),
@@ -4916,7 +4953,7 @@ class RuntimeActionTests(unittest.TestCase):
         )
         self.assertEqual(
             len(context.runtime_tool_results),
-            2,
+            3,
         )
 
     def test_failed_tool_results_dedupe_ignores_volatile_result_id(self):

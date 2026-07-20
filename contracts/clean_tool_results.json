@@ -4,7 +4,7 @@
     "description": "Allows the model to clean redundant tool results.",
     "runtime_action": "CLEAN_TOOL_RESULTS",
     "private_marker": "<CLEAN_TOOL_RESULTS>",
-    "triggers": [ "тул" ],
+    "triggers": [],
     "blockers": [],
     "effects": {
       "emit_followup": false

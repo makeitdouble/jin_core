@@ -48,7 +48,6 @@ from utils.tool_results import (
     TOOL_RESULT_KIND_SEARCH,
     TOOL_RESULT_KIND_SESSION,
     begin_runtime_tool_results_turn,
-    clear_runtime_tool_results,
     record_runtime_tool_result,
 )
 from utils.tool_results_context import (
@@ -1907,34 +1906,6 @@ class BrainNode(BaseNode):
                 ),
                 filter_runtime_actions=False,
                 preserve_runtime_action_markers=True,
-            )
-
-        sequence_action_count = len([
-            event
-            for event in getattr(
-                context,
-                "runtime_action_events",
-                [],
-            )[runtime_action_event_offset:]
-            if belongs_to_current_turn(
-                event
-            )
-        ])
-        current_turn_tool_result_count = int(
-            getattr(
-                context,
-                "runtime_tool_results_turn_count",
-                0,
-            )
-            or 0
-        )
-
-        if (
-            sequence_action_count > 1
-            and current_turn_tool_result_count > 0
-        ):
-            clear_runtime_tool_results(
-                context
             )
 
         state.brain_response = text or ""

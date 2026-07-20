@@ -29,6 +29,7 @@
     --chat-min-width: 200px;
     --scene-shade-alpha: 0.25;
     --jin-color: #70a9dc;
+    --scene-base-color: #09090b;
     --scene-jin-tint-alpha: 0.12;
 
     /* Вертикальный ритм чата: добавляет немного воздуха между ходами. */
@@ -40,6 +41,11 @@
 
 body {
     min-width: 900px;
+}
+
+main {
+    background-color: var(--scene-base-color);
+    transition: background-color 0.22s ease;
 }
 
 #scene-bg {

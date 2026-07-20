@@ -102,26 +102,6 @@ def record_runtime_tool_result(
         or 0
     )
 
-    if turn_count == 0:
-        tool_results.clear()
-
-        keeps_visible_skills = (
-            kind == TOOL_RESULT_KIND_ASSET
-            and isinstance(
-                result,
-                dict,
-            )
-            and result.get(
-                "action"
-            ) == "list_skills"
-        )
-        if not keeps_visible_skills:
-            setattr(
-                context,
-                "runtime_visible_skills_result",
-                {},
-            )
-
     entry = {
         "kind": str(
             kind

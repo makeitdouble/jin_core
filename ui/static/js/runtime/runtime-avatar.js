@@ -13,6 +13,9 @@
   const SNAPSHOT_GLOW_CLEAR_DELAY_MS = 360;
   const CENTER_COLOR_STEP_MS = 120;
 
+  // 0 = no scene recolor, 1 = current full-strength scene recolor.
+  const JIN_SCENE_COLOR_INTENSITY = 0.75;
+
   // Add custom high-priority word groups here. A matching line paints its ring
   // with the supplied color and softly affects rings at neighbouring radii.
   const AGGRESSIVE_PALETTE = [
@@ -996,7 +999,17 @@
 
     centerColor = color;
     avatarRoot.style.setProperty("--jin-avatar-center-color", centerColor);
+
+    const sceneColorIntensity = clamp(JIN_SCENE_COLOR_INTENSITY, 0, 1);
     document.documentElement.style.setProperty("--jin-color", centerColor);
+    document.documentElement.style.setProperty(
+      "--scene-base-color",
+      mixColors("#09090b", centerColor, sceneColorIntensity)
+    );
+    document.documentElement.style.setProperty(
+      "--scene-jin-tint-alpha",
+      String(0.12 * sceneColorIntensity)
+    );
 
     if (!svg) {
       renderAvatar(getLatestSnapshot(), {
