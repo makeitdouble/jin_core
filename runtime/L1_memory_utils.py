@@ -40,7 +40,7 @@ from runtime.memory_common import (
     safe_call,
 )
 
-from utils.runtime_actions import (
+from utils.actions import (
     generate_short_runtime_id,
 )
 

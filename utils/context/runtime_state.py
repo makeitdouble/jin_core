@@ -25,7 +25,7 @@ from runtime.runtime_context import (
     ContextContract,
     DEFAULT_JIN_COLOR,
 )
-from utils.runtime_actions import (
+from utils.actions import (
     normalize_jin_color_payload,
 )
 

@@ -2,7 +2,7 @@ import unittest
 from dataclasses import dataclass, field
 
 from clients.brain_client import build_brain_context_snapshot
-from utils.runtime_actions import RuntimeActionStreamFilter, extract_runtime_actions
+from utils.actions import RuntimeActionStreamFilter, extract_runtime_actions
 from utils.runtime_todo import (
     apply_runtime_todo_action_result,
     check_runtime_todo_item,

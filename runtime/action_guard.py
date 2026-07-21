@@ -21,7 +21,7 @@ from runtime.behavior_contract import (
 from utils.context.runtime_state import (
     format_runtime_trigger_words_message,
 )
-from utils.runtime_actions import (
+from utils.actions import (
     build_runtime_action_id,
     is_noop_jin_color_action,
     normalize_jin_color_payload,

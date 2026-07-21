@@ -9,16 +9,6 @@
     "effects": {
       "emit_followup": false
     },
-    "regexp": [
-      "<JIN_COLOR:",
-      "<INTERNAL_ACTION_JIN_COLOR:",
-      "<|tool_call>call:INTERNAL_ACTION_JIN_COLOR:",
-      "<tool_call>call:INTERNAL_ACTION_JIN_COLOR:",
-      "<|tool_call>call:JIN_COLOR:",
-      "<tool_call>call:JIN_COLOR:",
-      "call:INTERNAL_ACTION_JIN_COLOR:",
-      "call:JIN_COLOR:"
-    ],
     "rules": [
       "JIN_COLOR:",
       "Use JIN_COLOR to set single color for the live JIN avatar center point color and chat interface background tint.",

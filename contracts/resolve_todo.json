@@ -9,17 +9,6 @@
     "effects": {
       "emit_followup": true
     },
-    "regexp": [
-      "<RESOLVE_TODO:",
-      "<INTERNAL_ACTION_RESOLVE_TODO:",
-      "INTERNAL_ACTION_RESOLVE_TODO:",
-      "<|tool_call>call:INTERNAL_ACTION_RESOLVE_TODO:",
-      "<tool_call>call:INTERNAL_ACTION_RESOLVE_TODO:",
-      "<|tool_call>call:RESOLVE_TODO:",
-      "<tool_call>call:RESOLVE_TODO:",
-      "call:INTERNAL_ACTION_RESOLVE_TODO:",
-      "call:RESOLVE_TODO:"
-    ],
     "rules": [
       "RUNTIME TODO LEDGER:",
       "If <CURRENT_RUNTIME_TODO_LIST> is present in the context - NEVER EMIT ANOTHER TODO_LIST MARKER.Always list and check all available files before creating them.",

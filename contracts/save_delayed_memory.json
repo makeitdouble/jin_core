@@ -14,18 +14,6 @@
     "effects": {
       "emit_followup": true
     },
-    "regexp": [
-      "<SAVE_DELAYED_MEMORY_CONTENT>",
-      "</SAVE_DELAYED_MEMORY_CONTENT>",
-      "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>",
-      "</INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>",
-      "<|tool_call>call:INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT",
-      "<tool_call>call:INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT",
-      "<|tool_call>call:SAVE_DELAYED_MEMORY_CONTENT",
-      "<tool_call>call:SAVE_DELAYED_MEMORY_CONTENT",
-      "call:INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT",
-      "call:SAVE_DELAYED_MEMORY_CONTENT"
-    ],
     "rules": [
       "SAVE_DELAYED_MEMORY_CONTENT:",
       "Use this marker ONLY when the user explicitly asks to save in delayed memory a summary/digest/recap/report of the current state.",

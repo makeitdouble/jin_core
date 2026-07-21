@@ -264,35 +264,12 @@ def get_runtime_action_private_marker(runtime_action: str) -> str:
     return str(contract.get("private_marker", "") or "").strip()
 
 
-def get_runtime_action_marker_prefixes(runtime_action: str) -> tuple[str, ...]:
-    markers: list[str] = []
-    marker = get_runtime_action_private_marker(runtime_action)
-
-    if marker:
-        markers.append(marker)
-
-    for regexp in get_runtime_action_regexps(runtime_action):
-        if regexp not in markers:
-            markers.append(regexp)
-
-    return tuple(markers)
-
-
 def get_runtime_action_rules(runtime_action: str) -> tuple[str, ...]:
     _, contract = get_action_contract_for_runtime_action(runtime_action)
     return tuple(
         rule
         for rule in _as_list(contract.get("rules"))
         if isinstance(rule, str)
-    )
-
-
-def get_runtime_action_regexps(runtime_action: str) -> tuple[str, ...]:
-    _, contract = get_action_contract_for_runtime_action(runtime_action)
-    return tuple(
-        pattern
-        for pattern in _as_list(contract.get("regexp"))
-        if isinstance(pattern, str) and pattern
     )
 
 
@@ -348,16 +325,6 @@ def get_no_follow_up_internal_actions() -> tuple[str, ...]:
         marker = str(contract.get("private_marker", "") or "").strip()
         if marker:
             markers.append(marker)
-
-    return tuple(markers)
-
-
-def get_enabled_action_start_markers(enabled_actions=None) -> tuple[str, ...]:
-    enabled_action_names = normalize_runtime_action_names(enabled_actions)
-    markers = []
-
-    for action_name in enabled_action_names:
-        markers.extend(get_runtime_action_regexps(action_name))
 
     return tuple(markers)
 

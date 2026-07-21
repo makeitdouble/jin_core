@@ -82,7 +82,7 @@ from runtime.L1_memory_utils import (
     canonicalize_runtime_memory_key,
     remove_runtime_user_idle_lines,
 )
-from utils.runtime_actions import (
+from utils.actions import (
     is_active_memory_key,
     is_delayed_memory_report_id,
     refresh_active_memory_runtime_metadata,

@@ -46,7 +46,7 @@ from utils.tool_results import (
     begin_runtime_tool_results_turn,
     record_runtime_tool_result,
 )
-from utils.runtime_actions import (
+from utils.actions import (
     RuntimeActionCall,
     RuntimeActionRepetitionGuard,
     RuntimeActionStreamFilter,
@@ -1649,6 +1649,47 @@ class RuntimeActionTests(unittest.TestCase):
             "e2qxe7 | resolved",
         )
 
+    def test_resolve_and_remove_actions_share_payload_normalization(self):
+
+        cases = (
+            (
+                "<RESOLVE_ACTIVE_MEMORY: **abc123**>",
+                "RESOLVE_ACTIVE_MEMORY",
+                "abc123",
+            ),
+            (
+                "<RESOLVE_TODO: **todo-1**>",
+                "RESOLVE_TODO",
+                "todo-1",
+            ),
+            (
+                "<REMOVE_DELAYED_MEMORY: **d4e5f6**>",
+                "REMOVE_DELAYED_MEMORY",
+                "d4e5f6",
+            ),
+            (
+                "<REMOVE_SKILL: **wildcards**>",
+                "REMOVE_SKILL",
+                "wildcards",
+            ),
+        )
+
+        for marker, action_name, expected_payload in cases:
+            with self.subTest(action_name=action_name):
+                result = extract_runtime_actions(
+                    marker
+                )
+
+                self.assertEqual(
+                    result.actions,
+                    (
+                        RuntimeActionCall(
+                            name=action_name,
+                            payload=expected_payload,
+                        ),
+                    ),
+                )
+
     def test_extract_active_memory_resolve_slot_id_accepts_loose_payload_shape(self):
 
         self.assertEqual(
@@ -1691,7 +1732,7 @@ class RuntimeActionTests(unittest.TestCase):
     def test_ignores_placeholder_create_active_memory_marker(self):
 
         with patch(
-            "utils.runtime_actions.get_internal_actions_with_payload",
+            "utils.actions.action_payload_utils.get_internal_actions_with_payload",
             return_value=(
                 "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: DETAILS | PURPOSE | VALUE >",
             ),
@@ -1715,7 +1756,7 @@ class RuntimeActionTests(unittest.TestCase):
     def test_ignores_placeholder_from_all_payload_marker_bodies(self):
 
         with patch(
-            "utils.runtime_actions.get_internal_actions_with_payload",
+            "utils.actions.action_payload_utils.get_internal_actions_with_payload",
             return_value=(
                 "<INTERNAL_ACTION_WEB_SEARCH: plain text query >",
                 "<INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY: active_memory_id | STATUS >",

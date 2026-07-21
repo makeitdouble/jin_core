@@ -9,17 +9,6 @@
     "effects": {
       "emit_followup": true
     },
-    "regexp": [
-      "<RESOLVE_ACTIVE_MEMORY:",
-      "<INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY:",
-      "INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY:",
-      "<|tool_call>call:INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY:",
-      "<tool_call>call:INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY:",
-      "<|tool_call>call:RESOLVE_ACTIVE_MEMORY:",
-      "<tool_call>call:RESOLVE_ACTIVE_MEMORY:",
-      "call:INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY:",
-      "call:RESOLVE_ACTIVE_MEMORY:"
-    ],
     "rules": [
       "RESOLVE_ACTIVE_MEMORY:",
       "Emit fulfilled markers when user explicitly want to cancel/clear/resolve active memory conditions.",

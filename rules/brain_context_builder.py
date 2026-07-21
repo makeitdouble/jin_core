@@ -180,7 +180,7 @@ def _append_L1_runtime_memory(
     from utils.brain_client_utils import (
         indent_xml,
     )
-    from utils.runtime_actions import (
+    from utils.actions import (
         is_active_memory_record_paused,
         refresh_active_memory_runtime_metadata,
         remove_active_memory_entries,

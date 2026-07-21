@@ -52,7 +52,7 @@ from clients.response_extractor import (
     ResponseExtractor,
 )
 
-from utils.runtime_actions import (
+from utils.actions import (
     build_runtime_action_id,
     RuntimeActionRepetitionGuard,
     RuntimeActionResult,

@@ -9,23 +9,6 @@
     "effects": {
       "emit_followup": true
     },
-    "regexp": [
-      "<TODO_LIST>",
-      "</TODO_LIST>",
-      "<INTERNAL_ACTION_TODO_LIST>",
-      "</INTERNAL_ACTION_TODO_LIST>",
-      "<INTERNAL_ACTION_CREATE_TODO_LIST>",
-      "</INTERNAL_ACTION_CREATE_TODO_LIST>",
-      "<|tool_call>call:INTERNAL_ACTION_TODO_LIST",
-      "<tool_call>call:INTERNAL_ACTION_TODO_LIST",
-      "<|tool_call>call:INTERNAL_ACTION_CREATE_TODO_LIST",
-      "<tool_call>call:INTERNAL_ACTION_CREATE_TODO_LIST",
-      "<|tool_call>call:CREATE_TODO_LIST",
-      "<tool_call>call:CREATE_TODO_LIST",
-      "call:INTERNAL_ACTION_TODO_LIST",
-      "call:INTERNAL_ACTION_CREATE_TODO_LIST",
-      "call:CREATE_TODO_LIST"
-    ],
     "rules": [
       "RUNTIME TODO LEDGER:",
       "If <CURRENT_RUNTIME_TODO_LIST> is present in the context - NEVER EMIT ANOTHER TODO_LIST MARKER.Always list and check all available files before creating them.",
