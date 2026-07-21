@@ -7183,6 +7183,82 @@ class RuntimeActionTests(unittest.TestCase):
 
         asyncio.run(run_case())
 
+    def test_apply_runtime_action_calls_skips_redundant_jin_colors(self):
+
+        class Emitter:
+
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, payload):
+                self.events.append(payload)
+
+        async def run_case():
+            emitter = Emitter()
+            context = SimpleNamespace(
+                runtime_action_events=[
+                    {
+                        "name": "jin_color",
+                        "color": "#00f2ff",
+                        "payload": "#00f2ff",
+                    },
+                ],
+                runtime_search_calls=[],
+                runtime_appended_skills=[],
+                runtime_visible_skills_result={},
+                runtime_save_session_requested=False,
+                runtime_save_session_action_emitted=False,
+                runtime_skill_state_barrier_active=False,
+                logger=None,
+                emitter=emitter,
+            )
+            actions = (
+                RuntimeActionCall(
+                    name=RUNTIME_ACTION_JIN_COLOR,
+                    payload="#00f2ff",
+                ),
+                RuntimeActionCall(
+                    name=RUNTIME_ACTION_JIN_COLOR,
+                    payload="#ff00aa",
+                ),
+                RuntimeActionCall(
+                    name=RUNTIME_ACTION_JIN_COLOR,
+                    payload="#ff00aa",
+                ),
+            )
+
+            applied_count = await apply_runtime_action_calls(
+                context,
+                actions,
+                user_message="поставь сначала бирюзовый, затем розовый",
+            )
+
+            self.assertEqual(
+                applied_count,
+                1,
+            )
+            self.assertEqual(
+                [
+                    event.get("payload")
+                    for event in context.runtime_action_events
+                ],
+                [
+                    "#00f2ff",
+                    "#ff00aa",
+                ],
+            )
+            self.assertEqual(
+                [
+                    event.get("color")
+                    for event in emitter.events
+                ],
+                [
+                    "#ff00aa",
+                ],
+            )
+
+        asyncio.run(run_case())
+
     def test_apply_runtime_action_calls_rejects_jin_color_without_trigger_or_confirmation(self):
 
         class Emitter:

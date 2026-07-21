@@ -1707,6 +1707,87 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             "#ff0000",
         )
 
+    async def test_jin_color_same_as_current_skips_guard_and_runtime_bubble(self):
+
+        state = {
+            "generation_continued": False,
+        }
+
+        async def color_generator():
+
+            yield {
+                "type": "content",
+                "content": "<JIN_COLOR: #ff0000>",
+            }
+
+            state["generation_continued"] = True
+
+            yield {
+                "type": "content",
+                "content": "generation continues",
+            }
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            active_streams={},
+            runtime_action_events=[
+                {
+                    "name": "jin_color",
+                    "color": "#ff0000",
+                    "payload": "#ff0000",
+                },
+            ],
+            runtime_usage_events=[],
+            runtime_asset_results=[],
+            runtime_delayed_memory_results=[],
+            runtime_session_action_history=[],
+            runtime_action_guard_confirmations={},
+            delayed_memory_reports={},
+            active_memory_records=[],
+            runtime_turn_user_message="просто продолжай",
+            runtime_current_turn_id="turn_color_same_as_current",
+            runtime_turn_started_at=0,
+            session_id="session-1",
+            timestamp="2026-07-21T01:00:00",
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=settings.SERVICE_MODEL_UID,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            runtime_actions={
+                "CAN_JIN_COLOR": True,
+            },
+        )
+
+        await stream.run(
+            color_generator()
+        )
+
+        self.assertTrue(
+            state["generation_continued"],
+        )
+        self.assertEqual(
+            [
+                event
+                for event in context.emitter.events
+                if event.get("type")
+                in {
+                    "runtime_action",
+                    "runtime_action_guard_confirmation",
+                }
+            ],
+            [],
+        )
+        self.assertEqual(
+            len(context.runtime_action_events),
+            1,
+        )
+
     async def test_matching_blocker_skips_action_without_confirmation(self):
 
         async def save_session_generator():

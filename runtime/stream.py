@@ -23,6 +23,7 @@ from utils.tokens import (
 )
 from utils.runtime_actions import (
     build_runtime_action_id,
+    is_noop_jin_color_action,
     normalize_jin_color_payload,
     RuntimeActionRepetitionGuard,
     RuntimeActionStreamFilter,
@@ -615,11 +616,32 @@ class RuntimeStream:
         result,
     ) -> str | None:
 
-        for action in getattr(
-            result,
-            "actions",
-            (),
-        ):
+        started_actions = tuple(
+            action
+            for action in getattr(
+                result,
+                "started_actions",
+                (),
+            )
+            if not is_noop_jin_color_action(
+                self.context,
+                action,
+            )
+        )
+        actions = tuple(
+            action
+            for action in getattr(
+                result,
+                "actions",
+                (),
+            )
+            if not is_noop_jin_color_action(
+                self.context,
+                action,
+            )
+        )
+
+        for action in actions:
             if (
                 action.name
                 == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
@@ -638,19 +660,15 @@ class RuntimeStream:
             ):
                 self.delayed_memory_action_payload = str(marker)
 
-        if getattr(
-            result,
-            "started_actions",
-            (),
-        ):
+        if started_actions:
             await self.emit_started_runtime_actions(
-                result.started_actions,
+                started_actions,
             )
             await self.confirm_started_runtime_action_guards(
-                result.started_actions,
+                started_actions,
             )
 
-        if result.actions:
+        if actions:
             from utils.brain_client_utils import (
                 apply_runtime_action_calls,
                 log_runtime_action_marker_removals,
@@ -664,12 +682,12 @@ class RuntimeStream:
 
             idle_actions = tuple(
                 action
-                for action in result.actions
+                for action in actions
                 if action.name == RUNTIME_ACTION_IDLE
             )
             immediate_actions = tuple(
                 action
-                for action in result.actions
+                for action in actions
                 if action.name != RUNTIME_ACTION_IDLE
             )
             self.pending_idle_actions.extend(

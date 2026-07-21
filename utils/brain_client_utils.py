@@ -99,6 +99,7 @@ from utils.runtime_actions import (
     get_create_active_memory_marker_fields,
     is_delayed_memory_report_id,
     is_active_memory_record_paused,
+    get_applied_jin_color,
     parse_delayed_memory_content_payload,
     parse_idle_seconds,
     normalize_jin_color_payload,
@@ -2417,6 +2418,9 @@ async def apply_runtime_action_calls(
         action.name in skill_state_action_names
         for action in actions
     )
+    current_jin_color = get_applied_jin_color(
+        context
+    )
 
     if (
         has_skill_state_action
@@ -2440,6 +2444,19 @@ async def apply_runtime_action_calls(
     )
 
     for action in actions:
+
+        jin_color = ""
+
+        if action.name == RUNTIME_ACTION_JIN_COLOR:
+            jin_color = normalize_jin_color_payload(
+                action.payload
+            )
+
+            if (
+                not jin_color
+                or jin_color == current_jin_color
+            ):
+                continue
 
         action_event_name = action.name.lower()
         action_guard_confirmed = id(action) in confirmed_action_ids
@@ -2577,12 +2594,7 @@ async def apply_runtime_action_calls(
             continue
 
         if action.name == RUNTIME_ACTION_JIN_COLOR:
-            color = normalize_jin_color_payload(
-                action.payload
-            )
-            if not color:
-                continue
-
+            current_jin_color = jin_color
             accepted_action_names.add(
                 action_event_name
             )

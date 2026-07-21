@@ -23,6 +23,7 @@ from utils.context.runtime_state import (
 )
 from utils.runtime_actions import (
     build_runtime_action_id,
+    is_noop_jin_color_action,
     normalize_jin_color_payload,
 )
 
@@ -207,6 +208,12 @@ async def confirm_runtime_action_guards(
     action_display_ids: dict[int, str] = {}
 
     for action in actions:
+        if is_noop_jin_color_action(
+            context,
+            action,
+        ):
+            continue
+
         guard_name = get_action_guard_name_for_runtime_action(
             action.name
         )
