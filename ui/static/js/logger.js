@@ -1505,10 +1505,19 @@ function normalizeSessionActionParts(
                 ))
             : [];
 
+          const count = Math.max(
+            0,
+            Number.parseInt(
+              part.count || 0,
+              10
+            ) || 0
+          );
+
           return {
             text,
             detail,
             colors,
+            count,
             cancelled:
               Boolean(part.cancelled),
           };
@@ -1540,6 +1549,7 @@ function normalizeSessionActionParts(
       text,
       detail: "",
       colors: [],
+      count: 0,
       cancelled: false,
     }];
   }
@@ -1560,6 +1570,7 @@ function normalizeSessionActionParts(
     text: visibleText || text,
     detail: visibleText ? detail : "",
     colors: [],
+    count: 0,
     cancelled: false,
   }];
 }
@@ -1676,11 +1687,13 @@ function buildSessionActionColorSwatches(
     const swatch =
       document.createElement("span");
 
-    swatch.textContent =
-      "■";
+    swatch.className =
+      "session-action-color-swatch";
 
-    swatch.style.color =
-      color;
+    swatch.style.setProperty(
+      "--session-action-color",
+      color
+    );
 
     swatch.title =
       color;
@@ -1756,12 +1769,27 @@ function buildSessionActionRow(
       actionName
     );
 
+    if (part.count > 0) {
+      const count =
+        document.createElement("span");
+
+      count.textContent =
+        `(${part.count})`;
+      count.className =
+        "opacity-70";
+
+      action.appendChild(
+        count
+      );
+    }
+
     if (part.detail) {
       action.title =
         part.detail;
 
-      action.className =
-        "cursor-help";
+      action.classList.add(
+        "cursor-help"
+      );
     }
 
     row.appendChild(
@@ -2240,6 +2268,7 @@ function markSessionActionCancelled(
         text: part.text,
         detail: part.detail,
         colors: part.colors,
+        count: part.count,
         cancelled: part.cancelled,
       })),
     }));

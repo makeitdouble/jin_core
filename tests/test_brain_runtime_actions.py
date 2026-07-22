@@ -708,6 +708,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             [
                 {
                     "text": "WEB_SEARCH",
+                    "count": 1,
                 },
                 {
                     "text": "CREATE_ACTIVE_MEMORY",
@@ -715,6 +716,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 },
                 {
                     "text": "LIST_SKILLS",
+                    "count": 1,
                 },
             ],
         )
@@ -961,6 +963,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                         "#ff0000",
                         "#00ff00",
                     ],
+                    "count": 3,
                 },
             ],
         )
@@ -977,6 +980,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                         "#ff0000",
                         "#00ff00",
                     ],
+                    "count": 3,
                 },
             ],
         )

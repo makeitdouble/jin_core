@@ -12,23 +12,28 @@ CONTEXT_LIMIT_RECOVERY_MESSAGE = (
 )
 
 ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE = (
-    "Action failed. User rejected an action and didn't provide any of "
+    "CONFIRMED: NO\n"
+    "DO NOT REPEAT THIS ACTION! User explicitly rejected it and didn't provide correct spelling in any of "
     "trigger words: {trigger_words}"
 )
 
 ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE = (
+    "CONFIRMED: YES\n"
     "User accepted an action and didn't provide any of action trigger "
     "words: {trigger_words}"
 )
 
 ACTION_BLOCKED_TRIGGER_WORD_MESSAGE = (
-    "Action failed. Blocked trigger word: {blocked_trigger_word}"
+    "Action failed. DO NOT REPEAT THIS ACTION! Blocked trigger word: {blocked_trigger_word}"
 )
 
 IDLE_FOLLOWUP_MESSAGE = (
     "This is a follow-up tick from an IDLE timer JIN chose to set.\n"
+    "MANDATORY: DO NOT REPEAT ACTIONS NEEDED FOR SEQUENCE_ORIGIN_REQUEST "
+    "WHEN action already done in current sequence "
+    "OR action already listed inside CURRENT_SEQUENCE\n"
     "Timer metadata is provided in TOOLS_RESULTS. Continue the existing "
-    "sequence from SEQUENCE_ORIGIN_REQUEST and CURRENT_SEQUENCE.\n"
+    "sequence and non-executed actions derived from SEQUENCE_ORIGIN_REQUEST and CURRENT_SEQUENCE.\n"
 )
 
 RUNTIME_ACTIONS_RULES = (

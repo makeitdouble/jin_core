@@ -2367,7 +2367,6 @@ async def apply_runtime_action_calls(
     list_delayed_memory_seen = False
     list_skills_seen = False
     hide_skills_seen = False
-    clean_tool_results_seen = False
     resolved_user_message = resolve_runtime_action_user_message(
         context,
         user_message,
@@ -2810,12 +2809,6 @@ async def apply_runtime_action_calls(
                 continue
 
             hide_skills_seen = True
-
-        if action.name == RUNTIME_ACTION_CLEAN_TOOL_RESULTS:
-            if clean_tool_results_seen:
-                continue
-
-            clean_tool_results_seen = True
 
         if action.name == RUNTIME_ACTION_APPEND_SKILL:
             requested_skill = normalize_skill_name(
@@ -3435,12 +3428,13 @@ async def apply_runtime_action_calls(
         )
 
         if emit is not None:
-            await emit(with_action_context({
-                "type": "runtime_action",
-                "action": "clean_tool_results",
-                "status": "completed",
-                "text": "Tool results cleared",
-            }))
+            for _action in clean_tool_result_actions:
+                await emit(with_action_context({
+                    "type": "runtime_action",
+                    "action": "clean_tool_results",
+                    "status": "completed",
+                    "text": "Tool results cleared",
+                }))
 
     if rejected_active_memory_results:
         emitter = getattr(

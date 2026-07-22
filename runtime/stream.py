@@ -54,6 +54,7 @@ from utils.session_actions_history import (
     build_reasoning_loop_history_text,
     compact_session_action_history_since,
     emit_session_actions_update,
+    replace_session_action_history_since,
     record_session_action_history,
 )
 from utils.tool_results import (
@@ -132,6 +133,7 @@ class RuntimeStream:
         self.rejected_action_guard_names = set()
         self.action_guard_confirmation_ids = {}
         self.jin_color_action_id = ""
+        self.observed_action_markers = []
         self.delayed_memory_action_payload = ""
         self.raw_content_parts = []
         self.pending_idle_actions = []
@@ -611,10 +613,84 @@ class RuntimeStream:
             result,
         )
 
+    async def emit_repeated_jin_color_summary(
+        self,
+    ) -> None:
+
+        color_actions = []
+        colors = []
+
+        for action in self.observed_action_markers:
+            if getattr(
+                action,
+                "name",
+                "",
+            ) != RUNTIME_ACTION_JIN_COLOR:
+                continue
+
+            color = normalize_jin_color_payload(
+                getattr(
+                    action,
+                    "payload",
+                    "",
+                )
+            )
+
+            if not color:
+                continue
+
+            color_actions.append(
+                action
+            )
+
+            if color not in colors:
+                colors.append(
+                    color
+                )
+
+        if not color_actions:
+            return
+
+        emitter = getattr(
+            self.context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is None:
+            return
+
+        await emit({
+            "type": "runtime_action",
+            "action": "jin_color",
+            "id": self.get_runtime_action_display_id(
+                color_actions[-1]
+            ),
+            "status": "summary",
+            "text": "JIN_COLOR",
+            "color": colors[-1],
+            "payload": colors[-1],
+            "colors": colors,
+            "marker_count": len(color_actions),
+        })
+
     async def apply_runtime_action_filter_result(
         self,
         result,
     ) -> str | None:
+
+        self.observed_action_markers.extend(
+            getattr(
+                result,
+                "observed_actions",
+                (),
+            )
+        )
 
         started_actions = tuple(
             action
@@ -746,6 +822,7 @@ class RuntimeStream:
             False,
         ):
             self.marker_repetition_aborted = True
+            await self.emit_repeated_jin_color_summary()
             reason = getattr(
                 result,
                 "marker_repetition_reason",
@@ -1967,6 +2044,33 @@ class RuntimeStream:
                     session_action_history_start,
                 )
             )
+
+            history = getattr(
+                self.context,
+                "runtime_session_action_history",
+                [],
+            )
+            if (
+                self.marker_repetition_aborted
+                and isinstance(history, list)
+                and len(history) == session_action_history_start
+            ):
+                repeated_colors = [
+                    action
+                    for action in self.observed_action_markers
+                    if getattr(
+                        action,
+                        "name",
+                        "",
+                    ) == RUNTIME_ACTION_JIN_COLOR
+                ]
+                if repeated_colors:
+                    replace_session_action_history_since(
+                        self.context,
+                        session_action_history_start,
+                        repeated_colors,
+                    )
+                    history_compacted = True
 
             if history_compacted:
                 with contextlib.suppress(

@@ -1788,6 +1788,7 @@ function handleSocketMessage(event) {
 
     const shouldLogRuntimeAction =
       ![
+        "summary",
         "started",
         "start",
         "pending",
@@ -1818,6 +1819,15 @@ function handleSocketMessage(event) {
             color,
             detail: color,
             reuseCompleted: true,
+            aggregateMarkers: true,
+            incrementAggregate:
+              ["completed", "complete", "done"].includes(status),
+            markerCount:
+              Number(data.marker_count || 0),
+            colors:
+              Array.isArray(data.colors)
+                ? data.colors
+                : [],
             contextSnapshot:
               data.context || null,
             guardConfirmationId,
@@ -1953,10 +1963,14 @@ function handleSocketMessage(event) {
           action,
           displayText,
           {
-          id: data.id || "",
-          guardConfirmationId,
-          updateExisting:
-            action !== "list_skills",
+            id: data.id || "",
+            guardConfirmationId,
+            updateExisting:
+              action !== "list_skills",
+            aggregateMarkers:
+              action === "clean_tool_results",
+            reuseCompleted:
+              action === "clean_tool_results",
             contextSnapshot:
               data.context || null,
             assetResult:

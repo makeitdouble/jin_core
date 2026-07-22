@@ -228,3 +228,12 @@
     text-decoration-thickness: 1px;
     text-decoration-color: currentColor;
 }
+
+.jin-runtime-action-count {
+    margin-left: 0.45em;
+    opacity: 0.72;
+}
+
+.jin-runtime-action-color-row .jin-runtime-action-count {
+    margin-left: 0;
+}

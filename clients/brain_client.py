@@ -11,6 +11,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_HIDE_SKILLS,
     RUNTIME_ACTION_IDLE,
+    RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
@@ -36,6 +37,7 @@ from utils.brain_client_utils import (
 )
 from runtime.action_guard import (
     confirm_runtime_action_guards,
+    get_action_guard_display_id,
 )
 from utils.session_actions_history import (
     build_asset_action_history_text,
@@ -58,6 +60,7 @@ from utils.actions import (
     RuntimeActionResult,
     RuntimeActionStreamFilter,
     extract_runtime_actions,
+    normalize_jin_color_payload,
 )
 from utils.runtime_todo import (
     has_active_runtime_todo,
@@ -665,6 +668,81 @@ async def ask_brain_stream(
                     action
                 )
 
+    async def emit_repeated_jin_color_summary(
+        result,
+    ) -> None:
+
+        if not getattr(
+            result,
+            "marker_repetition_exceeded",
+            False,
+        ):
+            return
+
+        color_actions = []
+        colors = []
+
+        for action in observed_action_markers:
+            if getattr(
+                action,
+                "name",
+                "",
+            ) != RUNTIME_ACTION_JIN_COLOR:
+                continue
+
+            color = normalize_jin_color_payload(
+                getattr(
+                    action,
+                    "payload",
+                    "",
+                )
+            )
+
+            if not color:
+                continue
+
+            color_actions.append(
+                action
+            )
+
+            if color not in colors:
+                colors.append(
+                    color
+                )
+
+        if not color_actions:
+            return
+
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is None:
+            return
+
+        await emit({
+            "type": "runtime_action",
+            "action": "jin_color",
+            "id": get_action_guard_display_id(
+                context,
+                color_actions[-1],
+                action_guard_display_state,
+            ),
+            "status": "summary",
+            "text": "JIN_COLOR",
+            "color": colors[-1],
+            "payload": colors[-1],
+            "colors": colors,
+            "marker_count": len(color_actions),
+        })
+
     async def finalize_session_action_history() -> None:
 
         nonlocal session_action_history_finalized
@@ -1001,6 +1079,9 @@ async def ask_brain_stream(
             return False
 
         stop_for_runtime_action = True
+        await emit_repeated_jin_color_summary(
+            result
+        )
         reason = (
             getattr(
                 result,

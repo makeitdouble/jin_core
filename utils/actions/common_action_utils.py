@@ -72,6 +72,12 @@ CLOSE_TAG_RUNTIME_ACTIONS = frozenset(
     get_close_tag_runtime_actions()
 )
 
+REPEATABLE_RUNTIME_ACTIONS = frozenset({
+    RUNTIME_ACTION_IDLE,
+    RUNTIME_ACTION_JIN_COLOR,
+    RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+})
+
 
 def _runtime_action_marker_config(
     action_name: str,
@@ -176,37 +182,29 @@ def build_runtime_action_id(
     )
 
 
+MAX_RUNTIME_ACTION_MARKERS_PER_MESSAGE = 5
+
+
 class RuntimeActionRepetitionGuard:
 
     def __init__(
         self,
         *,
-        max_consecutive: int = 3,
-        max_per_message: int = 5,
+        max_consecutive: int | None = None,
+        max_per_message: int = MAX_RUNTIME_ACTION_MARKERS_PER_MESSAGE,
     ):
+        # ``max_consecutive`` remains accepted for compatibility with callers,
+        # but the guard intentionally counts the same marker name across the
+        # whole message. Payload changes and unrelated markers between repeats
+        # must not let a marker loop escape validation.
         self.max_consecutive = max_consecutive
-        self.max_per_message = max_per_message
+        self.max_per_message = max(
+            1,
+            int(max_per_message or MAX_RUNTIME_ACTION_MARKERS_PER_MESSAGE),
+        )
         self.counts = {}
-        self.last_key = None
-        self.consecutive_count = 0
         self.triggered = False
         self.reason = ""
-
-    @staticmethod
-    def marker_key(
-        action: RuntimeActionCall,
-    ) -> tuple[str, str]:
-        payload = " ".join(
-            str(
-                action.payload
-                or ""
-            ).split()
-        ).strip().casefold()
-
-        return (
-            action.name,
-            payload,
-        )
 
     def record(
         self,
@@ -216,45 +214,20 @@ class RuntimeActionRepetitionGuard:
         if self.triggered:
             return True
 
-        # Repeated IDLE and JIN_COLOR markers are valid sequencing
-        # primitives. IDLE arms independent timers; JIN_COLOR drives a
-        # lightweight visual transition where the final repeated color still
-        # matters when it appears after another color.
-        if action.name in (
-            RUNTIME_ACTION_IDLE,
-            RUNTIME_ACTION_JIN_COLOR,
-        ):
-            return False
-
-        key = self.marker_key(
-            action
+        marker_name = normalize_runtime_action_name(
+            action.name
         )
-
         count = self.counts.get(
-            key,
+            marker_name,
             0,
         ) + 1
-        self.counts[key] = count
+        self.counts[marker_name] = count
 
-        if key == self.last_key:
-            self.consecutive_count += 1
-        else:
-            self.last_key = key
-            self.consecutive_count = 1
-
-        if self.consecutive_count > self.max_consecutive:
+        if count >= self.max_per_message:
             self.triggered = True
             self.reason = (
-                "runtime action marker repeated "
-                f"{self.consecutive_count} times in a row"
-            )
-            return True
-
-        if count > self.max_per_message:
-            self.triggered = True
-            self.reason = (
-                "runtime action marker repeated "
-                f"{count} times in one message"
+                f"runtime action marker {marker_name} reached "
+                f"{count} occurrences in one message"
             )
             return True
 
@@ -800,7 +773,7 @@ def extract_runtime_actions(
         ):
             marker_repetition_exceeded = True
             marker_repetition_reason = repetition_guard.reason
-            return raw_marker
+            return ""
 
         if (
             preserve_action_marker is not None
@@ -823,16 +796,10 @@ def extract_runtime_actions(
             )
 
             if (
-                action.name in (
-                    RUNTIME_ACTION_IDLE,
-                    RUNTIME_ACTION_JIN_COLOR,
-                )
+                action.name in REPEATABLE_RUNTIME_ACTIONS
                 or action_key not in seen_action_keys
             ):
-                if action.name not in (
-                    RUNTIME_ACTION_IDLE,
-                    RUNTIME_ACTION_JIN_COLOR,
-                ):
+                if action.name not in REPEATABLE_RUNTIME_ACTIONS:
                     seen_action_keys.add(
                         action_key
                     )
@@ -898,7 +865,7 @@ def extract_runtime_actions(
             ):
                 marker_repetition_exceeded = True
                 marker_repetition_reason = repetition_guard.reason
-                return raw_marker
+                return ""
 
         should_preserve_marker = False
 

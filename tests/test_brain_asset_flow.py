@@ -200,6 +200,72 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             prompt,
         )
 
+    async def test_followup_places_confirm_result_inside_tool_results(self):
+
+        messages = (
+            (
+                "User accepted an action and didn't provide any of action "
+                "trigger words: save session"
+            ),
+            (
+                "Action failed. User rejected an action and didn't provide "
+                "any of trigger words: save session"
+            ),
+        )
+
+        followup_message = (
+            "This is follow-up tick for JIN latest action: "
+            "save_session.\n"
+            "Requested and available information provided in tool "
+            "results section."
+        )
+
+        for message in messages:
+            with self.subTest(message=message):
+                context = SimpleNamespace(
+                    runtime_action_failure_followup_messages=[message],
+                    runtime_recent_turns=[],
+                    runtime_appended_delayed_memory={},
+                )
+
+                prompt = BrainNode.build_followup_system_prompt(
+                    "<TOOL_RESULTS>\n</TOOL_RESULTS>",
+                    "save the session",
+                    context=context,
+                    latest_action="save_session",
+                )
+
+                tools_start = prompt.index("<TOOLS_RESULTS>")
+                confirm_start = prompt.index("<CONFIRM_RESULT>")
+                confirm_end = prompt.index("</CONFIRM_RESULT>")
+                tools_end = prompt.index("</TOOLS_RESULTS>")
+                followup_start = prompt.index(followup_message)
+
+                self.assertLess(
+                    tools_start,
+                    confirm_start,
+                )
+                self.assertLess(
+                    confirm_start,
+                    confirm_end,
+                )
+                self.assertLess(
+                    confirm_end,
+                    tools_end,
+                )
+                self.assertLess(
+                    tools_end,
+                    followup_start,
+                )
+                self.assertEqual(
+                    prompt.count("<CONFIRM_RESULT>"),
+                    1,
+                )
+                self.assertEqual(
+                    context.runtime_action_failure_followup_messages,
+                    [],
+                )
+
     async def test_sequence_origin_request_marks_past_user_message(self):
 
         context = build_sequence_origin_request_context(

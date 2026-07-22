@@ -1707,6 +1707,93 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             "#ff0000",
         )
 
+    async def test_jin_color_repetition_reports_total_marker_count(self):
+
+        async def color_generator():
+
+            yield {
+                "type": "content",
+                "content": "".join(
+                    f"<JIN_COLOR: {color}>"
+                    for _ in range(5)
+                    for color in (
+                        "#0000ff",
+                        "#ff0000",
+                    )
+                ),
+            }
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            active_streams={},
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_asset_results=[],
+            runtime_delayed_memory_results=[],
+            runtime_session_action_history=[],
+            runtime_action_guard_confirmations={},
+            delayed_memory_reports={},
+            active_memory_records=[],
+            runtime_turn_user_message="мигай цветом как полиция",
+            runtime_current_turn_id="turn_color_repetition",
+            runtime_turn_started_at=0,
+            session_id="session-1",
+            timestamp="2026-07-20T18:00:00",
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=settings.SERVICE_MODEL_UID,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            runtime_actions={
+                "CAN_JIN_COLOR": True,
+            },
+        )
+
+        await stream.run(
+            color_generator()
+        )
+
+        summaries = [
+            event
+            for event in context.emitter.events
+            if (
+                event.get("type") == "runtime_action"
+                and event.get("action") == "jin_color"
+                and event.get("status") == "summary"
+            )
+        ]
+
+        self.assertTrue(
+            stream.marker_repetition_aborted,
+        )
+        self.assertEqual(
+            summaries[-1]["marker_count"],
+            10,
+        )
+        self.assertEqual(
+            summaries[-1]["colors"],
+            [
+                "#0000ff",
+                "#ff0000",
+            ],
+        )
+        self.assertEqual(
+            context.runtime_session_action_history[-1]["parts"],
+            [{
+                "text": "JIN_COLOR",
+                "colors": [
+                    "#0000ff",
+                    "#ff0000",
+                ],
+                "count": 10,
+            }],
+        )
+
     async def test_jin_color_same_as_current_skips_guard_and_runtime_bubble(self):
 
         state = {

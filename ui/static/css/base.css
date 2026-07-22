@@ -288,6 +288,15 @@ main.panels-collapsed-2 #scene-shade {
     color: #d08a8a !important;
 }
 
+.session-action-color-swatch {
+    display: inline-block;
+    width: 0.62rem;
+    height: 0.62rem;
+    flex: 0 0 auto;
+    background: var(--session-action-color);
+    vertical-align: middle;
+}
+
 .runtime-memory-header {
     flex: 0 0 32px;
     height: 32px;

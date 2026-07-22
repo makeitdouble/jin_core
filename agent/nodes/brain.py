@@ -218,7 +218,7 @@ def build_reasoning_recovery_context() -> str:
     )
 
 
-def build_runtime_action_failure_context(
+def consume_confirm_result_context(
         context,
 ) -> str:
 
@@ -233,14 +233,16 @@ def build_runtime_action_failure_context(
         if str(message or "").strip()
     ]
 
+    context.runtime_action_failure_followup_messages = []
+
     if not messages:
         return ""
 
     return (
-        "<RUNTIME_ACTION_FAILURE>\n"
+        "<CONFIRM_RESULT>\n"
         + "\n".join(messages)
         + ".\n"
-        "</RUNTIME_ACTION_FAILURE>"
+        "</CONFIRM_RESULT>"
     )
 
 
@@ -586,6 +588,19 @@ class BrainNode(BaseNode):
             )
         )
 
+        confirm_result_context = (
+            consume_confirm_result_context(
+                context
+            )
+            if context is not None
+            else ""
+        )
+
+        if confirm_result_context:
+            tool_result_blocks.append(
+                confirm_result_context
+            )
+
         sections = [
             build_tools_results_context(
                 tool_result_blocks
@@ -620,16 +635,8 @@ class BrainNode(BaseNode):
                 False,
             )
         ):
-            failure_context = build_runtime_action_failure_context(
-                context
-            )
-            if failure_context:
-                sections.append(
-                    failure_context
-                )
             context.runtime_delayed_memory_save_rejected_pending = False
             context.runtime_delayed_memory_save_rejected_title = ""
-            context.runtime_action_failure_followup_messages = []
 
         if (
             context is not None

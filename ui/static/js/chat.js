@@ -1940,6 +1940,145 @@ function normalizeRuntimeActionColor(value) {
 
 }
 
+function shouldAggregateRuntimeAction(
+  _action,
+  options = {}
+) {
+
+  return options.aggregateMarkers === true;
+
+}
+
+function readRuntimeActionAggregateColors(
+  row
+) {
+
+  if (!row) {
+    return [];
+  }
+
+  return String(
+    row.dataset.runtimeActionColors || ""
+  ).split(",").map(
+    normalizeRuntimeActionColor
+  ).filter((color, index, colors) => (
+    color
+    && colors.indexOf(color) === index
+  ));
+
+}
+
+function applyRuntimeActionAggregateState(
+  row,
+  action,
+  options = {}
+) {
+
+  if (
+    !row
+    || !shouldAggregateRuntimeAction(
+      action,
+      options
+    )
+  ) {
+    return options;
+  }
+
+  const currentMarkerCount = Math.max(
+    0,
+    Number.parseInt(
+      row.dataset.runtimeActionMarkerCount || "0",
+      10
+    ) || 0
+  );
+  const explicitMarkerCount = Math.max(
+    0,
+    Number.parseInt(
+      options.markerCount || 0,
+      10
+    ) || 0
+  );
+  const markerCount = explicitMarkerCount > 0
+    ? Math.max(
+        currentMarkerCount,
+        explicitMarkerCount
+      )
+    : (
+        options.incrementAggregate === false
+        && currentMarkerCount > 0
+      )
+      ? currentMarkerCount
+      : currentMarkerCount + 1;
+
+  const colors =
+    readRuntimeActionAggregateColors(
+      row
+    );
+
+  if (Array.isArray(options.colors)) {
+    options.colors
+      .map(normalizeRuntimeActionColor)
+      .filter(Boolean)
+      .forEach((aggregateColor) => {
+        if (!colors.includes(aggregateColor)) {
+          colors.push(aggregateColor);
+        }
+      });
+  }
+
+  const color =
+    normalizeRuntimeActionColor(
+      options.color
+      || options.payload
+      || options.detail
+    );
+
+  if (color && !colors.includes(color)) {
+    colors.push(color);
+  }
+
+  row.dataset.runtimeActionMarkerCount =
+    String(markerCount);
+  row.dataset.runtimeActionColors =
+    colors.join(",");
+
+  return {
+    ...options,
+    aggregateMarkers: true,
+    markerCount,
+    colors,
+  };
+
+}
+
+function appendRuntimeActionMarkerCount(
+  label,
+  count
+) {
+
+  const markerCount = Math.max(
+    0,
+    Number.parseInt(count || 0, 10) || 0
+  );
+
+  if (!label || markerCount < 1) {
+    return;
+  }
+
+  const countLabel =
+    document.createElement("span");
+
+  countLabel.className =
+    "jin-runtime-action-count";
+  countLabel.textContent =
+    `(${markerCount})`;
+
+  label.appendChild(
+    countLabel
+  );
+
+}
+
 function normalizeRuntimeActionLabelText(text) {
 
   return String(
@@ -2011,14 +2150,24 @@ function renderRuntimeActionLabel(
   }
 
   if (action === "jin_color") {
-    const color =
-      normalizeRuntimeActionColor(
-        options.color
-        || options.payload
-        || options.detail
-      );
+    const colors = Array.isArray(
+      options.colors
+    )
+      ? options.colors
+          .map(normalizeRuntimeActionColor)
+          .filter((color, index, values) => (
+            color
+            && values.indexOf(color) === index
+          ))
+      : [
+          normalizeRuntimeActionColor(
+            options.color
+            || options.payload
+            || options.detail
+          ),
+        ].filter(Boolean);
 
-    if (color) {
+    colors.forEach((color) => {
       const swatch =
         document.createElement("span");
 
@@ -2034,7 +2183,7 @@ function renderRuntimeActionLabel(
       label.appendChild(
         swatch
       );
-    }
+    });
 
     const name =
       document.createElement("span");
@@ -2046,6 +2195,10 @@ function renderRuntimeActionLabel(
 
     label.appendChild(
       name
+    );
+    appendRuntimeActionMarkerCount(
+      label,
+      options.markerCount
     );
     return;
   }
@@ -2063,6 +2216,13 @@ function renderRuntimeActionLabel(
   label.appendChild(
     name
   );
+
+  if (options.aggregateMarkers) {
+    appendRuntimeActionMarkerCount(
+      label,
+      options.markerCount
+    );
+  }
 
 }
 
@@ -2404,6 +2564,12 @@ function updateRuntimeActionRow(
     return false;
   }
 
+  options = applyRuntimeActionAggregateState(
+    row,
+    action,
+    options
+  );
+
   if (options.reviveExisting) {
     reviveRuntimeActionRow(
       row
@@ -2510,6 +2676,7 @@ function normalizeCompletedRuntimeActionLabel(
   if (
       row.dataset.runtimeAction
       === "jin_color"
+      || row.dataset.runtimeActionMarkerCount
   ) {
     return;
   }
@@ -2693,6 +2860,29 @@ function appendRuntimeAction(
     }
 
     if (
+        !existingRow
+        && shouldAggregateRuntimeAction(
+          action,
+          options
+        )
+    ) {
+      const rows = Array.from(
+        chatHistory.querySelectorAll(
+          `.jin-runtime-action-row[data-runtime-action="${action}"]`
+        )
+      ).reverse();
+
+      existingRow = rows.find((row) => (
+        row.dataset.runtimeActionTurn
+          === String(jinConversationTurnCounter)
+        && (
+          options.reuseCompleted
+          || row.dataset.runtimeActionCompleted !== "true"
+        )
+      ));
+    }
+
+    if (
         existingRow
         && updateRuntimeActionRow(
           existingRow,
@@ -2735,6 +2925,14 @@ function appendRuntimeAction(
 
   row.dataset.runtimeActionKey =
     actionKey || "";
+  row.dataset.runtimeActionTurn =
+    String(jinConversationTurnCounter);
+
+  options = applyRuntimeActionAggregateState(
+    row,
+    action,
+    options
+  );
 
   if (options.cancelled) {
     row.dataset.runtimeActionCancelled =

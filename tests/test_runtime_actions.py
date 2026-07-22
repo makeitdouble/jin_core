@@ -506,6 +506,24 @@ class RuntimeActionTests(unittest.TestCase):
             ),
         )
 
+    def test_repeated_clean_tool_results_markers_remain_countable(self):
+
+        result = extract_runtime_actions(
+            "<CLEAN_TOOL_RESULTS>" * 3,
+            enabled_actions=[
+                RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+            ],
+            repetition_guard=RuntimeActionRepetitionGuard(),
+        )
+
+        self.assertEqual(
+            len(result.actions),
+            3,
+        )
+        self.assertFalse(
+            result.marker_repetition_exceeded,
+        )
+
     def test_extracts_current_list_skills_marker(self):
 
         result = extract_runtime_actions(
@@ -2656,10 +2674,9 @@ class RuntimeActionTests(unittest.TestCase):
             1,
         )
 
-    def test_marker_repetition_guard_flags_consecutive_repeats(self):
+    def test_marker_repetition_guard_flags_fifth_marker(self):
 
         repetition_guard = RuntimeActionRepetitionGuard(
-            max_consecutive=3,
             max_per_message=5,
         )
         stream_filter = RuntimeActionStreamFilter(
@@ -2673,6 +2690,7 @@ class RuntimeActionTests(unittest.TestCase):
             "<INTERNAL_ACTION_APPEND_SKILL: wildcards>\n"
             "<INTERNAL_ACTION_APPEND_SKILL: wildcards>\n"
             "<INTERNAL_ACTION_APPEND_SKILL: wildcards>\n"
+            "<INTERNAL_ACTION_APPEND_SKILL: wildcards>\n"
             "<INTERNAL_ACTION_APPEND_SKILL: wildcards>"
         )
 
@@ -2680,14 +2698,13 @@ class RuntimeActionTests(unittest.TestCase):
             result.marker_repetition_exceeded,
         )
         self.assertIn(
-            "in a row",
+            "5 occurrences in one message",
             result.marker_repetition_reason,
         )
 
     def test_marker_repetition_guard_flags_message_repeats(self):
 
         repetition_guard = RuntimeActionRepetitionGuard(
-            max_consecutive=3,
             max_per_message=5,
         )
         stream_filter = RuntimeActionStreamFilter(
@@ -2717,6 +2734,36 @@ class RuntimeActionTests(unittest.TestCase):
         self.assertIn(
             "one message",
             result.marker_repetition_reason,
+        )
+
+    def test_marker_repetition_guard_keeps_total_observed_marker_count(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_JIN_COLOR",
+            ],
+            repetition_guard=RuntimeActionRepetitionGuard(
+                max_per_message=5,
+            ),
+        )
+
+        result = stream_filter.filter(
+            "".join(
+                f"<JIN_COLOR: {color}>"
+                for _ in range(5)
+                for color in (
+                    "#0000ff",
+                    "#ff0000",
+                )
+            )
+        )
+
+        self.assertTrue(
+            result.marker_repetition_exceeded,
+        )
+        self.assertEqual(
+            len(result.observed_actions),
+            10,
         )
 
     def test_apply_runtime_action_calls_stores_search_queries(self):
@@ -5121,17 +5168,18 @@ class RuntimeActionTests(unittest.TestCase):
         applied_count = asyncio.run(
             apply_runtime_action_calls(
                 context,
-                (
+                tuple(
                     RuntimeActionCall(
                         name=RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-                    ),
+                    )
+                    for _ in range(3)
                 ),
             )
         )
 
         self.assertEqual(
             applied_count,
-            1,
+            3,
         )
         self.assertEqual(
             context.runtime_tool_results,
@@ -5166,12 +5214,22 @@ class RuntimeActionTests(unittest.TestCase):
             {},
         )
         self.assertEqual(
-            context.runtime_action_events[-1]["name"],
-            "clean_tool_results",
+            [
+                event["name"]
+                for event in context.runtime_action_events
+            ],
+            [
+                "clean_tool_results",
+            ] * 3,
         )
         self.assertEqual(
-            context.emitter.events[-1]["action"],
-            "clean_tool_results",
+            [
+                event["action"]
+                for event in context.emitter.events
+            ],
+            [
+                "clean_tool_results",
+            ] * 3,
         )
 
     def test_append_delayed_memory_uses_appended_context_block(self):
@@ -7140,6 +7198,34 @@ class RuntimeActionTests(unittest.TestCase):
         )
         self.assertFalse(
             result.marker_repetition_exceeded
+        )
+
+    def test_jin_color_fifth_marker_stops_alternating_loop(self):
+
+        result = extract_runtime_actions(
+            (
+                "<JIN_COLOR: #0000ff>"
+                "<JIN_COLOR: #ffffff>"
+                "<JIN_COLOR: #0000ff>"
+                "<JIN_COLOR: #ffffff>"
+                "<JIN_COLOR: #0000ff>"
+            ),
+            enabled_actions=(
+                RUNTIME_ACTION_JIN_COLOR,
+            ),
+            repetition_guard=RuntimeActionRepetitionGuard(),
+        )
+
+        self.assertTrue(
+            result.marker_repetition_exceeded
+        )
+        self.assertEqual(
+            len(result.actions),
+            4,
+        )
+        self.assertNotIn(
+            "<JIN_COLOR",
+            result.text,
         )
 
     def test_normalize_jin_color_payload_rejects_bad_colors(self):
