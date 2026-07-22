@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from functools import lru_cache
 
 from contracts.rules_assembler import (
     RUNTIME_ACTION_APPEND_SKILL,
@@ -48,6 +49,7 @@ from .regexp_utils import (
     RuntimeActionRegexpMatch,
     compile_runtime_action_end_regexp,
     compile_runtime_action_start_regexp,
+    extract_private_marker_parts,
     find_runtime_action_matches,
     find_unclosed_runtime_action_start,
     get_runtime_action_start_markers,
@@ -93,11 +95,14 @@ def _runtime_action_marker_config(
 
 def _find_all_runtime_action_matches(
     text: str,
+    action_names=None,
 ) -> tuple[RuntimeActionRegexpMatch, ...]:
 
     matches = []
 
-    for action_name in KNOWN_RUNTIME_ACTIONS:
+    for action_name in normalize_runtime_action_names(
+        action_names
+    ):
         private_marker, close_tag = _runtime_action_marker_config(
             action_name
         )
@@ -923,7 +928,8 @@ def extract_runtime_actions(
     clean_text = _replace_runtime_action_matches(
         text,
         _find_all_runtime_action_matches(
-            text
+            text,
+            enabled_action_names,
         ),
         replace_runtime_action_marker,
     )
@@ -969,29 +975,83 @@ def _enabled_action_start_markers(
         markers
     )
 
+
+_MARKER_PREFIX_ANGLE = 1
+_MARKER_PREFIX_BARE = 2
+
+
+@lru_cache(maxsize=None)
+def _enabled_action_marker_prefix_index(
+    enabled_action_names: tuple[str, ...],
+):
+    """Build a reusable suffix lookup for streaming marker detection."""
+
+    prefix_flags_by_length: dict[int, dict[str, int]] = {}
+    max_length = 0
+
+    for marker in _enabled_action_start_markers(
+        enabled_action_names
+    ):
+        upper_marker = marker.upper()
+        marker_flag = (
+            _MARKER_PREFIX_ANGLE
+            if marker.startswith("<")
+            else _MARKER_PREFIX_BARE
+        )
+        max_length = max(
+            max_length,
+            len(upper_marker),
+        )
+
+        for length in range(
+            1,
+            len(upper_marker) + 1,
+        ):
+            # Closing tags are never stream starts. Kept for parity with the
+            # previous matcher if aliases are extended later.
+            if (
+                length == len(upper_marker)
+                and marker.startswith("</")
+            ):
+                continue
+
+            prefix = upper_marker[:length]
+            flags_for_length = prefix_flags_by_length.setdefault(
+                length,
+                {},
+            )
+            flags_for_length[prefix] = (
+                flags_for_length.get(prefix, 0)
+                | marker_flag
+            )
+
+    return (
+        max_length,
+        prefix_flags_by_length,
+    )
+
+
 def _trailing_marker_prefix_length(
     text: str,
     enabled_actions=None,
 ) -> int:
 
-    markers = _enabled_action_start_markers(
+    enabled_action_names = normalize_runtime_action_names(
         enabled_actions
     )
-    upper_text = text.upper()
-    upper_markers = tuple(
-        marker.upper()
-        for marker in markers
+    max_marker_length, prefix_flags_by_length = (
+        _enabled_action_marker_prefix_index(
+            enabled_action_names
+        )
     )
 
+    if not text or not max_marker_length:
+        return 0
+
+    upper_text = text.upper()
     max_length = min(
         len(text),
-        max(
-            [
-                len(marker)
-                for marker in markers
-            ],
-            default=0,
-        ),
+        max_marker_length,
     )
 
     for length in range(
@@ -999,58 +1059,132 @@ def _trailing_marker_prefix_length(
         0,
         -1,
     ):
+        suffix = upper_text[-length:]
+        marker_flags = prefix_flags_by_length.get(
+            length,
+            {},
+        ).get(
+            suffix,
+            0,
+        )
 
-        for marker in upper_markers:
+        if not marker_flags:
+            continue
 
-            if length > len(marker):
-                continue
+        # Angle markers can begin anywhere in a chunk. Bare legacy forms are
+        # accepted only at the start of a line, matching the old behavior.
+        if marker_flags & _MARKER_PREFIX_ANGLE:
+            return length
 
-            if (
-                length == len(marker)
-                and marker.startswith("</")
-            ):
-                continue
+        marker_start = len(text) - length
+        line_start = max(
+            text.rfind("\n", 0, marker_start),
+            text.rfind("\r", 0, marker_start),
+        ) + 1
 
-            if not upper_text.endswith(
-                marker[:length]
-            ):
-                continue
-
-            marker_start = len(text) - length
-
-            if not marker.startswith("<"):
-                line_start = max(
-                    text.rfind("\n", 0, marker_start),
-                    text.rfind("\r", 0, marker_start),
-                ) + 1
-
-                if text[line_start:marker_start].strip():
-                    continue
-
+        if not text[line_start:marker_start].strip():
             return length
 
     return 0
 
 
+@lru_cache(maxsize=None)
+def _enabled_action_stream_candidates(
+    enabled_action_names: tuple[str, ...],
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    signal_names = []
+    bare_markers = []
+
+    for action_name in enabled_action_names:
+        private_marker, _ = _runtime_action_marker_config(
+            action_name
+        )
+        marker_name, _ = extract_private_marker_parts(
+            private_marker
+        )
+
+        for signal_name in (
+            action_name,
+            marker_name,
+        ):
+            normalized_signal = signal_name.strip().upper()
+
+            if (
+                normalized_signal
+                and normalized_signal not in signal_names
+            ):
+                signal_names.append(
+                    normalized_signal
+                )
+
+        for marker in get_runtime_action_start_markers(
+            private_marker,
+            action_name,
+        ):
+            upper_marker = marker.upper()
+
+            if (
+                upper_marker.startswith("<")
+                or upper_marker.startswith("CALL:")
+            ):
+                continue
+
+            if upper_marker not in bare_markers:
+                bare_markers.append(
+                    upper_marker
+                )
+
+    return (
+        tuple(signal_names),
+        tuple(bare_markers),
+    )
+
+
 def _action_text_may_contain_marker(
     text: str,
+    enabled_actions=None,
 ) -> bool:
 
     if not text:
         return False
 
     upper_text = text.upper()
-
-    return (
-        "INTERNAL_ACTION_" in upper_text
-        or "CALL:" in upper_text
-        or "TODO_LIST" in upper_text
-        or "DELAYED_MEMORY" in upper_text
-        or any(
-            action_name in upper_text
-            for action_name in KNOWN_RUNTIME_ACTIONS
+    enabled_action_names = normalize_runtime_action_names(
+        enabled_actions
+    )
+    signal_names, bare_markers = (
+        _enabled_action_stream_candidates(
+            enabled_action_names
         )
     )
+
+    # Expensive generic regexps are useful only after a real marker envelope.
+    # Mentioning INTERNAL_ACTION_* in prose must not stall every stream chunk.
+    if (
+        "<" in upper_text
+        or "CALL:" in upper_text
+    ):
+        if any(
+            signal_name in upper_text
+            for signal_name in signal_names
+        ):
+            return True
+
+    if bare_markers:
+        normalized_lines = upper_text.replace(
+            "\r",
+            "\n",
+        ).split(
+            "\n"
+        )
+
+        for line in normalized_lines:
+            if line.lstrip().startswith(
+                bare_markers
+            ):
+                return True
+
+    return False
 
 
 def _extract_runtime_actions_if_needed(
@@ -1069,7 +1203,8 @@ def _extract_runtime_actions_if_needed(
         )
 
     if not _action_text_may_contain_marker(
-        text
+        text,
+        enabled_actions=enabled_actions,
     ):
         return RuntimeActionResult(
             text=text,
@@ -1309,9 +1444,9 @@ class RuntimeActionStreamFilter:
             if (
                 spacing_start is not None
                 and not _action_text_may_contain_marker(
-                    combined
+                    combined,
+                    enabled_actions=self.enabled_actions,
                 )
-                and "<" not in combined
             ):
                 self.pending = combined[
                     spacing_start:
@@ -1329,9 +1464,9 @@ class RuntimeActionStreamFilter:
         if (
             not self.pending
             and not _action_text_may_contain_marker(
-                chunk
+                chunk,
+                enabled_actions=self.enabled_actions,
             )
-            and "<" not in chunk
         ):
             return RuntimeActionResult(
                 text=chunk,
@@ -1340,15 +1475,30 @@ class RuntimeActionStreamFilter:
         if (
             self.pending
             and self.pending_is_action
-            and ">" not in chunk
-            and "\n" not in chunk
-            and "\r" not in chunk
         ):
-            self.pending += chunk
-
-            return RuntimeActionResult(
-                text="",
+            pending_starts_with_angle = (
+                self.pending.lstrip().startswith("<")
             )
+            action_may_be_complete = (
+                ">" in chunk
+                or (
+                    (
+                        not pending_starts_with_angle
+                        or ">" not in self.pending
+                    )
+                    and (
+                        "\n" in chunk
+                        or "\r" in chunk
+                    )
+                )
+            )
+
+            if not action_may_be_complete:
+                self.pending += chunk
+
+                return RuntimeActionResult(
+                    text="",
+                )
 
         self.pending = ""
         self.pending_is_action = False
