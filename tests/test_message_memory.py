@@ -1246,7 +1246,7 @@ class MessageMemoryTests(
             ),
         )
 
-    def test_brain_prompt_counts_current_turn_runtime_actions_and_pending_answer(self):
+    def test_brain_prompt_does_not_count_runtime_actions_as_messages(self):
 
         context = SimpleNamespace(
             runtime_memory="",
@@ -1282,7 +1282,7 @@ class MessageMemoryTests(
         )[0]
 
         self.assertIn(
-            "JIN messages count:           3",
+            "JIN messages count:           1",
             session_state,
         )
 

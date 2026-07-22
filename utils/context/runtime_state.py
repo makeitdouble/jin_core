@@ -180,14 +180,6 @@ def get_visible_assistant_message_count(
         )
         or 0
     )
-    runtime_action_count = len(
-        getattr(
-            context,
-            "runtime_action_events",
-            [],
-        )
-        or []
-    )
     user_message_count = int(
         getattr(
             context,
@@ -204,7 +196,6 @@ def get_visible_assistant_message_count(
 
     return (
         assistant_message_count
-        + runtime_action_count
         + pending_response_count
     )
 
