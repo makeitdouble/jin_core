@@ -3,7 +3,7 @@ import re
 from contracts.rules_assembler import RUNTIME_ACTION_JIN_COLOR
 
 
-DEFAULT_RUNTIME_JIN_COLOR = "#70a9dc"
+DEFAULT_RUNTIME_JIN_COLOR = "#1f4f8f"
 
 JIN_COLOR_RE = re.compile(
     r"^\s*#?(?P<hex>[0-9a-f]{3}|[0-9a-f]{6})\s*$",

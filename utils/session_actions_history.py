@@ -33,7 +33,6 @@ def _normalize_session_action_display_colors(
         raw_colors = []
 
     normalized_colors = []
-    seen = set()
 
     for raw_color in raw_colors:
         match = JIN_COLOR_HEX_RE.fullmatch(
@@ -51,16 +50,8 @@ def _normalize_session_action_display_colors(
                 for char in color
             )
 
-        normalized_color = f"#{color}"
-
-        if normalized_color in seen:
-            continue
-
-        seen.add(
-            normalized_color
-        )
         normalized_colors.append(
-            normalized_color
+            f"#{color}"
         )
 
     return normalized_colors
@@ -743,6 +734,7 @@ def _build_formatted_session_action_marker_parts(
                 "action_name": normalized_name,
                 "count": 0,
                 "payload_counts": {},
+                "payload_sequence": [],
                 "detail_counts": {},
             },
         )
@@ -763,6 +755,11 @@ def _build_formatted_session_action_marker_parts(
                     0,
                 )
                 + 1
+            )
+            group[
+                "payload_sequence"
+            ].append(
+                normalized_payload
             )
 
         detail = _build_session_action_marker_detail(
@@ -794,6 +791,10 @@ def _build_formatted_session_action_marker_parts(
         payload_counts = group[
             "payload_counts"
         ]
+        payload_sequence = group.get(
+            "payload_sequence",
+            [],
+        )
         detail_counts = group[
             "detail_counts"
         ]
@@ -816,7 +817,7 @@ def _build_formatted_session_action_marker_parts(
 
         if action_name == "JIN_COLOR":
             colors = _normalize_session_action_display_colors(
-                list(payload_counts)
+                payload_sequence
             )
 
             if colors:

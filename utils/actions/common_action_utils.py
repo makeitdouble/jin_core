@@ -198,10 +198,9 @@ class RuntimeActionRepetitionGuard:
         max_consecutive: int | None = None,
         max_per_message: int = MAX_RUNTIME_ACTION_MARKERS_PER_MESSAGE,
     ):
-        # ``max_consecutive`` remains accepted for compatibility with callers,
-        # but the guard intentionally counts the same marker name across the
-        # whole message. Payload changes and unrelated markers between repeats
-        # must not let a marker loop escape validation.
+        # ``max_consecutive`` remains accepted for compatibility with callers.
+        # Repetition is counted by the normalized action + payload pair across
+        # the whole message, so interleaved different payloads do not collide.
         self.max_consecutive = max_consecutive
         self.max_per_message = max(
             1,
@@ -209,6 +208,7 @@ class RuntimeActionRepetitionGuard:
         )
         self.counts = {}
         self.triggered = False
+        self.triggered_action = None
         self.reason = ""
 
     def record(
@@ -222,17 +222,30 @@ class RuntimeActionRepetitionGuard:
         marker_name = normalize_runtime_action_name(
             action.name
         )
-        count = self.counts.get(
+        marker_payload = str(
+            getattr(
+                action,
+                "payload",
+                "",
+            )
+            or ""
+        ).strip()
+        marker_key = (
             marker_name,
+            marker_payload,
+        )
+        count = self.counts.get(
+            marker_key,
             0,
         ) + 1
-        self.counts[marker_name] = count
+        self.counts[marker_key] = count
 
         if count >= self.max_per_message:
             self.triggered = True
+            self.triggered_action = action
             self.reason = (
                 f"runtime action marker {marker_name} reached "
-                f"{count} occurrences in one message"
+                f"{count} identical occurrences in one message"
             )
             return True
 

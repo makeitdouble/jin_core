@@ -23,7 +23,7 @@ from utils.tokens import (
 )
 from utils.actions import (
     build_runtime_action_id,
-    is_noop_jin_color_action,
+    get_applied_jin_color,
     normalize_jin_color_payload,
     RuntimeActionRepetitionGuard,
     RuntimeActionStreamFilter,
@@ -133,7 +133,7 @@ class RuntimeStream:
         self.rejected_action_guard_names = set()
         self.action_guard_confirmation_ids = {}
         self.jin_color_action_id = ""
-        self.observed_action_markers = []
+        self.runtime_action_event_offset = 0
         self.delayed_memory_action_payload = ""
         self.raw_content_parts = []
         self.pending_idle_actions = []
@@ -613,19 +613,25 @@ class RuntimeStream:
             result,
         )
 
-    async def emit_repeated_jin_color_summary(
+    def filter_noop_jin_color_sequence(
         self,
-    ) -> None:
+        actions,
+    ):
 
-        color_actions = []
-        colors = []
+        current_color = get_applied_jin_color(
+            self.context
+        )
+        filtered_actions = []
 
-        for action in self.observed_action_markers:
+        for action in actions or ():
             if getattr(
                 action,
                 "name",
                 "",
             ) != RUNTIME_ACTION_JIN_COLOR:
+                filtered_actions.append(
+                    action
+                )
                 continue
 
             color = normalize_jin_color_payload(
@@ -636,19 +642,113 @@ class RuntimeStream:
                 )
             )
 
-            if not color:
+            if (
+                not color
+                or color == current_color
+            ):
                 continue
 
-            color_actions.append(
+            current_color = color
+            filtered_actions.append(
                 action
             )
 
-            if color not in colors:
-                colors.append(
-                    color
-                )
+        return tuple(
+            filtered_actions
+        )
 
-        if not color_actions:
+    def get_applied_runtime_action_markers(
+        self,
+    ) -> list[dict]:
+
+        current_turn_id = str(
+            getattr(
+                self.context,
+                "runtime_current_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
+        markers = []
+
+        for event in (
+            getattr(
+                self.context,
+                "runtime_action_events",
+                [],
+            )
+            or []
+        )[
+            self.runtime_action_event_offset:
+        ]:
+            if not isinstance(
+                event,
+                dict,
+            ):
+                continue
+
+            if (
+                str(
+                    event.get("status")
+                    or ""
+                ).strip().casefold()
+                == "failed"
+                or event.get("error")
+            ):
+                continue
+
+            event_turn_id = str(
+                event.get("runtime_turn_id")
+                or ""
+            ).strip()
+
+            if (
+                current_turn_id
+                and event_turn_id
+                and event_turn_id != current_turn_id
+            ):
+                continue
+
+            action_name = str(
+                event.get("name")
+                or event.get("action")
+                or ""
+            ).strip().upper()
+
+            if not action_name:
+                continue
+
+            payload = str(
+                event.get("payload")
+                or event.get("query")
+                or ""
+            ).strip()
+            markers.append({
+                "name": action_name,
+                "payload": payload,
+            })
+
+        return markers
+
+    async def emit_marker_repetition_interruption(
+        self,
+        reason: str,
+    ) -> None:
+
+        action = getattr(
+            self.repetition_guard,
+            "triggered_action",
+            None,
+        )
+
+        if action is None:
+            return
+
+        action_id = self.get_runtime_action_display_id(
+            action
+        )
+
+        if not action_id:
             return
 
         emitter = getattr(
@@ -665,55 +765,59 @@ class RuntimeStream:
         if emit is None:
             return
 
-        await emit({
+        payload = {
             "type": "runtime_action",
-            "action": "jin_color",
-            "id": self.get_runtime_action_display_id(
-                color_actions[-1]
-            ),
-            "status": "summary",
-            "text": "JIN_COLOR",
-            "color": colors[-1],
-            "payload": colors[-1],
-            "colors": colors,
-            "marker_count": len(color_actions),
-        })
+            "action": str(
+                getattr(
+                    action,
+                    "name",
+                    "",
+                )
+                or ""
+            ).strip().lower(),
+            "id": action_id,
+            "status": "interrupted",
+            "text": str(
+                getattr(
+                    action,
+                    "name",
+                    "",
+                )
+                or "Runtime action"
+            ).strip(),
+            "detail": reason,
+            "validator_interrupted": True,
+        }
+
+        if action.name == RUNTIME_ACTION_JIN_COLOR:
+            color = normalize_jin_color_payload(
+                action.payload
+            )
+            if color:
+                payload["color"] = color
+                payload["payload"] = color
+
+        await emit(
+            payload
+        )
 
     async def apply_runtime_action_filter_result(
         self,
         result,
     ) -> str | None:
 
-        self.observed_action_markers.extend(
+        started_actions = self.filter_noop_jin_color_sequence(
             getattr(
-                result,
-                "observed_actions",
-                (),
-            )
-        )
-
-        started_actions = tuple(
-            action
-            for action in getattr(
                 result,
                 "started_actions",
                 (),
             )
-            if not is_noop_jin_color_action(
-                self.context,
-                action,
-            )
         )
-        actions = tuple(
-            action
-            for action in getattr(
+        actions = self.filter_noop_jin_color_sequence(
+            getattr(
                 result,
                 "actions",
                 (),
-            )
-            if not is_noop_jin_color_action(
-                self.context,
-                action,
             )
         )
 
@@ -822,12 +926,14 @@ class RuntimeStream:
             False,
         ):
             self.marker_repetition_aborted = True
-            await self.emit_repeated_jin_color_summary()
             reason = getattr(
                 result,
                 "marker_repetition_reason",
                 "",
             ) or "runtime action marker repetition limit exceeded"
+            await self.emit_marker_repetition_interruption(
+                reason
+            )
             await self.logger.log_runtime(
                 "[RUNTIME ACTION] marker repetition guard interrupted stream: "
                 f"{reason}"
@@ -1720,6 +1826,9 @@ class RuntimeStream:
                     [],
                 )
             )
+            self.runtime_action_event_offset = (
+                action_event_offset
+            )
 
             await self.stream.start(
                 emit=self.emit_to_chat
@@ -2055,20 +2164,14 @@ class RuntimeStream:
                 and isinstance(history, list)
                 and len(history) == session_action_history_start
             ):
-                repeated_colors = [
-                    action
-                    for action in self.observed_action_markers
-                    if getattr(
-                        action,
-                        "name",
-                        "",
-                    ) == RUNTIME_ACTION_JIN_COLOR
-                ]
-                if repeated_colors:
+                applied_markers = (
+                    self.get_applied_runtime_action_markers()
+                )
+                if applied_markers:
                     replace_session_action_history_since(
                         self.context,
                         session_action_history_start,
-                        repeated_colors,
+                        applied_markers,
                     )
                     history_compacted = True
 

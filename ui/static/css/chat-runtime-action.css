@@ -209,11 +209,13 @@
 }
 
 .jin-runtime-action-color-swatch {
+    display: block;
     width: 9px;
     height: 9px;
     flex: 0 0 9px;
     border-radius: 1px;
     border: 1px solid rgba(255, 255, 255, 0.34);
+    box-sizing: border-box;
     box-shadow:
             0 0 0 1px rgba(0, 0, 0, 0.38),
             0 0 9px currentColor;

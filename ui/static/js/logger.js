@@ -1499,9 +1499,8 @@ function normalizeSessionActionParts(
                 .map((color) =>
                   String(color || "").trim().toLowerCase()
                 )
-                .filter((color, index, array) => (
+                .filter((color) => (
                   /^#[0-9a-f]{6}$/.test(color)
-                  && array.indexOf(color) === index
                 ))
             : [];
 
@@ -1681,7 +1680,7 @@ function buildSessionActionColorSwatches(
     document.createElement("span");
 
   swatches.className =
-    "inline-flex items-center gap-1 align-middle";
+    "inline-flex shrink-0 items-center gap-1 align-middle leading-none";
 
   colors.forEach((color) => {
     const swatch =

@@ -14,7 +14,7 @@
   const CENTER_COLOR_STEP_MS = 120;
 
   // 0 = no scene recolor, 1 = current full-strength scene recolor.
-  const JIN_SCENE_COLOR_INTENSITY = 0.75;
+  const JIN_SCENE_COLOR_INTENSITY = 0.50;
 
   // Add custom high-priority word groups here. A matching line paints its ring
   // with the supplied color and softly affects rings at neighbouring radii.
@@ -36,7 +36,7 @@
   ];
 
   const DEFAULT_RING_COLOR = "#28cfc7";
-  const DEFAULT_CENTER_COLOR = "#70a9dc";
+  const DEFAULT_CENTER_COLOR = "#1f4f8f";
   const ACCENT_RING_COLOR = "#5be8df";
   const AMBER_ACCENT = "#e3a64e";
 
@@ -1285,6 +1285,7 @@
   renderAvatar(getLatestSnapshot(), {
     snapshotIndex: getLatestSnapshotIndex(),
   });
+  applyCenterColor(centerColor);
 
   window.JinRuntime.avatar = {
     render: renderAvatar,

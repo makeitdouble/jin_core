@@ -11,7 +11,7 @@ from runtime.L1_memory_rules import (
 
 RECENT_MESSAGES_MAX_PAIRS = 3
 RECENT_MESSAGE_MAX_CHARS = 220
-DEFAULT_JIN_COLOR = "#70a9dc"
+DEFAULT_JIN_COLOR = "#1f4f8f"
 
 
 class RuntimeEmitter:

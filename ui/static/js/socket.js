@@ -1820,14 +1820,8 @@ function handleSocketMessage(event) {
             detail: color,
             reuseCompleted: true,
             aggregateMarkers: true,
-            incrementAggregate:
-              ["completed", "complete", "done"].includes(status),
-            markerCount:
-              Number(data.marker_count || 0),
-            colors:
-              Array.isArray(data.colors)
-                ? data.colors
-                : [],
+            aggregateStatus:
+              status,
             contextSnapshot:
               data.context || null,
             guardConfirmationId,
@@ -1871,6 +1865,7 @@ function handleSocketMessage(event) {
           || status === "complete"
           || status === "done"
           || status === "failed"
+          || status === "interrupted"
         )
         && window.fadeRuntimeAction
       ) {
@@ -2043,7 +2038,10 @@ function handleSocketMessage(event) {
     }
 
     if (
-      status === "failed"
+      (
+        status === "failed"
+        || status === "interrupted"
+      )
       && window.fadeRuntimeAction
     ) {
       window.fadeRuntimeAction(

@@ -1961,10 +1961,7 @@ function readRuntimeActionAggregateColors(
     row.dataset.runtimeActionColors || ""
   ).split(",").map(
     normalizeRuntimeActionColor
-  ).filter((color, index, colors) => (
-    color
-    && colors.indexOf(color) === index
-  ));
+  ).filter(Boolean);
 
 }
 
@@ -1991,62 +1988,97 @@ function applyRuntimeActionAggregateState(
       10
     ) || 0
   );
-  const explicitMarkerCount = Math.max(
-    0,
-    Number.parseInt(
-      options.markerCount || 0,
-      10
-    ) || 0
+  const aggregateStatus = String(
+    options.aggregateStatus || ""
+  ).trim().toLowerCase();
+  const completed = [
+    "completed",
+    "complete",
+    "done",
+  ].includes(
+    aggregateStatus
   );
-  const markerCount = explicitMarkerCount > 0
-    ? Math.max(
-        currentMarkerCount,
-        explicitMarkerCount
-      )
-    : (
-        options.incrementAggregate === false
-        && currentMarkerCount > 0
-      )
-      ? currentMarkerCount
-      : currentMarkerCount + 1;
-
-  const colors =
-    readRuntimeActionAggregateColors(
-      row
-    );
-
-  if (Array.isArray(options.colors)) {
-    options.colors
-      .map(normalizeRuntimeActionColor)
-      .filter(Boolean)
-      .forEach((aggregateColor) => {
-        if (!colors.includes(aggregateColor)) {
-          colors.push(aggregateColor);
-        }
-      });
-  }
-
-  const color =
+  const failed = [
+    "failed",
+    "blocked",
+    "cancelled",
+    "canceled",
+    "interrupted",
+  ].includes(
+    aggregateStatus
+  );
+  const incomingColor =
     normalizeRuntimeActionColor(
       options.color
       || options.payload
       || options.detail
     );
+  let storedColors =
+    readRuntimeActionAggregateColors(
+      row
+    );
+  let pendingColor =
+    normalizeRuntimeActionColor(
+      row.dataset.runtimeActionPendingColor
+      || ""
+    );
+  let markerCount =
+    currentMarkerCount;
 
-  if (color && !colors.includes(color)) {
-    colors.push(color);
+  if (completed) {
+    if (incomingColor) {
+      storedColors.push(
+        incomingColor
+      );
+    }
+
+    if (pendingColor === incomingColor) {
+      pendingColor = "";
+    }
+
+    markerCount = currentMarkerCount + 1;
+  } else if (failed) {
+    pendingColor = "";
+  } else if (incomingColor) {
+    pendingColor = incomingColor;
   }
+
+  const displayColors = [
+    ...storedColors,
+  ];
+
+  if (pendingColor) {
+    displayColors.push(
+      pendingColor
+    );
+  }
+
+  const displayMarkerCount = Math.max(
+    markerCount,
+    markerCount + (
+      pendingColor
+        ? 1
+        : 0
+    )
+  );
 
   row.dataset.runtimeActionMarkerCount =
     String(markerCount);
   row.dataset.runtimeActionColors =
-    colors.join(",");
+    storedColors.join(",");
+
+  if (pendingColor) {
+    row.dataset.runtimeActionPendingColor =
+      pendingColor;
+  } else {
+    delete row.dataset.runtimeActionPendingColor;
+  }
 
   return {
     ...options,
     aggregateMarkers: true,
-    markerCount,
-    colors,
+    markerCount: displayMarkerCount,
+    colors: displayColors,
   };
 
 }
@@ -2155,10 +2187,7 @@ function renderRuntimeActionLabel(
     )
       ? options.colors
           .map(normalizeRuntimeActionColor)
-          .filter((color, index, values) => (
-            color
-            && values.indexOf(color) === index
-          ))
+          .filter(Boolean)
       : [
           normalizeRuntimeActionColor(
             options.color

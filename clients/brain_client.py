@@ -637,6 +637,14 @@ async def ask_brain_stream(
         )
         or []
     )
+    runtime_action_event_start = len(
+        getattr(
+            context,
+            "runtime_action_events",
+            [],
+        )
+        or []
+    )
     observed_action_markers = []
     raw_content_parts = []
     pending_idle_action_calls = []
@@ -668,6 +676,114 @@ async def ask_brain_stream(
                     action
                 )
 
+    def get_applied_jin_colors() -> list[str]:
+
+        current_turn_id = str(
+            getattr(
+                context,
+                "runtime_current_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
+        colors = []
+        events = getattr(
+            context,
+            "runtime_action_events",
+            [],
+        ) or []
+
+        for event in events[
+            runtime_action_event_start:
+        ]:
+            if not isinstance(
+                event,
+                dict,
+            ):
+                continue
+
+            if str(
+                event.get("name")
+                or event.get("action")
+                or ""
+            ).strip().casefold() != "jin_color":
+                continue
+
+            if (
+                str(
+                    event.get("status")
+                    or ""
+                ).strip().casefold()
+                == "failed"
+                or event.get("error")
+            ):
+                continue
+
+            event_turn_id = str(
+                event.get("runtime_turn_id")
+                or ""
+            ).strip()
+
+            if (
+                current_turn_id
+                and event_turn_id
+                and event_turn_id != current_turn_id
+            ):
+                continue
+
+            color = normalize_jin_color_payload(
+                event.get("color")
+                or event.get("payload")
+                or ""
+            )
+
+            if color:
+                colors.append(
+                    color
+                )
+
+        return colors
+
+    def get_visible_history_actions():
+
+        applied_colors = get_applied_jin_colors()
+        applied_color_index = 0
+        visible_actions = []
+
+        for action in observed_action_markers:
+            if getattr(
+                action,
+                "name",
+                "",
+            ) != RUNTIME_ACTION_JIN_COLOR:
+                visible_actions.append(
+                    action
+                )
+                continue
+
+            color = normalize_jin_color_payload(
+                getattr(
+                    action,
+                    "payload",
+                    "",
+                )
+            )
+
+            if (
+                applied_color_index >= len(applied_colors)
+                or color != applied_colors[
+                    applied_color_index
+                ]
+            ):
+                continue
+
+            visible_actions.append(
+                action
+            )
+            applied_color_index += 1
+
+        return visible_actions
+
     async def emit_repeated_jin_color_summary(
         result,
     ) -> None:
@@ -679,36 +795,30 @@ async def ask_brain_stream(
         ):
             return
 
-        color_actions = []
-        colors = []
-
-        for action in observed_action_markers:
+        color_actions = [
+            action
+            for action in get_visible_history_actions()
             if getattr(
                 action,
                 "name",
                 "",
-            ) != RUNTIME_ACTION_JIN_COLOR:
-                continue
-
-            color = normalize_jin_color_payload(
+            ) == RUNTIME_ACTION_JIN_COLOR
+        ]
+        colors = [
+            normalize_jin_color_payload(
                 getattr(
                     action,
                     "payload",
                     "",
                 )
             )
-
-            if not color:
-                continue
-
-            color_actions.append(
-                action
-            )
-
-            if color not in colors:
-                colors.append(
-                    color
-                )
+            for action in color_actions
+        ]
+        colors = [
+            color
+            for color in colors
+            if color
+        ]
 
         if not color_actions:
             return
@@ -755,7 +865,7 @@ async def ask_brain_stream(
         replace_session_action_history_since(
             context,
             session_action_history_start,
-            observed_action_markers,
+            get_visible_history_actions(),
         )
         flush_pending_active_memory_resolve_failure_history(
             context
@@ -1022,14 +1132,32 @@ async def ask_brain_stream(
             source="brain stream content",
         )
 
+        action_applied = False
+
+        if (
+            getattr(
+                result,
+                "marker_repetition_exceeded",
+                False,
+            )
+            and any(
+                action.name == RUNTIME_ACTION_JIN_COLOR
+                for action in result.actions
+            )
+        ):
+            action_applied = await apply_runtime_action_result(
+                result
+            )
+
         if await stop_on_marker_repetition(
             result
         ):
             return None
 
-        action_applied = await apply_runtime_action_result(
-            result
-        )
+        if not action_applied:
+            action_applied = await apply_runtime_action_result(
+                result
+            )
 
         if runtime_action_boundary_seen:
             # A boundary action (for example WEB_SEARCH) used to stop the

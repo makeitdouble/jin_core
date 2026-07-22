@@ -28,8 +28,8 @@
     --chat-max-width: 820px;
     --chat-min-width: 200px;
     --scene-shade-alpha: 0;
-    --jin-color: #70a9dc;
-    --scene-base-color: #09090b;
+    --jin-color: #1f4f8f;
+    --scene-base-color: #0f1b2c;
     --scene-jin-tint-alpha: 0.50;
 
     /* Вертикальный ритм чата: добавляет немного воздуха между ходами. */
@@ -289,12 +289,16 @@ main.panels-collapsed-2 #scene-shade {
 }
 
 .session-action-color-swatch {
-    display: inline-block;
+    display: block;
     width: 0.62rem;
     height: 0.62rem;
-    flex: 0 0 auto;
+    flex: 0 0 0.62rem;
     background: var(--session-action-color);
+    border-radius: 1px;
+    border: 1px solid rgba(255, 255, 255, 0.30);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.32);
     vertical-align: middle;
+    box-sizing: border-box;
 }
 
 .runtime-memory-header {
