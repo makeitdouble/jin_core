@@ -14,7 +14,8 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             / "ui"
             / "static"
             / "js"
-            / "socket.js"
+            / "socket"
+            / "runtime-actions.js"
         ).read_text(
             encoding="utf-8"
         )
@@ -44,12 +45,13 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
         ).read_text(
             encoding="utf-8"
         )
-        socket_source = (
+        runtime_actions_source = (
             ROOT
             / "ui"
             / "static"
             / "js"
-            / "socket.js"
+            / "socket"
+            / "runtime-actions.js"
         ).read_text(
             encoding="utf-8"
         )
@@ -76,11 +78,11 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
         )
         self.assertIn(
             'action === "append_delayed_memory"',
-            socket_source,
+            runtime_actions_source,
         )
         self.assertIn(
             "data.delayed_memory_result.report",
-            socket_source,
+            runtime_actions_source,
         )
 
     def test_session_snapshot_history_and_appended_ids_are_persisted(self):
