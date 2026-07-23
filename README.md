@@ -617,7 +617,7 @@ The UI is served directly by FastAPI:
 - `ui/static/js/socket.js` handles WebSocket connection, send, abort, stream events, runtime actions, fact-check requests, and session bootstrap.
 - `ui/static/js/chat.js` renders user/JIN messages, streaming text, thinking blocks, and runtime-action bubbles.
 - `ui/static/js/status.js` updates provider online/offline indicators.
-- `ui/static/js/logger.js` renders the runtime console.
+- `ui/static/js/logger/` contains the runtime console: shared panel/helpers, trace modal, L1 summarizer stream, session-action history, and generic log entries.
 - `ui/static/js/think-rule-worker.js` scans completed thinking blocks for trusted-context citations.
 - `ui/static/js/dragdrop.js` handles file and image attachment collection, previews, modals, and removal.
 - `ui/static/js/runtime/runtime-storage.js` wraps browser storage for runtime/session/active memory.
