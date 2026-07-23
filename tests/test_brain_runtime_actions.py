@@ -136,13 +136,13 @@ class BrainRuntimeActionTests(unittest.TestCase):
     def patch_asset_roots(self, root: Path):
         assets_root = root / "assets"
         return (
-            patch("utils.assets_service.PROJECT_ROOT", root),
-            patch("utils.assets_service.ASSETS_ROOT", assets_root),
-            patch("utils.assets_service.SKILLS_ROOT", assets_root / "skills"),
-            patch("utils.assets_service.WILDCARDS_ROOT", assets_root / "wildcards"),
-            patch("utils.assets_service.PROMPTS_ROOT", assets_root / "prompts"),
-            patch("utils.assets_service.TEMPLATES_ROOT", assets_root / "templates"),
-            patch("utils.assets_service.OUTPUTS_ROOT", assets_root / "outputs"),
+            patch("utils.assets_utils.PROJECT_ROOT", root),
+            patch("utils.assets_utils.ASSETS_ROOT", assets_root),
+            patch("utils.assets_utils.SKILLS_ROOT", assets_root / "skills"),
+            patch("utils.assets_utils.WILDCARDS_ROOT", assets_root / "wildcards"),
+            patch("utils.assets_utils.PROMPTS_ROOT", assets_root / "prompts"),
+            patch("utils.assets_utils.TEMPLATES_ROOT", assets_root / "templates"),
+            patch("utils.assets_utils.OUTPUTS_ROOT", assets_root / "outputs"),
         )
 
     def test_brain_system_prompt_keeps_runtime_rule_sentences_separated(self):

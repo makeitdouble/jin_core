@@ -79,13 +79,15 @@ from rules.runtime import (
     ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
     NO_ENTRIES_FOUND_MESSAGE,
 )
-from utils.assets_service import (
+from utils.assets_utils import (
     ensure_assets_tree,
+    _parse_lenient_asset_payload,
+    run_asset_action,
+)
+from utils.skills_asset_utils import (
     list_skills,
     load_skill,
     normalize_skill_name,
-    _parse_lenient_asset_payload,
-    run_asset_action,
 )
 from utils.actions import (
     build_runtime_action_id,

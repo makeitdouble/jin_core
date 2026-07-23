@@ -65,7 +65,7 @@ from utils.actions import (
 from utils.runtime_todo import (
     has_active_runtime_todo,
 )
-from utils.assets_service import (
+from utils.skills_asset_utils import (
     normalize_skill_name,
 )
 

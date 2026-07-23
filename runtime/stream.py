@@ -44,7 +44,7 @@ from rules.runtime import (
     ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE,
     ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
 )
-from utils.assets_service import (
+from utils.skills_asset_utils import (
     normalize_skill_name,
 )
 from utils.session_actions_history import (

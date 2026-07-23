@@ -50,7 +50,7 @@ from runtime.behavior_contract import (
 from utils.rule_citations import (
     get_rule_citation_registry,
 )
-from utils.assets_service import (
+from utils.file_manager_asset_utils import (
     read_asset_text_preview,
 )
 

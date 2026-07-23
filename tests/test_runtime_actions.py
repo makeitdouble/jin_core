@@ -29,11 +29,15 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_JIN_COLOR,
     get_runtime_action_private_marker,
 )
-from utils.assets_service import (
+from utils.assets_utils import (
+    run_asset_action,
+)
+from utils.file_manager_asset_utils import (
+    read_asset_text_preview,
+)
+from utils.skills_asset_utils import (
     list_skills,
     normalize_skill_name,
-    read_asset_text_preview,
-    run_asset_action,
 )
 from utils.runtime_todo import (
     create_runtime_todo,
@@ -82,13 +86,13 @@ class RuntimeActionTests(unittest.TestCase):
     def patch_asset_roots(self, root: Path):
         assets_root = root / "assets"
         return (
-            patch("utils.assets_service.PROJECT_ROOT", root),
-            patch("utils.assets_service.ASSETS_ROOT", assets_root),
-            patch("utils.assets_service.SKILLS_ROOT", assets_root / "skills"),
-            patch("utils.assets_service.WILDCARDS_ROOT", assets_root / "wildcards"),
-            patch("utils.assets_service.PROMPTS_ROOT", assets_root / "prompts"),
-            patch("utils.assets_service.TEMPLATES_ROOT", assets_root / "templates"),
-            patch("utils.assets_service.OUTPUTS_ROOT", assets_root / "outputs"),
+            patch("utils.assets_utils.PROJECT_ROOT", root),
+            patch("utils.assets_utils.ASSETS_ROOT", assets_root),
+            patch("utils.assets_utils.SKILLS_ROOT", assets_root / "skills"),
+            patch("utils.assets_utils.WILDCARDS_ROOT", assets_root / "wildcards"),
+            patch("utils.assets_utils.PROMPTS_ROOT", assets_root / "prompts"),
+            patch("utils.assets_utils.TEMPLATES_ROOT", assets_root / "templates"),
+            patch("utils.assets_utils.OUTPUTS_ROOT", assets_root / "outputs"),
         )
 
     def write_skill_fixture(
