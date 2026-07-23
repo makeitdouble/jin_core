@@ -383,6 +383,30 @@ def _build_session_action_display_part(
     return part
 
 
+def _with_session_action_marker_count(
+    part: dict,
+    count: int,
+    *,
+    show_repeated: bool = True,
+) -> dict:
+
+    counted_part = dict(
+        part
+    )
+    counted_part["count"] = max(
+        0,
+        int(
+            count
+            or 0
+        ),
+    )
+
+    if not show_repeated:
+        counted_part["_hide_repeated_count"] = True
+
+    return counted_part
+
+
 def _format_session_action_display_part(
     part: dict,
 ) -> str:
@@ -409,6 +433,12 @@ def _format_session_action_display_part(
         )
         or 0
     )
+
+    if part.get(
+        "_hide_repeated_count",
+        False,
+    ):
+        count = 0
 
     if detail:
         text = f"{text} - {detail}"
@@ -801,16 +831,14 @@ def _build_formatted_session_action_marker_parts(
 
         if detail_counts:
             for detail, detail_count in detail_counts.items():
-                formatted_part = {
-                    "text": action_name,
-                    "detail": detail,
-                }
-
-                if detail_count > 1:
-                    formatted_part["count"] = detail_count
-
                 formatted_parts.append(
-                    formatted_part
+                    _with_session_action_marker_count(
+                        {
+                            "text": action_name,
+                            "detail": detail,
+                        },
+                        detail_count,
+                    )
                 )
 
             continue
@@ -821,11 +849,15 @@ def _build_formatted_session_action_marker_parts(
             )
 
             if colors:
-                formatted_parts.append({
-                    "text": action_name,
-                    "colors": colors,
-                    "count": count,
-                })
+                formatted_parts.append(
+                    _with_session_action_marker_count(
+                        {
+                            "text": action_name,
+                            "colors": colors,
+                        },
+                        count,
+                    )
+                )
                 continue
 
         if (
@@ -848,23 +880,30 @@ def _build_formatted_session_action_marker_parts(
                     payload
                 )
 
-            formatted_parts.append({
-                "text": (
-                    f"{action_name}: "
-                    f"{', '.join(formatted_payloads)}"
-                ),
-            })
+            formatted_parts.append(
+                _with_session_action_marker_count(
+                    {
+                        "text": (
+                            f"{action_name}: "
+                            f"{', '.join(formatted_payloads)}"
+                        ),
+                    },
+                    count,
+                    show_repeated=False,
+                )
+            )
             continue
 
-        formatted_part = {
-            "text": action_name,
-        }
-
-        if action_name != "IDLE":
-            formatted_part["count"] = count
-
         formatted_parts.append(
-            formatted_part
+            _with_session_action_marker_count(
+                {
+                    "text": action_name,
+                },
+                count,
+                show_repeated=(
+                    action_name != "IDLE"
+                ),
+            )
         )
 
     return formatted_parts

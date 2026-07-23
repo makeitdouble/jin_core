@@ -381,7 +381,7 @@ function buildSessionActionColorSwatches(
     document.createElement("span");
 
   swatches.className =
-    "inline-flex shrink-0 items-center gap-1 align-middle leading-none";
+    "session-action-color-swatches";
 
   colors.forEach((color) => {
     const swatch =
@@ -441,7 +441,7 @@ function buildSessionActionRow(
       document.createElement("span");
 
     action.className =
-      "inline-flex items-center gap-1";
+      "align-middle";
 
     if (part.colors.length) {
       action.appendChild(
@@ -476,7 +476,7 @@ function buildSessionActionRow(
       count.textContent =
         `(${part.count})`;
       count.className =
-        "opacity-70";
+        "ml-1 opacity-70";
 
       action.appendChild(
         count

@@ -713,6 +713,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 {
                     "text": "CREATE_ACTIVE_MEMORY",
                     "detail": "astronomical news tracker",
+                    "count": 1,
                 },
                 {
                     "text": "LIST_SKILLS",
@@ -926,6 +927,64 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 "REMOVE_SKILL: image_prompt_generator ( repeated_times: 2 ), "
                 "file_manager"
             ),
+        )
+
+    def test_session_history_adds_count_to_every_marker_part(self):
+
+        context = SimpleNamespace(
+            runtime_session_action_history=[],
+            runtime_current_turn_id="turn-1",
+        )
+
+        replace_session_action_history_since(
+            context,
+            0,
+            [
+                RuntimeActionCall(
+                    name="WEB_SEARCH",
+                    payload="latest news",
+                ),
+                RuntimeActionCall(
+                    name="CREATE_ACTIVE_MEMORY",
+                    payload="remember coffee",
+                ),
+                RuntimeActionCall(
+                    name="IDLE",
+                    payload="5s",
+                ),
+                RuntimeActionCall(
+                    name="APPEND_SKILL",
+                    payload="wildcards",
+                ),
+                RuntimeActionCall(
+                    name="APPEND_SKILL",
+                    payload="file_manager",
+                ),
+            ],
+        )
+
+        self.assertEqual(
+            context.runtime_session_action_history[0]["parts"],
+            [
+                {
+                    "text": "WEB_SEARCH",
+                    "count": 1,
+                },
+                {
+                    "text": "CREATE_ACTIVE_MEMORY",
+                    "detail": "remember coffee",
+                    "count": 1,
+                },
+                {
+                    "text": "IDLE",
+                    "detail": "5s",
+                    "count": 1,
+                },
+                {
+                    "text": "APPEND_SKILL: wildcards, file_manager",
+                    "count": 2,
+                },
+            ],
         )
 
     def test_jin_color_history_exposes_unique_color_swatches(self):
@@ -2674,10 +2733,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 {
                     "text": "IDLE",
                     "detail": "5s",
+                    "count": 1,
                 },
                 {
                     "text": "IDLE",
                     "detail": "12s",
+                    "count": 1,
                 },
             ],
         )
@@ -2704,6 +2765,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 {
                     "text": "IDLE",
                     "detail": "7s",
+                    "count": 1,
                 },
             ],
         )
