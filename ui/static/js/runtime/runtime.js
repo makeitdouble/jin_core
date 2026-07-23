@@ -88,6 +88,9 @@ const {
   extractActiveMemoryRuntimeMemoryLines,
   stripActiveMemoryRuntimeMemoryText,
   isActiveMemoryRuntimeMemoryLine,
+  normalizeRuntimeMemoryKey,
+  stripRuntimeMemoryMeta,
+  isJinResponseRuntimeMemoryKey,
 } = memoryModel;
 
 const {
@@ -112,6 +115,11 @@ const {
   readDelayedMemoryReports,
   writeDelayedMemoryReports,
   appendDelayedMemoryReports: appendStoredDelayedMemoryReports,
+  readSessionSignals,
+  writeSessionSignals,
+  removeSessionSignalField,
+  getCurrentRuntimeSessionId,
+  getCurrentSessionSignalsSessionId,
 } = storage;
 
 const runtimeMemoryCount =
@@ -213,6 +221,234 @@ function buildRuntimeMemoryDisplaySnapshot(
 }
 
 
+const SESSION_SIGNAL_EXCLUDED_KEYS = new Set([
+  "user_message",
+  "user_idle",
+]);
+
+const deletedSessionSignalKeys =
+  new Set();
+
+
+function getSessionSignalIdentity(
+  key
+) {
+
+  return `${getCurrentSessionSignalsSessionId()}:${key}`;
+
+}
+
+
+function getRuntimeSnapshotDiffKeys(
+  snapshot
+) {
+
+  const patch =
+    snapshot && snapshot.patch || {};
+
+  return new Set(
+    [
+      ...(
+        Array.isArray(patch.added)
+          ? patch.added
+          : []
+      ).map(entry => entry && entry.key),
+      ...(
+        Array.isArray(patch.changed)
+          ? patch.changed
+          : []
+      ).map(entry => (
+        entry
+        && (
+          entry.current_key
+          || entry.key
+        )
+      )),
+    ]
+      .map(normalizeRuntimeMemoryKey)
+      .filter(Boolean)
+  );
+
+}
+
+
+function persistRuntimeSessionSignals(
+  snapshot
+) {
+
+  if (
+      !snapshot
+      || !Array.isArray(snapshot.lines)
+  ) {
+    return;
+  }
+
+  const fields =
+    readSessionSignals();
+
+  const diffKeys =
+    getRuntimeSnapshotDiffKeys(
+      snapshot
+    );
+
+  const turnNumber =
+    Math.max(
+      0,
+      Math.trunc(
+        Number(
+          snapshot.turn_number
+          || snapshot.user_message_count
+          || 0
+        )
+      )
+    );
+
+  const runtimeSnapshotId =
+    String(
+      snapshot.runtime_memory_id || ""
+    ).trim();
+
+  snapshot.lines.forEach(
+    function (line) {
+      const key =
+        normalizeRuntimeMemoryKey(
+          line && line.key
+        );
+
+      const content =
+        String(
+          stripRuntimeMemoryMeta(
+            line && line.value || ""
+          )
+        ).trim();
+
+      if (
+          !key
+          || !content
+          || deletedSessionSignalKeys.has(
+            getSessionSignalIdentity(key)
+          )
+          || SESSION_SIGNAL_EXCLUDED_KEYS.has(key)
+          || isJinResponseRuntimeMemoryKey(key)
+          || isActiveMemoryRuntimeMemoryLine(line)
+      ) {
+        return;
+      }
+
+      const rawTrace =
+        Number(
+          line.strength
+        );
+
+      const trace =
+        Number.isFinite(rawTrace)
+          ? Number(rawTrace.toFixed(4))
+          : 0.5;
+
+      const existing =
+        fields[key];
+
+      if (!existing) {
+        fields[key] = {
+          max_trace: trace,
+          content,
+          diffs: 1,
+          first_seen_turn: turnNumber,
+          last_seen_turn: turnNumber,
+          runtime_snapshot_id: runtimeSnapshotId,
+        };
+
+        return;
+      }
+
+      const maxTrace =
+        Number(existing.max_trace);
+
+      const replacePeak =
+        trace > maxTrace
+        || (
+          trace === maxTrace
+          && content !== String(existing.content || "")
+        );
+
+      fields[key] = {
+        ...existing,
+        diffs:
+          Math.max(
+            0,
+            Math.trunc(
+              Number(existing.diffs || 0)
+            )
+          )
+          + (
+            diffKeys.has(key)
+              ? 1
+              : 0
+          ),
+        last_seen_turn:
+          Math.max(
+            Math.max(
+              0,
+              Math.trunc(
+                Number(existing.last_seen_turn || 0)
+              )
+            ),
+            turnNumber
+          ),
+        ...(replacePeak
+          ? {
+            max_trace: trace,
+            content,
+            runtime_snapshot_id: runtimeSnapshotId,
+          }
+          : {}),
+      };
+    }
+  );
+
+  writeSessionSignals(
+    fields
+  );
+
+}
+
+
+function getFactsMemoryFields() {
+
+  return readSessionSignals();
+
+}
+
+
+function deleteFactsMemoryFieldAndRender(
+  key
+) {
+
+  const normalizedKey =
+    normalizeRuntimeMemoryKey(
+      key
+    );
+
+  if (!normalizedKey) {
+    return false;
+  }
+
+  deletedSessionSignalKeys.add(
+    getSessionSignalIdentity(
+      normalizedKey
+    )
+  );
+
+  removeSessionSignalField(
+    normalizedKey
+  );
+
+  renderRuntimeMemorySnapshot();
+  return true;
+
+}
+
+
 function persistRuntimeMemorySnapshot(
   data
 ) {
@@ -246,6 +482,13 @@ function persistRuntimeMemorySnapshot(
 
   const savedAt =
     new Date().toISOString();
+
+  // Session signals are a companion index for the persisted live runtime.
+  // Keep them behind the exact same updates > 0 gate so bootstrap/reload
+  // snapshots never create empty one-off sessionSignals records.
+  persistRuntimeSessionSignals(
+    persistedSnapshot
+  );
 
   writeLatestRuntimeMemory({
     version: 1,
@@ -379,6 +622,8 @@ memoryView.init({
   setActiveMemoryRecords: writeActiveMemoryRecords,
   deleteRuntimeMemoryLine: deleteRuntimeMemoryLineAndRender,
   getDelayedMemoryReports: readDelayedMemoryReports,
+  getFactsMemoryFields,
+  deleteFactsMemoryField: deleteFactsMemoryFieldAndRender,
   getDisplayMode: () => runtimeMemoryDisplayMode,
   setDisplayMode: (value) => {
     runtimeMemoryDisplayMode = value;
@@ -831,6 +1076,8 @@ window.JinRuntime.runtime = {
   appendActiveMemoryRecords: appendActiveMemoryRecordsAndRender,
   removeActiveMemoryRecordById: removeActiveMemoryRecordByIdAndRender,
   getDelayedMemoryReports: readDelayedMemoryReports,
+  getFactsMemoryFields,
+  deleteFactsMemoryField: deleteFactsMemoryFieldAndRender,
   replaceDelayedMemoryReports: writeDelayedMemoryReports,
   appendDelayedMemoryReports,
 };

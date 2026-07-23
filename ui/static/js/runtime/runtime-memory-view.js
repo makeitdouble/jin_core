@@ -11,6 +11,8 @@
   let setActiveMemoryRecords = null;
   let deleteRuntimeMemoryLine = null;
   let getDelayedMemoryReports = null;
+  let getFactsMemoryFields = null;
+  let deleteFactsMemoryField = null;
   let getDisplayMode = null;
   let setDisplayMode = null;
 
@@ -147,37 +149,142 @@
     }
   }
 
+  function getFactsMemoryFieldRecords() {
+    const fields =
+        typeof getFactsMemoryFields === "function"
+          ? getFactsMemoryFields()
+          : {};
+
+    if (
+        !fields
+        || typeof fields !== "object"
+        || Array.isArray(fields)
+    ) {
+      return [];
+    }
+
+    return Object.entries(fields)
+      .map(([key, field]) => {
+        if (
+            !field
+            || typeof field !== "object"
+            || Array.isArray(field)
+        ) {
+          return null;
+        }
+
+        const content =
+            String(field.content || "").trim();
+
+        if (!content) {
+          return null;
+        }
+
+        return {
+          key,
+          ...field,
+          content,
+        };
+      })
+      .filter(Boolean)
+      .sort((left, right) => {
+        const traceDifference =
+            Number(right.max_trace || 0)
+            - Number(left.max_trace || 0);
+
+        if (traceDifference) {
+          return traceDifference;
+        }
+
+        return String(left.key || "").localeCompare(
+            String(right.key || "")
+        );
+      });
+  }
+
+  function getAvailableRuntimeMemoryDisplayModes() {
+    const modes = [
+      "runtime",
+    ];
+
+    if (getActiveMemoryRecordTexts().length > 0) {
+      modes.push(
+          "active"
+      );
+    }
+
+    if (getDelayedMemoryReportRecords().length > 0) {
+      modes.push(
+          "delayed"
+      );
+    }
+
+    if (getFactsMemoryFieldRecords().length > 0) {
+      modes.push(
+          "facts"
+      );
+    }
+
+    return modes;
+  }
+
+  function ensureRuntimeMemoryDisplayModeAvailable() {
+    const modes =
+        getAvailableRuntimeMemoryDisplayModes();
+
+    const displayMode =
+        getRuntimeMemoryDisplayMode();
+
+    if (modes.includes(displayMode)) {
+      return displayMode;
+    }
+
+    setRuntimeMemoryDisplayMode(
+        "runtime"
+    );
+
+    return "runtime";
+  }
+
   function updateRuntimeMemoryTitleState() {
     if (!runtimeMemoryTitle) {
       return;
     }
 
-    const hasActiveMemory =
-        getActiveMemoryRecordTexts().length > 0;
+    const modes =
+        getAvailableRuntimeMemoryDisplayModes();
 
-    const hasDelayedMemory =
-        getDelayedMemoryReportRecords().length > 0;
+    const currentMode =
+        getRuntimeMemoryDisplayMode();
 
     const displayMode =
-        getRuntimeMemoryDisplayMode();
+        modes.includes(currentMode)
+          ? currentMode
+          : "runtime";
 
     runtimeMemoryTitle.textContent =
         displayMode === "active"
           ? "[ active memory ]"
           : displayMode === "delayed"
             ? "[ delayed memory ]"
-            : "[ runtime memory ]";
+            : displayMode === "facts"
+              ? "[ facts memory ]"
+              : "[ runtime memory ]";
+
+    const hasAlternativeMemory =
+        modes.length > 1;
 
     runtimeMemoryTitle.classList.toggle(
         "runtime-memory-title-clickable",
-        hasActiveMemory || hasDelayedMemory
+        hasAlternativeMemory
     );
 
-    if (hasActiveMemory || hasDelayedMemory) {
+    if (hasAlternativeMemory) {
       runtimeMemoryTitle.setAttribute(
           "role",
           "button"
       );
+
       runtimeMemoryTitle.setAttribute(
           "tabindex",
           "0"
@@ -188,6 +295,7 @@
     runtimeMemoryTitle.removeAttribute(
         "role"
     );
+
     runtimeMemoryTitle.removeAttribute(
         "tabindex"
     );
@@ -571,6 +679,7 @@
     requireRuntimeMemoryHistory();
     clearRuntimeMemoryLineAvatarHover();
     clampRuntimeMemoryHistoryIndex();
+    ensureRuntimeMemoryDisplayModeAvailable();
     updateRuntimeMemoryTitleState();
 
     if (getRuntimeMemoryDisplayMode() === "active") {
@@ -580,6 +689,11 @@
 
     if (getRuntimeMemoryDisplayMode() === "delayed") {
       renderDelayedMemoryReports();
+      return;
+    }
+
+    if (getRuntimeMemoryDisplayMode() === "facts") {
+      renderFactsMemoryFields();
       return;
     }
 
@@ -1032,6 +1146,11 @@
             index,
             line
         );
+      } else if (options.interactiveFactsMemory) {
+        configureFactsMemoryRow(
+            row,
+            line
+        );
       } else if (options.interactiveRuntimeMemory) {
         configureRuntimeMemoryRow(
             row,
@@ -1425,17 +1544,115 @@
     );
   }
 
+  function configureFactsMemoryRow(
+      row,
+      line
+  ) {
+    if (
+        !row
+        || !line
+        || !line.key
+    ) {
+      return;
+    }
+
+    row.classList.add(
+        "runtime-memory-removable-row"
+    );
+
+    let deleteTimer = null;
+    let deleteCompleted = false;
+    let pointerDown = false;
+    let pointerId = null;
+
+    function clearDeleteTimer() {
+      if (!deleteTimer) {
+        return;
+      }
+
+      clearTimeout(
+          deleteTimer
+      );
+      deleteTimer = null;
+    }
+
+    function cancelPendingDelete() {
+      clearDeleteTimer();
+      pointerDown = false;
+
+      if (!deleteCompleted) {
+        setRuntimeMemoryRowPressVisual(
+            row,
+            false
+        );
+      }
+
+      deleteCompleted = false;
+      pointerId = null;
+    }
+
+    row.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) {
+        return;
+      }
+
+      pointerDown = true;
+      deleteCompleted = false;
+      pointerId = event.pointerId;
+
+      setRuntimeMemoryRowPressVisual(
+          row,
+          true
+      );
+
+      clearDeleteTimer();
+      deleteTimer = setTimeout(() => {
+        if (!pointerDown) {
+          return;
+        }
+
+        deleteCompleted = true;
+        pointerDown = false;
+
+        if (typeof deleteFactsMemoryField === "function") {
+          deleteFactsMemoryField(
+              line.key
+          );
+        }
+      }, MEMORY_DELETE_HOLD_MS);
+    });
+
+    row.addEventListener("pointerup", (event) => {
+      if (!pointerDown) {
+        return;
+      }
+
+      if (
+          pointerId !== null
+          && event.pointerId !== pointerId
+      ) {
+        return;
+      }
+
+      cancelPendingDelete();
+    });
+
+    row.addEventListener(
+        "pointercancel",
+        cancelPendingDelete
+    );
+
+    row.addEventListener(
+        "pointerleave",
+        cancelPendingDelete
+    );
+  }
+
+
   function renderDelayedMemoryReports() {
     const reports =
         getDelayedMemoryReportRecords();
 
-    if (!reports.length) {
-      setRuntimeMemoryDisplayMode(
-          "runtime"
-      );
-      renderRuntimeMemorySnapshot();
-      return;
-    }
 
     if (runtimeMemoryText) {
       runtimeMemoryText.innerHTML = "";
@@ -1919,17 +2136,92 @@
     );
   }
 
+  function formatFactsMemoryTrace(value) {
+    const trace =
+        Number(value);
+
+    return Number.isFinite(trace)
+      ? trace.toFixed(2)
+      : "0.50";
+  }
+
+
+  function buildFactsMemoryLine(record) {
+    const content =
+        String(record.content || "").trim();
+
+    return {
+      key: String(record.key || "").trim(),
+      value: memoryModel.appendProperties(
+          content,
+          [
+            `max_trace: ${formatFactsMemoryTrace(record.max_trace)}`,
+            `diffs: ${Math.max(0, Math.trunc(Number(record.diffs || 0)))}`,
+            `first_seen_turn: ${Math.max(0, Math.trunc(Number(record.first_seen_turn || 0)))}`,
+            `last_seen_turn: ${Math.max(0, Math.trunc(Number(record.last_seen_turn || 0)))}`,
+            `runtime_snapshot_id: ${String(record.runtime_snapshot_id || "").trim()}`,
+          ]
+      ),
+      status: "same",
+      key_status: "same",
+      value_status: "same",
+      key_change_ratio: 0,
+      value_change_ratio: 0,
+    };
+  }
+
+
+  function renderFactsMemoryFields() {
+    const records =
+        getFactsMemoryFieldRecords();
+
+    const lines =
+        records.map(
+          buildFactsMemoryLine
+        );
+
+    if (runtimeMemoryText) {
+      runtimeMemoryText.innerHTML = "";
+      runtimeMemoryText.classList.remove(
+          "runtime-memory-text-pinned"
+      );
+      runtimeMemoryText.removeAttribute(
+          "title"
+      );
+
+      appendRuntimeMemoryLineRows(
+          lines,
+          false,
+          {
+            applyFlash: false,
+            interactiveFactsMemory: true,
+          }
+      );
+    }
+
+    if (runtimeMemoryPosition) {
+      runtimeMemoryPosition.textContent =
+          String(records.length);
+    }
+
+    userIdleValueNode = null;
+    idle.stop();
+
+    updateRuntimeMemoryTitleMetricsFromText(
+        lines
+          .map(line => `${line.key}: ${line.value}`)
+          .join("\n")
+    );
+
+    updateRuntimeMemoryArrows();
+    updateRuntimeMemoryPinGlow();
+    updateRuntimeMemoryTitleState();
+  }
+
+
   function renderActiveMemoryRecords() {
     const records =
         getActiveMemoryRecordTexts();
-
-    if (!records.length) {
-      setRuntimeMemoryDisplayMode(
-          "runtime"
-      );
-      renderRuntimeMemorySnapshot();
-      return;
-    }
 
     if (runtimeMemoryText) {
       runtimeMemoryText.innerHTML = "";
@@ -2052,32 +2344,11 @@
   }
 
   function toggleRuntimeMemoryDisplayMode() {
-    const hasActiveMemory =
-        getActiveMemoryRecordTexts().length > 0;
-
-    const hasDelayedMemory =
-        getDelayedMemoryReportRecords().length > 0;
-
-    if (
-        !hasActiveMemory
-        && !hasDelayedMemory
-    ) {
-      return;
-    }
-
     const modes =
-        ["runtime"];
+        getAvailableRuntimeMemoryDisplayModes();
 
-    if (hasActiveMemory) {
-      modes.push(
-          "active"
-      );
-    }
-
-    if (hasDelayedMemory) {
-      modes.push(
-          "delayed"
-      );
+    if (modes.length <= 1) {
+      return;
     }
 
     const currentMode =
@@ -2223,6 +2494,8 @@
     setActiveMemoryRecords = options.setActiveMemoryRecords || null;
     deleteRuntimeMemoryLine = options.deleteRuntimeMemoryLine || null;
     getDelayedMemoryReports = options.getDelayedMemoryReports || null;
+    getFactsMemoryFields = options.getFactsMemoryFields || null;
+    deleteFactsMemoryField = options.deleteFactsMemoryField || null;
     getDisplayMode = options.getDisplayMode || null;
     setDisplayMode = options.setDisplayMode || null;
 

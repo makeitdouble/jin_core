@@ -53,6 +53,7 @@ let websocketDisconnectedLogged = false;
 let persistedSessionBootstrapSent = false;
 let latestRuntimeSnapshotsLogged = false;
 let activeMemoryRecordsLogged = false;
+let factsMemoryRecordsLogged = false;
 
 const MEMORY_GLOW_CLASSES = [
   "memory-updating",
@@ -173,6 +174,140 @@ function logOtherLatestRuntimeMemorySnapshots() {
     buildLatestRuntimeSnapshotsDetails(
       snapshots
     )
+  );
+
+}
+
+
+function getFactsMemoryRecordsForStartupLog() {
+
+  const storage =
+    window.JinRuntime
+    && window.JinRuntime.storage;
+
+  if (
+      !storage
+      || !storage.collectSessionSignalsRecords
+  ) {
+    return [];
+  }
+
+  return storage.collectSessionSignalsRecords();
+
+}
+
+
+function formatFactsMemoryTrace(
+  value
+) {
+
+  const numericValue =
+    Number(value);
+
+  return Number.isFinite(numericValue)
+    ? numericValue.toFixed(2)
+    : "0.50";
+
+}
+
+
+function buildFactsMemoryDetails(
+  record
+) {
+
+  const fields =
+    record
+    && record.signals
+    && typeof record.signals === "object"
+    && !Array.isArray(record.signals)
+      ? record.signals
+      : {};
+
+  const lines = [];
+
+  Object.entries(fields)
+    .sort(function (left, right) {
+      const traceDifference =
+        Number(right[1] && right[1].max_trace || 0)
+        - Number(left[1] && left[1].max_trace || 0);
+
+      if (traceDifference) {
+        return traceDifference;
+      }
+
+      return String(left[0] || "").localeCompare(
+        String(right[0] || "")
+      );
+    })
+    .forEach(function ([key, field]) {
+      if (
+          !field
+          || typeof field !== "object"
+          || Array.isArray(field)
+      ) {
+        return;
+      }
+
+      const content =
+        String(field.content || "").trim();
+
+      if (!content) {
+        return;
+      }
+
+      if (lines.length) {
+        lines.push("");
+      }
+
+      lines.push(
+        `${key}: ${content}`,
+        [
+          `[ max_trace: ${formatFactsMemoryTrace(field.max_trace)} ]`,
+          `[ diffs: ${Math.max(0, Math.trunc(Number(field.diffs || 0)))} ]`,
+          `[ first_seen_turn: ${Math.max(0, Math.trunc(Number(field.first_seen_turn || 0)))} ]`,
+          `[ last_seen_turn: ${Math.max(0, Math.trunc(Number(field.last_seen_turn || 0)))} ]`,
+          `[ runtime_snapshot_id: ${String(field.runtime_snapshot_id || "").trim()} ]`,
+        ].join(" ")
+      );
+    });
+
+  return lines.join("\n");
+
+}
+
+
+function logFactsMemoryRecords() {
+
+  if (factsMemoryRecordsLogged) {
+    return;
+  }
+
+  const records =
+    getFactsMemoryRecordsForStartupLog();
+
+  if (!records.length) {
+    return;
+  }
+
+  factsMemoryRecordsLogged = true;
+
+  records.forEach(
+    function (record) {
+      appendLog(
+        "[FACTS_MEMORY]",
+        `session: ${record.session_id || "unknown"}\n`
+          + `fields: ${record.signal_count || 0}`,
+        buildFactsMemoryDetails(
+          record
+        ),
+        {
+          facts_memory_session_id:
+            record.session_id || "",
+          facts_memory_storage_key:
+            record.storage_key || "",
+        }
+      );
+    }
   );
 
 }
@@ -2674,4 +2809,5 @@ function connectWebSocket() {
 
 logOtherLatestRuntimeMemorySnapshots();
 logActiveMemoryRecords();
+logFactsMemoryRecords();
 connectWebSocket();

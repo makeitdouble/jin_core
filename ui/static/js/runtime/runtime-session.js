@@ -71,13 +71,15 @@
       clearOtherLatestRuntimeMemorySnapshots,
       getSavedRuntimeMemoryFallback,
       getCurrentLatestRuntimeMemoryStorageKey,
+      getCurrentRuntimeSessionId,
+      activateSessionSignalsSession,
     } = storage;
 
     let pendingBootstrapRuntimeMemorySnapshot = null;
     let lastStableRuntimeMemorySnapshot = null;
     let pendingSessionSaveRuntimeMemorySnapshot = null;
     let waitingForSessionSaveRuntimeSnapshot = false;
-    let pendingSessionMemoryPersistData = null;
+    let pendingSessionSaveSavedAt = "";
     let persistedSessionBootstrapCleared = false;
     let hasUnsavedSessionActivity = false;
 
@@ -502,7 +504,47 @@
 
       pendingSessionSaveRuntimeMemorySnapshot = null;
       waitingForSessionSaveRuntimeSnapshot = true;
-      pendingSessionMemoryPersistData = null;
+      pendingSessionSaveSavedAt = "";
+    }
+
+    function finishPendingSessionSaveRuntimeMemory() {
+      if (
+          !waitingForSessionSaveRuntimeSnapshot
+          || !pendingSessionSaveRuntimeMemorySnapshot
+          || !pendingSessionSaveSavedAt
+      ) {
+        return false;
+      }
+
+      const latestSavedRuntimeMemory =
+        getRuntimeMemoryForSessionSave();
+
+      if (!latestSavedRuntimeMemory) {
+        return false;
+      }
+
+      writeLatestSavedRuntimeMemory({
+        version: 1,
+        explicit_save: true,
+        session_id:
+          getCurrentRuntimeSessionId(),
+        saved_at:
+          pendingSessionSaveSavedAt,
+        runtime_memory:
+          latestSavedRuntimeMemory.runtime_memory || "",
+        runtime_memory_updates:
+          latestSavedRuntimeMemory.runtime_memory_updates || 0,
+        runtime_snapshot:
+          buildPersistedRuntimeSnapshot(
+            latestSavedRuntimeMemory.runtime_snapshot
+          ),
+      });
+
+      pendingSessionSaveRuntimeMemorySnapshot = null;
+      waitingForSessionSaveRuntimeSnapshot = false;
+      pendingSessionSaveSavedAt = "";
+
+      return true;
     }
 
     function persistSessionMemory(data) {
@@ -510,14 +552,6 @@
           !data
           || data.persist !== true
       ) {
-        return;
-      }
-
-      if (
-          waitingForSessionSaveRuntimeSnapshot
-          && !pendingSessionSaveRuntimeMemorySnapshot
-      ) {
-        pendingSessionMemoryPersistData = data;
         return;
       }
 
@@ -531,18 +565,27 @@
         return;
       }
 
-      const latestSavedRuntimeMemory =
-        getRuntimeMemoryForSessionSave();
-
       const savedAt =
         new Date().toISOString();
 
+      // L3 is the authoritative session save result. Persist it immediately
+      // instead of waiting for the follow-up L1 runtime snapshot.
       persistedSessionBootstrapCleared = false;
       hasUnsavedSessionActivity = false;
+      waitingForSessionSaveRuntimeSnapshot = true;
+      pendingSessionSaveSavedAt = savedAt;
+
+      // Do not leave the previous session's runtime half paired with the new
+      // L3 save while the follow-up L1 snapshot is still pending.
+      removeBrowserMemory(
+        runtimeStorageKeys.latestSavedRuntimeMemoryStorageKey
+      );
 
       writeLatestSavedSessionMemory({
         version: 1,
         explicit_save: true,
+        session_id:
+          getCurrentRuntimeSessionId(),
         saved_at: savedAt,
         appended_memory_ids:
           collectCurrentSessionAppendedMemoryIds(),
@@ -551,30 +594,9 @@
           data.updates || 0,
       });
 
-      writeLatestSavedRuntimeMemory({
-        version: 1,
-        explicit_save: true,
-        saved_at: savedAt,
-        runtime_memory:
-          (
-            latestSavedRuntimeMemory
-            && latestSavedRuntimeMemory.runtime_memory
-          ) || "",
-        runtime_memory_updates:
-          (
-            latestSavedRuntimeMemory
-            && latestSavedRuntimeMemory.runtime_memory_updates
-          ) || 0,
-        runtime_snapshot:
-          buildPersistedRuntimeSnapshot(
-            latestSavedRuntimeMemory
-            && latestSavedRuntimeMemory.runtime_snapshot
-          ),
-      });
-
-      pendingSessionSaveRuntimeMemorySnapshot = null;
-      waitingForSessionSaveRuntimeSnapshot = false;
-      pendingSessionMemoryPersistData = null;
+      // If L1 happened to arrive before L3, finish the runtime half now.
+      // In the normal flow this remains pending until the follow-up L1 update.
+      finishPendingSessionSaveRuntimeMemory();
     }
 
     function getRuntimeMemoryForSoftReconnect() {
@@ -590,14 +612,7 @@
       }
 
       pendingSessionSaveRuntimeMemorySnapshot = snapshot;
-
-      if (pendingSessionMemoryPersistData) {
-        const data = pendingSessionMemoryPersistData;
-        pendingSessionMemoryPersistData = null;
-        persistSessionMemory(
-          data
-        );
-      }
+      finishPendingSessionSaveRuntimeMemory();
     }
 
     function getSoftReconnectRuntimeResume() {
@@ -979,6 +994,18 @@
     }
 
     function applyPersistedSessionBootstrap(bootstrap) {
+      if (
+          bootstrap
+          && bootstrap.source_session_id
+          && activateSessionSignalsSession
+      ) {
+        // Continue boosting the original saved session facts in-place.
+        // Never clone them into the transient tab/runtime session id.
+        activateSessionSignalsSession(
+          bootstrap.source_session_id
+        );
+      }
+
       const snapshot =
         (
           bootstrap
@@ -1099,8 +1126,27 @@
             || null,
         }) || buildDefaultRuntimeMemorySnapshot();
 
+      const sourceSessionId =
+        String(
+          (
+            sessionMemory
+            && sessionMemory.session_id
+          )
+          || (
+            runtimeMemory
+            && runtimeMemory.session_id
+          )
+          || (
+            runtimeMemory
+            && runtimeMemory.runtime_snapshot
+            && runtimeMemory.runtime_snapshot.session_id
+          )
+          || ""
+        ).trim();
+
       return {
         type: "session_bootstrap",
+        source_session_id: sourceSessionId,
         session_memory: sessionText,
         session_memory_source: sessionMemorySource,
         session_memory_updates:

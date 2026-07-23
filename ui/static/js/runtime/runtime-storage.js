@@ -26,6 +26,12 @@
   const delayedMemoryReportsStorageKey =
     "jin.delayedMemoryReports.v1";
 
+  const sessionSignalsStorageKeyPrefix =
+    "jin.sessionSignals";
+
+  const sessionSignalsStorageKeyVersion =
+    "v1";
+
   const savedRuntimeFallbackPath =
     "/saved_runtime.txt";
 
@@ -134,6 +140,12 @@
   let runtimeSessionId =
     createRuntimeSessionId();
 
+  // Facts restored from an explicit saved session must keep using the
+  // original sessionSignals bucket. The live WebSocket/runtime session may
+  // have its own id, but that must not fork or duplicate restored facts.
+  let sessionSignalsSessionId =
+    runtimeSessionId;
+
   let latestRuntimeMemoryStorageKey =
     getLatestRuntimeMemoryStorageKey(
       runtimeSessionId
@@ -152,6 +164,28 @@
   function getCurrentRuntimeSessionId() {
 
     return runtimeSessionId;
+
+  }
+
+
+  function getCurrentSessionSignalsSessionId() {
+
+    return sessionSignalsSessionId;
+
+  }
+
+
+  function setCurrentSessionSignalsSessionId(
+    nextSessionSignalsSessionId
+  ) {
+
+    const normalizedSessionId =
+      String(nextSessionSignalsSessionId || "").trim();
+
+    sessionSignalsSessionId =
+      normalizedSessionId || runtimeSessionId;
+
+    return sessionSignalsSessionId;
 
   }
 
@@ -334,11 +368,24 @@
     value
   ) {
 
+    const normalizedValue =
+      (
+        value
+        && typeof value === "object"
+        && !Array.isArray(value)
+      )
+        ? {
+            ...value,
+            session_id:
+              String(value.session_id || runtimeSessionId || "").trim(),
+          }
+        : value;
+
     archiveLatestSavedSessionMemory();
 
     writeBrowserMemory(
       latestSavedSessionMemoryStorageKey,
-      value
+      normalizedValue
     );
 
   }
@@ -516,6 +563,447 @@
 
   }
 
+
+  function getSessionSignalsStorageKey(
+    sessionId = sessionSignalsSessionId
+  ) {
+
+    const normalizedSessionId =
+      String(sessionId || "").trim();
+
+    return normalizedSessionId
+      ? `${sessionSignalsStorageKeyPrefix}`
+        + `.${normalizedSessionId}`
+        + `.${sessionSignalsStorageKeyVersion}`
+      : "";
+
+  }
+
+
+  function isSessionSignalsStorageKey(
+    key
+  ) {
+
+    const prefix =
+      `${sessionSignalsStorageKeyPrefix}.`;
+
+    const suffix =
+      `.${sessionSignalsStorageKeyVersion}`;
+
+    return (
+      typeof key === "string"
+      && key.startsWith(prefix)
+      && key.endsWith(suffix)
+      && key.length > prefix.length + suffix.length
+    );
+
+  }
+
+
+  function getSessionIdFromSessionSignalsStorageKey(
+    key
+  ) {
+
+    if (!isSessionSignalsStorageKey(key)) {
+      return "";
+    }
+
+    const prefix =
+      `${sessionSignalsStorageKeyPrefix}.`;
+
+    const suffix =
+      `.${sessionSignalsStorageKeyVersion}`;
+
+    return key.slice(
+      prefix.length,
+      key.length - suffix.length
+    );
+
+  }
+
+
+  function isLegacySessionSignalsValue(
+    value
+  ) {
+
+    return (
+      value
+      && typeof value === "object"
+      && !Array.isArray(value)
+      && Object.keys(value).length === 1
+      && value.fields
+      && typeof value.fields === "object"
+      && !Array.isArray(value.fields)
+    );
+
+  }
+
+
+  function normalizeSessionSignals(
+    value
+  ) {
+
+    if (
+        !value
+        || typeof value !== "object"
+        || Array.isArray(value)
+    ) {
+      return {};
+    }
+
+    const source =
+      isLegacySessionSignalsValue(value)
+        ? value.fields
+        : value;
+
+    const signals = {};
+
+    Object.entries(source).forEach(
+      function ([fieldKey, field]) {
+        const normalizedKey =
+          String(fieldKey || "").trim();
+
+        if (
+            !normalizedKey
+            || !field
+            || typeof field !== "object"
+            || Array.isArray(field)
+        ) {
+          return;
+        }
+
+        signals[normalizedKey] = {
+          ...field,
+        };
+      }
+    );
+
+    return signals;
+
+  }
+
+
+  function collectSessionSignalsRecords() {
+
+    const records = [];
+
+    try {
+      for (let index = 0; index < window.localStorage.length; index += 1) {
+        const storageKey =
+          window.localStorage.key(index);
+
+        if (!isSessionSignalsStorageKey(storageKey)) {
+          continue;
+        }
+
+        const stored =
+          readBrowserMemory(storageKey);
+
+        const signals =
+          normalizeSessionSignals(
+            stored
+          );
+
+        const signalCount =
+          Object.keys(signals).length;
+
+        if (!signalCount) {
+          continue;
+        }
+
+        if (isLegacySessionSignalsValue(stored)) {
+          writeBrowserMemory(
+            storageKey,
+            signals
+          );
+        }
+
+        records.push({
+          storage_key: storageKey,
+          session_id:
+            getSessionIdFromSessionSignalsStorageKey(
+              storageKey
+            ),
+          signal_count: signalCount,
+          signals: {
+            ...signals,
+          },
+        });
+      }
+    } catch (error) {
+      return [];
+    }
+
+    return records.sort(
+      function (left, right) {
+        const leftIsCurrent =
+          left.session_id === sessionSignalsSessionId;
+
+        const rightIsCurrent =
+          right.session_id === sessionSignalsSessionId;
+
+        if (leftIsCurrent !== rightIsCurrent) {
+          return leftIsCurrent ? -1 : 1;
+        }
+
+        return String(left.session_id || "").localeCompare(
+          String(right.session_id || "")
+        );
+      }
+    );
+
+  }
+
+  function clearSessionSignalsByStorageKey(
+    storageKey
+  ) {
+
+    if (!isSessionSignalsStorageKey(storageKey)) {
+      return false;
+    }
+
+    removeBrowserMemory(
+      storageKey
+    );
+
+    return true;
+
+  }
+
+
+  function readSessionSignals(
+    sessionId = sessionSignalsSessionId
+  ) {
+
+    const key =
+      getSessionSignalsStorageKey(
+        sessionId
+      );
+
+    const stored =
+      key
+        ? readBrowserMemory(key)
+        : null;
+
+    const signals =
+      normalizeSessionSignals(
+        stored
+      );
+
+    if (
+        key
+        && isLegacySessionSignalsValue(stored)
+    ) {
+      writeBrowserMemory(
+        key,
+        signals
+      );
+    }
+
+    return signals;
+
+  }
+
+
+  function writeSessionSignals(
+    value,
+    sessionId = sessionSignalsSessionId
+  ) {
+
+    const key =
+      getSessionSignalsStorageKey(
+        sessionId
+      );
+
+    const signals =
+      normalizeSessionSignals(
+        value
+      );
+
+    if (key) {
+      writeBrowserMemory(
+        key,
+        signals
+      );
+    }
+
+    return signals;
+
+  }
+
+
+  function getSessionSignalTrace(
+    field
+  ) {
+
+    const trace =
+      Number(
+        field
+        && field.max_trace
+      );
+
+    return Number.isFinite(trace)
+      ? trace
+      : 0.5;
+
+  }
+
+
+  function getSessionSignalTurn(
+    field,
+    key
+  ) {
+
+    const turn =
+      Math.max(
+        0,
+        Math.trunc(
+          Number(
+            field
+            && field[key]
+            || 0
+          )
+        )
+      );
+
+    return turn;
+
+  }
+
+
+  function mergeSessionSignalFields(
+    current,
+    source
+  ) {
+
+    if (!current) {
+      return {
+        ...source,
+      };
+    }
+
+    const currentTrace =
+      getSessionSignalTrace(
+        current
+      );
+
+    const sourceTrace =
+      getSessionSignalTrace(
+        source
+      );
+
+    const sourceOwnsPeak =
+      sourceTrace > currentTrace
+      || (
+        sourceTrace === currentTrace
+        && !String(current.content || "").trim()
+        && String(source.content || "").trim()
+      );
+
+    const peak =
+      sourceOwnsPeak
+        ? source
+        : current;
+
+    const currentFirstTurn =
+      getSessionSignalTurn(
+        current,
+        "first_seen_turn"
+      );
+
+    const sourceFirstTurn =
+      getSessionSignalTurn(
+        source,
+        "first_seen_turn"
+      );
+
+    const firstSeenTurns =
+      [
+        currentFirstTurn,
+        sourceFirstTurn,
+      ].filter(turn => turn > 0);
+
+    return {
+      ...current,
+      ...peak,
+      max_trace:
+        Math.max(
+          currentTrace,
+          sourceTrace
+        ),
+      diffs:
+        Math.max(
+          Math.max(
+            0,
+            Math.trunc(
+              Number(current.diffs || 0)
+            )
+          ),
+          Math.max(
+            0,
+            Math.trunc(
+              Number(source.diffs || 0)
+            )
+          )
+        ),
+      first_seen_turn:
+        firstSeenTurns.length
+          ? Math.min(...firstSeenTurns)
+          : 0,
+      last_seen_turn:
+        Math.max(
+          getSessionSignalTurn(
+            current,
+            "last_seen_turn"
+          ),
+          getSessionSignalTurn(
+            source,
+            "last_seen_turn"
+          )
+        ),
+    };
+
+  }
+
+
+  function activateSessionSignalsSession(
+    sourceSessionId
+  ) {
+
+    setCurrentSessionSignalsSessionId(
+      sourceSessionId
+    );
+
+    return readSessionSignals();
+
+  }
+
+
+  function removeSessionSignalField(
+    fieldKey,
+    sessionId = sessionSignalsSessionId
+  ) {
+
+    const key =
+      String(fieldKey || "").trim();
+
+    const signals =
+      readSessionSignals(
+        sessionId
+      );
+
+    if (key) {
+      delete signals[
+        key
+      ];
+    }
+
+    return writeSessionSignals(
+      signals,
+      sessionId
+    );
+
+  }
 
   function normalizeDelayedMemoryReports(
     value
@@ -1216,10 +1704,14 @@
       latestSavedRuntimeMemoryStorageKey,
       activeMemoryStorageKey,
       delayedMemoryReportsStorageKey,
+      sessionSignalsStorageKeyPrefix,
+      sessionSignalsStorageKeyVersion,
       savedRuntimeFallbackPath,
     },
     getRuntimeSessionId,
     getCurrentRuntimeSessionId,
+    getCurrentSessionSignalsSessionId,
+    setCurrentSessionSignalsSessionId,
     setRuntimeSessionId,
     generateRuntimeSessionId,
     getLatestRuntimeMemoryStorageKey,
@@ -1244,6 +1736,15 @@
     clearActiveMemoryRecords,
     appendActiveMemoryRecords,
     removeActiveMemoryRecordById,
+    getSessionSignalsStorageKey,
+    isSessionSignalsStorageKey,
+    getSessionIdFromSessionSignalsStorageKey,
+    collectSessionSignalsRecords,
+    clearSessionSignalsByStorageKey,
+    readSessionSignals,
+    writeSessionSignals,
+    activateSessionSignalsSession,
+    removeSessionSignalField,
     normalizeDelayedMemoryReports,
     readDelayedMemoryReports,
     writeDelayedMemoryReports,

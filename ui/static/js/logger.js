@@ -2960,6 +2960,9 @@ function appendLog(
   } else if (normalizedTag.includes("ACTIVE_MEMORY")) {
     logKind =
       "active-memory";
+  } else if (normalizedTag.includes("FACTS_MEMORY")) {
+    logKind =
+      "memory";
   } else if (normalizedTag.includes("MEMORY:")) {
     logKind =
       "memory";
@@ -3079,6 +3082,21 @@ function appendLog(
       "rounded",
       "border",
       "border-zinc-500/10",
+    );
+  }
+
+  if (tag.includes("FACTS_MEMORY")) {
+    tagClass =
+      "text-cyan-300 font-bold";
+
+    logDiv.classList.add(
+      "font-mono",
+      "text-[12px]",
+      "bg-cyan-500/5",
+      "p-2",
+      "rounded",
+      "border",
+      "border-cyan-500/10",
     );
   }
 
@@ -3256,6 +3274,9 @@ function appendLog(
     const isActiveMemory =
       tag.includes("ACTIVE_MEMORY");
 
+    const isFactsMemory =
+      tag.includes("FACTS_MEMORY");
+
     const isUser =
       tag.includes("USER");
 
@@ -3298,7 +3319,7 @@ function appendLog(
       "button";
 
     traceButton.className =
-      isActiveMemory
+      isActiveMemory || isFactsMemory
         ? "inline-flex items-center rounded border border-zinc-600/40 px-2 py-1 text-[10px] uppercase tracking-wider text-zinc-300 hover:bg-zinc-700/40 transition"
         : isSummarizer
         ? "mt-2 inline-flex items-center rounded border border-blue-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-blue-300 hover:bg-blue-500/10 transition"
@@ -3309,7 +3330,7 @@ function appendLog(
     traceButton.textContent =
       isPatternResult
         ? "patterns"
-        : isSession || isLatestSnapshots || isActiveMemory
+        : isSession || isLatestSnapshots || isActiveMemory || isFactsMemory
         ? "show"
         : isSummarizer
         ? "payload"
@@ -3337,6 +3358,8 @@ function appendLog(
               ? "Session bootstrap"
               : tag.includes("ACTIVE_MEMORY")
               ? "Active memory payload"
+              : isFactsMemory
+              ? `Facts memory · ${String(meta?.facts_memory_session_id || "session")}`
               : isSummarizer
               ? normalized.message || "Summarizer payload"
               : "Trace"
@@ -3354,6 +3377,7 @@ function appendLog(
         isSession
         || isLatestSnapshots
         || isActiveMemory
+        || isFactsMemory
     ) {
       const clearButton =
         document.createElement("button");
@@ -3384,6 +3408,36 @@ function appendLog(
                 && window.JinRuntime.runtime.clearActiveMemoryRecords
             ) {
               window.JinRuntime.runtime.clearActiveMemoryRecords();
+            }
+          } else if (isFactsMemory) {
+            const storage =
+              window.JinRuntime
+              && window.JinRuntime.storage;
+
+            const storageKey =
+              String(
+                meta?.facts_memory_storage_key
+                || ""
+              ).trim();
+
+            if (
+                storage
+                && storage.clearSessionSignalsByStorageKey
+                && storageKey
+            ) {
+              storage.clearSessionSignalsByStorageKey(
+                storageKey
+              );
+
+              if (
+                  storage.getSessionSignalsStorageKey
+                  && storageKey === storage.getSessionSignalsStorageKey()
+                  && window.JinRuntime
+                  && window.JinRuntime.runtime
+                  && window.JinRuntime.runtime.renderRuntimeMemorySnapshot
+              ) {
+                window.JinRuntime.runtime.renderRuntimeMemorySnapshot();
+              }
             }
           } else if (window.clearPersistedSessionBootstrap) {
             window.clearPersistedSessionBootstrap();
