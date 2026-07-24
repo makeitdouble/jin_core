@@ -140,6 +140,8 @@ ACTION_DISPLAY_ALIASES = {
     "remove_delayed_memory": "Removed delayed memory",
     "remove_skill": "Removed skill",
     "resolve_active_memory": "Resolved active memory",
+    "run_document_reader": "Read document iteratively",
+    "run_python_skill": "Ran Python skill",
     "sample_wildcard": "Sampled wildcard",
     "save_delayed_memory_content": "Saved delayed memory",
     "save_session": "Saved session",
@@ -160,6 +162,7 @@ ACTION_PAST_TENSE_VERBS = {
     "read": "Read",
     "remove": "Removed",
     "resolve": "Resolved",
+    "run": "Ran",
     "sample": "Sampled",
     "save": "Saved",
     "update": "Updated",
@@ -250,6 +253,28 @@ def build_asset_action_history_text(
     text = _build_past_tense_action_text(
         action
     )
+
+    if action.casefold() == "run_document_reader":
+        mode = str(
+            result.get(
+                "mode",
+                "",
+            )
+            or ""
+        ).strip()
+        modes = [
+            str(item).strip()
+            for item in result.get(
+                "modes",
+                [],
+            )
+            or []
+            if str(item).strip()
+        ]
+        mode_label = mode or ", ".join(modes)
+
+        if mode_label:
+            text = f"{text} - {mode_label}"
 
     if path:
         text = f"{text} - {path}"

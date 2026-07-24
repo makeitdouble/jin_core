@@ -328,7 +328,16 @@ class RuntimeClient:
 
         return endpoints
 
-    async def detect_model_limits(self) -> tuple[int | None, int | None]:
+    async def detect_model_limits(
+            self,
+            *,
+            force_refresh: bool = False,
+    ) -> tuple[int | None, int | None]:
+
+        if force_refresh:
+            self.model_limits_detection_attempted = False
+            self.detected_context_window = None
+            self.detected_max_tokens = None
 
         if self.model_limits_detection_attempted:
             return (
@@ -397,9 +406,15 @@ class RuntimeClient:
             self.detected_max_tokens,
         )
 
-    async def detect_context_window(self) -> int | None:
+    async def detect_context_window(
+            self,
+            *,
+            force_refresh: bool = False,
+    ) -> int | None:
 
-        detected_context_window, _ = await self.detect_model_limits()
+        detected_context_window, _ = await self.detect_model_limits(
+            force_refresh=force_refresh,
+        )
         return detected_context_window
 
     async def detect_max_tokens(self) -> int | None:
@@ -407,12 +422,18 @@ class RuntimeClient:
         _, detected_max_tokens = await self.detect_model_limits()
         return detected_max_tokens
 
-    async def resolve_request_context_window(self) -> int | None:
+    async def resolve_request_context_window(
+            self,
+            *,
+            force_refresh: bool = False,
+    ) -> int | None:
 
         if not settings.RUNTIME_CONTEXT_WINDOW_FALLBACK_TO_SERVER:
             return self.configured_context_window
 
-        detected_context_window = await self.detect_context_window()
+        detected_context_window = await self.detect_context_window(
+            force_refresh=force_refresh,
+        )
 
         return (
             detected_context_window

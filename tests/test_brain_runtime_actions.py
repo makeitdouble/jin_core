@@ -987,7 +987,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
-    def test_jin_color_history_exposes_unique_color_swatches(self):
+    def test_jin_color_history_preserves_ordered_color_swatches(self):
 
         context = SimpleNamespace(
             runtime_session_action_history=[],
@@ -1021,6 +1021,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     "colors": [
                         "#ff0000",
                         "#00ff00",
+                        "#ff0000",
                     ],
                     "count": 3,
                 },
@@ -1038,6 +1039,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     "colors": [
                         "#ff0000",
                         "#00ff00",
+                        "#ff0000",
                     ],
                     "count": 3,
                 },

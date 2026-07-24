@@ -76,6 +76,20 @@ function handleRuntimeAction(
       || ""
     ).trim();
 
+  const runtimeDetail =
+    String(
+      data.detail
+      || (
+        data.asset_result
+        && (
+          data.asset_result.detail
+          || data.asset_result.error
+        )
+      )
+      || data.payload
+      || ""
+    ).trim();
+
   const cancelledByUser =
     status === "failed"
     && Boolean(guardConfirmationId)
@@ -290,8 +304,7 @@ function handleRuntimeAction(
           delayedMemoryReport:
             data.delayed_memory_report || null,
           completed: true,
-          detail:
-            data.detail || data.payload || "",
+          detail: runtimeDetail,
         }
       );
 
@@ -336,8 +349,7 @@ function handleRuntimeAction(
         data.context || null,
       assetResult:
         data.asset_result || null,
-      detail:
-        data.detail || data.payload || "",
+      detail: runtimeDetail,
     }
   );
 

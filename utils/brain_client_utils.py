@@ -82,7 +82,9 @@ from rules.runtime import (
 from utils.assets_utils import (
     ensure_assets_tree,
     _parse_lenient_asset_payload,
-    run_asset_action,
+)
+from utils.python_skill_asset_utils import (
+    run_context_asset_action,
 )
 from utils.skills_asset_utils import (
     list_skills,
@@ -1326,6 +1328,58 @@ def build_pending_asset_action_preview(
             if not path.startswith("assets/"):
                 path = f"assets/{path}"
             result["path"] = path
+
+    if action == "run_document_reader":
+        attachment = str(
+            payload.get(
+                "attachment",
+                "",
+            )
+            or ""
+        ).strip()
+        raw_modes = payload.get(
+            "modes"
+        )
+        modes = (
+            [
+                str(mode).strip()
+                for mode in raw_modes
+                if str(mode).strip()
+            ]
+            if isinstance(raw_modes, list)
+            else []
+        )
+        mode = str(
+            payload.get(
+                "mode",
+                "plain-mode.md",
+            )
+            or "plain-mode.md"
+        ).strip()
+        if attachment:
+            result["path"] = attachment
+        if modes:
+            result["modes"] = modes
+        else:
+            result["mode"] = mode
+
+    if action == "run_python_skill":
+        skill = str(
+            payload.get(
+                "skill",
+                "",
+            )
+            or ""
+        ).strip()
+        script = str(
+            payload.get(
+                "script",
+                "",
+            )
+            or ""
+        ).strip()
+        if skill and script:
+            result["path"] = f"{skill}/{script}"
 
     return result
 
@@ -3754,9 +3808,24 @@ async def apply_runtime_action_calls(
                     ),
                 }))
 
-            result = run_asset_action(
-                action.payload
+            previous_active_asset_action_id = getattr(
+                context,
+                "runtime_active_asset_action_id",
+                "",
             )
+            context.runtime_active_asset_action_id = (
+                pending_action_id
+            )
+
+            try:
+                result = await run_context_asset_action(
+                    action.payload,
+                    context=context,
+                )
+            finally:
+                context.runtime_active_asset_action_id = (
+                    previous_active_asset_action_id
+                )
             result = normalize_file_exists_for_runtime_todo(
                 result,
                 context,
@@ -4057,6 +4126,17 @@ async def apply_runtime_action_calls(
                         else "failed"
                     ),
                     "text": text,
+                    "detail": str(
+                        result.get(
+                            "detail",
+                            "",
+                        )
+                        or result.get(
+                            "error",
+                            "",
+                        )
+                        or ""
+                    ),
                     "asset_result": result,
                 }))
 

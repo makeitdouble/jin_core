@@ -63,25 +63,7 @@ def run_color_stream(user_text, decision="continue"):
         config.USE_SERVICE_AS_BRAIN = previous
 
 
-def test_brain_stream_waits_for_missing_trigger_confirmation():
-    context, chunks = run_color_stream(
-        "поставь себе красный яркий",
-        "continue",
-    )
-
-    assert chunks == [{"type": "content", "content": "Принято."}]
-    assert [
-        (event.get("type"), event.get("status"))
-        for event in context.emitter.events
-    ] == [
-        ("runtime_action_guard_confirmation", "pending"),
-        ("runtime_action", "completed"),
-    ]
-    assert context.runtime_action_events[-1]["name"] == "jin_color"
-    assert context.runtime_action_events[-1]["color"] == "#ff0000"
-
-
-def test_brain_stream_reject_skips_action_and_continues():
+def test_brain_stream_jin_color_executes_without_confirmation():
     context, chunks = run_color_stream(
         "поставь себе красный яркий",
         "reject",
@@ -92,14 +74,10 @@ def test_brain_stream_reject_skips_action_and_continues():
         (event.get("type"), event.get("status"))
         for event in context.emitter.events
     ] == [
-        ("runtime_action_guard_confirmation", "pending"),
-        ("runtime_action", "failed"),
+        ("runtime_action", "completed"),
     ]
-    assert context.runtime_action_events[-1]["status"] == "failed"
-    assert not any(
-        event.get("status") == "completed"
-        for event in context.emitter.events
-    )
+    assert context.runtime_action_events[-1]["name"] == "jin_color"
+    assert context.runtime_action_events[-1]["color"] == "#ff0000"
 
 
 def test_brain_stream_matching_trigger_executes_without_confirmation():

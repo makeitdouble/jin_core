@@ -9,6 +9,41 @@ const streamMessages =
 const STREAM_FRAME_WARNING_MS = 12;
 const STREAM_NEAR_BOTTOM_PX = 72;
 
+function isChatRenderForeground() {
+
+  const visible =
+    document.visibilityState !== "hidden";
+
+  let focused = true;
+
+  if (typeof document.hasFocus === "function") {
+    try {
+      focused = document.hasFocus();
+    } catch (error) {
+      focused = true;
+    }
+  }
+
+  return visible && focused;
+
+}
+
+function queueChatMicrotask(callback) {
+
+  if (typeof window.queueMicrotask === "function") {
+    window.queueMicrotask(
+      callback
+    );
+
+    return;
+  }
+
+  Promise.resolve().then(
+    callback
+  );
+
+}
+
 let streamFrameScheduled = false;
 const jinInputLoopState = {
   previousInput: "",
@@ -130,6 +165,17 @@ function nowMs() {
 
 
 function requestStreamFrame(callback) {
+
+  // requestAnimationFrame may stop completely while the browser window is
+  // unfocused or occluded. In that state, flush in a microtask so websocket
+  // events keep their DOM order and runtime action rows can update normally.
+  if (!isChatRenderForeground()) {
+    queueChatMicrotask(
+      callback
+    );
+
+    return;
+  }
 
   if (window.requestAnimationFrame) {
     window.requestAnimationFrame(
@@ -322,6 +368,32 @@ function flushStreamFrame() {
   }
 
 }
+
+
+function flushStreamFrameForVisibilityChange() {
+
+  if (!streamFrameScheduled) {
+    return;
+  }
+
+  flushStreamFrame();
+
+}
+
+window.addEventListener(
+  "blur",
+  flushStreamFrameForVisibilityChange
+);
+
+window.addEventListener(
+  "focus",
+  flushStreamFrameForVisibilityChange
+);
+
+document.addEventListener(
+  "visibilitychange",
+  flushStreamFrameForVisibilityChange
+);
 
 
 // ROLE CONFIG

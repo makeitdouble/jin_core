@@ -144,7 +144,7 @@ class BehaviorContractTests(unittest.TestCase):
 
         self.assertEqual(
             NO_ENTRIES_FOUND_MESSAGE,
-            "No entries found.",
+            "No entries found. MANDATORY: DO NOT RETRY THIS ACTION AGAIN!",
         )
         self.assertEqual(
             format_runtime_trigger_words_message(
@@ -155,8 +155,10 @@ class BehaviorContractTests(unittest.TestCase):
                 ),
             ),
             (
-                "Action failed. User rejected an action and didn't provide "
-                "any of trigger words: save session, save summary"
+                "CONFIRMED: NO\n"
+                "DO NOT REPEAT THIS ACTION! User explicitly rejected it "
+                "and didn't provide correct spelling in any of trigger "
+                "words: save session, save summary"
             ),
         )
         self.assertEqual(
@@ -168,19 +170,26 @@ class BehaviorContractTests(unittest.TestCase):
                 ),
             ),
             (
+                "CONFIRMED: YES\n"
                 "User accepted an action and didn't provide any of action "
                 "trigger words: save session, save summary"
             ),
         )
         self.assertEqual(
             ACTION_BLOCKED_TRIGGER_WORD_MESSAGE,
-            "Action failed. Blocked trigger word: {blocked_trigger_word}",
+            (
+                "Action failed. DO NOT REPEAT THIS ACTION! "
+                "Blocked trigger word: {blocked_trigger_word}"
+            ),
         )
         self.assertEqual(
             format_runtime_blocked_trigger_word_message(
                 "show tag"
             ),
-            "Action failed. Blocked trigger word: show tag",
+            (
+                "Action failed. DO NOT REPEAT THIS ACTION! "
+                "Blocked trigger word: show tag"
+            ),
         )
 
     def test_save_session_guard_exists(self):

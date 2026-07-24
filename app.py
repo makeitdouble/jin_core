@@ -372,4 +372,12 @@ if __name__ == "__main__":
         app,
         host="127.0.0.1",
         port=8000,
+        ws_max_size=int(
+            getattr(
+                config,
+                "WEBSOCKET_MAX_MESSAGE_BYTES",
+                64 * 1024 * 1024,
+            )
+            or 64 * 1024 * 1024
+        ),
     )

@@ -454,9 +454,11 @@ def _build_current_appended_skills_context(
         )
         or []
     )
-    skill_names = []
+    skill_labels = []
 
     for skill in appended_skills:
+        modes = []
+
         if isinstance(
             skill,
             dict,
@@ -468,6 +470,15 @@ def _build_current_appended_skills_context(
                 )
                 or ""
             ).strip()
+            modes = [
+                str(mode).strip()
+                for mode in skill.get(
+                    "modes",
+                    [],
+                )
+                or []
+                if str(mode).strip()
+            ]
         else:
             name = str(
                 skill
@@ -475,17 +486,22 @@ def _build_current_appended_skills_context(
             ).strip()
 
         if name:
-            skill_names.append(
-                name
+            mode_suffix = (
+                f" (modes: {', '.join(modes)})"
+                if modes
+                else ""
+            )
+            skill_labels.append(
+                f"{name}{mode_suffix}"
             )
 
-    if not skill_names:
+    if not skill_labels:
         return ""
 
     lines = [
-        f"{index}. {name}"
-        for index, name in enumerate(
-            skill_names,
+        f"{index}. {label}"
+        for index, label in enumerate(
+            skill_labels,
             start=1,
         )
     ]

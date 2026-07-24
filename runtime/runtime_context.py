@@ -74,6 +74,8 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_active_asset_action_id: str = ""
+
     runtime_asset_retry_results: list[dict] = field(
         default_factory=list
     )

@@ -2702,7 +2702,7 @@ class RuntimeActionTests(unittest.TestCase):
             result.marker_repetition_exceeded,
         )
         self.assertIn(
-            "5 occurrences in one message",
+            "5 identical occurrences in one message",
             result.marker_repetition_reason,
         )
 
@@ -7204,7 +7204,7 @@ class RuntimeActionTests(unittest.TestCase):
             result.marker_repetition_exceeded
         )
 
-    def test_jin_color_fifth_marker_stops_alternating_loop(self):
+    def test_jin_color_alternating_markers_do_not_hit_identical_repeat_limit(self):
 
         result = extract_runtime_actions(
             (
@@ -7220,12 +7220,12 @@ class RuntimeActionTests(unittest.TestCase):
             repetition_guard=RuntimeActionRepetitionGuard(),
         )
 
-        self.assertTrue(
+        self.assertFalse(
             result.marker_repetition_exceeded
         )
         self.assertEqual(
             len(result.actions),
-            4,
+            5,
         )
         self.assertNotIn(
             "<JIN_COLOR",
@@ -7390,7 +7390,7 @@ class RuntimeActionTests(unittest.TestCase):
 
         asyncio.run(run_case())
 
-    def test_apply_runtime_action_calls_rejects_jin_color_without_trigger_or_confirmation(self):
+    def test_apply_runtime_action_calls_executes_jin_color_without_trigger(self):
 
         class Emitter:
 
@@ -7427,21 +7427,15 @@ class RuntimeActionTests(unittest.TestCase):
 
             self.assertEqual(
                 applied_count,
-                0,
+                1,
             )
             self.assertEqual(
-                context.runtime_action_events[-1]["error"],
-                "user_did_not_confirm_runtime_action",
+                context.runtime_action_events[-1]["color"],
+                "#ff0000",
             )
             self.assertEqual(
                 [event.get("status") for event in emitter.events],
-                ["failed"],
-            )
-            self.assertFalse(
-                any(
-                    event.get("status") == "completed"
-                    for event in emitter.events
-                )
+                ["completed"],
             )
 
         asyncio.run(

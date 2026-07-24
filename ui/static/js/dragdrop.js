@@ -25,6 +25,10 @@ const TEXT_EXTENSIONS = new Set([
   "log",
 ]);
 
+const BINARY_DOCUMENT_EXTENSIONS = new Set([
+  "pdf",
+]);
+
 let droppedFiles = [];
 let dragDepth = 0;
 let dropOverlay = null;
@@ -432,6 +436,20 @@ async function buildAttachmentPayload(file, index) {
 
     attachment.width = dimensions.width;
     attachment.height = dimensions.height;
+
+    if (dataUrl) {
+      attachment.data_url = dataUrl;
+      attachment.data_url_bytes = dataUrl.length;
+    }
+  }
+
+  if (
+      attachment.kind === "binary"
+      && BINARY_DOCUMENT_EXTENSIONS.has(
+        getFileExtension(file)
+      )
+  ) {
+    const dataUrl = await readFileAsDataUrl(file);
 
     if (dataUrl) {
       attachment.data_url = dataUrl;

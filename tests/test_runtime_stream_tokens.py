@@ -1521,7 +1521,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-    async def test_jin_color_missing_trigger_uses_generic_confirmation_and_rejects_action(self):
+    async def test_jin_color_applies_without_trigger_confirmation(self):
 
         state = {
             "generation_continued": False,
@@ -1544,7 +1544,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         context = SimpleNamespace(
             websocket=FakeWebSocket(),
             logger=FakeLogger(),
-            emitter=None,
+            emitter=FakeEmitter(),
             active_streams={},
             runtime_action_events=[],
             runtime_usage_events=[],
@@ -1555,37 +1555,11 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             delayed_memory_reports={},
             active_memory_records=[],
             runtime_turn_user_message="поставь себе красный яркий",
-            runtime_current_turn_id="turn_color_missing_trigger",
+            runtime_current_turn_id="turn_color_no_confirmation",
             runtime_turn_started_at=0,
             session_id="session-1",
             timestamp="2026-07-20T18:00:00",
         )
-
-        class RejectingEmitter(FakeEmitter):
-
-            async def emit(
-                self,
-                event,
-            ):
-
-                await super().emit(
-                    event
-                )
-
-                if (
-                    event.get("type")
-                    != "runtime_action_guard_confirmation"
-                ):
-                    return
-
-                future = context.runtime_action_guard_confirmations[
-                    event["confirmation_id"]
-                ]
-                future.set_result(
-                    "reject"
-                )
-
-        context.emitter = RejectingEmitter()
 
         stream = RuntimeStream(
             context=context,
@@ -1618,24 +1592,16 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             state["generation_continued"],
         )
         self.assertEqual(
-            len(confirmation_events),
-            1,
-        )
-        self.assertEqual(
-            confirmation_events[0]["guard"],
-            "jin_color",
-        )
-        self.assertEqual(
-            confirmation_events[0]["color"],
-            "#ff0000",
+            confirmation_events,
+            [],
         )
         self.assertEqual(
             [event.get("status") for event in runtime_events],
-            ["failed"],
+            ["completed"],
         )
         self.assertEqual(
-            context.runtime_action_events[-1]["error"],
-            "user_rejected_runtime_action",
+            context.runtime_action_events[-1]["color"],
+            "#ff0000",
         )
 
     async def test_jin_color_matching_trigger_applies_without_confirmation(self):
@@ -1758,13 +1724,12 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             color_generator()
         )
 
-        summaries = [
+        runtime_events = [
             event
             for event in context.emitter.events
             if (
                 event.get("type") == "runtime_action"
                 and event.get("action") == "jin_color"
-                and event.get("status") == "summary"
             )
         ]
 
@@ -1772,15 +1737,12 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             stream.marker_repetition_aborted,
         )
         self.assertEqual(
-            summaries[-1]["marker_count"],
-            10,
+            [event.get("status") for event in runtime_events],
+            ["completed"] * 8 + ["interrupted"],
         )
-        self.assertEqual(
-            summaries[-1]["colors"],
-            [
-                "#0000ff",
-                "#ff0000",
-            ],
+        self.assertIn(
+            "5 identical occurrences in one message",
+            runtime_events[-1]["detail"],
         )
         self.assertEqual(
             context.runtime_session_action_history[-1]["parts"],
@@ -1789,8 +1751,14 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                 "colors": [
                     "#0000ff",
                     "#ff0000",
+                    "#0000ff",
+                    "#ff0000",
+                    "#0000ff",
+                    "#ff0000",
+                    "#0000ff",
+                    "#ff0000",
                 ],
-                "count": 10,
+                "count": 8,
             }],
         )
 
