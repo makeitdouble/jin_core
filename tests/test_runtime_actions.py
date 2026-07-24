@@ -2740,7 +2740,7 @@ class RuntimeActionTests(unittest.TestCase):
             result.marker_repetition_reason,
         )
 
-    def test_marker_repetition_guard_keeps_total_observed_marker_count(self):
+    def test_marker_repetition_guard_stops_observing_after_trigger(self):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=[
@@ -2767,7 +2767,7 @@ class RuntimeActionTests(unittest.TestCase):
         )
         self.assertEqual(
             len(result.observed_actions),
-            10,
+            9,
         )
 
     def test_apply_runtime_action_calls_stores_search_queries(self):

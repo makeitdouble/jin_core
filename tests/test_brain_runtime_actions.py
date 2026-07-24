@@ -854,7 +854,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 for item in context.runtime_session_action_history
             ],
             [
-                "SAVE_SESSION ( repeated_times: 2 )",
+                "SAVE_SESSION (count: 2)",
             ],
         )
 
@@ -874,7 +874,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         self.assertEqual(
             context.runtime_session_action_history[0]["text"],
-            "RESOLVE_ACTIVE_MEMORY ( repeated_times: 24 )",
+            "RESOLVE_ACTIVE_MEMORY (count: 24)",
         )
 
         prompt = build_brain_context(
@@ -883,7 +883,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "1. RESOLVE_ACTIVE_MEMORY ( repeated_times: 24 )",
+            "1. RESOLVE_ACTIVE_MEMORY (count: 24)",
             prompt,
         )
 
@@ -923,9 +923,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
             formatted,
             (
                 "LIST_SKILLS, "
-                "APPEND_SKILL: wildcards ( repeated_times: 2 ), file_manager, "
-                "REMOVE_SKILL: image_prompt_generator ( repeated_times: 2 ), "
-                "file_manager"
+                "APPEND_SKILL: wildcards, file_manager (count: 3), "
+                "REMOVE_SKILL: image_prompt_generator, file_manager (count: 3)"
             ),
         )
 
@@ -1046,6 +1045,36 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
+    def test_jin_color_history_separates_marker_count_from_applied_colors(self):
+
+        context = SimpleNamespace(
+            runtime_session_action_history=[],
+            runtime_current_turn_id="turn-1",
+        )
+
+        replace_session_action_history_since(
+            context,
+            0,
+            [{
+                "name": "JIN_COLOR",
+                "colors": [
+                    "#ff0000",
+                ],
+                "marker_count": 4,
+            }],
+        )
+
+        self.assertEqual(
+            context.runtime_session_action_history[0]["parts"],
+            [{
+                "text": "JIN_COLOR",
+                "colors": [
+                    "#ff0000",
+                ],
+                "count": 4,
+            }],
+        )
+
     def test_session_history_includes_saved_content_title(self):
 
         title = (
@@ -1122,7 +1151,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             context.runtime_session_action_history[0]["text"],
             (
-                "APPEND_SKILL: wildcards ( repeated_times: 2 ), file_manager, "
+                "APPEND_SKILL: wildcards, file_manager (count: 3), "
                 "REMOVE_SKILL: image_prompt_generator"
             ),
         )
@@ -1204,7 +1233,225 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertEqual(
             context.runtime_session_action_history[-1]["text"],
-            "APPEND_SKILL: name of skill ( repeated_times: 2 )",
+            "APPEND_SKILL: name of skill (count: 2)",
+        )
+
+    def test_stream_allows_four_identical_jin_color_markers(self):
+
+        state = {
+            "emitted_markers": 0,
+        }
+
+        class FakeBrainClient:
+            async def stream(self, **_kwargs):
+                for index in range(4):
+                    state["emitted_markers"] = index + 1
+                    yield {
+                        "type": "content",
+                        "content": "<JIN_COLOR: #ff0000>",
+                    }
+
+        class TrackingEmitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(
+                    event
+                )
+
+        class Context:
+            pass
+
+        async def collect(context):
+            chunks = []
+
+            async for chunk in ask_brain_stream(
+                client=FakeBrainClient(),
+                text="four red markers",
+                context=context,
+                runtime_actions={
+                    "CAN_JIN_COLOR": True,
+                },
+            ):
+                chunks.append(
+                    chunk
+                )
+
+            return chunks
+
+        context = Context()
+        context.emitter = TrackingEmitter()
+        context.runtime_current_turn_id = "turn-red-four"
+        context.runtime_turn_started_at = 0
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            chunks = asyncio.run(
+                collect(
+                    context
+                )
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        counted_events = [
+            event
+            for event in context.emitter.events
+            if (
+                event.get("type") == "runtime_action"
+                and event.get("action") == "jin_color"
+                and event.get("status") == "counted"
+            )
+        ]
+
+        self.assertEqual(
+            chunks,
+            [],
+        )
+        self.assertEqual(
+            state["emitted_markers"],
+            4,
+        )
+        self.assertEqual(
+            len(context.runtime_action_events),
+            1,
+        )
+        self.assertEqual(
+            [
+                event["marker_count"]
+                for event in counted_events
+            ],
+            [
+                1,
+                2,
+                3,
+                4,
+            ],
+        )
+        self.assertEqual(
+            counted_events[-1]["colors"],
+            [
+                "#ff0000",
+            ],
+        )
+        self.assertEqual(
+            counted_events[-1]["marker_count"],
+            4,
+        )
+        self.assertEqual(
+            context.runtime_session_action_history[-1]["parts"],
+            [{
+                "text": "JIN_COLOR",
+                "colors": [
+                    "#ff0000",
+                ],
+                "count": 4,
+            }],
+        )
+
+    def test_stream_interrupts_on_fifth_identical_jin_color_marker(self):
+
+        state = {
+            "emitted_markers": 0,
+        }
+
+        class FakeBrainClient:
+            async def stream(self, **_kwargs):
+                for index in range(6):
+                    state["emitted_markers"] = index + 1
+                    yield {
+                        "type": "content",
+                        "content": "<JIN_COLOR: #ff0000>",
+                    }
+
+        class TrackingEmitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(
+                    event
+                )
+
+        class Context:
+            pass
+
+        async def collect(context):
+            chunks = []
+
+            async for chunk in ask_brain_stream(
+                client=FakeBrainClient(),
+                text="five red markers",
+                context=context,
+                runtime_actions={
+                    "CAN_JIN_COLOR": True,
+                },
+            ):
+                chunks.append(
+                    chunk
+                )
+
+            return chunks
+
+        context = Context()
+        context.emitter = TrackingEmitter()
+        context.runtime_current_turn_id = "turn-red-five"
+        context.runtime_turn_started_at = 0
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            asyncio.run(
+                collect(
+                    context
+                )
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        interruption_events = [
+            event
+            for event in context.emitter.events
+            if (
+                event.get("type") == "runtime_action"
+                and event.get("action") == "jin_color"
+                and event.get("status") == "interrupted"
+            )
+        ]
+
+        self.assertEqual(
+            state["emitted_markers"],
+            5,
+        )
+        self.assertEqual(
+            len(context.runtime_action_events),
+            1,
+        )
+        self.assertEqual(
+            len(interruption_events),
+            1,
+        )
+        self.assertEqual(
+            interruption_events[0]["colors"],
+            [
+                "#ff0000",
+            ],
+        )
+        self.assertEqual(
+            interruption_events[0]["marker_count"],
+            5,
+        )
+        self.assertEqual(
+            context.runtime_session_action_history[-1]["parts"],
+            [{
+                "text": "JIN_COLOR",
+                "colors": [
+                    "#ff0000",
+                ],
+                "count": 5,
+            }],
         )
 
     def test_stream_stops_repeated_resolve_active_memory_markers(self):
@@ -1556,14 +1803,21 @@ class BrainRuntimeActionTests(unittest.TestCase):
                         ],
                         [
                             "started",
+                            "counted",
                             "started",
                             "completed",
+                            "counter_final",
                         ],
                     )
+                    lifecycle_events = [
+                        event
+                        for event in runtime_events
+                        if not event.get("counter_only")
+                    ]
                     self.assertEqual(
                         len({
                             event.get("id")
-                            for event in runtime_events
+                            for event in lifecycle_events
                         }),
                         1,
                     )
@@ -1575,14 +1829,14 @@ class BrainRuntimeActionTests(unittest.TestCase):
                         runtime_events[0]["file_exists_at_emit"],
                     )
                     self.assertEqual(
-                        runtime_events[1]["text"],
+                        lifecycle_events[1]["text"],
                         "Created asset file - assets/outputs/rain_simulator.py",
                     )
                     self.assertFalse(
-                        runtime_events[1]["file_exists_at_emit"],
+                        lifecycle_events[1]["file_exists_at_emit"],
                     )
                     self.assertTrue(
-                        runtime_events[2]["file_exists_at_emit"],
+                        lifecycle_events[2]["file_exists_at_emit"],
                     )
                     self.assertTrue(
                         output_path.exists(),
@@ -1666,19 +1920,26 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
             [
                 "started",
+                "counted",
                 "completed",
+                "counter_final",
             ],
         )
+        lifecycle_events = [
+            event
+            for event in runtime_events
+            if not event.get("counter_only")
+        ]
         self.assertEqual(
-            runtime_events[0]["id"],
-            runtime_events[1]["id"],
+            lifecycle_events[0]["id"],
+            lifecycle_events[1]["id"],
         )
         self.assertEqual(
-            runtime_events[0]["text"],
+            lifecycle_events[0]["text"],
             "Saving delayed memory report",
         )
         self.assertEqual(
-            runtime_events[1]["text"],
+            lifecycle_events[1]["text"],
             "Saved delayed memory: Test delayed memory report",
         )
 
@@ -2734,13 +2995,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
             [
                 {
                     "text": "IDLE",
-                    "detail": "5s",
-                    "count": 1,
-                },
-                {
-                    "text": "IDLE",
-                    "detail": "12s",
-                    "count": 1,
+                    "detail": "5s, 12s",
+                    "count": 2,
                 },
             ],
         )

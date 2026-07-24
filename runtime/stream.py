@@ -23,7 +23,9 @@ from utils.tokens import (
 )
 from utils.actions import (
     build_runtime_action_id,
+    emit_runtime_action_counter_updates,
     get_applied_jin_color,
+    RuntimeActionCounter,
     normalize_jin_color_payload,
     RuntimeActionRepetitionGuard,
     RuntimeActionStreamFilter,
@@ -125,6 +127,7 @@ class RuntimeStream:
             self.context.runtime_skill_state_barrier_active = False
         self.append_skill_marker_names = self.build_appended_skill_name_set()
         self.repetition_guard = RuntimeActionRepetitionGuard()
+        self.action_counter = RuntimeActionCounter()
         self.marker_repetition_aborted = False
         self.action_guard_rejected_aborted = False
         self.context_limit_recovery_armed = False
@@ -730,6 +733,44 @@ class RuntimeStream:
 
         return markers
 
+    def get_action_counter_display_payloads(
+        self,
+    ) -> dict:
+
+        display_payloads = {}
+
+        for marker in self.get_applied_runtime_action_markers():
+            action_name = str(
+                marker.get(
+                    "name",
+                    "",
+                )
+                or ""
+            ).strip().upper()
+
+            if action_name != RUNTIME_ACTION_JIN_COLOR:
+                continue
+
+            payload = str(
+                marker.get(
+                    "payload",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            if not action_name or not payload:
+                continue
+
+            display_payloads.setdefault(
+                action_name,
+                [],
+            ).append(
+                payload
+            )
+
+        return display_payloads
+
     async def emit_marker_repetition_interruption(
         self,
         reason: str,
@@ -744,67 +785,53 @@ class RuntimeStream:
         if action is None:
             return
 
-        action_id = self.get_runtime_action_display_id(
-            action
-        )
-
-        if not action_id:
-            return
-
-        emitter = getattr(
-            self.context,
-            "emitter",
-            None,
-        )
-        emit = getattr(
-            emitter,
-            "emit",
-            None,
-        )
-
-        if emit is None:
-            return
-
-        payload = {
-            "type": "runtime_action",
-            "action": str(
-                getattr(
-                    action,
-                    "name",
-                    "",
-                )
-                or ""
-            ).strip().lower(),
-            "id": action_id,
-            "status": "interrupted",
-            "text": str(
-                getattr(
-                    action,
-                    "name",
-                    "",
-                )
-                or "Runtime action"
-            ).strip(),
-            "detail": reason,
-            "validator_interrupted": True,
-        }
-
-        if action.name == RUNTIME_ACTION_JIN_COLOR:
-            color = normalize_jin_color_payload(
-                action.payload
+        entry = self.action_counter.get(
+            getattr(
+                action,
+                "name",
+                "",
             )
-            if color:
-                payload["color"] = color
-                payload["payload"] = color
-
-        await emit(
-            payload
         )
+
+        if entry is None:
+            return
+
+        await emit_runtime_action_counter_updates(
+            self.context,
+            (entry,),
+            context_snapshot=(
+                self.context_snapshot
+            ),
+            display_payloads=(
+                self.get_action_counter_display_payloads()
+            ),
+            status="interrupted",
+            detail=reason,
+        )
+
 
     async def apply_runtime_action_filter_result(
         self,
         result,
     ) -> str | None:
+
+        counter_entries = self.action_counter.record(
+            getattr(
+                result,
+                "observed_actions",
+                (),
+            )
+        )
+        await emit_runtime_action_counter_updates(
+            self.context,
+            counter_entries,
+            context_snapshot=(
+                self.context_snapshot
+            ),
+            display_payloads=(
+                self.get_action_counter_display_payloads()
+            ),
+        )
 
         started_actions = self.filter_noop_jin_color_sequence(
             getattr(
@@ -2147,33 +2174,61 @@ class RuntimeStream:
 
         finally:
 
-            history_compacted = (
-                compact_session_action_history_since(
+            with contextlib.suppress(
+                Exception
+            ):
+                await emit_runtime_action_counter_updates(
                     self.context,
-                    session_action_history_start,
+                    self.action_counter.entries(),
+                    context_snapshot=(
+                        self.context_snapshot
+                    ),
+                    display_payloads=(
+                        self.get_action_counter_display_payloads()
+                    ),
+                    status="counter_final",
+                )
+
+            counted_markers = (
+                self.action_counter.marker_actions(
+                    display_payloads=(
+                        self.get_action_counter_display_payloads()
+                    ),
                 )
             )
 
-            history = getattr(
+            session_action_history = getattr(
                 self.context,
                 "runtime_session_action_history",
                 [],
             )
-            if (
-                self.marker_repetition_aborted
-                and isinstance(history, list)
-                and len(history) == session_action_history_start
-            ):
-                applied_markers = (
-                    self.get_applied_runtime_action_markers()
+            has_recorded_history = (
+                isinstance(
+                    session_action_history,
+                    list,
                 )
-                if applied_markers:
-                    replace_session_action_history_since(
+                and len(
+                    session_action_history
+                ) > session_action_history_start
+            )
+
+            if (
+                counted_markers
+                and not has_recorded_history
+            ):
+                replace_session_action_history_since(
+                    self.context,
+                    session_action_history_start,
+                    counted_markers,
+                )
+                history_compacted = True
+            else:
+                history_compacted = (
+                    compact_session_action_history_since(
                         self.context,
                         session_action_history_start,
-                        applied_markers,
                     )
-                    history_compacted = True
+                )
 
             if history_compacted:
                 with contextlib.suppress(

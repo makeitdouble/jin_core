@@ -1081,14 +1081,21 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                     ],
                     [
                         "started",
+                        "counted",
                         "started",
                         "completed",
+                        "counter_final",
                     ],
                 )
+                lifecycle_events = [
+                    event
+                    for event in runtime_events
+                    if not event.get("counter_only")
+                ]
                 self.assertEqual(
                     len({
                         event.get("id")
-                        for event in runtime_events
+                        for event in lifecycle_events
                     }),
                     1,
                 )
@@ -1100,11 +1107,11 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                     runtime_events[0]["file_exists_at_emit"],
                 )
                 self.assertEqual(
-                    runtime_events[1]["text"],
+                    lifecycle_events[1]["text"],
                     "Created asset file - assets/outputs/rain_simulator.py",
                 )
                 self.assertTrue(
-                    runtime_events[2]["file_exists_at_emit"],
+                    lifecycle_events[2]["file_exists_at_emit"],
                 )
                 self.assertTrue(
                     output_path.exists(),
@@ -1177,15 +1184,22 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             ],
             [
                 "started",
+                "counted",
                 "completed",
+                "counter_final",
             ],
         )
+        lifecycle_events = [
+            event
+            for event in runtime_events
+            if not event.get("counter_only")
+        ]
         self.assertEqual(
-            runtime_events[0]["id"],
-            runtime_events[1]["id"],
+            lifecycle_events[0]["id"],
+            lifecycle_events[1]["id"],
         )
         self.assertEqual(
-            runtime_events[1]["text"],
+            lifecycle_events[1]["text"],
             "Saved delayed memory: Runtime state report",
         )
         self.assertEqual(
@@ -1276,11 +1290,16 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(
             [event.get("status") for event in runtime_events],
-            ["started", "failed"],
+            ["counted", "started", "failed", "counter_final"],
         )
+        lifecycle_events = [
+            event
+            for event in runtime_events
+            if not event.get("counter_only")
+        ]
         self.assertEqual(
-            runtime_events[0]["id"],
-            runtime_events[1]["id"],
+            lifecycle_events[0]["id"],
+            lifecycle_events[1]["id"],
         )
         self.assertEqual(
             len(context.delayed_memory_reports),
@@ -1407,7 +1426,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             [event.get("status") for event in runtime_events],
-            ["started", "failed"],
+            ["started", "counted", "failed", "counter_final"],
         )
         self.assertEqual(
             len(context.delayed_memory_reports),
@@ -1507,7 +1526,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             [event.get("status") for event in runtime_events],
-            ["started", "completed"],
+            ["counted", "started", "completed", "counter_final"],
         )
         self.assertEqual(
             len(context.delayed_memory_reports),
@@ -1597,7 +1616,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             [event.get("status") for event in runtime_events],
-            ["completed"],
+            ["counted", "completed", "counter_final"],
         )
         self.assertEqual(
             context.runtime_action_events[-1]["color"],
@@ -1666,7 +1685,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             [event.get("status") for event in runtime_events],
-            ["completed"],
+            ["counted", "completed", "counter_final"],
         )
         self.assertEqual(
             context.runtime_action_events[-1]["color"],
@@ -1738,11 +1757,18 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             [event.get("status") for event in runtime_events],
-            ["completed"] * 8 + ["interrupted"],
+            ["counted"]
+            + ["completed"] * 8
+            + ["interrupted", "counter_final"],
+        )
+        interrupted_event = next(
+            event
+            for event in runtime_events
+            if event.get("status") == "interrupted"
         )
         self.assertIn(
             "5 identical occurrences in one message",
-            runtime_events[-1]["detail"],
+            interrupted_event["detail"],
         )
         self.assertEqual(
             context.runtime_session_action_history[-1]["parts"],
@@ -1758,7 +1784,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                     "#0000ff",
                     "#ff0000",
                 ],
-                "count": 8,
+                "count": 9,
             }],
         )
 
@@ -1826,17 +1852,18 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(
             state["generation_continued"],
         )
+        runtime_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "runtime_action"
+        ]
         self.assertEqual(
-            [
-                event
-                for event in context.emitter.events
-                if event.get("type")
-                in {
-                    "runtime_action",
-                    "runtime_action_guard_confirmation",
-                }
-            ],
-            [],
+            [event.get("status") for event in runtime_events],
+            ["counted", "counter_final"],
+        )
+        self.assertEqual(
+            runtime_events[0]["marker_count"],
+            1,
         )
         self.assertEqual(
             len(context.runtime_action_events),
@@ -1905,7 +1932,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             [event.get("status") for event in runtime_events],
-            ["failed"],
+            ["counted", "failed", "counter_final"],
         )
         self.assertEqual(
             context.runtime_action_events[-1]["error"],

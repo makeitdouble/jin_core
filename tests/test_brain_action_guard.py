@@ -74,8 +74,11 @@ def test_brain_stream_jin_color_executes_without_confirmation():
         (event.get("type"), event.get("status"))
         for event in context.emitter.events
     ] == [
+        ("runtime_action", "counted"),
         ("runtime_action", "completed"),
+        ("runtime_action", "counter_final"),
     ]
+    assert context.emitter.events[0]["marker_count"] == 1
     assert context.runtime_action_events[-1]["name"] == "jin_color"
     assert context.runtime_action_events[-1]["color"] == "#ff0000"
 
@@ -90,6 +93,9 @@ def test_brain_stream_matching_trigger_executes_without_confirmation():
         (event.get("type"), event.get("status"))
         for event in context.emitter.events
     ] == [
+        ("runtime_action", "counted"),
         ("runtime_action", "completed"),
+        ("runtime_action", "counter_final"),
     ]
+    assert context.emitter.events[0]["marker_count"] == 1
     assert context.runtime_action_events[-1]["name"] == "jin_color"

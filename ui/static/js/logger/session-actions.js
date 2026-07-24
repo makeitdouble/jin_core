@@ -469,12 +469,14 @@ function buildSessionActionRow(
       actionName
     );
 
-    if (part.count > 0) {
+    if (part.count > 1) {
       const count =
         document.createElement("span");
 
       count.textContent =
-        `(${part.count})`;
+        formatRuntimeActionCountLabel(
+          part.count
+        );
       count.className =
         "ml-1 opacity-70";
 

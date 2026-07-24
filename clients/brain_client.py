@@ -56,6 +56,8 @@ from clients.response_extractor import (
 
 from utils.actions import (
     build_runtime_action_id,
+    emit_runtime_action_counter_updates,
+    RuntimeActionCounter,
     RuntimeActionRepetitionGuard,
     RuntimeActionResult,
     RuntimeActionStreamFilter,
@@ -645,7 +647,7 @@ async def ask_brain_stream(
         )
         or []
     )
-    observed_action_markers = []
+    action_counter = RuntimeActionCounter()
     raw_content_parts = []
     pending_idle_action_calls = []
     confirmed_action_guard_names = set()
@@ -655,26 +657,15 @@ async def ask_brain_stream(
 
     def capture_observed_action_markers(
         result,
-    ) -> None:
+    ):
 
-        for action in getattr(
-            result,
-            "observed_actions",
-            (),
-        ):
-            name = str(
-                getattr(
-                    action,
-                    "name",
-                    "",
-                )
-                or ""
-            ).strip()
-
-            if name:
-                observed_action_markers.append(
-                    action
-                )
+        return action_counter.record(
+            getattr(
+                result,
+                "observed_actions",
+                (),
+            )
+        )
 
     def get_applied_jin_colors() -> list[str]:
 
@@ -744,114 +735,37 @@ async def ask_brain_stream(
 
         return colors
 
-    def get_visible_history_actions():
+    def get_action_counter_display_payloads() -> dict:
 
+        display_payloads = {}
         applied_colors = get_applied_jin_colors()
-        applied_color_index = 0
-        visible_actions = []
 
-        for action in observed_action_markers:
-            if getattr(
-                action,
-                "name",
-                "",
-            ) != RUNTIME_ACTION_JIN_COLOR:
-                visible_actions.append(
-                    action
-                )
-                continue
+        if applied_colors:
+            display_payloads[
+                RUNTIME_ACTION_JIN_COLOR
+            ] = applied_colors
 
-            color = normalize_jin_color_payload(
-                getattr(
-                    action,
-                    "payload",
-                    "",
-                )
-            )
+        return display_payloads
 
-            if (
-                applied_color_index >= len(applied_colors)
-                or color != applied_colors[
-                    applied_color_index
-                ]
-            ):
-                continue
-
-            visible_actions.append(
-                action
-            )
-            applied_color_index += 1
-
-        return visible_actions
-
-    async def emit_repeated_jin_color_summary(
-        result,
+    async def emit_action_counter_updates(
+        entries,
+        *,
+        status: str = "counted",
+        detail: str = "",
     ) -> None:
 
-        if not getattr(
-            result,
-            "marker_repetition_exceeded",
-            False,
-        ):
-            return
-
-        color_actions = [
-            action
-            for action in get_visible_history_actions()
-            if getattr(
-                action,
-                "name",
-                "",
-            ) == RUNTIME_ACTION_JIN_COLOR
-        ]
-        colors = [
-            normalize_jin_color_payload(
-                getattr(
-                    action,
-                    "payload",
-                    "",
-                )
-            )
-            for action in color_actions
-        ]
-        colors = [
-            color
-            for color in colors
-            if color
-        ]
-
-        if not color_actions:
-            return
-
-        emitter = getattr(
+        await emit_runtime_action_counter_updates(
             context,
-            "emitter",
-            None,
-        )
-        emit = getattr(
-            emitter,
-            "emit",
-            None,
-        )
-
-        if emit is None:
-            return
-
-        await emit({
-            "type": "runtime_action",
-            "action": "jin_color",
-            "id": get_action_guard_display_id(
-                context,
-                color_actions[-1],
-                action_guard_display_state,
+            entries,
+            context_snapshot=(
+                action_context_snapshot
             ),
-            "status": "summary",
-            "text": "JIN_COLOR",
-            "color": colors[-1],
-            "payload": colors[-1],
-            "colors": colors,
-            "marker_count": len(color_actions),
-        })
+            display_payloads=(
+                get_action_counter_display_payloads()
+            ),
+            status=status,
+            detail=detail,
+        )
 
     async def finalize_session_action_history() -> None:
 
@@ -862,10 +776,19 @@ async def ask_brain_stream(
 
         session_action_history_finalized = True
 
+        await emit_action_counter_updates(
+            action_counter.entries(),
+            status="counter_final",
+        )
+
         replace_session_action_history_since(
             context,
             session_action_history_start,
-            get_visible_history_actions(),
+            action_counter.marker_actions(
+                display_payloads=(
+                    get_action_counter_display_payloads()
+                ),
+            ),
         )
         flush_pending_active_memory_resolve_failure_history(
             context
@@ -1119,8 +1042,14 @@ async def ask_brain_stream(
                 "",
             )
         )
-        capture_observed_action_markers(
-            result
+        counter_entries = (
+            capture_observed_action_markers(
+                result
+            )
+        )
+
+        await emit_action_counter_updates(
+            counter_entries
         )
 
         await emit_delayed_memory_bubble_started()
@@ -1132,32 +1061,14 @@ async def ask_brain_stream(
             source="brain stream content",
         )
 
-        action_applied = False
-
-        if (
-            getattr(
-                result,
-                "marker_repetition_exceeded",
-                False,
-            )
-            and any(
-                action.name == RUNTIME_ACTION_JIN_COLOR
-                for action in result.actions
-            )
-        ):
-            action_applied = await apply_runtime_action_result(
-                result
-            )
+        action_applied = await apply_runtime_action_result(
+            result
+        )
 
         if await stop_on_marker_repetition(
             result
         ):
             return None
-
-        if not action_applied:
-            action_applied = await apply_runtime_action_result(
-                result
-            )
 
         if runtime_action_boundary_seen:
             # A boundary action (for example WEB_SEARCH) used to stop the
@@ -1207,9 +1118,6 @@ async def ask_brain_stream(
             return False
 
         stop_for_runtime_action = True
-        await emit_repeated_jin_color_summary(
-            result
-        )
         reason = (
             getattr(
                 result,
@@ -1218,6 +1126,29 @@ async def ask_brain_stream(
             )
             or "runtime action marker repetition limit exceeded"
         )
+        triggered_action = getattr(
+            content_filter.repetition_guard,
+            "triggered_action",
+            None,
+        )
+        triggered_entry = (
+            action_counter.get(
+                getattr(
+                    triggered_action,
+                    "name",
+                    "",
+                )
+            )
+            if triggered_action is not None
+            else None
+        )
+
+        if triggered_entry is not None:
+            await emit_action_counter_updates(
+                (triggered_entry,),
+                status="interrupted",
+                detail=reason,
+            )
         logger = getattr(
             context,
             "logger",
@@ -1393,8 +1324,13 @@ async def ask_brain_stream(
                 if filter_runtime_actions
                 else RuntimeActionResult(text="")
             )
-            capture_observed_action_markers(
-                tail_result
+            tail_counter_entries = (
+                capture_observed_action_markers(
+                    tail_result
+                )
+            )
+            await emit_action_counter_updates(
+                tail_counter_entries
             )
 
             await log_runtime_action_marker_removals(
@@ -1403,15 +1339,15 @@ async def ask_brain_stream(
                 source="brain stream tail",
             )
 
+            await apply_runtime_action_result(
+                tail_result
+            )
+
             if await stop_on_marker_repetition(
                 tail_result
             ):
                 await finalize_session_action_history()
                 return
-
-            await apply_runtime_action_result(
-                tail_result
-            )
             await flush_pending_idle_actions()
 
             content_tail = tail_result.text
@@ -1490,8 +1426,13 @@ async def ask_brain_stream(
             if filter_runtime_actions
             else RuntimeActionResult(text="")
         )
-        capture_observed_action_markers(
-            tail_result
+        tail_counter_entries = (
+            capture_observed_action_markers(
+                tail_result
+            )
+        )
+        await emit_action_counter_updates(
+            tail_counter_entries
         )
 
         await log_runtime_action_marker_removals(
@@ -1500,15 +1441,15 @@ async def ask_brain_stream(
             source="brain stream tail",
         )
 
+        await apply_runtime_action_result(
+            tail_result
+        )
+
         if await stop_on_marker_repetition(
             tail_result
         ):
             await finalize_session_action_history()
             return
-
-        await apply_runtime_action_result(
-            tail_result
-        )
         await flush_pending_idle_actions()
 
         content_tail = tail_result.text

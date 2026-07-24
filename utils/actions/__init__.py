@@ -1,3 +1,9 @@
+from .action_counter_utils import (
+    RuntimeActionCount,
+    RuntimeActionCounter,
+    emit_runtime_action_counter_updates,
+    format_runtime_action_count,
+)
 from .active_memory_utils import (
     collect_active_memory_slot_ids,
     generate_active_memory_slot_key,
@@ -49,6 +55,8 @@ from .web_search_utils import extract_search_query
 
 __all__ = [
     "RuntimeActionCall",
+    "RuntimeActionCount",
+    "RuntimeActionCounter",
     "RuntimeActionRepetitionGuard",
     "RuntimeActionResult",
     "RuntimeActionStreamFilter",
@@ -58,7 +66,9 @@ __all__ = [
     "compile_runtime_action_regexp",
     "extract_active_memory_resolve_slot_id",
     "extract_runtime_actions",
+    "emit_runtime_action_counter_updates",
     "extract_search_query",
+    "format_runtime_action_count",
     "find_runtime_action_matches",
     "generate_active_memory_slot_id",
     "generate_active_memory_slot_key",

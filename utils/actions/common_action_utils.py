@@ -734,6 +734,18 @@ def extract_runtime_actions(
         nonlocal marker_repetition_exceeded
         nonlocal marker_repetition_reason
 
+        if marker_repetition_exceeded:
+            if not preserve_action_text:
+                removed_markers.append(
+                    raw_marker
+                )
+
+            return (
+                raw_marker
+                if preserve_action_text
+                else ""
+            )
+
         plural_skill_action_name = _plural_skill_marker_action_name(
             action_name
         )
@@ -839,6 +851,18 @@ def extract_runtime_actions(
         nonlocal marker_repetition_exceeded
         nonlocal marker_repetition_reason
 
+        if marker_repetition_exceeded:
+            if not preserve_action_text:
+                removed_markers.append(
+                    raw_marker
+                )
+
+            return (
+                raw_marker
+                if preserve_action_text
+                else ""
+            )
+
         if action_name not in enabled_action_names:
             return raw_marker
 
@@ -870,11 +894,11 @@ def extract_runtime_actions(
                 else ""
             )
 
-        observed_actions.extend(
-            plural_actions
-        )
-
         for action in plural_actions:
+            observed_actions.append(
+                action
+            )
+
             if (
                 repetition_guard is not None
                 and repetition_guard.record(

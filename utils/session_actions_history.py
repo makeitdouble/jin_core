@@ -2,6 +2,10 @@ import json
 import re
 import time
 
+from utils.actions.action_counter_utils import (
+    format_runtime_action_count,
+)
+
 
 MAX_SESSION_ACTION_HISTORY_ITEMS = 200
 
@@ -411,8 +415,6 @@ def _build_session_action_display_part(
 def _with_session_action_marker_count(
     part: dict,
     count: int,
-    *,
-    show_repeated: bool = True,
 ) -> dict:
 
     counted_part = dict(
@@ -425,9 +427,6 @@ def _with_session_action_marker_count(
             or 0
         ),
     )
-
-    if not show_repeated:
-        counted_part["_hide_repeated_count"] = True
 
     return counted_part
 
@@ -459,22 +458,13 @@ def _format_session_action_display_part(
         or 0
     )
 
-    if part.get(
-        "_hide_repeated_count",
-        False,
-    ):
-        count = 0
-
     if detail:
         text = f"{text} - {detail}"
 
-    if count > 1:
-        text = (
-            f"{text} "
-            f"( repeated_times: {count} )"
-        )
-
-    return text
+    return format_runtime_action_count(
+        text,
+        count,
+    )
 
 
 def record_session_action_history(
@@ -728,14 +718,40 @@ def _build_session_action_marker_detail(
     )
 
 
+def _unique_session_action_values(
+    values,
+) -> list[str]:
+
+    unique_values = []
+
+    for value in values or []:
+        normalized_value = str(
+            value
+            or ""
+        ).strip()
+
+        if (
+            normalized_value
+            and normalized_value not in unique_values
+        ):
+            unique_values.append(
+                normalized_value
+            )
+
+    return unique_values
+
+
 def _build_formatted_session_action_marker_parts(
     marker_actions,
 ) -> list[dict]:
 
     action_groups = {}
-    idle_group_index = 0
 
     for marker_action in marker_actions or []:
+        marker_count = 1
+        marker_payloads = []
+        marker_colors = []
+
         if isinstance(
             marker_action,
             dict,
@@ -748,6 +764,62 @@ def _build_formatted_session_action_marker_parts(
                 "payload",
                 "",
             )
+            raw_payloads = marker_action.get(
+                "payloads",
+                [],
+            )
+            marker_colors = _normalize_session_action_display_colors(
+                marker_action.get(
+                    "colors",
+                    [],
+                )
+            )
+
+            if isinstance(
+                raw_payloads,
+                (str, bytes),
+            ):
+                marker_payloads = [
+                    str(raw_payloads),
+                ]
+            elif isinstance(
+                raw_payloads,
+                (list, tuple),
+            ):
+                marker_payloads = [
+                    str(payload or "").strip()
+                    for payload in raw_payloads
+                    if str(payload or "").strip()
+                ]
+
+            if not marker_payloads:
+                normalized_payload = str(
+                    action_payload
+                    or ""
+                ).strip()
+                if normalized_payload:
+                    marker_payloads = [
+                        normalized_payload,
+                    ]
+
+            raw_marker_count = marker_action.get(
+                "marker_count",
+                0,
+            )
+
+            try:
+                marker_count = max(
+                    1,
+                    int(
+                        raw_marker_count
+                        or 1
+                    ),
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                marker_count = 1
         elif hasattr(
             marker_action,
             "name",
@@ -762,9 +834,16 @@ def _build_formatted_session_action_marker_parts(
                 "payload",
                 "",
             )
+            normalized_payload = str(
+                action_payload
+                or ""
+            ).strip()
+            if normalized_payload:
+                marker_payloads = [
+                    normalized_payload,
+                ]
         else:
             action_name = marker_action
-            action_payload = ""
 
         normalized_name = str(
             action_name
@@ -774,160 +853,88 @@ def _build_formatted_session_action_marker_parts(
         if not normalized_name:
             continue
 
-        group_key = normalized_name
-
-        if normalized_name == "IDLE":
-            idle_group_index += 1
-            group_key = (
-                normalized_name,
-                idle_group_index,
-            )
-
         group = action_groups.setdefault(
-            group_key,
+            normalized_name,
             {
                 "action_name": normalized_name,
                 "count": 0,
-                "payload_counts": {},
-                "payload_sequence": [],
-                "detail_counts": {},
+                "payloads": [],
+                "colors": [],
+                "details": [],
             },
         )
-        group["count"] += 1
-
-        normalized_payload = str(
-            action_payload
-            or ""
-        ).strip()
-
-        if normalized_payload:
-            payload_counts = group[
-                "payload_counts"
-            ]
-            payload_counts[normalized_payload] = (
-                payload_counts.get(
-                    normalized_payload,
-                    0,
-                )
-                + 1
-            )
-            group[
-                "payload_sequence"
-            ].append(
-                normalized_payload
-            )
-
-        detail = _build_session_action_marker_detail(
-            normalized_name,
-            normalized_payload,
+        group["count"] += marker_count
+        group["payloads"].extend(
+            marker_payloads
         )
 
-        if detail:
-            detail_counts = group[
-                "detail_counts"
-            ]
-            detail_counts[detail] = (
-                detail_counts.get(
-                    detail,
-                    0,
+        if (
+            not marker_colors
+            and normalized_name == "JIN_COLOR"
+        ):
+            marker_colors = (
+                _normalize_session_action_display_colors(
+                    marker_payloads
                 )
-                + 1
             )
+
+        if marker_colors:
+            group["colors"].extend(
+                marker_colors
+            )
+
+        for payload in marker_payloads:
+            detail = _build_session_action_marker_detail(
+                normalized_name,
+                payload,
+            )
+            if detail:
+                group["details"].append(
+                    detail
+                )
 
     formatted_parts = []
 
     for group in action_groups.values():
-        action_name = group[
-            "action_name"
-        ]
-        count = group[
-            "count"
-        ]
-        payload_counts = group[
-            "payload_counts"
-        ]
-        payload_sequence = group.get(
-            "payload_sequence",
-            [],
+        action_name = group["action_name"]
+        count = group["count"]
+        payloads = _unique_session_action_values(
+            group["payloads"]
         )
-        detail_counts = group[
-            "detail_counts"
-        ]
+        details = _unique_session_action_values(
+            group["details"]
+        )
+        colors = _normalize_session_action_display_colors(
+            group["colors"]
+        )
 
-        if detail_counts:
-            for detail, detail_count in detail_counts.items():
-                formatted_parts.append(
-                    _with_session_action_marker_count(
-                        {
-                            "text": action_name,
-                            "detail": detail,
-                        },
-                        detail_count,
-                    )
+        part = {
+            "text": action_name,
+        }
+
+        if colors:
+            part["colors"] = colors
+        else:
+            if details:
+                part["detail"] = ", ".join(
+                    details
                 )
-
-            continue
-
-        if action_name == "JIN_COLOR":
-            colors = _normalize_session_action_display_colors(
-                payload_sequence
-            )
-
-            if colors:
-                formatted_parts.append(
-                    _with_session_action_marker_count(
-                        {
-                            "text": action_name,
-                            "colors": colors,
-                        },
-                        count,
-                    )
+            elif (
+                action_name in {
+                    "APPEND_SKILL",
+                    "REMOVE_SKILL",
+                }
+                and payloads
+            ):
+                part["text"] = (
+                    f"{action_name}: "
+                    f"{', '.join(payloads)}"
                 )
-                continue
-
-        if (
-            action_name in (
-                "APPEND_SKILL",
-                "REMOVE_SKILL",
-            )
-            and payload_counts
-        ):
-            formatted_payloads = []
-
-            for payload, payload_count in payload_counts.items():
-                if payload_count > 1:
-                    formatted_payloads.append(
-                        f"{payload} ( repeated_times: {payload_count} )"
-                    )
-                    continue
-
-                formatted_payloads.append(
-                    payload
-                )
-
-            formatted_parts.append(
-                _with_session_action_marker_count(
-                    {
-                        "text": (
-                            f"{action_name}: "
-                            f"{', '.join(formatted_payloads)}"
-                        ),
-                    },
-                    count,
-                    show_repeated=False,
-                )
-            )
-            continue
 
         formatted_parts.append(
             _with_session_action_marker_count(
-                {
-                    "text": action_name,
-                },
+                part,
                 count,
-                show_repeated=(
-                    action_name != "IDLE"
-                ),
             )
         )
 

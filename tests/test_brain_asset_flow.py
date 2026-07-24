@@ -468,7 +468,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     "payload": "ignored",
                 },
             ]),
-            "resolve_active_memory (repeated_times: 2 ), save_session",
+            "resolve_active_memory (count: 2), save_session",
         )
 
     async def test_followup_renames_runtime_memory_block(self):

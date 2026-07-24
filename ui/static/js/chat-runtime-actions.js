@@ -378,7 +378,50 @@ function shouldAggregateRuntimeAction(
   options = {}
 ) {
 
-  return options.aggregateMarkers === true;
+  const markerCount = Math.max(
+    0,
+    Number.parseInt(
+      options.markerCount || 0,
+      10
+    ) || 0
+  );
+
+  return (
+    options.aggregateMarkers === true
+    || options.counterOnly === true
+    || markerCount > 0
+  );
+
+}
+
+function hasActiveRuntimeActionCounter(
+  action
+) {
+
+  const normalizedAction =
+    normalizeRuntimeActionKeyPart(
+      action
+    );
+
+  if (!normalizedAction) {
+    return false;
+  }
+
+  return Array.from(
+    chatHistory.querySelectorAll(
+      `.jin-runtime-action-row[data-runtime-action="${normalizedAction}"]`
+    )
+  ).some((row) => (
+    row.dataset.runtimeActionTurn
+      === String(jinConversationTurnCounter)
+    && Math.max(
+      0,
+      Number.parseInt(
+        row.dataset.runtimeActionMarkerCount || "0",
+        10
+      ) || 0
+    ) > 0
+  ));
 
 }
 
@@ -421,98 +464,115 @@ function applyRuntimeActionAggregateState(
       10
     ) || 0
   );
-  const aggregateStatus = String(
-    options.aggregateStatus || ""
-  ).trim().toLowerCase();
-  const completed = [
-    "completed",
-    "complete",
-    "done",
-  ].includes(
-    aggregateStatus
+  const explicitMarkerCount = Math.max(
+    0,
+    Number.parseInt(
+      options.markerCount || 0,
+      10
+    ) || 0
   );
-  const failed = [
-    "failed",
-    "blocked",
-    "cancelled",
-    "canceled",
-    "interrupted",
-  ].includes(
-    aggregateStatus
-  );
+  const explicitColors = Array.isArray(
+    options.colors
+  )
+    ? options.colors
+        .map(normalizeRuntimeActionColor)
+        .filter(Boolean)
+    : [];
   const incomingColor =
     normalizeRuntimeActionColor(
       options.color
       || options.payload
       || options.detail
     );
+  const markerCount = Math.max(
+    currentMarkerCount,
+    explicitMarkerCount
+  );
   let storedColors =
     readRuntimeActionAggregateColors(
       row
     );
-  let pendingColor =
-    normalizeRuntimeActionColor(
-      row.dataset.runtimeActionPendingColor
-      || ""
-    );
-  let markerCount =
-    currentMarkerCount;
 
-  if (completed) {
-    if (incomingColor) {
-      storedColors.push(
-        incomingColor
-      );
-    }
-
-    if (pendingColor === incomingColor) {
-      pendingColor = "";
-    }
-
-    markerCount = currentMarkerCount + 1;
-  } else if (failed) {
-    pendingColor = "";
-  } else if (incomingColor) {
-    pendingColor = incomingColor;
-  }
-
-  const displayColors = [
-    ...storedColors,
-  ];
-
-  if (pendingColor) {
-    displayColors.push(
-      pendingColor
+  if (explicitColors.length) {
+    storedColors = explicitColors;
+  } else if (
+    incomingColor
+    && options.counterOnly !== true
+    && storedColors[storedColors.length - 1]
+      !== incomingColor
+  ) {
+    storedColors.push(
+      incomingColor
     );
   }
 
-  const displayMarkerCount = Math.max(
-    markerCount,
-    markerCount + (
-      pendingColor
-        ? 1
-        : 0
-    )
-  );
+  if (markerCount > 0) {
+    row.dataset.runtimeActionMarkerCount =
+      String(markerCount);
+  }
 
-  row.dataset.runtimeActionMarkerCount =
-    String(markerCount);
-  row.dataset.runtimeActionColors =
-    storedColors.join(",");
-
-  if (pendingColor) {
-    row.dataset.runtimeActionPendingColor =
-      pendingColor;
+  if (storedColors.length) {
+    row.dataset.runtimeActionColors =
+      storedColors.join(",");
   } else {
-    delete row.dataset.runtimeActionPendingColor;
+    delete row.dataset.runtimeActionColors;
   }
+
+  delete row.dataset.runtimeActionPendingColor;
 
   return {
     ...options,
     aggregateMarkers: true,
-    markerCount: displayMarkerCount,
-    colors: displayColors,
+    markerCount,
+    colors: storedColors,
   };
+
+}
+
+function syncRuntimeActionMarkerCount(
+  label,
+  count
+) {
+
+  if (!label) {
+    return;
+  }
+
+  const markerCount = Math.max(
+    0,
+    Number.parseInt(count || 0, 10) || 0
+  );
+  const countLabels = Array.from(
+    label.querySelectorAll(
+      ":scope > .jin-runtime-action-count"
+    )
+  );
+  let countLabel = countLabels.shift() || null;
+
+  countLabels.forEach((duplicate) => {
+    duplicate.remove();
+  });
+
+  if (markerCount <= 1) {
+    if (countLabel) {
+      countLabel.remove();
+    }
+    return;
+  }
+
+  if (!countLabel) {
+    countLabel = document.createElement("span");
+    countLabel.className =
+      "jin-runtime-action-count";
+    label.appendChild(
+      countLabel
+    );
+  }
+
+  countLabel.textContent =
+    formatRuntimeActionCountLabel(
+      markerCount
+    );
 
 }
 
@@ -521,25 +581,9 @@ function appendRuntimeActionMarkerCount(
   count
 ) {
 
-  const markerCount = Math.max(
-    0,
-    Number.parseInt(count || 0, 10) || 0
-  );
-
-  if (!label || markerCount < 1) {
-    return;
-  }
-
-  const countLabel =
-    document.createElement("span");
-
-  countLabel.className =
-    "jin-runtime-action-count";
-  countLabel.textContent =
-    `(${markerCount})`;
-
-  label.appendChild(
-    countLabel
+  syncRuntimeActionMarkerCount(
+    label,
+    count
   );
 
 }
@@ -679,12 +723,10 @@ function renderRuntimeActionLabel(
     name
   );
 
-  if (options.aggregateMarkers) {
-    appendRuntimeActionMarkerCount(
-      label,
-      options.markerCount
-    );
-  }
+  appendRuntimeActionMarkerCount(
+    label,
+    options.markerCount
+  );
 
 }
 
@@ -1044,6 +1086,11 @@ function updateRuntimeActionRow(
       action,
       text,
       options
+    );
+  } else {
+    syncRuntimeActionMarkerCount(
+      label,
+      options.markerCount
     );
   }
 
@@ -1694,6 +1741,9 @@ window.setSceneSearchScreenActive =
 
 window.appendRuntimeAction =
   appendRuntimeAction;
+
+window.hasActiveRuntimeActionCounter =
+  hasActiveRuntimeActionCounter;
 
 window.queueRuntimeActionAfterNextResponse =
   queueRuntimeActionAfterNextResponse;

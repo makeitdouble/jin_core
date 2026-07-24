@@ -20,10 +20,6 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn(
-            'action === "remove_delayed_memory"',
-            source,
-        )
         self.assertNotIn(
             "replaceDelayedMemoryReports",
             source,

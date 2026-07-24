@@ -363,6 +363,184 @@ function log_user(
     consoleStream.scrollHeight;
 }
 
+function getInternalActionLogKey(
+  actionName
+) {
+  return [
+    String(
+      typeof jinConversationTurnCounter === "undefined"
+        ? 0
+        : jinConversationTurnCounter
+    ),
+    normalizeInternalActionName(
+      actionName
+    ),
+  ].join(":");
+}
+
+function findInternalActionLog(
+  actionLogKey
+) {
+  return Array.from(
+    consoleStream.querySelectorAll(
+      '[data-log-kind="action"]'
+    )
+  ).find((entry) => (
+    entry.dataset.actionLogKey
+      === actionLogKey
+  )) || null;
+}
+
+function renderInternalActionLogTitle(
+  logDiv,
+  actionName,
+  markerCount
+) {
+  const tagSpan =
+    logDiv.querySelector(
+      ":scope > .logger-tag"
+    );
+
+  if (!tagSpan) {
+    return;
+  }
+
+  tagSpan.replaceChildren();
+
+  const title =
+    document.createElement("span");
+
+  title.textContent =
+    `[ ACTION : ${prettifyInternalActionName(actionName)} ]`;
+
+  tagSpan.appendChild(
+    title
+  );
+
+  if (markerCount > 1) {
+    const count =
+      document.createElement("span");
+
+    count.className =
+      "ml-1 opacity-70";
+    count.textContent =
+      formatRuntimeActionCountLabel(
+        markerCount
+      );
+
+    tagSpan.appendChild(
+      count
+    );
+  }
+}
+
+function updateInternalActionLogMessage(
+  logDiv,
+  text,
+  cancelledByUser,
+  preserveExisting
+) {
+  let messageSpan =
+    logDiv.querySelector(
+      ":scope > .internal-action-log-message"
+    );
+
+  if (preserveExisting && messageSpan) {
+    return;
+  }
+
+  if (!text) {
+    if (!preserveExisting && messageSpan) {
+      messageSpan.remove();
+    }
+    return;
+  }
+
+  if (!messageSpan) {
+    messageSpan =
+      document.createElement("span");
+    messageSpan.className =
+      "internal-action-log-message block mt-1 text-emerald-100/70";
+    messageSpan.style.overflowWrap =
+      "anywhere";
+    logDiv.appendChild(
+      messageSpan
+    );
+  }
+
+  messageSpan.textContent =
+    text;
+  messageSpan.classList.toggle(
+    "line-through",
+    cancelledByUser
+  );
+  messageSpan.classList.toggle(
+    "opacity-60",
+    cancelledByUser
+  );
+}
+
+function updateInternalActionLogPayload(
+  logDiv,
+  payload,
+  title,
+  preserveExisting
+) {
+  let actions =
+    logDiv.querySelector(
+      ":scope > .internal-action-log-actions"
+    );
+
+  if (preserveExisting && actions) {
+    return;
+  }
+
+  if (payload === null) {
+    if (!preserveExisting && actions) {
+      actions.remove();
+    }
+    return;
+  }
+
+  if (!actions) {
+    actions =
+      document.createElement("div");
+    actions.className =
+      "internal-action-log-actions mt-2 flex flex-wrap items-center gap-2";
+    logDiv.appendChild(
+      actions
+    );
+  }
+
+  actions.replaceChildren();
+
+  const payloadButton =
+    document.createElement("button");
+
+  payloadButton.type =
+    "button";
+  payloadButton.className =
+    "inline-flex items-center rounded border border-emerald-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-emerald-300 hover:bg-emerald-500/10 transition";
+  payloadButton.textContent =
+    "payload";
+
+  payloadButton.addEventListener(
+    "click",
+    function () {
+      showTrace(
+        formatInternalActionPayload(
+          payload
+        ),
+        title
+      );
+    }
+  );
+
+  actions.appendChild(
+    payloadButton
+  );
+}
+
 function log_internal_action(
   action,
   data = {}
@@ -372,23 +550,29 @@ function log_internal_action(
       action
     );
 
-  if (!actionName || actionName === "SAVE_SESSION" || actionName === "SAVE_SESSION") {
+  if (!actionName) {
     return;
   }
 
   const title =
     `[ ACTION : ${prettifyInternalActionName(actionName)} ]`;
-
   const text =
     String(
       data.text || data.query || ""
     ).trim();
-
   const payload =
     getInternalActionPayload(
       data
     );
-
+  const counterOnly =
+    data.counter_only === true;
+  const explicitMarkerCount = Math.max(
+    0,
+    Number.parseInt(
+      data.marker_count || 0,
+      10
+    ) || 0
+  );
   const cancelledByUser =
     String(data.status || "").toLowerCase() === "failed"
     && Boolean(
@@ -396,106 +580,92 @@ function log_internal_action(
       || data.guard_confirmation_id
     )
     && /\bcancelled\s*$/i.test(text);
-
-  const logDiv =
-    document.createElement("div");
-
-  logDiv.className =
-    "mb-1 min-w-0 whitespace-pre-wrap break-words font-mono text-[12px] bg-emerald-500/5 p-2 rounded border border-emerald-500/10";
-
-  logDiv.dataset.logKind =
-    "action";
-
-  logDiv.style.overflowWrap =
-    "anywhere";
-
-  const tagSpan =
-    document.createElement("span");
-
-  tagSpan.className =
-    "text-emerald-300 font-bold logger-tag block";
-
-  tagSpan.textContent =
-    title;
-
-  if (cancelledByUser) {
-    tagSpan.classList.add(
-      "line-through",
-      "opacity-60"
+  const actionLogKey =
+    getInternalActionLogKey(
+      actionName
     );
-  }
+  let logDiv =
+    findInternalActionLog(
+      actionLogKey
+    );
 
-  logDiv.appendChild(
-    tagSpan
-  );
-
-  if (text) {
-    const messageSpan =
-      document.createElement("span");
-
-    messageSpan.className =
-      "block mt-1 text-emerald-100/70";
-
-    messageSpan.style.overflowWrap =
+  if (!logDiv) {
+    logDiv =
+      document.createElement("div");
+    logDiv.className =
+      "mb-1 min-w-0 whitespace-pre-wrap break-words font-mono text-[12px] bg-emerald-500/5 p-2 rounded border border-emerald-500/10";
+    logDiv.dataset.logKind =
+      "action";
+    logDiv.dataset.actionLogKey =
+      actionLogKey;
+    logDiv.dataset.actionMarkerCount =
+      "0";
+    logDiv.style.overflowWrap =
       "anywhere";
 
-    messageSpan.textContent =
-      text;
+    const tagSpan =
+      document.createElement("span");
 
-    if (cancelledByUser) {
-      messageSpan.classList.add(
-        "line-through",
-        "opacity-60"
-      );
-    }
+    tagSpan.className =
+      "text-emerald-300 font-bold logger-tag block";
 
     logDiv.appendChild(
-      messageSpan
+      tagSpan
+    );
+
+    consoleStream.appendChild(
+      logDiv
     );
   }
 
-  if (payload !== null) {
-    const actions =
-      document.createElement("div");
+  const currentMarkerCount = Math.max(
+    0,
+    Number.parseInt(
+      logDiv.dataset.actionMarkerCount || "0",
+      10
+    ) || 0
+  );
+  const markerCount = Math.max(
+    currentMarkerCount,
+    explicitMarkerCount
+  );
 
-    actions.className =
-      "mt-2 flex flex-wrap items-center gap-2";
+  logDiv.dataset.actionMarkerCount =
+    String(markerCount);
 
-    const payloadButton =
-      document.createElement("button");
+  renderInternalActionLogTitle(
+    logDiv,
+    actionName,
+    markerCount
+  );
 
-    payloadButton.type =
-      "button";
-
-    payloadButton.className =
-      "inline-flex items-center rounded border border-emerald-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-emerald-300 hover:bg-emerald-500/10 transition";
-
-    payloadButton.textContent =
-      "payload";
-
-    payloadButton.addEventListener(
-      "click",
-      function () {
-        showTrace(
-          formatInternalActionPayload(
-            payload
-          ),
-          title
-        );
-      }
+  const tagSpan =
+    logDiv.querySelector(
+      ":scope > .logger-tag"
     );
 
-    actions.appendChild(
-      payloadButton
+  if (tagSpan) {
+    tagSpan.classList.toggle(
+      "line-through",
+      cancelledByUser
     );
-
-    logDiv.appendChild(
-      actions
+    tagSpan.classList.toggle(
+      "opacity-60",
+      cancelledByUser
     );
   }
 
-  consoleStream.appendChild(
-    logDiv
+  updateInternalActionLogMessage(
+    logDiv,
+    text,
+    cancelledByUser,
+    counterOnly
+  );
+  updateInternalActionLogPayload(
+    logDiv,
+    payload,
+    title,
+    counterOnly
   );
 
   consoleStream.scrollTop =

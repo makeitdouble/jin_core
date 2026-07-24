@@ -19,13 +19,17 @@ function handleRuntimeActionGuardConfirmation(
       action,
       text,
       {
-        id: data.id || "",
+        id:
+          data.counter_id
+          || data.id
+          || "",
         color:
           data.color
           || data.payload
           || "",
         reuseCompleted:
           action === "jin_color",
+        aggregateMarkers: true,
         contextSnapshot:
           data.context || null,
         detail:
@@ -115,6 +119,42 @@ function handleRuntimeAction(
       )
       : text;
 
+  const markerCount = Math.max(
+    0,
+    Number.parseInt(
+      data.marker_count || 0,
+      10
+    ) || 0
+  );
+
+  const counterOnly =
+    data.counter_only === true;
+
+  const counterFinal =
+    data.counter_final === true
+    || status === "counter_final";
+
+  const aggregateMarkers =
+    data.aggregate_markers === true
+    || counterOnly
+    || markerCount > 0
+    || Boolean(
+      window.hasActiveRuntimeActionCounter
+      && window.hasActiveRuntimeActionCounter(
+        action
+      )
+    );
+
+  const actionDisplayId =
+    data.counter_id
+    || data.id
+    || "";
+
+  const counterPayloads =
+    Array.isArray(data.payloads)
+      ? data.payloads
+      : [];
+
   const shouldLogRuntimeAction =
     ![
       "summary",
@@ -122,6 +162,7 @@ function handleRuntimeAction(
       "start",
       "pending",
       "running",
+      "counter_final",
     ].includes(
       status
     );
@@ -134,7 +175,7 @@ function handleRuntimeAction(
         || ""
       );
     const actionId =
-      data.id || "";
+      actionDisplayId;
 
     if (
       displayText.trim()
@@ -147,17 +188,23 @@ function handleRuntimeAction(
           id: actionId,
           color,
           detail: color,
-          reuseCompleted: true,
-          aggregateMarkers: true,
-          aggregateStatus:
-            status,
+          reuseCompleted:
+            counterOnly,
+          aggregateMarkers,
+          counterOnly,
+          markerCount,
+          colors:
+            Array.isArray(data.colors)
+              ? data.colors
+              : counterPayloads,
           contextSnapshot:
             data.context || null,
           guardConfirmationId,
           cancelled:
             cancelledByUser,
           preserveLabel:
-            cancelledByUser,
+            cancelledByUser
+            || counterOnly,
         }
       );
     }
@@ -190,11 +237,17 @@ function handleRuntimeAction(
 
     if (
       (
-        status === "completed"
-        || status === "complete"
-        || status === "done"
-        || status === "failed"
-        || status === "interrupted"
+        counterFinal
+        || (
+          !aggregateMarkers
+          && (
+            status === "completed"
+            || status === "complete"
+            || status === "done"
+            || status === "failed"
+            || status === "interrupted"
+          )
+        )
       )
       && window.fadeRuntimeAction
     ) {
@@ -271,30 +324,18 @@ function handleRuntimeAction(
     || status === "complete"
     || status === "done"
   ) {
-    if (
-      (
-        action === "asset_action"
-        || action === "save_delayed_memory_content"
-        || action === "list_skills"
-        || action === "list_delayed_memory"
-        || action === "append_delayed_memory"
-        || action === "remove_delayed_memory"
-        || action === "clean_tool_results"
-      )
-      && displayText.trim()
-    ) {
+    if (displayText.trim()) {
       const appended = appendRuntimeAction(
         action,
         displayText,
         {
-          id: data.id || "",
+          id: actionDisplayId,
           guardConfirmationId,
-          updateExisting:
-            action !== "list_skills",
-          aggregateMarkers:
-            action === "clean_tool_results",
-          reuseCompleted:
-            action === "clean_tool_results",
+          updateExisting: true,
+          aggregateMarkers,
+          counterOnly,
+          markerCount,
+          reuseCompleted: false,
           contextSnapshot:
             data.context || null,
           assetResult:
@@ -303,7 +344,8 @@ function handleRuntimeAction(
             data.delayed_memory_report_id || "",
           delayedMemoryReport:
             data.delayed_memory_report || null,
-          completed: true,
+          completed:
+            !aggregateMarkers,
           detail: runtimeDetail,
         }
       );
@@ -319,11 +361,14 @@ function handleRuntimeAction(
       }
     }
 
-    if (window.fadeRuntimeAction) {
+    if (
+      !aggregateMarkers
+      && window.fadeRuntimeAction
+    ) {
       window.fadeRuntimeAction(
         action,
         {
-          id: data.id || "",
+          id: actionDisplayId,
         }
       );
     }
@@ -339,12 +384,18 @@ function handleRuntimeAction(
     action,
     displayText,
     {
-      id: data.id || "",
+      id: actionDisplayId,
       guardConfirmationId,
+      aggregateMarkers,
+      counterOnly,
+      markerCount,
+      reuseCompleted:
+        counterOnly,
       cancelled:
         cancelledByUser,
       preserveLabel:
-        cancelledByUser,
+        cancelledByUser
+        || counterOnly,
       contextSnapshot:
         data.context || null,
       assetResult:
@@ -366,15 +417,21 @@ function handleRuntimeAction(
 
   if (
     (
-      status === "failed"
-      || status === "interrupted"
+      counterFinal
+      || (
+        !aggregateMarkers
+        && (
+          status === "failed"
+          || status === "interrupted"
+        )
+      )
     )
     && window.fadeRuntimeAction
   ) {
     window.fadeRuntimeAction(
       action,
       {
-        id: data.id || "",
+        id: actionDisplayId,
       }
     );
   }

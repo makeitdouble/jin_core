@@ -41,6 +41,10 @@ from utils.brain_client_utils import (
     get_brain_runtime_config,
 )
 
+from utils.actions.action_counter_utils import (
+    format_runtime_action_count,
+)
+
 from utils.language import (
     contains_cyrillic,
 )
@@ -381,14 +385,11 @@ def format_followup_actions_from_events(
     formatted_actions = []
 
     for action_name, count in action_counts.items():
-        if count > 1:
-            formatted_actions.append(
-                f"{action_name} (repeated_times: {count} )"
-            )
-            continue
-
         formatted_actions.append(
-            action_name
+            format_runtime_action_count(
+                action_name,
+                count,
+            )
         )
 
     return ", ".join(
