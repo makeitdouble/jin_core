@@ -30,7 +30,7 @@
     --scene-shade-alpha: 0;
     --jin-color: #1f4f8f;
     --scene-base-color: #0f1b2c;
-    --scene-jin-tint-alpha: 0.50;
+    --scene-jin-tint-alpha: 0.40;
 
     /* Вертикальный ритм чата: добавляет немного воздуха между ходами. */
     --chat-turn-gap: 2.05rem;

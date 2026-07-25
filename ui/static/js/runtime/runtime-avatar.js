@@ -14,7 +14,7 @@
   const CENTER_COLOR_STEP_MS = 120;
 
   // 0 = no scene recolor, 1 = current full-strength scene recolor.
-  const JIN_SCENE_COLOR_INTENSITY = 0.50;
+  const JIN_SCENE_COLOR_INTENSITY = 0.40;
 
   // Add custom high-priority word groups here. A matching line paints its ring
   // with the supplied color and softly affects rings at neighbouring radii.

@@ -239,39 +239,6 @@ function getSessionSignalIdentity(
 }
 
 
-function getRuntimeSnapshotDiffKeys(
-  snapshot
-) {
-
-  const patch =
-    snapshot && snapshot.patch || {};
-
-  return new Set(
-    [
-      ...(
-        Array.isArray(patch.added)
-          ? patch.added
-          : []
-      ).map(entry => entry && entry.key),
-      ...(
-        Array.isArray(patch.changed)
-          ? patch.changed
-          : []
-      ).map(entry => (
-        entry
-        && (
-          entry.current_key
-          || entry.key
-        )
-      )),
-    ]
-      .map(normalizeRuntimeMemoryKey)
-      .filter(Boolean)
-  );
-
-}
-
-
 function persistRuntimeSessionSignals(
   snapshot
 ) {
@@ -285,23 +252,6 @@ function persistRuntimeSessionSignals(
 
   const fields =
     readSessionSignals();
-
-  const diffKeys =
-    getRuntimeSnapshotDiffKeys(
-      snapshot
-    );
-
-  const turnNumber =
-    Math.max(
-      0,
-      Math.trunc(
-        Number(
-          snapshot.turn_number
-          || snapshot.user_message_count
-          || 0
-        )
-      )
-    );
 
   const runtimeSnapshotId =
     String(
@@ -335,73 +285,22 @@ function persistRuntimeSessionSignals(
         return;
       }
 
-      const rawTrace =
-        Number(
-          line.strength
-        );
-
-      const trace =
-        Number.isFinite(rawTrace)
-          ? Number(rawTrace.toFixed(4))
-          : 0.5;
-
       const existing =
         fields[key];
 
       if (!existing) {
         fields[key] = {
-          max_trace: trace,
           content,
-          diffs: 1,
-          first_seen_turn: turnNumber,
-          last_seen_turn: turnNumber,
           runtime_snapshot_id: runtimeSnapshotId,
         };
 
         return;
       }
 
-      const maxTrace =
-        Number(existing.max_trace);
-
-      const replacePeak =
-        trace > maxTrace
-        || (
-          trace === maxTrace
-          && content !== String(existing.content || "")
-        );
-
       fields[key] = {
         ...existing,
-        diffs:
-          Math.max(
-            0,
-            Math.trunc(
-              Number(existing.diffs || 0)
-            )
-          )
-          + (
-            diffKeys.has(key)
-              ? 1
-              : 0
-          ),
-        last_seen_turn:
-          Math.max(
-            Math.max(
-              0,
-              Math.trunc(
-                Number(existing.last_seen_turn || 0)
-              )
-            ),
-            turnNumber
-          ),
-        ...(replacePeak
-          ? {
-            max_trace: trace,
-            content,
-            runtime_snapshot_id: runtimeSnapshotId,
-          }
-          : {}),
+        content,
+        runtime_snapshot_id: runtimeSnapshotId,
       };
     }
   );

@@ -26,9 +26,11 @@ from rules.runtime import (
 )
 from contracts.rules_assembler import (
     RUNTIME_ACTION_IDLE,
+    RUNTIME_ACTION_WEB_SEARCH,
 )
 from contracts.rules_assembler import (
     get_action_contract_name_for_runtime_action,
+    get_runtime_action_display_name,
     runtime_action_emits_followup,
 )
 
@@ -424,9 +426,9 @@ def rename_runtime_memory_for_followup(
 
     return (
         prompt[:opening_index]
-        + "<LATEST_RUNTIME_MEMORY>"
+        + "<PREVIOUS_RUNTIME_MEMORY>"
         + prompt[opening_index + len(opening_tag):closing_index]
-        + "</LATEST_RUNTIME_MEMORY>"
+        + "</PREVIOUS_RUNTIME_MEMORY>"
         + prompt[closing_index + len(closing_tag):]
     )
 
@@ -602,15 +604,36 @@ class BrainNode(BaseNode):
                 confirm_result_context
             )
 
+        current_actions_history_context = ""
+
+        if context is not None:
+            mark_current_action_sequence(
+                context
+            )
+            current_actions_history_context = (
+                build_session_actions_history_context(
+                    context,
+                    current_sequence=True,
+                )
+            )
+
         sections = [
+            sequence_origin_request_context,
+        ]
+
+        if current_actions_history_context:
+            sections.append(
+                current_actions_history_context
+            )
+
+        sections.extend([
             build_tools_results_context(
                 tool_result_blocks
             ),
             build_followup_system_message(
                 latest_action
             ),
-            sequence_origin_request_context
-        ]
+        ])
 
         if (
             context is not None
@@ -670,21 +693,6 @@ class BrainNode(BaseNode):
             context.runtime_turn_interruption_quote = ""
 
         if context is not None:
-            mark_current_action_sequence(
-                context
-            )
-            current_actions_history_context = (
-                build_session_actions_history_context(
-                    context,
-                    current_sequence=True,
-                )
-            )
-
-            if current_actions_history_context:
-                sections.append(
-                    current_actions_history_context
-                )
-
             from rules.brain_context_builder import (
                 build_appended_delayed_memory_context,
             )
@@ -1475,15 +1483,22 @@ class BrainNode(BaseNode):
                     f"executing search id={tool_call_id!r} "
                     f"query={query!r}"
                 )
+                search_display_name = (
+                    get_runtime_action_display_name(
+                        RUNTIME_ACTION_WEB_SEARCH
+                    )
+                )
 
                 await context.websocket.send_json({
                     "type": "runtime_action",
-                    "action": "web_search",
+                    "action": RUNTIME_ACTION_WEB_SEARCH.lower(),
+                    "display_name": search_display_name,
                     "id": tool_call_id,
                     "text": (
-                        f'Searching for "{query}"'
+                        f"{search_display_name}: {query}"
                     ),
                     "query": query,
+                    "scene_effect": "search",
                     "context": search_call.get(
                         "context",
                     ),
@@ -1496,9 +1511,11 @@ class BrainNode(BaseNode):
 
                 await context.websocket.send_json({
                     "type": "runtime_action",
-                    "action": "web_search",
+                    "action": RUNTIME_ACTION_WEB_SEARCH.lower(),
+                    "display_name": search_display_name,
                     "id": tool_call_id,
                     "status": "completed",
+                    "scene_effect": "search",
                 })
 
                 context.runtime_search_result = search_result
@@ -1522,7 +1539,7 @@ class BrainNode(BaseNode):
                         followup_action_events
                     )
                     or format_followup_action_from_event({
-                        "name": "web_search",
+                        "name": RUNTIME_ACTION_WEB_SEARCH.lower(),
                         "query": query,
                         "id": tool_call_id,
                     })

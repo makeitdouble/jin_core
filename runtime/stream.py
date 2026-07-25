@@ -24,7 +24,6 @@ from utils.tokens import (
 from utils.actions import (
     build_runtime_action_id,
     emit_runtime_action_counter_updates,
-    get_applied_jin_color,
     RuntimeActionCounter,
     normalize_jin_color_payload,
     RuntimeActionRepetitionGuard,
@@ -41,6 +40,9 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+    build_runtime_action_display_text,
+    get_runtime_action_display_name,
+    runtime_action_has_close_tag,
 )
 from rules.runtime import (
     ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE,
@@ -50,7 +52,6 @@ from utils.skills_asset_utils import (
     normalize_skill_name,
 )
 from utils.session_actions_history import (
-    build_asset_action_history_text,
     build_context_limit_history_text,
     build_delayed_memory_save_rejected_history_text,
     build_reasoning_loop_history_text,
@@ -58,6 +59,7 @@ from utils.session_actions_history import (
     emit_session_actions_update,
     replace_session_action_history_since,
     record_session_action_history,
+    upsert_session_action_marker_history_since,
 )
 from utils.tool_results import (
     TOOL_RESULT_KIND_DELAYED_MEMORY,
@@ -136,7 +138,9 @@ class RuntimeStream:
         self.rejected_action_guard_names = set()
         self.action_guard_confirmation_ids = {}
         self.jin_color_action_id = ""
+        self.last_jin_color_action_color = ""
         self.runtime_action_event_offset = 0
+        self.session_action_history_start = 0
         self.delayed_memory_action_payload = ""
         self.raw_content_parts = []
         self.pending_idle_actions = []
@@ -619,11 +623,11 @@ class RuntimeStream:
     def filter_noop_jin_color_sequence(
         self,
         actions,
+        *,
+        remember: bool = True,
     ):
 
-        current_color = get_applied_jin_color(
-            self.context
-        )
+        current_color = self.last_jin_color_action_color
         filtered_actions = []
 
         for action in actions or ():
@@ -655,6 +659,9 @@ class RuntimeStream:
             filtered_actions.append(
                 action
             )
+
+        if remember:
+            self.last_jin_color_action_color = current_color
 
         return tuple(
             filtered_actions
@@ -771,6 +778,33 @@ class RuntimeStream:
 
         return display_payloads
 
+    async def sync_session_action_marker_history(
+        self,
+    ) -> None:
+
+        marker_actions = self.action_counter.marker_actions(
+            display_payloads=(
+                self.get_action_counter_display_payloads()
+            ),
+        )
+
+        if not marker_actions:
+            return
+
+        updated = upsert_session_action_marker_history_since(
+            self.context,
+            self.session_action_history_start,
+            marker_actions,
+        )
+
+        if not updated:
+            return
+
+        await emit_session_actions_update(
+            self.context,
+            current_sequence=True,
+        )
+
     async def emit_marker_repetition_interruption(
         self,
         reason: str,
@@ -838,7 +872,8 @@ class RuntimeStream:
                 result,
                 "started_actions",
                 (),
-            )
+            ),
+            remember=False,
         )
         actions = self.filter_noop_jin_color_sequence(
             getattr(
@@ -947,6 +982,10 @@ class RuntimeStream:
                             for action in actions_to_apply
                         },
                     )
+
+        if counter_entries:
+            await self.sync_session_action_marker_history()
+
         if getattr(
             result,
             "marker_repetition_exceeded",
@@ -965,6 +1004,7 @@ class RuntimeStream:
                 "[RUNTIME ACTION] marker repetition guard interrupted stream: "
                 f"{reason}"
             )
+            await self.sync_session_action_marker_history()
 
         if not result.text:
             return None
@@ -1343,7 +1383,14 @@ class RuntimeStream:
             "guard": guard_name,
             "status": "pending",
             "text": self.build_action_guard_confirmation_text(
-                action_name
+                action_name,
+                action.payload,
+            ),
+            "display_name": get_runtime_action_display_name(
+                action.name
+            ),
+            "close_tag": runtime_action_has_close_tag(
+                action.name
             ),
             "detail": (
                 "Runtime action marker emitted without matching "
@@ -1383,17 +1430,12 @@ class RuntimeStream:
     @staticmethod
     def build_action_guard_confirmation_text(
         action_name: str,
+        payload: str = "",
     ) -> str:
 
-        if action_name == "save_delayed_memory_content":
-            return "Saving delayed memory report"
-
-        if action_name == "save_session":
-            return "Saving session"
-
-        return action_name.replace(
-            "_",
-            " ",
+        return build_runtime_action_display_text(
+            action_name,
+            payload,
         )
 
     async def emit_started_runtime_actions(
@@ -1425,6 +1467,17 @@ class RuntimeStream:
         )
 
         for action in actions:
+            display_name = get_runtime_action_display_name(
+                action.name
+            )
+            display_text = build_runtime_action_display_text(
+                action.name,
+                action.payload,
+            )
+            has_close_tag = runtime_action_has_close_tag(
+                action.name
+            )
+
             if action.name == RUNTIME_ACTION_ASSET_ACTION:
                 pending_ids = getattr(
                     self.context,
@@ -1463,9 +1516,9 @@ class RuntimeStream:
                     "action": "asset_action",
                     "id": action_id,
                     "status": "started",
-                    "text": build_asset_action_history_text({
-                        "action": "asset_action",
-                    }),
+                    "display_name": display_name,
+                    "text": display_text,
+                    "close_tag": has_close_tag,
                 }
             elif action.name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT:
                 pending_ids = getattr(
@@ -1536,7 +1589,9 @@ class RuntimeStream:
                     "action": "save_delayed_memory_content",
                     "id": action_id,
                     "status": "started",
-                    "text": "Saving delayed memory report",
+                    "display_name": display_name,
+                    "text": display_text,
+                    "close_tag": has_close_tag,
                 }
             elif action.name == RUNTIME_ACTION_JIN_COLOR:
                 color = normalize_jin_color_payload(
@@ -1552,12 +1607,27 @@ class RuntimeStream:
                         action
                     ),
                     "status": "started",
-                    "text": "JIN_COLOR",
+                    "display_name": display_name,
+                    "text": display_text,
+                    "close_tag": has_close_tag,
                     "color": color,
                     "payload": color,
                 }
             else:
-                continue
+                payload = {
+                    "type": "runtime_action",
+                    "action": action.name.lower(),
+                    "id": self.get_runtime_action_display_id(
+                        action
+                    ),
+                    "status": "started",
+                    "display_name": display_name,
+                    "text": display_text,
+                    "close_tag": has_close_tag,
+                }
+
+                if action.payload and not has_close_tag:
+                    payload["payload"] = action.payload
 
             if action_context_snapshot:
                 payload["context"] = action_context_snapshot
@@ -1704,6 +1774,12 @@ class RuntimeStream:
                     "action": "save_delayed_memory_content",
                     "id": action_id,
                     "status": "failed",
+                    "display_name": get_runtime_action_display_name(
+                        RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                    ),
+                    "close_tag": runtime_action_has_close_tag(
+                        RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                    ),
                     "text": (
                         "Delayed memory save rejected"
                         if save_rejected
@@ -1842,6 +1918,9 @@ class RuntimeStream:
                 [],
             )
             or []
+        )
+        self.session_action_history_start = (
+            session_action_history_start
         )
 
         try:
@@ -2211,6 +2290,44 @@ class RuntimeStream:
                     session_action_history
                 ) > session_action_history_start
             )
+
+            if has_recorded_history:
+                live_history_tail = [
+                    item
+                    for item in session_action_history[
+                        session_action_history_start:
+                    ]
+                    if isinstance(
+                        item,
+                        dict,
+                    )
+                ]
+                has_live_marker_item = any(
+                    item.get(
+                        "runtime_session_action_marker_item"
+                    ) is True
+                    for item in live_history_tail
+                )
+                has_semantic_history_item = any(
+                    item.get(
+                        "runtime_session_action_marker_item"
+                    ) is not True
+                    for item in live_history_tail
+                )
+
+                if (
+                    has_live_marker_item
+                    and has_semantic_history_item
+                ):
+                    session_action_history[
+                        session_action_history_start:
+                    ] = [
+                        item
+                        for item in live_history_tail
+                        if item.get(
+                            "runtime_session_action_marker_item"
+                        ) is not True
+                    ]
 
             if (
                 counted_markers

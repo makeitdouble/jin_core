@@ -1077,6 +1077,124 @@ def replace_session_action_history_since(
     )
 
 
+def upsert_session_action_marker_history_since(
+    context,
+    start_index: int,
+    marker_actions,
+) -> bool:
+
+    if context is None:
+        return False
+
+    formatted_marker_parts = (
+        _build_formatted_session_action_marker_parts(
+            marker_actions
+        )
+    )
+    formatted_marker_names = ", ".join(
+        formatted_part
+        for formatted_part in (
+            _format_session_action_display_part(
+                part
+            )
+            for part in formatted_marker_parts
+        )
+        if formatted_part
+    )
+
+    if not formatted_marker_names:
+        return False
+
+    history = getattr(
+        context,
+        "runtime_session_action_history",
+        None,
+    )
+
+    if not isinstance(
+        history,
+        list,
+    ):
+        history = []
+        setattr(
+            context,
+            "runtime_session_action_history",
+            history,
+        )
+
+    safe_start_index = max(
+        0,
+        min(
+            int(
+                start_index
+                or 0
+            ),
+            len(history),
+        ),
+    )
+
+    marker_index = None
+
+    for index in range(
+        safe_start_index,
+        len(history),
+    ):
+        item = history[index]
+
+        if not isinstance(
+            item,
+            dict,
+        ):
+            continue
+
+        if item.get(
+            "runtime_session_action_marker_item"
+        ) is True:
+            marker_index = index
+            break
+
+    previous_item = (
+        history[marker_index]
+        if marker_index is not None
+        else {}
+    )
+    created_at = previous_item.get(
+        "created_at",
+        time.time(),
+    ) if isinstance(
+        previous_item,
+        dict,
+    ) else time.time()
+
+    item = {
+        "text": formatted_marker_names,
+        "created_at": created_at,
+        "parts": _normalize_session_action_display_parts(
+            formatted_marker_parts
+        ),
+        "runtime_session_action_marker_item": True,
+    }
+
+    runtime_turn_id = get_current_action_sequence_turn_id(
+        context
+    )
+
+    if runtime_turn_id:
+        item["runtime_turn_id"] = runtime_turn_id
+
+    if marker_index is None:
+        history.append(
+            item
+        )
+    else:
+        history[marker_index] = item
+
+    if len(history) > MAX_SESSION_ACTION_HISTORY_ITEMS:
+        del history[:-MAX_SESSION_ACTION_HISTORY_ITEMS]
+
+    return True
+
+
 def compact_session_action_history_since(
     context,
     start_index: int,

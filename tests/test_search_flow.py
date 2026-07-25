@@ -592,12 +592,26 @@ class SearchFlowTests(
             "web_search_001",
         )
         self.assertEqual(
+            runtime_events[0]["display_name"],
+            "WEB_SEARCH",
+        )
+        self.assertEqual(
+            runtime_events[0]["text"],
+            "WEB_SEARCH: tesla car price",
+        )
+        self.assertNotIn(
+            "Searching for",
+            runtime_events[0]["text"],
+        )
+        self.assertEqual(
             runtime_events[1],
             {
                 "type": "runtime_action",
                 "action": "web_search",
+                "display_name": "WEB_SEARCH",
                 "id": "web_search_001",
                 "status": "completed",
+                "scene_effect": "search",
             },
         )
         self.assertIn(

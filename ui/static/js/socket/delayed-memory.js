@@ -35,7 +35,11 @@ function startDelayedMemoryRuntimeBubble(
   if (window.appendRuntimeAction) {
     window.appendRuntimeAction(
       "save_delayed_memory_content",
-      "Saving delayed memory report"
+      "SAVE_DELAYED_MEMORY_CONTENT",
+      {
+        displayName: "SAVE_DELAYED_MEMORY_CONTENT",
+        closeTag: true,
+      }
     );
   }
 

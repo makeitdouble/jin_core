@@ -74,6 +74,9 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
+    build_runtime_action_display_text,
+    get_runtime_action_display_name,
+    runtime_action_has_close_tag,
 )
 from rules.runtime import (
     ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
@@ -103,7 +106,6 @@ from utils.actions import (
     get_create_active_memory_marker_fields,
     is_delayed_memory_report_id,
     is_active_memory_record_paused,
-    get_applied_jin_color,
     parse_delayed_memory_content_payload,
     parse_idle_seconds,
     normalize_jin_color_payload,
@@ -1263,6 +1265,25 @@ def build_runtime_action_marker_preview(
     )[:limit]
 
 
+def build_runtime_action_event_display_fields(
+    runtime_action: str,
+    payload: str = "",
+) -> dict:
+
+    return {
+        "display_name": get_runtime_action_display_name(
+            runtime_action
+        ),
+        "close_tag": runtime_action_has_close_tag(
+            runtime_action
+        ),
+        "text": build_runtime_action_display_text(
+            runtime_action,
+            payload,
+        ),
+    }
+
+
 def parse_asset_action_payload(
         payload_text: str,
 ) -> dict:
@@ -2393,7 +2414,7 @@ async def apply_runtime_action_calls(
     search_action_count = sum(
         1
         for event in context.runtime_action_events
-        if event.get("name") == "web_search"
+        if event.get("name") == RUNTIME_ACTION_WEB_SEARCH.lower()
     )
 
     accepted_action_names = set()
@@ -2473,8 +2494,40 @@ async def apply_runtime_action_calls(
         action.name in skill_state_action_names
         for action in actions
     )
-    current_jin_color = get_applied_jin_color(
-        context
+    current_turn_id = str(
+        getattr(
+            context,
+            "runtime_current_turn_id",
+            "",
+        )
+        or ""
+    ).strip()
+    jin_color_dedup_state = getattr(
+        context,
+        "runtime_jin_color_apply_dedup_state",
+        None,
+    )
+
+    if (
+        not isinstance(
+            jin_color_dedup_state,
+            dict,
+        )
+        or jin_color_dedup_state.get("turn_id") != current_turn_id
+    ):
+        jin_color_dedup_state = {
+            "turn_id": current_turn_id,
+            "last_color": "",
+        }
+        context.runtime_jin_color_apply_dedup_state = (
+            jin_color_dedup_state
+        )
+
+    current_jin_color = normalize_jin_color_payload(
+        jin_color_dedup_state.get(
+            "last_color",
+            "",
+        )
     )
 
     if (
@@ -2650,6 +2703,7 @@ async def apply_runtime_action_calls(
 
         if action.name == RUNTIME_ACTION_JIN_COLOR:
             current_jin_color = jin_color
+            jin_color_dedup_state["last_color"] = jin_color
             accepted_action_names.add(
                 action_event_name
             )
@@ -3124,6 +3178,12 @@ async def apply_runtime_action_calls(
                     "type": "runtime_action",
                     "action": action.name.lower(),
                     "status": "failed",
+                    "display_name": get_runtime_action_display_name(
+                        action.name
+                    ),
+                    "close_tag": runtime_action_has_close_tag(
+                        action.name
+                    ),
                     "text": (
                         rejected_event.get("title")
                         or rejected_event.get("error")
@@ -3358,7 +3418,10 @@ async def apply_runtime_action_calls(
                     "action": "idle",
                     "id": idle_id,
                     "status": "started",
-                    "text": "IDLE",
+                    **build_runtime_action_event_display_fields(
+                        RUNTIME_ACTION_IDLE,
+                        idle_payload,
+                    ),
                     "payload": idle_payload,
                     "detail": idle_payload,
                 }))
@@ -3367,6 +3430,12 @@ async def apply_runtime_action_calls(
                     "action": "idle",
                     "id": idle_id,
                     "status": "completed",
+                    "display_name": get_runtime_action_display_name(
+                        RUNTIME_ACTION_IDLE
+                    ),
+                    "close_tag": runtime_action_has_close_tag(
+                        RUNTIME_ACTION_IDLE
+                    ),
                     "payload": idle_payload,
                     "detail": idle_payload,
                 }))
@@ -3408,7 +3477,10 @@ async def apply_runtime_action_calls(
                         or ""
                     ).strip(),
                     "status": "completed",
-                    "text": "JIN_COLOR",
+                    **build_runtime_action_event_display_fields(
+                        RUNTIME_ACTION_JIN_COLOR,
+                        color,
+                    ),
                     "color": color,
                     "payload": color,
                 }))
@@ -3458,6 +3530,18 @@ async def apply_runtime_action_calls(
                         or "runtime_todo"
                     ),
                     "status": "completed" if result.get("ok") else "blocked",
+                    "display_name": get_runtime_action_display_name(
+                        result.get(
+                            "action",
+                            "runtime_todo",
+                        )
+                    ),
+                    "close_tag": runtime_action_has_close_tag(
+                        result.get(
+                            "action",
+                            "runtime_todo",
+                        )
+                    ),
                     "text": text,
                     "runtime_todo_result": result,
                 }))
@@ -3489,6 +3573,12 @@ async def apply_runtime_action_calls(
                     "type": "runtime_action",
                     "action": "clean_tool_results",
                     "status": "completed",
+                    "display_name": get_runtime_action_display_name(
+                        RUNTIME_ACTION_CLEAN_TOOL_RESULTS
+                    ),
+                    "close_tag": runtime_action_has_close_tag(
+                        RUNTIME_ACTION_CLEAN_TOOL_RESULTS
+                    ),
                     "text": "Tool results cleared",
                 }))
 
@@ -3521,6 +3611,12 @@ async def apply_runtime_action_calls(
                     "",
                 ),
                 "status": "failed",
+                "display_name": get_runtime_action_display_name(
+                    RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+                ),
+                "close_tag": runtime_action_has_close_tag(
+                    RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+                ),
                 "text": "Active memory resolve failed",
                 "active_memory_result": result,
             }))
@@ -3803,8 +3899,8 @@ async def apply_runtime_action_calls(
                     "action": "asset_action",
                     "id": pending_action_id,
                     "status": "started",
-                    "text": build_asset_action_history_text(
-                        pending_result
+                    **build_runtime_action_event_display_fields(
+                        RUNTIME_ACTION_ASSET_ACTION,
                     ),
                 }))
 
@@ -4034,6 +4130,12 @@ async def apply_runtime_action_calls(
                         if result.get("ok") is not False
                         else "failed"
                     ),
+                    "display_name": get_runtime_action_display_name(
+                        result_action
+                    ),
+                    "close_tag": runtime_action_has_close_tag(
+                        result_action
+                    ),
                     "text": build_delayed_memory_action_text(
                         result
                     ),
@@ -4124,6 +4226,12 @@ async def apply_runtime_action_calls(
                         "completed"
                         if result.get("ok")
                         else "failed"
+                    ),
+                    "display_name": get_runtime_action_display_name(
+                        action_name
+                    ),
+                    "close_tag": runtime_action_has_close_tag(
+                        action_name
                     ),
                     "text": text,
                     "detail": str(
@@ -4225,6 +4333,12 @@ async def apply_runtime_action_calls(
                     "type": "runtime_action",
                     "action": result_action,
                     "id": action_id,
+                    "display_name": get_runtime_action_display_name(
+                        result_action
+                    ),
+                    "close_tag": runtime_action_has_close_tag(
+                        result_action
+                    ),
                     "text": text,
                     "skill_result": result,
                 }
@@ -4375,10 +4489,21 @@ async def apply_runtime_action_calls(
 
         if emit is not None:
             for active_memory_text, active_memory_line in create_active_memory_results:
+                display_name = get_runtime_action_display_name(
+                    RUNTIME_ACTION_CREATE_ACTIVE_MEMORY
+                )
                 event = {
                     "type": "runtime_action",
                     "action": "create_active_memory",
-                    "text": f"Saving: {active_memory_text}",
+                    "display_name": display_name,
+                    "text": build_runtime_action_display_text(
+                        RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+                        active_memory_text,
+                    ),
+                    "payload": active_memory_text,
+                    "close_tag": runtime_action_has_close_tag(
+                        RUNTIME_ACTION_CREATE_ACTIVE_MEMORY
+                    ),
                 }
 
                 if active_memory_line:
@@ -4391,6 +4516,10 @@ async def apply_runtime_action_calls(
                     "type": "runtime_action",
                     "action": "create_active_memory",
                     "status": "completed",
+                    "display_name": display_name,
+                    "close_tag": runtime_action_has_close_tag(
+                        RUNTIME_ACTION_CREATE_ACTIVE_MEMORY
+                    ),
                 }))
 
     saved_delayed_memory_reports = []
@@ -4600,6 +4729,12 @@ async def apply_runtime_action_calls(
                     "action": "save_delayed_memory_content",
                     "id": action_id,
                     "status": "completed",
+                    "display_name": get_runtime_action_display_name(
+                        RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                    ),
+                    "close_tag": runtime_action_has_close_tag(
+                        RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                    ),
                     "text": (
                         f"Saved delayed memory: {report_title}"
                         if report_title
@@ -4659,6 +4794,12 @@ async def apply_runtime_action_calls(
                         "action": "resolve_active_memory",
                         "id": active_memory_id,
                         "status": "failed",
+                        "display_name": get_runtime_action_display_name(
+                            RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+                        ),
+                        "close_tag": runtime_action_has_close_tag(
+                            RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+                        ),
                         "text": "Active memory resolve failed",
                         "active_memory_result": failure_result,
                     }))
@@ -4692,6 +4833,12 @@ async def apply_runtime_action_calls(
                 "type": "runtime_action",
                 "action": "resolve_active_memory",
                 "id": active_memory_id,
+                "display_name": get_runtime_action_display_name(
+                    RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+                ),
+                "close_tag": runtime_action_has_close_tag(
+                    RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+                ),
                 "text": "Active memory resolved",
             }))
             await emit(with_action_context({
@@ -4699,6 +4846,12 @@ async def apply_runtime_action_calls(
                 "action": "resolve_active_memory",
                 "id": active_memory_id,
                 "status": "completed",
+                "display_name": get_runtime_action_display_name(
+                    RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+                ),
+                "close_tag": runtime_action_has_close_tag(
+                    RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+                ),
             }))
 
         if resolved_active_memory_count:

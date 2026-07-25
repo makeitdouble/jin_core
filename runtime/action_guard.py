@@ -7,6 +7,9 @@ from typing import Any
 from contracts.rules_assembler import (
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+    build_runtime_action_display_text,
+    get_runtime_action_display_name,
+    runtime_action_has_close_tag,
 )
 from rules.runtime import (
     ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE,
@@ -23,7 +26,6 @@ from utils.actions.common_action_utils import (
     format_runtime_trigger_words_message,
 )
 from utils.actions.jin_color_utils import (
-    is_noop_jin_color_action,
     normalize_jin_color_payload,
 )
 
@@ -54,16 +56,13 @@ def append_action_guard_decision_message(
 
 def build_action_guard_confirmation_text(
     action_name: str,
+    payload: str = "",
 ) -> str:
-    normalized = str(action_name or "").strip().casefold()
 
-    if normalized == "save_delayed_memory_content":
-        return "Saving delayed memory report"
-
-    if normalized == "save_session":
-        return "Saving session"
-
-    return normalized.replace("_", " ")
+    return build_runtime_action_display_text(
+        action_name,
+        payload,
+    )
 
 
 def get_action_guard_display_id(
@@ -148,7 +147,12 @@ async def wait_for_action_guard_confirmation(
         "confirmation_id": confirmation_id,
         "guard": guard_name,
         "status": "pending",
-        "text": build_action_guard_confirmation_text(action_name),
+        "display_name": get_runtime_action_display_name(action.name),
+        "close_tag": runtime_action_has_close_tag(action.name),
+        "text": build_action_guard_confirmation_text(
+            action_name,
+            action.payload,
+        ),
         "detail": (
             "Runtime action marker emitted without matching "
             "behavior-contract trigger words in the user message."
@@ -208,12 +212,6 @@ async def confirm_runtime_action_guards(
     action_display_ids: dict[int, str] = {}
 
     for action in actions:
-        if is_noop_jin_color_action(
-            context,
-            action,
-        ):
-            continue
-
         guard_name = get_action_guard_name_for_runtime_action(
             action.name
         )

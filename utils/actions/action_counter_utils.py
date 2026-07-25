@@ -1,6 +1,12 @@
 from collections import OrderedDict
 from dataclasses import dataclass
 
+from contracts.rules_assembler import (
+    build_runtime_action_display_text,
+    get_runtime_action_display_name,
+    runtime_action_has_close_tag,
+)
+
 from .common_action_utils import (
     normalize_runtime_action_name,
 )
@@ -269,13 +275,27 @@ async def emit_runtime_action_counter_updates(
             for payload in payloads
             if str(payload or "").strip()
         ]
-        payload = entry.payload
+        payload = (
+            normalized_payloads[-1]
+            if normalized_payloads
+            else entry.payload
+        )
+        display_name = get_runtime_action_display_name(
+            entry.name
+        )
 
         event = {
             "type": "runtime_action",
             "action": entry.name.lower(),
             "status": status,
-            "text": entry.name,
+            "display_name": display_name,
+            "text": build_runtime_action_display_text(
+                entry.name,
+                payload,
+            ),
+            "close_tag": runtime_action_has_close_tag(
+                entry.name
+            ),
             "marker_count": entry.count,
             "counter_only": (
                 status in {

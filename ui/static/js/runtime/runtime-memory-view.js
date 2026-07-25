@@ -2136,16 +2136,6 @@
     );
   }
 
-  function formatFactsMemoryTrace(value) {
-    const trace =
-        Number(value);
-
-    return Number.isFinite(trace)
-      ? trace.toFixed(2)
-      : "0.50";
-  }
-
-
   function buildFactsMemoryLine(record) {
     const content =
         String(record.content || "").trim();
@@ -2155,10 +2145,6 @@
       value: memoryModel.appendProperties(
           content,
           [
-            `max_trace: ${formatFactsMemoryTrace(record.max_trace)}`,
-            `diffs: ${Math.max(0, Math.trunc(Number(record.diffs || 0)))}`,
-            `first_seen_turn: ${Math.max(0, Math.trunc(Number(record.first_seen_turn || 0)))}`,
-            `last_seen_turn: ${Math.max(0, Math.trunc(Number(record.last_seen_turn || 0)))}`,
             `runtime_snapshot_id: ${String(record.runtime_snapshot_id || "").trim()}`,
           ]
       ),

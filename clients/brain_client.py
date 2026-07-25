@@ -16,7 +16,10 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
+    build_runtime_action_display_text,
+    get_runtime_action_display_name,
     get_runtime_action_private_marker,
+    runtime_action_has_close_tag,
 )
 
 from clients.errors import (
@@ -40,9 +43,9 @@ from runtime.action_guard import (
     get_action_guard_display_id,
 )
 from utils.session_actions_history import (
-    build_asset_action_history_text,
     emit_session_actions_update,
     replace_session_action_history_since,
+    upsert_session_action_marker_history_since,
 )
 
 from clients.service_client import (
@@ -767,6 +770,31 @@ async def ask_brain_stream(
             detail=detail,
         )
 
+    async def sync_session_action_marker_history() -> None:
+
+        marker_actions = action_counter.marker_actions(
+            display_payloads=(
+                get_action_counter_display_payloads()
+            ),
+        )
+
+        if not marker_actions:
+            return
+
+        updated = upsert_session_action_marker_history_since(
+            context,
+            session_action_history_start,
+            marker_actions,
+        )
+
+        if not updated:
+            return
+
+        await emit_session_actions_update(
+            context,
+            current_sequence=True,
+        )
+
     async def finalize_session_action_history() -> None:
 
         nonlocal session_action_history_finalized
@@ -906,7 +934,15 @@ async def ask_brain_stream(
             "action": "save_delayed_memory_content",
             "id": action_id,
             "status": "started",
-            "text": "Saving delayed memory report",
+            "display_name": get_runtime_action_display_name(
+                RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+            ),
+            "text": build_runtime_action_display_text(
+                RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+            ),
+            "close_tag": runtime_action_has_close_tag(
+                RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+            ),
         }
 
         if action_context_snapshot:
@@ -991,9 +1027,15 @@ async def ask_brain_stream(
             "action": "asset_action",
             "id": action_id,
             "status": "started",
-            "text": build_asset_action_history_text({
-                "action": "asset_action",
-            }),
+            "display_name": get_runtime_action_display_name(
+                RUNTIME_ACTION_ASSET_ACTION
+            ),
+            "text": build_runtime_action_display_text(
+                RUNTIME_ACTION_ASSET_ACTION
+            ),
+            "close_tag": runtime_action_has_close_tag(
+                RUNTIME_ACTION_ASSET_ACTION
+            ),
         }
 
         if action_context_snapshot:
@@ -1064,6 +1106,9 @@ async def ask_brain_stream(
         action_applied = await apply_runtime_action_result(
             result
         )
+
+        if counter_entries:
+            await sync_session_action_marker_history()
 
         if await stop_on_marker_repetition(
             result
@@ -1444,6 +1489,9 @@ async def ask_brain_stream(
         await apply_runtime_action_result(
             tail_result
         )
+
+        if tail_counter_entries:
+            await sync_session_action_marker_history()
 
         if await stop_on_marker_repetition(
             tail_result

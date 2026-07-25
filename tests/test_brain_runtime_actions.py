@@ -1817,13 +1817,20 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     )
                     self.assertEqual(
                         runtime_events[0]["text"],
-                        "Processed asset action",
+                        "ASSET_ACTION",
+                    )
+                    self.assertTrue(
+                        runtime_events[0]["close_tag"],
                     )
                     self.assertFalse(
                         runtime_events[0]["file_exists_at_emit"],
                     )
                     self.assertEqual(
                         lifecycle_events[1]["text"],
+                        "ASSET_ACTION",
+                    )
+                    self.assertEqual(
+                        lifecycle_events[2]["text"],
                         "Created asset file - assets/outputs/rain_simulator.py",
                     )
                     self.assertFalse(
@@ -1930,7 +1937,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertEqual(
             lifecycle_events[0]["text"],
-            "Saving delayed memory report",
+            "SAVE_DELAYED_MEMORY_CONTENT",
+        )
+        self.assertTrue(
+            lifecycle_events[0]["close_tag"],
         )
         self.assertEqual(
             lifecycle_events[1]["text"],
@@ -2905,7 +2915,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "SAVE_SESSION: high priority action",
+            "SAVE_SESSION:",
         )
         self.assertNotIn(
             "<RUNTIME_ACTION",

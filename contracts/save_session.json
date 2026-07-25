@@ -18,9 +18,9 @@
       "emit_followup": true
     },
     "rules": [
-      "SAVE_SESSION: high priority action",
-      "Emit using exactly this schema <SAVE_SESSION> once when the user clearly and explicitly ends session or asks to save the session.",
-      "Do not emit for topic changes, brief silence, casual pause, bare ambiguous save commands, or while active work continues."
+      "SAVE_SESSION:",
+      "Emit <SAVE_SESSION> and wait for follow-up tick",
+      "Use when the user clearly and explicitly ends session or asks to save the session."
     ],
     "close_tag": false
   }

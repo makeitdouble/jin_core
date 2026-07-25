@@ -3747,7 +3747,10 @@ class RuntimeActionTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "Created wildcard file",
+                    "ASSET_ACTION",
+                )
+                self.assertTrue(
+                    context.emitter.events[0]["close_tag"],
                 )
                 self.assertEqual(
                     context.emitter.events[0]["status"],
@@ -3919,7 +3922,10 @@ class RuntimeActionTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "Created asset file - assets/outputs/rain_script.py",
+                    "ASSET_ACTION",
+                )
+                self.assertTrue(
+                    context.emitter.events[0]["close_tag"],
                 )
                 self.assertEqual(
                     context.emitter.events[0]["id"],
@@ -4508,7 +4514,10 @@ class RuntimeActionTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "Generated prompt batch",
+                    "ASSET_ACTION",
+                )
+                self.assertTrue(
+                    context.emitter.events[0]["close_tag"],
                 )
                 self.assertEqual(
                     context.emitter.events[0]["status"],
@@ -4652,6 +4661,8 @@ class RuntimeActionTests(unittest.TestCase):
                     "action": "save_delayed_memory_content",
                     "id": "save_delayed_memory_content_001",
                     "status": "completed",
+                    "display_name": "SAVE_DELAYED_MEMORY_CONTENT",
+                    "close_tag": True,
                     "text": "Saved delayed memory: Radius of Influence Specs",
                     "delayed_memory_report_id": report_id,
                     "delayed_memory_report": context.delayed_memory_reports,
@@ -5959,7 +5970,14 @@ class RuntimeActionTests(unittest.TestCase):
         )
         self.assertEqual(
             context.emitter.events[0]["text"],
-            "Saving: remind later",
+            "CREATE_ACTIVE_MEMORY: remind later",
+        )
+        self.assertEqual(
+            context.emitter.events[0]["display_name"],
+            "CREATE_ACTIVE_MEMORY",
+        )
+        self.assertFalse(
+            context.emitter.events[0]["close_tag"],
         )
         self.assertEqual(
             len(context.active_memory_records),
@@ -5989,6 +6007,8 @@ class RuntimeActionTests(unittest.TestCase):
                 "type": "runtime_action",
                 "action": "create_active_memory",
                 "status": "completed",
+                "display_name": "CREATE_ACTIVE_MEMORY",
+                "close_tag": False,
             },
         )
 
@@ -6058,7 +6078,7 @@ class RuntimeActionTests(unittest.TestCase):
         )
         self.assertEqual(
             context.emitter.events[0]["text"],
-            "Saving: Experiment Progress: 2m elapsed",
+            "CREATE_ACTIVE_MEMORY: Experiment Progress: 2m elapsed",
         )
         self.assertEqual(
             context.runtime_action_events[0]["payload"],
@@ -6170,7 +6190,14 @@ class RuntimeActionTests(unittest.TestCase):
         )
         self.assertEqual(
             context.emitter.events[0]["text"],
-            "Saving: Drink coffee | Trigger in 5 minutes | coffee",
+            "CREATE_ACTIVE_MEMORY: Drink coffee | Trigger in 5 minutes | coffee",
+        )
+        self.assertEqual(
+            context.emitter.events[0]["display_name"],
+            "CREATE_ACTIVE_MEMORY",
+        )
+        self.assertFalse(
+            context.emitter.events[0]["close_tag"],
         )
         self.assertEqual(
             context.emitter.events[0]["active_memory"],
@@ -6241,12 +6268,17 @@ class RuntimeActionTests(unittest.TestCase):
                 {
                     "type": "runtime_action",
                     "action": "create_active_memory",
-                    "text": "Saving: remember cuckoo",
+                    "display_name": "CREATE_ACTIVE_MEMORY",
+                    "text": "CREATE_ACTIVE_MEMORY: remember cuckoo",
+                    "payload": "remember cuckoo",
+                    "close_tag": False,
                 },
                 {
                     "type": "runtime_action",
                     "action": "create_active_memory",
                     "status": "completed",
+                    "display_name": "CREATE_ACTIVE_MEMORY",
+                    "close_tag": False,
                 },
             ],
         )
@@ -6312,12 +6344,17 @@ class RuntimeActionTests(unittest.TestCase):
                 {
                     "type": "runtime_action",
                     "action": "create_active_memory",
-                    "text": "Saving: remember cuckoo",
+                    "display_name": "CREATE_ACTIVE_MEMORY",
+                    "text": "CREATE_ACTIVE_MEMORY: remember cuckoo",
+                    "payload": "remember cuckoo",
+                    "close_tag": False,
                 },
                 {
                     "type": "runtime_action",
                     "action": "create_active_memory",
                     "status": "completed",
+                    "display_name": "CREATE_ACTIVE_MEMORY",
+                    "close_tag": False,
                 },
             ],
         )
@@ -6435,6 +6472,8 @@ class RuntimeActionTests(unittest.TestCase):
                     "type": "runtime_action",
                     "action": "resolve_active_memory",
                     "id": "5fdg4g",
+                    "display_name": "RESOLVE_ACTIVE_MEMORY",
+                    "close_tag": False,
                     "text": "Active memory resolved",
                 },
                 {
@@ -6442,6 +6481,8 @@ class RuntimeActionTests(unittest.TestCase):
                     "action": "resolve_active_memory",
                     "id": "5fdg4g",
                     "status": "completed",
+                    "display_name": "RESOLVE_ACTIVE_MEMORY",
+                    "close_tag": False,
                 },
             ],
         )
@@ -7312,7 +7353,7 @@ class RuntimeActionTests(unittest.TestCase):
 
         asyncio.run(run_case())
 
-    def test_apply_runtime_action_calls_skips_redundant_jin_colors(self):
+    def test_apply_runtime_action_calls_dedups_jin_colors_per_turn(self):
 
         class Emitter:
 
@@ -7338,6 +7379,7 @@ class RuntimeActionTests(unittest.TestCase):
                 runtime_save_session_requested=False,
                 runtime_save_session_action_emitted=False,
                 runtime_skill_state_barrier_active=False,
+                runtime_current_turn_id="turn-color-reset",
                 logger=None,
                 emitter=emitter,
             )
@@ -7364,7 +7406,7 @@ class RuntimeActionTests(unittest.TestCase):
 
             self.assertEqual(
                 applied_count,
-                1,
+                2,
             )
             self.assertEqual(
                 [
@@ -7372,6 +7414,7 @@ class RuntimeActionTests(unittest.TestCase):
                     for event in context.runtime_action_events
                 ],
                 [
+                    "#00f2ff",
                     "#00f2ff",
                     "#ff00aa",
                 ],
@@ -7382,6 +7425,7 @@ class RuntimeActionTests(unittest.TestCase):
                     for event in emitter.events
                 ],
                 [
+                    "#00f2ff",
                     "#ff00aa",
                 ],
             )
@@ -7641,11 +7685,11 @@ class RuntimeActionTests(unittest.TestCase):
                     for event in emitter.events
                 ],
                 [
-                    ("idle_001", "started", "IDLE", "0s"),
+                    ("idle_001", "started", "IDLE: 0s", "0s"),
                     ("idle_001", "completed", "", "0s"),
-                    ("idle_002", "started", "IDLE", "0s"),
+                    ("idle_002", "started", "IDLE: 0s", "0s"),
                     ("idle_002", "completed", "", "0s"),
-                    ("idle_003", "started", "IDLE", "0s"),
+                    ("idle_003", "started", "IDLE: 0s", "0s"),
                     ("idle_003", "completed", "", "0s"),
                 ],
             )

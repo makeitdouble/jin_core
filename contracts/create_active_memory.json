@@ -7,14 +7,13 @@
     "triggers": [],
     "blockers": [],
     "effects": {
-      "emit_followup": true
+      "emit_followup": false
     },
     "rules": [
       "CREATE_ACTIVE_MEMORY:",
       "When user asks to remember, remind, track, ask later, or keep a pending live-session condition, emit fulfilled <CREATE_ACTIVE_MEMORY: CONDITIONS >",
       "CONDITIONS is a placeholder word; replace it with description, value, or conditions.",
-      "Always use CREATE_ACTIVE_MEMORY for generic non-summary remember/store/track/remind requests.",
-      "Use CREATE_ACTIVE_MEMORY for word recall tests and next-N-message reminders."
+      "Always use CREATE_ACTIVE_MEMORY for generic non-summary remember/store/track/remind in time requests."
     ],
     "close_tag": false
   }

@@ -17,6 +17,7 @@
     "rules": [
       "SAVE_DELAYED_MEMORY_CONTENT:",
       "Use this marker ONLY when the user explicitly asks to save in delayed memory a summary/digest/recap/report of the current state.",
+      "Skip this marker when user request is to save session.",
       "Emit fulfilled form inside marker only for explicit summary-save requests:",
       "<SAVE_DELAYED_MEMORY_CONTENT>",
       "title:",

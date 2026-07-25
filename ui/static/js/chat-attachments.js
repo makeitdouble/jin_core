@@ -844,10 +844,14 @@ function bindDelayedMemoryReportPreview(
     "cursor-help"
   );
 
-  if (!element.title) {
-    element.title =
-      "Open delayed memory report";
-  }
+  element.title =
+    String(
+      report.title
+      || report.name
+      || ""
+    ).trim()
+    || element.title
+    || "Open delayed memory report";
 
   if (element._jinDelayedMemoryReportBound) {
     return;

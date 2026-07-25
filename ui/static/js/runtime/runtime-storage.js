@@ -832,45 +832,6 @@
   }
 
 
-  function getSessionSignalTrace(
-    field
-  ) {
-
-    const trace =
-      Number(
-        field
-        && field.max_trace
-      );
-
-    return Number.isFinite(trace)
-      ? trace
-      : 0.5;
-
-  }
-
-
-  function getSessionSignalTurn(
-    field,
-    key
-  ) {
-
-    const turn =
-      Math.max(
-        0,
-        Math.trunc(
-          Number(
-            field
-            && field[key]
-            || 0
-          )
-        )
-      );
-
-    return turn;
-
-  }
-
-
   function mergeSessionSignalFields(
     current,
     source
@@ -882,85 +843,9 @@
       };
     }
 
-    const currentTrace =
-      getSessionSignalTrace(
-        current
-      );
-
-    const sourceTrace =
-      getSessionSignalTrace(
-        source
-      );
-
-    const sourceOwnsPeak =
-      sourceTrace > currentTrace
-      || (
-        sourceTrace === currentTrace
-        && !String(current.content || "").trim()
-        && String(source.content || "").trim()
-      );
-
-    const peak =
-      sourceOwnsPeak
-        ? source
-        : current;
-
-    const currentFirstTurn =
-      getSessionSignalTurn(
-        current,
-        "first_seen_turn"
-      );
-
-    const sourceFirstTurn =
-      getSessionSignalTurn(
-        source,
-        "first_seen_turn"
-      );
-
-    const firstSeenTurns =
-      [
-        currentFirstTurn,
-        sourceFirstTurn,
-      ].filter(turn => turn > 0);
-
     return {
       ...current,
-      ...peak,
-      max_trace:
-        Math.max(
-          currentTrace,
-          sourceTrace
-        ),
-      diffs:
-        Math.max(
-          Math.max(
-            0,
-            Math.trunc(
-              Number(current.diffs || 0)
-            )
-          ),
-          Math.max(
-            0,
-            Math.trunc(
-              Number(source.diffs || 0)
-            )
-          )
-        ),
-      first_seen_turn:
-        firstSeenTurns.length
-          ? Math.min(...firstSeenTurns)
-          : 0,
-      last_seen_turn:
-        Math.max(
-          getSessionSignalTurn(
-            current,
-            "last_seen_turn"
-          ),
-          getSessionSignalTurn(
-            source,
-            "last_seen_turn"
-          )
-        ),
+      ...source,
     };
 
   }

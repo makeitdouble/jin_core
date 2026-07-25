@@ -135,10 +135,111 @@ function updateJinInputLoopCounter(text) {
 
 function escapeHtml(text) {
 
-  return text
+  return String(text || "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+
+}
+
+function normalizeChatJinColorMarker(value) {
+
+  const match =
+    String(
+      value || ""
+    ).trim().match(
+      /^#?([0-9a-f]{6}|[0-9a-f]{3})$/i
+    );
+
+  if (!match) {
+    return "";
+  }
+
+  let hex =
+    match[1].toLowerCase();
+
+  if (hex.length === 3) {
+    hex = hex
+      .split("")
+      .map((char) => char + char)
+      .join("");
+  }
+
+  return `#${hex}`;
+
+}
+
+function buildChatJinColorMarkerHtml(color) {
+
+  const normalizedColor =
+    normalizeChatJinColorMarker(
+      color
+    );
+
+  if (!normalizedColor) {
+    return escapeHtml(
+      `<JIN_COLOR: ${color}>`
+    );
+  }
+
+  return (
+    `<span class="jin-chat-runtime-marker jin-chat-jin-color-marker" title="${normalizedColor}">`
+    + `<span class="jin-chat-jin-color-swatch" style="--jin-chat-marker-color: ${normalizedColor}"></span>`
+    + "<span>JIN_COLOR</span>"
+    + "</span>"
+  );
+
+}
+
+function renderChatTextHtml(text) {
+
+  const source =
+    String(
+      text || ""
+    );
+  const markerPattern =
+    /<(?:INTERNAL_ACTION_)?JIN_COLOR:\s*(#?(?:[0-9a-f]{6}|[0-9a-f]{3}))\s*\/?>/gi;
+  let rendered = "";
+  let lastIndex = 0;
+  let match = null;
+
+  while ((match = markerPattern.exec(source)) !== null) {
+    rendered += escapeHtml(
+      source.slice(
+        lastIndex,
+        match.index
+      )
+    );
+    rendered += buildChatJinColorMarkerHtml(
+      match[1]
+    );
+    lastIndex =
+      markerPattern.lastIndex;
+  }
+
+  rendered += escapeHtml(
+    source.slice(
+      lastIndex
+    )
+  );
+
+  return rendered;
+
+}
+
+function renderChatTextElement(
+  element,
+  text
+) {
+
+  if (!element) {
+    return;
+  }
+
+  element.innerHTML =
+    renderChatTextHtml(
+      text
+    );
 
 }
 
@@ -333,10 +434,9 @@ function flushStreamFrame() {
 
       }
 
-      appendTextNodeData(
+      renderChatTextElement(
         stream.group.answerContent,
-        "__jinAnswerTextNode",
-        stream.pendingAnswer
+        stream.answer
       );
 
       stream.pendingAnswer =
@@ -699,8 +799,10 @@ function appendChatMessage(
       contextSnapshot
     );
 
-  pre.innerHTML =
-    escapeHtml(text);
+  renderChatTextElement(
+    pre,
+    text
+  );
 
   if (role === "user") {
     const chips =
@@ -1008,18 +1110,27 @@ function startStreamMessage(
     answerContent: null,
   };
 
+  const stream = {
+    role,
+    messageId,
+    context: contextSnapshot,
+    group,
+    thinking: "",
+    answer: "",
+    pendingThinking: "",
+    pendingAnswer: "",
+  };
+
   streamMessages.set(
     messageId,
-    {
-      role,
-      messageId,
-      context: contextSnapshot,
-      group,
-      thinking: "",
-      answer: "",
-      pendingThinking: "",
-      pendingAnswer: "",
-    }
+    stream
+  );
+
+  // Reserve the response position before the first visible chunk. Runtime
+  // action rows emitted at the start of a stream will then stay below the
+  // response while its content continues to grow.
+  ensureStreamGroup(
+    stream
   );
 
 }

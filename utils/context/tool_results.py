@@ -1,6 +1,9 @@
 # Builds the full tool results context from search, asset, memory, and session results.
 from xml.sax.saxutils import escape
 
+from contracts.rules_assembler import (
+    RUNTIME_ACTION_WEB_SEARCH,
+)
 from utils.brain_client_utils import (
     indent_xml,
     strip_empty_results_xml,
@@ -59,7 +62,7 @@ def _append_tool_results(
     )
 
     tool_result_attrs = (
-        'name="WEB_SEARCH"'
+        f'name="{escape(RUNTIME_ACTION_WEB_SEARCH)}"'
     )
 
     if search_result_id:
@@ -115,7 +118,7 @@ def _append_recorded_tool_results(
             if not search_result:
                 continue
 
-            attrs = 'name="WEB_SEARCH"'
+            attrs = f'name="{escape(RUNTIME_ACTION_WEB_SEARCH)}"'
             result_id = str(
                 entry.get(
                     "id",

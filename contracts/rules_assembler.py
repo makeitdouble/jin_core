@@ -166,6 +166,65 @@ def get_runtime_action_name(name_or_runtime_action: str) -> str:
     return action
 
 
+def extract_private_marker_name(marker: str) -> str:
+    marker = str(marker or "").strip()
+
+    if not marker.startswith("<"):
+        return ""
+
+    offset = 2 if marker.startswith("</") else 1
+    chars = []
+
+    for char in marker[offset:]:
+        if char.isalnum() or char == "_":
+            chars.append(char)
+            continue
+
+        break
+
+    return "".join(chars)
+
+
+def get_runtime_action_display_name(name_or_runtime_action: str) -> str:
+    _, contract = get_action_contract_for_runtime_action(
+        name_or_runtime_action
+    )
+    marker_name = extract_private_marker_name(
+        str(contract.get("private_marker", "") or "")
+    )
+
+    return (
+        marker_name
+        or get_runtime_action_name(name_or_runtime_action)
+        or _normalize_action_name(name_or_runtime_action)
+    )
+
+
+def runtime_action_has_close_tag(name_or_runtime_action: str) -> bool:
+    _, contract = get_action_contract_for_runtime_action(
+        name_or_runtime_action
+    )
+    return bool(contract.get("close_tag", False))
+
+
+def build_runtime_action_display_text(
+    name_or_runtime_action: str,
+    payload: str = "",
+) -> str:
+    display_name = get_runtime_action_display_name(
+        name_or_runtime_action
+    )
+    normalized_payload = str(payload or "").strip()
+
+    if (
+        not normalized_payload
+        or runtime_action_has_close_tag(name_or_runtime_action)
+    ):
+        return display_name
+
+    return f"{display_name}: {normalized_payload}"
+
+
 def get_contract_strings(name: str, key: str) -> tuple[str, ...]:
     return tuple(
         value

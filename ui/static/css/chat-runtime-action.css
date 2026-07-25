@@ -239,3 +239,44 @@
 .jin-runtime-action-color-row .jin-runtime-action-count {
     margin-left: 0;
 }
+
+.jin-chat-runtime-marker {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: fit-content;
+    max-width: 100%;
+    margin: 0 0.15rem;
+    padding: 3px 8px;
+    border: 1px solid rgba(103, 232, 249, 0.18);
+    border-radius: 4px;
+    background: rgba(8, 14, 18, 0.42);
+    color: rgba(203, 213, 225, 0.72);
+    font-size: 11px;
+    line-height: 1;
+    vertical-align: middle;
+}
+
+.jin-chat-jin-color-marker {
+    box-shadow:
+            0 0 16px color-mix(in srgb, var(--jin-chat-marker-color, #00f2ff) 18%, transparent),
+            inset 0 0 12px color-mix(in srgb, var(--jin-chat-marker-color, #00f2ff) 7%, transparent);
+}
+
+.jin-chat-jin-color-swatch {
+    display: block;
+    width: 9px;
+    height: 9px;
+    flex: 0 0 9px;
+    border-radius: 1px;
+    border: 1px solid rgba(255, 255, 255, 0.34);
+    background: var(--jin-chat-marker-color, #00f2ff);
+    box-shadow:
+            0 0 0 1px rgba(0, 0, 0, 0.38),
+            0 0 10px var(--jin-chat-marker-color, #00f2ff);
+    box-sizing: border-box;
+}
+
+.jin-runtime-action-payload {
+    color: rgba(203, 213, 225, 0.62);
+}

@@ -144,20 +144,6 @@ function getFactsMemoryRecordsForStartupLog() {
 }
 
 
-function formatFactsMemoryTrace(
-  value
-) {
-
-  const numericValue =
-    Number(value);
-
-  return Number.isFinite(numericValue)
-    ? numericValue.toFixed(2)
-    : "0.50";
-
-}
-
-
 function buildFactsMemoryDetails(
   record
 ) {
@@ -208,13 +194,7 @@ function buildFactsMemoryDetails(
 
       lines.push(
         `${key}: ${content}`,
-        [
-          `[ max_trace: ${formatFactsMemoryTrace(field.max_trace)} ]`,
-          `[ diffs: ${Math.max(0, Math.trunc(Number(field.diffs || 0)))} ]`,
-          `[ first_seen_turn: ${Math.max(0, Math.trunc(Number(field.first_seen_turn || 0)))} ]`,
-          `[ last_seen_turn: ${Math.max(0, Math.trunc(Number(field.last_seen_turn || 0)))} ]`,
-          `[ runtime_snapshot_id: ${String(field.runtime_snapshot_id || "").trim()} ]`,
-        ].join(" ")
+        `[ runtime_snapshot_id: ${String(field.runtime_snapshot_id || "").trim()} ]`
       );
     });
 

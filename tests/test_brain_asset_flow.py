@@ -76,13 +76,21 @@ def _assert_latest_request_payload(
     )
     test_case.assertTrue(
         system_prompt.startswith(
-            "<TOOLS_RESULTS>"
+            "<SEQUENCE_ORIGIN_REQUEST>"
         ),
         system_prompt,
     )
     test_case.assertIn(
         expected_followup_message,
         system_prompt,
+    )
+    test_case.assertLess(
+        system_prompt.index(
+            "</SEQUENCE_ORIGIN_REQUEST>"
+        ),
+        system_prompt.index(
+            "<TOOLS_RESULTS>"
+        ),
     )
     test_case.assertLess(
         system_prompt.index(
@@ -284,7 +292,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-    async def test_followup_collects_scattered_tool_results_at_context_top(self):
+    async def test_followup_collects_scattered_tool_results_below_sequence_origin(self):
 
         prompt = BrainNode.build_followup_system_prompt(
             (
@@ -305,9 +313,13 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(
             prompt.startswith(
-                "<TOOLS_RESULTS>"
+                "<SEQUENCE_ORIGIN_REQUEST>"
             ),
             prompt,
+        )
+        self.assertLess(
+            prompt.index("</SEQUENCE_ORIGIN_REQUEST>"),
+            prompt.index("<TOOLS_RESULTS>"),
         )
         self.assertEqual(
             prompt.count(
@@ -483,8 +495,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn(
-            "<LATEST_RUNTIME_MEMORY>\nactive_topic: test\n"
-            "</LATEST_RUNTIME_MEMORY>",
+            "<PREVIOUS_RUNTIME_MEMORY>\nactive_topic: test\n"
+            "</PREVIOUS_RUNTIME_MEMORY>",
             prompt,
         )
         self.assertNotIn(
@@ -530,9 +542,13 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(
             prompt.startswith(
-                "<TOOLS_RESULTS>"
+                "<SEQUENCE_ORIGIN_REQUEST>"
             ),
             prompt,
+        )
+        self.assertLess(
+            prompt.index("</SEQUENCE_ORIGIN_REQUEST>"),
+            prompt.index("<TOOLS_RESULTS>"),
         )
         self.assertIn(
             build_followup_system_message(),
@@ -628,6 +644,10 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertLess(
             prompt.index("</SEQUENCE_ORIGIN_REQUEST>"),
             prompt.index("<CURRENT_SEQUENCE>"),
+        )
+        self.assertLess(
+            prompt.index("</CURRENT_SEQUENCE>"),
+            prompt.index("<TOOLS_RESULTS>"),
         )
         self.assertNotIn(
             "<PREVIOUS_CHAT_MESSAGES>",
@@ -1158,7 +1178,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertTrue(
                     kwargs["system_prompt"].startswith(
-                        "<TOOLS_RESULTS>"
+                        "<SEQUENCE_ORIGIN_REQUEST>"
                     ),
                     kwargs["system_prompt"],
                 )
@@ -1240,7 +1260,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertTrue(
                     kwargs["system_prompt"].startswith(
-                        "<TOOLS_RESULTS>"
+                        "<SEQUENCE_ORIGIN_REQUEST>"
                     ),
                     kwargs["system_prompt"],
                 )
@@ -2026,7 +2046,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             1,
         )
         self.assertIn(
-            "<LATEST_RUNTIME_MEMORY>frozen state</LATEST_RUNTIME_MEMORY>",
+            "<PREVIOUS_RUNTIME_MEMORY>frozen state</PREVIOUS_RUNTIME_MEMORY>",
             prompt,
         )
 
@@ -2171,8 +2191,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                         "name": "clean_tool_results",
                     },
                     {
-                        "name": "create_active_memory",
-                        "payload": "active_memory=test",
+                        "name": "resolve_active_memory",
+                        "id": "active_memory_1",
                     },
                 ])
                 return "First action batch processed.", ""
@@ -2221,7 +2241,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
         calls = []
         action_names = [
-            "create_active_memory",
+            "resolve_active_memory",
             "append_skill",
             "hide_skills",
             "save_session",
@@ -2280,7 +2300,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             5,
         )
         self.assertIn(
-            'create_active_memory',
+            'resolve_active_memory',
             calls[1]["system_prompt"],
         )
         self.assertIn(

@@ -1,7 +1,6 @@
 const deferredRuntimeActionsAfterResponse = [];
 let runtimeActionRowCounter = 0;
 
-const SCENE_SEARCH_RUNTIME_ACTION = "web_search";
 let sceneSearchFadeTimer = null;
 
 function getSceneRoot() {
@@ -34,12 +33,17 @@ function setSceneSearchScreenActive(active) {
 
 function syncSceneSearchScreenForRuntimeAction(
   action,
-  active
+  active,
+  options = {}
 ) {
-  if (
-    String(action || "").toLowerCase()
-    !== SCENE_SEARCH_RUNTIME_ACTION
-  ) {
+  const sceneEffect =
+    String(
+      options.sceneEffect
+      || options.scene_effect
+      || ""
+    ).trim().toLowerCase();
+
+  if (sceneEffect !== "search") {
     return;
   }
 
@@ -697,11 +701,39 @@ function renderRuntimeActionLabel(
     name.className =
       "jin-runtime-action-name";
     name.textContent =
-      "JIN_COLOR";
+      String(
+        options.displayName
+        || "JIN_COLOR"
+      ).trim()
+      || "JIN_COLOR";
 
     label.appendChild(
       name
     );
+
+    const payloadColor =
+      colors.length
+        ? colors[colors.length - 1]
+        : normalizeRuntimeActionColor(
+          options.color
+          || options.payload
+          || options.detail
+        );
+
+    if (payloadColor) {
+      const payload =
+        document.createElement("span");
+
+      payload.className =
+        "jin-runtime-action-payload";
+      payload.textContent =
+        `: ${payloadColor}`;
+
+      label.appendChild(
+        payload
+      );
+    }
+
     appendRuntimeActionMarkerCount(
       label,
       options.markerCount
@@ -1080,7 +1112,10 @@ function updateRuntimeActionRow(
     );
   }
 
-  if (!options.preserveLabel) {
+  if (
+    !options.preserveLabel
+    || action === "jin_color"
+  ) {
     renderRuntimeActionLabel(
       label,
       action,
@@ -1133,11 +1168,17 @@ function updateRuntimeActionRow(
   }
 
   if (action === "save_delayed_memory_content") {
-    bindDelayedMemoryReportPreview(
-      label,
-      options.delayedMemoryReport || null,
-      options.delayedMemoryReportId || ""
-    );
+    if (
+      options.delayedMemoryReport
+      || options.delayedMemoryReportId
+      || options.counterOnly !== true
+    ) {
+      bindDelayedMemoryReportPreview(
+        label,
+        options.delayedMemoryReport || null,
+        options.delayedMemoryReportId || ""
+      );
+    }
   }
 
   if (options.guardConfirmation) {
@@ -1409,18 +1450,28 @@ function appendRuntimeAction(
             reviveExisting:
               Boolean(
                 options.reuseCompleted
+                && options.reviveCompleted !== false
               ),
           }
         )
     ) {
+      if (options.id) {
+        existingRow.dataset.runtimeActionKey =
+          actionKey || "";
+      }
       return true;
     }
+  }
+
+  if (options.counterOnly === true) {
+    return false;
   }
 
   if (options.activateScene !== false) {
     syncSceneSearchScreenForRuntimeAction(
       action,
-      true
+      true,
+      options
     );
   }
 
@@ -1548,11 +1599,17 @@ function appendRuntimeAction(
   }
 
   if (action === "save_delayed_memory_content") {
-    bindDelayedMemoryReportPreview(
-      label,
-      options.delayedMemoryReport || null,
-      options.delayedMemoryReportId || ""
-    );
+    if (
+      options.delayedMemoryReport
+      || options.delayedMemoryReportId
+      || options.counterOnly !== true
+    ) {
+      bindDelayedMemoryReportPreview(
+        label,
+        options.delayedMemoryReport || null,
+        options.delayedMemoryReportId || ""
+      );
+    }
   }
 
   if (options.guardConfirmation) {
@@ -1623,6 +1680,12 @@ function queueRuntimeActionAfterNextResponse(
     id: options.id || "",
     contextSnapshot:
       options.contextSnapshot || null,
+    displayName:
+      options.displayName || "",
+    sceneEffect:
+      options.sceneEffect || "",
+    closeTag:
+      options.closeTag === true,
     assetResult:
       options.assetResult || null,
     detail:
@@ -1669,6 +1732,12 @@ function flushRuntimeActionsAfterResponse(
         id: entry.id || "",
         contextSnapshot:
           entry.contextSnapshot || null,
+        displayName:
+          entry.displayName || "",
+        sceneEffect:
+          entry.sceneEffect || "",
+        closeTag:
+          entry.closeTag === true,
         assetResult:
           entry.assetResult || null,
         detail:
@@ -1716,17 +1785,44 @@ function fadeRuntimeAction(
 
   syncSceneSearchScreenForRuntimeAction(
     action,
-    false
+    false,
+    options
   );
 
-  const rows =
+  let rows =
     actionKey
-      ? chatHistory.querySelectorAll(
-        `[data-runtime-action-key="${actionKey}"]`
+      ? Array.from(
+        chatHistory.querySelectorAll(
+          `[data-runtime-action-key="${actionKey}"]`
+        )
       )
-      : chatHistory.querySelectorAll(
-        `[data-runtime-action="${action}"]`
+      : Array.from(
+        chatHistory.querySelectorAll(
+          `[data-runtime-action="${action}"]`
+        )
       );
+
+  if (
+    !rows.length
+    && options.fallbackToLatestActive
+  ) {
+    const activeRows = Array.from(
+      chatHistory.querySelectorAll(
+        `[data-runtime-action="${action}"]`
+      )
+    ).filter((row) => (
+      row.dataset.runtimeActionTurn
+        === String(jinConversationTurnCounter)
+      && row.dataset.runtimeActionCompleted !== "true"
+    ));
+
+    const latestActiveRow =
+      activeRows[activeRows.length - 1];
+
+    rows = latestActiveRow
+      ? [latestActiveRow]
+      : [];
+  }
 
   rows.forEach((row) => {
     markRuntimeActionRowCompleted(

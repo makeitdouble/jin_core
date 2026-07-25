@@ -461,6 +461,11 @@ def normalize_websocket_runtime_action(payload: dict[str, Any]) -> dict[str, Any
         action_event["payload"] = explicit_payload
     elif action_event.get("text", "").startswith("Saving:"):
         action_event["payload"] = action_event["text"].split("Saving:", 1)[1].strip()
+    elif action_event.get("text", "").startswith("CREATE_ACTIVE_MEMORY:"):
+        action_event["payload"] = action_event["text"].split(
+            "CREATE_ACTIVE_MEMORY:",
+            1,
+        )[1].strip()
 
     return action_event
 
@@ -863,7 +868,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
             {
                 "type": "runtime_action",
                 "action": "create_active_memory",
-                "text": "Saving: Reminder to drink coffee in 5 minutes",
+                "text": "CREATE_ACTIVE_MEMORY: Reminder to drink coffee in 5 minutes",
                 "active_memory": "active_memory_1: Reminder to drink coffee in 5 minutes",
             },
         ]
@@ -895,7 +900,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
             {
                 "type": "runtime_action",
                 "action": "create_active_memory",
-                "text": "Saving: Reminder to drink coffee in 5 minutes",
+                "text": "CREATE_ACTIVE_MEMORY: Reminder to drink coffee in 5 minutes",
                 "active_memory": "active_memory_1: Reminder to drink coffee in 5 minutes",
             },
         ]

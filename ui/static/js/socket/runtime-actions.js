@@ -7,8 +7,13 @@ function handleRuntimeActionGuardConfirmation(
       data.action || ""
     ).toLowerCase();
   const text =
-    String(
-      data.text || ""
+    buildRuntimeActionDisplayText(
+      data,
+      action,
+      data.text || "",
+      {
+        fallbackToName: true,
+      }
     );
 
   if (
@@ -34,6 +39,19 @@ function handleRuntimeActionGuardConfirmation(
           data.context || null,
         detail:
           data.detail || "",
+        displayName:
+          getRuntimeActionDisplayName(
+            data,
+            action
+          ),
+        sceneEffect:
+          getRuntimeActionSceneEffect(
+            data
+          ),
+        closeTag:
+          isRuntimeActionCloseTag(
+            data
+          ),
         guardConfirmation: {
           confirmationId:
             data.confirmation_id || "",
@@ -51,6 +69,249 @@ function handleRuntimeActionGuardConfirmation(
   }
 
   return;
+
+}
+
+function getRuntimeActionDisplayName(
+  data,
+  action
+) {
+
+  return (
+    String(
+      data.display_name
+      || data.displayName
+      || data.runtime_action
+      || ""
+    ).trim()
+    || String(
+      action || ""
+    ).trim().toUpperCase()
+  );
+
+}
+
+function getRuntimeActionSceneEffect(data) {
+
+  return String(
+    data.scene_effect
+    || data.sceneEffect
+    || ""
+  ).trim().toLowerCase();
+
+}
+
+function isRuntimeActionCloseTag(data) {
+
+  return (
+    data.close_tag === true
+    || data.closeTag === true
+  );
+
+}
+
+function tryParseRuntimeActionJson(value) {
+
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const source =
+    value.trim();
+
+  if (
+    !source
+    || ![
+      "{",
+      "[",
+    ].includes(source[0])
+  ) {
+    return value;
+  }
+
+  try {
+    return JSON.parse(source);
+  } catch (_error) {
+    return value;
+  }
+
+}
+
+function extractRuntimeActionObjectTitle(value) {
+
+  const normalizedValue =
+    tryParseRuntimeActionJson(
+      value
+    );
+
+  if (
+    !normalizedValue
+    || typeof normalizedValue !== "object"
+  ) {
+    return "";
+  }
+
+  if (Array.isArray(normalizedValue)) {
+    for (const item of normalizedValue) {
+      const title =
+        extractRuntimeActionObjectTitle(
+          item
+        );
+
+      if (title) {
+        return title;
+      }
+    }
+
+    return "";
+  }
+
+  const directTitle =
+    String(
+      normalizedValue.title
+      || normalizedValue.name
+      || ""
+    ).trim();
+
+  if (directTitle) {
+    return directTitle;
+  }
+
+  for (const key of [
+    "report",
+    "delayed_memory_report",
+    "delayedMemoryReport",
+    "delayed_memory_result",
+    "asset_result",
+    "skill_result",
+    "runtime_todo_result",
+  ]) {
+    const nestedTitle =
+      extractRuntimeActionObjectTitle(
+        normalizedValue[key]
+      );
+
+    if (nestedTitle) {
+      return nestedTitle;
+    }
+  }
+
+  for (const item of Object.values(normalizedValue)) {
+    const nestedTitle =
+      extractRuntimeActionObjectTitle(
+        item
+      );
+
+    if (nestedTitle) {
+      return nestedTitle;
+    }
+  }
+
+  return "";
+
+}
+
+function buildRuntimeActionDetail(
+  data,
+  closeTag
+) {
+
+  const explicitDetail =
+    String(
+      data.detail || ""
+    ).trim();
+
+  if (explicitDetail) {
+    return explicitDetail;
+  }
+
+  const assetDetail =
+    String(
+      data.asset_result
+      && (
+        data.asset_result.detail
+        || data.asset_result.error
+      )
+      || ""
+    ).trim();
+
+  if (assetDetail) {
+    return assetDetail;
+  }
+
+  const objectTitle =
+    extractRuntimeActionObjectTitle(
+      data.delayed_memory_report
+      || data.delayed_memory_result
+      || data.asset_result
+      || data.skill_result
+      || data.runtime_todo_result
+      || data.payload
+      || (
+        Array.isArray(data.payloads)
+          ? data.payloads[data.payloads.length - 1]
+          : ""
+      )
+    );
+
+  if (objectTitle) {
+    return objectTitle;
+  }
+
+  if (closeTag) {
+    return "";
+  }
+
+  return String(
+    data.payload || ""
+  ).trim();
+
+}
+
+function buildRuntimeActionDisplayText(
+  data,
+  action,
+  text,
+  options = {}
+) {
+
+  const explicitText =
+    String(
+      data.display_text
+      || data.displayText
+      || text
+      || ""
+    ).trim();
+
+  if (explicitText) {
+    return explicitText;
+  }
+
+  const payload =
+    String(
+      data.query
+      || data.payload
+      || (
+        Array.isArray(data.payloads)
+          ? data.payloads[data.payloads.length - 1]
+          : ""
+      )
+      || ""
+    ).trim();
+
+  if (
+    payload
+    && !isRuntimeActionCloseTag(data)
+  ) {
+    return (
+      `${getRuntimeActionDisplayName(data, action)}: `
+      + payload
+    );
+  }
+
+  return options.fallbackToName === true
+    ? getRuntimeActionDisplayName(data, action)
+    : "";
 
 }
 
@@ -80,20 +341,6 @@ function handleRuntimeAction(
       || ""
     ).trim();
 
-  const runtimeDetail =
-    String(
-      data.detail
-      || (
-        data.asset_result
-        && (
-          data.asset_result.detail
-          || data.asset_result.error
-        )
-      )
-      || data.payload
-      || ""
-    ).trim();
-
   const cancelledByUser =
     status === "failed"
     && Boolean(guardConfirmationId)
@@ -117,7 +364,41 @@ function handleRuntimeAction(
         data,
         text
       )
-      : text;
+      : buildRuntimeActionDisplayText(
+        data,
+        action,
+        text,
+        {
+          fallbackToName:
+            ![
+              "completed",
+              "complete",
+              "done",
+            ].includes(status),
+        }
+      );
+
+  const displayName =
+    getRuntimeActionDisplayName(
+      data,
+      action
+    );
+
+  const sceneEffect =
+    getRuntimeActionSceneEffect(
+      data
+    );
+
+  const closeTag =
+    isRuntimeActionCloseTag(
+      data
+    );
+
+  const runtimeDetail =
+    buildRuntimeActionDetail(
+      data,
+      closeTag
+    );
 
   const markerCount = Math.max(
     0,
@@ -176,6 +457,13 @@ function handleRuntimeAction(
       );
     const actionId =
       actionDisplayId;
+    const colorApplied =
+      (
+        status === "completed"
+        || status === "complete"
+        || status === "done"
+      )
+      && Boolean(color);
 
     if (
       displayText.trim()
@@ -183,13 +471,18 @@ function handleRuntimeAction(
     ) {
       window.appendRuntimeAction(
         action,
-        "JIN_COLOR",
+        displayText,
         {
           id: actionId,
           color,
           detail: color,
+          displayName,
+          sceneEffect,
+          closeTag,
           reuseCompleted:
             counterOnly,
+          reviveCompleted:
+            !counterFinal,
           aggregateMarkers,
           counterOnly,
           markerCount,
@@ -203,19 +496,13 @@ function handleRuntimeAction(
           cancelled:
             cancelledByUser,
           preserveLabel:
-            cancelledByUser
-            || counterOnly,
+            cancelledByUser,
         }
       );
     }
 
     if (
-      (
-        status === "completed"
-        || status === "complete"
-        || status === "done"
-      )
-      && color
+      colorApplied
       && window.JinRuntime
       && window.JinRuntime.avatar
       && typeof window.JinRuntime.avatar.setCenterColor === "function"
@@ -237,14 +524,12 @@ function handleRuntimeAction(
 
     if (
       (
-        counterFinal
+        colorApplied
+        || counterFinal
         || (
           !aggregateMarkers
           && (
-            status === "completed"
-            || status === "complete"
-            || status === "done"
-            || status === "failed"
+            status === "failed"
             || status === "interrupted"
           )
         )
@@ -257,6 +542,9 @@ function handleRuntimeAction(
             action,
             {
               id: actionId,
+              sceneEffect,
+              fallbackToLatestActive:
+                colorApplied,
             }
           );
         },
@@ -347,6 +635,9 @@ function handleRuntimeAction(
           completed:
             !aggregateMarkers,
           detail: runtimeDetail,
+          displayName,
+          sceneEffect,
+          closeTag,
         }
       );
 
@@ -369,6 +660,7 @@ function handleRuntimeAction(
         action,
         {
           id: actionDisplayId,
+          sceneEffect,
         }
       );
     }
@@ -395,12 +687,18 @@ function handleRuntimeAction(
         cancelledByUser,
       preserveLabel:
         cancelledByUser
-        || counterOnly,
+        || (
+          counterOnly
+          && closeTag
+        ),
       contextSnapshot:
         data.context || null,
       assetResult:
         data.asset_result || null,
       detail: runtimeDetail,
+      displayName,
+      sceneEffect,
+      closeTag,
     }
   );
 
@@ -432,6 +730,7 @@ function handleRuntimeAction(
       action,
       {
         id: actionDisplayId,
+        sceneEffect,
       }
     );
   }
