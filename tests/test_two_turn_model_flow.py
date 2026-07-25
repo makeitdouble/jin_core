@@ -18,12 +18,12 @@ from agent import (
     AgentRuntime,
     AgentState,
 )
-from clients import (
-    build_clients,
-)
-from runtime import (
+from clients.registry import build_clients
+from runtime.runtime_context import (
     RuntimeContext,
     RuntimeEmitter,
+)
+from runtime.L1_memory import (
     build_runtime_memory_snapshot,
     schedule_runtime_memory_update,
 )

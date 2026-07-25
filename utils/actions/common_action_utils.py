@@ -70,6 +70,26 @@ KNOWN_RUNTIME_ACTIONS = get_contract_runtime_action_names(
     None
 )
 
+
+def format_runtime_trigger_words_message(
+    template: str,
+    trigger_words,
+) -> str:
+
+    return template.format(
+        trigger_words=", ".join(
+            str(
+                trigger_word
+                or ""
+            ).strip()
+            for trigger_word in trigger_words
+            if str(
+                trigger_word
+                or ""
+            ).strip()
+        )
+    )
+
 CLOSE_TAG_RUNTIME_ACTIONS = frozenset(
     get_close_tag_runtime_actions()
 )

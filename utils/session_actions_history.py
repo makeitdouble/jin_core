@@ -358,7 +358,7 @@ def _normalize_session_action_display_parts(
         if colors:
             normalized_part["colors"] = colors
 
-        if count:
+        if count > 1:
             normalized_part["count"] = count
 
         normalized_parts.append(
@@ -420,13 +420,21 @@ def _with_session_action_marker_count(
     counted_part = dict(
         part
     )
-    counted_part["count"] = max(
+    normalized_count = max(
         0,
         int(
             count
             or 0
         ),
     )
+
+    if normalized_count > 1:
+        counted_part["count"] = normalized_count
+    else:
+        counted_part.pop(
+            "count",
+            None,
+        )
 
     return counted_part
 
@@ -465,6 +473,39 @@ def _format_session_action_display_part(
         text,
         count,
     )
+
+
+def format_session_action_display_parts(
+    parts,
+    *,
+    fallback_text: str = "",
+) -> str:
+    """Render history parts with the shared runtime-action count rules."""
+
+    formatted_parts = [
+        formatted_part
+        for formatted_part in (
+            _format_session_action_display_part(
+                part
+            )
+            for part in (
+                _normalize_session_action_display_parts(
+                    parts
+                )
+            )
+        )
+        if formatted_part
+    ]
+
+    if formatted_parts:
+        return ", ".join(
+            formatted_parts
+        )
+
+    return str(
+        fallback_text
+        or ""
+    ).strip()
 
 
 def record_session_action_history(
@@ -518,6 +559,16 @@ def record_session_action_history(
             normalized_display_parts = [
                 fallback_part,
             ]
+
+    if normalized_display_parts:
+        normalized_text = (
+            format_session_action_display_parts(
+                normalized_display_parts,
+            )
+        )
+
+    if not normalized_text:
+        return
 
     item = {
         "text": normalized_text,

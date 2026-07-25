@@ -30,26 +30,6 @@ from utils.actions import (
 )
 
 
-def format_runtime_trigger_words_message(
-    template: str,
-    trigger_words,
-) -> str:
-
-    return template.format(
-        trigger_words=", ".join(
-            str(
-                trigger_word
-                or ""
-            ).strip()
-            for trigger_word in trigger_words
-            if str(
-                trigger_word
-                or ""
-            ).strip()
-        )
-    )
-
-
 def format_runtime_blocked_trigger_word_message(
     blocked_trigger_word: str,
 ) -> str:

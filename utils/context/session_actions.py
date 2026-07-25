@@ -7,6 +7,7 @@ from utils.brain_client_utils import (
     indent_xml,
 )
 from utils.session_actions_history import (
+    format_session_action_display_parts,
     get_current_action_sequence_started_at,
     get_current_action_sequence_turn_id,
 )
@@ -47,14 +48,20 @@ def _normalize_session_action_history_item(
             )
             or ""
         ).strip()
+        parts = item.get(
+            "parts",
+            [],
+        )
     else:
         text = str(
             item
             or ""
         ).strip()
+        parts = []
 
     return {
         "text": text,
+        "parts": parts,
         "created_at": created_at,
         "runtime_turn_id": runtime_turn_id,
     }
@@ -205,9 +212,15 @@ def build_session_actions_history_context(
             )
             open_sequence_turn_id = ""
 
-        text = item[
-            "text"
-        ]
+        text = format_session_action_display_parts(
+            item.get(
+                "parts",
+                [],
+            ),
+            fallback_text=item[
+                "text"
+            ],
+        )
         created_at = item.get(
             "created_at"
         )

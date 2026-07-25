@@ -708,16 +708,13 @@ class BrainRuntimeActionTests(unittest.TestCase):
             [
                 {
                     "text": "WEB_SEARCH",
-                    "count": 1,
                 },
                 {
                     "text": "CREATE_ACTIVE_MEMORY",
                     "detail": "astronomical news tracker",
-                    "count": 1,
                 },
                 {
                     "text": "LIST_SKILLS",
-                    "count": 1,
                 },
             ],
         )
@@ -967,17 +964,14 @@ class BrainRuntimeActionTests(unittest.TestCase):
             [
                 {
                     "text": "WEB_SEARCH",
-                    "count": 1,
                 },
                 {
                     "text": "CREATE_ACTIVE_MEMORY",
                     "detail": "remember coffee",
-                    "count": 1,
                 },
                 {
                     "text": "IDLE",
                     "detail": "5s",
-                    "count": 1,
                 },
                 {
                     "text": "APPEND_SKILL: wildcards, file_manager",
@@ -3023,7 +3017,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 {
                     "text": "IDLE",
                     "detail": "7s",
-                    "count": 1,
                 },
             ],
         )

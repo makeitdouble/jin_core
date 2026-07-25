@@ -188,7 +188,7 @@ def build_action_missing_trigger_words_message(
         get_action_guard_name_for_runtime_action,
         get_action_guard_triggers,
     )
-    from utils.context.runtime_state import (
+    from utils.actions.common_action_utils import (
         format_runtime_trigger_words_message,
     )
 

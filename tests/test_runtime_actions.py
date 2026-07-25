@@ -7,9 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from clients import (
-    apply_runtime_action_calls,
-)
+from clients.brain_client import apply_runtime_action_calls
 from utils.brain_client_utils import (
     append_delayed_memory_runtime_result,
     flush_pending_active_memory_resolve_failure_history,

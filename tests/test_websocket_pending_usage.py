@@ -2,10 +2,8 @@ import unittest
 import asyncio
 from types import SimpleNamespace
 
-from runtime import (
-    emit_runtime_session_memory_update,
-    runtime_state,
-)
+from runtime.L1_memory_utils import emit_runtime_session_memory_update
+from runtime.registry import runtime_state
 from config_loader import (
     config,
 )

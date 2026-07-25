@@ -1244,7 +1244,7 @@ class RuntimeStream:
         guard_name: str,
         template: str,
     ) -> None:
-        from utils.context.runtime_state import (
+        from utils.actions.common_action_utils import (
             format_runtime_trigger_words_message,
         )
 

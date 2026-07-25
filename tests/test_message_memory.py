@@ -10,20 +10,28 @@ from rules.brain_context_builder import (
 from utils.context.context_exports import (
     build_session_actions_history_context,
 )
-from runtime import (
+from runtime.L1_memory_rules import (
     DEFAULT_RUNTIME_MEMORY,
-    L2_PATCH_WINDOW,
-    RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID,
-    RuntimeContext,
-    build_interrupted_assistant_message,
-    build_runtime_l2_memory_system_prompt,
     build_runtime_memory_system_prompt,
+)
+from runtime.L2_memory_rules import L2_PATCH_WINDOW
+from runtime.state import RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID
+from runtime.runtime_context import RuntimeContext
+from runtime.L1_memory_utils import (
+    build_interrupted_assistant_message,
     build_runtime_memory_user_prompt,
+)
+from runtime.L2_memory_utils import build_runtime_l2_memory_system_prompt
+from runtime.L3_memory_utils import (
     build_runtime_session_memory_system_prompt,
     build_runtime_session_memory_user_prompt,
+)
+from runtime.L2_memory import (
     maybe_summarize_runtime_l2_memory,
-    maybe_summarize_runtime_session_memory,
     record_runtime_l1_diff,
+)
+from runtime.L3_memory import maybe_summarize_runtime_session_memory
+from runtime.L1_memory import (
     schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
     summarize_runtime_memory,
@@ -1133,6 +1141,87 @@ class MessageMemoryTests(
         )
         self.assertNotIn(
             "( 0s ago )",
+            history,
+        )
+
+    def test_action_context_hides_single_emission_counts(self):
+
+        context = SimpleNamespace(
+            runtime_current_turn_id="turn_000002",
+            runtime_turn_started_at=900.0,
+            runtime_action_sequence_turn_ids=[
+                "turn_000002",
+            ],
+            runtime_session_action_history=[
+                {
+                    "text": "LIST_SKILLS",
+                    "parts": [
+                        {
+                            "text": "LIST_SKILLS",
+                            "count": 1,
+                        },
+                    ],
+                    "created_at": 995.0,
+                    "runtime_turn_id": "turn_000002",
+                },
+                {
+                    "text": (
+                        "APPEND_SKILL: file_manager (count: 3), "
+                        "CLEAN_TOOL_RESULTS"
+                    ),
+                    "parts": [
+                        {
+                            "text": "APPEND_SKILL: file_manager",
+                            "count": 3,
+                        },
+                        {
+                            "text": "CLEAN_TOOL_RESULTS",
+                            "count": 1,
+                        },
+                    ],
+                    "created_at": 998.0,
+                    "runtime_turn_id": "turn_000002",
+                },
+                {
+                    "text": "SAVE_SESSION",
+                    "parts": [
+                        {
+                            "text": "SAVE_SESSION",
+                            "count": 1,
+                        },
+                    ],
+                    "created_at": 999.0,
+                    "runtime_turn_id": "turn_000002",
+                },
+            ],
+        )
+
+        with patch(
+            "utils.context.context_exports.time.time",
+            return_value=1000.0,
+        ):
+            history = build_session_actions_history_context(
+                context,
+                current_sequence=True,
+            )
+
+        self.assertNotIn(
+            "(count: 1)",
+            history,
+        )
+        self.assertIn(
+            "Step 1 - LIST_SKILLS ( 5s ago )",
+            history,
+        )
+        self.assertIn(
+            (
+                "Step 2 - APPEND_SKILL: file_manager (count: 3), "
+                "CLEAN_TOOL_RESULTS ( 2s ago )"
+            ),
+            history,
+        )
+        self.assertIn(
+            "Step 3 - SAVE_SESSION ( 1s ago )",
             history,
         )
 

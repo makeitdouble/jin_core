@@ -24,9 +24,7 @@ from agent import (
     AgentState,
 )
 
-from clients import (
-    build_brain_payload,
-)
+from clients.brain_client import build_brain_payload
 from rules.brain_context_builder import (
     build_brain_context,
 )
@@ -61,27 +59,30 @@ from utils.ws_errors import (
     handle_websocket_error,
 )
 
-from runtime import (
+from runtime.runtime_context import (
     RuntimeContext,
     RuntimeEmitter,
+)
+from runtime.L1_memory import (
     apply_runtime_response_feedback,
     build_runtime_memory_snapshot,
-    emit_runtime_l1_diff_update,
-    emit_runtime_session_memory_update,
-    refresh_runtime_state,
-    record_runtime_memory_reasoning_quotes,
-    run_fact_check_once,
+    parse_runtime_memory_lines,
     schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
-    send_telemetry,
 )
 from runtime.L1_memory_utils import (
-    emit_runtime_memory_snapshot_refresh,
-    rebuild_latest_runtime_memory_snapshot,
     build_runtime_memory_context_text,
     canonicalize_runtime_memory_key,
+    emit_runtime_l1_diff_update,
+    emit_runtime_memory_snapshot_refresh,
+    emit_runtime_session_memory_update,
+    rebuild_latest_runtime_memory_snapshot,
+    record_runtime_memory_reasoning_quotes,
     remove_runtime_user_idle_lines,
 )
+from runtime.fact_check import run_fact_check_once
+from runtime.state_sync import refresh_runtime_state
+from runtime.telemetry import send_telemetry
 from utils.actions import (
     is_active_memory_key,
     is_delayed_memory_report_id,
@@ -90,9 +91,6 @@ from utils.actions import (
 )
 from utils.session_actions_history import (
     emit_session_actions_update,
-)
-from runtime.L1_memory import (
-    parse_runtime_memory_lines,
 )
 from runtime.L3_memory_utils import (
     parse_l3_session_snapshot_metadata,

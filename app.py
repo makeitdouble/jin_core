@@ -37,13 +37,9 @@ from websocket import (
     websocket_router,
 )
 
-from clients import (
-    build_clients,
-)
+from clients.registry import build_clients
 
-from runtime import (
-    RUNTIME_MEMORY_SUMMARIZER_LABEL,
-)
+from runtime.state import RUNTIME_MEMORY_SUMMARIZER_LABEL
 from runtime.behavior_contract import (
     get_behavior_contract,
 )

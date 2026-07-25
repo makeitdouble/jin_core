@@ -6,10 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from runtime import (
-    RuntimeStream,
-    runtime_state,
-)
+from runtime.stream import RuntimeStream
+from runtime.registry import runtime_state
 from agent.nodes.brain import (
     BrainNode,
 )
@@ -253,6 +251,40 @@ async def fake_raw_asset_action_generator():
 
 
 class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
+
+    async def test_session_history_never_adds_single_action_count(self):
+
+        context = SimpleNamespace(
+            runtime_session_action_history=[],
+            runtime_current_turn_id="turn_count_one",
+            runtime_action_sequence_turn_ids=[
+                "turn_count_one",
+            ],
+        )
+
+        record_session_action_history(
+            context,
+            "LIST_SKILLS (count: 1)",
+            display_parts=[
+                {
+                    "text": "LIST_SKILLS",
+                    "count": 1,
+                },
+            ],
+        )
+
+        self.assertEqual(
+            context.runtime_session_action_history[0]["text"],
+            "LIST_SKILLS",
+        )
+        self.assertEqual(
+            context.runtime_session_action_history[0]["parts"],
+            [
+                {
+                    "text": "LIST_SKILLS",
+                },
+            ],
+        )
 
     def patch_asset_roots(self, root: Path):
         assets_root = root / "assets"

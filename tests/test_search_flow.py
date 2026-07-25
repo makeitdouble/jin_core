@@ -11,18 +11,18 @@ from agent import (
 from agent.nodes import (
     BrainNode,
 )
-from clients import (
+from clients.search_client import (
     build_empty_search_result,
     build_failed_search_result,
     build_search_result_fallback_answer,
     format_search_provider_error,
     normalize_search_results,
-    normalize_serper_item,
 )
+from clients.search_provider import normalize_serper_item
 from utils.context.context_exports import (
     build_sequence_origin_request_context,
 )
-from runtime import (
+from runtime.runtime_context import (
     RuntimeContext,
     RuntimeEmitter,
 )

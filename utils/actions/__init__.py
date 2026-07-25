@@ -22,6 +22,7 @@ from .common_action_utils import (
     RuntimeActionStreamFilter,
     build_runtime_action_id,
     extract_runtime_actions,
+    format_runtime_trigger_words_message,
     normalize_runtime_action_name,
     normalize_runtime_action_names,
 )
@@ -69,6 +70,7 @@ __all__ = [
     "emit_runtime_action_counter_updates",
     "extract_search_query",
     "format_runtime_action_count",
+    "format_runtime_trigger_words_message",
     "find_runtime_action_matches",
     "generate_active_memory_slot_id",
     "generate_active_memory_slot_key",

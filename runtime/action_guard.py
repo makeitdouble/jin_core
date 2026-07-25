@@ -18,11 +18,11 @@ from runtime.behavior_contract import (
     get_action_guard_triggers,
     should_pause_action_guard_for_confirmation,
 )
-from utils.context.runtime_state import (
+from utils.actions.common_action_utils import (
+    build_runtime_action_id,
     format_runtime_trigger_words_message,
 )
-from utils.actions import (
-    build_runtime_action_id,
+from utils.actions.jin_color_utils import (
     is_noop_jin_color_action,
     normalize_jin_color_payload,
 )
