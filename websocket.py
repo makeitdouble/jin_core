@@ -92,6 +92,9 @@ from utils.actions import (
 from utils.session_actions_history import (
     emit_session_actions_update,
 )
+from utils.runtime_action_abort import (
+    abort_active_runtime_actions,
+)
 from runtime.L3_memory_utils import (
     parse_l3_session_snapshot_metadata,
 )
@@ -2751,6 +2754,11 @@ async def process_message(
             )
         )
         context.runtime_turn_assistant_response = ""
+        context.runtime_active_action_markers = []
+        context.runtime_turn_aborted_actions = []
+        context.runtime_turn_abort_requested = False
+        context.runtime_turn_discard_requested = False
+        context.runtime_turn_interrupted_memory_update_scheduled = False
         context.runtime_turn_interrupted = False
         context.runtime_turn_interruption_reason = ""
         context.runtime_turn_interruption_quote = ""
@@ -2811,6 +2819,13 @@ async def process_message(
             state,
             context,
         )
+
+        if getattr(
+            context,
+            "runtime_turn_discard_requested",
+            False,
+        ):
+            return
 
         await emit_session_actions_update(
             context,
@@ -2951,13 +2966,15 @@ async def cancel_current_task(
     task: asyncio.Task | None,
     logger: WebSocketLogger,
     context: RuntimeContext | None = None,
+    *,
+    update_memory: bool = True,
+    emit_aborted_actions: bool = True,
 ):
 
-    if (
-        not task
-        or task.done()
-    ):
-        return
+    task_is_running = (
+        task is not None
+        and not task.done()
+    )
 
     # -----------------------------------
     # FORCE CLOSE ACTIVE STREAMS
@@ -2966,6 +2983,15 @@ async def cancel_current_task(
     if context:
 
         context.runtime_turn_interrupted = True
+        context.runtime_turn_abort_requested = True
+        context.runtime_turn_discard_requested = not update_memory
+
+        await abort_active_runtime_actions(
+            context,
+            logger=logger,
+            emit_to_client=emit_aborted_actions,
+            remember_for_l1=update_memory,
+        )
 
         active_streams = (
             getattr(
@@ -2989,6 +3015,13 @@ async def cancel_current_task(
     # CANCEL TASK
     # -----------------------------------
 
+    if not task_is_running:
+        if context and update_memory:
+            schedule_interrupted_runtime_memory_update(
+                context=context,
+            )
+        return
+
     task.cancel()
 
     try:
@@ -3002,6 +3035,9 @@ async def cancel_current_task(
         )
 
     if context:
+        if not update_memory:
+            return
+
         schedule_interrupted_runtime_memory_update(
             context=context,
         )
@@ -3424,22 +3460,28 @@ async def websocket_endpoint(
             current_task,
             logger,
             context,
+            update_memory=False,
+            emit_aborted_actions=False,
         )
 
         return
 
     except Exception as error:
 
+        disconnect_like_error = (
+            isinstance(error, RuntimeError)
+            and "disconnect" in str(error).lower()
+        )
+
         await cancel_current_task(
             current_task,
             logger,
             context,
+            update_memory=not disconnect_like_error,
+            emit_aborted_actions=not disconnect_like_error,
         )
 
-        if (
-            isinstance(error, RuntimeError)
-            and "disconnect" in str(error).lower()
-        ):
+        if disconnect_like_error:
             return
 
         await handle_websocket_error(

@@ -1133,6 +1133,17 @@ def schedule_interrupted_runtime_memory_update(
         context,
 ) -> asyncio.Task | None:
 
+    if getattr(
+        context,
+        "runtime_turn_interrupted_memory_update_scheduled",
+        False,
+    ):
+        return getattr(
+            context,
+            "runtime_memory_update_task",
+            None,
+        )
+
     user_message = getattr(
         context,
         "runtime_turn_user_message",
@@ -1157,11 +1168,18 @@ def schedule_interrupted_runtime_memory_update(
                 "runtime_turn_interruption_quote",
                 "",
             ),
+            aborted_actions=getattr(
+                context,
+                "runtime_turn_aborted_actions",
+                [],
+            ),
         )
     )
 
     if not user_message.strip():
         return None
+
+    context.runtime_turn_interrupted_memory_update_scheduled = True
 
     return schedule_runtime_memory_update(
         context=context,

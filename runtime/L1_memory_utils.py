@@ -1279,6 +1279,7 @@ def build_interrupted_assistant_message(
         assistant_message: str,
         interruption_reason: str = "",
         interruption_quote: str = "",
+        aborted_actions=None,
 ) -> str:
 
     partial_text = assistant_message.strip()
@@ -1288,6 +1289,9 @@ def build_interrupted_assistant_message(
 
     interruption_reason = interruption_reason.strip()
     interruption_quote = interruption_quote.strip()
+    aborted_action_lines = format_aborted_runtime_action_lines(
+        aborted_actions
+    )
 
     if interruption_reason:
         lines = [
@@ -1314,14 +1318,64 @@ def build_interrupted_assistant_message(
             partial_text,
         ])
 
+        if aborted_action_lines:
+            lines.extend([
+                "",
+                "Aborted runtime actions:",
+                *aborted_action_lines,
+            ])
+
         return "\n".join(
             lines
         )
 
-    return INTERRUPTED_ASSISTANT_MEMORY_TEMPLATE.format(
+    message = INTERRUPTED_ASSISTANT_MEMORY_TEMPLATE.format(
         user_message=user_message.strip(),
         assistant_message=partial_text,
     )
+
+    if aborted_action_lines:
+        message = "\n".join([
+            message,
+            "",
+            "Aborted runtime actions:",
+            *aborted_action_lines,
+        ])
+
+    return message
+
+
+def format_aborted_runtime_action_lines(
+        aborted_actions,
+) -> list[str]:
+
+    lines = []
+
+    for action in aborted_actions or ():
+        if isinstance(
+            action,
+            dict,
+        ):
+            name = str(
+                action.get("name")
+                or action.get("display_name")
+                or action.get("action")
+                or ""
+            ).strip()
+        else:
+            name = str(
+                action
+                or ""
+            ).strip()
+
+        if not name:
+            continue
+
+        lines.append(
+            f"{name}: ABORTED"
+        )
+
+    return lines
 
 
 def build_empty_assistant_message(
@@ -3153,6 +3207,15 @@ async def emit_runtime_action_completed(
         *,
         action: str,
 ) -> None:
+
+    from utils.runtime_action_abort import (
+        mark_runtime_action_completed,
+    )
+
+    mark_runtime_action_completed(
+        context,
+        action=action,
+    )
 
     emitter = getattr(
         context,

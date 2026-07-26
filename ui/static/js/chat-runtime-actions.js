@@ -1440,6 +1440,25 @@ function appendRuntimeAction(
     }
 
     if (
+        !existingRow
+        && options.fallbackToLatestActive
+        && action
+    ) {
+      const activeRows = Array.from(
+        chatHistory.querySelectorAll(
+          `.jin-runtime-action-row[data-runtime-action="${action}"]`
+        )
+      ).filter((row) => (
+        row.dataset.runtimeActionTurn
+          === String(jinConversationTurnCounter)
+        && row.dataset.runtimeActionCompleted !== "true"
+      ));
+
+      existingRow =
+        activeRows[activeRows.length - 1] || null;
+    }
+
+    if (
         existingRow
         && updateRuntimeActionRow(
           existingRow,

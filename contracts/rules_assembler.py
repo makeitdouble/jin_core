@@ -332,6 +332,46 @@ def get_runtime_action_rules(runtime_action: str) -> tuple[str, ...]:
     )
 
 
+def build_runtime_action_marker_schema(contract: dict[str, Any]) -> str:
+    marker = str(contract.get("private_marker", "") or "").strip()
+
+    if not marker:
+        return ""
+
+    if not bool(contract.get("close_tag", False)):
+        return marker
+
+    marker_name = extract_private_marker_name(marker)
+    if not marker_name:
+        return marker
+
+    return f"{marker}</{marker_name}>"
+
+
+def build_runtime_action_contract_instructions(runtime_action: str) -> str:
+    _, contract = get_action_contract_for_runtime_action(runtime_action)
+    if not contract:
+        return ""
+
+    effects = contract.get("effects", {})
+    emit_followup = (
+        effects.get("emit_followup", True)
+        if isinstance(effects, dict)
+        else True
+    )
+    lines = [
+        line
+        for line in (
+            build_runtime_action_marker_schema(contract),
+            f"Follow-up: {str(bool(emit_followup)).lower()}",
+        )
+        if line
+    ]
+    lines.extend(get_runtime_action_rules(runtime_action))
+
+    return "\n".join(lines)
+
+
 def get_close_tag_runtime_actions() -> tuple[str, ...]:
     actions = []
 
@@ -493,9 +533,11 @@ def build_runtime_action_instructions(
     has_list_skills_result = _context_has_list_skills_tool_result(context)
 
     def append_rules(action_name: str) -> None:
-        for rule in get_runtime_action_rules(action_name):
-            if rule not in instructions:
-                instructions.append(rule)
+        action_instructions = build_runtime_action_contract_instructions(
+            action_name
+        )
+        if action_instructions and action_instructions not in instructions:
+            instructions.append(action_instructions)
 
     for action_name in enabled_actions:
         normalized_name = _normalize_action_name(action_name)
@@ -522,7 +564,11 @@ def build_runtime_action_instructions(
     if _action_enabled(enabled_actions, "LIST_SKILLS"):
         instructions.append(SKILL_ROUTING_RULES)
 
-    return "\n".join(instructions)
+    return "\n\n".join(
+        instruction.rstrip()
+        for instruction in instructions
+        if str(instruction or "").strip()
+    )
 
 
 RUNTIME_ACTION_WEB_SEARCH = get_runtime_action_name("web_search")

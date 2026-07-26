@@ -12,13 +12,11 @@ CONTEXT_LIMIT_RECOVERY_MESSAGE = (
 )
 
 ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE = (
-    "CONFIRMED: NO\n"
-    "DO NOT REPEAT THIS ACTION! User explicitly rejected it and didn't provide correct spelling in any of "
+    "User explicitly rejected requested action and you must skip it! Notify user didn't provide correct spelling in any of "
     "trigger words: {trigger_words}"
 )
 
 ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE = (
-    "CONFIRMED: YES\n"
     "User accepted an action and didn't provide any of action trigger "
     "words: {trigger_words}"
 )

@@ -394,7 +394,8 @@ function findInternalActionLog(
 function renderInternalActionLogTitle(
   logDiv,
   actionName,
-  markerCount
+  markerCount,
+  options = {}
 ) {
   const tagSpan =
     logDiv.querySelector(
@@ -411,7 +412,15 @@ function renderInternalActionLogTitle(
     document.createElement("span");
 
   title.textContent =
-    `[ ACTION : ${prettifyInternalActionName(actionName)} ]`;
+    (
+      `[ ACTION : ${prettifyInternalActionName(actionName)}`
+      + (
+        options.aborted === true
+          ? ": ABORTED"
+          : ""
+      )
+      + " ]"
+    );
 
   tagSpan.appendChild(
     title
@@ -580,6 +589,8 @@ function log_internal_action(
       || data.guard_confirmation_id
     )
     && /\bcancelled\s*$/i.test(text);
+  const abortedByUser =
+    String(data.status || "").toLowerCase() === "aborted";
   const actionLogKey =
     getInternalActionLogKey(
       actionName
@@ -636,7 +647,11 @@ function log_internal_action(
   renderInternalActionLogTitle(
     logDiv,
     actionName,
-    markerCount
+    markerCount,
+    {
+      aborted:
+        abortedByUser,
+    }
   );
 
   const tagSpan =
@@ -648,17 +663,20 @@ function log_internal_action(
     tagSpan.classList.toggle(
       "line-through",
       cancelledByUser
+      || abortedByUser
     );
     tagSpan.classList.toggle(
       "opacity-60",
       cancelledByUser
+      || abortedByUser
     );
   }
 
   updateInternalActionLogMessage(
     logDiv,
     text,
-    cancelledByUser,
+    cancelledByUser
+    || abortedByUser,
     counterOnly
   );
   updateInternalActionLogPayload(

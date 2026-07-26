@@ -65,6 +65,10 @@ from utils.tool_results import (
     TOOL_RESULT_KIND_DELAYED_MEMORY,
     record_runtime_tool_result,
 )
+from utils.runtime_action_abort import (
+    mark_runtime_action_completed,
+    mark_runtime_action_started,
+)
 from config_loader import (
     config,
 )
@@ -702,7 +706,10 @@ class RuntimeStream:
                     event.get("status")
                     or ""
                 ).strip().casefold()
-                == "failed"
+                in {
+                    "failed",
+                    "aborted",
+                }
                 or event.get("error")
             ):
                 continue
@@ -1178,10 +1185,15 @@ class RuntimeStream:
                 self.rejected_action_guard_names.add(
                     guard_name
                 )
-                self.append_action_guard_missing_trigger_message(
-                    guard_name,
-                    ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
+                self.action_guard_rejected_aborted = True
+                self.mark_started_runtime_action_guard_rejected(
+                    action,
                 )
+                if guard_name != "save_delayed_memory":
+                    self.append_action_guard_missing_trigger_message(
+                        guard_name,
+                        ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
+                    )
                 continue
 
             self.confirmed_action_guard_names.add(
@@ -1632,6 +1644,35 @@ class RuntimeStream:
             if action_context_snapshot:
                 payload["context"] = action_context_snapshot
 
+            mark_runtime_action_started(
+                self.context,
+                action=payload.get(
+                    "action",
+                    action.name.lower(),
+                ),
+                action_id=payload.get(
+                    "id",
+                    "",
+                ),
+                display_name=payload.get(
+                    "display_name",
+                    display_name,
+                ),
+                text=payload.get(
+                    "text",
+                    display_text,
+                ),
+                payload=payload.get(
+                    "payload",
+                    action.payload,
+                ),
+                close_tag=payload.get(
+                    "close_tag",
+                    has_close_tag,
+                ),
+                context_snapshot=action_context_snapshot,
+            )
+
             await emit(
                 payload
             )
@@ -1675,6 +1716,12 @@ class RuntimeStream:
 
             pending_ids.remove(
                 action_id
+            )
+
+            mark_runtime_action_completed(
+                self.context,
+                action=RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+                action_id=action_id,
             )
 
             save_rejected = bool(

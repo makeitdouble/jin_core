@@ -347,6 +347,8 @@ function handleRuntimeAction(
     && /\bcancelled\s*$/i.test(
       text.trim()
     );
+  const abortedByUser =
+    status === "aborted";
 
   if (
     cancelledByUser
@@ -494,9 +496,12 @@ function handleRuntimeAction(
             data.context || null,
           guardConfirmationId,
           cancelled:
-            cancelledByUser,
+            cancelledByUser
+            || abortedByUser,
           preserveLabel:
             cancelledByUser,
+          fallbackToLatestActive:
+            abortedByUser,
         }
       );
     }
@@ -531,6 +536,7 @@ function handleRuntimeAction(
           && (
             status === "failed"
             || status === "interrupted"
+            || status === "aborted"
           )
         )
       )
@@ -684,13 +690,18 @@ function handleRuntimeAction(
       reuseCompleted:
         counterOnly,
       cancelled:
-        cancelledByUser,
+        cancelledByUser
+        || abortedByUser,
       preserveLabel:
         cancelledByUser
         || (
           counterOnly
           && closeTag
         ),
+      fallbackToLatestActive:
+        abortedByUser
+        || status === "failed"
+        || status === "interrupted",
       contextSnapshot:
         data.context || null,
       assetResult:
@@ -721,6 +732,7 @@ function handleRuntimeAction(
         && (
           status === "failed"
           || status === "interrupted"
+          || status === "aborted"
         )
       )
     )

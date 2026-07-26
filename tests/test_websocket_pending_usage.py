@@ -19,10 +19,14 @@ from websocket import (
     apply_runtime_resume,
     apply_session_bootstrap,
     arm_save_session_from_user_text,
+    cancel_current_task,
     reject_when_all_models_offline,
     refresh_pending_brain_usage,
     wait_for_runtime_memory_update,
     merge_runtime_idle_followup_turn,
+)
+from utils.runtime_action_abort import (
+    mark_runtime_action_started,
 )
 
 
@@ -145,6 +149,57 @@ class FakeWebSocket:
 
 
 class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
+
+    async def test_cancel_current_task_aborts_active_action_when_task_already_done(self):
+
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+            runtime_action_events=[],
+            runtime_active_action_markers=[],
+            runtime_turn_aborted_actions=[],
+            runtime_action_guard_confirmations={},
+            runtime_current_turn_id="turn_done_abort",
+            active_streams={},
+        )
+        logger = FakeLogger()
+
+        async def finished():
+            return None
+
+        task = asyncio.create_task(
+            finished()
+        )
+        await task
+
+        mark_runtime_action_started(
+            context,
+            action="save_delayed_memory_content",
+            action_id="save_delayed_memory_content_1",
+            display_name="SAVE_DELAYED_MEMORY_CONTENT",
+            text="SAVE_DELAYED_MEMORY_CONTENT",
+            close_tag=True,
+        )
+
+        await cancel_current_task(
+            task,
+            logger,
+            context,
+            update_memory=False,
+            emit_aborted_actions=True,
+        )
+
+        self.assertEqual(
+            context.runtime_active_action_markers,
+            [],
+        )
+        self.assertEqual(
+            context.runtime_action_events[0]["status"],
+            "aborted",
+        )
+        self.assertEqual(
+            context.emitter.events[0]["text"],
+            "SAVE_DELAYED_MEMORY_CONTENT: ABORTED",
+        )
 
     def test_idle_followups_replace_same_recent_turn_instead_of_duplicating_it(self):
 

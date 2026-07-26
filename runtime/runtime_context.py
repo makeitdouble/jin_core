@@ -110,6 +110,20 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_active_action_markers: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_turn_aborted_actions: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_turn_abort_requested: bool = False
+
+    runtime_turn_discard_requested: bool = False
+
+    runtime_turn_interrupted_memory_update_scheduled: bool = False
+
     runtime_idle_action_sequence: int = 0
 
     runtime_pending_idle_followups: list[dict] = field(

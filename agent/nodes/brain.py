@@ -42,6 +42,9 @@ from clients.search_client import (
 from utils.brain_client_utils import (
     get_brain_runtime_config,
 )
+from utils.runtime_action_abort import (
+    mark_runtime_action_completed,
+)
 
 from utils.actions.action_counter_utils import (
     format_runtime_action_count,
@@ -70,6 +73,11 @@ def action_event_requires_follow_up(event) -> bool:
 
     if not isinstance(event, dict):
         return True
+
+    status = str(event.get("status", "") or "").strip().casefold()
+
+    if status == "aborted":
+        return False
 
     name = str(event.get("name", "") or "").strip().casefold()
 
@@ -1247,6 +1255,14 @@ class BrainNode(BaseNode):
             ),
         )
 
+        if getattr(
+            context,
+            "runtime_turn_abort_requested",
+            False,
+        ):
+            state.brain_response = text or ""
+            return
+
         # SAVE_SESSION resolves against the snapshots that already exist, then
         # immediately enters the normal follow-up loop. The current request and
         # final confirmation reach L1/L2 only after the complete JIN response.
@@ -1273,6 +1289,19 @@ class BrainNode(BaseNode):
             )
             or ""
         ).strip()
+
+        def abort_requested():
+            return bool(
+                getattr(
+                    context,
+                    "runtime_turn_abort_requested",
+                    False,
+                )
+            )
+
+        if abort_requested():
+            state.brain_response = text or ""
+            return
 
         def belongs_to_current_turn(
                 item,
@@ -1385,6 +1414,9 @@ class BrainNode(BaseNode):
             return pending_action_events
 
         while followup_count < max_followups:
+
+            if abort_requested():
+                break
 
             context.runtime_active_memory_refresh_tick = (
                 followup_count + 1
@@ -1517,6 +1549,11 @@ class BrainNode(BaseNode):
                     "status": "completed",
                     "scene_effect": "search",
                 })
+                mark_runtime_action_completed(
+                    context,
+                    action=RUNTIME_ACTION_WEB_SEARCH,
+                    action_id=tool_call_id,
+                )
 
                 context.runtime_search_result = search_result
                 context.runtime_search_result_id = tool_call_id

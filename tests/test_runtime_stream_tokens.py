@@ -23,6 +23,10 @@ from utils.context.context_exports import (
 from utils.session_actions_history import (
     record_session_action_history,
 )
+from utils.runtime_action_abort import (
+    abort_active_runtime_actions,
+    mark_runtime_action_started,
+)
 class FakeEmitter:
 
     def __init__(self):
@@ -254,6 +258,61 @@ async def fake_raw_asset_action_generator():
 
 
 class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
+
+    async def test_abort_active_runtime_action_records_event_and_emits_aborted(self):
+
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+            runtime_action_events=[],
+            runtime_active_action_markers=[],
+            runtime_turn_aborted_actions=[],
+            runtime_action_guard_confirmations={},
+            runtime_current_turn_id="turn_abort_action",
+        )
+        logger = FakeLogger()
+
+        mark_runtime_action_started(
+            context,
+            action="save_delayed_memory_content",
+            action_id="save_delayed_memory_content_1",
+            display_name="SAVE_DELAYED_MEMORY_CONTENT",
+            text="SAVE_DELAYED_MEMORY_CONTENT",
+            close_tag=True,
+        )
+
+        aborted = await abort_active_runtime_actions(
+            context,
+            logger=logger,
+        )
+
+        self.assertEqual(
+            aborted[0]["status"],
+            "aborted",
+        )
+        self.assertEqual(
+            context.runtime_action_events[0]["name"],
+            "save_delayed_memory_content",
+        )
+        self.assertEqual(
+            context.runtime_action_events[0]["status"],
+            "aborted",
+        )
+        self.assertEqual(
+            context.runtime_turn_aborted_actions[0]["name"],
+            "SAVE_DELAYED_MEMORY_CONTENT",
+        )
+        self.assertEqual(
+            context.runtime_active_action_markers,
+            [],
+        )
+        self.assertEqual(
+            context.emitter.events[0]["text"],
+            "SAVE_DELAYED_MEMORY_CONTENT: ABORTED",
+        )
+        self.assertIn(
+            "SAVE_DELAYED_MEMORY_CONTENT: ABORTED",
+            logger.messages[0][1],
+        )
 
     async def test_session_history_never_adds_single_action_count(self):
 
@@ -1377,7 +1436,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-    async def test_rejecting_started_delayed_memory_guard_continues_generation(self):
+    async def test_rejecting_started_delayed_memory_guard_aborts_generation(self):
 
         state = {
             "body_requested": False,
@@ -1470,12 +1529,12 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             if event.get("type") == "runtime_action"
         ]
 
-        self.assertTrue(
+        self.assertFalse(
             state["body_requested"],
         )
         self.assertEqual(
             [event.get("status") for event in runtime_events],
-            ["started", "counted", "failed", "counter_final"],
+            ["started", "failed"],
         )
         self.assertEqual(
             len(context.delayed_memory_reports),

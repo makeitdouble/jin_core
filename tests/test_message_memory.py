@@ -963,6 +963,28 @@ class MessageMemoryTests(
             message,
         )
 
+    def test_interrupted_assistant_message_includes_aborted_actions(self):
+
+        message = build_interrupted_assistant_message(
+            user_message="Save a delayed memory report.",
+            assistant_message="Okay, saving.",
+            aborted_actions=[
+                {
+                    "name": "SAVE_DELAYED_MEMORY_CONTENT",
+                    "status": "aborted",
+                },
+            ],
+        )
+
+        self.assertIn(
+            "Okay, saving.",
+            message,
+        )
+        self.assertIn(
+            "SAVE_DELAYED_MEMORY_CONTENT: ABORTED",
+            message,
+        )
+
     def test_guard_interrupted_assistant_message_includes_reason_quote(self):
 
         message = build_interrupted_assistant_message(

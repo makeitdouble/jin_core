@@ -2165,6 +2165,12 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             })
         )
         self.assertFalse(
+            action_event_requires_follow_up({
+                "name": "web_search",
+                "status": "aborted",
+            })
+        )
+        self.assertFalse(
             action_batch_requires_follow_up(
                 [
                     {

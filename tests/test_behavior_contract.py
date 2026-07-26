@@ -8,6 +8,10 @@ from fastapi.testclient import TestClient
 
 from app import app
 from contracts import rules_assembler
+from contracts.rules_assembler import (
+    build_runtime_action_contract_instructions,
+    build_runtime_action_instructions,
+)
 from runtime.behavior_contract import (
     get_action_guard,
     get_action_guard_blockers,
@@ -251,6 +255,50 @@ class BehaviorContractTests(unittest.TestCase):
                 "clean_tool_results",
                 "please keep going with the current work",
             )
+        )
+
+    def test_runtime_action_instructions_include_marker_and_followup(self):
+
+        instructions = build_runtime_action_contract_instructions(
+            "CLEAN_TOOL_RESULTS"
+        )
+
+        self.assertTrue(
+            instructions.startswith(
+                "<CLEAN_TOOL_RESULTS>\n"
+                "Follow-up: false\n"
+                "Emit <CLEAN_TOOL_RESULTS>"
+            )
+        )
+
+    def test_close_tag_runtime_action_instructions_include_both_markers(self):
+
+        instructions = build_runtime_action_contract_instructions(
+            "CREATE_TODO_LIST"
+        )
+
+        self.assertTrue(
+            instructions.startswith(
+                "<TODO_LIST></TODO_LIST>\n"
+                "Follow-up: true\n"
+                "RUNTIME TODO LEDGER:"
+            )
+        )
+
+    def test_runtime_action_instruction_blocks_are_separated(self):
+
+        instructions = build_runtime_action_instructions((
+            "CLEAN_TOOL_RESULTS",
+            "IDLE",
+        ))
+
+        self.assertIn(
+            (
+                "NEVER emit <CLEAN_TOOL_RESULTS> if <TOOLS_RESULTS> "
+                "block is empty, stop and notify user.\n\n"
+                "<IDLE: Ns >"
+            ),
+            instructions,
         )
 
     def test_configured_triggers_require_confirmation_and_allow_matching_text(self):

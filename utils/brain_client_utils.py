@@ -141,6 +141,10 @@ from utils.runtime_todo import (
     parse_runtime_todo_item_id,
     resolve_runtime_todo_item,
 )
+from utils.runtime_action_abort import (
+    mark_runtime_action_started,
+    mark_runtime_actions_completed,
+)
 
 
 def should_execute_save_session(
@@ -3145,6 +3149,41 @@ async def apply_runtime_action_calls(
             action_event
         )
 
+        if rejected_event is None:
+            mark_runtime_action_started(
+                context,
+                action=action_event.get(
+                    "name",
+                    action.name.lower(),
+                ),
+                action_id=action_event.get(
+                    "id",
+                    action_display_id,
+                ),
+                display_name=get_runtime_action_display_name(
+                    action.name
+                ),
+                text=build_runtime_action_display_text(
+                    action.name,
+                    action.payload,
+                ),
+                payload=(
+                    action_event.get(
+                        "payload",
+                        "",
+                    )
+                    or action_event.get(
+                        "query",
+                        "",
+                    )
+                    or action.payload
+                ),
+                close_tag=runtime_action_has_close_tag(
+                    action.name
+                ),
+                context_snapshot=action_context_snapshot,
+            )
+
     if rejected_action_events:
         emitter = getattr(
             context,
@@ -4857,7 +4896,7 @@ async def apply_runtime_action_calls(
         if resolved_active_memory_count:
             context.runtime_active_memory_records_dirty = True
 
-    return (
+    applied_count = (
         len(
             search_queries
         )
@@ -4897,6 +4936,17 @@ async def apply_runtime_action_calls(
         )
         + resolved_active_memory_count
     )
+
+    mark_runtime_actions_completed(
+        context,
+        filtered_actions,
+        keep_actions={
+            RUNTIME_ACTION_WEB_SEARCH,
+            RUNTIME_ACTION_SAVE_SESSION,
+        },
+    )
+
+    return applied_count
 
 
 
