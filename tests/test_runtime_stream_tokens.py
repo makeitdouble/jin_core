@@ -1727,6 +1727,16 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             ["counted", "completed", "counter_final"],
         )
         self.assertEqual(
+            runtime_events[0]["color"],
+            "#ff0000",
+        )
+        self.assertEqual(
+            runtime_events[0]["colors"],
+            [
+                "#ff0000",
+            ],
+        )
+        self.assertEqual(
             context.runtime_action_events[-1]["color"],
             "#ff0000",
         )

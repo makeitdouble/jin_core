@@ -79,6 +79,8 @@ def test_brain_stream_jin_color_executes_without_confirmation():
         ("runtime_action", "counter_final"),
     ]
     assert context.emitter.events[0]["marker_count"] == 1
+    assert context.emitter.events[0]["color"] == "#ff0000"
+    assert context.emitter.events[0]["colors"] == ["#ff0000"]
     assert context.runtime_action_events[-1]["name"] == "jin_color"
     assert context.runtime_action_events[-1]["color"] == "#ff0000"
 

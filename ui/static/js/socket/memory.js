@@ -848,6 +848,15 @@ function handleSocketLog(
       )
   ) {
     stopL3MemoryGlow();
+
+    if (window.fadeRuntimeAction) {
+      window.fadeRuntimeAction(
+        "save_session",
+        {
+          forceCompletePendingL3: true,
+        }
+      );
+    }
   }
 
 }

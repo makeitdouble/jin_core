@@ -807,7 +807,10 @@ function handleRuntimeMemoryMessage(data) {
         && window.fadeRuntimeAction
     ) {
       window.fadeRuntimeAction(
-        "save_session"
+        "save_session",
+        {
+          forceCompletePendingL3: true,
+        }
       );
     }
 

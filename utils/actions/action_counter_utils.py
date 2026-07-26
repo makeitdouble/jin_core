@@ -10,6 +10,9 @@ from contracts.rules_assembler import (
 from .common_action_utils import (
     normalize_runtime_action_name,
 )
+from .jin_color_utils import (
+    normalize_jin_color_payload,
+)
 
 
 @dataclass(frozen=True)
@@ -133,24 +136,10 @@ class RuntimeActionCounter:
                 entry.payloads,
             )
 
-            if isinstance(
+            normalized_payloads = normalize_runtime_action_counter_payloads(
+                entry,
                 payloads,
-                (str, bytes),
-            ):
-                payloads = [
-                    payloads,
-                ]
-            elif not isinstance(
-                payloads,
-                (list, tuple),
-            ):
-                payloads = []
-
-            normalized_payloads = [
-                str(payload or "").strip()
-                for payload in payloads
-                if str(payload or "").strip()
-            ]
+            )
 
             marker_action = {
                 "name": entry.name,
@@ -168,6 +157,50 @@ class RuntimeActionCounter:
             )
 
         return marker_actions
+
+
+def normalize_runtime_action_counter_payloads(
+    entry: RuntimeActionCount,
+    payloads,
+) -> list[str]:
+
+    if isinstance(
+        payloads,
+        (str, bytes),
+    ):
+        payloads = [
+            payloads,
+        ]
+    elif not isinstance(
+        payloads,
+        (list, tuple),
+    ):
+        payloads = []
+
+    normalized_payloads = [
+        str(payload or "").strip()
+        for payload in payloads
+        if str(payload or "").strip()
+    ]
+
+    if entry.name != "JIN_COLOR":
+        return normalized_payloads
+
+    color_payloads = [
+        normalize_jin_color_payload(
+            payload
+        )
+        for payload in (
+            normalized_payloads
+            or list(entry.payloads)
+        )
+    ]
+
+    return [
+        color
+        for color in color_payloads
+        if color
+    ]
 
 
 def format_runtime_action_count(
@@ -257,24 +290,10 @@ async def emit_runtime_action_counter_updates(
             entry.payloads,
         )
 
-        if isinstance(
+        normalized_payloads = normalize_runtime_action_counter_payloads(
+            entry,
             payloads,
-            (str, bytes),
-        ):
-            payloads = [
-                payloads,
-            ]
-        elif not isinstance(
-            payloads,
-            (list, tuple),
-        ):
-            payloads = []
-
-        normalized_payloads = [
-            str(payload or "").strip()
-            for payload in payloads
-            if str(payload or "").strip()
-        ]
+        )
         payload = (
             normalized_payloads[-1]
             if normalized_payloads

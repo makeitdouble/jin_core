@@ -85,6 +85,7 @@ const runtimeActionGuardDecisionClasses = [
   "jin-runtime-action-guard-rejected",
   "jin-runtime-action-guard-continued",
 ];
+const RUNTIME_ACTION_SAVE_SESSION = "save_session";
 const RUNTIME_ACTION_GUARD_CONFIRMATION_DELAY_MS = 0;
 const RUNTIME_ACTION_GUARD_ANIMATION_DURATION_MS = 3200;
 const RUNTIME_ACTION_GUARD_GEOMETRY_REFERENCE_WIDTH = 10;
@@ -377,6 +378,23 @@ function normalizeRuntimeActionColor(value) {
 
 }
 
+function extractRuntimeActionColorFromText(text) {
+
+  const match =
+    String(
+      text || ""
+    ).match(
+      /#?(?:[0-9a-f]{6}|[0-9a-f]{3})\b/i
+    );
+
+  return match
+    ? normalizeRuntimeActionColor(
+      match[0]
+    )
+    : "";
+
+}
+
 function shouldAggregateRuntimeAction(
   _action,
   options = {}
@@ -448,6 +466,7 @@ function readRuntimeActionAggregateColors(
 function applyRuntimeActionAggregateState(
   row,
   action,
+  text = "",
   options = {}
 ) {
 
@@ -487,6 +506,9 @@ function applyRuntimeActionAggregateState(
       options.color
       || options.payload
       || options.detail
+    )
+    || extractRuntimeActionColorFromText(
+      text
     );
   const markerCount = Math.max(
     currentMarkerCount,
@@ -700,18 +722,26 @@ function renderRuntimeActionLabel(
   }
 
   if (action === "jin_color") {
-    const colors = Array.isArray(
+    const textColor =
+      extractRuntimeActionColorFromText(
+        text
+      );
+    const explicitColors = Array.isArray(
       options.colors
     )
       ? options.colors
           .map(normalizeRuntimeActionColor)
           .filter(Boolean)
+      : [];
+    const colors = explicitColors.length
+      ? explicitColors
       : [
           normalizeRuntimeActionColor(
             options.color
             || options.payload
             || options.detail
-          ),
+          )
+          || textColor,
         ].filter(Boolean);
 
     colors.forEach((color) => {
@@ -755,7 +785,8 @@ function renderRuntimeActionLabel(
           options.color
           || options.payload
           || options.detail
-        );
+        )
+        || textColor;
 
     if (payloadColor) {
       const payload =
@@ -1133,6 +1164,7 @@ function updateRuntimeActionRow(
   options = applyRuntimeActionAggregateState(
     row,
     action,
+    text,
     options
   );
 
@@ -1164,14 +1196,26 @@ function updateRuntimeActionRow(
     options.cancelled
   );
 
+  const pendingUntilL3 =
+    Boolean(options.pendingUntilL3)
+    || (
+      action === RUNTIME_ACTION_SAVE_SESSION
+      && row.dataset.runtimeActionPendingL3 === "true"
+      && options.forceCompletePendingL3 !== true
+    );
+
   row.classList.toggle(
     "jin-runtime-action-pending-l3",
-    Boolean(options.pendingUntilL3)
+    pendingUntilL3
   );
 
-  if (options.pendingUntilL3) {
+  if (pendingUntilL3) {
     row.dataset.runtimeActionPendingL3 =
       "true";
+    delete row.dataset.runtimeActionCompleted;
+    row.classList.remove(
+      "opacity-45"
+    );
   } else if (options.completed) {
     delete row.dataset.runtimeActionPendingL3;
   }
@@ -1231,7 +1275,8 @@ function updateRuntimeActionRow(
 
   if (options.completed) {
     markRuntimeActionRowCompleted(
-      row
+      row,
+      options
     );
   }
 
@@ -1330,10 +1375,24 @@ function reviveRuntimeActionRow(
 }
 
 function markRuntimeActionRowCompleted(
-  row
+  row,
+  options = {}
 ) {
 
   if (!row) {
+    return;
+  }
+
+  if (
+      row.dataset.runtimeAction === RUNTIME_ACTION_SAVE_SESSION
+      && row.dataset.runtimeActionPendingL3 === "true"
+      && options.forceCompletePendingL3 !== true
+  ) {
+    row.dataset.runtimeActionCompletionDeferred =
+      "true";
+    row.classList.remove(
+      "opacity-45"
+    );
     return;
   }
 
@@ -1341,6 +1400,7 @@ function markRuntimeActionRowCompleted(
     "true";
 
   delete row.dataset.runtimeActionPendingL3;
+  delete row.dataset.runtimeActionCompletionDeferred;
   row.classList.remove(
     "jin-runtime-action-pending-l3"
   );
@@ -1564,6 +1624,7 @@ function appendRuntimeAction(
   options = applyRuntimeActionAggregateState(
     row,
     action,
+    actionText,
     options
   );
 
@@ -1702,7 +1763,8 @@ function appendRuntimeAction(
 
   if (options.completed) {
     markRuntimeActionRowCompleted(
-      row
+      row,
+      options
     );
   }
 
@@ -1897,7 +1959,8 @@ function fadeRuntimeAction(
 
   rows.forEach((row) => {
     markRuntimeActionRowCompleted(
-      row
+      row,
+      options
     );
   });
 
