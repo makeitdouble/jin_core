@@ -786,6 +786,54 @@ body.theme-win95 .jin-chat-bubble-rateable.jin-rating-committed .jin-rating-zone
     cursor: default;
 }
 
+body.theme-win95 .jin-chat-bubble-service {
+    background:
+            linear-gradient(
+                    180deg,
+                    rgba(255, 255, 255, calc(var(--JIN_BUBBLE_INVERT) * 0.42)),
+                    rgba(232, 232, 232, calc(var(--JIN_BUBBLE_INVERT) * 0.16))
+            ),
+            linear-gradient(
+                    180deg,
+                    rgba(46, 139, 118, calc(var(--jin-bubble-invert-off) * 0.050)),
+                    rgba(46, 139, 118, calc(var(--jin-bubble-invert-off) * 0.050))
+            ),
+            color-mix(
+                    in srgb,
+                    var(--win95-face) calc(var(--jin-bubble-invert-off) * 100%),
+                    rgba(246, 246, 246, 0.90) calc(var(--JIN_BUBBLE_INVERT) * 100%)
+            );
+}
+
+body.theme-win95 .jin-chat-bubble-brain {
+    background:
+            linear-gradient(
+                    180deg,
+                    rgba(255, 255, 255, calc(var(--JIN_BUBBLE_INVERT) * 0.42)),
+                    rgba(232, 232, 232, calc(var(--JIN_BUBBLE_INVERT) * 0.16))
+            ),
+            color-mix(
+                    in srgb,
+                    var(--win95-face) calc(var(--jin-bubble-invert-off) * 100%),
+                    rgba(246, 246, 246, 0.90) calc(var(--JIN_BUBBLE_INVERT) * 100%)
+            );
+}
+
+body.theme-win95 .jin-chat-bubble-service,
+body.theme-win95 .jin-chat-bubble-brain {
+    color: color-mix(
+            in srgb,
+            var(--win95-text) calc(var(--jin-bubble-invert-off) * 100%),
+            #2d2d2d calc(var(--JIN_BUBBLE_INVERT) * 100%)
+    );
+}
+
+body.theme-win95 .jin-chat-bubble-service .jin-chat-pre,
+body.theme-win95 .jin-chat-bubble-brain .jin-chat-pre {
+    color: inherit;
+    text-shadow: none;
+}
+
 body.theme-win95 .jin-think-wrapper {
     opacity: 1;
     max-width: 728px;
