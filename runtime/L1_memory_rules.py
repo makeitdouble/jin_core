@@ -265,6 +265,7 @@ LIVE_INTERACTION_SIGNALS = (
     "- ambiguity risk: malformed words, names, numbers, negations, or commands that could change an action.\n"
     "- JIN state: current stance, such as calm, focused, cautious, playful, corrective, or closing; include only when it affects the response;\n"
     "- user state: tentative interaction state, such as curious, skeptical, confused, impatient, engaged, or satisfied; infer cautiously from visible signals.\n"
+    "- dormant: abandoned choices, dormant topics, key points, context helpers, memorized items, conclusions.\n"
     "\n"
     "Store the useful inferred pattern, not a transcript or quoted evidence.\n"
     "\n"

@@ -26,6 +26,10 @@ function handleSocketError(
   data
 ) {
 
+  if (window.clearInterruptedRuntimeGlow) {
+    window.clearInterruptedRuntimeGlow();
+  }
+
   setGenerationState(
     false
   );

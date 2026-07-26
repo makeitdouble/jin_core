@@ -330,6 +330,23 @@ function setGenerationState(
 
 }
 
+function clearInterruptedRuntimeGlow() {
+
+  if (window.cancelPanelGlows) {
+    window.cancelPanelGlows();
+  }
+
+  if (window.clearPendingRuntimeActionGlow) {
+    window.clearPendingRuntimeActionGlow(
+      "save_session"
+    );
+  }
+
+}
+
+window.clearInterruptedRuntimeGlow =
+  clearInterruptedRuntimeGlow;
+
 function abortGeneration() {
 
   if (!generationRunning) {
@@ -344,6 +361,8 @@ function abortGeneration() {
     "[SYSTEM]",
     "Generation aborted."
   );
+
+  clearInterruptedRuntimeGlow();
 
   setGenerationState(
     false
@@ -549,6 +568,8 @@ function handleSocketClose() {
 
   window.jinWebSocketConnected = false;
 
+  clearInterruptedRuntimeGlow();
+
   setGenerationState(
     false
   );
@@ -593,6 +614,8 @@ function connectWebSocket() {
     handleSocketClose;
 
   ws.onerror = function () {
+    clearInterruptedRuntimeGlow();
+
     if (ws) {
       ws.close();
     }

@@ -227,19 +227,49 @@ function renderChatTextHtml(text) {
 
 }
 
+function shouldFormatChatRole(role) {
+
+  return (
+    role !== "user"
+    && window.JinResponseFormatter
+    && window.JinResponseFormatter.isEnabled
+    && window.JinResponseFormatter.isEnabled()
+  );
+
+}
+
 function renderChatTextElement(
   element,
-  text
+  text,
+  options = {}
 ) {
 
   if (!element) {
     return;
   }
 
-  element.innerHTML =
-    renderChatTextHtml(
-      text
+  const format =
+    Boolean(
+      options.format
     );
+
+  element.classList.toggle(
+    "jin-chat-markdown",
+    format
+  );
+
+  element.innerHTML =
+    (
+      format
+      && window.JinResponseFormatter
+      && window.JinResponseFormatter.render
+    )
+      ? window.JinResponseFormatter.render(
+        text
+      )
+      : renderChatTextHtml(
+        text
+      );
 
 }
 
@@ -436,7 +466,12 @@ function flushStreamFrame() {
 
       renderChatTextElement(
         stream.group.answerContent,
-        stream.answer
+        stream.answer,
+        {
+          format: shouldFormatChatRole(
+            stream.role
+          ),
+        }
       );
 
       stream.pendingAnswer =
@@ -801,7 +836,12 @@ function appendChatMessage(
 
   renderChatTextElement(
     pre,
-    text
+    text,
+    {
+      format: shouldFormatChatRole(
+        role
+      ),
+    }
   );
 
   if (role === "user") {

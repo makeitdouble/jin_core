@@ -1134,6 +1134,18 @@ function updateRuntimeActionRow(
     Boolean(options.cancelled)
   );
 
+  row.classList.toggle(
+    "jin-runtime-action-pending-l3",
+    Boolean(options.pendingUntilL3)
+  );
+
+  if (options.pendingUntilL3) {
+    row.dataset.runtimeActionPendingL3 =
+      "true";
+  } else if (options.completed) {
+    delete row.dataset.runtimeActionPendingL3;
+  }
+
   if (options.cancelled) {
     row.dataset.runtimeActionCancelled =
       "true";
@@ -1270,9 +1282,11 @@ function reviveRuntimeActionRow(
 
   delete row.dataset.runtimeActionCompleted;
   delete row.dataset.runtimeActionCancelled;
+  delete row.dataset.runtimeActionPendingL3;
   row.classList.remove(
     "opacity-45",
-    "jin-runtime-action-cancelled"
+    "jin-runtime-action-cancelled",
+    "jin-runtime-action-pending-l3"
   );
 
   row
@@ -1297,6 +1311,11 @@ function markRuntimeActionRowCompleted(
 
   row.dataset.runtimeActionCompleted =
     "true";
+
+  delete row.dataset.runtimeActionPendingL3;
+  row.classList.remove(
+    "jin-runtime-action-pending-l3"
+  );
 
   clearRuntimeActionGuardConfirmation(
     row
@@ -1531,6 +1550,14 @@ function appendRuntimeAction(
   if (options.completed) {
     row.dataset.runtimeActionCompleted =
       "true";
+  }
+
+  if (options.pendingUntilL3) {
+    row.dataset.runtimeActionPendingL3 =
+      "true";
+    row.classList.add(
+      "jin-runtime-action-pending-l3"
+    );
   }
 
   const icon =
@@ -1851,6 +1878,31 @@ function fadeRuntimeAction(
 
 }
 
+function clearPendingRuntimeActionGlow(
+  action = "",
+) {
+
+  const normalizedAction =
+    String(action || "").trim().toLowerCase();
+
+  const selector =
+    normalizedAction
+      ? `.jin-runtime-action-row[data-runtime-action="${normalizedAction}"]`
+      : ".jin-runtime-action-row";
+
+  Array.from(
+    chatHistory.querySelectorAll(
+      selector
+    )
+  ).forEach((row) => {
+    delete row.dataset.runtimeActionPendingL3;
+    row.classList.remove(
+      "jin-runtime-action-pending-l3"
+    );
+  });
+
+}
+
 window.setSceneSearchScreenActive =
   setSceneSearchScreenActive;
 
@@ -1865,3 +1917,6 @@ window.queueRuntimeActionAfterNextResponse =
 
 window.fadeRuntimeAction =
   fadeRuntimeAction;
+
+window.clearPendingRuntimeActionGlow =
+  clearPendingRuntimeActionGlow;

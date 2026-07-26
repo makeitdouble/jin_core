@@ -202,6 +202,43 @@
     filter: brightness(1.08) saturate(1.08);
 }
 
+.jin-runtime-action-pending-l3:not([data-runtime-action-completed="true"]) .jin-runtime-action-label {
+    border-color: rgba(45, 212, 191, 0.72);
+    background: rgba(8, 47, 73, 0.52);
+    animation:
+            jinRuntimeActionL3PendingGlow
+            1.35s
+            ease-in-out
+            infinite;
+    will-change: box-shadow, filter;
+}
+
+.jin-runtime-action-pending-l3:not([data-runtime-action-completed="true"]) > :first-child {
+    border-color: rgba(45, 212, 191, 0.72);
+    background: rgba(8, 47, 73, 0.70);
+    box-shadow:
+            0 0 16px rgba(45, 212, 191, 0.26);
+}
+
+@keyframes jinRuntimeActionL3PendingGlow {
+    0%,
+    100% {
+        filter: brightness(1.06) saturate(1.08);
+        box-shadow:
+                0 12px 34px rgba(0, 0, 0, 0.24),
+                0 0 18px rgba(45, 212, 191, 0.16),
+                inset 0 0 16px rgba(45, 212, 191, 0.05);
+    }
+
+    50% {
+        filter: brightness(1.18) saturate(1.18);
+        box-shadow:
+                0 12px 36px rgba(0, 0, 0, 0.26),
+                0 0 30px rgba(45, 212, 191, 0.34),
+                inset 0 0 22px rgba(45, 212, 191, 0.11);
+    }
+}
+
 .jin-runtime-action-color-row .jin-runtime-action-label {
     display: inline-flex;
     align-items: center;

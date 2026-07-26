@@ -433,6 +433,17 @@ function handleRuntimeAction(
     || data.id
     || "";
 
+  const pendingUntilL3 =
+    action === "save_session"
+    && ![
+      "completed",
+      "complete",
+      "done",
+      "failed",
+      "interrupted",
+      "aborted",
+    ].includes(status);
+
   const counterPayloads =
     Array.isArray(data.payloads)
       ? data.payloads
@@ -644,6 +655,7 @@ function handleRuntimeAction(
           displayName,
           sceneEffect,
           closeTag,
+          pendingUntilL3,
         }
       );
 
@@ -710,6 +722,7 @@ function handleRuntimeAction(
       displayName,
       sceneEffect,
       closeTag,
+      pendingUntilL3,
     }
   );
 

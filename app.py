@@ -216,6 +216,9 @@ async def index(
                 "brain": status_snapshot["brain"],
                 "service": status_snapshot["service"],
             },
+            "format_response": (
+                status_snapshot["format_response"]
+            ),
         },
     )
 
@@ -278,6 +281,13 @@ async def build_status_snapshot(
         "translator": None,
         "use_service_as_brain": (
             effective_use_service_as_brain
+        ),
+        "format_response": bool(
+            getattr(
+                config,
+                "FORMAT_RESPONSE",
+                True,
+            )
         ),
         "runtime_config": build_runtime_config(
             use_service_as_brain=(

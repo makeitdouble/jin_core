@@ -586,6 +586,31 @@ function clearMemoryGlowClasses(panel) {
   );
 }
 
+function clearFactCheckGlowClasses(panel) {
+  panel.classList.remove(
+    "fact-check-running",
+    "fact-check-pulse",
+    "fact-check-fading"
+  );
+}
+
+function cancelPanelGlows() {
+  const panel = getMemoryPanel();
+
+  clearMemoryGlowTimers();
+  clearFactCheckGlowTimers();
+
+  activeMemoryGlowStage = "";
+  factCheckGlowActive = false;
+
+  if (!panel) {
+    return;
+  }
+
+  clearMemoryGlowClasses(panel);
+  clearFactCheckGlowClasses(panel);
+}
+
 function setMemoryGlowStage(stage) {
   const panel = getMemoryPanel();
   const config = MEMORY_GLOW_STAGES[stage];
@@ -686,6 +711,7 @@ window.startL2MemoryGlow = startL2MemoryGlow;
 window.stopL2MemoryGlow = stopL2MemoryGlow;
 window.startL3MemoryGlow = startL3MemoryGlow;
 window.stopL3MemoryGlow = stopL3MemoryGlow;
+window.cancelPanelGlows = cancelPanelGlows;
 window.startFactCheckGlow = startFactCheckGlow;
 window.stopFactCheckGlow = stopFactCheckGlow;
 

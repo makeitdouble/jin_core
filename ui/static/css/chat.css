@@ -291,6 +291,120 @@
     text-shadow: 0 0 10px rgba(94, 234, 212, 0.08);
 }
 
+.jin-chat-pre.jin-chat-markdown {
+    white-space: normal;
+}
+
+.jin-chat-markdown > :first-child {
+    margin-top: 0;
+}
+
+.jin-chat-markdown > :last-child {
+    margin-bottom: 0;
+}
+
+.jin-chat-markdown p {
+    margin: 0 0 0.82em;
+}
+
+.jin-chat-markdown h1,
+.jin-chat-markdown h2,
+.jin-chat-markdown h3,
+.jin-chat-markdown h4 {
+    margin: 1.05em 0 0.48em;
+    color: inherit;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.jin-chat-markdown h1 {
+    font-size: 1.18em;
+}
+
+.jin-chat-markdown h2 {
+    font-size: 1.12em;
+}
+
+.jin-chat-markdown h3,
+.jin-chat-markdown h4 {
+    font-size: 1.04em;
+}
+
+.jin-chat-markdown ul,
+.jin-chat-markdown ol {
+    margin: 0.45em 0 0.9em;
+    padding-left: 1.65em;
+}
+
+.jin-chat-markdown ul {
+    list-style: disc;
+}
+
+.jin-chat-markdown ol {
+    list-style: decimal;
+}
+
+.jin-chat-markdown li + li {
+    margin-top: 0.25em;
+}
+
+.jin-chat-markdown strong {
+    color: rgba(230, 247, 250, 0.98);
+    font-weight: 700;
+}
+
+.jin-chat-markdown em {
+    font-style: italic;
+}
+
+.jin-chat-markdown code {
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 4px;
+    background: rgba(2, 6, 23, 0.32);
+    padding: 0.08em 0.32em;
+    color: rgba(226, 232, 240, 0.94);
+    font-family: inherit;
+    font-size: 0.95em;
+}
+
+.jin-chat-markdown .jin-chat-code-block {
+    margin: 0.7em 0 0.95em;
+    max-width: 100%;
+    overflow-x: auto;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 4px;
+    background: rgba(2, 6, 23, 0.34);
+    padding: 0.75em 0.9em;
+    white-space: pre;
+}
+
+.jin-chat-markdown .jin-chat-code-block code {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    white-space: pre;
+}
+
+.jin-chat-markdown blockquote {
+    margin: 0.65em 0 0.95em;
+    border-left: 2px solid rgba(165, 180, 252, 0.34);
+    padding-left: 0.9em;
+    color: rgba(203, 213, 225, 0.82);
+}
+
+.jin-chat-markdown hr {
+    margin: 1em 0;
+    border: 0;
+    border-top: 1px solid rgba(148, 163, 184, 0.20);
+}
+
+.jin-chat-markdown .jin-chat-link {
+    color: rgba(125, 211, 252, 0.95);
+    text-decoration: underline;
+    text-decoration-color: rgba(125, 211, 252, 0.44);
+    text-underline-offset: 0.16em;
+}
+
 .jin-think-wrapper {
     /* Ширина think-блока совпадает с шириной длинных баблов. */
     max-width: 720px;
