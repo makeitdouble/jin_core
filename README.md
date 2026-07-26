@@ -218,8 +218,7 @@ search_flow_recovery: JIN found and fixed a repeated follow-up loop, then comple
 ```text
 .
 |-- app.py                  # FastAPI app, routes, lifespan
-|-- websocket.py            # WebSocket runtime loop and cancellation
-|-- websocket_logger.py     # JSON logs for the UI console
+|-- websocket/              # WebSocket router, message handling, and UI console logging
 |-- config.example.py       # Runtime configuration template
 |-- config_loader.py        # Local config module loader
 |-- app_settings.py         # Typed settings wrapper
@@ -646,3 +645,4 @@ The following capabilities are planned but not yet implemented.
 **Night Brain — cross-session consolidation.** An offline background process that reads completed session snapshots, identifies durable patterns versus one-time events, proposes permanent memory updates, and prepares a morning brief. The first iteration operates on session snapshots only; it does not touch raw message logs. Night Brain also drives a watchlist: observations flagged by intent analysis are checked once during a low-traffic window. Allowed actions are `observe` and `analyze` only; nothing is posted or modified without explicit user approval.
 
 **Background LLM job queue.** A non-blocking `BackgroundLLMJob` model and in-memory worker that moves heavy service-model calls (L3 session saves, memory consolidation, future night-brain tasks) out of the interactive chat path. The worker runs as an `asyncio` task inside the existing `lifespan` hook, respects a concurrency semaphore, and logs through the existing `log_memory_event` channel. Disabled by default via `BACKGROUND_LLM_ENABLED = False`. A Stage 2 adds fair scheduling across job sources to prevent one session from starving other background work.
+

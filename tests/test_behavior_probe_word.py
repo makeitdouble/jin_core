@@ -50,7 +50,7 @@ from websocket import (  # noqa: E402
     refresh_pending_brain_usage,
     wait_for_runtime_memory_update,
 )
-from websocket_logger import WebSocketLogger  # noqa: E402
+from websocket.logger import WebSocketLogger  # noqa: E402
 
 
 # =============================================================================
@@ -1493,3 +1493,4 @@ class SimpleBehaviorProbe(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

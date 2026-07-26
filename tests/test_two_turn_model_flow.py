@@ -31,7 +31,7 @@ from websocket import (
     refresh_pending_brain_usage,
     wait_for_runtime_memory_update,
 )
-from websocket_logger import (
+from websocket.logger import (
     WebSocketLogger,
 )
 
@@ -410,3 +410,4 @@ class TwoTurnModelFlowTests(
 
 if __name__ == "__main__":
     unittest.main()
+

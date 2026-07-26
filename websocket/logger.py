@@ -1,4 +1,4 @@
-# websocket_logger.py
+# websocket/logger.py
 
 from fastapi import WebSocket
 

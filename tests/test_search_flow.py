@@ -26,7 +26,7 @@ from runtime.runtime_context import (
     RuntimeContext,
     RuntimeEmitter,
 )
-from websocket_logger import (
+from websocket.logger import (
     WebSocketLogger,
 )
 from rules.brain_context_builder import (
@@ -929,4 +929,5 @@ class SearchFlowTests(
 
 if __name__ == "__main__":
     unittest.main()
+
 

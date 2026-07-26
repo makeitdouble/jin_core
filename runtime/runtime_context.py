@@ -1,12 +1,15 @@
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from typing import TYPE_CHECKING
 from xml.sax.saxutils import escape
-
-from websocket_logger import WebSocketLogger
 
 from runtime.L1_memory_rules import (
     DEFAULT_RUNTIME_MEMORY,
 )
+
+
+if TYPE_CHECKING:
+    from websocket.logger import WebSocketLogger
 
 
 RECENT_MESSAGES_MAX_PAIRS = 3
@@ -40,7 +43,7 @@ class RuntimeContext:
 
     emitter: RuntimeEmitter
 
-    logger: WebSocketLogger
+    logger: "WebSocketLogger"
 
     clients: dict
 
