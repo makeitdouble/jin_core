@@ -326,13 +326,7 @@ chatForm.addEventListener(
     const sent =
       sendSocketMessage(payload);
 
-    if (
-        sent
-        && attachments.length
-        && window.clearJinAttachments
-    ) {
-      window.clearJinAttachments();
-    }
+    void sent;
 
     if (window.jinFreezeUserIdleTimerAtSeconds) {
       window.jinFreezeUserIdleTimerAtSeconds(

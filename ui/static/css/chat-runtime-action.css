@@ -262,7 +262,8 @@
     line-height: 1;
 }
 
-.jin-runtime-action-cancelled .jin-runtime-action-name {
+.jin-runtime-action-cancelled .jin-runtime-action-name,
+.jin-runtime-action-name.jin-runtime-action-name-cancelled {
     text-decoration-line: line-through;
     text-decoration-thickness: 1px;
     text-decoration-color: currentColor;

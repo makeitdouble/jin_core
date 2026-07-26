@@ -592,6 +592,43 @@ function appendRuntimeActionMarkerCount(
 
 }
 
+function syncRuntimeActionCancelledState(
+  row,
+  cancelled
+) {
+
+  if (!row) {
+    return;
+  }
+
+  const isCancelled =
+    Boolean(cancelled);
+
+  row.classList.toggle(
+    "jin-runtime-action-cancelled",
+    isCancelled
+  );
+
+  if (isCancelled) {
+    row.dataset.runtimeActionCancelled =
+      "true";
+  } else {
+    delete row.dataset.runtimeActionCancelled;
+  }
+
+  row
+    .querySelectorAll(
+      ".jin-runtime-action-name"
+    )
+    .forEach((name) => {
+      name.classList.toggle(
+        "jin-runtime-action-name-cancelled",
+        isCancelled
+      );
+    });
+
+}
+
 function normalizeRuntimeActionLabelText(text) {
 
   return String(
@@ -885,18 +922,6 @@ function settleRuntimeActionGuardConfirmation(
   row.dataset.runtimeActionGuardDecision =
     decision;
 
-  row.classList.toggle(
-    "jin-runtime-action-cancelled",
-    decision === "reject"
-  );
-
-  if (decision === "reject") {
-    row.dataset.runtimeActionCancelled =
-      "true";
-  } else {
-    delete row.dataset.runtimeActionCancelled;
-  }
-
   const zones =
     row.querySelector(
       ".jin-runtime-action-guard-zones"
@@ -908,6 +933,11 @@ function settleRuntimeActionGuardConfirmation(
 
   normalizeCompletedRuntimeActionLabel(
     row
+  );
+
+  syncRuntimeActionCancelledState(
+    row,
+    decision === "reject"
   );
 
 }
@@ -1129,9 +1159,9 @@ function updateRuntimeActionRow(
     );
   }
 
-  row.classList.toggle(
-    "jin-runtime-action-cancelled",
-    Boolean(options.cancelled)
+  syncRuntimeActionCancelledState(
+    row,
+    options.cancelled
   );
 
   row.classList.toggle(
@@ -1144,13 +1174,6 @@ function updateRuntimeActionRow(
       "true";
   } else if (options.completed) {
     delete row.dataset.runtimeActionPendingL3;
-  }
-
-  if (options.cancelled) {
-    row.dataset.runtimeActionCancelled =
-      "true";
-  } else if (options.reviveExisting) {
-    delete row.dataset.runtimeActionCancelled;
   }
 
   const detail =
@@ -1298,6 +1321,11 @@ function reviveRuntimeActionRow(
         "text-zinc-400"
       );
     });
+
+  syncRuntimeActionCancelledState(
+    row,
+    false
+  );
 
 }
 
@@ -1539,14 +1567,6 @@ function appendRuntimeAction(
     options
   );
 
-  if (options.cancelled) {
-    row.dataset.runtimeActionCancelled =
-      "true";
-    row.classList.add(
-      "jin-runtime-action-cancelled"
-    );
-  }
-
   if (options.completed) {
     row.dataset.runtimeActionCompleted =
       "true";
@@ -1623,6 +1643,11 @@ function appendRuntimeAction(
     action,
     actionText,
     options
+  );
+
+  syncRuntimeActionCancelledState(
+    row,
+    options.cancelled
   );
 
   const detail =
