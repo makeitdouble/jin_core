@@ -29,8 +29,8 @@ from utils.actions import (
     extract_active_memory_resolve_slot_id,
     extract_search_query,
     extract_runtime_actions,
-    get_create_active_memory_marker_fields,
-    get_create_active_memory_placeholder_payload,
+    get_save_active_memory_marker_fields,
+    get_save_active_memory_placeholder_payload,
     normalize_jin_color_payload,
     parse_delayed_memory_content_payload,
 )

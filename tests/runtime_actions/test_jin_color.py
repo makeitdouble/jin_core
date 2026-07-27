@@ -29,8 +29,8 @@ from utils.actions import (
     extract_active_memory_resolve_slot_id,
     extract_search_query,
     extract_runtime_actions,
-    get_create_active_memory_marker_fields,
-    get_create_active_memory_placeholder_payload,
+    get_save_active_memory_marker_fields,
+    get_save_active_memory_placeholder_payload,
     normalize_jin_color_payload,
     parse_delayed_memory_content_payload,
 )
@@ -65,7 +65,7 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
             ("<JIN_COLOR: #00f2ff>", "#00f2ff"),
             ("<JIN_COLOR: 00F2FF>", "#00f2ff"),
             ("<JIN_COLOR: 0ff>", "#00ffff"),
-            ("<INTERNAL_ACTION_JIN_COLOR: #f0A />", "#ff00aa"),
+            ("<JIN_COLOR: #f0A />", "#ff00aa"),
         ):
             with self.subTest(marker=marker):
                 result = extract_runtime_actions(

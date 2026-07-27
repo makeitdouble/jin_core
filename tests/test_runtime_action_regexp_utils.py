@@ -33,7 +33,7 @@ class RuntimeActionRegexpUtilsTests(unittest.TestCase):
         )
 
         matches = match_regexp(
-            "before <INTERNAL_ACTION_WEB_SEARCH: blue tomato> after",
+            "before <WEB_SEARCH: blue tomato> after",
             regexp,
         )
 
@@ -41,9 +41,22 @@ class RuntimeActionRegexpUtilsTests(unittest.TestCase):
         self.assertEqual(matches[0].name, "WEB_SEARCH")
         self.assertEqual(matches[0].payload, "blue tomato")
 
+    def test_concrete_regexp_rejects_internal_action_prefix(self):
+        regexp = compile_runtime_action_regexp(
+            "<SAVE_ACTIVE_MEMORY: CONDITIONS >",
+            "SAVE_ACTIVE_MEMORY",
+        )
+
+        matches = match_regexp(
+            "before <INTERNAL_ACTION_SAVE_ACTIVE_MEMORY: coffee> after",
+            regexp,
+        )
+
+        self.assertEqual(matches, ())
+
     def test_shared_templates_extract_tool_call_payload(self):
         matches = match_regexp_templates(
-            "<|tool_call>call:INTERNAL_ACTION_WEB_SEARCH: blue tomato >",
+            "<|tool_call>call:WEB_SEARCH: blue tomato >",
             "<WEB_SEARCH: plain text query >",
             "WEB_SEARCH",
         )
@@ -53,12 +66,21 @@ class RuntimeActionRegexpUtilsTests(unittest.TestCase):
         self.assertEqual(matches[0].payload, "blue tomato")
         self.assertEqual(matches[0].source, "regexp_template")
 
+    def test_shared_templates_reject_internal_action_prefix(self):
+        matches = match_regexp_templates(
+            "<|tool_call>call:INTERNAL_ACTION_WEB_SEARCH: blue tomato >",
+            "<WEB_SEARCH: plain text query >",
+            "WEB_SEARCH",
+        )
+
+        self.assertEqual(matches, ())
+
     def test_close_tag_regexp_extracts_block_payload(self):
         matches = find_runtime_action_matches(
             (
-                "<INTERNAL_ACTION_ASSET_ACTION>\n"
+                "<ASSET_ACTION>\n"
                 '{"action":"list_assets"}\n'
-                "</INTERNAL_ACTION_ASSET_ACTION>"
+                "</ASSET_ACTION>"
             ),
             "<ASSET_ACTION>",
             "ASSET_ACTION",

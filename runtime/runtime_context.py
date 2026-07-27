@@ -423,7 +423,7 @@ class ContextContract:
     can_web_search: bool = True
     can_use_assets: bool = False
     can_save_session: bool = False
-    can_create_active_memory: bool = False
+    can_save_active_memory: bool = False
 
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
     current_date: str = field(default_factory=lambda: datetime.now().date().isoformat())

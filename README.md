@@ -174,7 +174,7 @@ active_memory_1: Secret word: Sun; ask the user to guess it later without reveal
 </ACTIVE_MEMORY>
 ```
 
-JIN creates these records with `CREATE_ACTIVE_MEMORY` and removes them with `RESOLVE_ACTIVE_MEMORY` using the actual `active_memory_id`. L1 receives normal runtime memory with active-memory lines stripped out, so pending reminders and recall contracts are not accidentally rewritten by summarization.
+JIN creates these records with `SAVE_ACTIVE_MEMORY` and removes them with `RESOLVE_ACTIVE_MEMORY` using the actual `active_memory_id`. L1 receives normal runtime memory with active-memory lines stripped out, so pending reminders and recall contracts are not accidentally rewritten by summarization.
 
 ### L2 memory snapshot (patterns)
 
@@ -538,7 +538,7 @@ Runtime action event:
 ```json
 {
   "type": "runtime_action",
-  "action": "create_active_memory",
+  "action": "save_active_memory",
   "text": "Saving: Remind the user to check coffee",
   "active_memory": "active_memory_1: Remind the user to check coffee [ active_memory_id: a1b2c3 ] [ conditions: Remind the user to check coffee ] [ status: pending ]"
 }

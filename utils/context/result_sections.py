@@ -25,10 +25,10 @@ def format_active_memory_result_sections(
             or ""
         )
 
-        if action == "create_active_memory":
+        if action == "save_active_memory":
             sections.append(
                 (
-                    "CREATE_ACTIVE_MEMORY",
+                    "SAVE_ACTIVE_MEMORY",
                     format_tool_result_payload(
                         result
                     ),

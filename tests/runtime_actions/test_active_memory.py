@@ -29,8 +29,8 @@ from utils.actions import (
     extract_active_memory_resolve_slot_id,
     extract_search_query,
     extract_runtime_actions,
-    get_create_active_memory_marker_fields,
-    get_create_active_memory_placeholder_payload,
+    get_save_active_memory_marker_fields,
+    get_save_active_memory_placeholder_payload,
     normalize_jin_color_payload,
     parse_delayed_memory_content_payload,
 )
@@ -59,12 +59,12 @@ from utils.tool_results import (
 
 class RuntimeActiveMemoryTests(RuntimeActionTestCase):
 
-    def test_extracts_bracketed_create_active_memory_marker(self):
+    def test_extracts_bracketed_save_active_memory_marker(self):
 
         result = extract_runtime_actions(
             (
                 "before "
-                "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:remind later | tomorrow | coffee>"
+                "<SAVE_ACTIVE_MEMORY:remind later | tomorrow | coffee>"
                 " after"
             ),
             enabled_actions=[
@@ -77,7 +77,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             "before after",
         )
         self.assertEqual(
-            result.count("CREATE_ACTIVE_MEMORY"),
+            result.count("SAVE_ACTIVE_MEMORY"),
             1,
         )
         self.assertEqual(
@@ -86,12 +86,37 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_extracts_create_active_memory_marker_closed_with_short_end_tag(self):
+    def test_rejects_internal_action_save_active_memory_marker(self):
+
+        text = (
+            "before "
+            "<INTERNAL_ACTION_SAVE_ACTIVE_MEMORY:remind later>"
+            " after"
+        )
+
+        result = extract_runtime_actions(
+            text,
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            text,
+        )
+        self.assertEqual(
+            result.actions,
+            (),
+        )
+
+
+    def test_extracts_save_active_memory_marker_closed_with_short_end_tag(self):
 
         result = extract_runtime_actions(
             (
                 "before "
-                "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: remember the word coffee "
+                "<SAVE_ACTIVE_MEMORY: remember the word coffee "
                 "and ask for a guess later.</>"
                 " after"
             ),
@@ -108,7 +133,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             result.actions,
             (
                 RuntimeActionCall(
-                    name="CREATE_ACTIVE_MEMORY",
+                    name="SAVE_ACTIVE_MEMORY",
                     payload=(
                         "remember the word coffee "
                         "and ask for a guess later."
@@ -118,12 +143,12 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_extracts_bare_create_active_memory_marker_line(self):
+    def test_extracts_bare_save_active_memory_marker_line(self):
 
         result = extract_runtime_actions(
             (
                 "Я напомню.\n\n"
-                "INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: "
+                "SAVE_ACTIVE_MEMORY: "
                 "REMINDER: Drink coffee in 5 minutes\n"
             ),
             enabled_actions=[
@@ -136,7 +161,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             "Я напомню.",
         )
         self.assertEqual(
-            result.count("CREATE_ACTIVE_MEMORY"),
+            result.count("SAVE_ACTIVE_MEMORY"),
             1,
         )
         self.assertEqual(
@@ -145,12 +170,12 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_create_active_memory_marker_helpers_accept_bare_marker(self):
+    def test_save_active_memory_marker_helpers_accept_bare_marker(self):
 
-        marker = "INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: PURPOSE | CONDITIONS"
+        marker = "SAVE_ACTIVE_MEMORY: PURPOSE | CONDITIONS"
 
         self.assertEqual(
-            get_create_active_memory_marker_fields(
+            get_save_active_memory_marker_fields(
                 marker
             ),
             (
@@ -159,7 +184,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             ),
         )
         self.assertEqual(
-            get_create_active_memory_placeholder_payload(
+            get_save_active_memory_placeholder_payload(
                 marker
             ),
             "PURPOSE | CONDITIONS",
@@ -170,7 +195,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
 
         result = extract_runtime_actions(
             (
-                "INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY: "
+                "RESOLVE_ACTIVE_MEMORY: "
                 "active_memory_id=e2qxe7 STATUS=resolved\n"
                 "\n"
                 "Память очищена."
@@ -199,7 +224,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         result = extract_runtime_actions(
             (
                 "before "
-                "<INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY:e2qxe7 | resolved>"
+                "<RESOLVE_ACTIVE_MEMORY:e2qxe7 | resolved>"
                 " after"
             ),
             enabled_actions=[
@@ -262,16 +287,16 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_ignores_placeholder_create_active_memory_marker(self):
+    def test_ignores_placeholder_save_active_memory_marker(self):
 
         with patch(
             "utils.actions.action_payload_utils.get_internal_actions_with_payload",
             return_value=(
-                "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: DETAILS | PURPOSE | VALUE >",
+                "<SAVE_ACTIVE_MEMORY: DETAILS | PURPOSE | VALUE >",
             ),
         ):
             result = extract_runtime_actions(
-                "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: details|purpose|value >",
+                "<SAVE_ACTIVE_MEMORY: details|purpose|value >",
                 enabled_actions=[
                     "CAN_SAVE_ACTIVE_MEMORY",
                 ],
@@ -282,7 +307,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             "",
         )
         self.assertEqual(
-            result.count("CREATE_ACTIVE_MEMORY"),
+            result.count("SAVE_ACTIVE_MEMORY"),
             0,
         )
 
@@ -296,7 +321,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
         first = stream_filter.filter(
-            "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: remember"
+            "<SAVE_ACTIVE_MEMORY: remember"
         )
         middle = stream_filter.filter(
             " the word coffee and ask for a guess later.</"
@@ -317,7 +342,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             final.actions,
             (
                 RuntimeActionCall(
-                    name="CREATE_ACTIVE_MEMORY",
+                    name="SAVE_ACTIVE_MEMORY",
                     payload=(
                         "remember the word coffee "
                         "and ask for a guess later."
@@ -331,7 +356,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_stream_filter_handles_split_bare_create_active_memory_marker(self):
+    def test_stream_filter_handles_split_bare_save_active_memory_marker(self):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=[
@@ -340,7 +365,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
         first = stream_filter.filter(
-            "INTERNAL_ACTION_CREATE_ACTIVE_MEMORY:"
+            "SAVE_ACTIVE_MEMORY:"
         )
         second = stream_filter.filter(
             " REMINDER: Drink coffee in 5 minutes\n"
@@ -351,7 +376,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             "",
         )
         self.assertEqual(
-            first.count("CREATE_ACTIVE_MEMORY"),
+            first.count("SAVE_ACTIVE_MEMORY"),
             0,
         )
         self.assertEqual(
@@ -359,7 +384,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             "",
         )
         self.assertEqual(
-            second.count("CREATE_ACTIVE_MEMORY"),
+            second.count("SAVE_ACTIVE_MEMORY"),
             1,
         )
         self.assertEqual(
@@ -368,7 +393,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_apply_runtime_action_calls_records_create_active_memory(self):
+    def test_apply_runtime_action_calls_records_save_active_memory(self):
 
         Context = FakeContext
 
@@ -379,7 +404,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="CREATE_ACTIVE_MEMORY",
+                        name="SAVE_ACTIVE_MEMORY",
                         payload="remind later",
                     ),
                 ),
@@ -394,14 +419,14 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.runtime_action_events,
             [
                 {
-                    "name": "create_active_memory",
+                    "name": "save_active_memory",
                     "payload": "remind later",
                 }
             ],
         )
 
 
-    def test_apply_runtime_action_calls_emits_create_active_memory_bubble(self):
+    def test_apply_runtime_action_calls_emits_save_active_memory_bubble(self):
 
         Emitter = FakeEmitter
 
@@ -418,7 +443,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="CREATE_ACTIVE_MEMORY",
+                        name="SAVE_ACTIVE_MEMORY",
                         payload="remind later",
                     ),
                 ),
@@ -439,15 +464,15 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             context.emitter.events[0]["action"],
-            "create_active_memory",
+            "save_active_memory",
         )
         self.assertEqual(
             context.emitter.events[0]["text"],
-            "CREATE_ACTIVE_MEMORY: remind later",
+            "SAVE_ACTIVE_MEMORY: remind later",
         )
         self.assertEqual(
             context.emitter.events[0]["display_name"],
-            "CREATE_ACTIVE_MEMORY",
+            "SAVE_ACTIVE_MEMORY",
         )
         self.assertFalse(
             context.emitter.events[0]["close_tag"],
@@ -478,9 +503,9 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.emitter.events[1],
             {
                 "type": "runtime_action",
-                "action": "create_active_memory",
+                "action": "save_active_memory",
                 "status": "completed",
-                "display_name": "CREATE_ACTIVE_MEMORY",
+                "display_name": "SAVE_ACTIVE_MEMORY",
                 "close_tag": False,
             },
         )
@@ -489,7 +514,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context
         )
         self.assertIn(
-            '<TOOL_RESULT name="CREATE_ACTIVE_MEMORY">',
+            '<TOOL_RESULT name="SAVE_ACTIVE_MEMORY">',
             tool_results,
         )
         self.assertIn(
@@ -506,7 +531,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_create_active_memory_replaces_model_runtime_suffixes(self):
+    def test_save_active_memory_replaces_model_runtime_suffixes(self):
 
         Emitter = FakeEmitter
 
@@ -523,7 +548,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="CREATE_ACTIVE_MEMORY",
+                        name="SAVE_ACTIVE_MEMORY",
                         payload=(
                             "Experiment Progress: 2m elapsed "
                             "[ active_memory_id: progress_marker_1 ] "
@@ -546,7 +571,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             context.emitter.events[0]["text"],
-            "CREATE_ACTIVE_MEMORY: Experiment Progress: 2m elapsed",
+            "SAVE_ACTIVE_MEMORY: Experiment Progress: 2m elapsed",
         )
         self.assertEqual(
             context.runtime_action_events[0]["payload"],
@@ -606,7 +631,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="CREATE_ACTIVE_MEMORY",
+                        name="SAVE_ACTIVE_MEMORY",
                         payload="Drink coffee | Trigger in 5 minutes | coffee",
                     ),
                 ),
@@ -649,15 +674,15 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             context.emitter.events[0]["action"],
-            "create_active_memory",
+            "save_active_memory",
         )
         self.assertEqual(
             context.emitter.events[0]["text"],
-            "CREATE_ACTIVE_MEMORY: Drink coffee | Trigger in 5 minutes | coffee",
+            "SAVE_ACTIVE_MEMORY: Drink coffee | Trigger in 5 minutes | coffee",
         )
         self.assertEqual(
             context.emitter.events[0]["display_name"],
-            "CREATE_ACTIVE_MEMORY",
+            "SAVE_ACTIVE_MEMORY",
         )
         self.assertFalse(
             context.emitter.events[0]["close_tag"],
@@ -696,7 +721,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="CREATE_ACTIVE_MEMORY",
+                        name="SAVE_ACTIVE_MEMORY",
                         payload="remember cuckoo",
                     ),
                 ),
@@ -715,7 +740,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.runtime_action_events,
             [
                 {
-                    "name": "create_active_memory",
+                    "name": "save_active_memory",
                     "payload": "remember cuckoo",
                 },
             ],
@@ -725,17 +750,17 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             [
                 {
                     "type": "runtime_action",
-                    "action": "create_active_memory",
-                    "display_name": "CREATE_ACTIVE_MEMORY",
-                    "text": "CREATE_ACTIVE_MEMORY: remember cuckoo",
+                    "action": "save_active_memory",
+                    "display_name": "SAVE_ACTIVE_MEMORY",
+                    "text": "SAVE_ACTIVE_MEMORY: remember cuckoo",
                     "payload": "remember cuckoo",
                     "close_tag": False,
                 },
                 {
                     "type": "runtime_action",
-                    "action": "create_active_memory",
+                    "action": "save_active_memory",
                     "status": "completed",
-                    "display_name": "CREATE_ACTIVE_MEMORY",
+                    "display_name": "SAVE_ACTIVE_MEMORY",
                     "close_tag": False,
                 },
             ],
@@ -767,7 +792,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="CREATE_ACTIVE_MEMORY",
+                        name="SAVE_ACTIVE_MEMORY",
                         payload="remember cuckoo",
                     ),
                 ),
@@ -786,7 +811,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.runtime_action_events,
             [
                 {
-                    "name": "create_active_memory",
+                    "name": "save_active_memory",
                     "payload": "remember cuckoo",
                 },
             ],
@@ -796,17 +821,17 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             [
                 {
                     "type": "runtime_action",
-                    "action": "create_active_memory",
-                    "display_name": "CREATE_ACTIVE_MEMORY",
-                    "text": "CREATE_ACTIVE_MEMORY: remember cuckoo",
+                    "action": "save_active_memory",
+                    "display_name": "SAVE_ACTIVE_MEMORY",
+                    "text": "SAVE_ACTIVE_MEMORY: remember cuckoo",
                     "payload": "remember cuckoo",
                     "close_tag": False,
                 },
                 {
                     "type": "runtime_action",
-                    "action": "create_active_memory",
+                    "action": "save_active_memory",
                     "status": "completed",
-                    "display_name": "CREATE_ACTIVE_MEMORY",
+                    "display_name": "SAVE_ACTIVE_MEMORY",
                     "close_tag": False,
                 },
             ],
@@ -1088,7 +1113,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_apply_runtime_action_calls_allows_multiple_create_active_memory_turns(self):
+    def test_apply_runtime_action_calls_allows_multiple_save_active_memory_turns(self):
 
         Context = FakeContext
 
@@ -1104,7 +1129,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="CREATE_ACTIVE_MEMORY",
+                        name="SAVE_ACTIVE_MEMORY",
                         payload="First reminder",
                     ),
                 ),
@@ -1115,7 +1140,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="CREATE_ACTIVE_MEMORY",
+                        name="SAVE_ACTIVE_MEMORY",
                         payload="Second reminder",
                     ),
                 ),

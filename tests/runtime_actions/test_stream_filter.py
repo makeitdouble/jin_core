@@ -29,8 +29,8 @@ from utils.actions import (
     extract_active_memory_resolve_slot_id,
     extract_search_query,
     extract_runtime_actions,
-    get_create_active_memory_marker_fields,
-    get_create_active_memory_placeholder_payload,
+    get_save_active_memory_marker_fields,
+    get_save_active_memory_placeholder_payload,
     normalize_jin_color_payload,
     parse_delayed_memory_content_payload,
 )
@@ -78,7 +78,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
     def test_extracts_bracketed_web_search_marker(self):
 
         result = extract_runtime_actions(
-            "<INTERNAL_ACTION_WEB_SEARCH:\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440>",
+            "<WEB_SEARCH:\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440>",
             enabled_actions=[
                 "CAN_WEB_SEARCH",
             ],
@@ -122,7 +122,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         result = extract_runtime_actions(
             (
                 "Before\n"
-                "<INTERNAL_ACTION_WEB_SEARCH:\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440>\n"
+                "<WEB_SEARCH:\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440>\n"
                 "After"
             ),
             enabled_actions=[
@@ -131,7 +131,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
         self.assertNotIn(
-            "INTERNAL_ACTION_WEB_SEARCH",
+            "WEB_SEARCH",
             result.text,
         )
         self.assertIn(
@@ -154,7 +154,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
         result = extract_runtime_actions(
             (
-                "<INTERNAL_ACTION_WEB_SEARCH: house drawing ideas\n"
+                "<WEB_SEARCH: house drawing ideas\n"
                 "\n"
                 "🏠\n"
                 "\n"
@@ -166,7 +166,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
         self.assertNotIn(
-            "INTERNAL_ACTION_WEB_SEARCH",
+            "WEB_SEARCH",
             result.text,
         )
         self.assertEqual(
@@ -182,7 +182,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         self.assertEqual(
             result.removed_markers,
             (
-                "<INTERNAL_ACTION_WEB_SEARCH: house drawing ideas",
+                "<WEB_SEARCH: house drawing ideas",
             ),
         )
 
@@ -190,7 +190,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
     def test_extracts_tool_call_style_web_search_marker(self):
 
         result = extract_runtime_actions(
-            "<|tool_call>call:INTERNAL_ACTION_WEB_SEARCH: \u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u043d\u0430 From (\u0441\u0435\u0440\u0438\u0430\u043b) >",
+            "<|tool_call>call:WEB_SEARCH: \u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u043d\u0430 From (\u0441\u0435\u0440\u0438\u0430\u043b) >",
             enabled_actions=[
                 "CAN_WEB_SEARCH",
             ],
@@ -209,7 +209,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         self.assertEqual(
             result.removed_markers,
             (
-                "<|tool_call>call:INTERNAL_ACTION_WEB_SEARCH: \u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u043d\u0430 From (\u0441\u0435\u0440\u0438\u0430\u043b) >",
+                "<|tool_call>call:WEB_SEARCH: \u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u043d\u0430 From (\u0441\u0435\u0440\u0438\u0430\u043b) >",
             ),
         )
 
@@ -244,7 +244,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
     def test_extracts_bare_call_style_web_search_marker_line(self):
 
         result = extract_runtime_actions(
-            "call:INTERNAL_ACTION_WEB_SEARCH: \u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u043d\u0430 From (\u0441\u0435\u0440\u0438\u0430\u043b)",
+            "call:WEB_SEARCH: \u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u043d\u0430 From (\u0441\u0435\u0440\u0438\u0430\u043b)",
             enabled_actions=[
                 "CAN_WEB_SEARCH",
             ],
@@ -286,7 +286,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
     def test_does_not_extract_inline_bare_call_style_marker(self):
 
         result = extract_runtime_actions(
-            "before call:INTERNAL_ACTION_WEB_SEARCH: blue tomato after",
+            "before call:WEB_SEARCH: blue tomato after",
             enabled_actions=[
                 "CAN_WEB_SEARCH",
             ],
@@ -294,7 +294,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
         self.assertEqual(
             result.text,
-            "before call:INTERNAL_ACTION_WEB_SEARCH: blue tomato after",
+            "before call:WEB_SEARCH: blue tomato after",
         )
         self.assertEqual(
             result.actions,
@@ -340,6 +340,25 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 "plain text query",
                 "...",
             ),
+        ):
+
+            result = extract_runtime_actions(
+                marker,
+                enabled_actions=[
+                    "CAN_WEB_SEARCH",
+                ],
+            )
+
+            self.assertEqual(
+                result.text,
+                "",
+            )
+            self.assertEqual(
+                result.count("WEB_SEARCH"),
+                0,
+            )
+
+        for marker in (
             legacy_placeholder,
             legacy_placeholder.replace(
                 ": ",
@@ -361,7 +380,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
             self.assertEqual(
                 result.text,
-                "",
+                marker,
             )
             self.assertEqual(
                 result.count("WEB_SEARCH"),
@@ -372,7 +391,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
     def test_extracts_bracketed_save_session_marker(self):
 
         result = extract_runtime_actions(
-            "<INTERNAL_ACTION_SAVE_SESSION>",
+            "<SAVE_SESSION>",
             enabled_actions=[
                 "CAN_SAVE_SESSION",
             ],
@@ -389,7 +408,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         self.assertEqual(
             result.removed_markers,
             (
-                "<INTERNAL_ACTION_SAVE_SESSION>",
+                "<SAVE_SESSION>",
             ),
         )
 
@@ -442,7 +461,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         cases = (
             ("<SAVE_SESSION/>", "SAVE_SESSION", ""),
             ("<LIST_SKILLS/>", "LIST_SKILLS", ""),
-            ("<INTERNAL_ACTION_LIST_SKILLS/>", "LIST_SKILLS", ""),
+            ("<LIST_SKILLS/>", "LIST_SKILLS", ""),
             (
                 "<WEB_SEARCH: blue tomato/>",
                 "WEB_SEARCH",
@@ -451,8 +470,8 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 }),
             ),
             (
-                "<CREATE_ACTIVE_MEMORY: remember tea/>",
-                "CREATE_ACTIVE_MEMORY",
+                "<SAVE_ACTIVE_MEMORY: remember tea/>",
+                "SAVE_ACTIVE_MEMORY",
                 "remember tea",
             ),
             (
@@ -499,8 +518,8 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 )
 
         self.assertEqual(
-            get_create_active_memory_marker_fields(
-                "<CREATE_ACTIVE_MEMORY: one | two/>"
+            get_save_active_memory_marker_fields(
+                "<SAVE_ACTIVE_MEMORY: one | two/>"
             ),
             (
                 "one",
@@ -512,13 +531,13 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
     def test_preserves_marker_when_action_disabled(self):
 
         result = extract_runtime_actions(
-            "before <INTERNAL_ACTION_SAVE_SESSION> after",
+            "before <SAVE_SESSION> after",
             enabled_actions=[],
         )
 
         self.assertEqual(
             result.text,
-            "before <INTERNAL_ACTION_SAVE_SESSION> after",
+            "before <SAVE_SESSION> after",
         )
         self.assertEqual(
             result.actions,
@@ -570,9 +589,9 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             (
                 (
                     "Before "
-                    "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: Remind to drink coffee>"
+                    "<SAVE_ACTIVE_MEMORY: Remind to drink coffee>"
                     " middle "
-                    "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: Remind to drink coffee>"
+                    "<SAVE_ACTIVE_MEMORY: Remind to drink coffee>"
                     " after"
                 ),
                 [
@@ -580,7 +599,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 ],
                 (
                     RuntimeActionCall(
-                        name="CREATE_ACTIVE_MEMORY",
+                        name="SAVE_ACTIVE_MEMORY",
                         payload="Remind to drink coffee",
                     ),
                 ),
@@ -589,9 +608,9 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             (
                 (
                     "Before "
-                    "<INTERNAL_ACTION_SAVE_SESSION>"
+                    "<SAVE_SESSION>"
                     " middle "
-                    "<INTERNAL_ACTION_SAVE_SESSION>"
+                    "<SAVE_SESSION>"
                     " after"
                 ),
                 [
@@ -607,8 +626,8 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             (
                 (
                     "Before\n"
-                    "INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: Remind to drink coffee\n"
-                    "INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: Remind to drink coffee\n"
+                    "SAVE_ACTIVE_MEMORY: Remind to drink coffee\n"
+                    "SAVE_ACTIVE_MEMORY: Remind to drink coffee\n"
                     "After"
                 ),
                 [
@@ -616,7 +635,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 ],
                 (
                     RuntimeActionCall(
-                        name="CREATE_ACTIVE_MEMORY",
+                        name="SAVE_ACTIVE_MEMORY",
                         payload="Remind to drink coffee",
                     ),
                 ),
@@ -625,8 +644,8 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             (
                 (
                     "Before\n"
-                    "INTERNAL_ACTION_SAVE_SESSION\n"
-                    "INTERNAL_ACTION_SAVE_SESSION\n"
+                    "SAVE_SESSION\n"
+                    "SAVE_SESSION\n"
                     "After"
                 ),
                 [
@@ -711,18 +730,18 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         with patch(
             "utils.actions.action_payload_utils.get_internal_actions_with_payload",
             return_value=(
-                "<INTERNAL_ACTION_WEB_SEARCH: plain text query >",
-                "<INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY: active_memory_id | STATUS >",
+                "<WEB_SEARCH: plain text query >",
+                "<RESOLVE_ACTIVE_MEMORY: active_memory_id | STATUS >",
             ),
         ):
             search_result = extract_runtime_actions(
-                "<INTERNAL_ACTION_WEB_SEARCH:<plain text query>>",
+                "<WEB_SEARCH:<plain text query>>",
                 enabled_actions=[
                     "CAN_WEB_SEARCH",
                 ],
             )
             memory_result = extract_runtime_actions(
-                "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: active_memory_id|status>",
+                "<SAVE_ACTIVE_MEMORY: active_memory_id|status>",
                 enabled_actions=[
                     "CAN_SAVE_ACTIVE_MEMORY",
                 ],
@@ -733,7 +752,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             0,
         )
         self.assertEqual(
-            memory_result.count("CREATE_ACTIVE_MEMORY"),
+            memory_result.count("SAVE_ACTIVE_MEMORY"),
             0,
         )
 
@@ -858,7 +877,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
         first = stream_filter.filter(
-            "<INTERNAL_ACTION_WEB_SEARCH:\u0441\u0438"
+            "<WEB_SEARCH:\u0441\u0438"
         )
         second = stream_filter.filter(
             "\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440>"
@@ -897,7 +916,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
         first = stream_filter.filter(
-            "<INTERNAL_ACTION_WEB_SEARCH: house"
+            "<WEB_SEARCH: house"
         )
         second = stream_filter.filter(
             " drawing ideas\n\n🏠\n\nМаленький уютный домик"
@@ -939,7 +958,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             "<|tool"
         )
         second = stream_filter.filter(
-            "_call>call:INTERNAL_ACTION_WEB_SEARCH: blue"
+            "_call>call:WEB_SEARCH: blue"
         )
         final = stream_filter.filter(
             " tomato>"
@@ -1072,7 +1091,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             "call:"
         )
         second = stream_filter.filter(
-            "INTERNAL_ACTION_WEB_SEARCH: blue tomato\n"
+            "WEB_SEARCH: blue tomato\n"
         )
 
         self.assertEqual(
@@ -1109,12 +1128,12 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
         result = stream_filter.filter(
-            "Need search. <INTERNAL_ACTION_WEB_SEARCH:\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440>"
+            "Need search. <WEB_SEARCH:\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440>"
         )
 
         self.assertEqual(
             result.text,
-            "Need search. <INTERNAL_ACTION_WEB_SEARCH:\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440>",
+            "Need search. <WEB_SEARCH:\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440>",
         )
         self.assertEqual(
             result.search_queries,
@@ -1133,7 +1152,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
         result = stream_filter.filter(
-            "hello <INTERNAL_ACTION_WEB_SEARCH:??"
+            "hello <WEB_SEARCH:??"
         )
 
         self.assertEqual(
@@ -1176,7 +1195,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
         first = stream_filter.filter(
-            "<INTERNAL_ACTION_WEB_SEARCH:"
+            "<WEB_SEARCH:"
         )
         middle = stream_filter.filter(
             "blue tomato"
@@ -1208,7 +1227,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
         first = stream_filter.filter(
-            "quoted <INTERNAL_ACTION_SAVE_SESSION"
+            "quoted <SAVE_SESSION"
         )
         second = stream_filter.filter(
             "> marker"
@@ -1216,7 +1235,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
         self.assertEqual(
             first.text,
-            "quoted <INTERNAL_ACTION_SAVE_SESSION",
+            "quoted <SAVE_SESSION",
         )
         self.assertEqual(
             second.text,
@@ -1236,7 +1255,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
         marker_text = (
             "<WEB_SEARCH: latest breakthroughs in fusion energy 2026>\n"
-            "<CREATE_ACTIVE_MEMORY: experiment_start_time: "
+            "<SAVE_ACTIVE_MEMORY: experiment_start_time: "
             "2026-07-12 23:55>"
         )
         expected_actions = (
@@ -1247,7 +1266,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 ),
             ),
             RuntimeActionCall(
-                name="CREATE_ACTIVE_MEMORY",
+                name="SAVE_ACTIVE_MEMORY",
                 payload="experiment_start_time: 2026-07-12 23:55",
             ),
         )
@@ -1296,10 +1315,10 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
         first = stream_filter.filter(
-            "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: Remind to drink coffee>"
+            "<SAVE_ACTIVE_MEMORY: Remind to drink coffee>"
         )
         second = stream_filter.filter(
-            "<INTERNAL_ACTION_CREATE_ACTIVE_MEMORY: Remind to drink coffee>"
+            "<SAVE_ACTIVE_MEMORY: Remind to drink coffee>"
         )
 
         self.assertEqual(
@@ -1310,7 +1329,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             first.actions,
             (
                 RuntimeActionCall(
-                    name="CREATE_ACTIVE_MEMORY",
+                    name="SAVE_ACTIVE_MEMORY",
                     payload="Remind to drink coffee",
                 ),
             ),
@@ -1338,11 +1357,11 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
         result = stream_filter.filter(
-            "<INTERNAL_ACTION_APPEND_SKILL: wildcards>\n"
-            "<INTERNAL_ACTION_APPEND_SKILL: wildcards>\n"
-            "<INTERNAL_ACTION_APPEND_SKILL: wildcards>\n"
-            "<INTERNAL_ACTION_APPEND_SKILL: wildcards>\n"
-            "<INTERNAL_ACTION_APPEND_SKILL: wildcards>"
+            "<APPEND_SKILL: wildcards>\n"
+            "<APPEND_SKILL: wildcards>\n"
+            "<APPEND_SKILL: wildcards>\n"
+            "<APPEND_SKILL: wildcards>\n"
+            "<APPEND_SKILL: wildcards>"
         )
 
         self.assertTrue(
@@ -1367,17 +1386,17 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
         result = stream_filter.filter(
-            "<INTERNAL_ACTION_APPEND_SKILL: file_manager>\n"
-            "<INTERNAL_ACTION_APPEND_SKILL: wildcards>\n"
-            "<INTERNAL_ACTION_APPEND_SKILL: file_manager>\n"
-            "<INTERNAL_ACTION_APPEND_SKILL: wildcards>\n"
-            "<INTERNAL_ACTION_APPEND_SKILL: file_manager>\n"
-            "<INTERNAL_ACTION_APPEND_SKILL: wildcards>\n"
-            "<INTERNAL_ACTION_APPEND_SKILL: file_manager>\n"
-            "<INTERNAL_ACTION_APPEND_SKILL: wildcards>\n"
-            "<INTERNAL_ACTION_APPEND_SKILL: file_manager>\n"
-            "<INTERNAL_ACTION_APPEND_SKILL: wildcards>\n"
-            "<INTERNAL_ACTION_APPEND_SKILL: file_manager>"
+            "<APPEND_SKILL: file_manager>\n"
+            "<APPEND_SKILL: wildcards>\n"
+            "<APPEND_SKILL: file_manager>\n"
+            "<APPEND_SKILL: wildcards>\n"
+            "<APPEND_SKILL: file_manager>\n"
+            "<APPEND_SKILL: wildcards>\n"
+            "<APPEND_SKILL: file_manager>\n"
+            "<APPEND_SKILL: wildcards>\n"
+            "<APPEND_SKILL: file_manager>\n"
+            "<APPEND_SKILL: wildcards>\n"
+            "<APPEND_SKILL: file_manager>"
         )
 
         self.assertTrue(
@@ -1539,7 +1558,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
         context = Context()
         result = extract_runtime_actions(
-            "<INTERNAL_ACTION_SAVE_SESSION>",
+            "<SAVE_SESSION>",
             enabled_actions=[
                 "CAN_SAVE_SESSION",
             ],
@@ -1573,7 +1592,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         context = Context()
         context.runtime_save_session_memory_committed_this_turn = True
         result = extract_runtime_actions(
-            "<INTERNAL_ACTION_SAVE_SESSION>",
+            "<SAVE_SESSION>",
             enabled_actions=[
                 "CAN_SAVE_SESSION",
             ],
@@ -1606,7 +1625,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
         context = Context()
         result = extract_runtime_actions(
-            "<INTERNAL_ACTION_SAVE_SESSION>",
+            "<SAVE_SESSION>",
             enabled_actions=[
                 "CAN_SAVE_SESSION",
             ],
@@ -1635,7 +1654,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
         context = Context()
         result = extract_runtime_actions(
-            "<INTERNAL_ACTION_SAVE_SESSION>",
+            "<SAVE_SESSION>",
             enabled_actions=[
                 "CAN_SAVE_SESSION",
             ],
@@ -2072,8 +2091,8 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             "<IDLE: 10ms>",
             "<IDLE: 10 ms />",
             "<IDLE:10s>",
-            "<INTERNAL_ACTION_IDLE: 10 />",
-            "<INTERNAL_ACTION_IDLE: 10ms />",
+            "<IDLE: 10 />",
+            "<IDLE: 10ms />",
         ):
             with self.subTest(marker=marker):
                 result = extract_runtime_actions(

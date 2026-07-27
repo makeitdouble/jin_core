@@ -19,7 +19,7 @@ from runtime.L1_memory import (  # noqa: E402
     schedule_runtime_memory_update,
 )
 from runtime.runtime_context import RuntimeContext, RuntimeEmitter  # noqa: E402
-from utils.brain_client_utils import create_active_memory_runtime_record  # noqa: E402
+from utils.brain_client_utils import save_active_memory_runtime_record  # noqa: E402
 from websocket import refresh_pending_brain_usage, wait_for_runtime_memory_update  # noqa: E402
 from websocket.logger import WebSocketLogger  # noqa: E402
 
@@ -463,9 +463,9 @@ class BehaviorProbeHelpers:
             )
         elif action_event.get("text", "").startswith("Saving:"):
             action_event["payload"] = action_event["text"].split("Saving:", 1)[1].strip()
-        elif action_event.get("text", "").startswith("CREATE_ACTIVE_MEMORY:"):
+        elif action_event.get("text", "").startswith("SAVE_ACTIVE_MEMORY:"):
             action_event["payload"] = action_event["text"].split(
-                "CREATE_ACTIVE_MEMORY:",
+                "SAVE_ACTIVE_MEMORY:",
                 1,
             )[1].strip()
 
@@ -546,7 +546,7 @@ class BehaviorProbeHelpers:
         actions: list[dict[str, Any]],
     ) -> None:
         for action in actions:
-            if not self.runtime_action_found([action], "create_active_memory"):
+            if not self.runtime_action_found([action], "save_active_memory"):
                 continue
 
             records = getattr(context, "active_memory_records", None)
@@ -568,7 +568,7 @@ class BehaviorProbeHelpers:
                 continue
 
             before = list(records)
-            await create_active_memory_runtime_record(context, payload)
+            await save_active_memory_runtime_record(context, payload)
             after = list(getattr(context, "active_memory_records", []) or [])
 
             if len(after) > len(before):

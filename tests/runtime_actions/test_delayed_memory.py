@@ -29,8 +29,8 @@ from utils.actions import (
     extract_active_memory_resolve_slot_id,
     extract_search_query,
     extract_runtime_actions,
-    get_create_active_memory_marker_fields,
-    get_create_active_memory_placeholder_payload,
+    get_save_active_memory_marker_fields,
+    get_save_active_memory_placeholder_payload,
     normalize_jin_color_payload,
     parse_delayed_memory_content_payload,
 )
@@ -63,9 +63,9 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
 
         text = (
             "before\n"
-            "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>\n"
+            "<SAVE_DELAYED_MEMORY_CONTENT>\n"
             '{"demo": {"summary": "quoted marker"}}\n'
-            "</INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>\n"
+            "</SAVE_DELAYED_MEMORY_CONTENT>\n"
             "after"
         )
 
@@ -142,7 +142,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
 
         result = extract_runtime_actions(
             (
-                "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "<SAVE_DELAYED_MEMORY_CONTENT>\n"
                 "title: Radius of Influence Specs\n"
                 "summary: Three-zone data priority model for Kowloon Sandbox simulation.\n"
                 "tags: kowloon_sandbox, simulation, world_state, radius_of_influence\n"
@@ -150,7 +150,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 "### Radius of Influence Specs\n"
                 "\n"
                 "A complete, self-sufficient summary...\n"
-                "</INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "</SAVE_DELAYED_MEMORY_CONTENT>\n"
                 "\n"
                 "Done."
             ),
@@ -348,7 +348,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
 
         first = stream_filter.filter(
-            "<INTERNAL_ACTION_REMOVE_DELAYED_MEMORY: k"
+            "<REMOVE_DELAYED_MEMORY: k"
         )
         second = stream_filter.filter(
             "dhpjo>\nRemoved it from the session."
@@ -387,7 +387,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
 
         first = stream_filter.filter(
             (
-                "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "<SAVE_DELAYED_MEMORY_CONTENT>\n"
                 "title: Radius"
             )
         )
@@ -398,7 +398,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 "tags: a, b\n"
                 "body:\n"
                 "Body\n"
-                "</INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "</SAVE_DELAYED_MEMORY_CONTENT>\n"
                 "Saved."
             )
         )
@@ -661,7 +661,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="CREATE_ACTIVE_MEMORY",
+                        name="SAVE_ACTIVE_MEMORY",
                         payload="current session state",
                     ),
                     RuntimeActionCall(
@@ -683,7 +683,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 for event in context.runtime_action_events
             ],
             [
-                "create_active_memory",
+                "save_active_memory",
                 "save_delayed_memory_content",
             ],
         )
@@ -696,7 +696,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 context.runtime_action_events
             ),
             (
-                "create_active_memory, "
+                "save_active_memory, "
                 "save_delayed_memory"
             ),
         )
@@ -1303,7 +1303,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         }
 
         extracted = extract_runtime_actions(
-            "<INTERNAL_ACTION_REMOVE_DELAYED_MEMORY: Test report (summary check)>",
+            "<REMOVE_DELAYED_MEMORY: Test report (summary check)>",
             enabled_actions=(
                 "REMOVE_DELAYED_MEMORY",
             ),

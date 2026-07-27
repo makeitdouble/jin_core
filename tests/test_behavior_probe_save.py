@@ -39,7 +39,7 @@ SCENARIO_NOTES = """
 Four-step probe:
 1. The user greets JIN. Any answer is accepted.
 2. The user asks JIN to remember the word "кукушка". Any answer is accepted,
-   but JIN must emit create_active_memory runtime action whose payload
+   but JIN must emit save_active_memory runtime action whose payload
    includes that word.
 3. The user says thanks. Any answer is accepted.
 4. The user asks JIN to forget the word and resolve the task. Any answer is
@@ -67,7 +67,7 @@ UNEXPECTED_TEXT_MEMORY_1 = []
 USER_TEXT_2 = f'запомни слово "{WORD_TO_SAVE}"'
 EXPECTED_TEXT_ANSWER_2 = []
 EXPECTED_TEXT_MEMORY_2 = []
-EXPECTED_RUNTIME_ACTION_2 = ["create_active_memory"]
+EXPECTED_RUNTIME_ACTION_2 = ["save_active_memory"]
 EXPECTED_RUNTIME_ACTION_PAYLOAD_2 = [WORD_TO_SAVE]
 UNEXPECTED_TEXT_ANSWER_2 = []
 UNEXPECTED_TEXT_MEMORY_2 = []
@@ -175,7 +175,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
         self.assertIn(WORD_TO_SAVE, steps[1]["user_text"])
         self.assertEqual(steps[1]["expected_answer"], [])
         self.assertEqual(steps[1]["expected_memory"], [])
-        self.assertEqual(steps[1]["expected_runtime_actions"], ["create_active_memory"])
+        self.assertEqual(steps[1]["expected_runtime_actions"], ["save_active_memory"])
         self.assertEqual(steps[1]["expected_runtime_action_payload"], [WORD_TO_SAVE])
 
         self.assertEqual(steps[2]["user_text"], "спасибо")
@@ -213,10 +213,10 @@ class BehaviorProbeShapeTests(unittest.TestCase):
                 expected_memory=["active_memory", WORD_TO_SAVE],
                 unexpected_answer=[],
                 unexpected_memory=[],
-                expected_runtime_actions=["create_active_memory"],
+                expected_runtime_actions=["save_active_memory"],
                 expected_runtime_action_payload=[WORD_TO_SAVE],
                 runtime_actions=[
-                    {"name": "create_active_memory", "payload": f"remember {WORD_TO_SAVE}"}
+                    {"name": "save_active_memory", "payload": f"remember {WORD_TO_SAVE}"}
                 ],
             ),
             TurnResult(

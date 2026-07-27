@@ -5,7 +5,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_APPEND_SKILL,
     RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
-    RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_CHECK_TODO,
     RUNTIME_ACTION_CREATE_TODO_LIST,
@@ -40,7 +40,7 @@ from .append_skill_utils import (
 )
 from .asset_action_utils import build_asset_action_payload
 from .check_todo_utils import build_check_todo_payload
-from .create_active_memory_utils import build_create_active_memory_payload
+from .save_active_memory_utils import build_save_active_memory_payload
 from .create_todo_list_utils import build_create_todo_list_payload
 from .idle_utils import build_idle_payload
 from .jin_color_utils import build_jin_color_payload
@@ -294,7 +294,7 @@ def normalize_runtime_action_name(
         "LIST_DELAYED_MEMORY": RUNTIME_ACTION_LIST_DELAYED_MEMORY,
         "APPEND_DELAYED_MEMORY": RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
         "REMOVE_DELAYED_MEMORY": RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
-        "SAVE_ACTIVE_MEMORY": RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+        "SAVE_ACTIVE_MEMORY": RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
         "RESOLVE_ACTIVE_MEMORY": RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
         "USE_ASSETS": RUNTIME_ACTION_ASSET_ACTION,
         "LIST_SKILLS": RUNTIME_ACTION_LIST_SKILLS,
@@ -352,7 +352,7 @@ def normalize_runtime_action_names(
             normalized_name,
         ]
 
-        if normalized_name == RUNTIME_ACTION_CREATE_ACTIVE_MEMORY:
+        if normalized_name == RUNTIME_ACTION_SAVE_ACTIVE_MEMORY:
             normalized_names.append(
                 RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
             )
@@ -403,7 +403,7 @@ _ACTION_PAYLOAD_BUILDERS = {
     RUNTIME_ACTION_IDLE: build_idle_payload,
     RUNTIME_ACTION_JIN_COLOR: build_jin_color_payload,
     RUNTIME_ACTION_WEB_SEARCH: build_web_search_payload,
-    RUNTIME_ACTION_CREATE_ACTIVE_MEMORY: build_create_active_memory_payload,
+    RUNTIME_ACTION_SAVE_ACTIVE_MEMORY: build_save_active_memory_payload,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY: build_resolve_action_payload,
     RUNTIME_ACTION_CREATE_TODO_LIST: build_create_todo_list_payload,
     RUNTIME_ACTION_RESOLVE_TODO: build_resolve_action_payload,

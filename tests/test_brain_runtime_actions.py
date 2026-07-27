@@ -123,7 +123,7 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
     if bool(runtime_actions.get("CAN_SAVE_ACTIVE_MEMORY", False)):
         expected_actions.extend(
             (
-                "CREATE_ACTIVE_MEMORY",
+                "SAVE_ACTIVE_MEMORY",
                 "RESOLVE_ACTIVE_MEMORY",
             )
         )
@@ -193,7 +193,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "context.\nNever assume internal marker name!",
+            "schemas by user request.\nDummy markers",
         )
 
     def test_non_stream_blocks_save_session_meta_request_in_reasoning(self):
@@ -207,7 +207,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                             "message": {
                                 "reasoning": (
                                     "The user asked for internal syntax.\n"
-                                    "<INTERNAL_ACTION_SAVE_SESSION>"
+                                    "<SAVE_SESSION>"
                                 ),
                                 "content": "ok",
                             },
@@ -265,7 +265,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                                 "reasoning": "",
                                 "content": (
                                     "The literal marker is "
-                                    "<INTERNAL_ACTION_SAVE_SESSION>."
+                                    "<SAVE_SESSION>."
                                 ),
                             },
                         },
@@ -295,7 +295,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         self.assertEqual(
             answer,
-            "The literal marker is <INTERNAL_ACTION_SAVE_SESSION>.",
+            "The literal marker is <SAVE_SESSION>.",
         )
         self.assertFalse(
             hasattr(
@@ -308,9 +308,9 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         marker_text = (
             "Example:\n"
-            "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>\n"
+            "<SAVE_DELAYED_MEMORY_CONTENT>\n"
             '{"demo": {"summary": "quoted marker"}}\n'
-            "</INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>"
+            "</SAVE_DELAYED_MEMORY_CONTENT>"
         )
 
         class FakeBrainClient:
@@ -370,7 +370,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                             "message": {
                                 "reasoning": (
                                     "The user asked to save.\n"
-                                    "<INTERNAL_ACTION_SAVE_SESSION>"
+                                    "<SAVE_SESSION>"
                                 ),
                                 "content": "ok",
                             },
@@ -418,14 +418,14 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     "type": "thinking",
                     "content": (
                         "The user asked to save.\n"
-                        "<INTERNAL_ACTION_SAVE_SESSION>"
+                        "<SAVE_SESSION>"
                     ),
                 }
                 yield {
                     "type": "thinking",
                     "content": (
                         "Again\n"
-                        "<INTERNAL_ACTION_SAVE_SESSION>"
+                        "<SAVE_SESSION>"
                     ),
                 }
                 yield {
@@ -490,14 +490,14 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     "type": "thinking",
                     "content": (
                         "The user asked to save.\n"
-                        "<INTERNAL_ACTION_SAVE_SESSION>"
+                        "<SAVE_SESSION>"
                     ),
                 },
                 {
                     "type": "thinking",
                     "content": (
                         "Again\n"
-                        "<INTERNAL_ACTION_SAVE_SESSION>"
+                        "<SAVE_SESSION>"
                     ),
                 },
             ],
@@ -564,7 +564,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             async def stream(self, **_kwargs):
                 yield {
                     "type": "content",
-                    "content": "<INTERNAL_ACTION_SAVE_SESSION>",
+                    "content": "<SAVE_SESSION>",
                 }
 
         class Context:
@@ -624,7 +624,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     "<WEB_SEARCH: Latest astronomical news 2026>",
                     "\n",
                     (
-                        "<CREATE_ACTIVE_MEMORY: "
+                        "<SAVE_ACTIVE_MEMORY: "
                         "astronomical news tracker>"
                     ),
                     "\n",
@@ -674,7 +674,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
             [
                 "web_search",
-                "create_active_memory",
+                "save_active_memory",
                 "list_skills",
             ],
         )
@@ -699,7 +699,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             context.runtime_session_action_history[-1]["text"],
             (
-                "WEB_SEARCH, CREATE_ACTIVE_MEMORY - "
+                "WEB_SEARCH, SAVE_ACTIVE_MEMORY - "
                 "astronomical news tracker, LIST_SKILLS"
             ),
         )
@@ -710,7 +710,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     "text": "WEB_SEARCH",
                 },
                 {
-                    "text": "CREATE_ACTIVE_MEMORY",
+                    "text": "SAVE_ACTIVE_MEMORY",
                     "detail": "astronomical news tracker",
                 },
                 {
@@ -941,7 +941,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     payload="latest news",
                 ),
                 RuntimeActionCall(
-                    name="CREATE_ACTIVE_MEMORY",
+                    name="SAVE_ACTIVE_MEMORY",
                     payload="remember coffee",
                 ),
                 RuntimeActionCall(
@@ -966,7 +966,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     "text": "WEB_SEARCH",
                 },
                 {
-                    "text": "CREATE_ACTIVE_MEMORY",
+                    "text": "SAVE_ACTIVE_MEMORY",
                     "detail": "remember coffee",
                 },
                 {
@@ -1157,8 +1157,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 yield {
                     "type": "content",
                     "content": (
-                        "<INTERNAL_ACTION_APPEND_SKILL: name of skill >\n"
-                        "<INTERNAL_ACTION_APPEND_SKILL: name of skill >"
+                        "<APPEND_SKILL: name of skill >\n"
+                        "<APPEND_SKILL: name of skill >"
                     ),
                 }
 
@@ -1205,7 +1205,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "<INTERNAL_ACTION_APPEND_SKILL: name of skill >",
+            "<APPEND_SKILL: name of skill >",
             visible_text,
         )
         self.assertEqual(
@@ -1456,7 +1456,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     yield {
                         "type": "content",
                         "content": (
-                            "<INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY: "
+                            "<RESOLVE_ACTIVE_MEMORY: "
                             "active_memory_id: 5fdg4g>"
                         ),
                     }
@@ -1529,7 +1529,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     "type": "thinking",
                     "content": (
                         "Need current data.\n"
-                        "<INTERNAL_ACTION_WEB_SEARCH:blue tomato>\n"
+                        "<WEB_SEARCH:blue tomato>\n"
                     ),
                 }
                 yield {
@@ -1598,7 +1598,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 yield {
                     "type": "content",
                     "content": (
-                        "\n<INTERNAL_ACTION_ASSET_ACTION>\n"
+                        "\n<ASSET_ACTION>\n"
                         "{\n"
                         '  "action": "create_wildcard_file",\n'
                         '  "args": {\n'
@@ -1606,7 +1606,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                         '    "content": "sneakers\\nboots\\nheels"\n'
                         "  }\n"
                         "}\n"
-                        "</INTERNAL_ACTION_ASSET_ACTION>\n"
+                        "</ASSET_ACTION>\n"
                         "This should not be visible."
                     ),
                 }
@@ -1665,7 +1665,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                         "",
                     )
                     self.assertNotIn(
-                        "INTERNAL_ACTION_ASSET_ACTION",
+                        "ASSET_ACTION",
                         visible_text,
                     )
                     self.assertEqual(
@@ -1694,7 +1694,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             async def stream(self, **_kwargs):
                 yield {
                     "type": "content",
-                    "content": "<INTERNAL_ACTION_ASSET_ACTION>\n",
+                    "content": "<ASSET_ACTION>\n",
                 }
                 yield {
                     "type": "content",
@@ -1709,7 +1709,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 yield {
                     "type": "content",
                     "content": (
-                        "</INTERNAL_ACTION_ASSET_ACTION>\n"
+                        "</ASSET_ACTION>\n"
                         "This should not be visible."
                     ),
                 }
@@ -2005,7 +2005,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         for private_marker in (
             get_runtime_action_private_marker("SAVE_SESSION"),
             get_runtime_action_private_marker("SAVE_DELAYED_MEMORY_CONTENT"),
-            get_runtime_action_private_marker("CREATE_ACTIVE_MEMORY"),
+            get_runtime_action_private_marker("SAVE_ACTIVE_MEMORY"),
             "Use WEB_SEARCH when freshness",
         ):
             assert_contains_text(
@@ -2513,7 +2513,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "CREATE_ACTIVE_MEMORY:",
+            "SAVE_ACTIVE_MEMORY:",
         )
         assert_contains_text(
             self,
@@ -2722,7 +2722,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "CREATE_ACTIVE_MEMORY:",
+            "SAVE_ACTIVE_MEMORY:",
         )
         assert_not_contains_text(
             self,
@@ -2926,16 +2926,16 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
         self.assertIn(
-            get_runtime_action_private_marker("CREATE_ACTIVE_MEMORY"),
+            get_runtime_action_private_marker("SAVE_ACTIVE_MEMORY"),
             prompt,
         )
         assert_contains_text(
             self,
             prompt,
-            "CREATE_ACTIVE_MEMORY:",
+            "SAVE_ACTIVE_MEMORY:",
         )
         self.assertIn(
-            "CREATE_ACTIVE_MEMORY",
+            "SAVE_ACTIVE_MEMORY",
             prompt,
         )
 

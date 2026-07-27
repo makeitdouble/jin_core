@@ -60,7 +60,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_CHECK_TODO,
     RUNTIME_ACTION_CREATE_TODO_LIST,
-    RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_LIST_DELAYED_MEMORY,
     RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_HIDE_SKILLS,
@@ -103,7 +103,7 @@ from utils.actions import (
     generate_active_memory_slot_id,
     generate_active_memory_slot_key,
     generate_delayed_memory_report_id,
-    get_create_active_memory_marker_fields,
+    get_save_active_memory_marker_fields,
     is_delayed_memory_report_id,
     is_active_memory_record_paused,
     parse_delayed_memory_content_payload,
@@ -628,7 +628,7 @@ def split_active_memory_payload(
     payload: str,
 ) -> tuple[tuple[str, str], ...]:
 
-    marker_fields = get_create_active_memory_marker_fields()
+    marker_fields = get_save_active_memory_marker_fields()
 
     if not marker_fields:
         return ()
@@ -679,7 +679,7 @@ def normalize_active_memory_runtime_payload(
     return strip_active_memory_managed_suffixes(
         payload,
         extra_suffix_names=(
-            get_create_active_memory_marker_fields()
+            get_save_active_memory_marker_fields()
         ),
     )
 
@@ -1170,7 +1170,7 @@ async def resolve_active_memory_runtime_record(
     )
 
 
-async def create_active_memory_runtime_record(
+async def save_active_memory_runtime_record(
     context,
     payload: str,
 ) -> bool:

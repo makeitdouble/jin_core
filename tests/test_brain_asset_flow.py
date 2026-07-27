@@ -891,7 +891,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         failed_payload = (
             "<SAVE_DELAYED_MEMORY_CONTENT>\n"
             "CONDITIONS: Simulation step 2/5\n"
-            "</CREATE_ACTIVE_MEMORY>"
+            "</SAVE_ACTIVE_MEMORY>"
         )
 
         async def fake_run_brain_stream(**kwargs):
@@ -930,7 +930,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     kwargs["system_prompt"],
                 )
                 self.assertIn(
-                    "&lt;/CREATE_ACTIVE_MEMORY&gt;",
+                    "&lt;/SAVE_ACTIVE_MEMORY&gt;",
                     kwargs["system_prompt"],
                 )
                 return "Retrying the failed save.", ""
@@ -2347,7 +2347,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             if len(calls) == 1:
                 context.runtime_action_events.extend([
                     {
-                        "name": "create_active_memory",
+                        "name": "save_active_memory",
                         "payload": "first",
                     },
                     {
@@ -2358,7 +2358,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 return "", ""
 
             self.assertIn(
-                'create_active_memory',
+                'save_active_memory',
                 kwargs["system_prompt"],
             )
             self.assertIn(

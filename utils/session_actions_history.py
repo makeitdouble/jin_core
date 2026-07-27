@@ -128,7 +128,7 @@ ACTION_DISPLAY_ALIASES = {
     "append_wildcard_file": "Appended wildcard file",
     "asset_action": "Processed asset action",
     "check_duplicates": "Checked duplicates",
-    "create_active_memory": "Created active memory",
+    "save_active_memory": "Saved active memory",
     "create_asset_file": "Created asset file",
     "create_wildcard_file": "Created wildcard file",
     "create_wildcard_library": "Created wildcard library",
@@ -744,7 +744,7 @@ def _build_session_action_marker_detail(
         return ""
 
     if normalized_name in {
-        "CREATE_ACTIVE_MEMORY",
+        "SAVE_ACTIVE_MEMORY",
         "IDLE",
     }:
         return normalized_payload

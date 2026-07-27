@@ -10,7 +10,7 @@
       "emit_followup": true
     },
     "rules": [
-      "Emit <IDLE: Ns > to setup follow up tick for future, that will be triggered after exact time inside the marker."
+      "Emit to setup and trigger follow-up tick after Ns seconds. DO NOT USE in casual chat reminders."
     ],
     "close_tag": false
   }

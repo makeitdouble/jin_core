@@ -573,7 +573,7 @@ function handleRuntimeAction(
   }
 
   if (
-    action === "create_active_memory"
+    action === "save_active_memory"
     && data.active_memory
     && window.JinRuntime
     && window.JinRuntime.runtime

@@ -8,10 +8,6 @@ const delayedMemoryTagPairs = [
     open: "<SAVE_DELAYED_MEMORY_CONTENT>",
     close: "</SAVE_DELAYED_MEMORY_CONTENT>",
   },
-  {
-    open: "<INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>",
-    close: "</INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT>",
-  },
 ];
 
 

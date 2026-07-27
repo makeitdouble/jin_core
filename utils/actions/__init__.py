@@ -26,10 +26,10 @@ from .common_action_utils import (
     normalize_runtime_action_name,
     normalize_runtime_action_names,
 )
-from .create_active_memory_utils import (
+from .save_active_memory_utils import (
     generate_active_memory_slot_id,
-    get_create_active_memory_marker_fields,
-    get_create_active_memory_placeholder_payload,
+    get_save_active_memory_marker_fields,
+    get_save_active_memory_placeholder_payload,
     normalize_active_memory_marker_field,
 )
 from .delayed_memory_utils import (
@@ -77,8 +77,8 @@ __all__ = [
     "generate_delayed_memory_report_id",
     "generate_short_runtime_id",
     "get_applied_jin_color",
-    "get_create_active_memory_marker_fields",
-    "get_create_active_memory_placeholder_payload",
+    "get_save_active_memory_marker_fields",
+    "get_save_active_memory_placeholder_payload",
     "is_active_memory_key",
     "is_active_memory_record_paused",
     "is_delayed_memory_report_id",

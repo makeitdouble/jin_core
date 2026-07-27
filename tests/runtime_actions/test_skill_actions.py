@@ -29,8 +29,8 @@ from utils.actions import (
     extract_active_memory_resolve_slot_id,
     extract_search_query,
     extract_runtime_actions,
-    get_create_active_memory_marker_fields,
-    get_create_active_memory_placeholder_payload,
+    get_save_active_memory_marker_fields,
+    get_save_active_memory_placeholder_payload,
     normalize_jin_color_payload,
     parse_delayed_memory_content_payload,
 )
@@ -62,7 +62,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
     def test_extracts_list_skills_marker(self):
 
         result = extract_runtime_actions(
-            "<INTERNAL_ACTION_LIST_SKILLS>",
+            "<LIST_SKILLS>",
             enabled_actions=[
                 "CAN_USE_ASSETS",
             ],
@@ -177,8 +177,8 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
 
         result = extract_runtime_actions(
             (
-                "<INTERNAL_ACTION_APPEND_SKILL: image_prompt_generator>\n"
-                "<INTERNAL_ACTION_REMOVE_SKILL: wildcards>"
+                "<APPEND_SKILL: image_prompt_generator>\n"
+                "<REMOVE_SKILL: wildcards>"
             ),
             enabled_actions=[
                 "CAN_USE_ASSETS",
@@ -208,9 +208,9 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
 
         result = extract_runtime_actions(
             (
-                "<INTERNAL_ACTION_APPEND_SKILLS: "
+                "<APPEND_SKILLS: "
                 "file_manager, image_prompt_generator, porn, wildcards>\n"
-                "<INTERNAL_ACTION_REMOVE_SKILLS: old_skill, unused_skill>"
+                "<REMOVE_SKILLS: old_skill, unused_skill>"
             ),
             enabled_actions=[
                 "CAN_USE_ASSETS",
@@ -255,7 +255,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
     def test_extracts_append_skill_marker_with_name_attribute(self):
 
         result = extract_runtime_actions(
-            '<INTERNAL_ACTION_APPEND_SKILL name="file_manager" />',
+            '<APPEND_SKILL name="file_manager" />',
             enabled_actions=[
                 "CAN_USE_ASSETS",
             ],
@@ -285,7 +285,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
         )
 
         first = stream_filter.filter(
-            '<INTERNAL_ACTION_APPEND_SKILL name="file'
+            '<APPEND_SKILL name="file'
         )
         second = stream_filter.filter(
             '_manager" />'
@@ -327,7 +327,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
         )
 
         first = stream_filter.filter(
-            "<INTERNAL_ACTION_APPEND_SKILLS: file_manager,"
+            "<APPEND_SKILLS: file_manager,"
         )
         second = stream_filter.filter(
             " image_prompt_generator, porn, wildcards>"
@@ -393,13 +393,13 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
             return False
 
         text = (
-            "<INTERNAL_ACTION_SAVE_SESSION>\n"
-            "<INTERNAL_ACTION_APPEND_SKILL: file_manager >\n"
-            "<INTERNAL_ACTION_APPEND_SKILL: image_prompt_generator >\n"
-            "<INTERNAL_ACTION_APPEND_SKILL: wildcards >\n"
-            "<INTERNAL_ACTION_APPEND_SKILL: porn >\n"
-            "<INTERNAL_ACTION_APPEND_SKILL: file_manager >\n"
-            "<INTERNAL_ACTION_APPEND_SKILL: image_prompt_generator >"
+            "<SAVE_SESSION>\n"
+            "<APPEND_SKILL: file_manager >\n"
+            "<APPEND_SKILL: image_prompt_generator >\n"
+            "<APPEND_SKILL: wildcards >\n"
+            "<APPEND_SKILL: porn >\n"
+            "<APPEND_SKILL: file_manager >\n"
+            "<APPEND_SKILL: image_prompt_generator >"
         )
 
         result = extract_runtime_actions(
@@ -436,15 +436,15 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
             ),
         )
         self.assertIn(
-            "<INTERNAL_ACTION_APPEND_SKILL: file_manager >",
+            "<APPEND_SKILL: file_manager >",
             result.text,
         )
         self.assertIn(
-            "<INTERNAL_ACTION_APPEND_SKILL: image_prompt_generator >",
+            "<APPEND_SKILL: image_prompt_generator >",
             result.text,
         )
         self.assertNotIn(
-            "<INTERNAL_ACTION_APPEND_SKILL: wildcards >",
+            "<APPEND_SKILL: wildcards >",
             result.text,
         )
         self.assertEqual(
@@ -475,8 +475,8 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
 
         result = extract_runtime_actions(
             (
-                "<INTERNAL_ACTION_APPEND_SKILL: name of skill >\n"
-                "<INTERNAL_ACTION_APPEND_SKILL: name of skill >"
+                "<APPEND_SKILL: name of skill >\n"
+                "<APPEND_SKILL: name of skill >"
             ),
             enabled_actions=[
                 "CAN_USE_ASSETS",
@@ -494,7 +494,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
             ),
         )
         self.assertIn(
-            "<INTERNAL_ACTION_APPEND_SKILL: name of skill >",
+            "<APPEND_SKILL: name of skill >",
             result.text,
         )
         self.assertEqual(

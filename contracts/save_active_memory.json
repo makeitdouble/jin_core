@@ -1,0 +1,18 @@
+{
+  "save_active_memory": {
+    "version": 1,
+    "description": "Allows the model to save active memory.",
+    "runtime_action": "SAVE_ACTIVE_MEMORY",
+    "private_marker": "<SAVE_ACTIVE_MEMORY: CONDITIONS >",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": false
+    },
+    "rules": [
+      "Use when user asks to remember, remind, track, or keep a pending live-session condition.",
+      "CONDITIONS is a placeholder; replace it with description, value, or conditions."
+    ],
+    "close_tag": false
+  }
+}

@@ -1174,10 +1174,10 @@ class BrainNode(BaseNode):
             context.runtime_delayed_memory_results.clear()
 
         # Reset per-turn signal for schedule_runtime_memory_update(): it
-        # needs to know whether CREATE_ACTIVE_MEMORY actually wrote a
+        # needs to know whether SAVE_ACTIVE_MEMORY actually wrote a
         # record this turn even when the visible assistant text is empty
         # (e.g. the user explicitly asked JIN to emit only the marker).
-        context.runtime_active_memory_created_this_turn = False
+        context.runtime_active_memory_saved_this_turn = False
         context.runtime_active_memory_refresh_tick = 0
         context.runtime_save_session_memory_committed_this_turn = False
         context.runtime_save_session_result = {}

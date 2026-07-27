@@ -39,7 +39,7 @@ class RuntimeTodoTests(unittest.TestCase):
             "1. LIST_SKILLS\n"
             "2. APPEND_SKILL wildcards\n"
             "</TODO_LIST>\n"
-            "<INTERNAL_ACTION_LIST_SKILLS>",
+            "<LIST_SKILLS>",
             enabled_actions=enabled_actions,
         )
 
@@ -54,16 +54,16 @@ class RuntimeTodoTests(unittest.TestCase):
 
 
 
-    def test_extract_internal_action_todo_list_alias_block(self):
+    def test_extract_todo_list_block_with_asset_action(self):
         enabled_actions = self.enabled_actions_with_runtime_todo()
         result = extract_runtime_actions(
-            "<INTERNAL_ACTION_TODO_LIST>\n"
+            "<TODO_LIST>\n"
             "1. Create wildcard file assets/wildcards/clothing/shoes.txt with 10 shoe types.\n"
             "2. Generate prompt batch and save it.\n"
-            "</INTERNAL_ACTION_TODO_LIST>\n"
-            "<INTERNAL_ACTION_ASSET_ACTION>\n"
+            "</TODO_LIST>\n"
+            "<ASSET_ACTION>\n"
             "create_wildcard_file\n"
-            "</INTERNAL_ACTION_ASSET_ACTION>",
+            "</ASSET_ACTION>",
             enabled_actions=enabled_actions,
         )
 

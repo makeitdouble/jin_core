@@ -1,7 +1,7 @@
 import re
 
 from contracts.rules_assembler import (
-    RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     get_runtime_action_private_marker,
 )
 
@@ -34,7 +34,7 @@ def normalize_active_memory_marker_field(
     return normalized_field
 
 
-def get_create_active_memory_marker_fields(
+def get_save_active_memory_marker_fields(
     marker: str | None = None,
 ) -> tuple[str, ...]:
 
@@ -42,7 +42,7 @@ def get_create_active_memory_marker_fields(
         marker
         if marker is not None
         else get_runtime_action_private_marker(
-            RUNTIME_ACTION_CREATE_ACTIVE_MEMORY
+            RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
         )
     )
 
@@ -73,7 +73,7 @@ def get_create_active_memory_marker_fields(
     )
 
 
-def get_create_active_memory_placeholder_payload(
+def get_save_active_memory_placeholder_payload(
     marker: str | None = None,
 ) -> str:
 
@@ -81,7 +81,7 @@ def get_create_active_memory_placeholder_payload(
         marker
         if marker is not None
         else get_runtime_action_private_marker(
-            RUNTIME_ACTION_CREATE_ACTIVE_MEMORY
+            RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
         )
     )
 
@@ -99,7 +99,7 @@ def get_create_active_memory_placeholder_payload(
     )
 
 
-def build_create_active_memory_payload(
+def build_save_active_memory_payload(
     query: str,
     placeholder_payloads=(),
 ) -> str | None:

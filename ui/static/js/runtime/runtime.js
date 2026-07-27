@@ -744,7 +744,7 @@ function appendDelayedMemoryReports(
 }
 
 const ACTIVE_MEMORY_RUNTIME_ACTIONS_TO_SILENCE_ON_L1 = [
-  "create_active_memory",
+  "save_active_memory",
   "resolve_active_memory",
 ];
 

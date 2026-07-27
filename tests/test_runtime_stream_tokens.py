@@ -249,9 +249,9 @@ async def fake_raw_asset_action_generator():
     yield {
         "type": "content",
         "content": (
-            "<INTERNAL_ACTION_ASSET_ACTION>\n"
+            "<ASSET_ACTION>\n"
             '{"action":"create_wildcard_file","args":{"path":"clothing/test_tops","content":"silk camisole\\ncrochet halter top"}}\n'
-            "</INTERNAL_ACTION_ASSET_ACTION>\n"
+            "</ASSET_ACTION>\n"
             "Создал wildcard файл."
         ),
     }
@@ -1057,7 +1057,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                 )
 
                 self.assertNotIn(
-                    "INTERNAL_ACTION_ASSET_ACTION",
+                    "ASSET_ACTION",
                     emitted_text,
                 )
                 self.assertIn(
@@ -1111,7 +1111,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
                 yield {
                     "type": "content",
-                    "content": "<INTERNAL_ACTION_ASSET_ACTION>\n",
+                    "content": "<ASSET_ACTION>\n",
                 }
                 yield {
                     "type": "content",
@@ -1124,7 +1124,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                 yield {
                     "type": "content",
                     "content": (
-                        "</INTERNAL_ACTION_ASSET_ACTION>\n"
+                        "</ASSET_ACTION>\n"
                         "Done."
                     ),
                 }
@@ -2183,7 +2183,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             record_session_action_history(
                 context,
                 (
-                    "CREATE_ACTIVE_MEMORY - "
+                    "SAVE_ACTIVE_MEMORY - "
                     "current session context and task status"
                 ),
             )
@@ -2274,7 +2274,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             context.runtime_session_action_history[0]["text"],
             (
-                "CREATE_ACTIVE_MEMORY - "
+                "SAVE_ACTIVE_MEMORY - "
                 "current session context and task status, "
                 "SAVE_DELAYED_MEMORY_CONTENT - failed: Unrequested report "
                 "(user did not provided system allowed trigger words for this action)"
@@ -2290,7 +2290,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn(
             (
-                "Step 1 - CREATE_ACTIVE_MEMORY - "
+                "Step 1 - SAVE_ACTIVE_MEMORY - "
                 "current session context and task status, "
                 "SAVE_DELAYED_MEMORY_CONTENT - failed: Unrequested report"
             ),
@@ -2321,7 +2321,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             session_action_updates[-1]["items"][0]["parts"],
             [
                 {
-                    "text": "CREATE_ACTIVE_MEMORY",
+                    "text": "SAVE_ACTIVE_MEMORY",
                     "detail": "current session context and task status",
                 },
                 {
@@ -2339,7 +2339,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         failed_payload = (
             "<SAVE_DELAYED_MEMORY_CONTENT>\n"
             "CONDITIONS: Simulation step 2/5\n"
-            "</CREATE_ACTIVE_MEMORY>\n"
+            "</SAVE_ACTIVE_MEMORY>\n"
         )
 
         async def incomplete_delayed_memory_generator():

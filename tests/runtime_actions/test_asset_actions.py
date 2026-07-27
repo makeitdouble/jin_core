@@ -29,8 +29,8 @@ from utils.actions import (
     extract_active_memory_resolve_slot_id,
     extract_search_query,
     extract_runtime_actions,
-    get_create_active_memory_marker_fields,
-    get_create_active_memory_placeholder_payload,
+    get_save_active_memory_marker_fields,
+    get_save_active_memory_placeholder_payload,
     normalize_jin_color_payload,
     parse_delayed_memory_content_payload,
 )
@@ -63,9 +63,9 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
 
         result = extract_runtime_actions(
             (
-                "<INTERNAL_ACTION_ASSET_ACTION>\n"
+                "<ASSET_ACTION>\n"
                 '{"action":"list_wildcards"}\n'
-                "</INTERNAL_ACTION_ASSET_ACTION>\n"
+                "</ASSET_ACTION>\n"
                 "Done."
             ),
             enabled_actions=[
@@ -92,9 +92,9 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
 
         result = extract_runtime_actions(
             (
-                "<INTERNAL_ACTION_ASSET_ACTION>\n"
+                "<ASSET_ACTION>\n"
                 '{"action":"create_wildcard_file","args":{"path":"clothing/test_tops","content":"cropped tank top\\nlace camisole"}}\n'
-                "</INTERNAL_ACTION_ASSET_ACTION>\n"
+                "</ASSET_ACTION>\n"
                 "Создал файл."
             ),
             enabled_actions=[
@@ -111,7 +111,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
             1,
         )
         self.assertNotIn(
-            "INTERNAL_ACTION_ASSET_ACTION",
+            "ASSET_ACTION",
             result.text,
         )
 
@@ -120,9 +120,9 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
 
         result = extract_runtime_actions(
             (
-                "<INTERNAL_ACTION_ASSET_ACTION>\n"
+                "<ASSET_ACTION>\n"
                 '{"action":"append_asset_file","path":"assets/outputs/posing_woman_prompts.txt","content":"\\nBatch 1 complete."}\n'
-                "<INTERNAL_ACTION_ASSET_ACTION>\n"
+                "<ASSET_ACTION>\n"
                 "Done."
             ),
             enabled_actions=[
@@ -149,9 +149,9 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
 
         result = extract_runtime_actions(
             (
-                "< INTERNAL_ACTION_ASSET_ACTION >\n"
+                "< ASSET_ACTION >\n"
                 '{"action":"append_asset_file","path":"assets/outputs/woman_prompts.txt","content":"Batch 1"}\n'
-                "< /INTERNAL_ACTION_ASSET_ACTION >\n"
+                "< /ASSET_ACTION >\n"
                 "Done."
             ),
             enabled_actions=[
@@ -184,14 +184,14 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
 
         first = stream_filter.filter(
             (
-                "<INTERNAL_ACTION_ASSET_ACTION>\n"
+                "<ASSET_ACTION>\n"
                 '{"action":"create_wildcard_file","args":{"path":"clothing/test_tops",'
             )
         )
         second = stream_filter.filter(
             (
                 '"content":"cropped tank top\\nlace camisole"}}\n'
-                "</INTERNAL_ACTION_ASSET_ACTION>\n"
+                "</ASSET_ACTION>\n"
                 "Создал файл."
             )
         )
@@ -228,36 +228,36 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
         variants = [
             [
                 (
-                    "<INTERNAL_ACTION_ASSET_ACTION>\n"
+                    "<ASSET_ACTION>\n"
                     '{"action":"create_wildcard_file","args":{"path":"clothing/shoes","content":"sneakers\\nboots"}}\n'
-                    "</INTERNAL_ACTION_ASSET_ACTION>"
+                    "</ASSET_ACTION>"
                 ),
             ],
             [
-                "<INTERNAL_ACTION_AS",
+                "<AS",
                 "SET_ACTION>\n",
                 '{"action":"create_wildcard_file","args":{"path":"clothing/shoes","content":"sneakers\\nboots"}}\n',
-                "</INTERNAL_ACTION_ASSET_ACTION>",
+                "</ASSET_ACTION>",
             ],
             [
-                "\n\n  <INTERNAL_ACTION_ASSET_ACTION>\n",
+                "\n\n  <ASSET_ACTION>\n",
                 '{\n  "action": "create_wildcard_file",\n  "args": {\n    "path": "clothing/shoes",\n    "content": "sneakers\\nboots"\n  }\n}\n',
-                "</INTERNAL_ACTION_ASSET_ACTION>\n",
+                "</ASSET_ACTION>\n",
             ],
             [
-                "<INTERNAL_ACTION_ASSET_ACTION>\n",
+                "<ASSET_ACTION>\n",
                 '{"action":"create_wildcard_file","args":{"path":"clothing/shoes","content":"sneakers\\nboots"}}\n',
-                "<INTERNAL_ACTION_ASSET_ACTION>\n",
+                "<ASSET_ACTION>\n",
             ],
             [
-                "< INTERNAL_ACTION_ASSET_ACTION >\n",
+                "< ASSET_ACTION >\n",
                 '{"action":"create_wildcard_file","args":{"path":"clothing/shoes","content":"sneakers\\nboots"}}\n',
-                "< / INTERNAL_ACTION_ASSET_ACTION >\n",
+                "< / ASSET_ACTION >\n",
             ],
             [
-                "<INTERNAL_ACTION_ASSET_ACTION>\n",
+                "<ASSET_ACTION>\n",
                 '{"action":"create_wildcard_file","args":{"path":"clothing/shoes","content":"sneakers\\nboots"}}\n',
-                "< /INTERNAL_ACTION_ASSET_ACTION>\n",
+                "< /ASSET_ACTION>\n",
             ],
         ]
 
@@ -295,7 +295,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 )
 
                 self.assertNotIn(
-                    "INTERNAL_ACTION_ASSET_ACTION",
+                    "ASSET_ACTION",
                     joined_visible_text,
                 )
                 self.assertEqual(

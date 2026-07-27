@@ -530,7 +530,7 @@ class SearchFlowTests(
                         "type": "content",
                         "content": (
                             "Needs current pricing. "
-                            "<INTERNAL_ACTION_WEB_SEARCH:tesla car price>"
+                            "<WEB_SEARCH:tesla car price>"
                         ),
                     },
                 ],
@@ -710,7 +710,7 @@ class SearchFlowTests(
                         "type": "content",
                         "content": (
                             "I will check. "
-                            "<INTERNAL_ACTION_WEB_SEARCH:tesla car price>"
+                            "<WEB_SEARCH:tesla car price>"
                         ),
                     },
                 ],
@@ -779,7 +779,7 @@ class SearchFlowTests(
                         "type": "content",
                         "content": (
                             "Needs current pricing. "
-                            "<INTERNAL_ACTION_WEB_SEARCH:apple price>"
+                            "<WEB_SEARCH:apple price>"
                         ),
                     },
                     {
@@ -844,7 +844,7 @@ class SearchFlowTests(
                     {
                         "type": "content",
                         "content": (
-                            "<INTERNAL_ACTION_WEB_SEARCH:jupiter cost>"
+                            "<WEB_SEARCH:jupiter cost>"
                         ),
                     },
                 ],
@@ -896,7 +896,7 @@ class SearchFlowTests(
                     {
                         "type": "content",
                         "content": (
-                            "<INTERNAL_ACTION_WEB_SEARCH:latest Python version>"
+                            "<WEB_SEARCH:latest Python version>"
                         ),
                     },
                 ],

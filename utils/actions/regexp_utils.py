@@ -10,31 +10,31 @@ from typing import Iterable, Pattern
 # Contracts only provide the canonical private marker and whether it is a block.
 REGEXP_TEMPLATES: tuple[str, ...] = (
     (
-        r"<\s*(?:INTERNAL_ACTION_)?(?P<name>{name})"
+        r"<\s*(?P<name>{name})"
         r"\s+name\s*=\s*(?P<quote>['\"])"
         r"(?P<attribute_payload>[^\r\n<>]*?)"
         r"(?P=quote)\s*/?\s*>+"
     ),
     (
-        r"<\|?tool_call\>\s*call\s*:\s*(?:INTERNAL_ACTION_)?"
+        r"<\|?tool_call\>\s*call\s*:\s*"
         r"(?P<name>{name})"
         r"(?:\s*:\s*(?P<payload>(?:(?!</\s*>)[^\r\n>])*?))?"
         r"(?:\s*</\s*>+|\s*/?\s*>+|[^\S\r\n]*(?=\r?\n|$))"
     ),
     (
-        r"(?m:^[^\S\r\n]*call\s*:\s*(?:INTERNAL_ACTION_)?"
+        r"(?m:^[^\S\r\n]*call\s*:\s*"
         r"(?P<name>{name})"
         r"(?:\s*:\s*(?P<payload>[^\r\n]*?))?"
         r"[^\S\r\n]*$)"
     ),
     (
-        r"(?m:^[^\S\r\n]*(?:INTERNAL_ACTION_)?"
+        r"(?m:^[^\S\r\n]*"
         r"(?P<name>{name})"
         r"(?:\s*:\s*(?P<payload>[^\r\n]*?))?"
         r"[^\S\r\n]*$)"
     ),
     (
-        r"(?m:^[^\S\r\n]*<\s*(?:INTERNAL_ACTION_)?"
+        r"(?m:^[^\S\r\n]*<\s*"
         r"(?P<name>{name})"
         r"(?:\s*:\s*(?P<payload>[^\r\n>]*?))?"
         r"[^\S\r\n]*(?=\r?$))"
@@ -52,7 +52,7 @@ _PRIVATE_MARKER_RE = re.compile(
 
 _BARE_PRIVATE_MARKER_RE = re.compile(
     (
-        r"^\s*(?:INTERNAL_ACTION_)?(?P<name>[A-Z][A-Z0-9_]*)"
+        r"^\s*(?P<name>[A-Z][A-Z0-9_]*)"
         r"(?:\s*:\s*(?P<payload>.*?))?\s*$"
     ),
     re.IGNORECASE | re.DOTALL,
@@ -134,17 +134,17 @@ def compile_runtime_action_regexp(
 
     if close_tag:
         expression = (
-            r"<\s*(?:INTERNAL_ACTION_)?(?P<name>"
+            r"<\s*(?P<name>"
             + name
             + r")\s*>"
             r"[^\S\r\n]*(?:\r?\n)?"
             r"(?P<payload>.*?)"
             r"(?:"
-            r"<\s*/\s*(?:INTERNAL_ACTION_)?(?:"
+            r"<\s*/\s*(?:"
             + name
             + r")\s*>+"
             r"|"
-            r"<\s*(?:INTERNAL_ACTION_)?(?:"
+            r"<\s*(?:"
             + name
             + r")\s*>"
             r")"
@@ -152,7 +152,7 @@ def compile_runtime_action_regexp(
         flags = re.IGNORECASE | re.DOTALL
     else:
         expression = (
-            r"<\s*(?:INTERNAL_ACTION_)?(?P<name>"
+            r"<\s*(?P<name>"
             + name
             + r")"
             r"(?:\s*:\s*(?P<payload>(?:(?!</\s*>).)*?))?"
@@ -191,7 +191,7 @@ def compile_runtime_action_start_regexp(
         return re.compile(r"(?!x)x")
 
     return re.compile(
-        r"<\s*(?:INTERNAL_ACTION_)?(?P<name>" + name + r")\s*>",
+        r"<\s*(?P<name>" + name + r")\s*>",
         re.IGNORECASE,
     )
 
@@ -207,7 +207,7 @@ def compile_runtime_action_end_regexp(
         return re.compile(r"(?!x)x")
 
     return re.compile(
-        r"<\s*/\s*(?:INTERNAL_ACTION_)?(?:" + name + r")\s*>+",
+        r"<\s*/\s*(?:" + name + r")\s*>+",
         re.IGNORECASE,
     )
 
@@ -224,7 +224,7 @@ def compile_runtime_action_tag_regexp(
 
     return re.compile(
         (
-            r"<\s*(?P<slash>/)?\s*(?:INTERNAL_ACTION_)?"
+            r"<\s*(?P<slash>/)?\s*"
             r"(?P<name>" + name + r")\s*>+"
         ),
         re.IGNORECASE,
@@ -361,29 +361,21 @@ def get_runtime_action_start_markers(
 
     for name in _runtime_action_aliases(private_marker, runtime_action):
         angle_marker = f"<{name}{payload_suffix}"
-        internal_angle_marker = f"<INTERNAL_ACTION_{name}{payload_suffix}"
 
         if not placeholder_payload:
             angle_marker += ">"
-            internal_angle_marker += ">"
 
         candidates = [
             angle_marker,
-            internal_angle_marker,
             f"<|tool_call>call:{name}{payload_suffix}",
-            f"<|tool_call>call:INTERNAL_ACTION_{name}{payload_suffix}",
             f"<tool_call>call:{name}{payload_suffix}",
-            f"<tool_call>call:INTERNAL_ACTION_{name}{payload_suffix}",
             f"call:{name}{payload_suffix}",
-            f"call:INTERNAL_ACTION_{name}{payload_suffix}",
             f"{name}{payload_suffix}",
-            f"INTERNAL_ACTION_{name}{payload_suffix}",
         ]
 
         if placeholder_payload:
             candidates.extend((
                 f"<{name} name=",
-                f"<INTERNAL_ACTION_{name} name=",
             ))
 
         for marker in candidates:

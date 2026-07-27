@@ -6,7 +6,7 @@
     || {};
 
   const markerPattern =
-    /<(?:INTERNAL_ACTION_)?JIN_COLOR:\s*(#?(?:[0-9a-f]{6}|[0-9a-f]{3}))\s*\/?>/gi;
+    /<JIN_COLOR:\s*(#?(?:[0-9a-f]{6}|[0-9a-f]{3}))\s*\/?>/gi;
 
   function escapeHtml(text) {
 

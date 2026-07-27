@@ -4,7 +4,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_CHECK_TODO,
     RUNTIME_ACTION_CREATE_TODO_LIST,
-    RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_LIST_DELAYED_MEMORY,
     RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_HIDE_SKILLS,
@@ -45,7 +45,7 @@ from utils.runtime_action_abort import (
     mark_runtime_actions_completed,
 )
 from utils.actions.active_memory_actions import (
-    apply_create_active_memory_actions,
+    apply_save_active_memory_actions,
     apply_resolve_active_memory_actions,
     emit_rejected_active_memory_results,
 )
@@ -558,7 +558,7 @@ async def apply_runtime_action_calls(
             )
             continue
 
-        if action.name == RUNTIME_ACTION_CREATE_ACTIVE_MEMORY:
+        if action.name == RUNTIME_ACTION_SAVE_ACTIVE_MEMORY:
             active_memory_line = build_active_memory_runtime_line(
                 action.payload,
                 slot_key=generate_active_memory_slot_key(
@@ -821,7 +821,7 @@ async def apply_runtime_action_calls(
         elif action.payload:
             action_event_payload = action.payload
 
-            if action.name == RUNTIME_ACTION_CREATE_ACTIVE_MEMORY:
+            if action.name == RUNTIME_ACTION_SAVE_ACTIVE_MEMORY:
                 action_event_payload = (
                     normalize_active_memory_runtime_payload(
                         action.payload
@@ -994,13 +994,13 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_SAVE_SESSION
     )
 
-    create_active_memory_actions = [
+    save_active_memory_actions = [
         action
         for action in filtered_actions
-        if action.name == RUNTIME_ACTION_CREATE_ACTIVE_MEMORY
+        if action.name == RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
     ]
-    create_active_memory_count = len(
-        create_active_memory_actions
+    save_active_memory_count = len(
+        save_active_memory_actions
     )
 
     resolve_active_memory_actions = [
@@ -1284,9 +1284,9 @@ async def apply_runtime_action_calls(
                 "text": "Saving session",
             }))
 
-    created_active_memory_texts = await apply_create_active_memory_actions(
+    saved_active_memory_texts = await apply_save_active_memory_actions(
         context,
-        create_active_memory_actions,
+        save_active_memory_actions,
         log_runtime=log_runtime,
         with_action_context=with_action_context,
     )
@@ -1335,7 +1335,7 @@ async def apply_runtime_action_calls(
             1,
         )
         + len(
-            created_active_memory_texts
+            saved_active_memory_texts
         )
         + len(
             saved_delayed_memory_reports

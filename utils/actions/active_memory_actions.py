@@ -1,5 +1,5 @@
 from contracts.rules_assembler import (
-    RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     build_runtime_action_display_text,
     get_runtime_action_display_name,
@@ -61,34 +61,34 @@ async def emit_rejected_active_memory_results(
         }))
 
 
-async def apply_create_active_memory_actions(
+async def apply_save_active_memory_actions(
     context,
-    create_active_memory_actions,
+    save_active_memory_actions,
     *,
     log_runtime,
     with_action_context,
 ):
     from utils.brain_client_utils import (
-        create_active_memory_runtime_record,
+        save_active_memory_runtime_record,
         normalize_active_memory_runtime_payload,
     )
 
-    created_active_memory_texts = []
-    create_active_memory_results = []
+    saved_active_memory_texts = []
+    save_active_memory_results = []
 
-    if not create_active_memory_actions:
-        return created_active_memory_texts
+    if not save_active_memory_actions:
+        return saved_active_memory_texts
 
     if log_runtime is not None:
         await log_runtime(
-            "[RUNTIME ACTION] create_active_memory requested"
+            "[RUNTIME ACTION] save_active_memory requested"
         )
 
     for active_memory_text in (
         normalize_active_memory_runtime_payload(
             action.payload
         )
-        for action in create_active_memory_actions
+        for action in save_active_memory_actions
         if action.payload
     ):
         if not active_memory_text:
@@ -102,8 +102,8 @@ async def apply_create_active_memory_actions(
             )
             or []
         )
-        record_created = (
-            await create_active_memory_runtime_record(
+        record_saved = (
+            await save_active_memory_runtime_record(
                 context,
                 active_memory_text,
             )
@@ -119,21 +119,21 @@ async def apply_create_active_memory_actions(
         active_memory_line = (
             records_after[-1]
             if (
-                record_created
+                record_saved
                 and len(records_after) > len(records_before)
             )
             else ""
         )
 
-        create_active_memory_results.append(
+        save_active_memory_results.append(
             (
                 active_memory_text,
                 active_memory_line,
             )
         )
 
-        if record_created:
-            created_active_memory_texts.append(
+        if record_saved:
+            saved_active_memory_texts.append(
                 active_memory_text
             )
             record_runtime_tool_result(
@@ -141,7 +141,7 @@ async def apply_create_active_memory_actions(
                 TOOL_RESULT_KIND_ACTIVE_MEMORY,
                 {
                     "ok": True,
-                    "action": "create_active_memory",
+                    "action": "save_active_memory",
                     "destination": (
                         "active_memory_records -> <ACTIVE_MEMORY>"
                     ),
@@ -152,18 +152,18 @@ async def apply_create_active_memory_actions(
 
         if (
             log_runtime is not None
-            and record_created
+            and record_saved
         ):
             await log_runtime(
-                "[RUNTIME ACTION] active_memory record created"
+                "[RUNTIME ACTION] active_memory record saved"
             )
 
-    if created_active_memory_texts:
+    if saved_active_memory_texts:
         # Tells schedule_runtime_memory_update() that this turn is
         # meaningful for L1 even if the visible assistant text ends up
         # empty (e.g. the model was instructed to only emit the
         # marker and say nothing else).
-        context.runtime_active_memory_created_this_turn = True
+        context.runtime_active_memory_saved_this_turn = True
 
     emitter = getattr(
         context,
@@ -177,21 +177,21 @@ async def apply_create_active_memory_actions(
     )
 
     if emit is not None:
-        for active_memory_text, active_memory_line in create_active_memory_results:
+        for active_memory_text, active_memory_line in save_active_memory_results:
             display_name = get_runtime_action_display_name(
-                RUNTIME_ACTION_CREATE_ACTIVE_MEMORY
+                RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
             )
             event = {
                 "type": "runtime_action",
-                "action": "create_active_memory",
+                "action": "save_active_memory",
                 "display_name": display_name,
                 "text": build_runtime_action_display_text(
-                    RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+                    RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
                     active_memory_text,
                 ),
                 "payload": active_memory_text,
                 "close_tag": runtime_action_has_close_tag(
-                    RUNTIME_ACTION_CREATE_ACTIVE_MEMORY
+                    RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
                 ),
             }
 
@@ -203,15 +203,15 @@ async def apply_create_active_memory_actions(
             ))
             await emit(with_action_context({
                 "type": "runtime_action",
-                "action": "create_active_memory",
+                "action": "save_active_memory",
                 "status": "completed",
                 "display_name": display_name,
                 "close_tag": runtime_action_has_close_tag(
-                    RUNTIME_ACTION_CREATE_ACTIVE_MEMORY
+                    RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
                 ),
             }))
 
-    return created_active_memory_texts
+    return saved_active_memory_texts
 
 
 async def apply_resolve_active_memory_actions(

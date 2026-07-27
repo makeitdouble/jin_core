@@ -77,7 +77,7 @@ USER_TEXT_1 = (
 )
 EXPECTED_TEXT_ANSWER_1 = []
 EXPECTED_TEXT_MEMORY_1 = []
-EXPECTED_RUNTIME_ACTION_1 = ["create_active_memory"]
+EXPECTED_RUNTIME_ACTION_1 = ["save_active_memory"]
 UNEXPECTED_TEXT_ANSWER_1 = []
 UNEXPECTED_TEXT_MEMORY_1 = []
 
@@ -208,7 +208,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
         self.assertIn(f"Запомни слово - {WORD_TO_REMEMBER}", steps[0]["user_text"])
         self.assertIn("напомни мне угадать это слово", steps[0]["user_text"])
         self.assertEqual(steps[0]["expected_memory"], [])
-        self.assertEqual(steps[0]["expected_runtime_actions"], ["create_active_memory"])
+        self.assertEqual(steps[0]["expected_runtime_actions"], ["save_active_memory"])
         self.assertIn("нарисуй домик", steps[1]["user_text"])
         self.assertIn("хайку", steps[2]["user_text"])
         self.assertIn("спасибо", steps[3]["user_text"])
@@ -227,8 +227,8 @@ class BehaviorProbeShapeTests(unittest.TestCase):
             {"type": "message_chunk", "chunk": "ignored"},
             {
                 "type": "runtime_action",
-                "action": "create_active_memory",
-                "text": "CREATE_ACTIVE_MEMORY: запомнить слово Кофе для последующего теста памяти.",
+                "action": "save_active_memory",
+                "text": "SAVE_ACTIVE_MEMORY: запомнить слово Кофе для последующего теста памяти.",
             },
         ]
 
@@ -239,7 +239,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
             websocket_messages=websocket_messages,
         )
 
-        self.assertTrue(runtime_action_found(actions, "create_active_memory"))
+        self.assertTrue(runtime_action_found(actions, "save_active_memory"))
         self.assertTrue(fragment_found(render_runtime_actions(actions), WORD_TO_REMEMBER))
 
     def test_extract_active_memory_entries_splits_value_and_suffixes(self):

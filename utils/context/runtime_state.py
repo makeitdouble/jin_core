@@ -13,7 +13,7 @@ from rules.brain_context_builder import (
 )
 from contracts.rules_assembler import (
     RUNTIME_ACTION_ASSET_ACTION,
-    RUNTIME_ACTION_CREATE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
@@ -128,8 +128,8 @@ def build_runtime_xml(
                 RUNTIME_ACTION_SAVE_SESSION
                 in enabled_actions
             ),
-            can_create_active_memory=(
-                RUNTIME_ACTION_CREATE_ACTIVE_MEMORY
+            can_save_active_memory=(
+                RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
                 in enabled_actions
             ),
             timestamp=now.isoformat(),

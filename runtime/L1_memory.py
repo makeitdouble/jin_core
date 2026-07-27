@@ -1071,7 +1071,7 @@ def schedule_runtime_memory_update(
             )
             and not getattr(
                 context,
-                "runtime_active_memory_created_this_turn",
+                "runtime_active_memory_saved_this_turn",
                 False,
             )
     ):

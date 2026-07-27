@@ -44,7 +44,7 @@ SCENARIO_TITLE = "Save delayed memory content after reminder request"
 SCENARIO_NOTES = """
 Two-step probe:
 1. The user asks JIN to remind them to drink coffee in 10 minutes.
-   Any answer is accepted, but JIN must emit create_active_memory.
+   Any answer is accepted, but JIN must emit save_active_memory.
 2. The user asks JIN to save the report.
    Any answer is accepted, but JIN must emit save_delayed_memory_content.
 """
@@ -63,7 +63,7 @@ Two-step probe:
 USER_TEXT_1 = "напомни мне через 10 минут выпить кофе"
 EXPECTED_TEXT_ANSWER_1 = []
 EXPECTED_TEXT_MEMORY_1 = []
-EXPECTED_RUNTIME_ACTION_1 = ["create_active_memory"]
+EXPECTED_RUNTIME_ACTION_1 = ["save_active_memory"]
 UNEXPECTED_TEXT_ANSWER_1 = []
 UNEXPECTED_TEXT_MEMORY_1 = []
 UNEXPECTED_RUNTIME_ACTION_1 = []
@@ -165,7 +165,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
         self.assertEqual(steps[0]["user_text"], USER_TEXT_1)
         self.assertEqual(steps[0]["expected_answer"], [])
         self.assertEqual(steps[0]["expected_memory"], [])
-        self.assertEqual(steps[0]["expected_runtime_actions"], ["create_active_memory"])
+        self.assertEqual(steps[0]["expected_runtime_actions"], ["save_active_memory"])
         self.assertEqual(steps[0]["unexpected_runtime_actions"], [])
 
         self.assertEqual(steps[1]["user_text"], USER_TEXT_2)
@@ -185,11 +185,11 @@ class BehaviorProbeShapeTests(unittest.TestCase):
                 expected_memory=[],
                 unexpected_answer=[],
                 unexpected_memory=[],
-                expected_runtime_actions=["create_active_memory"],
+                expected_runtime_actions=["save_active_memory"],
                 unexpected_runtime_actions=[],
                 runtime_actions=[
                     {
-                        "name": "create_active_memory",
+                        "name": "save_active_memory",
                         "payload": "Reminder to drink coffee in 10 minutes",
                     },
                 ],
@@ -240,7 +240,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
         self.assertEqual(score["total"], 1)
         self.assertEqual(score["checks"][0]["name"], "turn_2.runtime_action_contains")
 
-    def test_collect_runtime_actions_reads_websocket_create_active_memory_action(self):
+    def test_collect_runtime_actions_reads_websocket_save_active_memory_action(self):
         websocket = CapturingWebSocket()
         context = RuntimeContext(
             websocket=websocket,
@@ -252,8 +252,8 @@ class BehaviorProbeShapeTests(unittest.TestCase):
             {"type": "message_chunk", "chunk": "ignored"},
             {
                 "type": "runtime_action",
-                "action": "create_active_memory",
-                "text": "CREATE_ACTIVE_MEMORY: Reminder to drink coffee in 10 minutes",
+                "action": "save_active_memory",
+                "text": "SAVE_ACTIVE_MEMORY: Reminder to drink coffee in 10 minutes",
                 "active_memory": "active_memory_1: Reminder to drink coffee in 10 minutes",
             },
         ]
@@ -265,7 +265,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
             websocket_messages=websocket_messages,
         )
 
-        self.assertTrue(runtime_action_found(actions, "create_active_memory"))
+        self.assertTrue(runtime_action_found(actions, "save_active_memory"))
 
     def test_collect_runtime_actions_reads_websocket_delayed_memory_action(self):
         websocket = CapturingWebSocket()
@@ -312,15 +312,15 @@ class BehaviorProbeShapeTests(unittest.TestCase):
         )
         context.runtime_action_events.append(
             {
-                "name": "create_active_memory",
+                "name": "save_active_memory",
                 "payload": "Reminder to drink coffee in 10 minutes",
             }
         )
         websocket_messages = [
             {
                 "type": "runtime_action",
-                "action": "create_active_memory",
-                "text": "CREATE_ACTIVE_MEMORY: Reminder to drink coffee in 10 minutes",
+                "action": "save_active_memory",
+                "text": "SAVE_ACTIVE_MEMORY: Reminder to drink coffee in 10 minutes",
                 "active_memory": "active_memory_1: Reminder to drink coffee in 10 minutes",
             },
         ]
@@ -333,7 +333,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
         )
 
         self.assertEqual(len(actions), 1)
-        self.assertTrue(runtime_action_found(actions, "create_active_memory"))
+        self.assertTrue(runtime_action_found(actions, "save_active_memory"))
         self.assertIn(
             "active_memory",
             actions[0],

@@ -34,7 +34,7 @@ ACTION_CONFIG_KEYS = (
     ("LIST_DELAYED_MEMORY", "CAN_SAVE_DELAYED_MEMORY"),
     ("APPEND_DELAYED_MEMORY", "CAN_SAVE_DELAYED_MEMORY"),
     ("REMOVE_DELAYED_MEMORY", "CAN_SAVE_DELAYED_MEMORY"),
-    ("CREATE_ACTIVE_MEMORY", "CAN_SAVE_ACTIVE_MEMORY"),
+    ("SAVE_ACTIVE_MEMORY", "CAN_SAVE_ACTIVE_MEMORY"),
     ("RESOLVE_ACTIVE_MEMORY", "CAN_SAVE_ACTIVE_MEMORY"),
 )
 
@@ -53,7 +53,7 @@ def _normalize_action_name(action_name: str) -> str:
 
     aliases = {
         "SAVE_DELAYED_MEMORY": "SAVE_DELAYED_MEMORY_CONTENT",
-        "SAVE_ACTIVE_MEMORY": "CREATE_ACTIVE_MEMORY",
+        "SAVE_ACTIVE_MEMORY": "SAVE_ACTIVE_MEMORY",
         "USE_ASSETS": "ASSET_ACTION",
         "TODO_LIST": "CREATE_TODO_LIST",
         "INTERNAL_ACTION_TODO_LIST": "CREATE_TODO_LIST",
@@ -293,7 +293,7 @@ def normalize_runtime_action_names(enabled_actions=None) -> tuple[str, ...]:
         normalized_name = _normalize_action_name(action_name)
         normalized_names = [normalized_name]
 
-        if normalized_name == "CREATE_ACTIVE_MEMORY":
+        if normalized_name == "SAVE_ACTIVE_MEMORY":
             normalized_names.append("RESOLVE_ACTIVE_MEMORY")
 
         if normalized_name == "SAVE_DELAYED_MEMORY_CONTENT":
@@ -585,8 +585,8 @@ RUNTIME_ACTION_APPEND_DELAYED_MEMORY = get_runtime_action_name(
 RUNTIME_ACTION_REMOVE_DELAYED_MEMORY = get_runtime_action_name(
     "remove_delayed_memory"
 )
-RUNTIME_ACTION_CREATE_ACTIVE_MEMORY = get_runtime_action_name(
-    "create_active_memory"
+RUNTIME_ACTION_SAVE_ACTIVE_MEMORY = get_runtime_action_name(
+    "save_active_memory"
 )
 RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY = get_runtime_action_name(
     "resolve_active_memory"

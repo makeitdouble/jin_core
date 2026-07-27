@@ -198,7 +198,7 @@ function renderChatTextHtml(text) {
       text || ""
     );
   const markerPattern =
-    /<(?:INTERNAL_ACTION_)?JIN_COLOR:\s*(#?(?:[0-9a-f]{6}|[0-9a-f]{3}))\s*\/?>/gi;
+    /<JIN_COLOR:\s*(#?(?:[0-9a-f]{6}|[0-9a-f]{3}))\s*\/?>/gi;
   let rendered = "";
   let lastIndex = 0;
   let match = null;
@@ -1184,27 +1184,27 @@ function stripInternalActionMarkers(
 
   return String(text || "")
     .replace(
-      /(^|\n)[^\S\r\n]*<(?:INTERNAL_ACTION_)?SAVE_SESSION>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<SAVE_SESSION>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(
-      /(^|\n)[^\S\r\n]*<(?:INTERNAL_ACTION_)?WEB_SEARCH:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<WEB_SEARCH:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(
-      /(^|\n)[^\S\r\n]*<(?:INTERNAL_ACTION_)?LIST_SKILLS(?::[^>\n]*)?>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<LIST_SKILLS(?::[^>\n]*)?>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(
-      /(^|\n)[^\S\r\n]*<(?:INTERNAL_ACTION_)?APPEND_SKILLS?:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<APPEND_SKILLS?:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(
-      /(^|\n)[^\S\r\n]*<(?:INTERNAL_ACTION_)?REMOVE_SKILLS?:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<REMOVE_SKILLS?:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(
-      /(^|\n)[^\S\r\n]*<(?:INTERNAL_ACTION_)?ASSET_ACTION>[\s\S]*?<\/(?:INTERNAL_ACTION_)?ASSET_ACTION>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<ASSET_ACTION>[\s\S]*?<\/ASSET_ACTION>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(
