@@ -143,6 +143,8 @@ main.panels-collapsed-2 #scene-shade {
 #settings-panel {
     width: var(--panel-width);
     max-height: 100%;
+    opacity: 1;
+    transition: opacity 0.35s ease;
 }
 
 #console-panel:not(.panel-collapsed),
@@ -456,7 +458,34 @@ main.panels-collapsed-2 #scene-shade {
 #settings-panel {
     transition:
             border-color 1.8s ease,
-            box-shadow 1.8s ease;
+            box-shadow 1.8s ease,
+            opacity 0.35s ease;
+}
+
+#console-panel.panel-inactive {
+    opacity: 0.75;
+    transition: opacity 3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+#settings-panel.panel-inactive {
+    opacity: 0.75;
+    transition:
+            border-color 1.8s ease,
+            box-shadow 1.8s ease,
+            opacity 3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+#console-panel.panel-inactive:hover {
+    opacity: 1;
+    transition: opacity 0.35s ease;
+}
+
+#settings-panel.panel-inactive:hover {
+    opacity: 1;
+    transition:
+            border-color 1.8s ease,
+            box-shadow 1.8s ease,
+            opacity 0.35s ease;
 }
 
 #settings-panel.memory-updating {
