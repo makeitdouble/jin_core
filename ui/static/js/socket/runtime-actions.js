@@ -315,6 +315,93 @@ function buildRuntimeActionDisplayText(
 
 }
 
+const PAYLOAD_DISTINCT_RUNTIME_ACTIONS = new Set([
+  "save_active_memory",
+  "save_delayed_memory_content",
+  "append_delayed_memory",
+]);
+
+function normalizeRuntimeActionPayloadIdentity(value) {
+
+  if (
+    value
+    && typeof value === "object"
+  ) {
+    const title =
+      String(
+        value.title
+        || value.name
+        || value.id
+        || ""
+      ).trim();
+
+    if (title) {
+      return title;
+    }
+
+    try {
+      return JSON.stringify(value);
+    } catch (_error) {
+      return "";
+    }
+  }
+
+  return String(
+    value || ""
+  ).trim();
+
+}
+
+function runtimeActionDistinctPayloads(data) {
+
+  const payloads = Array.isArray(data.raw_payloads)
+    ? data.raw_payloads
+    : (
+      Array.isArray(data.payloads)
+        ? data.payloads
+        : []
+    );
+
+  const identities = [];
+
+  payloads.forEach((payload) => {
+    const identity =
+      normalizeRuntimeActionPayloadIdentity(
+        payload
+      );
+
+    if (
+      identity
+      && !identities.includes(identity)
+    ) {
+      identities.push(
+        identity
+      );
+    }
+  });
+
+  return identities;
+
+}
+
+function shouldSplitPayloadDistinctRuntimeAction(
+  action,
+  data
+) {
+
+  if (
+    action === "jin_color"
+    || !PAYLOAD_DISTINCT_RUNTIME_ACTIONS.has(action)
+  ) {
+    return false;
+  }
+
+  return runtimeActionDistinctPayloads(
+    data
+  ).length > 1;
+
+}
+
 function handleRuntimeAction(
   data
 ) {
@@ -452,16 +539,41 @@ function handleRuntimeAction(
     data.counter_final === true
     || status === "counter_final";
 
+  const splitPayloadDistinctMarkers =
+    shouldSplitPayloadDistinctRuntimeAction(
+      action,
+      data
+    );
+
   const aggregateMarkers =
-    data.aggregate_markers === true
-    || counterOnly
-    || markerCount > 0
-    || Boolean(
-      window.hasActiveRuntimeActionCounter
-      && window.hasActiveRuntimeActionCounter(
-        action
+    !splitPayloadDistinctMarkers
+    && (
+      data.aggregate_markers === true
+      || counterOnly
+      || markerCount > 0
+      || Boolean(
+        window.hasActiveRuntimeActionCounter
+        && window.hasActiveRuntimeActionCounter(
+          action
+        )
       )
     );
+  const displayCounterOnly =
+    counterOnly
+    && aggregateMarkers;
+  const displayMarkerCount =
+    aggregateMarkers
+      ? markerCount
+      : 0;
+
+  const completeImmediately =
+    [
+      "completed",
+      "complete",
+      "done",
+    ].includes(status)
+    && !counterOnly
+    && action === "save_active_memory";
 
   const actionDisplayId =
     data.counter_id
@@ -530,8 +642,10 @@ function handleRuntimeAction(
           reviveCompleted:
             !counterFinal,
           aggregateMarkers,
-          counterOnly,
-          markerCount,
+          counterOnly:
+            displayCounterOnly,
+          markerCount:
+            displayMarkerCount,
           colors:
             Array.isArray(data.colors)
               ? data.colors
@@ -675,8 +789,10 @@ function handleRuntimeAction(
           guardConfirmationId,
           updateExisting: true,
           aggregateMarkers,
-          counterOnly,
-          markerCount,
+          counterOnly:
+            displayCounterOnly,
+          markerCount:
+            displayMarkerCount,
           reuseCompleted: false,
           contextSnapshot:
             data.context || null,
@@ -687,7 +803,8 @@ function handleRuntimeAction(
           delayedMemoryReport:
             data.delayed_memory_report || null,
           completed:
-            !aggregateMarkers,
+            !aggregateMarkers
+            || completeImmediately,
           detail: runtimeDetail,
           displayName,
           sceneEffect,
@@ -709,7 +826,10 @@ function handleRuntimeAction(
     }
 
     if (
-      !aggregateMarkers
+      (
+        !aggregateMarkers
+        || completeImmediately
+      )
       && window.fadeRuntimeAction
     ) {
       window.fadeRuntimeAction(
@@ -724,6 +844,13 @@ function handleRuntimeAction(
     return;
   }
 
+  if (
+    counterOnly
+    && splitPayloadDistinctMarkers
+  ) {
+    return;
+  }
+
   if (!displayText.trim()) {
     return;
   }
@@ -735,8 +862,10 @@ function handleRuntimeAction(
       id: actionDisplayId,
       guardConfirmationId,
       aggregateMarkers,
-      counterOnly,
-      markerCount,
+      counterOnly:
+        displayCounterOnly,
+      markerCount:
+        displayMarkerCount,
       reuseCompleted:
         counterOnly,
       reviveCompleted:
@@ -751,7 +880,7 @@ function handleRuntimeAction(
       preserveLabel:
         cancelledByUser
         || (
-          counterOnly
+          displayCounterOnly
           && closeTag
         ),
       fallbackToLatestActive:

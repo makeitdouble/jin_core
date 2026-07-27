@@ -748,6 +748,59 @@ async def ask_brain_stream(
                 RUNTIME_ACTION_JIN_COLOR
             ] = applied_colors
 
+        append_delayed_memory_entry = action_counter.get(
+            RUNTIME_ACTION_APPEND_DELAYED_MEMORY
+        )
+
+        if (
+            append_delayed_memory_entry is not None
+            and append_delayed_memory_entry.payloads
+        ):
+            from utils.brain_client_utils import (
+                get_delayed_memory_reports,
+                normalize_delayed_memory_action_id,
+            )
+
+            reports = get_delayed_memory_reports(
+                context
+            )
+            append_payloads = []
+
+            for payload in append_delayed_memory_entry.payloads:
+                normalized_payload = str(
+                    payload
+                    or ""
+                ).strip()
+                report_id = normalize_delayed_memory_action_id(
+                    normalized_payload
+                )
+                report = reports.get(
+                    report_id,
+                )
+                title = (
+                    str(
+                        report.get(
+                            "title",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+                    if isinstance(
+                        report,
+                        dict,
+                    )
+                    else ""
+                )
+                append_payloads.append(
+                    title
+                    or normalized_payload
+                    or report_id
+                )
+
+            display_payloads[
+                RUNTIME_ACTION_APPEND_DELAYED_MEMORY
+            ] = append_payloads
+
         return display_payloads
 
     async def emit_action_counter_updates(

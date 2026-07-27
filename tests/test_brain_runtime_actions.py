@@ -1057,6 +1057,112 @@ class BrainRuntimeActionTests(unittest.TestCase):
             }],
         )
 
+    def test_payload_distinct_active_memory_history_uses_separate_parts(self):
+
+        context = SimpleNamespace(
+            runtime_session_action_history=[],
+            runtime_current_turn_id="turn-1",
+        )
+
+        replace_session_action_history_since(
+            context,
+            0,
+            [{
+                "name": "SAVE_ACTIVE_MEMORY",
+                "marker_count": 2,
+                "payloads": [
+                    'CONDITIONS: слово "кулёк"',
+                    'CONDITIONS: слово "кукушка"',
+                ],
+            }],
+        )
+
+        self.assertEqual(
+            context.runtime_session_action_history[0]["parts"],
+            [
+                {
+                    "text": "SAVE_ACTIVE_MEMORY",
+                    "detail": 'CONDITIONS: слово "кулёк"',
+                },
+                {
+                    "text": "SAVE_ACTIVE_MEMORY",
+                    "detail": 'CONDITIONS: слово "кукушка"',
+                },
+            ],
+        )
+
+    def test_payload_distinct_save_delayed_history_uses_separate_parts(self):
+
+        context = SimpleNamespace(
+            runtime_session_action_history=[],
+            runtime_current_turn_id="turn-1",
+        )
+
+        replace_session_action_history_since(
+            context,
+            0,
+            [{
+                "name": "SAVE_DELAYED_MEMORY_CONTENT",
+                "marker_count": 2,
+                "payloads": [
+                    '{"report_1":{"title":"First report","body":"one"}}',
+                    '{"report_2":{"title":"Second report","body":"two"}}',
+                ],
+            }],
+        )
+
+        self.assertEqual(
+            context.runtime_session_action_history[0]["parts"],
+            [
+                {
+                    "text": "SAVE_DELAYED_MEMORY_CONTENT",
+                    "detail": "First report",
+                },
+                {
+                    "text": "SAVE_DELAYED_MEMORY_CONTENT",
+                    "detail": "Second report",
+                },
+            ],
+        )
+
+    def test_append_delayed_history_splits_by_raw_id(self):
+
+        context = SimpleNamespace(
+            runtime_session_action_history=[],
+            runtime_current_turn_id="turn-1",
+        )
+
+        replace_session_action_history_since(
+            context,
+            0,
+            [{
+                "name": "APPEND_DELAYED_MEMORY",
+                "marker_count": 2,
+                "payloads": [
+                    "Shared title",
+                    "Shared title",
+                ],
+                "raw_payloads": [
+                    "abc123",
+                    "def456",
+                ],
+            }],
+        )
+
+        self.assertEqual(
+            context.runtime_session_action_history[0]["parts"],
+            [
+                {
+                    "text": "APPEND_DELAYED_MEMORY",
+                    "detail": "Shared title",
+                },
+                {
+                    "text": "APPEND_DELAYED_MEMORY",
+                    "detail": "Shared title",
+                },
+            ],
+        )
+
     def test_session_history_includes_saved_content_title(self):
 
         title = (

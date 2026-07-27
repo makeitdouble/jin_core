@@ -140,12 +140,19 @@ class RuntimeActionCounter:
                 entry,
                 payloads,
             )
+            raw_payloads = normalize_runtime_action_counter_payloads(
+                entry,
+                entry.payloads,
+            )
 
             marker_action = {
                 "name": entry.name,
                 "marker_count": entry.count,
                 "payloads": normalized_payloads,
             }
+
+            if raw_payloads:
+                marker_action["raw_payloads"] = raw_payloads
 
             if normalized_payloads:
                 marker_action["payload"] = (
@@ -294,6 +301,10 @@ async def emit_runtime_action_counter_updates(
             entry,
             payloads,
         )
+        raw_payloads = normalize_runtime_action_counter_payloads(
+            entry,
+            entry.payloads,
+        )
         payload = (
             normalized_payloads[-1]
             if normalized_payloads
@@ -328,6 +339,9 @@ async def emit_runtime_action_counter_updates(
             "aggregate_markers": True,
             "payloads": normalized_payloads,
         }
+
+        if raw_payloads:
+            event["raw_payloads"] = raw_payloads
 
         if entry.name == "JIN_COLOR":
             event["colors"] = normalized_payloads

@@ -2160,7 +2160,12 @@ function flushRuntimeActionsAfterResponse(
 
     if (entry.completed) {
       fadeRuntimeAction(
-        entry.action
+        entry.action,
+        {
+          id: entry.id || "",
+          sceneEffect:
+            entry.sceneEffect || "",
+        }
       );
     }
   });

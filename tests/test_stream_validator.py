@@ -165,6 +165,21 @@ def test_stream_validator_keeps_single_word_loop_instance_for_history():
     assert validator.last_failure_loop_preview == "wait"
 
 
+def test_stream_validator_stops_repeated_short_word_sequence():
+    validator = StreamValidator()
+
+    clean, is_valid = validator.filter_chunk(
+        '"запиши" or ' * 6
+    )
+
+    assert clean == ""
+    assert not is_valid
+    assert validator.last_failure_reason == (
+        "Repeated word sequence loop detected."
+    )
+    assert validator.last_failure_loop_preview == "запиши or"
+
+
 def test_stream_validator_allows_short_repeated_sentences():
     validator = StreamValidator()
 

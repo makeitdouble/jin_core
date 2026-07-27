@@ -746,6 +746,7 @@ def _build_session_action_marker_detail(
     if normalized_name in {
         "SAVE_ACTIVE_MEMORY",
         "IDLE",
+        "APPEND_DELAYED_MEMORY",
     }:
         return normalized_payload
 
@@ -767,6 +768,13 @@ def _build_session_action_marker_detail(
     return _find_saved_action_title(
         parsed_payload
     )
+
+
+PAYLOAD_DISTINCT_SESSION_ACTIONS = {
+    "SAVE_ACTIVE_MEMORY",
+    "SAVE_DELAYED_MEMORY_CONTENT",
+    "APPEND_DELAYED_MEMORY",
+}
 
 
 def _unique_session_action_values(
@@ -792,6 +800,103 @@ def _unique_session_action_values(
     return unique_values
 
 
+def _build_payload_distinct_session_action_parts(
+    group: dict,
+) -> list[dict]:
+
+    action_name = group["action_name"]
+    payload_groups = {}
+    payload_entries = group.get(
+        "payload_entries",
+        [],
+    )
+
+    if not payload_entries:
+        payload_entries = [
+            {
+                "key": payload,
+                "display": payload,
+            }
+            for payload in group["payloads"]
+        ]
+
+    for payload_entry in payload_entries:
+        payload_key = str(
+            payload_entry.get(
+                "key",
+                "",
+            )
+            or ""
+        ).strip()
+        normalized_payload = str(
+            payload_entry.get(
+                "display",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if not payload_key:
+            payload_key = normalized_payload
+
+        if (
+            not payload_key
+            and not normalized_payload
+        ):
+            continue
+
+        payload_group = payload_groups.setdefault(
+            payload_key,
+            {
+                "count": 0,
+                "details": [],
+                "fallback": normalized_payload,
+            },
+        )
+        payload_group["count"] += 1
+
+        detail = _build_session_action_marker_detail(
+            action_name,
+            normalized_payload,
+        )
+        if detail:
+            payload_group["details"].append(
+                detail
+            )
+
+    if len(payload_groups) <= 1:
+        return []
+
+    parts = []
+
+    for payload_key, payload_group in payload_groups.items():
+        details = _unique_session_action_values(
+            payload_group["details"]
+        )
+        part = {
+            "text": action_name,
+        }
+
+        if details:
+            part["detail"] = ", ".join(
+                details
+            )
+        else:
+            part["detail"] = (
+                payload_group["fallback"]
+                or payload_key
+            )
+
+        parts.append(
+            _with_session_action_marker_count(
+                part,
+                payload_group["count"],
+            )
+        )
+
+    return parts
+
+
 def _build_formatted_session_action_marker_parts(
     marker_actions,
 ) -> list[dict]:
@@ -801,6 +906,7 @@ def _build_formatted_session_action_marker_parts(
     for marker_action in marker_actions or []:
         marker_count = 1
         marker_payloads = []
+        marker_identity_payloads = []
         marker_colors = []
 
         if isinstance(
@@ -817,6 +923,10 @@ def _build_formatted_session_action_marker_parts(
             )
             raw_payloads = marker_action.get(
                 "payloads",
+                [],
+            )
+            raw_identity_payloads = marker_action.get(
+                "raw_payloads",
                 [],
             )
             marker_colors = _normalize_session_action_display_colors(
@@ -843,6 +953,25 @@ def _build_formatted_session_action_marker_parts(
                     if str(payload or "").strip()
                 ]
 
+            if isinstance(
+                raw_identity_payloads,
+                (str, bytes),
+            ):
+                marker_identity_payloads = [
+                    str(raw_identity_payloads),
+                ]
+            elif isinstance(
+                raw_identity_payloads,
+                (list, tuple),
+            ):
+                marker_identity_payloads = [
+                    str(payload or "").strip()
+                    for payload in raw_identity_payloads
+                    if str(payload or "").strip()
+                ]
+            else:
+                marker_identity_payloads = []
+
             if not marker_payloads:
                 normalized_payload = str(
                     action_payload
@@ -852,6 +981,11 @@ def _build_formatted_session_action_marker_parts(
                     marker_payloads = [
                         normalized_payload,
                     ]
+
+            if not marker_identity_payloads:
+                marker_identity_payloads = list(
+                    marker_payloads
+                )
 
             raw_marker_count = marker_action.get(
                 "marker_count",
@@ -896,6 +1030,11 @@ def _build_formatted_session_action_marker_parts(
         else:
             action_name = marker_action
 
+        if not marker_identity_payloads:
+            marker_identity_payloads = list(
+                marker_payloads
+            )
+
         normalized_name = str(
             action_name
             or ""
@@ -910,6 +1049,7 @@ def _build_formatted_session_action_marker_parts(
                 "action_name": normalized_name,
                 "count": 0,
                 "payloads": [],
+                "payload_entries": [],
                 "colors": [],
                 "details": [],
             },
@@ -917,6 +1057,18 @@ def _build_formatted_session_action_marker_parts(
         group["count"] += marker_count
         group["payloads"].extend(
             marker_payloads
+        )
+        group["payload_entries"].extend(
+            {
+                "key": marker_identity_payloads[index],
+                "display": payload,
+            }
+            for index, payload in enumerate(
+                marker_payloads
+            )
+            if index < len(
+                marker_identity_payloads
+            )
         )
 
         if (
@@ -948,6 +1100,20 @@ def _build_formatted_session_action_marker_parts(
 
     for group in action_groups.values():
         action_name = group["action_name"]
+        payload_distinct_parts = (
+            _build_payload_distinct_session_action_parts(
+                group
+            )
+            if action_name in PAYLOAD_DISTINCT_SESSION_ACTIONS
+            else []
+        )
+
+        if payload_distinct_parts:
+            formatted_parts.extend(
+                payload_distinct_parts
+            )
+            continue
+
         count = group["count"]
         payloads = _unique_session_action_values(
             group["payloads"]

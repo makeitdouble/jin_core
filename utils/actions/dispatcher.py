@@ -203,7 +203,7 @@ async def apply_runtime_action_calls(
     )
     resolve_active_memory_ids_seen = set()
     resolve_active_memory_failures_seen = set()
-    save_delayed_memory_seen = False
+    save_delayed_memory_seen = set()
     list_delayed_memory_seen = False
     list_skills_seen = False
     hide_skills_seen = False
@@ -442,7 +442,12 @@ async def apply_runtime_action_calls(
                     ),
                     "title": rejected_title,
                 })
-                save_delayed_memory_seen = True
+                save_delayed_memory_seen.add(
+                    str(
+                        action.payload
+                        or ""
+                    ).strip()
+                )
 
             rejected_action_events[id(action)] = rejection_event
             continue
@@ -509,7 +514,12 @@ async def apply_runtime_action_calls(
             continue
 
         if action.name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT:
-            if save_delayed_memory_seen:
+            save_delayed_memory_key = str(
+                action.payload
+                or ""
+            ).strip()
+
+            if save_delayed_memory_key in save_delayed_memory_seen:
                 continue
 
             if not build_delayed_memory_report(
@@ -518,7 +528,9 @@ async def apply_runtime_action_calls(
             ):
                 continue
 
-            save_delayed_memory_seen = True
+            save_delayed_memory_seen.add(
+                save_delayed_memory_key
+            )
             accepted_action_names.add(
                 action_event_name
             )

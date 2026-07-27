@@ -40,6 +40,8 @@ TRAILING_ARTIFACTS = [
 
 WORD_WINDOW_SIZE = 30
 MAX_REPEAT_WORDS = 8
+MAX_REPEAT_WORD_SEQUENCE_SIZE = 6
+MAX_REPEAT_WORD_SEQUENCE_REPETITIONS = 6
 MAX_REPEAT_SENTENCES = 5
 MAX_SENTENCE_LOOP_SEQUENCE_SIZE = 16
 SENTENCE_HISTORY_SIZE = (
@@ -534,7 +536,9 @@ class StreamValidator:
             if word == "":
                 continue
 
-            clean_word = word.lower()
+            clean_word = word.lower().strip(
+                " \t\r\n`*_~\"'“”‘’.,:;!?()[]{}<>"
+            )
 
             if not clean_word:
                 continue
@@ -578,6 +582,61 @@ class StreamValidator:
                     )
 
                     return False
+
+            max_sequence_size = min(
+                MAX_REPEAT_WORD_SEQUENCE_SIZE,
+                len(self.recent_words) // 2,
+            )
+
+            for sequence_size in range(
+                2,
+                max_sequence_size + 1,
+            ):
+                required_words = (
+                    sequence_size
+                    * MAX_REPEAT_WORD_SEQUENCE_REPETITIONS
+                )
+
+                if len(self.recent_words) < required_words:
+                    continue
+
+                recent_sequence = self.recent_words[
+                    -sequence_size:
+                ]
+                window = self.recent_words[
+                    -required_words:
+                ]
+                repeated_sequence = all(
+                    window[index:index + sequence_size]
+                    == recent_sequence
+                    for index in range(
+                        0,
+                        required_words,
+                        sequence_size,
+                    )
+                )
+
+                if not repeated_sequence:
+                    continue
+
+                preview = " ".join(
+                    window
+                )
+                loop_preview = " ".join(
+                    recent_sequence
+                )
+
+                self.last_failure_reason = (
+                    "Repeated word sequence loop detected."
+                )
+                self.last_failure_preview = build_preview(
+                    preview
+                )
+                self.last_failure_loop_preview = build_preview(
+                    loop_preview
+                )
+
+                return False
 
         return True
 
