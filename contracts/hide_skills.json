@@ -7,7 +7,7 @@
     "triggers": [],
     "blockers": [],
     "effects": {
-      "emit_followup": true
+      "emit_followup": false
     },
     "rules": [
       "Emit <HIDE_SKILLS> to hide the list of skills; all appended skills will remain in the context.",

@@ -462,6 +462,58 @@ class BrainPromptMemoryTests(
                 history,
             )
 
+    def test_current_sequence_expands_memory_action_payloads_without_counts(self):
+
+            context = SimpleNamespace(
+                runtime_current_turn_id="turn_000002",
+                runtime_turn_started_at=940.0,
+                runtime_action_sequence_turn_ids=[
+                    "turn_000002",
+                ],
+                runtime_session_action_history=[
+                    {
+                        "text": "RESOLVE_ACTIVE_MEMORY, RESOLVE_ACTIVE_MEMORY",
+                        "parts": [
+                            {
+                                "text": "RESOLVE_ACTIVE_MEMORY",
+                                "detail": "word: кукушка",
+                                "id": "enrrqo",
+                            },
+                            {
+                                "text": "RESOLVE_ACTIVE_MEMORY",
+                                "detail": "word: кулёк",
+                                "id": "yfpywn",
+                            },
+                        ],
+                        "created_at": 998.0,
+                        "runtime_turn_id": "turn_000002",
+                    },
+                ],
+            )
+
+            with patch(
+                "utils.context.context_exports.time.time",
+                return_value=1000.0,
+            ):
+                history = build_session_actions_history_context(
+                    context,
+                    current_sequence=True,
+                )
+
+            self.assertIn(
+                (
+                    "Step 1 - RESOLVE_ACTIVE_MEMORY - "
+                    "id: enrrqo; content: word: кукушка, "
+                    "RESOLVE_ACTIVE_MEMORY - id: yfpywn; "
+                    "content: word: кулёк ( 2s ago )"
+                ),
+                history,
+            )
+            self.assertNotIn(
+                "count:",
+                history,
+            )
+
     def test_completed_sequence_is_wrapped_in_session_history(self):
 
             context = SimpleNamespace(

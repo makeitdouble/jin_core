@@ -314,6 +314,13 @@ def _normalize_session_action_display_parts(
                 )
                 or ""
             ).strip()
+            part_id = str(
+                part.get(
+                    "id",
+                    "",
+                )
+                or ""
+            ).strip()
             colors = _normalize_session_action_display_colors(
                 part.get(
                     "colors",
@@ -342,6 +349,7 @@ def _normalize_session_action_display_parts(
                 or ""
             ).strip()
             detail = ""
+            part_id = ""
             colors = []
             count = 0
 
@@ -354,6 +362,9 @@ def _normalize_session_action_display_parts(
 
         if detail:
             normalized_part["detail"] = detail
+
+        if part_id:
+            normalized_part["id"] = part_id
 
         if colors:
             normalized_part["colors"] = colors
@@ -745,8 +756,10 @@ def _build_session_action_marker_detail(
 
     if normalized_name in {
         "SAVE_ACTIVE_MEMORY",
+        "RESOLVE_ACTIVE_MEMORY",
         "IDLE",
         "APPEND_DELAYED_MEMORY",
+        "REMOVE_DELAYED_MEMORY",
     }:
         return normalized_payload
 
@@ -772,8 +785,10 @@ def _build_session_action_marker_detail(
 
 PAYLOAD_DISTINCT_SESSION_ACTIONS = {
     "SAVE_ACTIVE_MEMORY",
+    "RESOLVE_ACTIVE_MEMORY",
     "SAVE_DELAYED_MEMORY_CONTENT",
     "APPEND_DELAYED_MEMORY",
+    "REMOVE_DELAYED_MEMORY",
 }
 
 
@@ -886,6 +901,19 @@ def _build_payload_distinct_session_action_parts(
                 payload_group["fallback"]
                 or payload_key
             )
+
+        if (
+            action_name in {
+                "APPEND_DELAYED_MEMORY",
+                "REMOVE_DELAYED_MEMORY",
+            }
+            and payload_key
+            and payload_key != part.get(
+                "detail",
+                "",
+            )
+        ):
+            part["id"] = payload_key
 
         parts.append(
             _with_session_action_marker_count(

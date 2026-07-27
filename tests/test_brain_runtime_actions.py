@@ -1091,6 +1091,40 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
+    def test_payload_distinct_resolve_active_memory_history_uses_separate_parts(self):
+
+        context = SimpleNamespace(
+            runtime_session_action_history=[],
+            runtime_current_turn_id="turn-1",
+        )
+
+        replace_session_action_history_since(
+            context,
+            0,
+            [{
+                "name": "RESOLVE_ACTIVE_MEMORY",
+                "marker_count": 2,
+                "payloads": [
+                    "enrrqo",
+                    "yfpywn",
+                ],
+            }],
+        )
+
+        self.assertEqual(
+            context.runtime_session_action_history[0]["parts"],
+            [
+                {
+                    "text": "RESOLVE_ACTIVE_MEMORY",
+                    "detail": "enrrqo",
+                },
+                {
+                    "text": "RESOLVE_ACTIVE_MEMORY",
+                    "detail": "yfpywn",
+                },
+            ],
+        )
+
     def test_payload_distinct_save_delayed_history_uses_separate_parts(self):
 
         context = SimpleNamespace(
@@ -1155,10 +1189,52 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 {
                     "text": "APPEND_DELAYED_MEMORY",
                     "detail": "Shared title",
+                    "id": "abc123",
                 },
                 {
                     "text": "APPEND_DELAYED_MEMORY",
                     "detail": "Shared title",
+                    "id": "def456",
+                },
+            ],
+        )
+
+    def test_remove_delayed_history_splits_by_raw_id(self):
+
+        context = SimpleNamespace(
+            runtime_session_action_history=[],
+            runtime_current_turn_id="turn-1",
+        )
+
+        replace_session_action_history_since(
+            context,
+            0,
+            [{
+                "name": "REMOVE_DELAYED_MEMORY",
+                "marker_count": 2,
+                "payloads": [
+                    "First report",
+                    "Second report",
+                ],
+                "raw_payloads": [
+                    "abc123",
+                    "def456",
+                ],
+            }],
+        )
+
+        self.assertEqual(
+            context.runtime_session_action_history[0]["parts"],
+            [
+                {
+                    "text": "REMOVE_DELAYED_MEMORY",
+                    "detail": "First report",
+                    "id": "abc123",
+                },
+                {
+                    "text": "REMOVE_DELAYED_MEMORY",
+                    "detail": "Second report",
+                    "id": "def456",
                 },
             ],
         )

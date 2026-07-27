@@ -592,9 +592,9 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                 telemetry_counts[:4],
                 [
                     4,
-                    6,
-                    8,
-                    10,
+                    14,
+                    16,
+                    18,
                 ],
             )
 

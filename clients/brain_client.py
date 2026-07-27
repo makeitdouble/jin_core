@@ -748,13 +748,25 @@ async def ask_brain_stream(
                 RUNTIME_ACTION_JIN_COLOR
             ] = applied_colors
 
-        append_delayed_memory_entry = action_counter.get(
-            RUNTIME_ACTION_APPEND_DELAYED_MEMORY
+        delayed_memory_display_actions = (
+            RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
+            RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
         )
 
-        if (
-            append_delayed_memory_entry is not None
-            and append_delayed_memory_entry.payloads
+        delayed_memory_entries = [
+            (
+                action_name,
+                action_counter.get(
+                    action_name
+                ),
+            )
+            for action_name in delayed_memory_display_actions
+        ]
+
+        if any(
+            entry is not None
+            and entry.payloads
+            for _, entry in delayed_memory_entries
         ):
             from utils.brain_client_utils import (
                 get_delayed_memory_reports,
@@ -764,42 +776,50 @@ async def ask_brain_stream(
             reports = get_delayed_memory_reports(
                 context
             )
-            append_payloads = []
 
-            for payload in append_delayed_memory_entry.payloads:
-                normalized_payload = str(
-                    payload
-                    or ""
-                ).strip()
-                report_id = normalize_delayed_memory_action_id(
-                    normalized_payload
-                )
-                report = reports.get(
-                    report_id,
-                )
-                title = (
-                    str(
-                        report.get(
-                            "title",
-                            "",
-                        )
+            for action_name, entry in delayed_memory_entries:
+                if (
+                    entry is None
+                    or not entry.payloads
+                ):
+                    continue
+
+                display_values = []
+
+                for payload in entry.payloads:
+                    normalized_payload = str(
+                        payload
                         or ""
                     ).strip()
-                    if isinstance(
-                        report,
-                        dict,
+                    report_id = normalize_delayed_memory_action_id(
+                        normalized_payload
                     )
-                    else ""
-                )
-                append_payloads.append(
-                    title
-                    or normalized_payload
-                    or report_id
-                )
+                    report = reports.get(
+                        report_id,
+                    )
+                    title = (
+                        str(
+                            report.get(
+                                "title",
+                                "",
+                            )
+                            or ""
+                        ).strip()
+                        if isinstance(
+                            report,
+                            dict,
+                        )
+                        else ""
+                    )
+                    display_values.append(
+                        title
+                        or normalized_payload
+                        or report_id
+                    )
 
-            display_payloads[
-                RUNTIME_ACTION_APPEND_DELAYED_MEMORY
-            ] = append_payloads
+                display_payloads[
+                    action_name
+                ] = display_values
 
         return display_payloads
 

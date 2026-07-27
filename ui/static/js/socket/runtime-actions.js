@@ -317,8 +317,10 @@ function buildRuntimeActionDisplayText(
 
 const PAYLOAD_DISTINCT_RUNTIME_ACTIONS = new Set([
   "save_active_memory",
+  "resolve_active_memory",
   "save_delayed_memory_content",
   "append_delayed_memory",
+  "remove_delayed_memory",
 ]);
 
 function normalizeRuntimeActionPayloadIdentity(value) {
@@ -573,7 +575,7 @@ function handleRuntimeAction(
       "done",
     ].includes(status)
     && !counterOnly
-    && action === "save_active_memory";
+    && PAYLOAD_DISTINCT_RUNTIME_ACTIONS.has(action);
 
   const actionDisplayId =
     data.counter_id

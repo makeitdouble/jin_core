@@ -7,6 +7,7 @@ from utils.brain_client_utils import (
     indent_xml,
 )
 from utils.session_actions_history import (
+    PAYLOAD_DISTINCT_SESSION_ACTIONS,
     format_session_action_display_parts,
     get_current_action_sequence_started_at,
     get_current_action_sequence_turn_id,
@@ -111,6 +112,118 @@ def _is_current_sequence_action(
     )
 
 
+def _format_memory_action_context_part(
+    part: dict,
+) -> str:
+
+    action = str(
+        part.get(
+            "text",
+            "",
+        )
+        or ""
+    ).strip()
+    normalized_action = action.upper()
+    detail = str(
+        part.get(
+            "detail",
+            "",
+        )
+        or ""
+    ).strip()
+    part_id = str(
+        part.get(
+            "id",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if normalized_action not in PAYLOAD_DISTINCT_SESSION_ACTIONS:
+        return ""
+
+    if (
+        not part_id
+        and not detail
+    ):
+        return ""
+
+    if part_id and detail and part_id != detail:
+        detail_label = (
+            "title"
+            if "DELAYED_MEMORY" in normalized_action
+            else "content"
+        )
+        return (
+            f"{action} - id: {part_id}; "
+            f"{detail_label}: {detail}"
+        )
+
+    if normalized_action in {
+        "SAVE_ACTIVE_MEMORY",
+        "SAVE_DELAYED_MEMORY_CONTENT",
+    }:
+        if detail:
+            return f"{action} - {detail}"
+
+        return action
+
+    if normalized_action in {
+        "RESOLVE_ACTIVE_MEMORY",
+        "REMOVE_DELAYED_MEMORY",
+    }:
+        resolved_id = part_id or detail
+
+        if resolved_id:
+            return f"{action} - id: {resolved_id}"
+
+    if detail:
+        return f"{action} - {detail}"
+
+    return action
+
+
+def _format_session_action_context_parts(
+    parts,
+    *,
+    fallback_text: str,
+) -> str:
+
+    context_parts = []
+
+    for part in parts or []:
+        memory_part = _format_memory_action_context_part(
+            part
+        )
+
+        if memory_part:
+            context_parts.append(
+                memory_part
+            )
+            continue
+
+        formatted = format_session_action_display_parts(
+            [
+                part,
+            ],
+        )
+
+        if formatted:
+            context_parts.append(
+                formatted
+            )
+
+    if context_parts:
+        return ", ".join(
+            context_parts
+        )
+
+    return str(
+        fallback_text
+        or ""
+    ).strip()
+
+
 def build_session_actions_history_context(
     context=None,
     *,
@@ -212,7 +325,7 @@ def build_session_actions_history_context(
             )
             open_sequence_turn_id = ""
 
-        text = format_session_action_display_parts(
+        text = _format_session_action_context_parts(
             item.get(
                 "parts",
                 [],

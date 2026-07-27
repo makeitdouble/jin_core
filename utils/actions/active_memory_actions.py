@@ -326,6 +326,14 @@ async def apply_resolve_active_memory_actions(
                 RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
             ),
             "text": "Active memory resolved",
+            "payload": active_memory_id,
+            "detail": (
+                f"id: {active_memory_id}; "
+                "content: "
+                + normalize_active_memory_content_for_duplicate_check(
+                    resolved_record
+                )
+            ),
         }))
         await emit(with_action_context({
             "type": "runtime_action",
@@ -337,6 +345,14 @@ async def apply_resolve_active_memory_actions(
             ),
             "close_tag": runtime_action_has_close_tag(
                 RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+            ),
+            "payload": active_memory_id,
+            "detail": (
+                f"id: {active_memory_id}; "
+                "content: "
+                + normalize_active_memory_content_for_duplicate_check(
+                    resolved_record
+                )
             ),
         }))
 

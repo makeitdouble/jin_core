@@ -293,14 +293,23 @@ class RuntimeStream:
         estimated_total_tokens = (
             self.estimate_live_tokens()
         )
+        estimated_output_tokens = max(
+            0,
+            estimated_total_tokens
+            - estimated_context_tokens,
+        )
 
         context_tokens = (
             prompt_tokens
             or estimated_context_tokens
         )
+        estimated_total_with_context = (
+            context_tokens
+            + estimated_output_tokens
+        )
         total_tokens = max(
             provider_total_tokens,
-            estimated_total_tokens,
+            estimated_total_with_context,
             context_tokens,
         )
 
@@ -344,12 +353,31 @@ class RuntimeStream:
         if not self.is_brain_context():
             return
 
-        context_tokens = (
-            self.estimate_input_tokens()
+        prompt_tokens = getattr(
+            self.stream,
+            "prompt_tokens",
+            0,
         )
 
-        total_tokens = (
+        context_tokens = (
+            prompt_tokens
+            or self.estimate_input_tokens()
+        )
+
+        estimated_context_tokens = (
+            self.estimate_input_tokens()
+        )
+        estimated_total_tokens = (
             self.estimate_live_tokens()
+        )
+        estimated_output_tokens = max(
+            0,
+            estimated_total_tokens
+            - estimated_context_tokens,
+        )
+        total_tokens = (
+            context_tokens
+            + estimated_output_tokens
         )
 
         if not total_tokens:

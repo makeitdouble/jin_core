@@ -7,7 +7,7 @@
     "triggers": [],
     "blockers": [],
     "effects": {
-      "emit_followup": true
+      "emit_followup": false
     },
     "rules": [
       "DELAYED MEMORY ACTIONS:",

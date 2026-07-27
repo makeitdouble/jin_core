@@ -5,9 +5,49 @@ from utils.token_usage import (
     format_token_usage_summary,
     record_token_usage,
 )
+from utils.tokens import (
+    estimate_stream_input_tokens,
+    estimate_tokens,
+)
 
 
 class TokenUsageTests(unittest.TestCase):
+
+    def test_stream_estimate_uses_conservative_context_size(self):
+
+        prompt = (
+            "active_runtime_memory_entry "
+            * 200
+        )
+
+        self.assertLess(
+            estimate_tokens(
+                prompt
+            ),
+            estimate_stream_input_tokens(
+                None,
+                prompt_text=prompt,
+            ),
+        )
+        self.assertEqual(
+            estimate_stream_input_tokens(
+                None,
+                prompt_text=prompt,
+            ),
+            1400,
+        )
+
+    def test_stream_estimate_keeps_symbol_heavy_prompt_word_based(self):
+
+        prompt = "* " * 7000
+
+        self.assertEqual(
+            estimate_stream_input_tokens(
+                None,
+                prompt_text=prompt,
+            ),
+            7000,
+        )
 
     def test_format_token_usage_summary_sums_flow_events(self):
 

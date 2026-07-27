@@ -42,12 +42,41 @@ def estimate_optional_tokens(
     )
 
 
+def estimate_stream_text_tokens(
+        text: str,
+) -> int:
+
+    if not text:
+        return 0
+
+    word_estimate = len(
+        text.split()
+    )
+    char_estimate = ceil(
+        len(text) / 4
+    )
+
+    if word_estimate <= 1:
+        return max(
+            1,
+            char_estimate,
+        )
+
+    if char_estimate >= word_estimate * 2:
+        return char_estimate
+
+    return max(
+        1,
+        word_estimate,
+    )
+
+
 def estimate_stream_input_tokens(
         stream,
         *,
         prompt_text: str = "",
 ) -> int:
-    return estimate_optional_tokens(
+    return estimate_stream_text_tokens(
         prompt_text
     )
 
@@ -57,8 +86,22 @@ def estimate_stream_live_tokens(
         *,
         prompt_text: str = "",
 ) -> int:
-    return estimate_stream_input_tokens(stream, prompt_text=prompt_text, ) + estimate_optional_tokens(
-        getattr(stream, "response", "", )) + estimate_optional_tokens(getattr(stream, "reasoning", "", ))
+    return estimate_stream_input_tokens(
+        stream,
+        prompt_text=prompt_text,
+    ) + estimate_stream_text_tokens(
+        getattr(
+            stream,
+            "response",
+            "",
+        )
+    ) + estimate_stream_text_tokens(
+        getattr(
+            stream,
+            "reasoning",
+            "",
+        )
+    )
 
 
 def translation_token_limit(
