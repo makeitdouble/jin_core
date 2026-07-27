@@ -4,7 +4,6 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
 
 from utils.context.context_exports import (
     build_runtime_xml,
@@ -43,6 +42,7 @@ from utils.actions import (
 from runtime.runtime_context import (
     DEFAULT_JIN_COLOR,
 )
+from tests.helpers.runtime_actions import patch_asset_roots
 
 
 
@@ -132,18 +132,6 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
 
 
 class BrainRuntimeActionTests(unittest.TestCase):
-
-    def patch_asset_roots(self, root: Path):
-        assets_root = root / "assets"
-        return (
-            patch("utils.assets_utils.PROJECT_ROOT", root),
-            patch("utils.assets_utils.ASSETS_ROOT", assets_root),
-            patch("utils.assets_utils.SKILLS_ROOT", assets_root / "skills"),
-            patch("utils.assets_utils.WILDCARDS_ROOT", assets_root / "wildcards"),
-            patch("utils.assets_utils.PROMPTS_ROOT", assets_root / "prompts"),
-            patch("utils.assets_utils.TEMPLATES_ROOT", assets_root / "templates"),
-            patch("utils.assets_utils.OUTPUTS_ROOT", assets_root / "outputs"),
-        )
 
     def test_brain_system_prompt_keeps_runtime_rule_sentences_separated(self):
 
@@ -1640,7 +1628,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as temp_dir:
                 root = Path(temp_dir)
                 with contextlib.ExitStack() as stack:
-                    for patcher in self.patch_asset_roots(root):
+                    for patcher in patch_asset_roots(root):
                         stack.enter_context(patcher)
 
                     context = Context()
@@ -1760,7 +1748,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                         })
 
                 with contextlib.ExitStack() as stack:
-                    for patcher in self.patch_asset_roots(root):
+                    for patcher in patch_asset_roots(root):
                         stack.enter_context(patcher)
 
                     context = Context()

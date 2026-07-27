@@ -32,17 +32,23 @@ def legacy_internal_action_marker(marker: str) -> str:
     )
 
 
+def patch_asset_roots(root: Path):
+    assets_root = root / "assets"
+    return (
+        patch("utils.assets_utils.PROJECT_ROOT", root),
+        patch("utils.assets_utils.ASSETS_ROOT", assets_root),
+        patch("utils.assets_utils.SKILLS_ROOT", assets_root / "skills"),
+        patch("utils.assets_utils.WILDCARDS_ROOT", assets_root / "wildcards"),
+        patch("utils.assets_utils.PROMPTS_ROOT", assets_root / "prompts"),
+        patch("utils.assets_utils.TEMPLATES_ROOT", assets_root / "templates"),
+        patch("utils.assets_utils.OUTPUTS_ROOT", assets_root / "outputs"),
+    )
+
+
 class RuntimeActionTestCase(unittest.TestCase):
     def patch_asset_roots(self, root: Path):
-        assets_root = root / "assets"
-        return (
-            patch("utils.assets_utils.PROJECT_ROOT", root),
-            patch("utils.assets_utils.ASSETS_ROOT", assets_root),
-            patch("utils.assets_utils.SKILLS_ROOT", assets_root / "skills"),
-            patch("utils.assets_utils.WILDCARDS_ROOT", assets_root / "wildcards"),
-            patch("utils.assets_utils.PROMPTS_ROOT", assets_root / "prompts"),
-            patch("utils.assets_utils.TEMPLATES_ROOT", assets_root / "templates"),
-            patch("utils.assets_utils.OUTPUTS_ROOT", assets_root / "outputs"),
+        return patch_asset_roots(
+            root
         )
 
     def write_skill_fixture(

@@ -6,8 +6,8 @@ from contracts.rules_assembler import (
 )
 
 from .action_payload_utils import (
+    _build_internal_action_payload,
     _clean_internal_action_query,
-    _is_placeholder_internal_query,
 )
 from .active_memory_utils import generate_short_runtime_id
 from .regexp_utils import extract_private_marker_parts
@@ -104,14 +104,7 @@ def build_save_active_memory_payload(
     placeholder_payloads=(),
 ) -> str | None:
 
-    payload = _clean_internal_action_query(
-        query
-    )
-
-    if _is_placeholder_internal_query(
-        payload,
+    return _build_internal_action_payload(
+        query,
         placeholder_payloads,
-    ):
-        return None
-
-    return payload
+    )

@@ -1,4 +1,4 @@
-from .action_payload_utils import _clean_internal_action_query
+from .action_payload_utils import _build_internal_action_payload
 
 
 def build_create_todo_list_payload(
@@ -6,11 +6,8 @@ def build_create_todo_list_payload(
     placeholder_payloads=(),
 ) -> str | None:
 
-    payload = _clean_internal_action_query(
-        query
+    return _build_internal_action_payload(
+        query,
+        placeholder_payloads,
+        reject_placeholders=False,
     )
-
-    if not payload:
-        return None
-
-    return payload

@@ -83,6 +83,33 @@ def _clean_internal_action_query(
         "*_`~"
     ).strip()
 
+
+def _build_internal_action_payload(
+    query: str,
+    placeholder_payloads=(),
+    *,
+    reject_placeholders: bool = True,
+) -> str | None:
+
+    payload = _clean_internal_action_query(
+        query
+    )
+
+    if not payload:
+        return None
+
+    if (
+        reject_placeholders
+        and _is_placeholder_internal_query(
+            payload,
+            placeholder_payloads,
+        )
+    ):
+        return None
+
+    return payload
+
+
 def _is_placeholder_internal_query(
     query: str,
     placeholder_payloads=(),

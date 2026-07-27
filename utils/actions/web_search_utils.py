@@ -2,8 +2,7 @@ import json
 import re
 
 from .action_payload_utils import (
-    _clean_internal_action_query,
-    _is_placeholder_internal_query,
+    _build_internal_action_payload,
 )
 
 
@@ -12,14 +11,12 @@ def build_web_search_payload(
     placeholder_payloads=(),
 ) -> str | None:
 
-    query = _clean_internal_action_query(
-        query
-    )
-
-    if _is_placeholder_internal_query(
+    query = _build_internal_action_payload(
         query,
         placeholder_payloads,
-    ):
+    )
+
+    if query is None:
         return None
 
     return json.dumps(

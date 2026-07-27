@@ -20,6 +20,8 @@
   const MEMORY_DELETE_HOLD_MS = 1500;
   const THINK_RUNTIME_CITATION_HOVER_EVENT = "jin:think-runtime-citation-hover";
   const RUNTIME_MEMORY_LINE_HOVER_SOURCE_ID = "runtime-memory-line-hover";
+  const normalizeRuntimeCitationIdentity =
+      window.JinRuntime.normalizeCitationIdentity;
 
   const pinnedRuntimeMemorySnapshotIndexes = new Set();
 
@@ -921,18 +923,6 @@
     return true;
   }
 
-  function normalizeRuntimeCitationIdentity(value) {
-    const source = String(value || "");
-    const normalized = source.normalize
-      ? source.normalize("NFKC")
-      : source;
-
-    return normalized
-      .toLowerCase()
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-
   function dispatchRuntimeMemoryLineAvatarHover(
       row,
       active
@@ -1452,95 +1442,16 @@
       return;
     }
 
-    row.classList.add(
-        "runtime-memory-removable-row"
-    );
-
-    let deleteTimer = null;
-    let deleteCompleted = false;
-    let pointerDown = false;
-    let pointerId = null;
-
-    function clearDeleteTimer() {
-      if (!deleteTimer) {
-        return;
-      }
-
-      clearTimeout(
-          deleteTimer
-      );
-      deleteTimer = null;
-    }
-
-    function cancelPendingDelete() {
-      clearDeleteTimer();
-      pointerDown = false;
-
-      if (!deleteCompleted) {
-        setRuntimeMemoryRowPressVisual(
-            row,
-            false
-        );
-      }
-
-      deleteCompleted = false;
-      pointerId = null;
-    }
-
-    row.addEventListener("pointerdown", (event) => {
-      if (event.button !== 0) {
-        return;
-      }
-
-      pointerDown = true;
-      deleteCompleted = false;
-      pointerId = event.pointerId;
-
-      setRuntimeMemoryRowPressVisual(
-          row,
-          true
-      );
-
-      clearDeleteTimer();
-      deleteTimer = setTimeout(() => {
-        if (!pointerDown) {
-          return;
+    configureRuntimeMemoryDeleteHold(
+        row,
+        () => {
+          if (typeof deleteRuntimeMemoryLine === "function") {
+            deleteRuntimeMemoryLine(
+                index,
+                line
+            );
+          }
         }
-
-        deleteCompleted = true;
-        pointerDown = false;
-
-        if (typeof deleteRuntimeMemoryLine === "function") {
-          deleteRuntimeMemoryLine(
-              index,
-              line
-          );
-        }
-      }, MEMORY_DELETE_HOLD_MS);
-    });
-
-    row.addEventListener("pointerup", (event) => {
-      if (!pointerDown) {
-        return;
-      }
-
-      if (
-          pointerId !== null
-          && event.pointerId !== pointerId
-      ) {
-        return;
-      }
-
-      cancelPendingDelete();
-    });
-
-    row.addEventListener(
-        "pointercancel",
-        cancelPendingDelete
-    );
-    row.addEventListener(
-        "pointerleave",
-        cancelPendingDelete
     );
   }
 
@@ -1556,6 +1467,22 @@
       return;
     }
 
+    configureRuntimeMemoryDeleteHold(
+        row,
+        () => {
+          if (typeof deleteFactsMemoryField === "function") {
+            deleteFactsMemoryField(
+                line.key
+            );
+          }
+        }
+    );
+  }
+
+  function configureRuntimeMemoryDeleteHold(
+      row,
+      onDelete
+  ) {
     row.classList.add(
         "runtime-memory-removable-row"
     );
@@ -1614,10 +1541,8 @@
         deleteCompleted = true;
         pointerDown = false;
 
-        if (typeof deleteFactsMemoryField === "function") {
-          deleteFactsMemoryField(
-              line.key
-          );
+        if (typeof onDelete === "function") {
+          onDelete();
         }
       }, MEMORY_DELETE_HOLD_MS);
     });

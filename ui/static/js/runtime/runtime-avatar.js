@@ -43,6 +43,8 @@
   const avatarRoot = document.getElementById("jin-runtime-avatar");
   const factCheckTrigger = document.getElementById("fact-check-trigger");
   const settingsPanel = document.getElementById("settings-panel");
+  const normalizeRuntimeCitationIdentity =
+    window.JinRuntime.normalizeCitationIdentity;
 
   if (!avatarRoot) {
     return;
@@ -244,18 +246,6 @@
           value: line.slice(separatorIndex + 1).trim(),
         };
       });
-  }
-
-  function normalizeRuntimeCitationIdentity(value) {
-    const source = String(value || "");
-    const normalized = source.normalize
-      ? source.normalize("NFKC")
-      : source;
-
-    return normalized
-      .toLowerCase()
-      .replace(/\s+/g, " ")
-      .trim();
   }
 
   function getSnapshotLines(snapshot) {

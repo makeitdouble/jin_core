@@ -27,6 +27,9 @@ from utils.runtime_action_abort import (
     abort_active_runtime_actions,
     mark_runtime_action_started,
 )
+from tests.helpers.runtime_actions import patch_asset_roots
+
+
 class FakeEmitter:
 
     def __init__(self):
@@ -346,18 +349,6 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                     "text": "LIST_SKILLS",
                 },
             ],
-        )
-
-    def patch_asset_roots(self, root: Path):
-        assets_root = root / "assets"
-        return (
-            patch("utils.assets_utils.PROJECT_ROOT", root),
-            patch("utils.assets_utils.ASSETS_ROOT", assets_root),
-            patch("utils.assets_utils.SKILLS_ROOT", assets_root / "skills"),
-            patch("utils.assets_utils.WILDCARDS_ROOT", assets_root / "wildcards"),
-            patch("utils.assets_utils.PROMPTS_ROOT", assets_root / "prompts"),
-            patch("utils.assets_utils.TEMPLATES_ROOT", assets_root / "templates"),
-            patch("utils.assets_utils.OUTPUTS_ROOT", assets_root / "outputs"),
         )
 
     def build_limit_context(self):
@@ -1013,7 +1004,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             with contextlib.ExitStack() as stack:
-                for patcher in self.patch_asset_roots(root):
+                for patcher in patch_asset_roots(root):
                     stack.enter_context(patcher)
 
                 context = SimpleNamespace(
@@ -1130,7 +1121,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                 }
 
             with contextlib.ExitStack() as stack:
-                for patcher in self.patch_asset_roots(root):
+                for patcher in patch_asset_roots(root):
                     stack.enter_context(patcher)
 
                 context = SimpleNamespace(

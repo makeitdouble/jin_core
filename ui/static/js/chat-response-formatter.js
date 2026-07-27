@@ -596,6 +596,10 @@
 
   root.isEnabled =
     isEnabled;
+  root.normalizeJinColorMarker =
+    normalizeChatJinColorMarker;
+  root.buildJinColorMarkerHtml =
+    buildChatJinColorMarkerHtml;
   root.normalizeArrowTokens =
     normalizeArrowTokens;
   root.render =

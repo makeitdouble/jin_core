@@ -142,55 +142,6 @@ function escapeHtml(text) {
 
 }
 
-function normalizeChatJinColorMarker(value) {
-
-  const match =
-    String(
-      value || ""
-    ).trim().match(
-      /^#?([0-9a-f]{6}|[0-9a-f]{3})$/i
-    );
-
-  if (!match) {
-    return "";
-  }
-
-  let hex =
-    match[1].toLowerCase();
-
-  if (hex.length === 3) {
-    hex = hex
-      .split("")
-      .map((char) => char + char)
-      .join("");
-  }
-
-  return `#${hex}`;
-
-}
-
-function buildChatJinColorMarkerHtml(color) {
-
-  const normalizedColor =
-    normalizeChatJinColorMarker(
-      color
-    );
-
-  if (!normalizedColor) {
-    return escapeHtml(
-      `<JIN_COLOR: ${color}>`
-    );
-  }
-
-  return (
-    `<span class="jin-chat-runtime-marker jin-chat-jin-color-marker" title="${normalizedColor}">`
-    + `<span class="jin-chat-jin-color-swatch" style="--jin-chat-marker-color: ${normalizedColor}"></span>`
-    + "<span>JIN_COLOR</span>"
-    + "</span>"
-  );
-
-}
-
 function renderChatTextHtml(text) {
 
   const source =
@@ -210,9 +161,16 @@ function renderChatTextHtml(text) {
         match.index
       )
     );
-    rendered += buildChatJinColorMarkerHtml(
-      match[1]
-    );
+    rendered += (
+      window.JinResponseFormatter
+      && typeof window.JinResponseFormatter.buildJinColorMarkerHtml === "function"
+    )
+      ? window.JinResponseFormatter.buildJinColorMarkerHtml(
+          match[1]
+        )
+      : escapeHtml(
+          match[0]
+        );
     lastIndex =
       markerPattern.lastIndex;
   }

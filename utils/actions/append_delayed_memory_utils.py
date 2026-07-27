@@ -1,6 +1,5 @@
 from .action_payload_utils import (
-    _clean_internal_action_query,
-    _is_placeholder_internal_query,
+    _build_internal_action_payload,
 )
 from .delayed_memory_utils import is_delayed_memory_report_id
 
@@ -10,19 +9,17 @@ def build_append_delayed_memory_payload(
     placeholder_payloads=(),
 ) -> str | None:
 
-    payload = _clean_internal_action_query(
-        query
-    ).casefold()
+    payload = _build_internal_action_payload(
+        query,
+        placeholder_payloads,
+    )
 
     if (
-        _is_placeholder_internal_query(
-            payload,
-            placeholder_payloads,
-        )
+        payload is None
         or not is_delayed_memory_report_id(
             payload
         )
     ):
         return None
 
-    return payload
+    return payload.casefold()
