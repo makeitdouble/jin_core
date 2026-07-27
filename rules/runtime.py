@@ -68,7 +68,7 @@ PROPOSAL_RULES = (
 SKILL_ROUTING_RULES = ("\n"
                        "\n"
                        "SKILL ROUTING RULES:\n"
-                       "1. Determine whether the request requires a skill.\n"
+                       "1. For extended tasks (e.g. file creation, console, and much more) determine whether the request requires a skill.\n"
                        "2. Check <CURRENT_APPENDED_SKILLS> for a suitable skill.\n"
                        "3. Never append skill already presented inside <CURRENT_APPENDED_SKILLS>.\n"
                        "4. If no skill is present, you must use the enabled LIST_SKILLS runtime action.\n"

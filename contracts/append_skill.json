@@ -7,7 +7,7 @@
     "triggers": [],
     "blockers": [],
     "effects": {
-      "emit_followup": false
+      "emit_followup": true
     },
     "rules": [
       "APPEND / REMOVE SKILLS:",
