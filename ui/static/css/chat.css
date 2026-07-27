@@ -362,10 +362,10 @@
 }
 
 .jin-chat-markdown code {
-    border: 1px solid rgba(148, 163, 184, 0.18);
-    border-radius: 4px;
-    background: rgba(2, 6, 23, 0.32);
-    padding: 0.08em 0.32em;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
     color: rgba(226, 232, 240, 0.94);
     font-family: inherit;
     font-size: 0.95em;
@@ -673,11 +673,7 @@
 
 .jin-chat-bubble-service .jin-chat-markdown code,
 .jin-chat-bubble-brain .jin-chat-markdown code {
-    background: color-mix(
-            in srgb,
-            rgba(2, 6, 23, 0.32) calc(var(--jin-bubble-invert-off) * 100%),
-            rgba(255, 255, 255, 0.42) calc(var(--JIN_BUBBLE_INVERT) * 100%)
-    );
+    background: transparent;
     color: color-mix(
             in srgb,
             rgba(226, 232, 240, 0.94) calc(var(--jin-bubble-invert-off) * 100%),

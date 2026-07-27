@@ -106,6 +106,167 @@ const RUNTIME_ACTION_GUARD_MIN_ROTATION_WIDTH = 220;
 const RUNTIME_ACTION_GUARD_MAX_ROTATION_WIDTH = 760;
 const RUNTIME_ACTION_GUARD_MIN_ICON_GAP = 8;
 let runtimeActionGuardGeometryFrame = null;
+let saveSessionPendingUntilL3Active = false;
+
+function isSaveSessionRuntimeAction(
+  action
+) {
+
+  return String(
+    action || ""
+  ).trim().toLowerCase() === RUNTIME_ACTION_SAVE_SESSION;
+
+}
+
+function setRuntimeActionPendingUntilL3(
+  row,
+  pending
+) {
+
+  if (!row) {
+      return;
+  }
+
+  if (
+      isSaveSessionRuntimeAction(
+        row.dataset.runtimeAction
+      )
+      && pending
+      && runtimeActionRowIsTerminal(
+        row
+      )
+  ) {
+    saveSessionPendingUntilL3Active = false;
+    row.classList.remove(
+      "jin-runtime-action-pending-l3"
+    );
+    delete row.dataset.runtimeActionPendingL3;
+    return;
+  }
+
+  if (
+      isSaveSessionRuntimeAction(
+        row.dataset.runtimeAction
+      )
+  ) {
+    saveSessionPendingUntilL3Active =
+      Boolean(pending);
+  }
+
+  row.classList.toggle(
+    "jin-runtime-action-pending-l3",
+    pending
+  );
+
+  if (!pending) {
+    delete row.dataset.runtimeActionPendingL3;
+    if (
+        isSaveSessionRuntimeAction(
+          row.dataset.runtimeAction
+        )
+    ) {
+      saveSessionPendingUntilL3Active = false;
+    }
+    return;
+  }
+
+  row.dataset.runtimeActionPendingL3 =
+    "true";
+  delete row.dataset.runtimeActionCompleted;
+  delete row.dataset.runtimeActionCompletionDeferred;
+  row.classList.remove(
+    "opacity-45",
+    ...runtimeActionGuardDecisionClasses
+  );
+  row
+    .querySelectorAll("div, button")
+    .forEach((element) => {
+      element.classList.remove(
+        "border-zinc-700/50",
+        "bg-zinc-900/30",
+        "text-zinc-400"
+      );
+    });
+
+}
+
+function runtimeActionRowIsTerminal(
+  row
+) {
+
+  const text =
+    String(
+      row
+        && row.textContent
+        || ""
+    ).toLowerCase();
+
+  return (
+    !row
+    || row.dataset.runtimeActionCancelled === "true"
+    || row.classList.contains(
+      "jin-runtime-action-cancelled"
+    )
+    || /\baborted\b/.test(text)
+    || /\bcancelled\b/.test(text)
+  );
+
+}
+
+function activateRuntimeActionPendingUntilL3(
+  action = RUNTIME_ACTION_SAVE_SESSION
+) {
+
+  const normalizedAction =
+    String(action || "").trim().toLowerCase();
+
+  if (
+      normalizedAction !== RUNTIME_ACTION_SAVE_SESSION
+  ) {
+    return false;
+  }
+
+  const rows = Array.from(
+    chatHistory.querySelectorAll(
+      `[data-runtime-action="${RUNTIME_ACTION_SAVE_SESSION}"]`
+    )
+  ).filter((row) => (
+    !runtimeActionRowIsTerminal(
+      row
+    )
+  ));
+
+  const currentTurn =
+    String(jinConversationTurnCounter);
+  const row =
+    (
+      rows.findLast
+        ? rows.findLast((candidate) => (
+          candidate.dataset.runtimeActionTurn === currentTurn
+        ))
+        : rows
+            .slice()
+            .reverse()
+            .find((candidate) => (
+              candidate.dataset.runtimeActionTurn === currentTurn
+            ))
+    )
+    || rows[rows.length - 1]
+    || null;
+
+  if (!row) {
+    saveSessionPendingUntilL3Active = false;
+    return false;
+  }
+
+  setRuntimeActionPendingUntilL3(
+    row,
+    true
+  );
+
+  return true;
+
+}
 
 function resolveRuntimeActionGuardConfirmationDelayMs(
   confirmation = {}
@@ -623,6 +784,10 @@ function syncRuntimeActionCancelledState(
     return;
   }
 
+  if (cancelled === undefined) {
+    return;
+  }
+
   const isCancelled =
     Boolean(cancelled);
 
@@ -631,9 +796,27 @@ function syncRuntimeActionCancelledState(
     isCancelled
   );
 
+  row
+    .querySelectorAll(
+      ".jin-runtime-action-label"
+    )
+    .forEach((label) => {
+      label.classList.toggle(
+        "jin-runtime-action-label-cancelled",
+        isCancelled
+      );
+    });
+
   if (isCancelled) {
     row.dataset.runtimeActionCancelled =
       "true";
+    setRuntimeActionPendingUntilL3(
+      row,
+      false
+    );
+    row.classList.add(
+      "opacity-45"
+    );
   } else {
     delete row.dataset.runtimeActionCancelled;
   }
@@ -953,6 +1136,18 @@ function settleRuntimeActionGuardConfirmation(
   row.dataset.runtimeActionGuardDecision =
     decision;
 
+  if (
+      isSaveSessionRuntimeAction(
+        row.dataset.runtimeAction
+      )
+      && decision === "continue"
+  ) {
+    setRuntimeActionPendingUntilL3(
+      row,
+      true
+    );
+  }
+
   const zones =
     row.querySelector(
       ".jin-runtime-action-guard-zones"
@@ -1184,6 +1379,15 @@ function updateRuntimeActionRow(
       text,
       options
     );
+    if (
+        row.dataset.runtimeActionCancelled === "true"
+        && options.cancelled !== false
+    ) {
+      syncRuntimeActionCancelledState(
+        row,
+        true
+      );
+    }
   } else {
     syncRuntimeActionMarkerCount(
       label,
@@ -1199,25 +1403,41 @@ function updateRuntimeActionRow(
   const pendingUntilL3 =
     Boolean(options.pendingUntilL3)
     || (
-      action === RUNTIME_ACTION_SAVE_SESSION
+      isSaveSessionRuntimeAction(
+        action
+      )
+      && saveSessionPendingUntilL3Active
+      && options.cancelled !== true
+      && options.forceCompletePendingL3 !== true
+    )
+    || (
+      isSaveSessionRuntimeAction(
+        action
+      )
       && row.dataset.runtimeActionPendingL3 === "true"
+      && options.cancelled !== true
       && options.forceCompletePendingL3 !== true
     );
 
-  row.classList.toggle(
-    "jin-runtime-action-pending-l3",
-    pendingUntilL3
-  );
-
   if (pendingUntilL3) {
-    row.dataset.runtimeActionPendingL3 =
-      "true";
-    delete row.dataset.runtimeActionCompleted;
-    row.classList.remove(
-      "opacity-45"
+    setRuntimeActionPendingUntilL3(
+      row,
+      true
     );
-  } else if (options.completed) {
-    delete row.dataset.runtimeActionPendingL3;
+  } else if (
+      options.completed
+      || options.cancelled
+      || options.forceCompletePendingL3
+  ) {
+    setRuntimeActionPendingUntilL3(
+      row,
+      false
+    );
+    delete row.dataset.runtimeActionCompletionDeferred;
+  } else {
+    row.classList.remove(
+      "jin-runtime-action-pending-l3"
+    );
   }
 
   const detail =
@@ -1384,16 +1604,29 @@ function markRuntimeActionRowCompleted(
   }
 
   if (
-      row.dataset.runtimeAction === RUNTIME_ACTION_SAVE_SESSION
-      && row.dataset.runtimeActionPendingL3 === "true"
+      isSaveSessionRuntimeAction(
+        row.dataset.runtimeAction
+      )
       && options.forceCompletePendingL3 !== true
   ) {
+    setRuntimeActionPendingUntilL3(
+      row,
+      true
+    );
     row.dataset.runtimeActionCompletionDeferred =
       "true";
     row.classList.remove(
       "opacity-45"
     );
     return;
+  }
+
+  if (
+      isSaveSessionRuntimeAction(
+        row.dataset.runtimeAction
+      )
+  ) {
+    saveSessionPendingUntilL3Active = false;
   }
 
   row.dataset.runtimeActionCompleted =
@@ -1496,7 +1729,10 @@ function appendRuntimeAction(
           )
         ).find((row) => {
           return (
-            row.dataset.runtimeActionCompleted !== "true"
+            (
+              options.pendingUntilL3
+              || row.dataset.runtimeActionCompleted !== "true"
+            )
             && row.dataset.runtimeActionGuardConfirmationId
               === guardConfirmationId
           );
@@ -1514,7 +1750,10 @@ function appendRuntimeAction(
           )
         ).find((row) => {
           return (
-            row.dataset.runtimeActionCompleted !== "true"
+            (
+              options.pendingUntilL3
+              || row.dataset.runtimeActionCompleted !== "true"
+            )
             && Boolean(
               row.dataset.runtimeActionGuardConfirmationId
               || row.dataset.runtimeActionGuardDecision
@@ -1566,6 +1805,42 @@ function appendRuntimeAction(
     }
 
     if (
+        !existingRow
+        && options.pendingUntilL3
+        && action
+    ) {
+      const pendingRows = Array.from(
+        chatHistory.querySelectorAll(
+          `.jin-runtime-action-row[data-runtime-action="${action}"]`
+        )
+      ).filter((row) => (
+        row.dataset.runtimeActionCancelled !== "true"
+      ));
+
+      existingRow =
+        pendingRows.findLast
+          ? (
+            pendingRows.findLast((row) => (
+              row.dataset.runtimeActionTurn
+                === String(jinConversationTurnCounter)
+            ))
+            || pendingRows[pendingRows.length - 1]
+            || null
+          )
+          : (
+            pendingRows
+              .slice()
+              .reverse()
+              .find((row) => (
+                row.dataset.runtimeActionTurn
+                  === String(jinConversationTurnCounter)
+              ))
+            || pendingRows[pendingRows.length - 1]
+            || null
+          );
+    }
+
+    if (
         existingRow
         && updateRuntimeActionRow(
           existingRow,
@@ -1575,7 +1850,10 @@ function appendRuntimeAction(
             ...options,
             reviveExisting:
               Boolean(
-                options.reuseCompleted
+                (
+                  options.reuseCompleted
+                  || options.pendingUntilL3
+                )
                 && options.reviveCompleted !== false
               ),
           }
@@ -1634,10 +1912,9 @@ function appendRuntimeAction(
   }
 
   if (options.pendingUntilL3) {
-    row.dataset.runtimeActionPendingL3 =
-      "true";
-    row.classList.add(
-      "jin-runtime-action-pending-l3"
+    setRuntimeActionPendingUntilL3(
+      row,
+      true
     );
   }
 
@@ -1896,6 +2173,13 @@ function fadeRuntimeAction(
   options = {}
 ) {
 
+  const keepSaveSessionPendingUntilL3 =
+    isSaveSessionRuntimeAction(
+      action
+    )
+    && options.forceCompletePendingL3 !== true
+    && options.cancelled !== true;
+
   const actionKey =
     options.id
       ? buildRuntimeActionVisibleKey(
@@ -1957,6 +2241,19 @@ function fadeRuntimeAction(
       : [];
   }
 
+  if (keepSaveSessionPendingUntilL3) {
+    saveSessionPendingUntilL3Active = true;
+
+    rows.forEach((row) => {
+      setRuntimeActionPendingUntilL3(
+        row,
+        true
+      );
+    });
+
+    return;
+  }
+
   rows.forEach((row) => {
     markRuntimeActionRowCompleted(
       row,
@@ -1977,6 +2274,13 @@ function clearPendingRuntimeActionGlow(
     normalizedAction
       ? `.jin-runtime-action-row[data-runtime-action="${normalizedAction}"]`
       : ".jin-runtime-action-row";
+
+  if (
+      !normalizedAction
+      || normalizedAction === RUNTIME_ACTION_SAVE_SESSION
+  ) {
+    saveSessionPendingUntilL3Active = false;
+  }
 
   Array.from(
     chatHistory.querySelectorAll(
@@ -2008,3 +2312,6 @@ window.fadeRuntimeAction =
 
 window.clearPendingRuntimeActionGlow =
   clearPendingRuntimeActionGlow;
+
+window.activateRuntimeActionPendingUntilL3 =
+  activateRuntimeActionPendingUntilL3;

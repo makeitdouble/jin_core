@@ -939,6 +939,7 @@ window.updateSessionActionsLog =
 function markSessionActionCancelled(
   actionName,
   color = "",
+  options = {},
 ) {
   const normalizedName =
     normalizeSessionActionName(
@@ -955,7 +956,11 @@ function markSessionActionCancelled(
       color
     ),
     createdAfter:
-      (Date.now() / 1000) - 2,
+      Number.isFinite(
+        Number(options.createdAfter)
+      )
+        ? Number(options.createdAfter)
+        : (Date.now() / 1000) - 2,
   });
 
   if (!sessionActionsLogState.items.length) {

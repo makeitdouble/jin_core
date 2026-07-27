@@ -802,22 +802,6 @@ function handleRuntimeMemoryMessage(data) {
       data
     );
 
-    if (
-        data.persist === true
-        && window.fadeRuntimeAction
-    ) {
-      window.fadeRuntimeAction(
-        "save_session",
-        {
-          forceCompletePendingL3: true,
-        }
-      );
-    }
-
-    if (window.stopL3MemoryGlow) {
-      window.stopL3MemoryGlow();
-    }
-
     return;
   }
 

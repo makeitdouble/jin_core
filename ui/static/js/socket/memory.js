@@ -815,6 +815,12 @@ function handleSocketLog(
       )
   ) {
     startL3MemoryGlow();
+
+    if (window.activateRuntimeActionPendingUntilL3) {
+      window.activateRuntimeActionPendingUntilL3(
+        "save_session"
+      );
+    }
   }
 
   if (

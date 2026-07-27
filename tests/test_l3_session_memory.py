@@ -88,6 +88,167 @@ class L3SessionMemoryTests(
                 prompt,
             )
 
+    async def test_l3_session_memory_skips_service_when_turn_aborted(self):
+
+            service_client = FakeServiceClient(
+                "decision: should not be requested"
+            )
+            context = SimpleNamespace(
+                clients={
+                    "service": service_client,
+                },
+                emitter=SimpleNamespace(
+                    events=[],
+                    emit=None,
+                ),
+                logger=FakeLogger(),
+                runtime_save_session_requested=True,
+                runtime_turn_abort_requested=True,
+                runtime_turn_discard_requested=False,
+                runtime_l3_session_memory="decision: existing",
+                session_memory="decision: existing",
+                runtime_memory_snapshots=[
+                    {
+                        "index": 1,
+                        "raw_memory": "decision: pending save",
+                        "total_diff": 80,
+                    },
+                ],
+            )
+
+            async def emit(event):
+                context.emitter.events.append(
+                    event
+                )
+
+            context.emitter.emit = emit
+
+            result = await maybe_summarize_runtime_session_memory(
+                context=context,
+            )
+
+            self.assertEqual(
+                result,
+                "decision: existing",
+            )
+            self.assertEqual(
+                service_client.calls,
+                [],
+            )
+            self.assertFalse(
+                context.runtime_save_session_requested,
+            )
+            self.assertEqual(
+                context.runtime_save_session_result["status"],
+                "aborted",
+            )
+            self.assertEqual(
+                context.runtime_save_session_result["reason"],
+                "turn_aborted",
+            )
+            self.assertEqual(
+                context.emitter.events,
+                [],
+            )
+
+    async def test_l3_session_memory_discards_service_response_when_turn_aborts(self):
+
+            class AbortingServiceClient(
+                FakeServiceClient
+            ):
+
+                async def ask(
+                    self,
+                    **kwargs,
+                ):
+
+                    response = await super().ask(
+                        **kwargs
+                    )
+                    context.runtime_turn_abort_requested = True
+                    return response
+
+            service_client = AbortingServiceClient(
+                "decision: should not be committed"
+            )
+            context = SimpleNamespace(
+                clients={
+                    "service": service_client,
+                },
+                emitter=SimpleNamespace(
+                    events=[],
+                    emit=None,
+                ),
+                logger=FakeLogger(),
+                runtime_save_session_requested=True,
+                runtime_turn_abort_requested=False,
+                runtime_turn_discard_requested=False,
+                runtime_l3_session_memory="decision: existing",
+                session_memory="decision: existing",
+                session_memory_source="",
+                runtime_session_memory_updates=0,
+                runtime_l1_diff_history=[],
+                runtime_memory_snapshot_index=1,
+                timestamp="2026-06-05T13:38:50",
+                current_date="2026-06-05",
+                current_time="13:38:50",
+                weekday="Friday",
+                year=2026,
+                runtime_memory_snapshots=[
+                    {
+                        "index": 1,
+                        "raw_memory": "decision: pending save",
+                        "total_diff": 80,
+                    },
+                ],
+            )
+
+            async def emit(event):
+                context.emitter.events.append(
+                    event
+                )
+
+            context.emitter.emit = emit
+
+            result = await maybe_summarize_runtime_session_memory(
+                context=context,
+            )
+
+            self.assertEqual(
+                result,
+                "decision: existing",
+            )
+            self.assertEqual(
+                len(service_client.calls),
+                1,
+            )
+            self.assertEqual(
+                context.session_memory,
+                "decision: existing",
+            )
+            self.assertEqual(
+                context.runtime_session_memory_updates,
+                0,
+            )
+            self.assertEqual(
+                context.runtime_save_session_result["status"],
+                "aborted",
+            )
+            self.assertFalse(
+                any(
+                    event.get("type") == "runtime_session_memory_update"
+                    for event in context.emitter.events
+                )
+            )
+            self.assertFalse(
+                any(
+                    event.get("type") == "runtime_action"
+                    and event.get("action") == "save_session"
+                    and event.get("status") == "completed"
+                    for event in context.emitter.events
+                )
+            )
+
     def test_l3_session_memory_prompt_bounds_long_snapshot_history(self):
 
             prompt = build_runtime_session_memory_user_prompt(

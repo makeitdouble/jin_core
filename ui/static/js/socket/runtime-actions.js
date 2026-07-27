@@ -344,19 +344,54 @@ function handleRuntimeAction(
   const cancelledByUser =
     status === "failed"
     && Boolean(guardConfirmationId)
-    && /\bcancelled\s*$/i.test(
-      text.trim()
+    && (
+      /\bcancelled\s*$/i.test(
+        text.trim()
+      )
+      || /^user_(?:did_not_confirm|did_not_explicitly_request|rejected)/i.test(
+        String(data.error || "").trim()
+      )
+      || /^user_(?:did_not_confirm|did_not_explicitly_request|rejected)/i.test(
+        text.trim()
+      )
     );
   const abortedByUser =
     status === "aborted";
+  const terminalStatus =
+    [
+      "completed",
+      "complete",
+      "done",
+      "failed",
+      "interrupted",
+      "aborted",
+      "counter_final",
+    ].includes(status);
+  const forceCompletePendingL3 =
+    action === "save_session"
+    && terminalStatus
+    && ![
+      "completed",
+      "complete",
+      "done",
+    ].includes(status);
 
   if (
-    cancelledByUser
+    (
+      cancelledByUser
+      || abortedByUser
+    )
     && window.markSessionActionCancelled
   ) {
     window.markSessionActionCancelled(
       action,
-      data.color || data.payload || ""
+      data.color || data.payload || "",
+      {
+        createdAfter:
+          abortedByUser
+            ? 0
+            : undefined,
+      }
     );
   }
 
@@ -436,13 +471,11 @@ function handleRuntimeAction(
   const pendingUntilL3 =
     action === "save_session"
     && ![
-      "completed",
-      "complete",
-      "done",
       "failed",
       "interrupted",
       "aborted",
-    ].includes(status);
+    ].includes(status)
+    && forceCompletePendingL3 !== true;
 
   const counterPayloads =
     Array.isArray(data.payloads)
@@ -507,8 +540,12 @@ function handleRuntimeAction(
             data.context || null,
           guardConfirmationId,
           cancelled:
-            cancelledByUser
-            || abortedByUser,
+            (
+              cancelledByUser
+              || abortedByUser
+            )
+              ? true
+              : undefined,
           preserveLabel:
             cancelledByUser,
           fallbackToLatestActive:
@@ -656,6 +693,7 @@ function handleRuntimeAction(
           sceneEffect,
           closeTag,
           pendingUntilL3,
+          forceCompletePendingL3,
         }
       );
 
@@ -701,9 +739,15 @@ function handleRuntimeAction(
       markerCount,
       reuseCompleted:
         counterOnly,
+      reviveCompleted:
+        !counterFinal,
       cancelled:
-        cancelledByUser
-        || abortedByUser,
+        (
+          cancelledByUser
+          || abortedByUser
+        )
+          ? true
+          : undefined,
       preserveLabel:
         cancelledByUser
         || (
@@ -723,6 +767,7 @@ function handleRuntimeAction(
       sceneEffect,
       closeTag,
       pendingUntilL3,
+      forceCompletePendingL3,
     }
   );
 
@@ -756,6 +801,7 @@ function handleRuntimeAction(
       {
         id: actionDisplayId,
         sceneEffect,
+        forceCompletePendingL3,
       }
     );
   }

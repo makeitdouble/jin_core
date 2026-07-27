@@ -947,6 +947,10 @@ async def apply_runtime_action_calls(
                         or rejected_event.get("error")
                         or f"{action.name} blocked"
                     ),
+                    "error": rejected_event.get(
+                        "error",
+                        "",
+                    ),
                     "detail": rejected_event.get(
                         "failure_followup_message",
                         "",
@@ -1260,6 +1264,21 @@ async def apply_runtime_action_calls(
         context.runtime_save_session_armed = False
         context.runtime_save_session_requested = True
         context.runtime_save_session_action_emitted = True
+        save_session_confirmation_id = ""
+
+        for action in filtered_actions:
+            if action.name != RUNTIME_ACTION_SAVE_SESSION:
+                continue
+
+            save_session_confirmation_id = str(
+                guard_confirmation_ids.get(
+                    id(action),
+                    "",
+                )
+                or ""
+            ).strip()
+            if save_session_confirmation_id:
+                break
 
         if log_runtime is not None:
             await log_runtime(
@@ -1278,11 +1297,17 @@ async def apply_runtime_action_calls(
         )
 
         if emit is not None:
-            await emit(with_action_context({
+            payload = {
                 "type": "runtime_action",
                 "action": "save_session",
+                "status": "started",
                 "text": "Saving session",
-            }))
+            }
+
+            if save_session_confirmation_id:
+                payload["confirmation_id"] = save_session_confirmation_id
+
+            await emit(with_action_context(payload))
 
     saved_active_memory_texts = await apply_save_active_memory_actions(
         context,
