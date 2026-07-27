@@ -161,9 +161,8 @@ class BehaviorContractTests(unittest.TestCase):
                 ),
             ),
             (
-                "CONFIRMED: NO\n"
-                "DO NOT REPEAT THIS ACTION! User explicitly rejected it "
-                "and didn't provide correct spelling in any of trigger "
+                "User explicitly rejected requested action and you must skip it! "
+                "Notify user didn't provide correct spelling in any of trigger "
                 "words: save session, save summary"
             ),
         )
@@ -176,7 +175,6 @@ class BehaviorContractTests(unittest.TestCase):
                 ),
             ),
             (
-                "CONFIRMED: YES\n"
                 "User accepted an action and didn't provide any of action "
                 "trigger words: save session, save summary"
             ),
