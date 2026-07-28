@@ -29,7 +29,6 @@ from .messages import (
     append_previous_chat_messages,
     build_previous_chat_messages_context,
     build_previous_chat_messages_context_text,
-    build_sequence_origin_request_context,
     crop_recent_message_text,
     format_context_message_age_suffix,
 )
@@ -54,7 +53,6 @@ __all__ = [
     "build_previous_chat_messages_context",
     "build_previous_chat_messages_context_text",
     "build_runtime_xml",
-    "build_sequence_origin_request_context",
     "build_session_actions_history_context",
     "build_tool_results_context",
     "crop_recent_message_text",

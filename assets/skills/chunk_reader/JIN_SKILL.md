@@ -20,12 +20,12 @@ Mode files:
 
 Single-mode action:
 <ASSET_ACTION>
-{"action":"run_document_reader","skill":"chunk_reader","attachment":"optional exact attachment name","mode":"plain-mode.md","question":"the user's concrete request about the document"}
+{"action":"run_document_reader","skill":"chunk_reader","attachment":"optional exact attachment name","mode":"plain-mode.md"}
 </ASSET_ACTION>
 
 Multi-mode comparison:
 <ASSET_ACTION>
-{"action":"run_document_reader","skill":"chunk_reader","attachment":"optional exact attachment name","modes":["plain-mode.md","other-mode.md"],"question":"the user's concrete request about the document"}
+{"action":"run_document_reader","skill":"chunk_reader","attachment":"optional exact attachment name","modes":["plain-mode.md","other-mode.md"]}
 </ASSET_ACTION>
 
 Attachment selection:

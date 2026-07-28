@@ -165,6 +165,10 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_token_estimate_scales: dict[str, float] = field(
+        default_factory=dict
+    )
+
     runtime_memory: str = DEFAULT_RUNTIME_MEMORY
 
     runtime_memory_stable: str = DEFAULT_RUNTIME_MEMORY
@@ -222,6 +226,12 @@ class RuntimeContext:
     runtime_turn_started_at: float = 0.0
 
     runtime_current_sequence_started_at: float = 0.0
+
+    runtime_current_sequence_attachments: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_current_sequence_attachments_turn_id: str = ""
 
     user_message_count: int = 0
 

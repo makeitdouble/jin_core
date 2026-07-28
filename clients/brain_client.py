@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 
 from config_loader import (
     config,
@@ -302,6 +303,9 @@ async def ask_brain(
         user_prompt=brain_payload,
         runtime_actions=runtime_actions,
     )
+    runtime_message_id = str(
+        uuid.uuid4()
+    )
 
     # -----------------------------------------------------
     # SERVICE AS BRAIN
@@ -376,6 +380,7 @@ async def ask_brain(
                 rejected_action_ids=rejected_action_ids,
                 guard_confirmation_ids=guard_confirmation_ids,
                 action_display_ids=action_display_ids,
+                runtime_message_id=runtime_message_id,
             )
 
             return content_actions.text
@@ -486,6 +491,7 @@ async def ask_brain(
             rejected_action_ids=rejected_action_ids,
             guard_confirmation_ids=guard_confirmation_ids,
             action_display_ids=action_display_ids,
+            runtime_message_id=runtime_message_id,
         )
 
         if content_actions.text:
@@ -633,6 +639,9 @@ async def ask_brain_stream(
         system_prompt=resolved_system_prompt,
         user_prompt=resolved_brain_payload,
         runtime_actions=runtime_actions,
+    )
+    runtime_message_id = str(
+        uuid.uuid4()
     )
     session_action_history_start = len(
         getattr(
@@ -841,6 +850,7 @@ async def ask_brain_stream(
             ),
             status=status,
             detail=detail,
+            runtime_message_id=runtime_message_id,
         )
 
     async def sync_session_action_marker_history() -> None:
@@ -1339,6 +1349,7 @@ async def ask_brain_stream(
                 rejected_action_ids=rejected_action_ids,
                 guard_confirmation_ids=guard_confirmation_ids,
                 action_display_ids=action_display_ids,
+                runtime_message_id=runtime_message_id,
             )
 
         if any(
@@ -1394,6 +1405,7 @@ async def ask_brain_stream(
             rejected_action_ids=rejected_action_ids,
             guard_confirmation_ids=guard_confirmation_ids,
             action_display_ids=action_display_ids,
+            runtime_message_id=runtime_message_id,
         )
 
     # -----------------------------------------------------

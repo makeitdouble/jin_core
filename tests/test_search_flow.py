@@ -19,9 +19,6 @@ from clients.search_client import (
     normalize_search_results,
 )
 from clients.search_provider import normalize_serper_item
-from utils.context.context_exports import (
-    build_sequence_origin_request_context,
-)
 from runtime.runtime_context import (
     RuntimeContext,
     RuntimeEmitter,
@@ -656,9 +653,11 @@ class SearchFlowTests(
             ),
         )
         self.assertIn(
-            build_sequence_origin_request_context(
-                state.translated_input
-            ),
+            f"<INITIAL_SEQUENCE_USER_MESSAGE>{state.translated_input}",
+            brain_client.prompts[1]["system_prompt"],
+        )
+        self.assertNotIn(
+            "<SEQUENCE_ORIGIN_REQUEST>",
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertNotIn(

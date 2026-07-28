@@ -1,3 +1,13 @@
+function getRuntimeActionMessageId(data) {
+
+  return String(
+    data.runtime_message_id
+    || data.message_id
+    || ""
+  ).trim();
+
+}
+
 function handleRuntimeActionGuardConfirmation(
   data
 ) {
@@ -28,6 +38,10 @@ function handleRuntimeActionGuardConfirmation(
           data.counter_id
           || data.id
           || "",
+        runtimeTurnId:
+          data.runtime_turn_id || "",
+        runtimeMessageId:
+          getRuntimeActionMessageId(data),
         color:
           data.color
           || data.payload
@@ -246,25 +260,13 @@ function buildRuntimeActionDetail(
       || data.asset_result
       || data.skill_result
       || data.runtime_todo_result
-      || data.payload
-      || (
-        Array.isArray(data.payloads)
-          ? data.payloads[data.payloads.length - 1]
-          : ""
-      )
     );
 
   if (objectTitle) {
     return objectTitle;
   }
 
-  if (closeTag) {
-    return "";
-  }
-
-  return String(
-    data.payload || ""
-  ).trim();
+  return "";
 
 }
 
@@ -418,6 +420,14 @@ function handleRuntimeAction(
       data.status || ""
     ).toLowerCase();
 
+  const runtimeTurnId =
+    String(
+      data.runtime_turn_id || ""
+    ).trim();
+
+  const runtimeMessageId =
+    getRuntimeActionMessageId(data);
+
   const text =
     String(
       data.text || ""
@@ -540,6 +550,12 @@ function handleRuntimeAction(
   const counterFinal =
     data.counter_final === true
     || status === "counter_final";
+  const terminalFailure =
+    [
+      "failed",
+      "interrupted",
+      "aborted",
+    ].includes(status);
 
   const splitPayloadDistinctMarkers =
     shouldSplitPayloadDistinctRuntimeAction(
@@ -556,7 +572,9 @@ function handleRuntimeAction(
       || Boolean(
         window.hasActiveRuntimeActionCounter
         && window.hasActiveRuntimeActionCounter(
-          action
+          action,
+          runtimeTurnId,
+          runtimeMessageId
         )
       )
     );
@@ -634,6 +652,8 @@ function handleRuntimeAction(
         displayText,
         {
           id: actionId,
+          runtimeTurnId,
+          runtimeMessageId,
           color,
           detail: color,
           displayName,
@@ -712,6 +732,8 @@ function handleRuntimeAction(
             action,
             {
               id: actionId,
+              runtimeTurnId,
+              runtimeMessageId,
               sceneEffect,
               fallbackToLatestActive:
                 colorApplied,
@@ -788,6 +810,8 @@ function handleRuntimeAction(
         displayText,
         {
           id: actionDisplayId,
+          runtimeTurnId,
+          runtimeMessageId,
           guardConfirmationId,
           updateExisting: true,
           aggregateMarkers,
@@ -838,6 +862,8 @@ function handleRuntimeAction(
         action,
         {
           id: actionDisplayId,
+          runtimeTurnId,
+          runtimeMessageId,
           sceneEffect,
         }
       );
@@ -862,6 +888,8 @@ function handleRuntimeAction(
     displayText,
     {
       id: actionDisplayId,
+      runtimeTurnId,
+      runtimeMessageId,
       guardConfirmationId,
       aggregateMarkers,
       counterOnly:
@@ -916,14 +944,7 @@ function handleRuntimeAction(
   if (
     (
       counterFinal
-      || (
-        !aggregateMarkers
-        && (
-          status === "failed"
-          || status === "interrupted"
-          || status === "aborted"
-        )
-      )
+      || terminalFailure
     )
     && window.fadeRuntimeAction
   ) {
@@ -931,8 +952,12 @@ function handleRuntimeAction(
       action,
       {
         id: actionDisplayId,
+        runtimeTurnId,
+        runtimeMessageId,
         sceneEffect,
         forceCompletePendingL3,
+        fallbackToLatestActive:
+          terminalFailure,
       }
     );
   }

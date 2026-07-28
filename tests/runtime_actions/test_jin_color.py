@@ -332,6 +332,86 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
         asyncio.run(run_case())
 
 
+    def test_apply_runtime_action_calls_dedups_jin_colors_per_message(self):
+
+        Emitter = FakeEmitter
+
+        async def run_case():
+            emitter = Emitter()
+            context = SimpleNamespace(
+                runtime_action_events=[],
+                runtime_search_calls=[],
+                runtime_appended_skills=[],
+                runtime_visible_skills_result={},
+                runtime_save_session_requested=False,
+                runtime_save_session_action_emitted=False,
+                runtime_skill_state_barrier_active=False,
+                runtime_current_turn_id="turn-color-scoped",
+                logger=None,
+                emitter=emitter,
+            )
+            actions = (
+                RuntimeActionCall(
+                    name=RUNTIME_ACTION_JIN_COLOR,
+                    payload="#1f4f8f",
+                ),
+            )
+
+            first_applied_count = await apply_runtime_action_calls(
+                context,
+                actions,
+                user_message="поставь цвет",
+                runtime_message_id="message-one",
+            )
+            second_applied_count = await apply_runtime_action_calls(
+                context,
+                actions,
+                user_message="поставь цвет снова",
+                runtime_message_id="message-two",
+            )
+            duplicate_applied_count = await apply_runtime_action_calls(
+                context,
+                actions,
+                user_message="повтори цвет в том же сообщении",
+                runtime_message_id="message-two",
+            )
+
+            self.assertEqual(
+                first_applied_count,
+                1,
+            )
+            self.assertEqual(
+                second_applied_count,
+                1,
+            )
+            self.assertEqual(
+                duplicate_applied_count,
+                0,
+            )
+            self.assertEqual(
+                [
+                    event.get("payload")
+                    for event in context.runtime_action_events
+                ],
+                [
+                    "#1f4f8f",
+                    "#1f4f8f",
+                ],
+            )
+            self.assertEqual(
+                [
+                    event.get("runtime_message_id")
+                    for event in emitter.events
+                ],
+                [
+                    "message-one",
+                    "message-two",
+                ],
+            )
+
+        asyncio.run(run_case())
+
+
     def test_apply_runtime_action_calls_executes_jin_color_without_trigger(self):
 
         Emitter = FakeEmitter

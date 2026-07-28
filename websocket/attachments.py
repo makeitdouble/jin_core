@@ -116,42 +116,6 @@ def format_attachment_context(
                 "  runtime_attachment: full content is available to appended skills"
             )
 
-        text_preview = attachment.get(
-            "text_preview",
-        )
-
-        if text_preview is not None:
-            preview = str(
-                text_preview
-            )
-            preview_limit = int(
-                attachment.get(
-                    "preview_limit",
-                    len(
-                        preview
-                    ),
-                )
-                or 0
-            )
-            truncated = bool(
-                attachment.get(
-                    "truncated",
-                    False,
-                )
-            )
-            status = (
-                f"first {preview_limit} chars sent"
-                if truncated
-                else f"{len(preview)} chars sent"
-            )
-
-            lines.append(
-                f"  text_preview ({status}):"
-            )
-            lines.append(
-                preview
-            )
-
     if not included:
         return ""
 

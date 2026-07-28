@@ -19,7 +19,6 @@ from rules.brain_context_builder import (
     build_appended_delayed_memory_context,
 )
 from utils.context.context_exports import (
-    build_sequence_origin_request_context,
     build_tool_results_context,
 )
 from agent.state import AgentState
@@ -76,7 +75,7 @@ def _assert_latest_request_payload(
     )
     test_case.assertTrue(
         system_prompt.startswith(
-            "<SEQUENCE_ORIGIN_REQUEST>"
+            expected_followup_message
         ),
         system_prompt,
     )
@@ -86,7 +85,7 @@ def _assert_latest_request_payload(
     )
     test_case.assertLess(
         system_prompt.index(
-            "</SEQUENCE_ORIGIN_REQUEST>"
+            "</CURRENT_SEQUENCE>"
         ),
         system_prompt.index(
             "<TOOLS_RESULTS>"
@@ -94,20 +93,22 @@ def _assert_latest_request_payload(
     )
     test_case.assertLess(
         system_prompt.index(
-            "</TOOLS_RESULTS>"
-        ),
-        system_prompt.index(
             expected_followup_message
         ),
-    )
-
-    sequence_origin_request = (
-        build_sequence_origin_request_context(
-            user_input
-        )
+        system_prompt.index(
+            "<CURRENT_SEQUENCE>"
+        ),
     )
     test_case.assertIn(
-        sequence_origin_request,
+        f"<INITIAL_SEQUENCE_USER_MESSAGE>{user_input}",
+        system_prompt,
+    )
+    test_case.assertNotIn(
+        "<SEQUENCE_ORIGIN_REQUEST>",
+        system_prompt,
+    )
+    test_case.assertNotIn(
+        "MANDATORY: THIS IS NOT CURRENT COMMAND",
         system_prompt,
     )
     test_case.assertNotIn(
@@ -208,6 +209,33 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             prompt,
         )
 
+    async def test_followup_places_runtime_instruction_under_header(self):
+
+        instruction = (
+            "Action-specific follow-up instruction."
+        )
+        prompt = BrainNode.build_followup_system_prompt(
+            "system rules",
+            "continue the task",
+            instruction=instruction,
+            latest_action="web_search",
+        )
+
+        self.assertLess(
+            prompt.index(
+                "This is follow-up tick for JIN latest action: web_search."
+            ),
+            prompt.index(instruction),
+        )
+        self.assertLess(
+            prompt.index(instruction),
+            prompt.index("<CURRENT_SEQUENCE>"),
+        )
+        self.assertLess(
+            prompt.index("<CURRENT_SEQUENCE>"),
+            prompt.index("<TOOLS_RESULTS>"),
+        )
+
     async def test_followup_places_confirm_result_inside_tool_results(self):
 
         messages = (
@@ -262,8 +290,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     tools_end,
                 )
                 self.assertLess(
-                    tools_end,
                     followup_start,
+                    tools_start,
                 )
                 self.assertEqual(
                     prompt.count("<CONFIRM_RESULT>"),
@@ -274,25 +302,52 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     [],
                 )
 
-    async def test_sequence_origin_request_marks_past_user_message(self):
+    async def test_current_sequence_starts_with_original_user_message(self):
 
-        context = build_sequence_origin_request_context(
-            "keep <this> in delayed memory"
+        context = SimpleNamespace(
+            runtime_current_turn_id="turn_000001",
+            runtime_turn_started_at=990.0,
+            runtime_action_sequence_turn_ids=[],
+            runtime_session_action_history=[
+                {
+                    "text": "LIST_SKILLS",
+                    "created_at": 995.0,
+                    "runtime_turn_id": "turn_000001",
+                },
+            ],
+            runtime_recent_turns=[],
+            runtime_appended_delayed_memory={},
         )
 
-        self.assertEqual(
-            context,
-            (
-                "<SEQUENCE_ORIGIN_REQUEST>\n\n"
-                "------\n\n"
-                "!!! MANDATORY: THIS IS NOT CURRENT COMMAND! When deciding whether the user explicitly requested an action in the current turn, completely ignore this block !!!\n"
-                "------\n\n"
-                "<USER>keep &lt;this&gt; in delayed memory\n\n"
-                "</SEQUENCE_ORIGIN_REQUEST>"
-            ),
+        with patch(
+            "utils.context.context_exports.time.time",
+            return_value=1000.0,
+        ):
+            prompt = BrainNode.build_followup_system_prompt(
+                "rules",
+                "keep <this> in delayed memory",
+                context=context,
+            )
+
+        self.assertIn(
+            "<CURRENT_SEQUENCE>\n"
+            "MANDATORY: DO NOT START A NEW SEQUENCE! SEQUENCE IS ALREADY IN PROGRESS! CONTINUE ONLY WITH STEPS CURRENTLY NOT DONE!\n\n"
+            "<INITIAL_SEQUENCE_USER_MESSAGE>keep &lt;this&gt; in delayed memory ( 10s ago )\n\n"
+            "    --- Sequence started ---\n"
+            "    JIN message 1 executed - LIST_SKILLS ( 5s ago )\n"
+            "</CURRENT_SEQUENCE>",
+            prompt,
+        )
+        self.assertNotIn(
+            "SEQUENCE_ORIGIN_REQUEST",
+            prompt,
+        )
+        self.assertNotIn(
+            "MANDATORY: THIS IS NOT CURRENT COMMAND",
+            prompt,
         )
 
-    async def test_followup_collects_scattered_tool_results_below_sequence_origin(self):
+    async def test_followup_collects_scattered_tool_results_below_current_sequence(self):
 
         prompt = BrainNode.build_followup_system_prompt(
             (
@@ -313,12 +368,12 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(
             prompt.startswith(
-                "<SEQUENCE_ORIGIN_REQUEST>"
+                build_followup_system_message()
             ),
             prompt,
         )
         self.assertLess(
-            prompt.index("</SEQUENCE_ORIGIN_REQUEST>"),
+            prompt.index("</CURRENT_SEQUENCE>"),
             prompt.index("<TOOLS_RESULTS>"),
         )
         self.assertEqual(
@@ -530,11 +585,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             context=context,
         )
 
-        sequence_origin_request = (
-            build_sequence_origin_request_context(
-                "append the delayed memory"
-            )
-        )
         appended_delayed_memory = (
             build_appended_delayed_memory_context(
                 context
@@ -542,12 +592,12 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(
             prompt.startswith(
-                "<SEQUENCE_ORIGIN_REQUEST>"
+                build_followup_system_message()
             ),
             prompt,
         )
         self.assertLess(
-            prompt.index("</SEQUENCE_ORIGIN_REQUEST>"),
+            prompt.index("</CURRENT_SEQUENCE>"),
             prompt.index("<TOOLS_RESULTS>"),
         )
         self.assertIn(
@@ -555,7 +605,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             prompt,
         )
         self.assertIn(
-            sequence_origin_request,
+            "<INITIAL_SEQUENCE_USER_MESSAGE>append the delayed memory",
             prompt,
         )
         self.assertIn(
@@ -568,7 +618,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertLess(
             prompt.index(
-                sequence_origin_request
+                "<CURRENT_SEQUENCE>"
             ),
             prompt.index(
                 appended_delayed_memory
@@ -627,9 +677,11 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn(
             "<CURRENT_SEQUENCE>\n"
+            "MANDATORY: DO NOT START A NEW SEQUENCE! SEQUENCE IS ALREADY IN PROGRESS! CONTINUE ONLY WITH STEPS CURRENTLY NOT DONE!\n\n"
+            "<INITIAL_SEQUENCE_USER_MESSAGE>first list skills, then append one ( 1m ago )\n\n"
             "    --- Sequence started ---\n"
-            "    Step 1 - LIST_SKILLS ( 55s ago )\n"
-            "    Step 2 - APPEND_SKILL ( 2s ago )\n"
+            "    JIN message 1 executed - LIST_SKILLS ( 55s ago )\n"
+            "    JIN message 2 executed - APPEND_SKILL ( 2s ago )\n"
             "</CURRENT_SEQUENCE>",
             prompt,
         )
@@ -640,10 +692,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(
             "Sequence ended",
             prompt,
-        )
-        self.assertLess(
-            prompt.index("</SEQUENCE_ORIGIN_REQUEST>"),
-            prompt.index("<CURRENT_SEQUENCE>"),
         )
         self.assertLess(
             prompt.index("</CURRENT_SEQUENCE>"),
@@ -695,9 +743,11 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn(
             "<CURRENT_SEQUENCE>\n"
+            "MANDATORY: DO NOT START A NEW SEQUENCE! SEQUENCE IS ALREADY IN PROGRESS! CONTINUE ONLY WITH STEPS CURRENTLY NOT DONE!\n\n"
+            "<INITIAL_SEQUENCE_USER_MESSAGE>first idle 30s, then idle 20s and search ( 32s ago )\n\n"
             "    --- Sequence started ---\n"
-            "    Step 1 - IDLE - 30s ( 32s ago )\n"
-            "    Step 2 - IDLE - 20s, WEB_SEARCH ( 1s ago )\n"
+            "    JIN message 1 executed - IDLE - 30s ( 32s ago )\n"
+            "    JIN message 2 executed - IDLE - 20s, WEB_SEARCH ( 1s ago )\n"
             "</CURRENT_SEQUENCE>",
             prompt,
         )
@@ -1178,7 +1228,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertTrue(
                     kwargs["system_prompt"].startswith(
-                        "<SEQUENCE_ORIGIN_REQUEST>"
+                        FOLLOWUP_SYSTEM_MESSAGE
                     ),
                     kwargs["system_prompt"],
                 )
@@ -1260,7 +1310,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertTrue(
                     kwargs["system_prompt"].startswith(
-                        "<SEQUENCE_ORIGIN_REQUEST>"
+                        FOLLOWUP_SYSTEM_MESSAGE
                     ),
                     kwargs["system_prompt"],
                 )
@@ -1979,9 +2029,31 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             1,
         )
         prompt = calls[0]["system_prompt"]
+        idle_instruction = (
+            "This is a follow-up tick from an IDLE timer JIN chose to set."
+        )
+        self.assertEqual(
+            prompt.count(idle_instruction),
+            1,
+            prompt,
+        )
+        self.assertLess(
+            prompt.index(
+                "This is follow-up tick for JIN latest action: idle."
+            ),
+            prompt.index(idle_instruction),
+        )
+        self.assertLess(
+            prompt.index(idle_instruction),
+            prompt.index("<CURRENT_SEQUENCE>"),
+        )
+        self.assertLess(
+            prompt.index("<CURRENT_SEQUENCE>"),
+            prompt.index("<TOOLS_RESULTS>"),
+        )
         self.assertEqual(
             prompt.count("<SEQUENCE_ORIGIN_REQUEST>"),
-            1,
+            0,
             prompt,
         )
         self.assertEqual(
@@ -1999,7 +2071,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             prompt,
         )
         self.assertIn(
-            "Step 1 - IDLE - 30s ( 30s ago )",
+            "JIN message 1 executed - IDLE - 30s ( 30s ago )",
             prompt,
         )
         self.assertNotIn(
@@ -2617,6 +2689,22 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn(
                 "<FOLLOWUP_LIMIT_REACHED>",
                 kwargs["system_prompt"],
+            )
+            self.assertLess(
+                kwargs["system_prompt"].index(
+                    "<FOLLOWUP_LIMIT_REACHED>"
+                ),
+                kwargs["system_prompt"].index(
+                    "<CURRENT_SEQUENCE>"
+                ),
+            )
+            self.assertLess(
+                kwargs["system_prompt"].index(
+                    "<CURRENT_SEQUENCE>"
+                ),
+                kwargs["system_prompt"].index(
+                    "<TOOLS_RESULTS>"
+                ),
             )
             return "<ASSET_ACTION>still pending</ASSET_ACTION>", ""
 

@@ -253,6 +253,7 @@ async def emit_runtime_action_counter_updates(
     display_payloads=None,
     status: str = "counted",
     detail: str = "",
+    runtime_message_id: str = "",
 ) -> None:
     emitter = getattr(
         context,
@@ -282,6 +283,10 @@ async def emit_runtime_action_counter_updates(
             "runtime_current_turn_id",
             "",
         )
+        or ""
+    ).strip()
+    resolved_runtime_message_id = str(
+        runtime_message_id
         or ""
     ).strip()
 
@@ -359,6 +364,11 @@ async def emit_runtime_action_counter_updates(
             event["counter_id"] = (
                 f"{runtime_turn_id}:"
                 f"{entry.name.lower()}"
+            )
+
+        if resolved_runtime_message_id:
+            event["runtime_message_id"] = (
+                resolved_runtime_message_id
             )
 
         normalized_detail = str(

@@ -93,6 +93,7 @@ async def apply_runtime_action_calls(
     rejected_action_ids=None,
     guard_confirmation_ids=None,
     action_display_ids=None,
+    runtime_message_id: str = "",
 ) -> int:
 
     if (
@@ -163,14 +164,25 @@ async def apply_runtime_action_calls(
         else {}
     )
 
-    def with_action_context(payload: dict) -> dict:
-        if not action_context_snapshot:
-            return payload
+    resolved_runtime_message_id = str(
+        runtime_message_id
+        or ""
+    ).strip()
 
-        return {
-            **payload,
-            "context": action_context_snapshot,
-        }
+    def with_action_context(payload: dict) -> dict:
+        enriched_payload = dict(payload)
+
+        if resolved_runtime_message_id:
+            enriched_payload["runtime_message_id"] = (
+                resolved_runtime_message_id
+            )
+
+        if action_context_snapshot:
+            enriched_payload["context"] = (
+                action_context_snapshot
+            )
+
+        return enriched_payload
 
     ensure_assets_tree()
 
@@ -265,6 +277,10 @@ async def apply_runtime_action_calls(
         )
         or ""
     ).strip()
+    jin_color_message_scope = (
+        resolved_runtime_message_id
+        or "__unscoped__"
+    )
     jin_color_dedup_state = getattr(
         context,
         "runtime_jin_color_apply_dedup_state",
@@ -280,15 +296,35 @@ async def apply_runtime_action_calls(
     ):
         jin_color_dedup_state = {
             "turn_id": current_turn_id,
-            "last_color": "",
+            "last_color_by_message": {},
         }
         context.runtime_jin_color_apply_dedup_state = (
             jin_color_dedup_state
         )
+    elif not isinstance(
+        jin_color_dedup_state.get("last_color_by_message"),
+        dict,
+    ):
+        legacy_last_color = normalize_jin_color_payload(
+            jin_color_dedup_state.get(
+                "last_color",
+                "",
+            )
+        )
+        jin_color_dedup_state["last_color_by_message"] = {}
+
+        if legacy_last_color:
+            jin_color_dedup_state["last_color_by_message"][
+                "__unscoped__"
+            ] = legacy_last_color
+
+    jin_color_last_by_message = jin_color_dedup_state[
+        "last_color_by_message"
+    ]
 
     current_jin_color = normalize_jin_color_payload(
-        jin_color_dedup_state.get(
-            "last_color",
+        jin_color_last_by_message.get(
+            jin_color_message_scope,
             "",
         )
     )
@@ -471,7 +507,9 @@ async def apply_runtime_action_calls(
 
         if action.name == RUNTIME_ACTION_JIN_COLOR:
             current_jin_color = jin_color
-            jin_color_dedup_state["last_color"] = jin_color
+            jin_color_last_by_message[
+                jin_color_message_scope
+            ] = jin_color
             accepted_action_names.add(
                 action_event_name
             )

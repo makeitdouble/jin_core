@@ -309,7 +309,7 @@ class BrainPromptMemoryTests(
                 )
 
             self.assertIn(
-                "Step 1 - ASSET_ACTION ( 1s ago )",
+                "JIN message 1 executed - ASSET_ACTION ( 1s ago )",
                 history,
             )
             self.assertNotIn(
@@ -383,18 +383,18 @@ class BrainPromptMemoryTests(
                 history,
             )
             self.assertIn(
-                "Step 1 - LIST_SKILLS ( 5s ago )",
+                "JIN message 1 executed - LIST_SKILLS ( 5s ago )",
                 history,
             )
             self.assertIn(
                 (
-                    "Step 2 - APPEND_SKILL: file_manager (count: 3), "
+                    "JIN message 2 executed - APPEND_SKILL: file_manager (count: 3), "
                     "CLEAN_TOOL_RESULTS ( 2s ago )"
                 ),
                 history,
             )
             self.assertIn(
-                "Step 3 - SAVE_SESSION ( 1s ago )",
+                "JIN message 3 executed - SAVE_SESSION ( 1s ago )",
                 history,
             )
 
@@ -444,8 +444,8 @@ class BrainPromptMemoryTests(
                 (
                     "<CURRENT_SEQUENCE>\n"
                     "    --- Sequence started ---\n"
-                    "    Step 1 - LIST_SKILLS ( 55s ago )\n"
-                    "    Step 2 - APPEND_SKILL ( 2s ago )\n"
+                    "    JIN message 1 executed - LIST_SKILLS ( 55s ago )\n"
+                    "    JIN message 2 executed - APPEND_SKILL ( 2s ago )\n"
                     "</CURRENT_SEQUENCE>"
                 ),
             )
@@ -502,7 +502,7 @@ class BrainPromptMemoryTests(
 
             self.assertIn(
                 (
-                    "Step 1 - RESOLVE_ACTIVE_MEMORY - "
+                    "JIN message 1 executed - RESOLVE_ACTIVE_MEMORY - "
                     "id: enrrqo; content: word: кукушка, "
                     "RESOLVE_ACTIVE_MEMORY - id: yfpywn; "
                     "content: word: кулёк ( 2s ago )"

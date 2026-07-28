@@ -85,7 +85,7 @@ async def apply_asset_actions(
             )
         )
         if emit is not None:
-            await emit(with_action_context({
+            started_payload = with_action_context({
                 "type": "runtime_action",
                 "action": "asset_action",
                 "id": pending_action_id,
@@ -93,15 +93,32 @@ async def apply_asset_actions(
                 **build_runtime_action_event_display_fields(
                     RUNTIME_ACTION_ASSET_ACTION,
                 ),
-            }))
+            })
+            await emit(
+                started_payload
+            )
+        else:
+            started_payload = with_action_context({})
 
         previous_active_asset_action_id = getattr(
             context,
             "runtime_active_asset_action_id",
             "",
         )
+        previous_active_asset_action_message_id = getattr(
+            context,
+            "runtime_active_asset_action_message_id",
+            "",
+        )
         context.runtime_active_asset_action_id = (
             pending_action_id
+        )
+        context.runtime_active_asset_action_message_id = str(
+            started_payload.get(
+                "runtime_message_id",
+                "",
+            )
+            or ""
         )
 
         try:
@@ -112,6 +129,9 @@ async def apply_asset_actions(
         finally:
             context.runtime_active_asset_action_id = (
                 previous_active_asset_action_id
+            )
+            context.runtime_active_asset_action_message_id = (
+                previous_active_asset_action_message_id
             )
         result = normalize_file_exists_for_runtime_todo(
             result,
@@ -133,6 +153,16 @@ async def apply_asset_actions(
             result,
             action.payload,
         )
+        if (
+            log_runtime is not None
+            and result.get("ok") is False
+        ):
+            await log_runtime(
+                "[RUNTIME ACTION] asset_action failed: "
+                + build_asset_action_history_text(
+                    result
+                )
+            )
         saved_asset_results.append(
             result
         )

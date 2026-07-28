@@ -162,7 +162,11 @@ def _estimate_reader_tokens(
             value
         ),
         ceil(
-            len(value) / 3
+            len(
+                value.encode(
+                    "utf-8"
+                )
+            ) / 3
         ),
     )
 
@@ -209,6 +213,120 @@ def _extract_model_content(
                     content = raw_content
 
     return content.strip()
+
+
+def _format_asset_action_exception_detail(
+    error: Exception,
+) -> str:
+
+    detail = str(
+        error
+    ).strip()
+    response = getattr(
+        error,
+        "response",
+        None,
+    )
+
+    if response is None:
+        return detail
+
+    status_code = str(
+        getattr(
+            response,
+            "status_code",
+            "",
+        )
+        or ""
+    ).strip()
+    reason_phrase = str(
+        getattr(
+            response,
+            "reason_phrase",
+            "",
+        )
+        or ""
+    ).strip()
+    response_text = str(
+        getattr(
+            response,
+            "text",
+            "",
+        )
+        or ""
+    ).strip()
+
+    parts = []
+    status_label = " ".join(
+        part
+        for part in (
+            "HTTP",
+            status_code,
+            reason_phrase,
+        )
+        if part
+    ).strip()
+
+    if status_label:
+        parts.append(
+            status_label
+        )
+
+    if response_text:
+        parts.append(
+            response_text[:2000]
+        )
+
+    if detail and detail not in parts:
+        parts.append(
+            detail
+        )
+
+    return "\n".join(
+        parts
+    ).strip()
+
+
+def _is_context_length_error(
+    error: Exception,
+) -> bool:
+
+    response = getattr(
+        error,
+        "response",
+        None,
+    )
+    status_code = getattr(
+        response,
+        "status_code",
+        "",
+    )
+    text = " ".join(
+        str(value or "")
+        for value in (
+            getattr(
+                response,
+                "text",
+                "",
+            )
+            if response is not None
+            else "",
+            str(
+                error
+            ),
+        )
+    ).casefold()
+
+    return (
+        str(status_code) == "400"
+        and (
+            "n_keep" in text
+            or "context length" in text
+            or "context window" in text
+            or "larger context" in text
+            or "shorter input" in text
+        )
+    )
 
 
 def _extract_finish_reason(
@@ -372,6 +490,14 @@ async def _emit_document_reader_progress(
         )
         or ""
     ).strip()
+    runtime_message_id = str(
+        getattr(
+            context,
+            "runtime_active_asset_action_message_id",
+            "",
+        )
+        or ""
+    ).strip()
     emitter = getattr(
         context,
         "emitter",
@@ -408,6 +534,10 @@ async def _emit_document_reader_progress(
             ),
         )
     )
+    estimated_chunks = max(
+        0,
+        int(estimated_chunks or 0),
+    )
     percent = (
         int(
             round(
@@ -441,7 +571,11 @@ async def _emit_document_reader_progress(
     chunk_label = (
         "preparing"
         if chunk_index <= 0
-        else f"chunk {chunk_index}"
+        else (
+            f"chunk {chunk_index}/{estimated_chunks}"
+            if estimated_chunks > 0
+            else f"chunk {chunk_index}"
+        )
     )
     page_suffix = (
         f" · pages {pages_label}"
@@ -476,7 +610,7 @@ async def _emit_document_reader_progress(
     )
 
     try:
-        await emit({
+        payload = {
             "type": "runtime_action",
             "action": "asset_action",
             "id": action_id,
@@ -495,7 +629,7 @@ async def _emit_document_reader_progress(
                     else ""
                 )
                 + (
-                    f"; estimated chunks ~{estimated_chunks}"
+                    f"; chunks {chunk_index}/{estimated_chunks}"
                     if estimated_chunks > 0
                     else ""
                 )
@@ -517,7 +651,16 @@ async def _emit_document_reader_progress(
                     int(request_index or 0),
                 ),
             },
-        })
+        }
+
+        if runtime_message_id:
+            payload["runtime_message_id"] = (
+                runtime_message_id
+            )
+
+        await emit(
+            payload
+        )
     except Exception:
         return
 
@@ -555,6 +698,53 @@ def _document_reader_elapsed_seconds(
     return max(
         0,
         int(monotonic() - started_at),
+    )
+
+
+def _estimate_document_reader_total_chunks(
+    *,
+    total_words: int,
+    chunk_index: int,
+    nominal_chunk_words: int,
+    prior_estimated_chunks: int = 0,
+) -> int:
+
+    total_words = max(
+        0,
+        int(total_words or 0),
+    )
+    chunk_index = max(
+        0,
+        int(chunk_index or 0),
+    )
+    nominal_chunk_words = max(
+        0,
+        int(nominal_chunk_words or 0),
+    )
+    prior_estimated_chunks = max(
+        0,
+        int(prior_estimated_chunks or 0),
+    )
+
+    if total_words <= 0:
+        return max(
+            chunk_index,
+            prior_estimated_chunks,
+        )
+
+    estimate = (
+        ceil(
+            total_words
+            / nominal_chunk_words
+        )
+        if nominal_chunk_words > 0
+        else 0
+    )
+
+    return max(
+        chunk_index,
+        prior_estimated_chunks,
+        estimate,
     )
 
 
@@ -700,21 +890,86 @@ def _select_attachment(
     requested_name: str = "",
 ) -> dict:
 
-    attachments = [
-        attachment
-        for attachment in (
+    raw_attachments = list(
+        getattr(
+            context,
+            "runtime_turn_attachments",
+            [],
+        )
+        or []
+    )
+    current_sequence_turn_id = str(
+        getattr(
+            context,
+            "runtime_current_sequence_turn_id",
+            "",
+        )
+        or ""
+    ).strip()
+    sequence_attachment_turn_id = str(
+        getattr(
+            context,
+            "runtime_current_sequence_attachments_turn_id",
+            "",
+        )
+        or ""
+    ).strip()
+    if (
+        current_sequence_turn_id
+        and current_sequence_turn_id == sequence_attachment_turn_id
+    ):
+        raw_attachments.extend(
             getattr(
                 context,
-                "runtime_turn_attachments",
+                "runtime_current_sequence_attachments",
                 [],
             )
             or []
         )
-        if isinstance(
+
+    attachments = []
+    seen_attachment_keys = set()
+
+    for attachment in raw_attachments:
+        if not isinstance(
             attachment,
             dict,
+        ):
+            continue
+
+        key = (
+            str(
+                attachment.get(
+                    "name",
+                    "",
+                )
+                or ""
+            ).casefold(),
+            str(
+                attachment.get(
+                    "type",
+                    "",
+                )
+                or ""
+            ).casefold(),
+            str(
+                attachment.get(
+                    "size_label",
+                    "",
+                )
+                or ""
+            ).casefold(),
         )
-    ]
+
+        if key in seen_attachment_keys:
+            continue
+
+        seen_attachment_keys.add(
+            key
+        )
+        attachments.append(
+            attachment
+        )
 
     requested = str(
         requested_name
@@ -1276,7 +1531,6 @@ def _resolve_reader_budgets(
     context_window: int,
     output_token_limit: int,
     instruction: str,
-    question: str,
     current_result: str,
 ) -> dict:
 
@@ -1347,7 +1601,6 @@ def _resolve_reader_budgets(
         "You are one internal document-processing pass. "
         "The runtime already selected the next chunk; do not call tools. "
         "Return only the complete updated document result.\n"
-        f"Question: {question}\n"
         f"Current result:\n{current_result}\n"
     )
     occupied_tokens = _estimate_reader_tokens(
@@ -1498,7 +1751,6 @@ def _build_iteration_system_prompt(
 def _build_iteration_user_prompt(
     *,
     attachment_name: str,
-    question: str,
     chunk_index: int,
     chunk: dict,
     current_result: str,
@@ -1522,7 +1774,6 @@ def _build_iteration_user_prompt(
 
     return (
         f"DOCUMENT: {attachment_name}\n"
-        f"USER QUESTION: {question or 'Build a complete usable document result.'}\n"
         f"CHUNK: c{chunk_index}\n"
         f"WORD OFFSET: {chunk.get('offset', 0)}\n"
         f"PAGES IN CHUNK: {pages_label or 'unknown'}\n"
@@ -1535,6 +1786,257 @@ def _build_iteration_user_prompt(
     )
 
 
+def _document_chunk_words(
+    chunk: dict,
+) -> list[str]:
+
+    return re.findall(
+        r"\S+",
+        str(
+            chunk.get(
+                "text",
+                "",
+            )
+            or ""
+        ),
+    )
+
+
+def _copy_document_chunk_with_word_limit(
+    chunk: dict,
+    word_limit: int,
+) -> dict:
+
+    words = _document_chunk_words(
+        chunk
+    )
+    selected_words = words[
+        :max(
+            1,
+            int(
+                word_limit
+                or 1
+            ),
+        )
+    ]
+    text = " ".join(
+        selected_words
+    )
+    offset = int(
+        chunk.get(
+            "offset",
+            0,
+        )
+        or 0
+    )
+    total_words = int(
+        chunk.get(
+            "total_words",
+            0,
+        )
+        or 0
+    )
+    next_offset = offset + len(
+        selected_words
+    )
+    fitted = dict(
+        chunk
+    )
+    fitted.update({
+        "size": len(
+            selected_words
+        ),
+        "words_read": len(
+            selected_words
+        ),
+        "next_offset": next_offset,
+        "eof": (
+            next_offset >= total_words
+            if total_words
+            else (
+                bool(
+                    chunk.get(
+                        "eof",
+                    )
+                )
+                and len(selected_words) >= len(words)
+            )
+        ),
+        "pages_in_chunk": re.findall(
+            r"\[\[PAGE\s+(\d+)\]\]",
+            text,
+            flags=re.IGNORECASE,
+        ),
+        "text": text,
+    })
+
+    return fitted
+
+
+def _fit_document_reader_chunk_to_context(
+    *,
+    chunk: dict,
+    attachment_name: str,
+    chunk_index: int,
+    current_result: str,
+    instruction: str,
+    budgets: dict,
+) -> dict:
+
+    context_window = max(
+        1,
+        int(
+            budgets.get(
+                "context_window",
+                0,
+            )
+            or 0
+        ),
+    )
+    reserve_tokens = max(
+        0,
+        int(
+            budgets.get(
+                "reserve_tokens",
+                0,
+            )
+            or 0
+        ),
+    )
+    minimum_output_tokens = min(
+        512,
+        max(
+            128,
+            context_window // 8,
+        ),
+    )
+    prompt_safety_tokens = min(
+        max(
+            256,
+            context_window // 16,
+        ),
+        max(
+            0,
+            context_window
+            - reserve_tokens
+            - minimum_output_tokens
+            - 1,
+        ),
+    )
+    prompt_token_limit = max(
+        1,
+        context_window
+        - reserve_tokens
+        - minimum_output_tokens
+        - prompt_safety_tokens,
+    )
+    system_prompt = _build_iteration_system_prompt(
+        instruction,
+        int(
+            budgets.get(
+                "result_token_cap",
+                0,
+            )
+            or 0
+        ),
+    )
+
+    def build_candidate(
+        candidate_chunk: dict,
+    ) -> tuple[dict, str, int]:
+        user_prompt = _build_iteration_user_prompt(
+            attachment_name=attachment_name,
+            chunk_index=chunk_index,
+            chunk=candidate_chunk,
+            current_result=current_result,
+        )
+        prompt_tokens = _estimate_reader_tokens(
+            system_prompt
+            + "\n"
+            + user_prompt
+        )
+
+        return (
+            candidate_chunk,
+            user_prompt,
+            prompt_tokens,
+        )
+
+    candidate = build_candidate(
+        chunk
+    )
+
+    if candidate[2] > prompt_token_limit:
+        words = _document_chunk_words(
+            chunk
+        )
+        low = 1
+        high = len(words)
+        best = None
+
+        while low <= high:
+            midpoint = (
+                low
+                + high
+            ) // 2
+            fitted_chunk = _copy_document_chunk_with_word_limit(
+                chunk,
+                midpoint,
+            )
+            fitted = build_candidate(
+                fitted_chunk
+            )
+
+            if fitted[2] <= prompt_token_limit:
+                best = fitted
+                low = midpoint + 1
+            else:
+                high = midpoint - 1
+
+        if best is None:
+            best = build_candidate(
+                _copy_document_chunk_with_word_limit(
+                    chunk,
+                    1,
+                )
+            )
+
+        candidate = best
+
+    fitted_chunk, user_prompt, prompt_tokens = candidate
+    output_tokens = max(
+        1,
+        min(
+            int(
+                budgets.get(
+                    "output_tokens",
+                    0,
+                )
+                or 0
+            ),
+            context_window
+            - prompt_tokens
+            - reserve_tokens
+            - prompt_safety_tokens,
+        ),
+    )
+    fits = (
+        prompt_tokens <= prompt_token_limit
+        and output_tokens >= minimum_output_tokens
+    )
+
+    return {
+        "fits": fits,
+        "chunk": fitted_chunk,
+        "system_prompt": system_prompt,
+        "user_prompt": user_prompt,
+        "prompt_tokens": prompt_tokens,
+        "output_tokens": output_tokens,
+        "prompt_token_limit": prompt_token_limit,
+        "prompt_safety_tokens": prompt_safety_tokens,
+    }
+
+
 async def _run_document_pass(
     *,
     context,
@@ -1543,7 +2045,6 @@ async def _run_document_pass(
     source_path: Path,
     cache_path: Path,
     attachment_name: str,
-    question: str,
     mode: str,
     instruction: str,
     context_window: int,
@@ -1637,6 +2138,7 @@ async def _run_document_pass(
     length_limited_chunks = 0
     eof = False
     estimated_chunks = 0
+    nominal_chunk_words = 0
     model_request_index = 0
     progress_started_at = monotonic()
 
@@ -1657,7 +2159,6 @@ async def _run_document_pass(
             context_window=context_window,
             output_token_limit=output_token_limit,
             instruction=instruction,
-            question=question,
             current_result=current_result,
         )
 
@@ -1725,20 +2226,340 @@ async def _run_document_pass(
             eof = True
             break
 
-        chunk_index += 1
-        estimated_chunks = (
-            chunk_index
-            + ceil(
-                max(
-                    0,
-                    total_words - next_offset,
+        next_chunk_index = chunk_index + 1
+        fitted = _fit_document_reader_chunk_to_context(
+            chunk=chunk,
+            attachment_name=attachment_name,
+            chunk_index=next_chunk_index,
+            current_result=current_result,
+            instruction=instruction,
+            budgets=budgets,
+        )
+
+        if not fitted["fits"]:
+            return {
+                "ok": False,
+                "mode": mode,
+                "error": "document_reader_context_exhausted",
+                "detail": (
+                    "The active model context window is too small for the "
+                    "reader instruction, accumulated result, one source word, "
+                    "and a new result output."
+                ),
+                "total_words": total_words,
+                "pages": page_count,
+                "extraction_warning": extraction_warning,
+                "chunks": chunk_index,
+                "processed_words": min(offset, total_words),
+                "context_window": context_window,
+                "occupied_tokens": budgets["occupied_tokens"],
+                "reserve_tokens": budgets["reserve_tokens"],
+                "prompt_tokens": fitted["prompt_tokens"],
+                "prompt_token_limit": fitted["prompt_token_limit"],
+                "result": current_result,
+            }
+
+        chunk = fitted["chunk"]
+        text = str(
+            chunk.get(
+                "text",
+                "",
+            )
+            or ""
+        )
+        words_read = int(
+            chunk.get(
+                "words_read",
+                0,
+            )
+            or 0
+        )
+        next_offset = int(
+            chunk.get(
+                "next_offset",
+                offset,
+            )
+            or offset
+        )
+        chunk_index = next_chunk_index
+        if (
+            nominal_chunk_words <= 0
+            and words_read > 0
+        ):
+            nominal_chunk_words = words_read
+        updated_result = ""
+        finish_reason = ""
+        invalid_output_retries = 0
+        max_invalid_output_retries = max(
+            0,
+            int(
+                getattr(
+                    config,
+                    "DOCUMENT_READER_INVALID_OUTPUT_RETRIES",
+                    2,
                 )
-                / max(
-                    1,
-                    words_read,
+                or 0
+            ),
+        )
+
+        while True:
+            estimated_chunks = _estimate_document_reader_total_chunks(
+                total_words=total_words,
+                chunk_index=chunk_index,
+                nominal_chunk_words=nominal_chunk_words,
+                prior_estimated_chunks=estimated_chunks,
+            )
+            system_prompt = fitted["system_prompt"]
+            user_prompt = fitted["user_prompt"]
+            pages = chunk.get(
+                "pages_in_chunk",
+                [],
+            )
+            pages_label = (
+                "-".join(
+                    [
+                        str(pages[0]),
+                        str(pages[-1]),
+                    ]
+                )
+                if isinstance(pages, list)
+                and len(pages) > 1
+                else (
+                    str(pages[0])
+                    if isinstance(pages, list)
+                    and pages
+                    else ""
                 )
             )
-        )
+            model_request_index += 1
+            await _emit_document_reader_progress(
+                context,
+                attachment_name=attachment_name,
+                mode=mode,
+                chunk_index=chunk_index,
+                estimated_chunks=estimated_chunks,
+                processed_words=offset,
+                target_words=next_offset,
+                total_words=total_words,
+                pages_label=pages_label,
+                stage="processing",
+                elapsed_seconds=_document_reader_elapsed_seconds(
+                    progress_started_at
+                ),
+                request_index=model_request_index,
+            )
+
+            try:
+                raw_result = await _ask_document_reader_with_progress(
+                    client,
+                    context=context,
+                    attachment_name=attachment_name,
+                    mode=mode,
+                    chunk_index=chunk_index,
+                    estimated_chunks=estimated_chunks,
+                    processed_words=offset,
+                    target_words=next_offset,
+                    total_words=total_words,
+                    pages_label=pages_label,
+                    stage="processing",
+                    progress_started_at=progress_started_at,
+                    request_index=model_request_index,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    temperature=float(
+                        getattr(
+                            config,
+                            "DOCUMENT_READER_TEMPERATURE",
+                            0.1,
+                        )
+                        or 0.1
+                    ),
+                    max_tokens=fitted["output_tokens"],
+                    timeout=float(
+                        getattr(
+                            config,
+                            "DOCUMENT_READER_MODEL_TIMEOUT_SECONDS",
+                            getattr(
+                                config,
+                                "SERVICE_REQUEST_TIMEOUT",
+                                1000.0,
+                            ),
+                        )
+                        or 1000.0
+                    ),
+                )
+                updated_result = _extract_model_content(
+                    raw_result
+                )
+                finish_reason = _extract_finish_reason(
+                    raw_result
+                )
+
+                if (
+                    updated_result
+                    and not _looks_like_process_reasoning(
+                        updated_result
+                    )
+                ):
+                    break
+
+                if (
+                    invalid_output_retries >= max_invalid_output_retries
+                    or words_read <= 1
+                ):
+                    return {
+                        "ok": False,
+                        "mode": mode,
+                        "error": "invalid_model_output",
+                        "detail": (
+                            "The internal model returned no usable document "
+                            f"result for chunk {chunk_index} after "
+                            f"{invalid_output_retries} retry attempt(s)."
+                        ),
+                        "total_words": total_words,
+                        "pages": page_count,
+                        "extraction_warning": extraction_warning,
+                        "chunks": chunk_index,
+                        "processed_words": min(offset, total_words),
+                        "finish_reason": finish_reason,
+                        "result": current_result,
+                    }
+
+                invalid_output_retries += 1
+                reduced_word_count = max(
+                    1,
+                    words_read // 2,
+                )
+                reduced_chunk = _copy_document_chunk_with_word_limit(
+                    chunk,
+                    reduced_word_count,
+                )
+                reduced_fitted = _fit_document_reader_chunk_to_context(
+                    chunk=reduced_chunk,
+                    attachment_name=attachment_name,
+                    chunk_index=chunk_index,
+                    current_result=current_result,
+                    instruction=instruction,
+                    budgets=budgets,
+                )
+
+                if (
+                    not reduced_fitted["fits"]
+                    or int(
+                        reduced_fitted["chunk"].get(
+                            "words_read",
+                            0,
+                        )
+                        or 0
+                    ) >= words_read
+                ):
+                    return {
+                        "ok": False,
+                        "mode": mode,
+                        "error": "invalid_model_output",
+                        "detail": (
+                            "The internal model returned no usable document "
+                            f"result for chunk {chunk_index}, and the chunk "
+                            "could not be reduced further."
+                        ),
+                        "total_words": total_words,
+                        "pages": page_count,
+                        "extraction_warning": extraction_warning,
+                        "chunks": chunk_index,
+                        "processed_words": min(offset, total_words),
+                        "finish_reason": finish_reason,
+                        "result": current_result,
+                    }
+
+                fitted = reduced_fitted
+                chunk = fitted["chunk"]
+                text = str(
+                    chunk.get(
+                        "text",
+                        "",
+                    )
+                    or ""
+                )
+                words_read = int(
+                    chunk.get(
+                        "words_read",
+                        0,
+                    )
+                    or 0
+                )
+                if not actual_chunk_words:
+                    nominal_chunk_words = words_read
+                next_offset = int(
+                    chunk.get(
+                        "next_offset",
+                        offset,
+                    )
+                    or offset
+                )
+            except Exception as error:
+                if (
+                    not _is_context_length_error(
+                        error
+                    )
+                    or words_read <= 1
+                ):
+                    raise
+
+                reduced_word_count = max(
+                    1,
+                    words_read // 2,
+                )
+                reduced_chunk = _copy_document_chunk_with_word_limit(
+                    chunk,
+                    reduced_word_count,
+                )
+                reduced_fitted = _fit_document_reader_chunk_to_context(
+                    chunk=reduced_chunk,
+                    attachment_name=attachment_name,
+                    chunk_index=chunk_index,
+                    current_result=current_result,
+                    instruction=instruction,
+                    budgets=budgets,
+                )
+
+                if (
+                    not reduced_fitted["fits"]
+                    or int(
+                        reduced_fitted["chunk"].get(
+                            "words_read",
+                            0,
+                        )
+                        or 0
+                    ) >= words_read
+                ):
+                    raise
+
+                fitted = reduced_fitted
+                chunk = fitted["chunk"]
+                text = str(
+                    chunk.get(
+                        "text",
+                        "",
+                    )
+                    or ""
+                )
+                words_read = int(
+                    chunk.get(
+                        "words_read",
+                        0,
+                    )
+                    or 0
+                )
+                if not actual_chunk_words:
+                    nominal_chunk_words = words_read
+                next_offset = int(
+                    chunk.get(
+                        "next_offset",
+                        offset,
+                    )
+                    or offset
+                )
+
         requested_chunk_words.append(
             budgets["chunk_words"]
         )
@@ -1746,129 +2567,17 @@ async def _run_document_pass(
             words_read
         )
         free_token_samples.append(
-            budgets["free_tokens_before_chunk"]
-        )
-        system_prompt = _build_iteration_system_prompt(
-            instruction,
-            budgets["result_token_cap"],
-        )
-        user_prompt = _build_iteration_user_prompt(
-            attachment_name=attachment_name,
-            question=question,
-            chunk_index=chunk_index,
-            chunk=chunk,
-            current_result=current_result,
-        )
-        pages = chunk.get(
-            "pages_in_chunk",
-            [],
-        )
-        pages_label = (
-            "-".join(
-                [
-                    str(pages[0]),
-                    str(pages[-1]),
-                ]
+            max(
+                0,
+                context_window
+                - fitted["prompt_tokens"]
+                - fitted["output_tokens"],
             )
-            if isinstance(pages, list)
-            and len(pages) > 1
-            else (
-                str(pages[0])
-                if isinstance(pages, list)
-                and pages
-                else ""
-            )
-        )
-        model_request_index += 1
-        await _emit_document_reader_progress(
-            context,
-            attachment_name=attachment_name,
-            mode=mode,
-            chunk_index=chunk_index,
-            estimated_chunks=estimated_chunks,
-            processed_words=offset,
-            target_words=next_offset,
-            total_words=total_words,
-            pages_label=pages_label,
-            stage="processing",
-            elapsed_seconds=_document_reader_elapsed_seconds(
-                progress_started_at
-            ),
-            request_index=model_request_index,
-        )
-        raw_result = await _ask_document_reader_with_progress(
-            client,
-            context=context,
-            attachment_name=attachment_name,
-            mode=mode,
-            chunk_index=chunk_index,
-            estimated_chunks=estimated_chunks,
-            processed_words=offset,
-            target_words=next_offset,
-            total_words=total_words,
-            pages_label=pages_label,
-            stage="processing",
-            progress_started_at=progress_started_at,
-            request_index=model_request_index,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            temperature=float(
-                getattr(
-                    config,
-                    "DOCUMENT_READER_TEMPERATURE",
-                    0.1,
-                )
-                or 0.1
-            ),
-            max_tokens=budgets["output_tokens"],
-            timeout=float(
-                getattr(
-                    config,
-                    "DOCUMENT_READER_MODEL_TIMEOUT_SECONDS",
-                    getattr(
-                        config,
-                        "SERVICE_REQUEST_TIMEOUT",
-                        1000.0,
-                    ),
-                )
-                or 1000.0
-            ),
-        )
-        updated_result = _extract_model_content(
-            raw_result
-        )
-        finish_reason = _extract_finish_reason(
-            raw_result
         )
 
-        # One model request means one committed chunk. A `length` finish reason
-        # is telemetry, not a reason to replay the same pages forever: local
-        # reasoning models may spend part of max_tokens on hidden reasoning and
-        # still return a usable visible result. Only genuinely empty/process
-        # output fails, and it fails immediately instead of launching retries.
-        if (
-            not updated_result
-            or _looks_like_process_reasoning(
-                updated_result
-            )
-        ):
-            return {
-                "ok": False,
-                "mode": mode,
-                "error": "invalid_model_output",
-                "detail": (
-                    "The internal model returned no usable document result "
-                    f"for chunk {chunk_index}. No automatic retry was made."
-                ),
-                "total_words": total_words,
-                "pages": page_count,
-                "extraction_warning": extraction_warning,
-                "chunks": chunk_index,
-                "processed_words": min(offset, total_words),
-                "finish_reason": finish_reason,
-                "result": current_result,
-            }
-
+        # A `length` finish reason is telemetry, not a reason to replay the same
+        # pages forever: local reasoning models may spend part of max_tokens on
+        # hidden reasoning and still return a usable visible result.
         if finish_reason == "length":
             length_limited_chunks += 1
 
@@ -2034,13 +2743,6 @@ async def run_document_reader_action(
         )
         or "attachment"
     )
-    question = str(
-        payload.get(
-            "question",
-            "",
-        )
-        or ""
-    ).strip()
     client = _get_document_reader_client(
         context
     )
@@ -2057,7 +2759,6 @@ async def run_document_reader_action(
             skill_name
         ),
         "attachment": attachment_name,
-        "question": question,
         "available_modes": available_modes,
         "context_window": context_window,
         "output_token_limit": output_token_limit,
@@ -2084,7 +2785,6 @@ async def run_document_reader_action(
                 source_path=source_path,
                 cache_path=cache_path,
                 attachment_name=attachment_name,
-                question=question,
                 mode=mode_name,
                 instruction=instruction,
                 context_window=context_window,
@@ -2112,7 +2812,6 @@ async def run_document_reader_action(
                 source_path=source_path,
                 cache_path=cache_path,
                 attachment_name=attachment_name,
-                question=question,
                 mode=mode_name,
                 instruction=instruction,
                 context_window=context_window,
@@ -2174,9 +2873,55 @@ async def run_context_asset_action(
         )
 
     except Exception as error:
-        return {
+        result = {
             "ok": False,
             "action": action or "asset_action",
             "error": error.__class__.__name__,
-            "detail": str(error),
+            "detail": _format_asset_action_exception_detail(
+                error
+            ),
         }
+
+        if action == "run_document_reader":
+            result["skill"] = normalize_skill_name(
+                payload.get(
+                    "skill",
+                    "chunk_reader",
+                )
+                or "chunk_reader"
+            )
+            attachment = str(
+                payload.get(
+                    "attachment",
+                    "",
+                )
+                or ""
+            ).strip()
+            mode = str(
+                payload.get(
+                    "mode",
+                    DEFAULT_READER_MODE,
+                )
+                or DEFAULT_READER_MODE
+            ).strip()
+            modes = payload.get(
+                "modes"
+            )
+
+            if attachment:
+                result["attachment"] = attachment
+                result["path"] = attachment
+
+            if isinstance(
+                modes,
+                list,
+            ) and modes:
+                result["modes"] = [
+                    str(item).strip()
+                    for item in modes
+                    if str(item).strip()
+                ]
+            elif mode:
+                result["mode"] = mode
+
+        return result

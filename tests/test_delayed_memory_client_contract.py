@@ -81,6 +81,200 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             runtime_actions_source,
         )
 
+    def test_runtime_action_detail_ignores_generic_marker_payload_titles(self):
+
+        runtime_actions_source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "socket"
+            / "runtime-actions.js"
+        ).read_text(
+            encoding="utf-8"
+        )
+
+        detail_start = runtime_actions_source.index(
+            "function buildRuntimeActionDetail"
+        )
+        object_title_start = runtime_actions_source.index(
+            "const objectTitle =",
+            detail_start,
+        )
+        object_title_end = runtime_actions_source.index(
+            "if (objectTitle)",
+            object_title_start,
+        )
+        object_title_block = runtime_actions_source[
+            object_title_start:object_title_end
+        ]
+
+        self.assertIn(
+            "data.skill_result",
+            object_title_block,
+        )
+        self.assertNotIn(
+            "data.payload",
+            object_title_block,
+        )
+        self.assertNotIn(
+            "data.payloads",
+            object_title_block,
+        )
+        self.assertNotIn(
+            "return String(\n    data.payload",
+            runtime_actions_source[detail_start:],
+        )
+
+    def test_runtime_action_key_includes_message_scope(self):
+
+        source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "chat-runtime-actions.js"
+        ).read_text(
+            encoding="utf-8"
+        )
+
+        key_start = source.index(
+            "function buildRuntimeActionVisibleKey"
+        )
+        key_end = source.index(
+            "function clearRuntimeActionGuardConfirmation",
+            key_start,
+        )
+        key_block = source[key_start:key_end]
+
+        self.assertIn(
+            "options.runtimeMessageId",
+            key_block,
+        )
+        self.assertIn(
+            "`${actionName}:${runtimeMessageId}:${actionId}`",
+            key_block,
+        )
+
+    def test_runtime_action_update_removes_duplicate_rows(self):
+
+        source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "chat-runtime-actions.js"
+        ).read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            "function removeDuplicateRuntimeActionRows",
+            source,
+        )
+        self.assertIn(
+            "function removeLegacyRuntimeActionRows",
+            source,
+        )
+        self.assertIn(
+            "removeDuplicateRuntimeActionRows(\n        existingRow,",
+            source,
+        )
+        self.assertIn(
+            "removeLegacyRuntimeActionRows(\n        existingRow,",
+            source,
+        )
+        self.assertIn(
+            "removeDuplicateRuntimeActionRows(\n    row,",
+            source,
+        )
+
+    def test_socket_runtime_actions_keep_message_scope_for_all_actions(self):
+
+        source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "socket"
+            / "runtime-actions.js"
+        ).read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            "runtimeMessageId:\n          getRuntimeActionMessageId(data)",
+            source,
+        )
+        self.assertNotIn(
+            'action === "jin_color"\n      ? getRuntimeActionMessageId(data)\n      : ""',
+            source,
+        )
+        self.assertNotIn(
+            'action === "jin_color"\n            ? getRuntimeActionMessageId(data)\n            : ""',
+            source,
+        )
+
+    def test_socket_runtime_actions_fade_terminal_failures_with_scope(self):
+
+        source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "socket"
+            / "runtime-actions.js"
+        ).read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            "const terminalFailure =",
+            source,
+        )
+        self.assertIn(
+            "counterFinal\n      || terminalFailure",
+            source,
+        )
+        self.assertIn(
+            "runtimeMessageId,\n        sceneEffect",
+            source,
+        )
+        self.assertIn(
+            "fallbackToLatestActive:\n          terminalFailure",
+            source,
+        )
+
+    def test_deferred_runtime_actions_fade_with_message_scope(self):
+
+        source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "chat-runtime-actions.js"
+        ).read_text(
+            encoding="utf-8"
+        )
+
+        flush_start = source.index(
+            "function flushRuntimeActionsAfterResponse"
+        )
+        flush_end = source.index(
+            "function fadeRuntimeAction",
+            flush_start,
+        )
+        flush_block = source[flush_start:flush_end]
+
+        self.assertIn(
+            "runtimeTurnId:\n            entry.runtimeTurnId || \"\"",
+            flush_block,
+        )
+        self.assertIn(
+            "runtimeMessageId:\n            entry.runtimeMessageId || \"\"",
+            flush_block,
+        )
+
     def test_session_snapshot_history_and_appended_ids_are_persisted(self):
 
         storage_source = (

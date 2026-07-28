@@ -61,6 +61,20 @@ async def apply_idle_actions(
             "emit",
             None,
         )
+        runtime_turn_id = str(
+            getattr(
+                context,
+                "runtime_current_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
+
+        def with_runtime_turn(payload):
+            if runtime_turn_id:
+                payload["runtime_turn_id"] = runtime_turn_id
+
+            return payload
 
         if emit is not None:
             for idle_record in idle_records:
@@ -74,7 +88,7 @@ async def apply_idle_actions(
                 idle_payload = (
                     f"{int(idle_record.get('seconds', 0) or 0)}s"
                 )
-                await emit(with_action_context({
+                await emit(with_action_context(with_runtime_turn({
                     "type": "runtime_action",
                     "action": "idle",
                     "id": idle_id,
@@ -85,8 +99,8 @@ async def apply_idle_actions(
                     ),
                     "payload": idle_payload,
                     "detail": idle_payload,
-                }))
-                await emit(with_action_context({
+                })))
+                await emit(with_action_context(with_runtime_turn({
                     "type": "runtime_action",
                     "action": "idle",
                     "id": idle_id,
@@ -99,7 +113,7 @@ async def apply_idle_actions(
                     ),
                     "payload": idle_payload,
                     "detail": idle_payload,
-                }))
+                })))
 
     return idle_records
 

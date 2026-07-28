@@ -227,6 +227,44 @@ def _build_past_tense_action_text(
     return f"{verb} {subject}".strip()
 
 
+def _normalize_action_failure_reason(
+    result: dict,
+) -> str:
+
+    if not isinstance(
+        result,
+        dict,
+    ):
+        return ""
+
+    for key in (
+        "detail",
+        "error",
+    ):
+        reason = str(
+            result.get(
+                key,
+                "",
+            )
+            or ""
+        ).strip()
+
+        if reason:
+            reason = " ".join(
+                reason.split()
+            )
+
+            if len(reason) > 240:
+                reason = (
+                    reason[:237].rstrip()
+                    + "..."
+                )
+
+            return reason
+
+    return ""
+
+
 def build_asset_action_history_text(
     result: dict,
 ) -> str:
@@ -285,6 +323,12 @@ def build_asset_action_history_text(
 
     if result.get("ok") is False:
         text = f"{text} - failed"
+        reason = _normalize_action_failure_reason(
+            result
+        )
+
+        if reason:
+            text = f"{text}: {reason}"
 
     return text
 

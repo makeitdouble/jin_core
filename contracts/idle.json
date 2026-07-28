@@ -10,7 +10,7 @@
       "emit_followup": true
     },
     "rules": [
-      "Emit to setup and trigger follow-up tick after Ns seconds. DO NOT USE in casual chat reminders."
+      "Emit idle action marker to setup and trigger follow-up tick after Ns seconds. DO NOT USE for casual chat reminders."
     ],
     "close_tag": false
   }

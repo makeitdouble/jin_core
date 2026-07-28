@@ -27,6 +27,54 @@ class FakeResponse:
             )
 
 
+class FakeStreamResponse:
+
+    def __init__(
+            self,
+            lines,
+            *,
+            status_code: int = 200,
+    ):
+
+        self.lines = lines
+        self.status_code = status_code
+
+    def raise_for_status(self):
+
+        if self.status_code >= 400:
+            raise RuntimeError(
+                f"HTTP {self.status_code}"
+            )
+
+    async def aiter_lines(self):
+
+        for line in self.lines:
+            yield line
+
+
+class FakeStreamContext:
+
+    def __init__(
+            self,
+            response,
+    ):
+
+        self.response = response
+
+    async def __aenter__(self):
+
+        return self.response
+
+    async def __aexit__(
+            self,
+            exc_type,
+            exc,
+            traceback,
+    ):
+
+        return False
+
+
 class FakeHttpClient:
 
     def __init__(
@@ -34,12 +82,17 @@ class FakeHttpClient:
             *,
             models_payload=None,
             models_payloads_by_url=None,
+            stream_lines=None,
+            stream_status_code: int = 200,
     ):
 
         self.models_payload = models_payload
         self.models_payloads_by_url = models_payloads_by_url or {}
+        self.stream_lines = stream_lines or []
+        self.stream_status_code = stream_status_code
         self.get_calls = []
         self.post_calls = []
+        self.stream_calls = []
 
     async def get(
             self,
@@ -83,6 +136,53 @@ class FakeHttpClient:
                 }
             ]
         })
+
+    def stream(
+            self,
+            method,
+            url,
+            *,
+            json,
+            timeout,
+    ):
+
+        self.stream_calls.append({
+            "method": method,
+            "url": url,
+            "json": json,
+            "timeout": timeout,
+        })
+
+        return FakeStreamContext(
+            FakeStreamResponse(
+                self.stream_lines,
+                status_code=self.stream_status_code,
+            )
+        )
+
+
+class FakeLogger:
+
+    def __init__(self):
+
+        self.errors = []
+
+    async def log_error(
+            self,
+            message,
+    ):
+
+        self.errors.append(
+            message
+        )
+
+
+class FakeStreamContextObject:
+
+    def __init__(self):
+
+        self.active_streams = {}
+        self.logger = FakeLogger()
 
 
 class RuntimeClientTests(
@@ -436,6 +536,150 @@ class RuntimeClientTests(
             http_client.post_calls[0]["json"]["max_tokens"],
             512,
         )
+
+    async def test_stream_ignores_empty_sse_data_frame(self):
+
+        http_client = FakeHttpClient(
+            models_payload={
+                "data": [
+                    {
+                        "id": "test-model",
+                        "context_length": 8192,
+                    }
+                ]
+            },
+            stream_lines=[
+                "data:",
+                'data: {"choices":[{"delta":{"content":"ok"}}]}',
+                "data: [DONE]",
+            ],
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            configured_context_window=4096,
+            client=http_client,
+        )
+        context = FakeStreamContextObject()
+
+        events = [
+            event
+            async for event in client.stream(
+                context=context,
+                system_prompt="system",
+                user_prompt="user",
+                temperature=0.1,
+                max_tokens=100,
+            )
+        ]
+
+        self.assertEqual(
+            events,
+            [
+                {
+                    "type": "content",
+                    "content": "ok",
+                },
+            ],
+        )
+        self.assertEqual(
+            context.logger.errors,
+            [],
+        )
+
+    async def test_stream_reports_when_all_sse_frames_are_invalid_json(self):
+
+        http_client = FakeHttpClient(
+            models_payload={
+                "data": [
+                    {
+                        "id": "test-model",
+                        "context_length": 8192,
+                    }
+                ]
+            },
+            stream_lines=[
+                "data: not-json",
+                "data: [DONE]",
+            ],
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            configured_context_window=4096,
+            client=http_client,
+        )
+        context = FakeStreamContextObject()
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "without any valid JSON chunks",
+        ):
+            [
+                event
+                async for event in client.stream(
+                    context=context,
+                    system_prompt="system",
+                    user_prompt="user",
+                    temperature=0.1,
+                    max_tokens=100,
+                )
+            ]
+
+        self.assertTrue(
+            any(
+                "[JSON PARSE ERROR]" in message
+                for message in context.logger.errors
+            )
+        )
+        self.assertTrue(
+            any(
+                "first invalid payload" in message
+                for message in context.logger.errors
+            )
+        )
+
+    async def test_stream_reports_when_sse_stream_has_no_json_chunks(self):
+
+        http_client = FakeHttpClient(
+            models_payload={
+                "data": [
+                    {
+                        "id": "test-model",
+                        "context_length": 8192,
+                    }
+                ]
+            },
+            stream_lines=[
+                "data:",
+                "data: [DONE]",
+            ],
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            configured_context_window=4096,
+            client=http_client,
+        )
+        context = FakeStreamContextObject()
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "without any JSON chunks",
+        ):
+            [
+                event
+                async for event in client.stream(
+                    context=context,
+                    system_prompt="system",
+                    user_prompt="user",
+                    temperature=0.1,
+                    max_tokens=100,
+                )
+            ]
 
 
 

@@ -9,13 +9,18 @@ from unittest.mock import patch
 from utils import assets_utils
 from utils.python_skill_asset_utils import (
     _build_iteration_system_prompt,
+    _build_iteration_user_prompt,
     _emit_document_reader_progress,
+    _estimate_document_reader_total_chunks,
+    _estimate_reader_tokens,
     _extract_model_content,
     _resolve_reader_mode,
     _format_document_reader_elapsed,
     _resolve_reader_budgets,
+    run_context_asset_action,
     run_document_reader_action,
     run_python_skill_action,
+    _select_attachment,
 )
 from utils.brain_client_utils import (
     apply_runtime_action_calls,
@@ -129,7 +134,7 @@ class PythonSkillAssetTests(unittest.TestCase):
             event["text"],
         )
         self.assertIn(
-            "chunk 2",
+            "chunk 2/3",
             event["text"],
         )
         self.assertNotIn(
@@ -169,6 +174,67 @@ class PythonSkillAssetTests(unittest.TestCase):
             100,
         )
 
+    def test_document_reader_estimated_chunks_stays_stable(self):
+        estimate = _estimate_document_reader_total_chunks(
+            total_words=21481,
+            chunk_index=7,
+            nominal_chunk_words=1100,
+            prior_estimated_chunks=20,
+        )
+
+        self.assertEqual(
+            estimate,
+            20,
+        )
+
+        self.assertEqual(
+            _estimate_document_reader_total_chunks(
+                total_words=21481,
+                chunk_index=8,
+                nominal_chunk_words=1100,
+                prior_estimated_chunks=estimate,
+            ),
+            20,
+        )
+
+        self.assertEqual(
+            _estimate_document_reader_total_chunks(
+                total_words=21481,
+                chunk_index=21,
+                nominal_chunk_words=1100,
+                prior_estimated_chunks=20,
+            ),
+            21,
+        )
+
+    def test_document_reader_finds_sequence_attachment_in_followup(self):
+        class Context:
+            pass
+
+        context = Context()
+        context.runtime_turn_attachments = []
+        context.runtime_current_sequence_turn_id = "turn_000001"
+        context.runtime_current_sequence_attachments_turn_id = "turn_000001"
+        context.runtime_current_sequence_attachments = [
+            {
+                "name": "README.md",
+                "kind": "text",
+                "type": "text/markdown",
+                "size_label": "304.8 KB",
+                "text_content": "# file body",
+            },
+        ]
+
+        attachment = _select_attachment(
+            context,
+            "README.md",
+        )
+
+        self.assertEqual(
+            attachment["text_content"],
+            "# file body",
+        )
+
 
     def test_document_reader_bubble_uses_exact_mode_filename(self):
         text = build_asset_action_history_text({
@@ -182,7 +248,327 @@ class PythonSkillAssetTests(unittest.TestCase):
             "Read document iteratively - plain-mode.md",
         )
 
-    def test_document_reader_does_not_retry_invalid_model_output(self):
+    def test_document_reader_failed_history_includes_reason(self):
+        text = build_asset_action_history_text({
+            "action": "run_document_reader",
+            "ok": False,
+            "mode": "plain-mode.md",
+            "detail": "HTTP 400 Bad Request: context overflow",
+        })
+
+        self.assertEqual(
+            text,
+            (
+                "Read document iteratively - plain-mode.md - failed: "
+                "HTTP 400 Bad Request: context overflow"
+            ),
+        )
+
+    def test_document_reader_http_error_detail_includes_response_body(self):
+        class Response:
+            status_code = 400
+            reason_phrase = "Bad Request"
+            text = '{"error":{"message":"max_tokens exceeds limit"}}'
+
+        class BadRequestError(Exception):
+            response = Response()
+
+        class FailingServiceClient(FakeBrainClient):
+            async def ask(
+                self,
+                *,
+                system_prompt,
+                user_prompt,
+                temperature,
+                max_tokens,
+                timeout=None,
+            ):
+                self.calls.append({
+                    "system_prompt": system_prompt,
+                    "user_prompt": user_prompt,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "timeout": timeout,
+                })
+                raise BadRequestError(
+                    "Client error '400 Bad Request'"
+                )
+
+        class Context:
+            pass
+
+        context = Context()
+        context.clients = {
+            "service": FailingServiceClient(
+                context_window=2048,
+            ),
+        }
+        context.runtime_appended_skills = [
+            {
+                "name": "chunk_reader",
+            },
+        ]
+        context.runtime_turn_attachments = [
+            {
+                "name": "short.txt",
+                "kind": "text",
+                "type": "text/plain",
+                "text_content": " ".join(
+                    f"word-{index}"
+                    for index in range(100)
+                ),
+            },
+        ]
+
+        result = asyncio.run(
+            run_context_asset_action(
+                json.dumps({
+                    "action": "run_document_reader",
+                    "skill": "chunk_reader",
+                    "attachment": "short.txt",
+                    "mode": "plain-mode.md",
+                    "question": "Summarize.",
+                }),
+                context=context,
+            )
+        )
+
+        self.assertFalse(
+            result["ok"],
+        )
+        self.assertEqual(
+            result["mode"],
+            "plain-mode.md",
+        )
+        self.assertIn(
+            "HTTP 400 Bad Request",
+            result["detail"],
+        )
+        self.assertIn(
+            "max_tokens exceeds limit",
+            result["detail"],
+        )
+
+    def test_document_reader_shrinks_expensive_chunks_to_context(self):
+        class GuardedServiceClient(FakeBrainClient):
+            async def ask(
+                self,
+                *,
+                system_prompt,
+                user_prompt,
+                temperature,
+                max_tokens,
+                timeout=None,
+            ):
+                prompt_tokens = _estimate_reader_tokens(
+                    system_prompt
+                    + "\n"
+                    + user_prompt
+                )
+                self.calls.append({
+                    "system_prompt": system_prompt,
+                    "user_prompt": user_prompt,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "timeout": timeout,
+                    "prompt_tokens": prompt_tokens,
+                })
+                if (
+                    prompt_tokens + max_tokens + 256
+                    > self.context_window
+                ):
+                    raise AssertionError(
+                        "document reader prompt exceeded service context"
+                    )
+                return {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": (
+                                    f"RESULT AFTER CHUNK {len(self.calls)}"
+                                ),
+                            },
+                        },
+                    ],
+                }
+
+        class Context:
+            pass
+
+        client = GuardedServiceClient(
+            context_window=2048,
+        )
+        context = Context()
+        context.clients = {
+            "service": client,
+        }
+        context.runtime_appended_skills = [
+            {
+                "name": "chunk_reader",
+            },
+        ]
+        context.runtime_turn_attachments = [
+            {
+                "name": "expensive.md",
+                "kind": "text",
+                "type": "text/markdown",
+                "text_content": " ".join(
+                    (
+                        "РЎР»РѕРІР°СЂСЊ"
+                        + ("%D0%BF" * 10)
+                        + str(index)
+                    )
+                    for index in range(220)
+                ),
+            },
+        ]
+
+        result = asyncio.run(
+            run_context_asset_action(
+                json.dumps({
+                    "action": "run_document_reader",
+                    "skill": "chunk_reader",
+                    "attachment": "expensive.md",
+                    "mode": "plain-mode.md",
+                    "question": "Summarize.",
+                }),
+                context=context,
+            )
+        )
+
+        self.assertTrue(
+            result["ok"],
+        )
+        self.assertGreater(
+            len(client.calls),
+            1,
+        )
+        self.assertLess(
+            result["chunk_budget"]["actual_words_min"],
+            result["chunk_budget"]["requested_words_first"],
+        )
+
+    def test_document_reader_retries_context_400_with_smaller_chunk(self):
+        class Response:
+            status_code = 400
+            reason_phrase = "Bad Request"
+            text = (
+                '{"error":{"message":"The number of tokens to keep from '
+                'the initial prompt is greater than the context length. '
+                'Try to load the model with a larger context length, or '
+                'provide a shorter input."}}'
+            )
+
+        class BadRequestError(Exception):
+            response = Response()
+
+        class StrictServerClient(FakeBrainClient):
+            def __init__(self):
+                super().__init__(
+                    context_window=4096,
+                )
+                self.failures = 0
+
+            async def ask(
+                self,
+                *,
+                system_prompt,
+                user_prompt,
+                temperature,
+                max_tokens,
+                timeout=None,
+            ):
+                prompt_tokens = (
+                    len(
+                        (
+                            system_prompt
+                            + "\n"
+                            + user_prompt
+                        ).encode(
+                            "utf-8"
+                        )
+                    )
+                )
+
+                if prompt_tokens > self.context_window - 256:
+                    self.failures += 1
+                    raise BadRequestError(
+                        "Client error '400 Bad Request'"
+                    )
+
+                self.calls.append({
+                    "system_prompt": system_prompt,
+                    "user_prompt": user_prompt,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "timeout": timeout,
+                    "prompt_tokens": prompt_tokens,
+                })
+                return {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "STRICT RESULT",
+                            },
+                        },
+                    ],
+                }
+
+        class Context:
+            pass
+
+        client = StrictServerClient()
+        context = Context()
+        context.clients = {
+            "service": client,
+        }
+        context.runtime_appended_skills = [
+            {
+                "name": "chunk_reader",
+            },
+        ]
+        context.runtime_turn_attachments = [
+            {
+                "name": "strict.md",
+                "kind": "text",
+                "type": "text/markdown",
+                "text_content": " ".join(
+                    (
+                        "РЎР»РѕРІР°СЂСЊ"
+                        + ("%D0%BF" * 8)
+                        + str(index)
+                    )
+                    for index in range(40)
+                ),
+            },
+        ]
+
+        result = asyncio.run(
+            run_context_asset_action(
+                json.dumps({
+                    "action": "run_document_reader",
+                    "skill": "chunk_reader",
+                    "attachment": "strict.md",
+                    "mode": "plain-mode.md",
+                    "question": "Summarize.",
+                }),
+                context=context,
+            )
+        )
+
+        self.assertTrue(
+            result["ok"],
+        )
+        self.assertGreater(
+            client.failures,
+            0,
+        )
+        self.assertEqual(
+            result["result"],
+            "STRICT RESULT",
+        )
+
+    def test_document_reader_retries_invalid_model_output_with_smaller_chunk(self):
         class EmptyServiceClient(FakeBrainClient):
             async def ask(
                 self,
@@ -268,10 +654,10 @@ class PythonSkillAssetTests(unittest.TestCase):
         )
         self.assertEqual(
             len(client.calls),
-            1,
+            3,
         )
         self.assertIn(
-            "No automatic retry",
+            "after 2 retry attempt(s)",
             result["detail"],
         )
         self.assertFalse(
@@ -279,6 +665,90 @@ class PythonSkillAssetTests(unittest.TestCase):
                 event.get("progress", {}).get("stage") == "retrying"
                 for event in context.emitter.events
             ),
+        )
+
+    def test_document_reader_commits_after_invalid_output_retry(self):
+        class FlakyServiceClient(FakeBrainClient):
+            async def ask(
+                self,
+                *,
+                system_prompt,
+                user_prompt,
+                temperature,
+                max_tokens,
+                timeout=None,
+            ):
+                self.calls.append({
+                    "system_prompt": system_prompt,
+                    "user_prompt": user_prompt,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "timeout": timeout,
+                })
+                return {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": (
+                                    ""
+                                    if len(self.calls) == 1
+                                    else "RECOVERED RESULT"
+                                ),
+                            },
+                        },
+                    ],
+                }
+
+        class Context:
+            pass
+
+        context = Context()
+        client = FlakyServiceClient(
+            context_window=8192,
+        )
+        context.clients = {
+            "service": client,
+        }
+        context.runtime_appended_skills = [
+            {
+                "name": "chunk_reader",
+            },
+        ]
+        context.runtime_turn_attachments = [
+            {
+                "name": "short.txt",
+                "kind": "text",
+                "type": "text/plain",
+                "text_content": " ".join(
+                    f"word-{index}"
+                    for index in range(20)
+                ),
+            },
+        ]
+
+        result = asyncio.run(
+            run_document_reader_action(
+                context,
+                {
+                    "action": "run_document_reader",
+                    "skill": "chunk_reader",
+                    "attachment": "short.txt",
+                    "mode": "plain-mode.md",
+                    "question": "Summarize.",
+                },
+            )
+        )
+
+        self.assertTrue(
+            result["ok"],
+        )
+        self.assertGreaterEqual(
+            len(client.calls),
+            2,
+        )
+        self.assertEqual(
+            result["result"],
+            "RECOVERED RESULT",
         )
 
 
@@ -366,6 +836,17 @@ class PythonSkillAssetTests(unittest.TestCase):
         self.assertEqual(
             len(client.calls),
             result["chunks"],
+        )
+        self.assertNotIn(
+            "question",
+            result,
+        )
+        self.assertFalse(
+            any(
+                "What is in the file?" in call["user_prompt"]
+                or "USER QUESTION" in call["user_prompt"]
+                for call in client.calls
+            )
         )
         self.assertEqual(
             result["length_limited_chunks"],
@@ -628,14 +1109,12 @@ class PythonSkillAssetTests(unittest.TestCase):
             context_window=4096,
             output_token_limit=2048,
             instruction="method",
-            question="question",
             current_result="",
         )
         full = _resolve_reader_budgets(
             context_window=4096,
             output_token_limit=2048,
             instruction="method",
-            question="question",
             current_result="result " * 1000,
         )
 
@@ -653,7 +1132,6 @@ class PythonSkillAssetTests(unittest.TestCase):
             context_window=262144,
             output_token_limit=8192,
             instruction="method",
-            question="question",
             current_result="",
         )
 
@@ -699,8 +1177,30 @@ class PythonSkillAssetTests(unittest.TestCase):
             "Never replace prior content",
             prompt,
         )
+
+    def test_iteration_user_prompt_does_not_include_task_question(self):
+        prompt = _build_iteration_user_prompt(
+            attachment_name="source.md",
+            chunk_index=1,
+            chunk={
+                "offset": 0,
+                "pages_in_chunk": [1],
+                "eof": False,
+                "text": "source text",
+            },
+            current_result="current text",
+        )
+
+        self.assertNotIn(
+            "USER QUESTION",
+            prompt,
+        )
+        self.assertNotIn(
+            "Summarize",
+            prompt,
+        )
         self.assertIn(
-            "CUSTOM MODE INSTRUCTION",
+            "NEXT SOURCE CHUNK",
             prompt,
         )
         self.assertNotIn(
@@ -823,6 +1323,7 @@ class PythonSkillAssetTests(unittest.TestCase):
                     ),
                 ),
                 user_message="Read the attached file.",
+                runtime_message_id="asset-message-1",
             )
         )
 
@@ -848,6 +1349,16 @@ class PythonSkillAssetTests(unittest.TestCase):
         self.assertEqual(
             running_events[0]["id"],
             context.emitter.events[-1]["id"],
+        )
+        self.assertEqual(
+            {
+                event.get("runtime_message_id")
+                for event in context.emitter.events
+                if event.get("type") == "runtime_action"
+            },
+            {
+                "asset-message-1",
+            },
         )
         self.assertIn(
             "percent",

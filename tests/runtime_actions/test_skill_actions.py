@@ -831,6 +831,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
                                 payload="wildcards",
                             ),
                         ),
+                        runtime_message_id="skill-message-1",
                     )
                 )
 
@@ -865,6 +866,15 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
                 self.assertEqual(
                     context.emitter.events[2]["text"],
                     "Removed skill: wildcards",
+                )
+                self.assertEqual(
+                    {
+                        event.get("runtime_message_id")
+                        for event in context.emitter.events
+                    },
+                    {
+                        "skill-message-1",
+                    },
                 )
 
 

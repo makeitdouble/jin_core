@@ -340,6 +340,57 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             1000.0,
         )
 
+    async def test_idle_followup_inherits_sequence_attachments(self):
+
+        queue = asyncio.Queue()
+        context = SimpleNamespace(
+            background_tasks=set(),
+            runtime_pending_requests_queue=queue,
+            runtime_pending_idle_followups=[],
+            runtime_idle_action_sequence=0,
+            runtime_tool_results_generation=0,
+            runtime_turn_attachments=[],
+            runtime_current_turn_id="idle_000002",
+            runtime_current_sequence_turn_id="turn_000001",
+            runtime_turn_started_at=1031.0,
+            runtime_current_sequence_started_at=1000.0,
+            runtime_current_sequence_attachments_turn_id="turn_000001",
+            runtime_current_sequence_attachments=[
+                {
+                    "name": "README.md",
+                    "kind": "text",
+                    "text_content": "body",
+                },
+            ],
+        )
+
+        schedule_idle_followup(
+            context,
+            seconds=0,
+            source_message="<IDLE: 0s>",
+            user_message="timed sequence",
+            context_snapshot={
+                "system_prompt": "frozen prompt",
+            },
+        )
+
+        queued = await asyncio.wait_for(
+            queue.get(),
+            timeout=1,
+        )
+        followup = queued["idle_followup"]
+
+        self.assertEqual(
+            followup["attachments"],
+            [
+                {
+                    "name": "README.md",
+                    "kind": "text",
+                    "text_content": "body",
+                },
+            ],
+        )
+
     async def test_due_idle_followup_runs_before_queued_dialogue_requests(self):
 
         queue = PendingRequestQueue()
@@ -836,7 +887,7 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
                 status=original_state["status"],
             )
 
-    async def test_pending_brain_usage_waits_for_translated_input(self):
+    async def test_pending_brain_usage_emits_provisional_cyrillic_input(self):
 
         brain_runtime = get_brain_runtime_config()
         runtime_id = brain_runtime["runtime_id"]
@@ -860,20 +911,73 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
                 runtime_id
             )
 
-            self.assertEqual(
+            self.assertGreater(
                 current_state["used_tokens"],
-                original_state["used_tokens"],
+                0,
             )
 
             self.assertEqual(
-                context.emitter.events,
-                [],
+                context.emitter.events[-1]["runtime"][runtime_id]["used_tokens"],
+                current_state["used_tokens"],
             )
 
         finally:
             runtime_state.update_runtime_state(
                 runtime_id=runtime_id,
                 used_tokens=original_state["used_tokens"],
+                context_tokens=original_state["context_tokens"],
+                total_tokens=original_state["total_tokens"],
+                max_tokens=original_state["max_tokens"],
+                last_error=original_state["last_error"],
+                status=original_state["status"],
+            )
+
+    async def test_pending_brain_usage_applies_provider_calibration(self):
+
+        brain_runtime = get_brain_runtime_config()
+        runtime_id = brain_runtime["runtime_id"]
+        original_state = runtime_state.get_runtime_state(
+            runtime_id
+        )
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+            deep_thought_count=0,
+            runtime_search_result="",
+            runtime_search_result_id="",
+            runtime_token_estimate_scales={
+                runtime_id: 2.0,
+            },
+        )
+
+        try:
+            await refresh_pending_brain_usage(
+                context,
+                "hi",
+            )
+            calibrated_tokens = runtime_state.get_runtime_state(
+                runtime_id
+            )["used_tokens"]
+
+            context.runtime_token_estimate_scales = {}
+            await refresh_pending_brain_usage(
+                context,
+                "hi",
+            )
+            baseline_tokens = runtime_state.get_runtime_state(
+                runtime_id
+            )["used_tokens"]
+
+            self.assertEqual(
+                calibrated_tokens,
+                baseline_tokens * 2,
+            )
+
+        finally:
+            runtime_state.update_runtime_state(
+                runtime_id=runtime_id,
+                used_tokens=original_state["used_tokens"],
+                context_tokens=original_state["context_tokens"],
+                total_tokens=original_state["total_tokens"],
                 max_tokens=original_state["max_tokens"],
                 last_error=original_state["last_error"],
                 status=original_state["status"],

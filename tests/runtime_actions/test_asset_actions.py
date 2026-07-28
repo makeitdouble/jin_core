@@ -1022,7 +1022,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[1]["text"],
-                    "Generated prompt batch - failed",
+                    "Generated prompt batch - failed: missing_wildcards",
                 )
                 self.assertEqual(
                     context.emitter.events[1]["status"],
@@ -1034,7 +1034,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.runtime_session_action_history[0]["text"],
-                    "Generated prompt batch - failed",
+                    "Generated prompt batch - failed: missing_wildcards",
                 )
                 self.assertIsInstance(
                     context.runtime_session_action_history[0]["created_at"],

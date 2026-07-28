@@ -1,8 +1,13 @@
 from utils.tokens import (
-    estimate_optional_tokens,
     estimate_stream_input_tokens,
     estimate_stream_live_tokens,
+    estimate_stream_text_tokens,
 )
+
+
+TOKEN_ESTIMATE_SCALE_MIN = 1.0
+TOKEN_ESTIMATE_SCALE_MAX = 3.0
+TOKEN_ESTIMATE_SCALE_PREVIOUS_WEIGHT = 0.65
 
 
 def _as_int(
@@ -19,6 +24,134 @@ def _as_int(
         ValueError,
     ):
         return 0
+
+
+def _as_float(
+    value,
+    default: float = 1.0,
+) -> float:
+
+    try:
+        return float(
+            value
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return default
+
+
+def get_runtime_token_estimate_scale(
+    context,
+    runtime_id: str,
+) -> float:
+
+    scales = getattr(
+        context,
+        "runtime_token_estimate_scales",
+        None,
+    )
+
+    if not isinstance(
+        scales,
+        dict,
+    ):
+        return TOKEN_ESTIMATE_SCALE_MIN
+
+    return max(
+        TOKEN_ESTIMATE_SCALE_MIN,
+        min(
+            TOKEN_ESTIMATE_SCALE_MAX,
+            _as_float(
+                scales.get(
+                    runtime_id,
+                    TOKEN_ESTIMATE_SCALE_MIN,
+                )
+            ),
+        ),
+    )
+
+
+def calibrate_runtime_token_estimate(
+    context,
+    *,
+    runtime_id: str,
+    estimated_prompt_tokens: int,
+    provider_prompt_tokens: int,
+) -> float:
+
+    estimated = _as_int(
+        estimated_prompt_tokens
+    )
+    provider = _as_int(
+        provider_prompt_tokens
+    )
+
+    if estimated <= 0 or provider <= 0:
+        return get_runtime_token_estimate_scale(
+            context,
+            runtime_id,
+        )
+
+    observed_scale = max(
+        TOKEN_ESTIMATE_SCALE_MIN,
+        min(
+            TOKEN_ESTIMATE_SCALE_MAX,
+            provider / estimated,
+        ),
+    )
+
+    scales = getattr(
+        context,
+        "runtime_token_estimate_scales",
+        None,
+    )
+
+    if not isinstance(
+        scales,
+        dict,
+    ):
+        scales = {}
+        context.runtime_token_estimate_scales = scales
+
+    previous = scales.get(
+        runtime_id
+    )
+
+    if previous is None:
+        calibrated_scale = observed_scale
+    else:
+        previous_scale = max(
+            TOKEN_ESTIMATE_SCALE_MIN,
+            min(
+                TOKEN_ESTIMATE_SCALE_MAX,
+                _as_float(
+                    previous
+                ),
+            ),
+        )
+        calibrated_scale = (
+            previous_scale
+            * TOKEN_ESTIMATE_SCALE_PREVIOUS_WEIGHT
+            + observed_scale
+            * (
+                1.0
+                - TOKEN_ESTIMATE_SCALE_PREVIOUS_WEIGHT
+            )
+        )
+
+    calibrated_scale = max(
+        TOKEN_ESTIMATE_SCALE_MIN,
+        min(
+            TOKEN_ESTIMATE_SCALE_MAX,
+            calibrated_scale,
+        ),
+    )
+    scales[runtime_id] = calibrated_scale
+
+    return calibrated_scale
 
 
 def record_token_usage(
@@ -70,6 +203,7 @@ def record_stream_token_usage(
     kind: str = "service",
     stream,
     prompt_text: str = "",
+    estimate_scale: float = 1.0,
 ):
 
     prompt_tokens = (
@@ -83,6 +217,7 @@ def record_stream_token_usage(
         or estimate_stream_input_tokens(
             stream,
             prompt_text=prompt_text,
+            scale=estimate_scale,
         )
     )
 
@@ -95,19 +230,21 @@ def record_stream_token_usage(
             )
         )
         or (
-            estimate_optional_tokens(
+            estimate_stream_text_tokens(
                 getattr(
                     stream,
                     "response",
                     "",
-                )
+                ),
+                scale=estimate_scale,
             )
-            + estimate_optional_tokens(
+            + estimate_stream_text_tokens(
                 getattr(
                     stream,
                     "reasoning",
                     "",
-                )
+                ),
+                scale=estimate_scale,
             )
         )
     )
@@ -126,6 +263,7 @@ def record_stream_token_usage(
     context_tokens = estimate_stream_live_tokens(
         stream,
         prompt_text=prompt_text,
+        scale=estimate_scale,
     )
 
     record_token_usage(

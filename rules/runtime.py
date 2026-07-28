@@ -28,7 +28,7 @@ ACTION_BLOCKED_TRIGGER_WORD_MESSAGE = (
 IDLE_FOLLOWUP_MESSAGE = (
     "This is a follow-up tick from an IDLE timer JIN chose to set.\n"
     "Timer metadata is provided in TOOLS_RESULTS. Continue the existing "
-    "sequence and non-executed actions derived from SEQUENCE_ORIGIN_REQUEST and CURRENT_SEQUENCE.\n"
+    "sequence and non-executed actions derived from CURRENT_SEQUENCE.\n"
 )
 
 RUNTIME_ACTIONS_RULES = (
@@ -46,9 +46,9 @@ RUNTIME_ACTIONS_RULES = (
     "\n"
     "RUNTIME ACTION EXECUTION RULES:\n"
     "Use follow-up system ticks in sequence for multi-step tasks.\n"
-    "In case of conflict, ignore PREVIOUS_CHAT_MESSAGES and accept SEQUENCE_ORIGIN_REQUEST already in progress.\n"
+    "In case of conflict, ignore PREVIOUS_CHAT_MESSAGES and accept the original <USER> request inside CURRENT_SEQUENCE already in progress.\n"
     "When follow-up tick is active you must use CURRENT_SEQUENCE as the only source of truth and the order of executed actions.\n"
-    "CURRENT_SEQUENCE lists steps already done for SEQUENCE_ORIGIN_REQUEST.\n"
+    "CURRENT_SEQUENCE starts with the original <USER> request and lists the steps already done for it.\n"
     "SESSION_ACTIONS_HISTORY lists completed actions from the whole session.\n"
     "When no actions needed or sequence is done stop instantly and notify user naturally.\n"
 )
@@ -77,9 +77,10 @@ SKILL_ROUTING_RULES = ("\n"
     "Do not derive skill capabilities from a skill name or filename, you must append it first!\n"
     "\n"
     "SEQUENCE RULES:\n"
-    "1. Determine whether the CURRENT_SEQUENCE latest action or actions satisfies SEQUENCE_ORIGIN_REQUEST.\n"
+    "1. Determine whether the CURRENT_SEQUENCE latest action or actions satisfies the original request at the top of CURRENT_SEQUENCE.\n"
     "2. Take latest result of a process and do not continue and notify the user about completed request.\n"
-    "3. Continue with a task only if CURRENT_SEQUENCE actions does not cover user initial intent.\n"
+    "3. Continue with a task only if CURRENT_SEQUENCE actions do not cover the original user intent.\n"
+    "4. If all required actions already executed and listed in CURRENT_SEQUENCE - YOU MUST STOP and notify user.\n"
     "\n"
     "When the required actions are already completed - you must stop and notify user.\n"
     "\n"

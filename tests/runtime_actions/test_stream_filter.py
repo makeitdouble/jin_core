@@ -2576,6 +2576,13 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                     ("idle_003", "completed", "", "0s"),
                 ],
             )
+            self.assertEqual(
+                {
+                    event.get("runtime_turn_id")
+                    for event in emitter.events
+                },
+                {"turn_000001"},
+            )
 
         asyncio.run(run_case())
 

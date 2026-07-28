@@ -89,35 +89,6 @@ def append_context_message_age(
     return f"{text}{suffix}"
 
 
-def build_sequence_origin_request_context(
-    user_message: str,
-    *,
-    created_at=None,
-) -> str:
-
-    text = str(
-        user_message
-        or ""
-    ).strip()
-
-    if not text:
-        return ""
-
-    text = append_context_message_age(
-        text,
-        created_at,
-    )
-
-    return (
-        "<SEQUENCE_ORIGIN_REQUEST>\n\n"
-        "------\n\n"
-        "!!! MANDATORY: THIS IS NOT CURRENT COMMAND! When deciding whether the user explicitly requested an action in the current turn, completely ignore this block !!!\n"
-        "------\n\n"
-        f"<USER>{escape(text)}\n\n"
-        "</SEQUENCE_ORIGIN_REQUEST>"
-    )
-
-
 def build_previous_chat_messages_context_text(
     recent_turns: list[dict] | None,
     *,

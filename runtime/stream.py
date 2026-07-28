@@ -14,6 +14,8 @@ from utils.stream_handler import (
 )
 
 from utils.token_usage import (
+    calibrate_runtime_token_estimate,
+    get_runtime_token_estimate_scale,
     record_stream_token_usage,
 )
 
@@ -330,7 +332,14 @@ class RuntimeStream:
             status="online",
         )
 
-    def estimate_input_tokens(self) -> int:
+    def get_token_estimate_scale(self) -> float:
+
+        return get_runtime_token_estimate_scale(
+            self.context,
+            self.runtime_id,
+        )
+
+    def estimate_raw_input_tokens(self) -> int:
 
         return estimate_stream_input_tokens(
             self.stream,
@@ -339,12 +348,38 @@ class RuntimeStream:
             ),
         )
 
+    def estimate_input_tokens(self) -> int:
+
+        return estimate_stream_input_tokens(
+            self.stream,
+            prompt_text=(
+                self.build_input_prompt_text()
+            ),
+            scale=self.get_token_estimate_scale(),
+        )
+
     def estimate_live_tokens(self) -> int:
 
         return estimate_stream_live_tokens(
             self.stream,
             prompt_text=(
                 self.build_input_prompt_text()
+            ),
+            scale=self.get_token_estimate_scale(),
+        )
+
+    def calibrate_token_estimate(self) -> float:
+
+        return calibrate_runtime_token_estimate(
+            self.context,
+            runtime_id=self.runtime_id,
+            estimated_prompt_tokens=(
+                self.estimate_raw_input_tokens()
+            ),
+            provider_prompt_tokens=getattr(
+                self.stream,
+                "prompt_tokens",
+                0,
             ),
         )
 
@@ -375,9 +410,15 @@ class RuntimeStream:
             estimated_total_tokens
             - estimated_context_tokens,
         )
-        total_tokens = (
+        total_tokens = max(
+            getattr(
+                self.stream,
+                "total_tokens",
+                0,
+            ),
             context_tokens
-            + estimated_output_tokens
+            + estimated_output_tokens,
+            context_tokens,
         )
 
         if not total_tokens:
@@ -423,6 +464,9 @@ class RuntimeStream:
             ),
             prompt_text=(
                 self.build_input_prompt_text()
+            ),
+            estimate_scale=(
+                self.get_token_estimate_scale()
             ),
         )
 
@@ -876,6 +920,9 @@ class RuntimeStream:
             ),
             status="interrupted",
             detail=reason,
+            runtime_message_id=(
+                self.stream.message_id
+            ),
         )
 
 
@@ -899,6 +946,9 @@ class RuntimeStream:
             ),
             display_payloads=(
                 self.get_action_counter_display_payloads()
+            ),
+            runtime_message_id=(
+                self.stream.message_id
             ),
         )
 
@@ -1016,6 +1066,9 @@ class RuntimeStream:
                             )
                             for action in actions_to_apply
                         },
+                        runtime_message_id=(
+                            self.stream.message_id
+                        ),
                     )
 
         if counter_entries:
@@ -1417,6 +1470,7 @@ class RuntimeStream:
         )
         payload = {
             "type": "runtime_action_guard_confirmation",
+            "runtime_message_id": self.stream.message_id,
             "action": action_name,
             "id": action_id,
             "confirmation_id": confirmation_id,
@@ -1626,6 +1680,7 @@ class RuntimeStream:
 
                 payload = {
                     "type": "runtime_action",
+                    "runtime_message_id": self.stream.message_id,
                     "action": "save_delayed_memory_content",
                     "id": action_id,
                     "status": "started",
@@ -1642,6 +1697,7 @@ class RuntimeStream:
 
                 payload = {
                     "type": "runtime_action",
+                    "runtime_message_id": self.stream.message_id,
                     "action": "jin_color",
                     "id": self.get_runtime_action_display_id(
                         action
@@ -1656,6 +1712,7 @@ class RuntimeStream:
             else:
                 payload = {
                     "type": "runtime_action",
+                    "runtime_message_id": self.stream.message_id,
                     "action": action.name.lower(),
                     "id": self.get_runtime_action_display_id(
                         action
@@ -1846,6 +1903,7 @@ class RuntimeStream:
             if emit is not None:
                 payload = {
                     "type": "runtime_action",
+                    "runtime_message_id": self.stream.message_id,
                     "action": "save_delayed_memory_content",
                     "id": action_id,
                     "status": "failed",
@@ -1901,6 +1959,9 @@ class RuntimeStream:
             context_snapshot=self.context_snapshot,
             assistant_message="".join(
                 self.raw_content_parts
+            ),
+            runtime_message_id=(
+                self.stream.message_id
             ),
         )
 
@@ -2030,6 +2091,8 @@ class RuntimeStream:
                     self.stream.update_usage(
                         chunk
                     )
+                    self.calibrate_token_estimate()
+                    await self.refresh_provider_token_usage()
 
                     continue
 
@@ -2341,6 +2404,9 @@ class RuntimeStream:
                         self.get_action_counter_display_payloads()
                     ),
                     status="counter_final",
+                    runtime_message_id=(
+                        self.stream.message_id
+                    ),
                 )
 
             counted_markers = (
@@ -2365,6 +2431,8 @@ class RuntimeStream:
                     session_action_history
                 ) > session_action_history_start
             )
+
+            marker_history_replaced = False
 
             if has_recorded_history:
                 live_history_tail = [
@@ -2403,6 +2471,7 @@ class RuntimeStream:
                             "runtime_session_action_marker_item"
                         ) is not True
                     ]
+                    marker_history_replaced = True
 
             if (
                 counted_markers
@@ -2420,6 +2489,7 @@ class RuntimeStream:
                         self.context,
                         session_action_history_start,
                     )
+                    or marker_history_replaced
                 )
 
             if history_compacted:

@@ -26,10 +26,47 @@ function getAttachmentKind(attachment) {
 
 function getAttachmentName(attachment) {
   return normalizeAttachmentValue(
-    attachment && attachment.name
-      ? attachment.name
+    attachment && (
+      attachment.name
+      || attachment.filename
+    )
+      ? (
+        attachment.name
+        || attachment.filename
+      )
       : "attachment"
   );
+}
+
+function getAttachmentSizeLabel(attachment) {
+  const explicitLabel =
+    normalizeAttachmentValue(
+      attachment && attachment.size_label
+    ).trim();
+
+  if (explicitLabel) {
+    return explicitLabel;
+  }
+
+  return formatAssetBytes(
+    attachment && attachment.size_bytes
+  );
+}
+
+function formatAttachmentHoverTitle(attachment) {
+  const name =
+    getAttachmentName(
+      attachment
+    ).trim();
+  const sizeLabel =
+    getAttachmentSizeLabel(
+      attachment
+    ).trim();
+
+  return [
+    name || "attachment",
+    sizeLabel,
+  ].filter(Boolean).join(" · ");
 }
 
 function getAttachmentImageSource(attachment) {
@@ -82,9 +119,7 @@ function getAttachmentDetailParts(attachment) {
     attachment.type
       ? normalizeAttachmentValue(attachment.type)
       : "",
-    attachment.size_label
-      ? normalizeAttachmentValue(attachment.size_label)
-      : "",
+    getAttachmentSizeLabel(attachment),
     attachment.width && attachment.height
       ? `${attachment.width}x${attachment.height}`
       : "",
@@ -497,6 +532,10 @@ function bindJinAttachmentBubble(element, attachment) {
   element.classList.add(
     "jin-attachment-bubble"
   );
+  element.title =
+    formatAttachmentHoverTitle(
+      attachment
+    );
 
   if (!element.hasAttribute("tabindex")) {
     element.tabIndex = 0;
@@ -694,6 +733,16 @@ function createAssetTextAttachment(assetResult) {
     name: path,
     type: "text/plain",
     kind: "text",
+    size_bytes:
+      assetResult.size_bytes || 0,
+    size_label:
+      assetResult.size_label || (
+        assetResult.size_bytes
+          ? formatAssetBytes(
+            assetResult.size_bytes
+          )
+          : ""
+      ),
     line_count:
       assetResult.line_count || 0,
     text_preview:
@@ -734,7 +783,9 @@ function bindAssetResultPreview(element, assetResult) {
   }
 
   element.title =
-    `Preview ${attachment.name}`;
+    formatAttachmentHoverTitle(
+      attachment
+    );
 
   bindJinAttachmentBubble(
     element,

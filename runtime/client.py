@@ -678,6 +678,8 @@ class RuntimeClient:
         )
 
         stream_id = None
+        valid_json_chunks = 0
+        invalid_json_samples: list[str] = []
 
         try:
 
@@ -735,6 +737,10 @@ class RuntimeClient:
 
                         break
 
+                    if not data:
+
+                        continue
+
                     # -------------------------------------------------
                     # JSON
                     # -------------------------------------------------
@@ -746,6 +752,11 @@ class RuntimeClient:
                         )
 
                     except Exception as e:
+
+                        if len(invalid_json_samples) < 3:
+                            invalid_json_samples.append(
+                                data[:200]
+                            )
 
                         context_logger = getattr(
                             context,
@@ -769,6 +780,8 @@ class RuntimeClient:
                             )
 
                         continue
+
+                    valid_json_chunks += 1
 
                     # -------------------------------------------------
                     # USAGE
@@ -834,6 +847,19 @@ class RuntimeClient:
                         }
 
                         continue
+
+                if valid_json_chunks <= 0:
+                    if invalid_json_samples:
+                        first_sample = invalid_json_samples[0]
+                        raise RuntimeError(
+                            "runtime stream ended without any valid JSON "
+                            "chunks; first invalid payload: "
+                            f"{first_sample!r}"
+                        )
+
+                    raise RuntimeError(
+                        "runtime stream ended without any JSON chunks"
+                    )
 
         # ---------------------------------------------------------
         # TASK CANCELLED

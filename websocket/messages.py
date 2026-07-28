@@ -1,4 +1,5 @@
 import asyncio
+from copy import deepcopy
 import json
 import time
 
@@ -22,10 +23,12 @@ from utils.brain_client_utils import (
     get_brain_runtime_config,
     should_prearm_save_session,
 )
-from utils.language import contains_cyrillic
 from utils.session_actions_history import emit_session_actions_update
-from utils.token_usage import format_token_usage_summary
-from utils.tokens import estimate_runtime_tokens
+from utils.token_usage import (
+    format_token_usage_summary,
+    get_runtime_token_estimate_scale,
+)
+from utils.tokens import estimate_stream_input_tokens
 from utils.urls import join_url
 from utils.ws_errors import handle_fatal_runtime_error
 from .attachments import build_user_text_with_attachments
@@ -303,11 +306,6 @@ async def refresh_pending_brain_usage(
     user_text: str,
 ):
 
-    if contains_cyrillic(
-        user_text
-    ):
-        return
-
     brain_runtime = (
         get_brain_runtime_config()
     )
@@ -333,10 +331,23 @@ async def refresh_pending_brain_usage(
         )
     )
 
+    pending_prompt = "\n".join(
+        value
+        for value in (
+            brain_payload,
+            system_prompt,
+        )
+        if value
+    )
+
     used_tokens = (
-        estimate_runtime_tokens(
-            system_prompt=system_prompt,
-            user_input=brain_payload,
+        estimate_stream_input_tokens(
+            None,
+            prompt_text=pending_prompt,
+            scale=get_runtime_token_estimate_scale(
+                context,
+                brain_runtime["runtime_id"],
+            ),
         )
     )
 
@@ -797,37 +808,63 @@ async def process_message(
             context.runtime_current_sequence_started_at = (
                 context.runtime_turn_started_at
             )
-        context.runtime_turn_attachments = (
-            idle_followup.get(
+        if is_idle_followup:
+            idle_attachments = idle_followup.get(
                 "attachments",
+            )
+            sequence_attachment_turn_id = str(
+                getattr(
+                    context,
+                    "runtime_current_sequence_attachments_turn_id",
+                    "",
+                )
+                or ""
+            ).strip()
+            sequence_attachments = getattr(
+                context,
+                "runtime_current_sequence_attachments",
                 [],
             )
-            if (
-                is_idle_followup
-                and isinstance(
-                    idle_followup.get(
-                        "attachments",
-                    ),
-                    list,
-                )
-            )
-            else (
-                message_data.get(
-                    "attachments",
-                    [],
-                )
+            context.runtime_turn_attachments = deepcopy(
+                idle_attachments
                 if (
-                    not is_idle_followup
-                    and isinstance(
-                        message_data.get(
-                            "attachments",
-                        ),
+                    isinstance(
+                        idle_attachments,
                         list,
                     )
+                    and idle_attachments
+                )
+                else (
+                    sequence_attachments
+                    if (
+                        sequence_attachment_turn_id
+                        == context.runtime_current_sequence_turn_id
+                        and isinstance(
+                            sequence_attachments,
+                            list,
+                        )
+                    )
+                    else []
+                )
+            )
+        else:
+            message_attachments = message_data.get(
+                "attachments",
+            )
+            context.runtime_turn_attachments = deepcopy(
+                message_attachments
+                if isinstance(
+                    message_attachments,
+                    list,
                 )
                 else []
             )
-        )
+            context.runtime_current_sequence_attachments = deepcopy(
+                context.runtime_turn_attachments
+            )
+            context.runtime_current_sequence_attachments_turn_id = (
+                context.runtime_current_sequence_turn_id
+            )
         context.runtime_turn_assistant_response = ""
         context.runtime_active_action_markers = []
         context.runtime_turn_aborted_actions = []

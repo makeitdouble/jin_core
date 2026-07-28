@@ -2275,6 +2275,29 @@ def schedule_idle_followup(
         (int, float),
     ) or sequence_started_at <= 0:
         sequence_started_at = scheduled_at
+    current_attachments = getattr(
+        context,
+        "runtime_turn_attachments",
+        [],
+    )
+    sequence_attachment_turn_id = str(
+        getattr(
+            context,
+            "runtime_current_sequence_attachments_turn_id",
+            "",
+        )
+        or ""
+    ).strip()
+    sequence_attachments = getattr(
+        context,
+        "runtime_current_sequence_attachments",
+        [],
+    )
+    if (
+        not current_attachments
+        and sequence_attachment_turn_id == sequence_turn_id
+    ):
+        current_attachments = sequence_attachments
 
     record = {
         "id": build_runtime_action_id(
@@ -2301,11 +2324,7 @@ def schedule_idle_followup(
             or 0
         ),
         "attachments": deepcopy(
-            getattr(
-                context,
-                "runtime_turn_attachments",
-                [],
-            )
+            current_attachments
             or []
         ),
     }
@@ -2334,6 +2353,7 @@ async def apply_runtime_action_calls(
     rejected_action_ids=None,
     guard_confirmation_ids=None,
     action_display_ids=None,
+    runtime_message_id: str = "",
 ) -> int:
     from utils.actions.dispatcher import (
         apply_runtime_action_calls as _apply_runtime_action_calls,
@@ -2349,6 +2369,7 @@ async def apply_runtime_action_calls(
         rejected_action_ids=rejected_action_ids,
         guard_confirmation_ids=guard_confirmation_ids,
         action_display_ids=action_display_ids,
+        runtime_message_id=runtime_message_id,
     )
 
 

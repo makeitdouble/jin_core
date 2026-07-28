@@ -354,7 +354,7 @@ async def emit_skill_state_results(
             await emit(with_action_context(
                 payload
             ))
-            await emit({
+            await emit(with_action_context({
                 **payload,
                 "status": status,
-            })
+            }))

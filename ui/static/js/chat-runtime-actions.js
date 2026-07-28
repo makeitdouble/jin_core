@@ -512,6 +512,67 @@ function normalizeRuntimeActionKeyPart(value) {
 
 }
 
+function runtimeActionRowMatchesRuntimeTurn(
+  row,
+  runtimeTurnId
+) {
+
+  const normalizedRuntimeTurnId =
+    normalizeRuntimeActionKeyPart(
+      runtimeTurnId
+    );
+
+  if (!normalizedRuntimeTurnId) {
+    return true;
+  }
+
+  return normalizeRuntimeActionKeyPart(
+    row
+      && row.dataset.runtimeActionRuntimeTurn
+  ) === normalizedRuntimeTurnId;
+
+}
+
+function runtimeActionRowMatchesMessage(
+  row,
+  runtimeMessageId
+) {
+
+  const normalizedRuntimeMessageId =
+    normalizeRuntimeActionKeyPart(
+      runtimeMessageId
+    );
+
+  if (!normalizedRuntimeMessageId) {
+    return true;
+  }
+
+  return normalizeRuntimeActionKeyPart(
+    row
+      && row.dataset.runtimeActionRuntimeMessage
+  ) === normalizedRuntimeMessageId;
+
+}
+
+function runtimeActionRowMatchesScope(
+  row,
+  runtimeTurnId,
+  runtimeMessageId
+) {
+
+  return (
+    runtimeActionRowMatchesRuntimeTurn(
+      row,
+      runtimeTurnId
+    )
+    && runtimeActionRowMatchesMessage(
+      row,
+      runtimeMessageId
+    )
+  );
+
+}
+
 function normalizeRuntimeActionColor(value) {
 
   const match =
@@ -578,7 +639,9 @@ function shouldAggregateRuntimeAction(
 }
 
 function hasActiveRuntimeActionCounter(
-  action
+  action,
+  runtimeTurnId = "",
+  runtimeMessageId = ""
 ) {
 
   const normalizedAction =
@@ -597,6 +660,11 @@ function hasActiveRuntimeActionCounter(
   ).some((row) => (
     row.dataset.runtimeActionTurn
       === String(jinConversationTurnCounter)
+    && runtimeActionRowMatchesScope(
+      row,
+      runtimeTurnId,
+      runtimeMessageId
+    )
     && Math.max(
       0,
       Number.parseInt(
@@ -1027,14 +1095,95 @@ function buildRuntimeActionVisibleKey(
     normalizeRuntimeActionKeyPart(
       options.id
     );
+  const runtimeMessageId =
+    normalizeRuntimeActionKeyPart(
+      options.runtimeMessageId
+    );
 
   if (actionId) {
+    if (runtimeMessageId) {
+      return `${actionName}:${runtimeMessageId}:${actionId}`;
+    }
+
     return `${actionName}:${actionId}`;
   }
 
   runtimeActionRowCounter += 1;
 
   return `${jinConversationTurnCounter}:${actionName}:${runtimeActionRowCounter}`;
+
+}
+
+function removeDuplicateRuntimeActionRows(
+  primaryRow,
+  actionKey,
+  options = {}
+) {
+
+  if (
+      !primaryRow
+      || !actionKey
+  ) {
+    return;
+  }
+
+  Array.from(
+    chatHistory.querySelectorAll(
+      `[data-runtime-action-key="${actionKey}"]`
+    )
+  ).forEach((row) => {
+    if (
+        row !== primaryRow
+        && runtimeActionRowMatchesScope(
+          row,
+          options.runtimeTurnId,
+          options.runtimeMessageId
+        )
+    ) {
+      row.remove();
+    }
+  });
+
+}
+
+function removeLegacyRuntimeActionRows(
+  primaryRow,
+  action,
+  options = {}
+) {
+
+  if (
+      !primaryRow
+      || !action
+      || !options.id
+      || !options.runtimeMessageId
+  ) {
+    return;
+  }
+
+  const legacyKey =
+    buildRuntimeActionVisibleKey(
+      action,
+      {
+        ...options,
+        runtimeMessageId: "",
+      }
+    );
+
+  Array.from(
+    chatHistory.querySelectorAll(
+      `[data-runtime-action-key="${legacyKey}"]`
+    )
+  ).forEach((row) => {
+    if (
+        row !== primaryRow
+        && row.dataset.runtimeActionTurn
+          === String(jinConversationTurnCounter)
+        && !row.dataset.runtimeActionRuntimeMessage
+    ) {
+      row.remove();
+    }
+  });
 
 }
 
@@ -1706,8 +1855,14 @@ function appendRuntimeAction(
         existingRows
       ).find((row) => {
         return (
-          options.reuseCompleted
-          || row.dataset.runtimeActionCompleted !== "true"
+          runtimeActionRowMatchesMessage(
+            row,
+            options.runtimeMessageId
+          )
+          && (
+            options.reuseCompleted
+            || row.dataset.runtimeActionCompleted !== "true"
+          )
         );
       });
 
@@ -1778,6 +1933,11 @@ function appendRuntimeAction(
       existingRow = rows.find((row) => (
         row.dataset.runtimeActionTurn
           === String(jinConversationTurnCounter)
+        && runtimeActionRowMatchesScope(
+          row,
+          options.runtimeTurnId,
+          options.runtimeMessageId
+        )
         && (
           options.reuseCompleted
           || row.dataset.runtimeActionCompleted !== "true"
@@ -1797,6 +1957,11 @@ function appendRuntimeAction(
       ).filter((row) => (
         row.dataset.runtimeActionTurn
           === String(jinConversationTurnCounter)
+        && runtimeActionRowMatchesScope(
+          row,
+          options.runtimeTurnId,
+          options.runtimeMessageId
+        )
         && row.dataset.runtimeActionCompleted !== "true"
       ));
 
@@ -1863,6 +2028,24 @@ function appendRuntimeAction(
         existingRow.dataset.runtimeActionKey =
           actionKey || "";
       }
+      if (options.runtimeTurnId) {
+        existingRow.dataset.runtimeActionRuntimeTurn =
+          String(options.runtimeTurnId);
+      }
+      if (options.runtimeMessageId) {
+        existingRow.dataset.runtimeActionRuntimeMessage =
+          String(options.runtimeMessageId);
+      }
+      removeDuplicateRuntimeActionRows(
+        existingRow,
+        actionKey,
+        options
+      );
+      removeLegacyRuntimeActionRows(
+        existingRow,
+        action,
+        options
+      );
       return true;
     }
   }
@@ -1898,6 +2081,16 @@ function appendRuntimeAction(
     actionKey || "";
   row.dataset.runtimeActionTurn =
     String(jinConversationTurnCounter);
+
+  if (options.runtimeTurnId) {
+    row.dataset.runtimeActionRuntimeTurn =
+      String(options.runtimeTurnId);
+  }
+
+  if (options.runtimeMessageId) {
+    row.dataset.runtimeActionRuntimeMessage =
+      String(options.runtimeMessageId);
+  }
 
   options = applyRuntimeActionAggregateState(
     row,
@@ -2049,6 +2242,17 @@ function appendRuntimeAction(
     row
   );
 
+  removeDuplicateRuntimeActionRows(
+    row,
+    actionKey,
+    options
+  );
+  removeLegacyRuntimeActionRows(
+    row,
+    action,
+    options
+  );
+
   chatHistory.scrollTop =
     chatHistory.scrollHeight;
 
@@ -2088,6 +2292,10 @@ function queueRuntimeActionAfterNextResponse(
       action || "",
     text: actionText,
     id: options.id || "",
+    runtimeTurnId:
+      options.runtimeTurnId || "",
+    runtimeMessageId:
+      options.runtimeMessageId || "",
     contextSnapshot:
       options.contextSnapshot || null,
     displayName:
@@ -2140,6 +2348,10 @@ function flushRuntimeActionsAfterResponse(
       entry.text,
       {
         id: entry.id || "",
+        runtimeTurnId:
+          entry.runtimeTurnId || "",
+        runtimeMessageId:
+          entry.runtimeMessageId || "",
         contextSnapshot:
           entry.contextSnapshot || null,
         displayName:
@@ -2163,6 +2375,10 @@ function flushRuntimeActionsAfterResponse(
         entry.action,
         {
           id: entry.id || "",
+          runtimeTurnId:
+            entry.runtimeTurnId || "",
+          runtimeMessageId:
+            entry.runtimeMessageId || "",
           sceneEffect:
             entry.sceneEffect || "",
         }
@@ -2224,6 +2440,16 @@ function fadeRuntimeAction(
         )
       );
 
+  if (options.runtimeMessageId) {
+    rows = rows.filter((row) => (
+      runtimeActionRowMatchesScope(
+        row,
+        options.runtimeTurnId,
+        options.runtimeMessageId
+      )
+    ));
+  }
+
   if (
     !rows.length
     && options.fallbackToLatestActive
@@ -2235,6 +2461,14 @@ function fadeRuntimeAction(
     ).filter((row) => (
       row.dataset.runtimeActionTurn
         === String(jinConversationTurnCounter)
+      && (
+        !options.runtimeMessageId
+        || runtimeActionRowMatchesScope(
+          row,
+          options.runtimeTurnId,
+          options.runtimeMessageId
+        )
+      )
       && row.dataset.runtimeActionCompleted !== "true"
     ));
 

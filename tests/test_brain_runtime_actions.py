@@ -604,6 +604,89 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
+    def test_legacy_stream_runtime_actions_include_message_scope(self):
+
+        class FakeEmitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class FakeBrainClient:
+            async def stream(self, **_kwargs):
+                yield {
+                    "type": "content",
+                    "content": "<JIN_COLOR: #00f2ff>",
+                }
+
+        async def collect(context):
+            return [
+                chunk
+                async for chunk in ask_brain_stream(
+                    client=FakeBrainClient(),
+                    text="set color",
+                    context=context,
+                    system_prompt="system prompt",
+                    brain_payload="brain payload",
+                    runtime_actions={
+                        "CAN_JIN_COLOR": True,
+                    },
+                )
+            ]
+
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+            runtime_action_events=[],
+            runtime_search_calls=[],
+            runtime_appended_skills=[],
+            runtime_visible_skills_result={},
+            runtime_save_session_requested=False,
+            runtime_save_session_action_emitted=False,
+            runtime_skill_state_barrier_active=False,
+            runtime_session_action_history=[],
+            runtime_current_turn_id="turn-color-legacy-stream",
+            logger=None,
+        )
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            asyncio.run(
+                collect(context)
+            )
+            asyncio.run(
+                collect(context)
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        color_events = [
+            event
+            for event in context.emitter.events
+            if (
+                event.get("type") == "runtime_action"
+                and event.get("action") == "jin_color"
+                and event.get("status") == "completed"
+            )
+        ]
+        message_ids = [
+            event.get("runtime_message_id")
+            for event in color_events
+        ]
+
+        self.assertEqual(
+            len(color_events),
+            2,
+        )
+        self.assertEqual(
+            len(set(message_ids)),
+            2,
+        )
+        self.assertTrue(
+            all(message_ids),
+        )
+
     def test_stream_drains_adjacent_markers_after_web_search_boundary(self):
 
         class FakeBrainClient:
@@ -1276,7 +1359,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             expected_text,
         )
         self.assertIn(
-            f"Step 1 - {expected_text}",
+            f"JIN message 1 executed - {expected_text}",
             build_session_actions_history_context(
                 context,
                 current_sequence=True,

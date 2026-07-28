@@ -228,31 +228,33 @@ def build_session_actions_history_context(
     context=None,
     *,
     current_sequence: bool = False,
+    sequence_user_message: str = "",
+    sequence_user_created_at=None,
 ) -> str:
 
-    if context is None:
-        return ""
+    history_items = []
 
-    history_items = [
-        _normalize_session_action_history_item(
-            item
-        )
-        for item in list(
-            getattr(
-                context,
-                "runtime_session_action_history",
-                [],
+    if context is not None:
+        history_items = [
+            _normalize_session_action_history_item(
+                item
             )
-            or []
-        )
-    ]
+            for item in list(
+                getattr(
+                    context,
+                    "runtime_session_action_history",
+                    [],
+                )
+                or []
+            )
+        ]
     history_items = [
         item
         for item in history_items
         if item["text"]
     ]
 
-    if current_sequence:
+    if current_sequence and context is not None:
         current_turn_id = get_current_action_sequence_turn_id(
             context
         )
@@ -269,7 +271,18 @@ def build_session_actions_history_context(
             )
         ]
 
-    if not history_items:
+    sequence_user_text = str(
+        sequence_user_message
+        or ""
+    ).strip()
+
+    if (
+        not history_items
+        and not (
+            current_sequence
+            and sequence_user_text
+        )
+    ):
         return ""
 
     now = time.time()
@@ -345,7 +358,7 @@ def build_session_actions_history_context(
         action_index += 1
         if current_sequence:
             lines.append(
-                f"Step {action_index} - {text}"
+                f"JIN message {action_index} executed - {text}"
             )
         else:
             lines.append(
@@ -363,9 +376,36 @@ def build_session_actions_history_context(
         else "SESSION_ACTIONS_HISTORY"
     )
 
+    formatted_lines = indent_xml(
+        escape(
+            chr(10).join(
+                lines
+            )
+        ),
+        spaces=4,
+    )
+
+    if current_sequence and sequence_user_text:
+        if isinstance(
+            sequence_user_created_at,
+            (int, float),
+        ) and sequence_user_created_at > 0:
+            sequence_user_text = (
+                f"{sequence_user_text}"
+                f" ( {format_session_action_age(now - float(sequence_user_created_at))} ago )"
+            )
+
+        return (
+            f"<{tag_name}>\n"
+            "MANDATORY: DO NOT START A NEW SEQUENCE! SEQUENCE IS ALREADY IN PROGRESS! CONTINUE ONLY WITH STEPS CURRENTLY NOT DONE!\n\n"
+            f"<INITIAL_SEQUENCE_USER_MESSAGE>{escape(sequence_user_text)}\n\n"
+            f"{formatted_lines}\n"
+            f"</{tag_name}>"
+        )
+
     return (
         f"<{tag_name}>\n"
-        f"{indent_xml(escape(chr(10).join(lines)), spaces=4)}\n"
+        f"{formatted_lines}\n"
         f"</{tag_name}>"
     )
 

@@ -1,6 +1,7 @@
 import unittest
 import asyncio
 import contextlib
+import json
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -589,13 +590,18 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                 if event.get("type") == "telemetry"
             ]
             self.assertEqual(
-                telemetry_counts[:4],
-                [
-                    4,
-                    14,
-                    16,
-                    18,
-                ],
+                telemetry_counts[0],
+                7,
+            )
+            self.assertEqual(
+                telemetry_counts[1],
+                42,
+            )
+            self.assertTrue(
+                all(
+                    token_count >= 42
+                    for token_count in telemetry_counts[1:]
+                )
             )
 
             self.assertEqual(
@@ -803,31 +809,31 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn(
-            "Step 1 - WEB_SEARCH",
+            "JIN message 1 executed - WEB_SEARCH",
             sequence_context,
         )
         self.assertIn(
             (
-                "Step 2 - stuck in a reasoning loop with "
+                "JIN message 2 executed - stuck in a reasoning loop with "
                 '"* Wait, I\'ll use the search marker."'
             ),
             sequence_context,
         )
         self.assertIn(
-            "Step 3 - WEB_SEARCH",
+            "JIN message 3 executed - WEB_SEARCH",
             sequence_context,
         )
         self.assertLess(
-            sequence_context.index("Step 1 - WEB_SEARCH"),
+            sequence_context.index("JIN message 1 executed - WEB_SEARCH"),
             sequence_context.index(
-                "Step 2 - stuck in a reasoning loop"
+                "JIN message 2 executed - stuck in a reasoning loop"
             ),
         )
         self.assertLess(
             sequence_context.index(
-                "Step 2 - stuck in a reasoning loop"
+                "JIN message 2 executed - stuck in a reasoning loop"
             ),
-            sequence_context.index("Step 3 - WEB_SEARCH"),
+            sequence_context.index("JIN message 3 executed - WEB_SEARCH"),
         )
 
         errors = [
@@ -983,7 +989,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                         "prompt_tokens": 12,
                         "completion_tokens": 30,
                         "total_tokens": 42,
-                        "context_tokens": 6,
+                        "context_tokens": 9,
                     },
                 ],
             )
@@ -1209,6 +1215,130 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                     output_path.exists(),
                 )
 
+    async def test_failed_asset_action_replaces_marker_session_update(self):
+
+        runtime_id = settings.SERVICE_MODEL_UID
+
+        class Response:
+            status_code = 400
+            reason_phrase = "Bad Request"
+            text = '{"error":{"message":"max_tokens exceeds limit"}}'
+
+        class BadRequestError(Exception):
+            response = Response()
+
+        class FailingServiceClient:
+            configured_context_window = 2048
+            configured_max_tokens = 1024
+            detected_max_tokens = 1024
+
+            async def resolve_request_context_window(
+                self,
+                *,
+                force_refresh=False,
+            ):
+                return self.configured_context_window
+
+            async def detect_max_tokens(self):
+                return self.detected_max_tokens
+
+            async def ask(
+                self,
+                **_kwargs,
+            ):
+                raise BadRequestError(
+                    "Client error '400 Bad Request'"
+                )
+
+        async def asset_action_generator():
+            yield {
+                "type": "content",
+                "content": (
+                    "<ASSET_ACTION>\n"
+                    + json.dumps({
+                        "action": "run_document_reader",
+                        "skill": "chunk_reader",
+                        "attachment": "README.md",
+                        "mode": "plain-mode.md",
+                        "question": "Summarize.",
+                    })
+                    + "\n</ASSET_ACTION>\n"
+                ),
+            }
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            clients={
+                "service": FailingServiceClient(),
+            },
+            active_streams={},
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_asset_results=[],
+            runtime_session_action_history=[],
+            runtime_appended_skills=[
+                {
+                    "name": "chunk_reader",
+                },
+            ],
+            runtime_turn_attachments=[
+                {
+                    "name": "README.md",
+                    "kind": "text",
+                    "type": "text/markdown",
+                    "text_content": "word " * 120,
+                },
+            ],
+            active_memory_records=[],
+            runtime_current_turn_id="turn_failed_asset",
+            runtime_turn_started_at=0,
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=runtime_id,
+            role="service",
+            context_window=(
+                settings.SERVICE_CONTEXT_WINDOW
+            ),
+            log_method=(
+                context.logger.log_service
+            ),
+            runtime_actions={
+                "CAN_USE_ASSETS": True,
+            },
+        )
+
+        await stream.run(
+            asset_action_generator()
+        )
+
+        session_updates = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "session_actions_update"
+        ]
+        latest_items = session_updates[-1]["items"]
+
+        self.assertIn(
+            "Read document iteratively - plain-mode.md - README.md - failed: HTTP 400 Bad Request",
+            latest_items[-1]["text"],
+        )
+        self.assertNotEqual(
+            latest_items[-1]["text"],
+            "ASSET_ACTION",
+        )
+        self.assertTrue(
+            any(
+                message[0] == "runtime"
+                and "asset_action failed" in message[1]
+                and "HTTP 400 Bad Request" in message[1]
+                for message in context.logger.messages
+            )
+        )
+
     async def test_delayed_memory_started_and_completed_events_share_id(self):
 
         runtime_id = settings.SERVICE_MODEL_UID
@@ -1391,6 +1521,15 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             [event.get("status") for event in runtime_events],
             ["counted", "started", "failed", "counter_final"],
         )
+        self.assertEqual(
+            {
+                event.get("runtime_message_id")
+                for event in runtime_events
+            },
+            {
+                stream.stream.message_id,
+            },
+        )
         lifecycle_events = [
             event
             for event in runtime_events
@@ -1416,7 +1555,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn(
-            "Step 1 - SAVE_DELAYED_MEMORY_CONTENT - failed: Unrequested report",
+            "JIN message 1 executed - SAVE_DELAYED_MEMORY_CONTENT - failed: Unrequested report",
             followup_prompt,
         )
         self.assertFalse(
@@ -2097,6 +2236,15 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             context.runtime_action_events[-1]["runtime_turn_id"],
             "turn_color_dedup_reset",
         )
+        self.assertEqual(
+            {
+                event.get("runtime_message_id")
+                for event in runtime_events
+            },
+            {
+                stream.stream.message_id,
+            },
+        )
 
     async def test_matching_blocker_skips_action_without_confirmation(self):
 
@@ -2281,14 +2429,14 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn(
             (
-                "Step 1 - SAVE_ACTIVE_MEMORY - "
+                "JIN message 1 executed - SAVE_ACTIVE_MEMORY - "
                 "current session context and task status, "
                 "SAVE_DELAYED_MEMORY_CONTENT - failed: Unrequested report"
             ),
             sequence_context,
         )
         self.assertNotIn(
-            "Step 2 -",
+            "JIN message 2 executed -",
             sequence_context,
         )
 
