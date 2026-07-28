@@ -2634,18 +2634,22 @@ class BrainRuntimeActionTests(unittest.TestCase):
             runtime_memory_stable="session_status: active",
             runtime_l2_memory="",
             active_memory_records=[],
-            runtime_asset_results=[
+            runtime_tool_results=[
                 {
-                    "ok": True,
-                    "action": "list_skills",
-                    "skills": [
-                        {
-                            "name": "wildcards",
-                            "path": "assets/skills/wildcards.txt",
-                        },
-                    ],
+                    "kind": TOOL_RESULT_KIND_ASSET,
+                    "result": {
+                        "ok": True,
+                        "action": "list_skills",
+                        "skills": [
+                            {
+                                "name": "wildcards",
+                                "path": "assets/skills/wildcards.txt",
+                            },
+                        ],
+                    },
                 },
             ],
+            runtime_asset_results=[],
             runtime_appended_skills=[],
         )
 
