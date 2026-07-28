@@ -948,6 +948,8 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     "display_name": "RESOLVE_ACTIVE_MEMORY",
                     "close_tag": False,
                     "text": "Active memory resolved",
+                    "payload": "5fdg4g",
+                    "detail": "id: 5fdg4g; content: remember cuckoo",
                 },
                 {
                     "type": "runtime_action",
@@ -956,6 +958,8 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     "status": "completed",
                     "display_name": "RESOLVE_ACTIVE_MEMORY",
                     "close_tag": False,
+                    "payload": "5fdg4g",
+                    "detail": "id: 5fdg4g; content: remember cuckoo",
                 },
             ],
         )

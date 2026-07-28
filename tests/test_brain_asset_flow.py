@@ -2184,7 +2184,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-    async def test_no_follow_up_action_in_multi_marker_batch_triggers_tick(self):
+    async def test_no_follow_up_action_batch_stops_without_tick(self):
 
         calls = []
 
@@ -2235,22 +2235,22 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             len(calls),
-            2,
+            1,
         )
         self.assertEqual(
             state.brain_response,
-            "Workflow complete.",
+            "First action batch processed.",
         )
 
 
-    async def test_every_action_message_triggers_followup_and_keeps_actions_enabled(self):
+    async def test_follow_up_action_messages_keep_actions_enabled(self):
 
         calls = []
         action_names = [
-            "resolve_active_memory",
             "append_skill",
-            "hide_skills",
-            "save_session",
+            "append_delayed_memory",
+            "list_skills",
+            "check_todo",
         ]
 
         async def fake_run_brain_stream(**kwargs):
@@ -2306,19 +2306,19 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             5,
         )
         self.assertIn(
-            'resolve_active_memory',
+            'append_skill',
             calls[1]["system_prompt"],
         )
         self.assertIn(
-            'append_skill',
+            'append_delayed_memory',
             calls[2]["system_prompt"],
         )
         self.assertIn(
-            'hide_skills',
+            'list_skills',
             calls[3]["system_prompt"],
         )
         self.assertIn(
-            'save_session',
+            'check_todo',
             calls[4]["system_prompt"],
         )
         for call in calls[1:]:
@@ -2347,7 +2347,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             if len(calls) == 1:
                 context.runtime_action_events.extend([
                     {
-                        "name": "save_active_memory",
+                        "name": "append_skill",
                         "payload": "first",
                     },
                     {
@@ -2358,7 +2358,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 return "", ""
 
             self.assertIn(
-                'save_active_memory',
+                'append_skill',
                 kwargs["system_prompt"],
             )
             self.assertIn(

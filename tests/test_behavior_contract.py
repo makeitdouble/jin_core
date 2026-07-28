@@ -265,7 +265,7 @@ class BehaviorContractTests(unittest.TestCase):
             instructions.startswith(
                 "<CLEAN_TOOL_RESULTS>\n"
                 "Follow-up: false\n"
-                "Emit <CLEAN_TOOL_RESULTS>"
+                "Emit at any moment in you answer"
             )
         )
 
@@ -292,8 +292,9 @@ class BehaviorContractTests(unittest.TestCase):
 
         self.assertIn(
             (
-                "NEVER emit <CLEAN_TOOL_RESULTS> if <TOOLS_RESULTS> "
-                "block is empty, stop and notify user.\n\n"
+                "Emit at any moment in you answer to clean redundant "
+                "tool results and only if they are present in the context "
+                "inside <TOOLS_RESULTS> block.\n\n"
                 "<IDLE: Ns >"
             ),
             instructions,
