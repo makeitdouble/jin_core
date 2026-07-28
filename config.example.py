@@ -29,7 +29,7 @@ WEBSOCKET_MAX_MESSAGE_BYTES = 64 * 1024 * 1024
 
 # Reserved context space kept free when calculating dynamic response budget.
 # This prevents the request from filling the whole context window exactly.
-RUNTIME_OUTPUT_TOKEN_RESERVE = 512
+RUNTIME_OUTPUT_TOKEN_RESERVE = 256
 
 # When True, JIN prefers the loaded model limits reported by the runtime
 # server (/v1/models or provider-native metadata) over local config values.
@@ -41,7 +41,7 @@ RUNTIME_CONTEXT_WINDOW_FALLBACK_TO_SERVER = True
 # the detected loaded context window as the upper output cap and still
 # applies the dynamic prompt + reserve budget. Per-call smaller caps are
 # preserved. When False, JIN uses *_MAX_TOKENS from config.py only.
-RUNTIME_MAX_TOKENS_FALLBACK_TO_SERVER = True
+RUNTIME_MAX_TOKENS_FALLBACK_TO_SERVER = False
 
 # ---------------------------------------------------------
 # DOCUMENT / PYTHON SKILLS
