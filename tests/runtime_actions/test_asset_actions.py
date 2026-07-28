@@ -378,7 +378,10 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "ASSET_ACTION",
+                    (
+                        "ASSET_ACTION: create_wildcard_file - "
+                        "assets/wildcards/clothing/test_tops.txt"
+                    ),
                 )
                 self.assertTrue(
                     context.emitter.events[0]["close_tag"],
@@ -542,7 +545,10 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "ASSET_ACTION",
+                    (
+                        "ASSET_ACTION: create_asset_file - "
+                        "assets/outputs/rain_script.py"
+                    ),
                 )
                 self.assertTrue(
                     context.emitter.events[0]["close_tag"],
@@ -1011,7 +1017,10 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "ASSET_ACTION",
+                    (
+                        "ASSET_ACTION: generate_prompt_batch - "
+                        "assets/prompts/test_prompts.txt"
+                    ),
                 )
                 self.assertTrue(
                     context.emitter.events[0]["close_tag"],
@@ -1039,6 +1048,113 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 self.assertIsInstance(
                     context.runtime_session_action_history[0]["created_at"],
                     float,
+                )
+
+
+    def test_invalid_asset_action_payload_emits_failed_runtime_action(self):
+
+        Emitter = FakeEmitter
+
+        Context = FakeContext
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                context = Context()
+                context.emitter = Emitter()
+
+                applied_count = asyncio.run(
+                    apply_runtime_action_calls(
+                        context,
+                        (
+                            RuntimeActionCall(
+                                name="ASSET_ACTION",
+                                payload="not json",
+                            ),
+                        ),
+                    )
+                )
+
+                self.assertEqual(
+                    applied_count,
+                    1,
+                )
+                self.assertEqual(
+                    context.runtime_asset_results[0]["ok"],
+                    False,
+                )
+                self.assertEqual(
+                    context.runtime_asset_results[0]["error"],
+                    "invalid_json",
+                )
+                self.assertEqual(
+                    context.emitter.events[0]["text"],
+                    "ASSET_ACTION: invalid payload",
+                )
+                self.assertEqual(
+                    context.emitter.events[0]["status"],
+                    "started",
+                )
+                self.assertIn(
+                    "Asset action - invalid payload - failed: invalid_json",
+                    context.emitter.events[1]["text"],
+                )
+                self.assertEqual(
+                    context.emitter.events[1]["status"],
+                    "failed",
+                )
+
+
+    def test_unknown_asset_action_names_specific_operation_in_bubble(self):
+
+        Emitter = FakeEmitter
+
+        Context = FakeContext
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                context = Context()
+                context.emitter = Emitter()
+                payload = json.dumps(
+                    {
+                        "action": "analyze_image",
+                        "asset_id": "image.png",
+                    }
+                )
+
+                applied_count = asyncio.run(
+                    apply_runtime_action_calls(
+                        context,
+                        (
+                            RuntimeActionCall(
+                                name="ASSET_ACTION",
+                                payload=payload,
+                            ),
+                        ),
+                    )
+                )
+
+                self.assertEqual(
+                    applied_count,
+                    1,
+                )
+                self.assertEqual(
+                    context.emitter.events[0]["text"],
+                    "ASSET_ACTION: analyze_image",
+                )
+                self.assertEqual(
+                    context.emitter.events[1]["text"],
+                    (
+                        "Asset action - failed: "
+                        "unknown_asset_action: analyze_image"
+                    ),
                 )
 
 

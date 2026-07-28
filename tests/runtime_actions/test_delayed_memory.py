@@ -958,7 +958,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
 
         self.assertEqual(
             applied_count,
-            3,
+            2,
         )
         self.assertEqual(
             context.runtime_appended_delayed_memory["id"],
@@ -1121,12 +1121,12 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
 
         self.assertEqual(
             applied_count,
-            2,
+            1,
         )
         report = context.delayed_memory_reports["a1b2c3"]
         self.assertEqual(
             report["appended_times"],
-            2,
+            1,
         )
         self.assertEqual(
             report["append_streak"],
@@ -1184,7 +1184,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         report = next_context.delayed_memory_reports["a1b2c3"]
         self.assertEqual(
             report["appended_times"],
-            3,
+            2,
         )
         self.assertEqual(
             report["append_streak"],

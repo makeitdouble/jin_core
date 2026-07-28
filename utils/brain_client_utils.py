@@ -63,7 +63,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_LIST_DELAYED_MEMORY,
     RUNTIME_ACTION_LIST_SKILLS,
-    RUNTIME_ACTION_HIDE_SKILLS,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
@@ -116,6 +115,7 @@ from utils.actions import (
 from utils.session_actions_history import (
     build_active_memory_resolve_failed_history_text,
     build_asset_action_history_text,
+    build_asset_action_marker_text,
     record_session_action_history,
 )
 from utils.tool_results import (
@@ -1323,6 +1323,12 @@ def build_pending_asset_action_preview(
         payload_text
     )
 
+    if not payload:
+        return {
+            "action": "asset_action",
+            "error": "invalid_payload",
+        }
+
     action = str(
         payload.get(
             "action",
@@ -1342,6 +1348,47 @@ def build_pending_asset_action_preview(
         path = str(
             payload.get(
                 "path",
+                "",
+            )
+            or ""
+        ).strip().replace(
+            "\\",
+            "/",
+        )
+        if path:
+            if not path.startswith("assets/"):
+                path = f"assets/{path}"
+            result["path"] = path
+
+    if action in {
+        "create_wildcard_file",
+        "append_wildcard_file",
+    }:
+        path = str(
+            payload.get(
+                "path",
+                "",
+            )
+            or ""
+        ).strip().replace(
+            "\\",
+            "/",
+        )
+        if path:
+            if not path.startswith("assets/wildcards/"):
+                path = f"assets/wildcards/{path}"
+            if not path.casefold().endswith(".txt"):
+                path = f"{path}.txt"
+            result["path"] = path
+
+    if action == "generate_prompt_batch":
+        path = str(
+            payload.get(
+                "path",
+                "",
+            )
+            or payload.get(
+                "output_file",
                 "",
             )
             or ""

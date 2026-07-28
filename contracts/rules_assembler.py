@@ -20,7 +20,6 @@ ACTION_CONFIG_KEYS = (
     ("WEB_SEARCH", "CAN_WEB_SEARCH"),
     ("SAVE_SESSION", "CAN_SAVE_SESSION"),
     ("LIST_SKILLS", "CAN_USE_ASSETS"),
-    ("HIDE_SKILLS", "CAN_USE_ASSETS"),
     ("CLEAN_TOOL_RESULTS", "CAN_CLEAN_TOOL_RESULTS"),
     ("IDLE", "CAN_IDLE"),
     ("JIN_COLOR", "CAN_JIN_COLOR"),
@@ -306,7 +305,6 @@ def normalize_runtime_action_names(enabled_actions=None) -> tuple[str, ...]:
         if normalized_name == "ASSET_ACTION":
             normalized_names.extend((
                 "LIST_SKILLS",
-                "HIDE_SKILLS",
                 "APPEND_SKILL",
                 "REMOVE_SKILL",
             ))
@@ -445,23 +443,11 @@ def _action_enabled(
 
 
 def _context_has_list_skills_tool_result(context=None) -> bool:
-    visible_result = getattr(context, "runtime_visible_skills_result", {})
-
-    if (
-        isinstance(visible_result, dict)
-        and visible_result.get("action") == "list_skills"
-    ):
-        return True
-
     for entry in list(getattr(context, "runtime_tool_results", []) or []):
         if not isinstance(entry, dict):
             continue
 
         result = entry.get("result")
-        if isinstance(result, dict) and result.get("action") == "list_skills":
-            return True
-
-    for result in getattr(context, "runtime_asset_results", []) or []:
         if isinstance(result, dict) and result.get("action") == "list_skills":
             return True
 
@@ -503,7 +489,6 @@ def build_allowed_markers(
             continue
 
         if action_name in {
-            "HIDE_SKILLS",
             "APPEND_SKILL",
             "REMOVE_SKILL",
         } and not has_list_skills_result:
@@ -553,7 +538,6 @@ def build_runtime_action_instructions(
             continue
 
         if normalized_name in {
-            "HIDE_SKILLS",
             "APPEND_SKILL",
             "REMOVE_SKILL",
         } and not has_list_skills_result:
@@ -592,7 +576,6 @@ RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY = get_runtime_action_name(
     "resolve_active_memory"
 )
 RUNTIME_ACTION_LIST_SKILLS = get_runtime_action_name("list_skills")
-RUNTIME_ACTION_HIDE_SKILLS = get_runtime_action_name("hide_skills")
 RUNTIME_ACTION_CLEAN_TOOL_RESULTS = get_runtime_action_name(
     "clean_tool_results"
 )

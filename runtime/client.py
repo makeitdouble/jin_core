@@ -20,6 +20,145 @@ from clients.response_extractor import (
 logger = logging.getLogger(__name__)
 
 
+def _preview_runtime_payload(
+        value,
+        *,
+        limit: int = 4000,
+) -> str:
+
+    if isinstance(
+        value,
+        (
+            dict,
+            list,
+        ),
+    ):
+        text = json.dumps(
+            value,
+            ensure_ascii=False,
+            indent=2,
+            default=str,
+        )
+    else:
+        text = str(
+            value
+            or ""
+        )
+
+    if len(text) <= limit:
+        return text
+
+    return (
+        text[:limit]
+        + f"\n... <truncated {len(text) - limit} chars>"
+    )
+
+
+def _build_stream_json_error_details(
+        *,
+        payload: dict,
+        error: Exception | None = None,
+        invalid_json_samples: list[str] | None = None,
+        valid_json_chunks: int = 0,
+        followup_tick: bool = False,
+) -> str:
+
+    messages = payload.get(
+        "messages",
+        [],
+    )
+    system_prompt = ""
+    user_prompt = ""
+
+    if isinstance(
+        messages,
+        list,
+    ):
+        for message in messages:
+            if not isinstance(
+                message,
+                dict,
+            ):
+                continue
+
+            role = message.get(
+                "role",
+            )
+            if role == "system":
+                system_prompt = message.get(
+                    "content",
+                    "",
+                )
+            elif role == "user":
+                user_prompt = message.get(
+                    "content",
+                    "",
+                )
+
+    details = {
+        "error": repr(error) if error is not None else "",
+        "model": payload.get("model"),
+        "stream": payload.get("stream"),
+        "max_tokens": payload.get("max_tokens"),
+        "temperature": payload.get("temperature"),
+        "followup_tick": followup_tick,
+        "valid_json_chunks": valid_json_chunks,
+        "invalid_json_samples": invalid_json_samples or [],
+        "system_prompt_preview": _preview_runtime_payload(
+            system_prompt,
+            limit=2500,
+        ),
+        "user_prompt_type": type(user_prompt).__name__,
+        "user_prompt_preview": _preview_runtime_payload(
+            user_prompt,
+            limit=2500,
+        ),
+    }
+
+    return json.dumps(
+        details,
+        ensure_ascii=False,
+        indent=2,
+        default=str,
+    )
+
+
+async def _log_context_error(
+        context,
+        message: str,
+        *,
+        details: str | None = None,
+) -> None:
+
+    context_logger = getattr(
+        context,
+        "logger",
+        None,
+    )
+    log_error = getattr(
+        context_logger,
+        "log_error",
+        None,
+    )
+
+    if log_error is None:
+        logger.warning(
+            "%s",
+            message,
+        )
+        return
+
+    try:
+        await log_error(
+            message,
+            details=details,
+        )
+    except TypeError:
+        await log_error(
+            message
+        )
+
+
 class RuntimeClient:
 
     def __init__(
@@ -701,6 +840,21 @@ class RuntimeClient:
                     stream_id
                 ] = response
 
+                response_headers = getattr(
+                    response,
+                    "headers",
+                    {},
+                ) or {}
+                content_type = str(
+                    response_headers.get(
+                        "content-type",
+                        "",
+                    )
+                ).lower()
+                is_sse_stream = (
+                    "text/event-stream" in content_type
+                )
+
                 async for raw_line in response.aiter_lines():
 
                     if raw_line is None:
@@ -717,6 +871,7 @@ class RuntimeClient:
 
                     if line.startswith("data:"):
 
+                        is_sse_stream = True
                         data = (
                             line.split(
                                 "data:",
@@ -726,6 +881,29 @@ class RuntimeClient:
                         )
 
                     else:
+
+                        if line.startswith(":"):
+                            continue
+
+                        sse_field = (
+                            line.split(
+                                ":",
+                                1,
+                            )[0]
+                            .strip()
+                            .lower()
+                        )
+
+                        if sse_field in {
+                            "event",
+                            "id",
+                            "retry",
+                        }:
+                            is_sse_stream = True
+                            continue
+
+                        if is_sse_stream:
+                            continue
 
                         data = line.strip()
 
@@ -758,26 +936,26 @@ class RuntimeClient:
                                 data[:200]
                             )
 
-                        context_logger = getattr(
+                        followup_tick = bool(
+                            getattr(
+                                context,
+                                "runtime_followup_tick_active",
+                                False,
+                            )
+                        )
+                        await _log_context_error(
                             context,
-                            "logger",
-                            None,
+                            f"[JSON PARSE ERROR] {e}",
+                            details=_build_stream_json_error_details(
+                                payload=payload,
+                                error=e,
+                                invalid_json_samples=[
+                                    data[:200],
+                                ],
+                                valid_json_chunks=valid_json_chunks,
+                                followup_tick=followup_tick,
+                            ),
                         )
-                        log_error = getattr(
-                            context_logger,
-                            "log_error",
-                            None,
-                        )
-
-                        if log_error is not None:
-                            await log_error(
-                                f"[JSON PARSE ERROR] {e}"
-                            )
-                        else:
-                            logger.warning(
-                                "JSON parse error: %s",
-                                e,
-                            )
 
                         continue
 
@@ -849,6 +1027,20 @@ class RuntimeClient:
                         continue
 
                 if valid_json_chunks <= 0:
+                    followup_tick = bool(
+                        getattr(
+                            context,
+                            "runtime_followup_tick_active",
+                            False,
+                        )
+                    )
+                    error_details = _build_stream_json_error_details(
+                        payload=payload,
+                        invalid_json_samples=invalid_json_samples,
+                        valid_json_chunks=valid_json_chunks,
+                        followup_tick=followup_tick,
+                    )
+
                     if invalid_json_samples:
                         first_sample = invalid_json_samples[0]
                         raise RuntimeError(

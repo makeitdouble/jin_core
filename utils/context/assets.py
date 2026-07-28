@@ -1,4 +1,5 @@
 # Formats asset action and skill listing results for runtime context output.
+import re
 
 from .formatting import (
     format_tool_result_payload,
@@ -7,6 +8,47 @@ from .skills import (
     format_list_skills_result,
     format_missing_skill_result,
 )
+
+
+def _format_action_result_name(
+    result: dict,
+) -> str:
+
+    if not isinstance(
+        result,
+        dict,
+    ):
+        return ""
+
+    raw_name = str(
+        result.get(
+            "runtime_action_name",
+            "",
+        )
+        or result.get(
+            "action",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if not raw_name:
+        return ""
+
+    name = re.sub(
+        r"[^A-Za-z0-9]+",
+        "_",
+        raw_name,
+    ).strip(
+        "_"
+    ).upper()
+    name = re.sub(
+        r"_+",
+        "_",
+        name,
+    )
+
+    return name
 
 
 def format_asset_result_sections(
@@ -104,7 +146,9 @@ def format_asset_result_sections(
             flush_pending_results()
             sections.append(
                 (
-                    "SKILLS",
+                    _format_action_result_name(
+                        result,
+                    ),
                     format_list_skills_result(
                         result,
                         context,

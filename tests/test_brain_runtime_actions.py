@@ -10,8 +10,10 @@ from utils.context.context_exports import (
     build_session_actions_history_context,
 )
 from clients.brain_client import (
+    apply_runtime_action_calls,
     ask_brain,
     ask_brain_stream,
+    build_brain_user_prompt_content,
 )
 from rules.brain_context_builder import (
     build_brain_context,
@@ -41,6 +43,9 @@ from utils.actions import (
 )
 from runtime.runtime_context import (
     DEFAULT_JIN_COLOR,
+)
+from utils.tool_results import (
+    TOOL_RESULT_KIND_ASSET,
 )
 from tests.helpers.runtime_actions import patch_asset_roots
 
@@ -73,7 +78,6 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
         expected_actions.extend(
             (
                 "LIST_SKILLS",
-                "HIDE_SKILLS",
             )
         )
 
@@ -132,6 +136,156 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
 
 
 class BrainRuntimeActionTests(unittest.TestCase):
+
+    def test_image_attachments_do_not_enter_model_payload_by_default(self):
+
+        context = SimpleNamespace(
+            runtime_turn_attachments=[
+                {
+                    "kind": "image",
+                    "name": "screen.png",
+                    "data_url": "data:image/png;base64,AAAA",
+                },
+            ],
+        )
+
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        original_service_image_input = getattr(
+            config,
+            "SERVICE_IMAGE_INPUT_ENABLED",
+            None,
+        )
+
+        try:
+            config.USE_SERVICE_AS_BRAIN = True
+            if hasattr(
+                config,
+                "SERVICE_IMAGE_INPUT_ENABLED",
+            ):
+                delattr(
+                    config,
+                    "SERVICE_IMAGE_INPUT_ENABLED",
+                )
+
+            prompt = build_brain_user_prompt_content(
+                "look",
+                context=context,
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+            if original_service_image_input is not None:
+                config.SERVICE_IMAGE_INPUT_ENABLED = original_service_image_input
+
+        self.assertEqual(
+            prompt,
+            "look",
+        )
+
+    def test_image_attachments_enter_model_payload_when_enabled(self):
+
+        context = SimpleNamespace(
+            runtime_turn_attachments=[
+                {
+                    "kind": "image",
+                    "name": "screen.png",
+                    "data_url": "data:image/png;base64,AAAA",
+                },
+            ],
+        )
+
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        original_service_image_input = getattr(
+            config,
+            "SERVICE_IMAGE_INPUT_ENABLED",
+            None,
+        )
+
+        try:
+            config.USE_SERVICE_AS_BRAIN = True
+            config.SERVICE_IMAGE_INPUT_ENABLED = True
+
+            prompt = build_brain_user_prompt_content(
+                "look",
+                context=context,
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+            if original_service_image_input is None:
+                delattr(
+                    config,
+                    "SERVICE_IMAGE_INPUT_ENABLED",
+                )
+            else:
+                config.SERVICE_IMAGE_INPUT_ENABLED = original_service_image_input
+
+        self.assertEqual(
+            prompt,
+            [
+                {
+                    "type": "text",
+                    "text": "look",
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": "data:image/png;base64,AAAA",
+                    },
+                },
+            ],
+        )
+
+    def test_image_attachments_enter_empty_followup_payload_when_enabled(self):
+
+        context = SimpleNamespace(
+            runtime_turn_attachments=[
+                {
+                    "kind": "image",
+                    "name": "screen.png",
+                    "data_url": "data:image/png;base64,AAAA",
+                },
+            ],
+        )
+
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        original_service_image_input = getattr(
+            config,
+            "SERVICE_IMAGE_INPUT_ENABLED",
+            None,
+        )
+
+        try:
+            config.USE_SERVICE_AS_BRAIN = True
+            config.SERVICE_IMAGE_INPUT_ENABLED = True
+
+            prompt = build_brain_user_prompt_content(
+                "",
+                context=context,
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+            if original_service_image_input is None:
+                delattr(
+                    config,
+                    "SERVICE_IMAGE_INPUT_ENABLED",
+                )
+            else:
+                config.SERVICE_IMAGE_INPUT_ENABLED = original_service_image_input
+
+        self.assertEqual(
+            prompt,
+            [
+                {
+                    "type": "text",
+                    "text": "",
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": "data:image/png;base64,AAAA",
+                    },
+                },
+            ],
+        )
 
     def test_brain_system_prompt_keeps_runtime_rule_sentences_separated(self):
 
@@ -640,7 +794,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
             runtime_action_events=[],
             runtime_search_calls=[],
             runtime_appended_skills=[],
-            runtime_visible_skills_result={},
             runtime_save_session_requested=False,
             runtime_save_session_action_emitted=False,
             runtime_skill_state_barrier_active=False,
@@ -770,8 +923,9 @@ class BrainRuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             context.runtime_session_action_history[-1]["text"],
             (
-                "WEB_SEARCH, SAVE_ACTIVE_MEMORY - "
-                "astronomical news tracker, LIST_SKILLS"
+                "WEB_SEARCH - Latest astronomical news 2026, "
+                "SAVE_ACTIVE_MEMORY - astronomical news tracker, "
+                "LIST_SKILLS"
             ),
         )
         self.assertEqual(
@@ -779,6 +933,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             [
                 {
                     "text": "WEB_SEARCH",
+                    "detail": "Latest astronomical news 2026",
                 },
                 {
                     "text": "SAVE_ACTIVE_MEMORY",
@@ -787,6 +942,118 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 {
                     "text": "LIST_SKILLS",
                 },
+            ],
+        )
+
+    def test_runtime_action_dedup_scopes_to_single_message(self):
+
+        async def run_case():
+            context = SimpleNamespace(
+                runtime_action_events=[],
+                runtime_search_calls=[],
+                runtime_appended_skills=[],
+                runtime_save_session_requested=False,
+                runtime_save_session_action_emitted=False,
+                runtime_skill_state_barrier_active=False,
+                runtime_current_turn_id="turn-action-dedup",
+                logger=None,
+            )
+            duplicate_message_actions = (
+                RuntimeActionCall(
+                    name="WEB_SEARCH",
+                    payload="blue tomato",
+                ),
+                RuntimeActionCall(
+                    name="WEB_SEARCH",
+                    payload="blue tomato",
+                ),
+                RuntimeActionCall(
+                    name="CLEAN_TOOL_RESULTS",
+                    payload="",
+                ),
+                RuntimeActionCall(
+                    name="CLEAN_TOOL_RESULTS",
+                    payload="",
+                ),
+            )
+
+            first_count = await apply_runtime_action_calls(
+                context,
+                duplicate_message_actions,
+                runtime_message_id="message-one",
+            )
+
+            context.runtime_search_queries = []
+            context.runtime_search_calls = []
+
+            second_count = await apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="WEB_SEARCH",
+                        payload="blue tomato",
+                    ),
+                    RuntimeActionCall(
+                        name="CLEAN_TOOL_RESULTS",
+                        payload="",
+                    ),
+                ),
+                runtime_message_id="message-two",
+            )
+
+            context.runtime_search_queries = []
+            context.runtime_search_calls = []
+
+            followup_count = await apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="WEB_SEARCH",
+                        payload="blue tomato",
+                    ),
+                ),
+                runtime_message_id="message-follow-up",
+            )
+
+            return (
+                first_count,
+                second_count,
+                followup_count,
+                [
+                    event.get("name")
+                    for event in context.runtime_action_events
+                ],
+            )
+
+        (
+            first_count,
+            second_count,
+            followup_count,
+            action_names,
+        ) = asyncio.run(
+            run_case()
+        )
+
+        self.assertEqual(
+            first_count,
+            2,
+        )
+        self.assertEqual(
+            second_count,
+            2,
+        )
+        self.assertEqual(
+            followup_count,
+            1,
+        )
+        self.assertEqual(
+            action_names,
+            [
+                "web_search",
+                "clean_tool_results",
+                "web_search",
+                "clean_tool_results",
+                "web_search",
             ],
         )
 
@@ -1035,6 +1302,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             [
                 {
                     "text": "WEB_SEARCH",
+                    "detail": "latest news",
                 },
                 {
                     "text": "SAVE_ACTIVE_MEMORY",
@@ -2080,7 +2348,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     )
                     self.assertEqual(
                         lifecycle_events[1]["text"],
-                        "ASSET_ACTION",
+                        (
+                            "ASSET_ACTION: create_asset_file - "
+                            "assets/outputs/rain_simulator.py"
+                        ),
                     )
                     self.assertEqual(
                         lifecycle_events[2]["text"],
@@ -2406,9 +2677,9 @@ class BrainRuntimeActionTests(unittest.TestCase):
             get_runtime_action_private_marker("REMOVE_SKILL"),
         )
 
-    def test_prompt_keeps_listed_skills_until_hidden(self):
+    def test_prompt_shows_recorded_list_skills_tool_result(self):
 
-        visible_result = {
+        list_result = {
             "ok": True,
             "action": "list_skills",
             "skills": [
@@ -2424,7 +2695,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
             runtime_l2_memory="",
             active_memory_records=[],
             runtime_asset_results=[],
-            runtime_visible_skills_result=visible_result,
+            runtime_tool_results=[
+                {
+                    "kind": TOOL_RESULT_KIND_ASSET,
+                    "result": list_result,
+                },
+            ],
             runtime_appended_skills=[],
         )
 
@@ -2438,7 +2714,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            '<TOOL_RESULT name="SKILLS">',
+            '<TOOL_RESULT name="LIST_SKILLS">',
         )
         assert_contains_text(
             self,
@@ -2448,25 +2724,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "APPEND / REMOVE SKILLS:",
-        )
-
-        context.runtime_visible_skills_result = {}
-        hidden_prompt = build_brain_context(
-            context=context,
-            runtime_actions={
-                "CAN_USE_ASSETS": True,
-            },
-        )
-
-        assert_not_contains_text(
-            self,
-            hidden_prompt,
-            '<TOOL_RESULT name="SKILLS">',
-        )
-        assert_not_contains_text(
-            self,
-            hidden_prompt,
             "APPEND / REMOVE SKILLS:",
         )
 
@@ -2561,14 +2818,18 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
         self.assertIn(
-            '<TOOL_RESULT name="SKILLS">',
+            '<TOOL_RESULT name="LIST_SKILLS">',
             prompt,
         )
         self.assertEqual(
             prompt.count(
-                '<TOOL_RESULT name="SKILLS">'
+                '<TOOL_RESULT name="LIST_SKILLS">'
             ),
             1,
+        )
+        self.assertNotIn(
+            '<TOOL_RESULT name="SKILLS">',
+            prompt,
         )
         self.assertNotIn(
             '<TOOL_RESULT name="ASSETS">',

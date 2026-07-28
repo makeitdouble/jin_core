@@ -10,17 +10,12 @@ from utils.skills_asset_utils import (
     load_skill,
     normalize_skill_name,
 )
-from utils.tool_results import (
-    TOOL_RESULT_KIND_ASSET,
-    remove_runtime_tool_results,
-)
 
 
 async def apply_skill_actions(
     context,
     *,
     list_skill_actions,
-    hide_skill_actions,
     append_skill_actions,
     remove_skill_actions,
     runtime_todo_action_items,
@@ -50,79 +45,7 @@ async def apply_skill_actions(
                 context,
                 result,
             )
-            context.runtime_visible_skills_result = result
             saved_asset_results.append(
-                result
-            )
-
-    hidden_skill_results = []
-
-    if hide_skill_actions:
-        if log_runtime is not None:
-            await log_runtime(
-                "[RUNTIME ACTION] hide_skills requested"
-            )
-
-        for action in hide_skill_actions:
-            was_visible = bool(
-                getattr(
-                    context,
-                    "runtime_visible_skills_result",
-                    {},
-                )
-            )
-            context.runtime_visible_skills_result = {}
-            remove_runtime_tool_results(
-                context,
-                lambda entry: (
-                    entry.get("kind") == TOOL_RESULT_KIND_ASSET
-                    and isinstance(entry.get("result"), dict)
-                    and entry["result"].get("action") == "list_skills"
-                ),
-            )
-
-            for attribute_name in (
-                "runtime_asset_results",
-                "runtime_asset_retry_context",
-                "runtime_asset_retry_results",
-            ):
-                results = getattr(
-                    context,
-                    attribute_name,
-                    None,
-                )
-                if not isinstance(
-                    results,
-                    list,
-                ):
-                    continue
-
-                results[:] = [
-                    result
-                    for result in results
-                    if not (
-                        isinstance(
-                            result,
-                            dict,
-                        )
-                        and result.get(
-                            "action"
-                        ) == "list_skills"
-                    )
-                ]
-
-            result = {
-                "ok": True,
-                "action": "hide_skills",
-                "hidden": was_visible,
-            }
-            result = attach_todo_result(
-                context,
-                runtime_todo_action_items,
-                action,
-                result,
-            )
-            hidden_skill_results.append(
                 result
             )
 
@@ -241,7 +164,6 @@ async def apply_skill_actions(
 
     return {
         "saved_asset_results": saved_asset_results,
-        "hidden_skill_results": hidden_skill_results,
         "appended_skill_results": appended_skill_results,
         "removed_skill_results": removed_skill_results,
     }
@@ -275,7 +197,7 @@ async def emit_skill_state_results(
         elif result_action == "remove_skill":
             text = f"Removed skill: {requested_skill}"
         else:
-            text = "Hidden skills list"
+            text = "Updated skills"
         if (
             result_action == "append_skill"
             and result.get("ok") is False

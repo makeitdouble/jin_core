@@ -553,6 +553,71 @@ def build_followup_system_message(
     ).strip()
 
 
+def restore_sequence_attachments_for_followup(
+        context,
+) -> None:
+
+    current_attachments = getattr(
+        context,
+        "runtime_turn_attachments",
+        [],
+    )
+    if current_attachments:
+        return
+
+    current_sequence_turn_id = str(
+        getattr(
+            context,
+            "runtime_current_sequence_turn_id",
+            "",
+        )
+        or ""
+    ).strip()
+    sequence_attachment_turn_id = str(
+        getattr(
+            context,
+            "runtime_current_sequence_attachments_turn_id",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if (
+        current_sequence_turn_id
+        and current_sequence_turn_id == sequence_attachment_turn_id
+    ):
+        context.runtime_turn_attachments = deepcopy(
+            getattr(
+                context,
+                "runtime_current_sequence_attachments",
+                [],
+            )
+            or []
+        )
+
+
+def build_followup_attachment_payload(
+        context,
+) -> str:
+
+    from websocket.attachments import (
+        format_attachment_context,
+    )
+
+    attachments = getattr(
+        context,
+        "runtime_turn_attachments",
+        [],
+    )
+
+    if not attachments:
+        return ""
+
+    return format_attachment_context({
+        "attachments": attachments,
+    })
+
+
 class BrainNode(BaseNode):
 
     @staticmethod
@@ -1037,10 +1102,42 @@ class BrainNode(BaseNode):
 
         logger = context.logger
 
+        is_followup_tick = (
+            not str(
+                brain_payload
+                or ""
+            ).strip()
+            and str(
+                system_prompt
+                or ""
+            ).lstrip().startswith(
+                FOLLOWUP_SYSTEM_MESSAGE
+            )
+        )
+        previous_followup_tick = getattr(
+            context,
+            "runtime_followup_tick_active",
+            False,
+        )
+
+        effective_brain_payload = brain_payload
+
+        if is_followup_tick:
+            restore_sequence_attachments_for_followup(
+                context
+            )
+            effective_brain_payload = (
+                build_followup_attachment_payload(
+                    context
+                )
+                or brain_payload
+            )
+            context.runtime_followup_tick_active = True
+
         context_snapshot = build_brain_context_snapshot(
             context=context,
             system_prompt=system_prompt,
-            user_prompt=brain_payload,
+            user_prompt=effective_brain_payload,
             runtime_actions=runtime_actions,
         )
 
@@ -1083,19 +1180,25 @@ class BrainNode(BaseNode):
             filter_runtime_actions=filter_runtime_actions,
         )
 
-        generator = ask_brain_stream(
-            client=brain_client,
-            text=state.translated_input,
-            context=context,
-            system_prompt=system_prompt,
-            brain_payload=brain_payload,
-            runtime_actions=runtime_actions,
-            filter_runtime_actions=filter_runtime_actions,
-        )
+        try:
+            generator = ask_brain_stream(
+                client=brain_client,
+                text=state.translated_input,
+                context=context,
+                system_prompt=system_prompt,
+                brain_payload=effective_brain_payload,
+                runtime_actions=runtime_actions,
+                filter_runtime_actions=filter_runtime_actions,
+            )
 
-        text = await runtime.run(
-            generator
-        )
+            text = await runtime.run(
+                generator
+            )
+        finally:
+            if is_followup_tick:
+                context.runtime_followup_tick_active = (
+                    previous_followup_tick
+                )
 
         if runtime.stream.reasoning:
             context.runtime_turn_reasoning_content = "\n".join(
@@ -1204,6 +1307,7 @@ class BrainNode(BaseNode):
                 latest_action="idle",
             )
             brain_payload = ""
+            sequence_user_request = sequence_origin_request
         else:
             system_prompt = (
                 build_brain_context(
@@ -1218,6 +1322,15 @@ class BrainNode(BaseNode):
                     context=context,
                 )
             )
+            sequence_user_request = str(
+                getattr(
+                    context,
+                    "runtime_turn_user_message",
+                    "",
+                )
+                or state.translated_input
+                or ""
+            ).strip()
 
         await emit_active_memory_records_update_if_dirty(
             context
@@ -1327,7 +1440,6 @@ class BrainNode(BaseNode):
         skill_state_followup_event_names = {
             "append_skill",
             "remove_skill",
-            "hide_skills",
             "append_delayed_memory",
         }
 
@@ -1457,7 +1569,7 @@ class BrainNode(BaseNode):
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
                         ),
-                        state.translated_input,
+                        sequence_user_request,
                         context=context,
                         latest_action=latest_followup_action,
                     )
@@ -1582,7 +1694,7 @@ class BrainNode(BaseNode):
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
                         ),
-                        state.translated_input,
+                        sequence_user_request,
                         context=context,
                         latest_action=latest_followup_action,
                         instruction=(
@@ -1651,7 +1763,7 @@ class BrainNode(BaseNode):
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
                         ),
-                        state.translated_input,
+                        sequence_user_request,
                         context=context,
                         latest_action=latest_followup_action,
                     )
@@ -1719,7 +1831,7 @@ class BrainNode(BaseNode):
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
                         ),
-                        state.translated_input,
+                        sequence_user_request,
                         context=context,
                         latest_action=latest_followup_action,
                     )
@@ -1800,7 +1912,7 @@ class BrainNode(BaseNode):
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
                         ),
-                        state.translated_input,
+                        sequence_user_request,
                         context=context,
                         latest_action=latest_followup_action,
                     )
@@ -1851,7 +1963,7 @@ class BrainNode(BaseNode):
                         commit_active_memory_refresh=True,
                         include_previous_chat_messages=False,
                     ),
-                    state.translated_input,
+                    sequence_user_request,
                     context=context,
                     latest_action=latest_followup_action,
                 )
@@ -1938,7 +2050,7 @@ class BrainNode(BaseNode):
                         commit_active_memory_refresh=True,
                         include_previous_chat_messages=False,
                     ),
-                    state.translated_input,
+                    sequence_user_request,
                     context=context,
                     instruction=followup_limit_instruction,
                     latest_action="followup_limit_reached",

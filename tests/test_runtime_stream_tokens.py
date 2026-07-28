@@ -1202,7 +1202,10 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(
                     lifecycle_events[1]["text"],
-                    "ASSET_ACTION",
+                    (
+                        "ASSET_ACTION: create_asset_file - "
+                        "assets/outputs/rain_simulator.py"
+                    ),
                 )
                 self.assertEqual(
                     lifecycle_events[2]["text"],
@@ -2108,7 +2111,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             [event.get("status") for event in runtime_events],
             ["counted"]
-            + ["completed"] * 8
+            + ["completed"] * 2
             + ["interrupted", "counter_final"],
         )
         interrupted_event = next(
@@ -2125,12 +2128,6 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             [{
                 "text": "JIN_COLOR",
                 "colors": [
-                    "#0000ff",
-                    "#ff0000",
-                    "#0000ff",
-                    "#ff0000",
-                    "#0000ff",
-                    "#ff0000",
                     "#0000ff",
                     "#ff0000",
                 ],

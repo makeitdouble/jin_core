@@ -105,10 +105,6 @@ class RuntimeContext:
         default_factory=list
     )
 
-    runtime_visible_skills_result: dict = field(
-        default_factory=dict
-    )
-
     runtime_action_events: list[dict] = field(
         default_factory=list
     )

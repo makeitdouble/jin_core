@@ -126,7 +126,7 @@ ACTION_DISPLAY_ALIASES = {
     "append_delayed_memory": "Appended delayed memory",
     "append_skill": "Appended skill",
     "append_wildcard_file": "Appended wildcard file",
-    "asset_action": "Processed asset action",
+    "asset_action": "Asset action",
     "check_duplicates": "Checked duplicates",
     "save_active_memory": "Saved active memory",
     "create_asset_file": "Created asset file",
@@ -134,7 +134,6 @@ ACTION_DISPLAY_ALIASES = {
     "create_wildcard_library": "Created wildcard library",
     "expand_template": "Expanded template",
     "generate_prompt_batch": "Generated prompt batch",
-    "hide_skills": "Hidden skills list",
     "list_delayed_memory": "Listed delayed memory",
     "list_skills": "Listed skills",
     "list_wildcards": "Listed wildcards",
@@ -188,7 +187,7 @@ def _build_past_tense_action_text(
     ]
 
     if not parts:
-        return "Processed asset action"
+        return "Asset action"
 
     action_name = "_".join(
         parts
@@ -295,6 +294,31 @@ def build_asset_action_history_text(
     text = _build_past_tense_action_text(
         action
     )
+    failure_error = str(
+        result.get(
+            "error",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if (
+        action.casefold() == "asset_action"
+        and result.get("ok") is False
+        and failure_error.casefold()
+        in {
+            "invalid_json",
+            "invalid_payload",
+            "payload_must_be_object",
+        }
+    ):
+        text = "Asset action - invalid payload"
+
+    if (
+        result.get("ok") is False
+        and failure_error.casefold() == "unknown_asset_action"
+    ):
+        text = "Asset action"
 
     if action.casefold() == "run_document_reader":
         mode = str(
@@ -328,9 +352,107 @@ def build_asset_action_history_text(
         )
 
         if reason:
+            if (
+                failure_error.casefold() == "unknown_asset_action"
+                and action
+                and action.casefold() not in {
+                    "asset_action",
+                    "unknown",
+                }
+                and action.casefold() not in reason.casefold()
+            ):
+                reason = f"{reason}: {action}"
+
+            if (
+                failure_error
+                and failure_error.casefold()
+                in {
+                    "invalid_json",
+                    "invalid_payload",
+                    "payload_must_be_object",
+                }
+                and reason.casefold() != failure_error.casefold()
+            ):
+                reason = f"{failure_error}: {reason}"
+
             text = f"{text}: {reason}"
 
     return text
+
+
+def build_asset_action_marker_text(
+    result: dict,
+) -> str:
+
+    if not isinstance(
+        result,
+        dict,
+    ):
+        return "ASSET_ACTION: invalid payload"
+
+    action = str(
+        result.get(
+            "action",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if (
+        not action
+        or action.casefold() == "asset_action"
+    ):
+        action = (
+            "invalid payload"
+            if result.get("error")
+            else "asset_action"
+        )
+
+    suffixes = []
+
+    path = str(
+        result.get(
+            "path",
+            "",
+        )
+        or ""
+    ).strip()
+    if path:
+        suffixes.append(
+            path
+        )
+
+    mode = str(
+        result.get(
+            "mode",
+            "",
+        )
+        or ""
+    ).strip()
+    modes = [
+        str(item).strip()
+        for item in result.get(
+            "modes",
+            [],
+        )
+        or []
+        if str(item).strip()
+    ]
+    mode_label = mode or ", ".join(
+        modes
+    )
+    if mode_label:
+        suffixes.append(
+            mode_label
+        )
+
+    detail = (
+        f" - {', '.join(suffixes)}"
+        if suffixes
+        else ""
+    )
+
+    return f"ASSET_ACTION: {action}{detail}"
 
 
 def _normalize_session_action_display_parts(
@@ -797,6 +919,13 @@ def _build_session_action_marker_detail(
 
     if not normalized_payload:
         return ""
+
+    if normalized_name == "WEB_SEARCH":
+        from utils.actions import extract_search_query
+
+        return extract_search_query(
+            normalized_payload
+        )
 
     if normalized_name in {
         "SAVE_ACTIVE_MEMORY",

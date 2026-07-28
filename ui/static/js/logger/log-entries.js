@@ -1082,6 +1082,14 @@ function appendLog(
     const isUser =
       tag.includes("USER");
 
+    const isJsonParseError =
+      tag.includes("ERROR")
+      && String(
+        normalized.message
+      ).includes(
+        "[JSON PARSE ERROR]"
+      );
+
     const isPatternResult =
       isSummarizer
       && String(
@@ -1138,6 +1146,8 @@ function appendLog(
         ? "payload"
         : isUser
         ? "payload"
+        : isJsonParseError
+        ? "payload"
         : "trace";
 
     traceButton.addEventListener(
@@ -1164,6 +1174,8 @@ function appendLog(
               ? `Facts memory · ${String(meta?.facts_memory_session_id || "session")}`
               : isSummarizer
               ? normalized.message || "Summarizer payload"
+              : isJsonParseError
+              ? "Runtime stream payload"
               : "Trace"
           ),
           reason

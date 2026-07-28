@@ -1515,7 +1515,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
 
-    def test_apply_runtime_action_calls_uses_one_search_query(self):
+    def test_apply_runtime_action_calls_keeps_distinct_search_queries(self):
 
         Context = FakeContext
 
@@ -1539,7 +1539,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
         self.assertEqual(
             applied_count,
-            1,
+            2,
         )
         self.assertEqual(
             getattr(
@@ -1548,6 +1548,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             ),
             [
                 "first",
+                "second",
             ],
         )
 
@@ -1966,10 +1967,6 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 "action": "list_delayed_memory",
             },
         ]
-        context.runtime_visible_skills_result = {
-            "action": "list_skills",
-        }
-
         applied_count = asyncio.run(
             apply_runtime_action_calls(
                 context,
@@ -1984,7 +1981,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
         self.assertEqual(
             applied_count,
-            3,
+            1,
         )
         self.assertEqual(
             context.runtime_tool_results,
@@ -2015,17 +2012,13 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             [],
         )
         self.assertEqual(
-            context.runtime_visible_skills_result,
-            {},
-        )
-        self.assertEqual(
             [
                 event["name"]
                 for event in context.runtime_action_events
             ],
             [
                 "clean_tool_results",
-            ] * 3,
+            ],
         )
         self.assertEqual(
             [
@@ -2034,7 +2027,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             ],
             [
                 "clean_tool_results",
-            ] * 3,
+            ],
         )
 
 
@@ -2484,7 +2477,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
 
-    def test_multiple_idle_actions_queue_requests_and_flash_bubbles(self):
+    def test_duplicate_idle_actions_queue_one_request_and_flash_bubble(self):
 
         Emitter = FakeEmitter
 
@@ -2496,7 +2489,6 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 runtime_action_events=[],
                 runtime_search_calls=[],
                 runtime_appended_skills=[],
-                runtime_visible_skills_result={},
                 runtime_pending_requests_queue=queue,
                 runtime_pending_idle_followups=[],
                 runtime_idle_action_sequence=0,
@@ -2539,12 +2531,12 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                     queue.get(),
                     timeout=1,
                 )
-                for _ in actions
+                for _ in range(1)
             ]
 
             self.assertEqual(
                 applied_count,
-                3,
+                1,
             )
             self.assertEqual(
                 [
@@ -2553,8 +2545,6 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 ],
                 [
                     "idle_001",
-                    "idle_002",
-                    "idle_003",
                 ],
             )
             self.assertEqual(
@@ -2570,10 +2560,6 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 [
                     ("idle_001", "started", "IDLE: 0s", "0s"),
                     ("idle_001", "completed", "", "0s"),
-                    ("idle_002", "started", "IDLE: 0s", "0s"),
-                    ("idle_002", "completed", "", "0s"),
-                    ("idle_003", "started", "IDLE: 0s", "0s"),
-                    ("idle_003", "completed", "", "0s"),
                 ],
             )
             self.assertEqual(
@@ -2596,7 +2582,6 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 runtime_action_events=[],
                 runtime_search_calls=[],
                 runtime_appended_skills=[],
-                runtime_visible_skills_result={},
                 runtime_pending_requests_queue=queue,
                 runtime_pending_idle_followups=[],
                 runtime_idle_action_sequence=0,

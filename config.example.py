@@ -89,6 +89,10 @@ BRAIN_MAX_TOKENS = 8192
 
 BRAIN_MAX_FOLLOWUPS = 50
 
+# Enable only when the selected runtime/model accepts OpenAI-compatible
+# multimodal chat content with {"type": "image_url"} user message parts.
+BRAIN_IMAGE_INPUT_ENABLED = False
+
 # ---------------------------------------------------------
 # SERVICE MODEL
 # ---------------------------------------------------------
@@ -104,6 +108,10 @@ SERVICE_CONTEXT_WINDOW = 4096
 SERVICE_TEMPERATURE = 0.1
 
 SERVICE_MAX_TOKENS = 4096
+
+# Enable only when the selected runtime/model accepts OpenAI-compatible
+# multimodal chat content with {"type": "image_url"} user message parts.
+SERVICE_IMAGE_INPUT_ENABLED = False
 
 # ---------------------------------------------------------
 # WEB_SEARCH

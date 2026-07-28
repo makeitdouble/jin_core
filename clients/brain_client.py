@@ -10,7 +10,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_LIST_DELAYED_MEMORY,
     RUNTIME_ACTION_LIST_SKILLS,
-    RUNTIME_ACTION_HIDE_SKILLS,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
@@ -173,6 +172,27 @@ def build_brain_user_prompt_content(
     text: str,
     context=None,
 ):
+
+    image_input_enabled = (
+        bool(
+            getattr(
+                config,
+                "SERVICE_IMAGE_INPUT_ENABLED",
+                False,
+            )
+        )
+        if config.USE_SERVICE_AS_BRAIN
+        else bool(
+            getattr(
+                config,
+                "BRAIN_IMAGE_INPUT_ENABLED",
+                False,
+            )
+        )
+    )
+
+    if not image_input_enabled:
+        return text
 
     content = [
         {
@@ -1359,7 +1379,6 @@ async def ask_brain_stream(
                 RUNTIME_ACTION_LIST_DELAYED_MEMORY,
                 RUNTIME_ACTION_WEB_SEARCH,
                 RUNTIME_ACTION_LIST_SKILLS,
-                RUNTIME_ACTION_HIDE_SKILLS,
                 RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
             )
             for action in immediate_action_calls

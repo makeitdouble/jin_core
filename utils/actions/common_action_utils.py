@@ -11,7 +11,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_CREATE_TODO_LIST,
     RUNTIME_ACTION_LIST_DELAYED_MEMORY,
     RUNTIME_ACTION_LIST_SKILLS,
-    RUNTIME_ACTION_HIDE_SKILLS,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
@@ -298,7 +297,6 @@ def normalize_runtime_action_name(
         "RESOLVE_ACTIVE_MEMORY": RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
         "USE_ASSETS": RUNTIME_ACTION_ASSET_ACTION,
         "LIST_SKILLS": RUNTIME_ACTION_LIST_SKILLS,
-        "HIDE_SKILLS": RUNTIME_ACTION_HIDE_SKILLS,
         "CLEAN_TOOL_RESULTS": RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
         "APPEND_SKILL": RUNTIME_ACTION_APPEND_SKILL,
         "REMOVE_SKILL": RUNTIME_ACTION_REMOVE_SKILL,
@@ -373,9 +371,6 @@ def normalize_runtime_action_names(
                 RUNTIME_ACTION_LIST_SKILLS
             )
             normalized_names.append(
-                RUNTIME_ACTION_HIDE_SKILLS
-            )
-            normalized_names.append(
                 RUNTIME_ACTION_APPEND_SKILL
             )
             normalized_names.append(
@@ -431,7 +426,6 @@ def _build_internal_action_call(
 
     if normalized_name in {
         RUNTIME_ACTION_LIST_DELAYED_MEMORY,
-        RUNTIME_ACTION_HIDE_SKILLS,
     }:
         return RuntimeActionCall(
             name=normalized_name,

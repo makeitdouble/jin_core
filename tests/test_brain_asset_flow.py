@@ -850,6 +850,179 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "I have two skills: image_prompt_generator and wildcards.",
         )
 
+    async def test_list_skills_followup_keeps_attachment_context_in_sequence(self):
+
+        calls = []
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+            context = kwargs["context"]
+
+            if len(calls) == 1:
+                context.runtime_action_events.append({
+                    "name": "list_skills",
+                })
+                return "", ""
+
+            self.assertEqual(
+                kwargs["brain_payload"],
+                "",
+            )
+            self.assertIn(
+                "<INITIAL_SEQUENCE_USER_MESSAGE>что на скриншоте?\n\n"
+                "Attached context:",
+                kwargs["system_prompt"],
+            )
+            self.assertIn(
+                "- screen.png: image, image/png, 462.8 KB",
+                kwargs["system_prompt"],
+            )
+            self.assertIn(
+                "runtime_attachment: full content is available to appended skills",
+                kwargs["system_prompt"],
+            )
+            return "Follow-up saw attachment context.", ""
+
+        context = _context()
+        context.runtime_current_turn_id = "turn_000001"
+        context.runtime_turn_started_at = 1000.0
+        context.runtime_turn_user_message = (
+            "что на скриншоте?\n\n"
+            "Attached context:\n"
+            "- screen.png: image, image/png, 462.8 KB\n"
+            "  runtime_attachment: full content is available to appended skills"
+        )
+        state = AgentState(
+            user_input="что на скриншоте?",
+        )
+        state.translated_input = state.user_input
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=_brain_runtime(),
+        ), patch(
+            "agent.nodes.brain.build_brain_context",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.build_brain_payload",
+            return_value="brain payload",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            len(calls),
+            2,
+        )
+        self.assertEqual(
+            state.brain_response,
+            "Follow-up saw attachment context.",
+        )
+
+    async def test_followup_stream_sends_attachment_payload_without_user_request(self):
+
+        attachment = {
+            "name": "screen.png",
+            "kind": "image",
+            "type": "image/png",
+            "data_url": "data:image/png;base64,AAAA",
+        }
+        observed = {}
+
+        async def fake_ask_brain_stream(**kwargs):
+            observed["brain_payload"] = kwargs["brain_payload"]
+            observed["attachments"] = list(
+                getattr(
+                    kwargs["context"],
+                    "runtime_turn_attachments",
+                    [],
+                )
+            )
+            if False:
+                yield {}
+
+        class FakeRuntimeStream:
+
+            def __init__(self, **_kwargs):
+                self.stream = SimpleNamespace(
+                    reasoning="",
+                )
+
+            async def run(self, generator):
+                async for _event in generator:
+                    pass
+                return ""
+
+        context = _context()
+        context.runtime_turn_attachments = []
+        context.runtime_current_sequence_turn_id = "turn_000001"
+        context.runtime_current_sequence_attachments_turn_id = "turn_000001"
+        context.runtime_current_sequence_attachments = [
+            attachment,
+        ]
+        context.logger = SimpleNamespace(
+            log_brain=lambda _message: _async_noop(),
+        )
+        state = AgentState(
+            user_input="что на скриншоте?",
+        )
+        state.translated_input = state.user_input
+
+        with patch(
+            "agent.nodes.brain.ask_brain_stream",
+            new=fake_ask_brain_stream,
+        ), patch(
+            "agent.nodes.brain.RuntimeStream",
+            new=FakeRuntimeStream,
+        ):
+            await BrainNode.run_brain_stream(
+                state=state,
+                context=context,
+                brain_runtime=_brain_runtime(),
+                brain_client=object(),
+                system_prompt=build_followup_system_message(
+                    "list_skills"
+                ),
+                brain_payload="",
+                runtime_actions={},
+            )
+
+        self.assertIn(
+            "Attached context:",
+            observed["brain_payload"],
+        )
+        self.assertIn(
+            "- screen.png: image, image/png",
+            observed["brain_payload"],
+        )
+        self.assertIn(
+            "runtime_attachment: full content is available to appended skills",
+            observed["brain_payload"],
+        )
+        self.assertNotIn(
+            "что на скриншоте?",
+            observed["brain_payload"],
+        )
+        self.assertEqual(
+            observed["attachments"],
+            [
+                attachment,
+            ],
+        )
+        self.assertEqual(
+            context.runtime_followup_tick_active,
+            False,
+        )
+
     async def test_list_delayed_memory_result_triggers_followup(self):
 
         calls = []

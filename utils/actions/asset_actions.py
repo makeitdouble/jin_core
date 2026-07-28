@@ -8,6 +8,7 @@ from utils.actions.todo_actions import attach_todo_result
 from utils.python_skill_asset_utils import run_context_asset_action
 from utils.runtime_todo import normalize_file_exists_for_runtime_todo
 from utils.session_actions_history import (
+    build_asset_action_marker_text,
     build_asset_action_history_text,
     record_session_action_history,
 )
@@ -52,6 +53,9 @@ async def apply_asset_actions(
         pending_result = build_pending_asset_action_preview(
             action.payload
         )
+        pending_text = build_asset_action_marker_text(
+            pending_result
+        )
         pending_action = str(
             pending_result.get(
                 "action",
@@ -93,6 +97,12 @@ async def apply_asset_actions(
                 **build_runtime_action_event_display_fields(
                     RUNTIME_ACTION_ASSET_ACTION,
                 ),
+                "text": pending_text,
+                "detail": str(
+                    action.payload
+                    or ""
+                ).strip(),
+                "asset_result": pending_result,
             })
             await emit(
                 started_payload

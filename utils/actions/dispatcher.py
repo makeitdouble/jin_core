@@ -7,7 +7,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_LIST_DELAYED_MEMORY,
     RUNTIME_ACTION_LIST_SKILLS,
-    RUNTIME_ACTION_HIDE_SKILLS,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
@@ -120,12 +119,6 @@ async def apply_runtime_action_calls(
     ):
         context.runtime_appended_skills = []
 
-    if not hasattr(
-        context,
-        "runtime_visible_skills_result",
-    ):
-        context.runtime_visible_skills_result = {}
-
     action_context_snapshot = (
         dict(context_snapshot)
         if isinstance(context_snapshot, dict)
@@ -198,7 +191,6 @@ async def apply_runtime_action_calls(
     filtered_actions = []
     rejected_action_events = {}
     rejected_active_memory_results = []
-    search_query_seen = False
     save_session_seen = bool(
         getattr(
             context,
@@ -218,7 +210,6 @@ async def apply_runtime_action_calls(
     save_delayed_memory_seen = set()
     list_delayed_memory_seen = False
     list_skills_seen = False
-    hide_skills_seen = False
     resolved_user_message = resolve_runtime_action_user_message(
         context,
         user_message,
@@ -230,7 +221,6 @@ async def apply_runtime_action_calls(
     skill_workflow_action_names = {
         *skill_state_action_names,
         RUNTIME_ACTION_LIST_SKILLS,
-        RUNTIME_ACTION_HIDE_SKILLS,
         RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
         RUNTIME_ACTION_IDLE,
     }
@@ -277,6 +267,123 @@ async def apply_runtime_action_calls(
         )
         or ""
     ).strip()
+    runtime_action_dedup_scope = resolved_runtime_message_id
+    runtime_action_seen_keys = set()
+
+    if runtime_action_dedup_scope:
+        runtime_action_dedup_state = getattr(
+            context,
+            "runtime_action_apply_dedup_state",
+            None,
+        )
+
+        if (
+            not isinstance(
+                runtime_action_dedup_state,
+                dict,
+            )
+            or runtime_action_dedup_state.get("turn_id")
+            != current_turn_id
+        ):
+            runtime_action_dedup_state = {
+                "turn_id": current_turn_id,
+                "seen_by_message": {},
+            }
+            context.runtime_action_apply_dedup_state = (
+                runtime_action_dedup_state
+            )
+        elif not isinstance(
+            runtime_action_dedup_state.get("seen_by_message"),
+            dict,
+        ):
+            runtime_action_dedup_state["seen_by_message"] = {}
+
+        runtime_action_seen_by_message = runtime_action_dedup_state[
+            "seen_by_message"
+        ]
+        runtime_action_seen_keys = set(
+            runtime_action_seen_by_message.get(
+                runtime_action_dedup_scope,
+                [],
+            )
+            or []
+        )
+
+    def build_runtime_action_dedup_key(
+        action,
+        payload_identity: str | None = None,
+    ) -> str:
+
+        action_name = str(
+            action.name
+            or ""
+        ).strip().upper()
+
+        if payload_identity is None:
+            if action_name == RUNTIME_ACTION_WEB_SEARCH:
+                payload_identity = extract_search_query(
+                    action.payload
+                )
+            elif action_name == RUNTIME_ACTION_JIN_COLOR:
+                payload_identity = normalize_jin_color_payload(
+                    action.payload
+                )
+            elif action_name in {
+                RUNTIME_ACTION_APPEND_SKILL,
+                RUNTIME_ACTION_REMOVE_SKILL,
+            }:
+                payload_identity = normalize_skill_name(
+                    action.payload
+                )
+            elif action_name == RUNTIME_ACTION_IDLE:
+                seconds = parse_idle_seconds(
+                    action.payload
+                )
+                payload_identity = (
+                    f"{seconds}s"
+                    if seconds is not None
+                    else str(
+                        action.payload
+                        or ""
+                    )
+                )
+            else:
+                payload_identity = str(
+                    action.payload
+                    or ""
+                )
+
+        return (
+            f"{action_name}\0"
+            f"{str(payload_identity or '').strip()}"
+        )
+
+    def accept_runtime_action_once_per_message(
+        action,
+        payload_identity: str | None = None,
+    ) -> bool:
+
+        dedup_key = build_runtime_action_dedup_key(
+            action,
+            payload_identity,
+        )
+
+        if dedup_key in runtime_action_seen_keys:
+            return False
+
+        runtime_action_seen_keys.add(
+            dedup_key
+        )
+
+        if runtime_action_dedup_scope:
+            runtime_action_seen_by_message[
+                runtime_action_dedup_scope
+            ] = sorted(
+                runtime_action_seen_keys
+            )
+
+        return True
+
     jin_color_message_scope = (
         resolved_runtime_message_id
         or "__unscoped__"
@@ -495,8 +602,12 @@ async def apply_runtime_action_calls(
             if seconds is None:
                 continue
 
-            # Every IDLE occurrence is an independent timer, including
-            # repeated markers with the same payload in one model message.
+            if not accept_runtime_action_once_per_message(
+                action,
+                f"{seconds}s",
+            ):
+                continue
+
             accepted_action_names.add(
                 action_event_name
             )
@@ -506,6 +617,12 @@ async def apply_runtime_action_calls(
             continue
 
         if action.name == RUNTIME_ACTION_JIN_COLOR:
+            if not accept_runtime_action_once_per_message(
+                action,
+                jin_color,
+            ):
+                continue
+
             current_jin_color = jin_color
             jin_color_last_by_message[
                 jin_color_message_scope
@@ -543,6 +660,11 @@ async def apply_runtime_action_calls(
 
             save_session_seen = True
             save_session_action_emitted = True
+            if not accept_runtime_action_once_per_message(
+                action
+            ):
+                continue
+
             accepted_action_names.add(
                 action_event_name
             )
@@ -566,6 +688,12 @@ async def apply_runtime_action_calls(
             ):
                 continue
 
+            if not accept_runtime_action_once_per_message(
+                action,
+                save_delayed_memory_key,
+            ):
+                continue
+
             save_delayed_memory_seen.add(
                 save_delayed_memory_key
             )
@@ -581,6 +709,11 @@ async def apply_runtime_action_calls(
             if list_delayed_memory_seen:
                 continue
 
+            if not accept_runtime_action_once_per_message(
+                action
+            ):
+                continue
+
             list_delayed_memory_seen = True
             accepted_action_names.add(
                 action_event_name
@@ -591,6 +724,11 @@ async def apply_runtime_action_calls(
             continue
 
         if action.name == RUNTIME_ACTION_APPEND_DELAYED_MEMORY:
+            if not accept_runtime_action_once_per_message(
+                action
+            ):
+                continue
+
             accepted_action_names.add(
                 action_event_name
             )
@@ -600,6 +738,11 @@ async def apply_runtime_action_calls(
             continue
 
         if action.name == RUNTIME_ACTION_REMOVE_DELAYED_MEMORY:
+            if not accept_runtime_action_once_per_message(
+                action
+            ):
+                continue
+
             accepted_action_names.add(
                 action_event_name
             )
@@ -622,6 +765,12 @@ async def apply_runtime_action_calls(
             )
 
             if not active_memory_line:
+                continue
+
+            if not accept_runtime_action_once_per_message(
+                action,
+                active_memory_line,
+            ):
                 continue
 
             accepted_action_names.add(
@@ -683,6 +832,12 @@ async def apply_runtime_action_calls(
             if active_memory_id in resolve_active_memory_ids_seen:
                 continue
 
+            if not accept_runtime_action_once_per_message(
+                action,
+                active_memory_id,
+            ):
+                continue
+
             resolve_active_memory_ids_seen.add(
                 active_memory_id
             )
@@ -695,6 +850,11 @@ async def apply_runtime_action_calls(
             continue
 
         if action.name in todo_action_names:
+            if not accept_runtime_action_once_per_message(
+                action
+            ):
+                continue
+
             accepted_action_names.add(
                 action_event_name
             )
@@ -710,7 +870,6 @@ async def apply_runtime_action_calls(
 
             if (
                 not query
-                or search_query_seen
                 or getattr(
                     context,
                     "runtime_search_queries",
@@ -719,25 +878,34 @@ async def apply_runtime_action_calls(
             ):
                 continue
 
-            search_query_seen = True
+            if not accept_runtime_action_once_per_message(
+                action,
+                query,
+            ):
+                continue
 
         if action.name == RUNTIME_ACTION_LIST_SKILLS:
             if list_skills_seen:
                 continue
 
-            list_skills_seen = True
-
-        if action.name == RUNTIME_ACTION_HIDE_SKILLS:
-            if hide_skills_seen:
+            if not accept_runtime_action_once_per_message(
+                action
+            ):
                 continue
 
-            hide_skills_seen = True
+            list_skills_seen = True
 
         if action.name == RUNTIME_ACTION_APPEND_SKILL:
             requested_skill = normalize_skill_name(
                 action.payload
             )
             if not requested_skill:
+                continue
+
+            if not accept_runtime_action_once_per_message(
+                action,
+                requested_skill,
+            ):
                 continue
 
             if requested_skill in appended_skill_names:
@@ -754,9 +922,26 @@ async def apply_runtime_action_calls(
             if not requested_skill:
                 continue
 
+            if not accept_runtime_action_once_per_message(
+                action,
+                requested_skill,
+            ):
+                continue
+
             appended_skill_names.discard(
                 requested_skill
             )
+
+        if action.name not in {
+            RUNTIME_ACTION_WEB_SEARCH,
+            RUNTIME_ACTION_LIST_SKILLS,
+            RUNTIME_ACTION_APPEND_SKILL,
+            RUNTIME_ACTION_REMOVE_SKILL,
+        }:
+            if not accept_runtime_action_once_per_message(
+                action
+            ):
+                continue
 
         accepted_action_names.add(
             action_event_name
@@ -1096,12 +1281,6 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_LIST_SKILLS
     ]
 
-    hide_skill_actions = [
-        action
-        for action in filtered_actions
-        if action.name == RUNTIME_ACTION_HIDE_SKILLS
-    ]
-
     clean_tool_result_actions = [
         action
         for action in filtered_actions
@@ -1255,7 +1434,6 @@ async def apply_runtime_action_calls(
     skill_results = await apply_skill_actions(
         context,
         list_skill_actions=list_skill_actions,
-        hide_skill_actions=hide_skill_actions,
         append_skill_actions=append_skill_actions,
         remove_skill_actions=remove_skill_actions,
         runtime_todo_action_items=runtime_todo_action_items,
@@ -1264,7 +1442,6 @@ async def apply_runtime_action_calls(
     saved_asset_results = list(
         skill_results["saved_asset_results"]
     )
-    hidden_skill_results = skill_results["hidden_skill_results"]
     appended_skill_results = skill_results["appended_skill_results"]
     removed_skill_results = skill_results["removed_skill_results"]
 
@@ -1301,7 +1478,6 @@ async def apply_runtime_action_calls(
     skill_state_results = (
         appended_skill_results
         + removed_skill_results
-        + hidden_skill_results
     )
 
     await emit_skill_state_results(
@@ -1392,9 +1568,6 @@ async def apply_runtime_action_calls(
         )
         + len(
             removed_skill_results
-        )
-        + len(
-            hidden_skill_results
         )
         + len(
             clean_tool_result_actions

@@ -202,12 +202,6 @@ def clear_runtime_tool_results(
         "runtime_search_result_id",
         "",
     )
-    setattr(
-        context,
-        "runtime_visible_skills_result",
-        {},
-    )
-
     for attribute_name in (
         "runtime_asset_results",
         "runtime_asset_retry_results",

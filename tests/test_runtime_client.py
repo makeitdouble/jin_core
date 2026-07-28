@@ -166,14 +166,19 @@ class FakeLogger:
     def __init__(self):
 
         self.errors = []
+        self.error_details = []
 
     async def log_error(
             self,
             message,
+            details=None,
     ):
 
         self.errors.append(
             message
+        )
+        self.error_details.append(
+            details
         )
 
 
@@ -588,6 +593,59 @@ class RuntimeClientTests(
             [],
         )
 
+    async def test_stream_ignores_sse_metadata_lines(self):
+
+        http_client = FakeHttpClient(
+            models_payload={
+                "data": [
+                    {
+                        "id": "test-model",
+                        "context_length": 8192,
+                    }
+                ]
+            },
+            stream_lines=[
+                "event: message",
+                "id: chunk-1",
+                ": keep-alive",
+                'data: {"choices":[{"delta":{"content":"ok"}}]}',
+                "data: [DONE]",
+            ],
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            configured_context_window=4096,
+            client=http_client,
+        )
+        context = FakeStreamContextObject()
+
+        events = [
+            event
+            async for event in client.stream(
+                context=context,
+                system_prompt="system",
+                user_prompt="user",
+                temperature=0.1,
+                max_tokens=100,
+            )
+        ]
+
+        self.assertEqual(
+            events,
+            [
+                {
+                    "type": "content",
+                    "content": "ok",
+                },
+            ],
+        )
+        self.assertEqual(
+            context.logger.errors,
+            [],
+        )
+
     async def test_stream_reports_when_all_sse_frames_are_invalid_json(self):
 
         http_client = FakeHttpClient(
@@ -638,6 +696,71 @@ class RuntimeClientTests(
             any(
                 "first invalid payload" in message
                 for message in context.logger.errors
+            )
+        )
+        self.assertTrue(
+            any(
+                detail
+                and "not-json" in detail
+                and '"followup_tick": false' in detail
+                for detail in context.logger.error_details
+            )
+        )
+
+    async def test_followup_stream_with_invalid_json_still_raises(self):
+
+        http_client = FakeHttpClient(
+            models_payload={
+                "data": [
+                    {
+                        "id": "test-model",
+                        "context_length": 8192,
+                    }
+                ]
+            },
+            stream_lines=[
+                "data: not-json",
+                "data: [DONE]",
+            ],
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            configured_context_window=4096,
+            client=http_client,
+        )
+        context = FakeStreamContextObject()
+        context.runtime_followup_tick_active = True
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "without any valid JSON chunks",
+        ):
+            [
+                event
+                async for event in client.stream(
+                    context=context,
+                    system_prompt="follow-up system",
+                    user_prompt="",
+                    temperature=0.1,
+                    max_tokens=100,
+                )
+            ]
+
+        self.assertTrue(
+            any(
+                "[JSON PARSE ERROR]" in message
+                for message in context.logger.errors
+            )
+        )
+        self.assertTrue(
+            any(
+                detail
+                and "not-json" in detail
+                and '"followup_tick": true' in detail
+                and '"user_prompt_preview": ""' in detail
+                for detail in context.logger.error_details
             )
         )
 

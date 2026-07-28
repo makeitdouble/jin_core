@@ -267,38 +267,8 @@ def _append_asset_results(
         )
         or []
     )
-    visible_skills_result = getattr(
-        context,
-        "runtime_visible_skills_result",
-        {},
-    )
-    has_current_skills_result = any(
-        isinstance(
-            result,
-            dict,
-        )
-        and result.get(
-            "action"
-        ) == "list_skills"
-        for result in current_asset_results
-    )
-    persistent_results = (
-        [visible_skills_result]
-        if (
-            isinstance(
-                visible_skills_result,
-                dict,
-            )
-            and visible_skills_result.get(
-                "action"
-            ) == "list_skills"
-            and not has_current_skills_result
-        )
-        else []
-    )
     asset_results = (
         retry_context
-        + persistent_results
         + current_asset_results
     )
 

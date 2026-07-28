@@ -257,7 +257,6 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             runtime_tool_results_turn_count=1,
             runtime_search_result="old search",
             runtime_search_result_id="search_1",
-            runtime_visible_skills_result={},
             runtime_asset_results=[],
             runtime_asset_retry_results=[],
             runtime_asset_retry_context=[],
