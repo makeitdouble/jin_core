@@ -61,8 +61,8 @@ class AttachmentLogRedactionTests(unittest.TestCase):
             "- README.md: text, text/markdown, 304.8 KB",
             context,
         )
-        self.assertIn(
-            "runtime_attachment: full content is available to appended skills",
+        self.assertNotIn(
+            "runtime_attachment",
             context,
         )
         self.assertNotIn(

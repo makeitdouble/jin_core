@@ -10,6 +10,7 @@ const sessionActionsLogState = {
   list: null,
   actions: null,
   fullButton: null,
+  bottomMoveStreamKey: "",
 };
 
 let sessionActionsModal = null;
@@ -852,6 +853,9 @@ function updateSessionActionsLog(
     return;
   }
 
+  const streamKey =
+    `${mode}:${sequenceId || items[0].createdAt || ""}`;
+
   const signature =
     JSON.stringify({
       mode,
@@ -868,6 +872,10 @@ function updateSessionActionsLog(
 
   const wasConnected =
     logDiv.isConnected;
+  const shouldAnimateBottomMove =
+    wasConnected
+    && sessionActionsLogState.bottomMoveStreamKey
+      !== streamKey;
 
   sessionActionsLogState.mode =
     mode;
@@ -911,9 +919,18 @@ function updateSessionActionsLog(
   );
 
   if (wasConnected) {
-    moveLogToBottomWithFlip(
-      logDiv
-    );
+    if (shouldAnimateBottomMove) {
+      moveLogToBottomWithFlip(
+        logDiv
+      );
+
+      sessionActionsLogState.bottomMoveStreamKey =
+        streamKey;
+    } else {
+      consoleStream.appendChild(
+        logDiv
+      );
+    }
   } else {
     consoleStream.appendChild(
       logDiv

@@ -759,7 +759,7 @@ class RuntimeClientTests(
                 detail
                 and "not-json" in detail
                 and '"followup_tick": true' in detail
-                and '"user_prompt_preview": ""' in detail
+                and '"user_prompt_preview": " "' in detail
                 for detail in context.logger.error_details
             )
         )

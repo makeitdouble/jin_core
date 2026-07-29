@@ -51,6 +51,11 @@
 }
 
 .jin-chat-bubble-rateable.jin-rating-interaction-blocked .jin-rating-zone {
+    pointer-events: none;
+    cursor: default;
+}
+
+.jin-chat-bubble-rateable.jin-rating-interaction-blocked {
     cursor: default;
 }
 
@@ -109,7 +114,7 @@
             6px 0 18px rgba(74, 222, 128, var(--jin-rating-glow-alpha, 0.115));
 }
 
-.jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-minus:hover) {
+.jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):not(.jin-rating-interaction-blocked):has(.jin-rating-zone-minus:hover) {
     box-shadow:
             0 14px 42px rgba(0, 0, 0, 0.25),
             0 0 24px rgba(248, 113, 113, 0.050),
@@ -120,15 +125,15 @@
     filter: saturate(1.015);
 }
 
-.jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-minus:hover)::before {
+.jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):not(.jin-rating-interaction-blocked):has(.jin-rating-zone-minus:hover)::before {
     opacity: 1;
 }
 
-.jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-minus:hover) .jin-chat-pre {
+.jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):not(.jin-rating-interaction-blocked):has(.jin-rating-zone-minus:hover) .jin-chat-pre {
     transform: translateX(-2px) skewY(-0.18deg);
 }
 
-.jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-neutral:hover) {
+.jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):not(.jin-rating-interaction-blocked):has(.jin-rating-zone-neutral:hover) {
     box-shadow:
             0 14px 42px rgba(0, 0, 0, 0.24),
             0 0 30px rgba(226, 232, 240, 0.070),
@@ -139,13 +144,13 @@
     filter: brightness(1.03);
 }
 
-.jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-neutral:hover) .jin-chat-pre {
+.jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):not(.jin-rating-interaction-blocked):has(.jin-rating-zone-neutral:hover) .jin-chat-pre {
     text-shadow:
             0 0 10px rgba(226, 232, 240, 0.070),
             0 0 14px rgba(103, 232, 249, 0.018);
 }
 
-.jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-plus:hover) {
+.jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):not(.jin-rating-interaction-blocked):has(.jin-rating-zone-plus:hover) {
     box-shadow:
             0 14px 42px rgba(0, 0, 0, 0.25),
             0 0 24px rgba(74, 222, 128, 0.055),
@@ -156,11 +161,11 @@
     filter: saturate(1.015);
 }
 
-.jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-plus:hover)::after {
+.jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):not(.jin-rating-interaction-blocked):has(.jin-rating-zone-plus:hover)::after {
     opacity: 1;
 }
 
-.jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-plus:hover) .jin-chat-pre {
+.jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):not(.jin-rating-interaction-blocked):has(.jin-rating-zone-plus:hover) .jin-chat-pre {
     transform: translateX(2px) skewY(0.18deg);
 }
 
@@ -301,11 +306,11 @@
     cursor: default;
 }
 
-.jin-chat-bubble-rateable.jin-rating-selected-active .jin-rating-zone {
+.jin-chat-bubble-rateable.jin-rating-selected-active:not(.jin-rating-committed):not(.jin-rating-interaction-blocked) .jin-rating-zone {
     cursor: pointer;
 }
 
-.jin-chat-bubble-rateable.jin-rating-selected-minus {
+.jin-chat-bubble-rateable.jin-rating-selected-minus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked) {
     box-shadow:
             0 14px 42px rgba(0, 0, 0, 0.25),
             0 0 28px rgba(248, 113, 113, var(--jin-rating-glow-alpha, 0.085)),
@@ -318,15 +323,15 @@
             brightness(var(--jin-rating-brightness, 1.01));
 }
 
-.jin-chat-bubble-rateable.jin-rating-selected-minus::before {
+.jin-chat-bubble-rateable.jin-rating-selected-minus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked)::before {
     opacity: var(--jin-rating-edge-opacity, 0.42);
 }
 
-.jin-chat-bubble-rateable.jin-rating-selected-minus .jin-chat-pre {
+.jin-chat-bubble-rateable.jin-rating-selected-minus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked) .jin-chat-pre {
     transform: translateX(-2px) skewY(-0.18deg);
 }
 
-.jin-chat-bubble-rateable.jin-rating-selected-neutral {
+.jin-chat-bubble-rateable.jin-rating-selected-neutral:not(.jin-rating-committed):not(.jin-rating-interaction-blocked) {
     box-shadow:
             0 14px 42px rgba(0, 0, 0, 0.24),
             0 0 34px rgba(226, 232, 240, var(--jin-rating-glow-alpha, 0.095)),
@@ -339,14 +344,14 @@
             brightness(var(--jin-rating-brightness, 1.04));
 }
 
-.jin-chat-bubble-rateable.jin-rating-selected-neutral .jin-chat-pre {
+.jin-chat-bubble-rateable.jin-rating-selected-neutral:not(.jin-rating-committed):not(.jin-rating-interaction-blocked) .jin-chat-pre {
     transform: none;
     text-shadow:
             0 0 10px rgba(226, 232, 240, var(--jin-rating-text-alpha, 0.070)),
             0 0 14px rgba(103, 232, 249, 0.018);
 }
 
-.jin-chat-bubble-rateable.jin-rating-selected-plus {
+.jin-chat-bubble-rateable.jin-rating-selected-plus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked) {
     box-shadow:
             0 14px 42px rgba(0, 0, 0, 0.25),
             0 0 28px rgba(74, 222, 128, var(--jin-rating-glow-alpha, 0.092)),
@@ -359,10 +364,10 @@
             brightness(var(--jin-rating-brightness, 1.01));
 }
 
-.jin-chat-bubble-rateable.jin-rating-selected-plus::after {
+.jin-chat-bubble-rateable.jin-rating-selected-plus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked)::after {
     opacity: var(--jin-rating-edge-opacity, 0.42);
 }
 
-.jin-chat-bubble-rateable.jin-rating-selected-plus .jin-chat-pre {
+.jin-chat-bubble-rateable.jin-rating-selected-plus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked) .jin-chat-pre {
     transform: translateX(2px) skewY(0.18deg);
 }

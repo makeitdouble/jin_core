@@ -767,20 +767,22 @@ body.theme-win95 .jin-chat-bubble-service .jin-chat-pre {
     text-shadow: none;
 }
 
-body.theme-win95 .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-minus:hover),
-body.theme-win95 .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-neutral:hover),
-body.theme-win95 .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-plus:hover),
-body.theme-win95 .jin-chat-bubble-rateable.jin-rating-press-minus,
-body.theme-win95 .jin-chat-bubble-rateable.jin-rating-press-neutral,
-body.theme-win95 .jin-chat-bubble-rateable.jin-rating-press-plus,
-body.theme-win95 .jin-chat-bubble-rateable.jin-rating-selected-minus,
-body.theme-win95 .jin-chat-bubble-rateable.jin-rating-selected-neutral,
-body.theme-win95 .jin-chat-bubble-rateable.jin-rating-selected-plus {
+body.theme-win95 .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):not(.jin-rating-interaction-blocked):has(.jin-rating-zone-minus:hover),
+body.theme-win95 .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):not(.jin-rating-interaction-blocked):has(.jin-rating-zone-neutral:hover),
+body.theme-win95 .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):not(.jin-rating-interaction-blocked):has(.jin-rating-zone-plus:hover),
+body.theme-win95 .jin-chat-bubble-rateable.jin-rating-press-minus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked),
+body.theme-win95 .jin-chat-bubble-rateable.jin-rating-press-neutral:not(.jin-rating-committed):not(.jin-rating-interaction-blocked),
+body.theme-win95 .jin-chat-bubble-rateable.jin-rating-press-plus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked),
+body.theme-win95 .jin-chat-bubble-rateable.jin-rating-selected-minus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked),
+body.theme-win95 .jin-chat-bubble-rateable.jin-rating-selected-neutral:not(.jin-rating-committed):not(.jin-rating-interaction-blocked),
+body.theme-win95 .jin-chat-bubble-rateable.jin-rating-selected-plus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked) {
     box-shadow: none;
 }
 
 body.theme-win95 .jin-chat-bubble-rateable.jin-rating-l1-waiting,
 body.theme-win95 .jin-chat-bubble-rateable.jin-rating-l1-waiting .jin-rating-zone,
+body.theme-win95 .jin-chat-bubble-rateable.jin-rating-interaction-blocked,
+body.theme-win95 .jin-chat-bubble-rateable.jin-rating-interaction-blocked .jin-rating-zone,
 body.theme-win95 .jin-chat-bubble-rateable.jin-rating-committed,
 body.theme-win95 .jin-chat-bubble-rateable.jin-rating-committed .jin-rating-zone {
     cursor: default;

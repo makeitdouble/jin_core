@@ -98,24 +98,6 @@ def format_attachment_context(
             f"- {name}: {', '.join(detail_parts)}"
         )
 
-        if (
-            attachment.get(
-                "text_content"
-            ) is not None
-            or str(
-                attachment.get(
-                    "data_url",
-                    "",
-                )
-                or ""
-            ).startswith(
-                "data:"
-            )
-        ):
-            lines.append(
-                "  runtime_attachment: full content is available to appended skills"
-            )
-
     if not included:
         return ""
 

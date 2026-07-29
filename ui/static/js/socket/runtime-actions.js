@@ -277,6 +277,11 @@ function buildRuntimeActionDisplayText(
   options = {}
 ) {
 
+  const normalizedAction =
+    String(
+      action || ""
+    ).trim().toLowerCase();
+
   const explicitText =
     String(
       data.display_text
@@ -285,8 +290,30 @@ function buildRuntimeActionDisplayText(
       || ""
     ).trim();
 
-  if (explicitText) {
+  if (
+      explicitText
+      && !(
+        normalizedAction === "asset_action"
+        && isGenericAssetActionDisplayText(
+          explicitText,
+          data,
+          action
+        )
+      )
+  ) {
     return explicitText;
+  }
+
+  if (normalizedAction === "asset_action") {
+    const assetText =
+      buildAssetActionRuntimeDisplayText(
+        data,
+        action
+      );
+
+    if (assetText) {
+      return assetText;
+    }
   }
 
   const payload =
@@ -314,6 +341,208 @@ function buildRuntimeActionDisplayText(
   return options.fallbackToName === true
     ? getRuntimeActionDisplayName(data, action)
     : "";
+
+}
+
+function readRuntimeActionObjectValue(
+  value
+) {
+
+  const normalizedValue =
+    tryParseRuntimeActionJson(
+      value
+    );
+
+  return (
+    normalizedValue
+    && typeof normalizedValue === "object"
+    && !Array.isArray(normalizedValue)
+  )
+    ? normalizedValue
+    : null;
+
+}
+
+function collectAssetActionRuntimeObjects(
+  data
+) {
+
+  const objects = [];
+
+  [
+    data.asset_result,
+    data.assetResult,
+    data.payload,
+    data.query,
+    data.detail,
+  ].forEach((value) => {
+    const objectValue =
+      readRuntimeActionObjectValue(
+        value
+      );
+
+    if (objectValue) {
+      objects.push(
+        objectValue
+      );
+    }
+  });
+
+  return objects;
+
+}
+
+function getAssetActionRuntimeField(
+  data,
+  field
+) {
+
+  for (const objectValue of collectAssetActionRuntimeObjects(data)) {
+    const directValue =
+      String(
+        objectValue[field] || ""
+      ).trim();
+
+    if (directValue) {
+      return directValue;
+    }
+
+    if (
+        objectValue.args
+        && typeof objectValue.args === "object"
+        && !Array.isArray(objectValue.args)
+    ) {
+      const nestedValue =
+        String(
+          objectValue.args[field] || ""
+        ).trim();
+
+      if (nestedValue) {
+        return nestedValue;
+      }
+    }
+  }
+
+  return "";
+
+}
+
+function normalizeAssetActionRuntimePath(
+  path,
+  assetAction
+) {
+
+  let normalizedPath =
+    String(
+      path || ""
+    ).trim().replace(
+      /\\/g,
+      "/"
+    );
+
+  if (!normalizedPath) {
+    return "";
+  }
+
+  if (assetAction === "run_document_reader") {
+    return normalizedPath;
+  }
+
+  if (
+      [
+        "create_wildcard_file",
+        "append_wildcard_file",
+      ].includes(assetAction)
+  ) {
+    if (!normalizedPath.startsWith("assets/wildcards/")) {
+      normalizedPath =
+        `assets/wildcards/${normalizedPath}`;
+    }
+    if (!/\.txt$/i.test(normalizedPath)) {
+      normalizedPath =
+        `${normalizedPath}.txt`;
+    }
+    return normalizedPath;
+  }
+
+  if (!normalizedPath.startsWith("assets/")) {
+    normalizedPath =
+      `assets/${normalizedPath}`;
+  }
+
+  return normalizedPath;
+
+}
+
+function buildAssetActionRuntimeDisplayText(
+  data,
+  action
+) {
+
+  const assetAction =
+    getAssetActionRuntimeField(
+      data,
+      "action"
+    )
+    || (
+      String(data.error || "").trim()
+        ? "invalid payload"
+        : ""
+    );
+
+  if (!assetAction) {
+    return "";
+  }
+
+  const path =
+    normalizeAssetActionRuntimePath(
+      getAssetActionRuntimeField(
+        data,
+        "path"
+      )
+      || getAssetActionRuntimeField(
+        data,
+        "output_file"
+      )
+      || getAssetActionRuntimeField(
+        data,
+        "attachment"
+      ),
+      assetAction
+    );
+
+  return (
+    `${getRuntimeActionDisplayName(data, action)}: ${assetAction}`
+    + (
+      path
+        ? ` - ${path}`
+        : ""
+    )
+  );
+
+}
+
+function isGenericAssetActionDisplayText(
+  text,
+  data,
+  action
+) {
+
+  const normalizedText =
+    String(
+      text || ""
+    ).trim().toUpperCase();
+  const displayName =
+    getRuntimeActionDisplayName(
+      data,
+      action
+    ).toUpperCase();
+
+  return (
+    normalizedText === displayName
+    || normalizedText === "ASSET_ACTION"
+    || normalizedText === "ACTION: ASSET_ACTION"
+  );
 
 }
 

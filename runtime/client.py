@@ -731,6 +731,34 @@ class RuntimeClient:
 
         return payload
 
+    @staticmethod
+    def provider_user_prompt(
+            context,
+            user_prompt,
+    ):
+
+        if (
+            isinstance(
+                user_prompt,
+                str,
+            )
+            and user_prompt == ""
+            and bool(
+                getattr(
+                    context,
+                    "runtime_followup_tick_active",
+                    False,
+                )
+            )
+        ):
+            # Do not replace this with "" or "(empty)": LM Studio prompt
+            # templates reject a truly empty user message ("No user query
+            # found"), while visible context must still stay empty so the
+            # model does not interpret a follow-up label as user input.
+            return " "
+
+        return user_prompt
+
     async def build_safe_payload(
             self,
             *,
@@ -808,9 +836,14 @@ class RuntimeClient:
             max_tokens: int,
     ):
 
+        provider_user_prompt = self.provider_user_prompt(
+            context,
+            user_prompt,
+        )
+
         payload = await self.build_safe_payload(
             system_prompt=system_prompt,
-            user_prompt=user_prompt,
+            user_prompt=provider_user_prompt,
             temperature=temperature,
             max_tokens=max_tokens,
             stream=True,

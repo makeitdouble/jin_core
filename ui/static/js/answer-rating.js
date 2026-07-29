@@ -9,12 +9,16 @@
         "jin-rating-press-neutral",
         "jin-rating-press-plus",
     ];
+    const ratingVisualClasses = ratingSelectionClasses.filter(
+        (className) => className !== "jin-rating-committed"
+    );
     const ratingBubbleSelector =
         ".jin-chat-bubble-rateable, .jin-chat-bubble-service, .jin-chat-bubble-brain";
     const activeRatingBubbleSelector =
         ".jin-chat-bubble-rateable.jin-rating-selected-active:not(.jin-rating-committed), "
         + ".jin-chat-bubble-service.jin-rating-selected-active:not(.jin-rating-committed), "
         + ".jin-chat-bubble-brain.jin-rating-selected-active:not(.jin-rating-committed)";
+    let latestRatingBubbleSequence = 0;
 
     function isRatingInteractionBlocked() {
         return Boolean(
@@ -68,6 +72,112 @@
         }
     }
 
+    function getBubbleRatingSequence(bubble) {
+        return Number(bubble && bubble.dataset.ratingBubbleSequence || 0);
+    }
+
+    function ensureBubbleRatingSequence(bubble) {
+        if (!bubble) {
+            return 0;
+        }
+
+        const existingSequence = getBubbleRatingSequence(bubble);
+        if (existingSequence > 0) {
+            latestRatingBubbleSequence = Math.max(
+                latestRatingBubbleSequence,
+                existingSequence
+            );
+            return existingSequence;
+        }
+
+        latestRatingBubbleSequence += 1;
+        bubble.dataset.ratingBubbleSequence = String(latestRatingBubbleSequence);
+        return latestRatingBubbleSequence;
+    }
+
+    function getRatingBubblesInScope(scope) {
+        const bubbles = Array.from(
+            scope.querySelectorAll(ratingBubbleSelector)
+        );
+
+        if (
+            scope !== document
+            && scope.matches
+            && scope.matches(ratingBubbleSelector)
+        ) {
+            bubbles.unshift(scope);
+        }
+
+        return bubbles;
+    }
+
+    function markBubbleAsPastTurn(bubble) {
+        if (!bubble) {
+            return;
+        }
+
+        const previousRating = bubble.dataset.ratingSelected || null;
+        if (
+            previousRating
+            && bubble.dataset.ratingPending === "true"
+            && window.clearJinAnswerRating
+        ) {
+            window.clearJinAnswerRating({
+                previousRating,
+                reason: "superseded-by-newer-answer",
+                runtimeSnapshotIndex: bubble.dataset.runtimeSnapshotIndex || null,
+                ratingGateGeneration: bubble.dataset.ratingGateGeneration || null,
+                ratingBubbleSequence: bubble.dataset.ratingBubbleSequence || null,
+            });
+        }
+
+        bubble.classList.remove(...ratingVisualClasses);
+        bubble.classList.add("jin-rating-committed");
+        bubble.dataset.ratingPending = "false";
+        bubble.dataset.ratingCommitted = "true";
+        bubble.dataset.ratingPastTurn = "true";
+        delete bubble.dataset.ratingSelected;
+        clearBubbleRatingIntensity(bubble);
+        setBubbleRatingClickAlt(bubble, 0);
+
+        const zones = bubble.querySelector(":scope > .jin-rating-hover-zones");
+        if (zones) {
+            zones.title = "";
+        }
+    }
+
+    function syncLatestRateableBubbleState(root = document) {
+        const scope = root instanceof Element ? root : document;
+        getRatingBubblesInScope(scope).forEach(ensureBubbleRatingSequence);
+
+        const allBubbles = Array.from(
+            document.querySelectorAll(ratingBubbleSelector)
+        );
+
+        let latestBubble = null;
+        let latestSequence = 0;
+
+        allBubbles.forEach((bubble) => {
+            const sequence = ensureBubbleRatingSequence(bubble);
+            if (sequence >= latestSequence) {
+                latestSequence = sequence;
+                latestBubble = bubble;
+            }
+        });
+
+        allBubbles.forEach((bubble) => {
+            if (bubble !== latestBubble) {
+                markBubbleAsPastTurn(bubble);
+            }
+        });
+
+        return latestBubble;
+    }
+
+    function isLatestRateableBubble(bubble) {
+        return bubble && bubble === syncLatestRateableBubbleState();
+    }
+
     function getCurrentRatingGateGeneration() {
         if (!window.getJinAnswerRatingL1GateState) {
             return 0;
@@ -97,7 +207,8 @@
         }
 
         const blocked = isRatingInteractionBlocked();
-        const ready = !blocked && isBubbleRatingL1Ready(bubble);
+        const pastTurn = bubble.dataset.ratingPastTurn === "true";
+        const ready = !blocked && !pastTurn && isBubbleRatingL1Ready(bubble);
         bubble.dataset.ratingL1Ready = ready ? "true" : "false";
         bubble.classList.toggle("jin-rating-l1-waiting", !ready);
         bubble.classList.toggle("jin-rating-interaction-blocked", blocked);
@@ -197,9 +308,11 @@
 
     function addRatingHoverZones(root) {
         const scope = root instanceof Element ? root : document;
+        syncLatestRateableBubbleState(scope);
 
-        scope.querySelectorAll(ratingBubbleSelector).forEach((bubble) => {
+        getRatingBubblesInScope(scope).forEach((bubble) => {
             bubble.classList.add("jin-chat-bubble-rateable");
+            ensureBubbleRatingSequence(bubble);
 
             if (bubble.querySelector(":scope > .jin-rating-hover-zones")) {
                 markBubbleRatingL1State(bubble);
@@ -236,6 +349,12 @@
                         || bubble.dataset.ratingPastTurn === "true"
                         || isRatingInteractionBlocked()
                     ) {
+                        markBubbleRatingL1State(bubble);
+                        return;
+                    }
+
+                    if (!isLatestRateableBubble(bubble)) {
+                        markBubbleAsPastTurn(bubble);
                         markBubbleRatingL1State(bubble);
                         return;
                     }
@@ -309,6 +428,7 @@
                         globalCounts: { ...globalCounts },
                         runtimeSnapshotIndex: bubble.dataset.runtimeSnapshotIndex || null,
                         ratingGateGeneration: bubble.dataset.ratingGateGeneration || null,
+                        ratingBubbleSequence: bubble.dataset.ratingBubbleSequence || null,
                     };
 
                     if (window.recordJinAnswerRating) {
@@ -364,21 +484,29 @@
             document
                 .querySelectorAll(activeRatingBubbleSelector)
                 .forEach((bubble) => {
-                    bubble.classList.remove("jin-rating-selected-active");
+                    const committedRating =
+                        bubble.dataset.ratingSelected || null;
+                    const committedClickCount =
+                        Number(bubble.dataset.ratingClickCount || 0);
+
+                    bubble.classList.remove(...ratingVisualClasses);
                     bubble.classList.add("jin-rating-committed");
                     bubble.dataset.ratingPending = "false";
                     bubble.dataset.ratingCommitted = "true";
+                    delete bubble.dataset.ratingSelected;
+                    clearBubbleRatingIntensity(bubble);
+                    setBubbleRatingClickAlt(bubble, 0);
 
                     const zones = bubble.querySelector(":scope > .jin-rating-hover-zones");
                     if (zones) {
-                        zones.title = bubble.dataset.ratingClickAlt || "";
+                        zones.title = "";
                     }
 
                     bubble.dispatchEvent(new CustomEvent("jin:answer-rating-committed", {
                         bubbles: true,
                         detail: {
-                            rating: bubble.dataset.ratingSelected || null,
-                            bubbleClickCount: Number(bubble.dataset.ratingClickCount || 0),
+                            rating: committedRating,
+                            bubbleClickCount: committedClickCount,
                         },
                     }));
                 });

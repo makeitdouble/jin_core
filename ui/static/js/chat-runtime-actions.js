@@ -1114,6 +1114,122 @@ function buildRuntimeActionVisibleKey(
 
 }
 
+function runtimeActionRowMatchesId(
+  row,
+  action,
+  id
+) {
+
+  const normalizedAction =
+    normalizeRuntimeActionKeyPart(
+      action
+    );
+  const normalizedId =
+    normalizeRuntimeActionKeyPart(
+      id
+    );
+
+  if (
+      !row
+      || !normalizedAction
+      || !normalizedId
+      || normalizeRuntimeActionKeyPart(
+        row.dataset.runtimeAction
+      ) !== normalizedAction
+  ) {
+    return false;
+  }
+
+  const rowId =
+    normalizeRuntimeActionKeyPart(
+      row.dataset.runtimeActionId
+    );
+
+  if (rowId === normalizedId) {
+    return true;
+  }
+
+  const rowKey =
+    normalizeRuntimeActionKeyPart(
+      row.dataset.runtimeActionKey
+    );
+
+  return (
+    rowKey === `${normalizedAction}:${normalizedId}`
+    || rowKey.endsWith(
+      `:${normalizedId}`
+    )
+  );
+
+}
+
+function isGenericAssetActionRow(
+  row
+) {
+
+  if (
+      !row
+      || normalizeRuntimeActionKeyPart(
+        row.dataset.runtimeAction
+      ) !== "asset_action"
+  ) {
+    return false;
+  }
+
+  const text =
+    String(
+      (
+        row.querySelector(
+          ".jin-runtime-action-label"
+        )
+        || row
+      ).textContent || ""
+    ).trim().toUpperCase();
+
+  return (
+    text === "ASSET_ACTION"
+    || text === "ACTION: ASSET_ACTION"
+  );
+
+}
+
+function removeOrphanedAssetActionRows(
+  primaryRow,
+  action
+) {
+
+  if (
+      !primaryRow
+      || normalizeRuntimeActionKeyPart(
+        action
+      ) !== "asset_action"
+      || isGenericAssetActionRow(
+        primaryRow
+      )
+  ) {
+    return;
+  }
+
+  Array.from(
+    chatHistory.querySelectorAll(
+      `.jin-runtime-action-row[data-runtime-action="asset_action"]`
+    )
+  ).forEach((row) => {
+    if (
+        row !== primaryRow
+        && row.dataset.runtimeActionTurn
+          === primaryRow.dataset.runtimeActionTurn
+        && row.dataset.runtimeActionCompleted !== "true"
+        && isGenericAssetActionRow(
+          row
+        )
+    ) {
+      row.remove();
+    }
+  });
+
+}
+
 function removeDuplicateRuntimeActionRows(
   primaryRow,
   actionKey,
@@ -1866,6 +1982,31 @@ function appendRuntimeAction(
         );
       });
 
+    if (
+        !existingRow
+        && options.id
+        && action
+    ) {
+      existingRow =
+        Array.from(
+          chatHistory.querySelectorAll(
+            `.jin-runtime-action-row[data-runtime-action="${action}"]`
+          )
+        ).find((row) => {
+          return (
+            runtimeActionRowMatchesId(
+              row,
+              action,
+              options.id
+            )
+            && (
+              options.reuseCompleted
+              || row.dataset.runtimeActionCompleted !== "true"
+            )
+          );
+        });
+    }
+
     const guardConfirmationId =
       String(
         options.guardConfirmationId
@@ -1957,10 +2098,13 @@ function appendRuntimeAction(
       ).filter((row) => (
         row.dataset.runtimeActionTurn
           === String(jinConversationTurnCounter)
-        && runtimeActionRowMatchesScope(
-          row,
-          options.runtimeTurnId,
-          options.runtimeMessageId
+        && (
+          action === "asset_action"
+          || runtimeActionRowMatchesScope(
+            row,
+            options.runtimeTurnId,
+            options.runtimeMessageId
+          )
         )
         && row.dataset.runtimeActionCompleted !== "true"
       ));
@@ -2027,6 +2171,8 @@ function appendRuntimeAction(
       if (options.id) {
         existingRow.dataset.runtimeActionKey =
           actionKey || "";
+        existingRow.dataset.runtimeActionId =
+          String(options.id);
       }
       if (options.runtimeTurnId) {
         existingRow.dataset.runtimeActionRuntimeTurn =
@@ -2045,6 +2191,10 @@ function appendRuntimeAction(
         existingRow,
         action,
         options
+      );
+      removeOrphanedAssetActionRows(
+        existingRow,
+        action
       );
       return true;
     }
@@ -2081,6 +2231,11 @@ function appendRuntimeAction(
     actionKey || "";
   row.dataset.runtimeActionTurn =
     String(jinConversationTurnCounter);
+
+  if (options.id) {
+    row.dataset.runtimeActionId =
+      String(options.id);
+  }
 
   if (options.runtimeTurnId) {
     row.dataset.runtimeActionRuntimeTurn =
@@ -2251,6 +2406,10 @@ function appendRuntimeAction(
     row,
     action,
     options
+  );
+  removeOrphanedAssetActionRows(
+    row,
+    action
   );
 
   chatHistory.scrollTop =
@@ -2462,6 +2621,8 @@ function fadeRuntimeAction(
       row.dataset.runtimeActionTurn
         === String(jinConversationTurnCounter)
       && (
+        action === "asset_action"
+        ||
         !options.runtimeMessageId
         || runtimeActionRowMatchesScope(
           row,

@@ -1158,6 +1158,72 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 )
 
 
+    def test_asset_action_reuses_stream_pending_id_for_specific_bubble(self):
+
+        Emitter = FakeEmitter
+
+        Context = FakeContext
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                context = Context()
+                context.emitter = Emitter()
+                context.runtime_pending_asset_action_ids = [
+                    "asset_action_001",
+                ]
+                payload = json.dumps(
+                    {
+                        "action": "analyze_image",
+                        "asset_id": "image.png",
+                    }
+                )
+
+                applied_count = asyncio.run(
+                    apply_runtime_action_calls(
+                        context,
+                        (
+                            RuntimeActionCall(
+                                name="ASSET_ACTION",
+                                payload=payload,
+                            ),
+                        ),
+                    )
+                )
+
+                self.assertEqual(
+                    applied_count,
+                    1,
+                )
+                self.assertEqual(
+                    context.runtime_pending_asset_action_ids,
+                    [],
+                )
+                self.assertEqual(
+                    context.emitter.events[0]["id"],
+                    "asset_action_001",
+                )
+                self.assertEqual(
+                    context.emitter.events[0]["text"],
+                    "ASSET_ACTION: analyze_image",
+                )
+                self.assertEqual(
+                    context.emitter.events[0]["status"],
+                    "started",
+                )
+                self.assertEqual(
+                    context.emitter.events[1]["id"],
+                    "asset_action_001",
+                )
+                self.assertEqual(
+                    context.emitter.events[1]["status"],
+                    "failed",
+                )
+
+
     def test_create_wildcard_file_rejects_assets_prompts_path(self):
 
         with tempfile.TemporaryDirectory() as temp_dir:

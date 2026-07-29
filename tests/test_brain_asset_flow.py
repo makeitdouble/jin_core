@@ -1,4 +1,7 @@
+import contextlib
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -22,9 +25,18 @@ from utils.context.context_exports import (
     build_tool_results_context,
 )
 from agent.state import AgentState
+from agent.runtime import (
+    AgentRuntime,
+)
+from runtime.runtime_context import (
+    RuntimeContext,
+)
 from utils.tool_results import (
     TOOL_RESULT_KIND_ASSET,
     record_runtime_tool_result,
+)
+from tests.helpers.runtime_actions import (
+    patch_asset_roots,
 )
 
 
@@ -850,6 +862,79 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "I have two skills: image_prompt_generator and wildcards.",
         )
 
+    async def test_list_skills_tool_result_alone_triggers_followup(self):
+
+        calls = []
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+            context = kwargs["context"]
+
+            if len(calls) == 1:
+                record_runtime_tool_result(
+                    context,
+                    TOOL_RESULT_KIND_ASSET,
+                    {
+                        "ok": True,
+                        "action": "list_skills",
+                        "runtime_turn_id": "turn_000001",
+                        "skills": [
+                            {
+                                "name": "chunk_reader",
+                            },
+                        ],
+                    },
+                )
+                return "", ""
+
+            self.assertEqual(
+                kwargs["brain_payload"],
+                "",
+            )
+            self.assertIn(
+                "list_skills",
+                kwargs["system_prompt"],
+            )
+            return "Follow-up continued.", ""
+
+        context = _context()
+        context.runtime_current_turn_id = "turn_000001"
+        state = AgentState(
+            user_input="list skills, then append chunk_reader",
+        )
+        state.translated_input = state.user_input
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=_brain_runtime(),
+        ), patch(
+            "agent.nodes.brain.build_brain_context",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.build_brain_payload",
+            return_value="brain payload",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            len(calls),
+            2,
+        )
+        self.assertEqual(
+            state.brain_response,
+            "Follow-up continued.",
+        )
+
     async def test_list_skills_followup_keeps_attachment_context_in_sequence(self):
 
         calls = []
@@ -877,8 +962,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 "- screen.png: image, image/png, 462.8 KB",
                 kwargs["system_prompt"],
             )
-            self.assertIn(
-                "runtime_attachment: full content is available to appended skills",
+            self.assertNotIn(
+                "runtime_attachment",
                 kwargs["system_prompt"],
             )
             return "Follow-up saw attachment context.", ""
@@ -1004,8 +1089,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "- screen.png: image, image/png",
             observed["brain_payload"],
         )
-        self.assertIn(
-            "runtime_attachment: full content is available to appended skills",
+        self.assertNotIn(
+            "runtime_attachment",
             observed["brain_payload"],
         )
         self.assertNotIn(
@@ -1826,6 +1911,391 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             state.brain_response,
             "Ready to test with the wildcards skill loaded.",
+        )
+
+    async def test_streamed_list_skills_append_skills_reaches_final_followup(self):
+
+        class FakeBrainClient:
+
+            def __init__(self):
+                self.calls = 0
+                self.system_prompts = []
+
+            async def stream(self, **_kwargs):
+                self.calls += 1
+                self.system_prompts.append(
+                    _kwargs.get(
+                        "system_prompt",
+                        "",
+                    )
+                )
+
+                if self.calls == 1:
+                    yield {
+                        "type": "content",
+                        "content": (
+                            "Need the available skills first. "
+                            "<LIST_SKILLS>"
+                        ),
+                    }
+                    return
+
+                if self.calls == 2:
+                    yield {
+                        "type": "content",
+                        "content": (
+                            "Append the requested skills. "
+                            "<APPEND_SKILL: chunk_reader>\n"
+                            "<APPEND_SKILL: image_prompt_generator>"
+                        ),
+                    }
+                    return
+
+                yield {
+                    "type": "content",
+                    "content": "Ready.",
+                }
+
+        class FakeWebSocket:
+
+            def __init__(self):
+                self.events = []
+
+            async def send_json(self, payload):
+                self.events.append(payload)
+
+        class FakeEmitter:
+
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, payload):
+                self.events.append(payload)
+
+        class FakeLogger:
+
+            async def log_runtime(self, *_args, **_kwargs):
+                return None
+
+            async def log_validator(self, *_args, **_kwargs):
+                return None
+
+            async def log_error(self, *_args, **_kwargs):
+                return None
+
+            async def log_brain(self, *_args, **_kwargs):
+                return None
+
+            async def log(self, *_args, **_kwargs):
+                return None
+
+            async def log_system(self, *_args, **_kwargs):
+                return None
+
+        def write_skill(root, name, content):
+            path = (
+                root
+                / "assets"
+                / "skills"
+                / name
+            )
+            path.parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+            path.write_text(
+                content,
+                encoding="utf-8",
+            )
+
+        fake_client = FakeBrainClient()
+        websocket = FakeWebSocket()
+        emitter = FakeEmitter()
+        user_input = (
+            "посмотри скилы, сделай апенд chunk_reader "
+            "и image_prompt_generator"
+        )
+        context = SimpleNamespace(
+            logger=FakeLogger(),
+            websocket=websocket,
+            emitter=emitter,
+            clients={
+                "brain": fake_client,
+            },
+            active_streams={},
+            runtime_search_queries=[],
+            runtime_search_calls=[],
+            runtime_search_result="",
+            runtime_search_result_id="",
+            runtime_asset_results=[],
+            runtime_asset_retry_results=[],
+            runtime_asset_retry_context=[],
+            runtime_delayed_memory_results=[],
+            runtime_appended_skills=[],
+            runtime_action_events=[],
+            runtime_tool_results=[],
+            runtime_tool_results_turn_count=0,
+            runtime_tool_results_generation=0,
+            runtime_current_turn_id="turn_000001",
+            runtime_current_sequence_turn_id="turn_000001",
+            runtime_turn_started_at=1,
+            runtime_current_sequence_started_at=1,
+            runtime_turn_user_message=user_input,
+            runtime_turn_abort_requested=False,
+            runtime_turn_interrupted=False,
+            runtime_reasoning_recovery_pending=False,
+            runtime_context_limit_recovery_pending=False,
+            runtime_active_action_markers=[],
+            runtime_session_action_history=[],
+            runtime_turn_attachments=[],
+            runtime_current_sequence_attachments=[],
+            runtime_current_sequence_attachments_turn_id="turn_000001",
+            runtime_save_session_requested=False,
+            runtime_memory="",
+            runtime_memory_stable="",
+            runtime_token_usage={},
+            runtime_provider_token_usage={},
+            active_memory_records=[],
+            background_tasks=set(),
+        )
+        state = AgentState(
+            user_input=user_input,
+        )
+        state.translated_input = state.user_input
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                write_skill(
+                    root,
+                    "chunk_reader.txt",
+                    "chunk_reader\nRead large files in chunks.",
+                )
+                write_skill(
+                    root,
+                    "image_prompt_generator.txt",
+                    "image_prompt_generator\nGenerate image prompts.",
+                )
+
+                with patch(
+                    "agent.nodes.brain.get_brain_runtime_config",
+                    return_value=_brain_runtime(),
+                ), patch(
+                    "agent.nodes.brain.build_brain_context",
+                    side_effect=lambda current_context, **_kwargs: (
+                        "system prompt\n"
+                        + build_tool_results_context(
+                            current_context
+                        )
+                    ),
+                ), patch(
+                    "agent.nodes.brain.build_brain_payload",
+                    return_value="brain payload",
+                ), patch(
+                    "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+                    new=lambda _context: _async_noop(),
+                ), patch(
+                    "runtime.stream.refresh_runtime_state",
+                    new=lambda *_args, **_kwargs: _async_noop(),
+                ), patch(
+                    "runtime.stream.record_stream_token_usage",
+                    new=lambda *_args, **_kwargs: None,
+                ):
+                    await BrainNode().run(
+                        state,
+                        context,
+                    )
+
+        self.assertEqual(
+            fake_client.calls,
+            3,
+        )
+        self.assertIn(
+            "list_skills",
+            fake_client.system_prompts[1],
+        )
+        self.assertIn(
+            "chunk_reader",
+            fake_client.system_prompts[1],
+        )
+        self.assertIn(
+            "append_skill",
+            fake_client.system_prompts[2],
+        )
+        self.assertIn(
+            "image_prompt_generator",
+            fake_client.system_prompts[2],
+        )
+        self.assertEqual(
+            state.brain_response,
+            "Ready.",
+        )
+        self.assertEqual(
+            [
+                event["name"]
+                for event in context.runtime_action_events
+            ],
+            [
+                "list_skills",
+                "append_skill",
+                "append_skill",
+            ],
+        )
+        self.assertEqual(
+            [
+                entry["result"]["action"]
+                for entry in context.runtime_tool_results
+                if entry.get("kind") == TOOL_RESULT_KIND_ASSET
+            ],
+            [
+                "list_skills",
+            ],
+        )
+        self.assertEqual(
+            [
+                skill["name"]
+                for skill in context.runtime_appended_skills
+            ],
+            [
+                "chunk_reader",
+                "image_prompt_generator",
+            ],
+        )
+
+    async def test_list_skills_followup_survives_current_turn_id_shift(self):
+
+        class FakeBrainClient:
+
+            def __init__(self):
+                self.calls = 0
+
+            async def stream(self, **kwargs):
+                self.calls += 1
+
+                if self.calls == 1:
+                    yield {
+                        "type": "content",
+                        "content": (
+                            "Need available skills. "
+                            "<LIST_SKILLS> trailing text"
+                        ),
+                    }
+                    kwargs["context"].runtime_current_turn_id = (
+                        "turn_changed_after_list_skills"
+                    )
+                    return
+
+                yield {
+                    "type": "content",
+                    "content": "Follow-up continued.",
+                }
+
+        class FakeWebSocket:
+
+            async def send_json(self, _payload):
+                return None
+
+        class FakeEmitter:
+
+            async def emit(self, _payload):
+                return None
+
+        class FakeLogger:
+
+            async def log_runtime(self, *_args, **_kwargs):
+                return None
+
+            async def log_validator(self, *_args, **_kwargs):
+                return None
+
+            async def log_error(self, *_args, **_kwargs):
+                return None
+
+            async def log_brain(self, *_args, **_kwargs):
+                return None
+
+            async def log_flow(self, *_args, **_kwargs):
+                return None
+
+            async def log(self, *_args, **_kwargs):
+                return None
+
+            async def log_system(self, *_args, **_kwargs):
+                return None
+
+        fake_client = FakeBrainClient()
+        context = RuntimeContext(
+            websocket=FakeWebSocket(),
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={
+                "brain": fake_client,
+            },
+        )
+        context.runtime_current_turn_id = "turn_000001"
+        context.runtime_current_sequence_turn_id = "turn_000001"
+        context.runtime_turn_started_at = 1
+        context.runtime_current_sequence_started_at = 1
+        context.runtime_turn_user_message = (
+            "посмотри скилы, потом продолжай"
+        )
+
+        state = AgentState(
+            user_input=context.runtime_turn_user_message,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                skill_path = (
+                    root
+                    / "assets"
+                    / "skills"
+                    / "chunk_reader.txt"
+                )
+                skill_path.parent.mkdir(
+                    parents=True,
+                    exist_ok=True,
+                )
+                skill_path.write_text(
+                    "chunk_reader\nRead large files.",
+                    encoding="utf-8",
+                )
+
+                await AgentRuntime().run(
+                    state,
+                    context,
+                )
+
+        self.assertEqual(
+            fake_client.calls,
+            2,
+        )
+        self.assertEqual(
+            state.final_answer,
+            "Follow-up continued.",
+        )
+        self.assertEqual(
+            context.runtime_action_events[0]["name"],
+            "list_skills",
+        )
+        self.assertEqual(
+            context.runtime_action_events[0]["runtime_turn_id"],
+            "turn_000001",
+        )
+        self.assertEqual(
+            context.runtime_current_turn_id,
+            "turn_changed_after_list_skills",
+        )
+        self.assertEqual(
+            context.runtime_asset_results[0]["action"],
+            "list_skills",
         )
 
     async def test_asset_workflow_can_continue_after_create_file_to_prompt_batch(self):

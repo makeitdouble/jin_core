@@ -54,6 +54,7 @@ from utils.language import (
     contains_cyrillic,
 )
 from utils.tool_results import (
+    TOOL_RESULT_KIND_ASSET,
     TOOL_RESULT_KIND_SEARCH,
     TOOL_RESULT_KIND_SESSION,
     begin_runtime_tool_results_turn,
@@ -322,6 +323,26 @@ def _compact_followup_value(
             or ""
         ).split()
     ).strip()
+
+
+def sanitize_sequence_user_request(
+        value,
+) -> str:
+
+    # Attachment payload transport hints are useful to the runtime, but they
+    # are not part of the user's request and must not leak into the visible
+    # CURRENT_SEQUENCE block on follow-up ticks.
+    lines = []
+
+    for line in str(value or "").splitlines():
+        if line.strip().casefold().startswith(
+            "runtime_attachment:"
+        ):
+            continue
+
+        lines.append(line)
+
+    return "\n".join(lines).strip()
 
 
 def format_followup_action_from_event(
@@ -1330,7 +1351,10 @@ class BrainNode(BaseNode):
                 )
                 or state.translated_input
                 or ""
-            ).strip()
+            )
+            sequence_user_request = sanitize_sequence_user_request(
+                sequence_user_request
+            )
 
         await emit_active_memory_records_update_if_dirty(
             context
@@ -1342,6 +1366,14 @@ class BrainNode(BaseNode):
             getattr(
                 context,
                 "runtime_action_events",
+                [],
+            )
+            or []
+        )
+        runtime_tool_result_followup_offset = len(
+            getattr(
+                context,
+                "runtime_tool_results",
                 [],
             )
             or []
@@ -1394,6 +1426,14 @@ class BrainNode(BaseNode):
             )
             or ""
         ).strip()
+        current_sequence_turn_id = str(
+            getattr(
+                context,
+                "runtime_current_sequence_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
 
         def abort_requested():
             return bool(
@@ -1431,8 +1471,52 @@ class BrainNode(BaseNode):
 
             return (
                 not item_turn_id
-                or item_turn_id == current_turn_id
+                or item_turn_id
+                in {
+                    current_turn_id,
+                    current_sequence_turn_id,
+                }
             )
+
+        def collect_pending_asset_tool_results():
+
+            tool_results = getattr(
+                context,
+                "runtime_tool_results",
+                [],
+            )
+            pending_results = []
+
+            for entry in tool_results[
+                runtime_tool_result_followup_offset:
+            ]:
+                if (
+                    not isinstance(entry, dict)
+                    or entry.get("kind") != TOOL_RESULT_KIND_ASSET
+                ):
+                    continue
+
+                result = entry.get("result")
+                if (
+                    not isinstance(result, dict)
+                    or not belongs_to_current_turn(result)
+                ):
+                    continue
+
+                runtime_action = str(
+                    result.get("runtime_action_name")
+                    or result.get("action")
+                    or "asset_action"
+                ).strip()
+
+                if not runtime_action_emits_followup(
+                    runtime_action
+                ):
+                    continue
+
+                pending_results.append(result)
+
+            return pending_results
 
         action_event_followup_offset = (
             runtime_action_event_offset
@@ -1473,6 +1557,7 @@ class BrainNode(BaseNode):
             nonlocal action_event_followup_offset
             nonlocal asset_result_offset
             nonlocal delayed_memory_result_offset
+            nonlocal runtime_tool_result_followup_offset
 
             pending_action_events = (
                 collect_pending_action_events()
@@ -1513,6 +1598,14 @@ class BrainNode(BaseNode):
             ]
             delayed_memory_result_offset = len(
                 current_delayed_memory_results
+            )
+            runtime_tool_result_followup_offset = len(
+                getattr(
+                    context,
+                    "runtime_tool_results",
+                    [],
+                )
+                or []
             )
 
             return pending_action_events
@@ -1875,9 +1968,13 @@ class BrainNode(BaseNode):
                 pending_action_events = (
                     collect_pending_action_events()
                 )
+                pending_asset_tool_results = (
+                    collect_pending_asset_tool_results()
+                )
 
                 if (
                     not pending_action_events
+                    and not pending_asset_tool_results
                     and not getattr(
                         context,
                         "runtime_reasoning_recovery_pending",
@@ -1901,6 +1998,11 @@ class BrainNode(BaseNode):
                 latest_followup_action = (
                     format_followup_actions_from_events(
                         followup_action_events
+                    )
+                    or format_followup_action_from_asset_result(
+                        pending_asset_tool_results[-1]
+                        if pending_asset_tool_results
+                        else {}
                     )
                 )
 
