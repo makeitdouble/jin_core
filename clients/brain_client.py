@@ -1,4 +1,6 @@
 import asyncio
+import json
+import re
 import uuid
 
 from config_loader import (
@@ -33,6 +35,7 @@ from rules.brain_context_builder import (
 
 from utils.brain_client_utils import (
     apply_runtime_action_calls,
+    build_pending_asset_action_preview,
     flush_pending_active_memory_resolve_failure_history,
     log_runtime_action_marker_removals,
     should_execute_save_delayed_memory,
@@ -43,6 +46,7 @@ from runtime.action_guard import (
     get_action_guard_display_id,
 )
 from utils.session_actions_history import (
+    build_asset_action_marker_text,
     emit_session_actions_update,
     replace_session_action_history_since,
     upsert_session_action_marker_history_since,
@@ -654,6 +658,8 @@ async def ask_brain_stream(
     runtime_action_boundary_seen = False
     delayed_memory_bubble_started = False
     asset_action_bubble_started = False
+    asset_action_bubble_id = ""
+    asset_action_bubble_text = ""
     action_context_snapshot = build_brain_context_snapshot(
         context=context,
         system_prompt=resolved_system_prompt,
@@ -696,6 +702,72 @@ async def ask_brain_stream(
                 result,
                 "observed_actions",
                 (),
+            )
+        )
+
+    def build_pending_asset_action_stream_preview(
+        pending_text: str,
+    ) -> dict:
+
+        matches = tuple(
+            re.finditer(
+                r"<\s*(?:INTERNAL_ACTION_)?ASSET_ACTION\s*>",
+                str(
+                    pending_text
+                    or ""
+                ),
+                re.IGNORECASE,
+            )
+        )
+
+        if not matches:
+            return {}
+
+        body = str(
+            pending_text
+            or ""
+        )[matches[-1].end():]
+
+        def extract_string_field(
+            field: str,
+        ) -> str:
+            match = re.search(
+                rf'"{re.escape(field)}"\s*:\s*"(?P<value>[^"]*)"',
+                body,
+                re.IGNORECASE | re.DOTALL,
+            )
+
+            return (
+                match.group("value").strip()
+                if match
+                else ""
+            )
+
+        action = extract_string_field(
+            "action"
+        )
+        if not action:
+            return {}
+
+        preview_payload = {
+            "action": action,
+        }
+
+        for field in (
+            "path",
+            "output_file",
+            "attachment",
+            "mode",
+        ):
+            value = extract_string_field(
+                field
+            )
+            if value:
+                preview_payload[field] = value
+
+        return build_pending_asset_action_preview(
+            json.dumps(
+                preview_payload
             )
         )
 
@@ -1055,29 +1127,47 @@ async def ask_brain_stream(
             payload
         )
 
-    async def emit_asset_action_bubble_started():
+    async def emit_asset_action_bubble_started(
+        result=None,
+    ):
 
         nonlocal asset_action_bubble_started
+        nonlocal asset_action_bubble_id
+        nonlocal asset_action_bubble_text
 
-        if asset_action_bubble_started:
-            return
+        asset_action_call = next(
+            (
+                action
+                for action in getattr(
+                    result,
+                    "actions",
+                    (),
+                )
+                or ()
+                if action.name == RUNTIME_ACTION_ASSET_ACTION
+            ),
+            None,
+        )
 
-        pending = str(
+        pending_source = str(
             getattr(
                 content_filter,
                 "pending",
                 "",
             )
             or ""
-        ).upper()
+        )
+        pending = pending_source.upper()
+        has_pending_asset_action_marker = (
+            "INTERNAL_ACTION_ASSET_ACTION" in pending
+            or "ASSET_ACTION" in pending
+        )
 
         if (
-            "INTERNAL_ACTION_ASSET_ACTION" not in pending
-            and "ASSET_ACTION" not in pending
+            asset_action_call is None
+            and not has_pending_asset_action_marker
         ):
             return
-
-        asset_action_bubble_started = True
 
         emitter = getattr(
             context,
@@ -1108,38 +1198,82 @@ async def ask_brain_stream(
                 pending_ids
             )
 
-        action_id = build_runtime_action_id(
-            RUNTIME_ACTION_ASSET_ACTION,
-            len(
-                getattr(
-                    context,
-                    "runtime_asset_results",
-                    [],
+        if not asset_action_bubble_id:
+            asset_action_bubble_id = build_runtime_action_id(
+                RUNTIME_ACTION_ASSET_ACTION,
+                len(
+                    getattr(
+                        context,
+                        "runtime_asset_results",
+                        [],
+                    )
+                    or []
                 )
-                or []
+                + len(pending_ids)
+                + 1,
             )
-            + len(pending_ids)
-            + 1,
-        )
-        pending_ids.append(
-            action_id
-        )
+
+        if not asset_action_bubble_started:
+            pending_ids.append(
+                asset_action_bubble_id
+            )
+
+        asset_result = None
+        detail = ""
+
+        if asset_action_call is not None:
+            detail = str(
+                asset_action_call.payload
+                or ""
+            ).strip()
+            asset_result = build_pending_asset_action_preview(
+                detail
+            )
+            next_text = build_asset_action_marker_text(
+                asset_result
+            )
+        else:
+            asset_result = build_pending_asset_action_stream_preview(
+                pending_source
+            )
+            if asset_result:
+                next_text = build_asset_action_marker_text(
+                    asset_result
+                )
+            else:
+                next_text = build_runtime_action_display_text(
+                    RUNTIME_ACTION_ASSET_ACTION
+                )
+
+        if (
+            asset_action_bubble_started
+            and next_text == asset_action_bubble_text
+        ):
+            return
+
+        asset_action_bubble_started = True
+        asset_action_bubble_text = next_text
 
         payload = {
             "type": "runtime_action",
             "action": "asset_action",
-            "id": action_id,
+            "id": asset_action_bubble_id,
             "status": "started",
+            "runtime_message_id": runtime_message_id,
             "display_name": get_runtime_action_display_name(
                 RUNTIME_ACTION_ASSET_ACTION
             ),
-            "text": build_runtime_action_display_text(
-                RUNTIME_ACTION_ASSET_ACTION
-            ),
+            "text": next_text,
             "close_tag": runtime_action_has_close_tag(
                 RUNTIME_ACTION_ASSET_ACTION
             ),
         }
+
+        if detail:
+            payload["detail"] = detail
+
+        if asset_result is not None:
+            payload["asset_result"] = asset_result
 
         if action_context_snapshot:
             payload["context"] = action_context_snapshot
@@ -1198,7 +1332,9 @@ async def ask_brain_stream(
         )
 
         await emit_delayed_memory_bubble_started()
-        await emit_asset_action_bubble_started()
+        await emit_asset_action_bubble_started(
+            result
+        )
 
         await log_runtime_action_marker_removals(
             context,

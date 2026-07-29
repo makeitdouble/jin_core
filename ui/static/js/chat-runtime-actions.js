@@ -118,6 +118,17 @@ function isSaveSessionRuntimeAction(
 
 }
 
+function canPreviewAssetResult(
+  assetResult
+) {
+
+  return Boolean(
+    assetResult
+    && assetResult.ok === true
+  );
+
+}
+
 function setRuntimeActionPendingUntilL3(
   row,
   pending
@@ -1727,7 +1738,11 @@ function updateRuntimeActionRow(
   if (action === "asset_action") {
     bindAssetResultPreview(
       label,
-      options.assetResult || null
+      canPreviewAssetResult(
+        options.assetResult
+      )
+        ? options.assetResult
+        : null
     );
   }
 
@@ -2351,7 +2366,11 @@ function appendRuntimeAction(
   if (action === "asset_action") {
     bindAssetResultPreview(
       label,
-      options.assetResult || null
+      canPreviewAssetResult(
+        options.assetResult
+      )
+        ? options.assetResult
+        : null
     );
   }
 
