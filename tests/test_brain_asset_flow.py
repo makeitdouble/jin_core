@@ -2217,6 +2217,12 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             async def log_brain(self, *_args, **_kwargs):
                 return None
 
+            async def log_service_as_brain(self, *_args, **_kwargs):
+                return None
+
+            async def log_service_as_brain_output(self, *_args, **_kwargs):
+                return None
+
             async def log_flow(self, *_args, **_kwargs):
                 return None
 
@@ -2233,6 +2239,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             logger=FakeLogger(),
             clients={
                 "brain": fake_client,
+                "service": fake_client,
             },
         )
         context.runtime_current_turn_id = "turn_000001"
