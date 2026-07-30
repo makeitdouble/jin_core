@@ -1354,20 +1354,14 @@ async def ask_brain_stream(
             return None
 
         if runtime_action_boundary_seen:
-            # A boundary action (for example WEB_SEARCH) used to stop the
-            # model stream immediately. That dropped any action markers
-            # emitted later in the same assistant message because they had
-            # not arrived from the token stream yet. Keep draining adjacent
-            # whitespace and action markers, but stop as soon as ordinary
-            # visible text resumes. Everything after the boundary stays
-            # hidden from chat.
-            if (
-                not action_applied
-                and result.text
-                and result.text.strip()
-            ):
-                stop_for_runtime_action = True
-
+            # Boundary actions require a follow-up, so ordinary model text
+            # emitted after the first boundary remains hidden from chat. Do
+            # not abort the provider stream here, though: token chunks can
+            # split visible text mid-word. Stopping on the first fragment
+            # truncates the model output and starts the follow-up before the
+            # current generation has actually ended.
+            # Keep draining the full response so later markers are processed,
+            # usage is finalized, and the raw BRAIN/SERVICE log is complete.
             return None
 
         if action_applied:

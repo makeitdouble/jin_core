@@ -143,32 +143,23 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_extracts_bare_save_active_memory_marker_line(self):
+    def test_bare_save_active_memory_marker_line_stays_text(self):
 
+        text = (
+            "Я напомню.\n\n"
+            "SAVE_ACTIVE_MEMORY: "
+            "REMINDER: Drink coffee in 5 minutes\n"
+        )
         result = extract_runtime_actions(
-            (
-                "Я напомню.\n\n"
-                "SAVE_ACTIVE_MEMORY: "
-                "REMINDER: Drink coffee in 5 minutes\n"
-            ),
+            text,
             enabled_actions=[
                 "CAN_SAVE_ACTIVE_MEMORY",
             ],
         )
 
-        self.assertEqual(
-            result.text,
-            "Я напомню.",
-        )
-        self.assertEqual(
-            result.count("SAVE_ACTIVE_MEMORY"),
-            1,
-        )
-        self.assertEqual(
-            result.actions[0].payload,
-            "REMINDER: Drink coffee in 5 minutes",
-        )
-
+        self.assertEqual(result.text, text)
+        self.assertEqual(result.actions, ())
+        self.assertEqual(result.removed_markers, ())
 
     def test_save_active_memory_marker_helpers_accept_bare_marker(self):
 
@@ -191,33 +182,24 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_extracts_bare_resolve_active_memory_marker(self):
+    def test_bare_resolve_active_memory_marker_stays_text(self):
 
+        text = (
+            "RESOLVE_ACTIVE_MEMORY: "
+            "active_memory_id=e2qxe7 STATUS=resolved\n"
+            "\n"
+            "Память очищена."
+        )
         result = extract_runtime_actions(
-            (
-                "RESOLVE_ACTIVE_MEMORY: "
-                "active_memory_id=e2qxe7 STATUS=resolved\n"
-                "\n"
-                "Память очищена."
-            ),
+            text,
             enabled_actions=[
                 "CAN_SAVE_ACTIVE_MEMORY",
             ],
         )
 
-        self.assertEqual(
-            result.text,
-            "Память очищена.",
-        )
-        self.assertEqual(
-            result.count("RESOLVE_ACTIVE_MEMORY"),
-            1,
-        )
-        self.assertEqual(
-            result.actions[0].payload,
-            "active_memory_id=e2qxe7 STATUS=resolved",
-        )
-
+        self.assertEqual(result.text, text)
+        self.assertEqual(result.actions, ())
+        self.assertEqual(result.removed_markers, ())
 
     def test_extracts_bracketed_resolve_active_memory_marker(self):
 
@@ -356,7 +338,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_stream_filter_handles_split_bare_save_active_memory_marker(self):
+    def test_stream_filter_keeps_split_bare_save_active_memory_as_text(self):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=[
@@ -364,34 +346,21 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             ],
         )
 
-        first = stream_filter.filter(
-            "SAVE_ACTIVE_MEMORY:"
-        )
+        first = stream_filter.filter("SAVE_ACTIVE_MEMORY:")
         second = stream_filter.filter(
             " REMINDER: Drink coffee in 5 minutes\n"
         )
+        flushed = stream_filter.flush()
 
         self.assertEqual(
-            first.text,
-            "",
+            first.text + second.text + flushed,
+            (
+                "SAVE_ACTIVE_MEMORY: "
+                "REMINDER: Drink coffee in 5 minutes\n"
+            ),
         )
-        self.assertEqual(
-            first.count("SAVE_ACTIVE_MEMORY"),
-            0,
-        )
-        self.assertEqual(
-            second.text,
-            "",
-        )
-        self.assertEqual(
-            second.count("SAVE_ACTIVE_MEMORY"),
-            1,
-        )
-        self.assertEqual(
-            second.actions[0].payload,
-            "REMINDER: Drink coffee in 5 minutes",
-        )
-
+        self.assertEqual(first.actions, ())
+        self.assertEqual(second.actions, ())
 
     def test_apply_runtime_action_calls_records_save_active_memory(self):
 

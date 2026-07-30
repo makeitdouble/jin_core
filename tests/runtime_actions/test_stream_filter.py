@@ -14,6 +14,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     get_runtime_action_private_marker,
+    normalize_runtime_action_names,
 )
 from rules.brain_context_builder import build_appended_delayed_memory_context
 from tests.helpers.runtime_actions import (
@@ -73,6 +74,28 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             result.actions,
             (),
         )
+
+
+    def test_all_bare_runtime_action_names_stay_ordinary_text(self):
+
+        action_names = normalize_runtime_action_names(None)
+        text = "\n".join(
+            (
+                "Runtime actions mentioned as text:",
+                *(f"`{name}`" for name in action_names),
+                *action_names,
+            )
+        )
+
+        result = extract_runtime_actions(
+            text,
+            enabled_actions=action_names,
+        )
+
+        self.assertEqual(result.text, text)
+        self.assertEqual(result.actions, ())
+        self.assertEqual(result.observed_actions, ())
+        self.assertEqual(result.removed_markers, ())
 
 
     def test_extracts_bracketed_web_search_marker(self):
@@ -150,138 +173,98 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
 
-    def test_extracts_bracketed_web_search_marker_terminated_by_newline(self):
+    def test_rejects_web_search_marker_without_closing_angle_bracket(self):
 
+        text = (
+            "<WEB_SEARCH: house drawing ideas\n"
+            "\n"
+            "🏠\n"
+            "\n"
+            "Маленький уютный домик"
+        )
         result = extract_runtime_actions(
-            (
-                "<WEB_SEARCH: house drawing ideas\n"
-                "\n"
-                "🏠\n"
-                "\n"
-                "Маленький уютный домик"
-            ),
+            text,
             enabled_actions=[
                 "CAN_WEB_SEARCH",
             ],
         )
 
-        self.assertNotIn(
-            "WEB_SEARCH",
-            result.text,
-        )
         self.assertEqual(
             result.text,
-            "🏠\n\nМаленький уютный домик",
+            text,
         )
         self.assertEqual(
-            result.search_queries,
-            (
-                "house drawing ideas",
-            ),
+            result.actions,
+            (),
         )
         self.assertEqual(
             result.removed_markers,
-            (
-                "<WEB_SEARCH: house drawing ideas",
-            ),
+            (),
         )
 
+    def test_tool_call_wrapper_stays_text_without_canonical_action_tag(self):
 
-    def test_extracts_tool_call_style_web_search_marker(self):
-
+        text = (
+            "<|tool_call>call:WEB_SEARCH: сериалы, "
+            "похожие на From (сериал) >"
+        )
         result = extract_runtime_actions(
-            "<|tool_call>call:WEB_SEARCH: \u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u043d\u0430 From (\u0441\u0435\u0440\u0438\u0430\u043b) >",
+            text,
             enabled_actions=[
                 "CAN_WEB_SEARCH",
             ],
         )
 
-        self.assertEqual(
-            result.text,
-            "",
-        )
-        self.assertEqual(
-            result.search_queries,
-            (
-                "\u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u043d\u0430 From (\u0441\u0435\u0440\u0438\u0430\u043b)",
-            ),
-        )
-        self.assertEqual(
-            result.removed_markers,
-            (
-                "<|tool_call>call:WEB_SEARCH: \u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u043d\u0430 From (\u0441\u0435\u0440\u0438\u0430\u043b) >",
-            ),
-        )
+        self.assertEqual(result.text, text)
+        self.assertEqual(result.actions, ())
+        self.assertEqual(result.removed_markers, ())
 
+    def test_tool_call_prefix_stays_text_without_canonical_action_tag(self):
 
-    def test_extracts_tool_call_style_web_search_marker_without_internal_prefix(self):
-
+        text = (
+            "<tool_call>call:WEB_SEARCH: Gemma 4 differences "
+            "between e2b and e4b versions"
+        )
         result = extract_runtime_actions(
-            "<tool_call>call:WEB_SEARCH: Gemma 4 differences between e2b and e4b versions",
+            text,
             enabled_actions=[
                 "CAN_WEB_SEARCH",
             ],
         )
 
-        self.assertEqual(
-            result.text,
-            "",
-        )
-        self.assertEqual(
-            result.search_queries,
-            (
-                "Gemma 4 differences between e2b and e4b versions",
-            ),
-        )
-        self.assertEqual(
-            result.removed_markers,
-            (
-                "<tool_call>call:WEB_SEARCH: Gemma 4 differences between e2b and e4b versions",
-            ),
-        )
+        self.assertEqual(result.text, text)
+        self.assertEqual(result.actions, ())
+        self.assertEqual(result.removed_markers, ())
 
+    def test_bare_call_style_web_search_line_stays_text(self):
 
-    def test_extracts_bare_call_style_web_search_marker_line(self):
-
+        text = (
+            "call:WEB_SEARCH: сериалы, похожие на From (сериал)"
+        )
         result = extract_runtime_actions(
-            "call:WEB_SEARCH: \u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u043d\u0430 From (\u0441\u0435\u0440\u0438\u0430\u043b)",
+            text,
             enabled_actions=[
                 "CAN_WEB_SEARCH",
             ],
         )
 
-        self.assertEqual(
-            result.text,
-            "",
-        )
-        self.assertEqual(
-            result.search_queries,
-            (
-                "\u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u043d\u0430 From (\u0441\u0435\u0440\u0438\u0430\u043b)",
-            ),
-        )
+        self.assertEqual(result.text, text)
+        self.assertEqual(result.actions, ())
+        self.assertEqual(result.removed_markers, ())
 
+    def test_bare_web_search_name_and_payload_stay_text(self):
 
-    def test_extracts_bare_call_style_web_search_marker_without_internal_prefix(self):
-
+        text = "call:WEB_SEARCH: blue tomato"
         result = extract_runtime_actions(
-            "call:WEB_SEARCH: blue tomato",
+            text,
             enabled_actions=[
                 "CAN_WEB_SEARCH",
             ],
         )
 
-        self.assertEqual(
-            result.text,
-            "",
-        )
-        self.assertEqual(
-            result.search_queries,
-            (
-                "blue tomato",
-            ),
-        )
-
+        self.assertEqual(result.text, text)
+        self.assertEqual(result.actions, ())
+        self.assertEqual(result.removed_markers, ())
 
     def test_does_not_extract_inline_bare_call_style_marker(self):
 
@@ -626,8 +609,8 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             (
                 (
                     "Before\n"
-                    "SAVE_ACTIVE_MEMORY: Remind to drink coffee\n"
-                    "SAVE_ACTIVE_MEMORY: Remind to drink coffee\n"
+                    "<SAVE_ACTIVE_MEMORY: Remind to drink coffee>\n"
+                    "<SAVE_ACTIVE_MEMORY: Remind to drink coffee>\n"
                     "After"
                 ),
                 [
@@ -644,8 +627,8 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             (
                 (
                     "Before\n"
-                    "SAVE_SESSION\n"
-                    "SAVE_SESSION\n"
+                    "<SAVE_SESSION>\n"
+                    "<SAVE_SESSION>\n"
                     "After"
                 ),
                 [
@@ -907,7 +890,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
 
-    def test_stream_filter_handles_split_bracketed_web_search_marker_terminated_by_newline(self):
+    def test_stream_filter_keeps_unclosed_angle_marker_as_text(self):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=[
@@ -922,31 +905,19 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             " drawing ideas\n\n🏠\n\nМаленький уютный домик"
         )
 
-        self.assertEqual(
-            first.text,
-            "",
-        )
-        self.assertEqual(
-            first.count("WEB_SEARCH"),
-            0,
-        )
+        self.assertEqual(first.text, "")
+        self.assertEqual(first.actions, ())
         self.assertEqual(
             second.text,
-            "🏠\n\nМаленький уютный домик",
-        )
-        self.assertEqual(
-            second.search_queries,
             (
-                "house drawing ideas",
+                "<WEB_SEARCH: house drawing ideas\n\n"
+                "🏠\n\nМаленький уютный домик"
             ),
         )
-        self.assertEqual(
-            stream_filter.flush(),
-            "",
-        )
+        self.assertEqual(second.actions, ())
+        self.assertEqual(stream_filter.flush(), "")
 
-
-    def test_stream_filter_handles_split_tool_call_style_web_search_marker(self):
+    def test_stream_filter_keeps_split_tool_call_wrapper_as_text(self):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=[
@@ -954,49 +925,20 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             ],
         )
 
-        first = stream_filter.filter(
-            "<|tool"
-        )
-        second = stream_filter.filter(
-            "_call>call:WEB_SEARCH: blue"
-        )
-        final = stream_filter.filter(
-            " tomato>"
+        results = (
+            stream_filter.filter("<|tool"),
+            stream_filter.filter("_call>call:WEB_SEARCH: blue"),
+            stream_filter.filter(" tomato>"),
         )
 
         self.assertEqual(
-            first.text,
-            "",
+            "".join(result.text for result in results),
+            "<|tool_call>call:WEB_SEARCH: blue tomato>",
         )
-        self.assertEqual(
-            first.count("WEB_SEARCH"),
-            0,
-        )
-        self.assertEqual(
-            second.text,
-            "",
-        )
-        self.assertEqual(
-            second.count("WEB_SEARCH"),
-            0,
-        )
-        self.assertEqual(
-            final.text,
-            "",
-        )
-        self.assertEqual(
-            final.search_queries,
-            (
-                "blue tomato",
-            ),
-        )
-        self.assertEqual(
-            stream_filter.flush(),
-            "",
-        )
+        self.assertTrue(all(not result.actions for result in results))
+        self.assertEqual(stream_filter.flush(), "")
 
-
-    def test_stream_filter_handles_split_tool_call_style_web_search_without_internal_prefix(self):
+    def test_stream_filter_keeps_split_tool_call_prefix_as_text(self):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=[
@@ -1004,81 +946,35 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             ],
         )
 
-        first = stream_filter.filter(
-            "<tool"
-        )
-        second = stream_filter.filter(
-            "_call>call:WEB_SEARCH: blue"
-        )
-        final = stream_filter.filter(
-            " tomato>"
+        results = (
+            stream_filter.filter("<tool"),
+            stream_filter.filter("_call>call:WEB_SEARCH: blue"),
+            stream_filter.filter(" tomato>"),
         )
 
         self.assertEqual(
-            first.text,
-            "",
+            "".join(result.text for result in results),
+            "<tool_call>call:WEB_SEARCH: blue tomato>",
         )
-        self.assertEqual(
-            first.count("WEB_SEARCH"),
-            0,
-        )
-        self.assertEqual(
-            second.text,
-            "",
-        )
-        self.assertEqual(
-            second.count("WEB_SEARCH"),
-            0,
-        )
-        self.assertEqual(
-            final.text,
-            "",
-        )
-        self.assertEqual(
-            final.search_queries,
-            (
-                "blue tomato",
-            ),
-        )
-        self.assertEqual(
-            stream_filter.flush(),
-            "",
-        )
+        self.assertTrue(all(not result.actions for result in results))
+        self.assertEqual(stream_filter.flush(), "")
 
-
-    def test_stream_filter_flush_extracts_unclosed_tool_call_style_web_search_without_internal_prefix(self):
+    def test_stream_filter_flush_keeps_unclosed_tool_call_prefix_as_text(self):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=[
                 "CAN_WEB_SEARCH",
             ],
         )
+        text = "<tool_call>call:WEB_SEARCH: blue tomato"
 
-        result = stream_filter.filter(
-            "<tool_call>call:WEB_SEARCH: blue tomato"
-        )
+        result = stream_filter.filter(text)
         flushed = stream_filter.flush_result()
 
-        self.assertEqual(
-            result.text,
-            "",
-        )
-        self.assertEqual(
-            result.count("WEB_SEARCH"),
-            0,
-        )
-        self.assertEqual(
-            flushed.text,
-            "",
-        )
-        self.assertEqual(
-            flushed.search_queries,
-            (
-                "blue tomato",
-            ),
-        )
-
-
+        self.assertEqual(result.text, text)
+        self.assertEqual(result.actions, ())
+        self.assertEqual(flushed.text, "")
+        self.assertEqual(flushed.actions, ())
 
     def test_stream_filter_keeps_bare_block_action_name_as_text(self):
 
@@ -1110,7 +1006,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
 
-    def test_stream_filter_handles_split_bare_call_style_web_search_marker(self):
+    def test_stream_filter_keeps_split_bare_call_style_as_text(self):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=[
@@ -1118,36 +1014,17 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             ],
         )
 
-        first = stream_filter.filter(
-            "call:"
-        )
-        second = stream_filter.filter(
-            "WEB_SEARCH: blue tomato\n"
-        )
+        first = stream_filter.filter("call:")
+        second = stream_filter.filter("WEB_SEARCH: blue tomato\n")
+
+        flushed = stream_filter.flush()
 
         self.assertEqual(
-            first.text,
-            "",
+            first.text + second.text + flushed,
+            "call:WEB_SEARCH: blue tomato\n",
         )
-        self.assertEqual(
-            first.count("WEB_SEARCH"),
-            0,
-        )
-        self.assertEqual(
-            second.text,
-            "",
-        )
-        self.assertEqual(
-            second.search_queries,
-            (
-                "blue tomato",
-            ),
-        )
-        self.assertEqual(
-            stream_filter.flush(),
-            "",
-        )
-
+        self.assertEqual(first.actions, ())
+        self.assertEqual(second.actions, ())
 
     def test_stream_filter_preserves_thinking_marker_text_when_requested(self):
 

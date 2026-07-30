@@ -890,7 +890,14 @@ class BrainRuntimeActionTests(unittest.TestCase):
         finally:
             config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
 
-        self.assertEqual(chunks, [])
+        self.assertEqual(
+            [
+                chunk
+                for chunk in chunks
+                if chunk.get("type") == "content"
+            ],
+            [],
+        )
         self.assertEqual(
             [
                 event["name"]
@@ -942,6 +949,91 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 {
                     "text": "LIST_SKILLS",
                 },
+            ],
+        )
+
+    def test_stream_drains_full_hidden_response_after_runtime_boundary(self):
+
+        class FakeBrainClient:
+            def __init__(self):
+                self.completed = False
+
+            async def stream(self, **_kwargs):
+                for content in (
+                    "<WEB_SEARCH: runtime boundary regression>",
+                    "\n",
+                    "Про",
+                    "должаю скрытый текст.\n",
+                    "<JIN_COLOR: #ff00ff>",
+                    "\nФинал генерации.",
+                ):
+                    yield {
+                        "type": "content",
+                        "content": content,
+                    }
+
+                self.completed = True
+
+        class Context:
+            pass
+
+        async def collect(client, context):
+            return [
+                chunk
+                async for chunk in ask_brain_stream(
+                    client=client,
+                    text="run boundary actions",
+                    context=context,
+                    system_prompt="system prompt",
+                    brain_payload="brain payload",
+                    runtime_actions={
+                        "CAN_WEB_SEARCH": True,
+                        "CAN_JIN_COLOR": True,
+                    },
+                )
+            ]
+
+        context = Context()
+        client = FakeBrainClient()
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            chunks = asyncio.run(
+                collect(client, context)
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        visible_text = "".join(
+            chunk.get("content", "")
+            for chunk in chunks
+            if chunk.get("type") == "content"
+        )
+        raw_model_output = next(
+            chunk.get("content", "")
+            for chunk in chunks
+            if chunk.get("type") == "raw_model_output"
+        )
+
+        self.assertTrue(client.completed)
+        self.assertEqual(visible_text, "")
+        self.assertIn(
+            "Продолжаю скрытый текст.",
+            raw_model_output,
+        )
+        self.assertIn(
+            "Финал генерации.",
+            raw_model_output,
+        )
+        self.assertEqual(
+            [
+                event["name"]
+                for event in context.runtime_action_events
+            ],
+            [
+                "web_search",
+                "jin_color",
             ],
         )
 
@@ -2191,6 +2283,100 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     )
         finally:
             config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+
+    def test_unclosed_asset_action_after_other_marker_stays_text_without_bubble(self):
+
+        class FakeBrainClient:
+
+            async def stream(self, **_kwargs):
+                yield {
+                    "type": "content",
+                    "content": "<CLEAN_TOOL_RESULTS>\n",
+                }
+                yield {
+                    "type": "content",
+                    "content": "<ASSET_ACTION>\n",
+                }
+                yield {
+                    "type": "content",
+                    "content": (
+                        "Продолжаем тест. Следующий маркер – "
+                        "ASSET_ACTION."
+                    ),
+                }
+
+        class TrackingEmitter:
+
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        async def collect(context):
+            return [
+                chunk
+                async for chunk in ask_brain_stream(
+                    client=FakeBrainClient(),
+                    text="test marker sequence",
+                    context=context,
+                    system_prompt="system prompt",
+                    brain_payload="brain payload",
+                    runtime_actions={
+                        "CAN_CLEAN_TOOL_RESULTS": True,
+                        "CAN_USE_ASSETS": True,
+                    },
+                )
+            ]
+
+        context = Context()
+        context.emitter = TrackingEmitter()
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            chunks = asyncio.run(
+                collect(context)
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        visible_text = "".join(
+            chunk.get("content", "")
+            for chunk in chunks
+            if chunk.get("type") == "content"
+        )
+        asset_events = [
+            event
+            for event in context.emitter.events
+            if event.get("action") == "asset_action"
+        ]
+
+        self.assertEqual(
+            asset_events,
+            [],
+        )
+        self.assertIn(
+            "<ASSET_ACTION>",
+            visible_text,
+        )
+        self.assertIn(
+            "Продолжаем тест.",
+            visible_text,
+        )
+        self.assertEqual(
+            [
+                event.get("name")
+                for event in context.runtime_action_events
+            ],
+            [
+                "clean_tool_results",
+            ],
+        )
 
 
     def test_stream_asset_action_is_runtime_boundary(self):

@@ -250,6 +250,50 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 )
 
 
+    def test_stream_filter_does_not_start_asset_action_from_prose_after_open_tag(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_CLEAN_TOOL_RESULTS",
+                "CAN_USE_ASSETS",
+            ],
+        )
+        result = stream_filter.filter(
+            (
+                "<CLEAN_TOOL_RESULTS>\n"
+                "<ASSET_ACTION>\n"
+                "Продолжаем тест. Следующий маркер – ASSET_ACTION."
+            )
+        )
+        tail = stream_filter.flush_result()
+
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name="CLEAN_TOOL_RESULTS",
+                    payload="",
+                ),
+            ),
+        )
+        self.assertEqual(
+            result.started_actions,
+            (),
+        )
+        self.assertEqual(
+            tail.actions,
+            (),
+        )
+        self.assertIn(
+            "<ASSET_ACTION>",
+            tail.text,
+        )
+        self.assertIn(
+            "Продолжаем тест.",
+            tail.text,
+        )
+
+
     def test_stream_filter_strips_asset_action_block(self):
 
         stream_filter = RuntimeActionStreamFilter(

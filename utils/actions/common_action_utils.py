@@ -1041,7 +1041,6 @@ def _enabled_action_start_markers(
 
 
 _MARKER_PREFIX_ANGLE = 1
-_MARKER_PREFIX_BARE = 2
 
 
 @lru_cache(maxsize=None)
@@ -1057,11 +1056,9 @@ def _enabled_action_marker_prefix_index(
         enabled_action_names
     ):
         upper_marker = marker.upper()
-        marker_flag = (
-            _MARKER_PREFIX_ANGLE
-            if marker.startswith("<")
-            else _MARKER_PREFIX_BARE
-        )
+        # ``get_runtime_action_start_markers`` exposes only canonical
+        # angle-bracket action tags.
+        marker_flag = _MARKER_PREFIX_ANGLE
         max_length = max(
             max_length,
             len(upper_marker),
@@ -1135,18 +1132,7 @@ def _trailing_marker_prefix_length(
         if not marker_flags:
             continue
 
-        # Angle markers can begin anywhere in a chunk. Bare legacy forms are
-        # accepted only at the start of a line, matching the old behavior.
         if marker_flags & _MARKER_PREFIX_ANGLE:
-            return length
-
-        marker_start = len(text) - length
-        line_start = max(
-            text.rfind("\n", 0, marker_start),
-            text.rfind("\r", 0, marker_start),
-        ) + 1
-
-        if not text[line_start:marker_start].strip():
             return length
 
     return 0
@@ -1155,12 +1141,11 @@ def _trailing_marker_prefix_length(
 @lru_cache(maxsize=None)
 def _enabled_action_stream_candidates(
     enabled_action_names: tuple[str, ...],
-) -> tuple[tuple[str, ...], tuple[str, ...]]:
+) -> tuple[str, ...]:
     signal_names = []
-    bare_markers = []
 
     for action_name in enabled_action_names:
-        private_marker, close_tag = _runtime_action_marker_config(
+        private_marker, _ = _runtime_action_marker_config(
             action_name
         )
         marker_name, _ = extract_private_marker_parts(
@@ -1181,28 +1166,7 @@ def _enabled_action_stream_candidates(
                     normalized_signal
                 )
 
-        for marker in get_runtime_action_start_markers(
-            private_marker,
-            action_name,
-            close_tag,
-        ):
-            upper_marker = marker.upper()
-
-            if (
-                upper_marker.startswith("<")
-                or upper_marker.startswith("CALL:")
-            ):
-                continue
-
-            if upper_marker not in bare_markers:
-                bare_markers.append(
-                    upper_marker
-                )
-
-    return (
-        tuple(signal_names),
-        tuple(bare_markers),
-    )
+    return tuple(signal_names)
 
 
 def _action_text_may_contain_marker(
@@ -1217,39 +1181,20 @@ def _action_text_may_contain_marker(
     enabled_action_names = normalize_runtime_action_names(
         enabled_actions
     )
-    signal_names, bare_markers = (
-        _enabled_action_stream_candidates(
-            enabled_action_names
-        )
+    signal_names = _enabled_action_stream_candidates(
+        enabled_action_names
     )
 
-    # Expensive generic regexps are useful only after a real marker envelope.
-    # Mentioning INTERNAL_ACTION_* in prose must not stall every stream chunk.
-    if (
-        "<" in upper_text
-        or "CALL:" in upper_text
-    ):
-        if any(
-            signal_name in upper_text
-            for signal_name in signal_names
-        ):
-            return True
+    # No opening angle bracket means no runtime action. Names such as
+    # ``LIST_SKILLS`` or ``SAVE_SESSION`` in prose, Markdown/code spans, or
+    # standalone lines must pass through unchanged.
+    if "<" not in upper_text:
+        return False
 
-    if bare_markers:
-        normalized_lines = upper_text.replace(
-            "\r",
-            "\n",
-        ).split(
-            "\n"
-        )
-
-        for line in normalized_lines:
-            if line.lstrip().startswith(
-                bare_markers
-            ):
-                return True
-
-    return False
+    return any(
+        signal_name in upper_text
+        for signal_name in signal_names
+    )
 
 
 def _extract_runtime_actions_if_needed(
@@ -1318,6 +1263,24 @@ def _unclosed_internal_action_request_start(
     )
 
 
+def _asset_action_stream_payload_has_action(
+    candidate: str,
+) -> bool:
+
+    value = str(candidate or "").lstrip()
+
+    if not value.startswith("{"):
+        return False
+
+    return bool(
+        re.search(
+            r'"action"\s*:\s*"[^"\r\n]+"',
+            value,
+            re.IGNORECASE,
+        )
+    )
+
+
 def _asset_action_block_has_payload(
     text: str,
     opening_match,
@@ -1344,59 +1307,32 @@ def _asset_action_block_has_payload(
     if not candidate:
         return False
 
-    # During streaming the closing tag can arrive in several chunks. A tail
-    # such as ``</ASSET`` is not payload; it is only an incomplete delimiter.
-    # Do not emit the started action bubble until actual payload text appears.
-    if candidate.startswith("<"):
-        compact_candidate = re.sub(
-            r"\s+",
-            "",
-            candidate,
-        ).upper()
-        empty_tag_variants = (
-            "<ASSET_ACTION>",
-            "<ASSET_ACTION/>",
-            "</ASSET_ACTION>",
-        )
-
-        if any(
-            variant.startswith(
-                compact_candidate
-            )
-            for variant in empty_tag_variants
-        ):
-            return False
-
-    return bool(
+    # An unclosed ASSET_ACTION is not valid yet. While its JSON body is being
+    # streamed, start the pending bubble only after a real action field appears.
+    # Ordinary prose after a stray opening tag must not be mistaken for payload.
+    return _asset_action_stream_payload_has_action(
         candidate
     )
 
 
-def _is_empty_unclosed_asset_action(
+def _unclosed_asset_action_start(
     text: str,
-) -> bool:
+) -> int | None:
 
     value = str(text or "")
 
     if not value:
-        return False
+        return None
 
-    private_marker, _ = _runtime_action_marker_config(
+    private_marker, close_tag = _runtime_action_marker_config(
         RUNTIME_ACTION_ASSET_ACTION
     )
-    opening_match = compile_runtime_action_start_regexp(
+
+    return find_unclosed_runtime_action_start(
+        value,
         private_marker,
         RUNTIME_ACTION_ASSET_ACTION,
-    ).search(
-        value
-    )
-
-    if opening_match is None:
-        return False
-
-    return (
-        not value[:opening_match.start()].strip()
-        and not value[opening_match.end():].strip()
+        close_tag,
     )
 
 
@@ -1783,11 +1719,19 @@ class RuntimeActionStreamFilter:
                 text=pending,
             )
 
-        if _is_empty_unclosed_asset_action(
+        if _unclosed_asset_action_start(
             pending
-        ):
-            return RuntimeActionResult(
-                text=pending,
+        ) is not None:
+            # ASSET_ACTION is a strict block action. Without a closing tag it
+            # stays ordinary text, even when another valid marker appeared
+            # earlier in the same model response. Parse any complete markers
+            # around it, but never turn the unfinished block into an action.
+            return extract_runtime_actions(
+                pending,
+                enabled_actions=self.enabled_actions,
+                preserve_action_text=False,
+                preserve_action_marker=self.preserve_action_marker,
+                repetition_guard=self.repetition_guard,
             )
 
         delayed_memory_marker, _ = _runtime_action_marker_config(

@@ -11,6 +11,8 @@ from agent.nodes import (
     PlannerNode,
 )
 from agent.nodes.brain import (
+    BrainNode,
+    FOLLOWUP_SYSTEM_MESSAGE,
     complete_save_session_memory_before_follow_up,
 )
 from utils.context.context_exports import (
@@ -99,6 +101,96 @@ class AgentRoutingTests(
         self.assertIn(
             "decision: keep the full session snapshot",
             tool_results_context,
+        )
+
+    async def test_followup_stream_completes_save_session_before_return(self):
+
+        context = SimpleNamespace(
+            logger=SimpleNamespace(
+                log_brain=None,
+                log_brain_output=None,
+            ),
+            runtime_followup_tick_active=False,
+            runtime_turn_reasoning_content="",
+            runtime_save_session_requested=False,
+        )
+        state = SimpleNamespace(
+            translated_input="",
+            visible_response_context=None,
+        )
+        saved_snapshot = (
+            "session_saved_at: 2026-07-30 16:15, Thursday\n"
+            "decision: follow-up save completed before next tick"
+        )
+
+        class FakeRuntimeStream:
+
+            def __init__(self, **kwargs):
+                self.stream = SimpleNamespace(
+                    reasoning="",
+                )
+
+            async def run(self, generator):
+                context.runtime_save_session_requested = True
+                return "<SAVE_SESSION>"
+
+        async def save_existing_snapshots(*, context):
+            context.runtime_save_session_result = {
+                "action": "save_session",
+                "ok": True,
+                "status": "saved",
+                "message": "Session snapshot saved successfully.",
+                "destination": "L3 session memory",
+                "session_snapshot": saved_snapshot,
+            }
+            context.runtime_save_session_requested = False
+
+        with patch(
+                "agent.nodes.brain.RuntimeStream",
+                FakeRuntimeStream,
+        ), patch(
+                "agent.nodes.brain.ask_brain_stream",
+                return_value=object(),
+        ), patch(
+                "agent.nodes.brain.build_brain_context_snapshot",
+                return_value={},
+        ), patch(
+                "agent.nodes.brain.restore_sequence_attachments_for_followup",
+        ), patch(
+                "agent.nodes.brain.build_followup_attachment_payload",
+                return_value="",
+        ), patch(
+                "agent.nodes.brain.maybe_summarize_runtime_session_memory",
+                side_effect=save_existing_snapshots,
+        ) as save_l3:
+            text, reasoning = await BrainNode.run_brain_stream(
+                state=state,
+                context=context,
+                brain_runtime={
+                    "runtime_id": "brain",
+                    "label": "brain",
+                    "context_window": 4096,
+                    "log_method": "log_brain",
+                    "model_output_log_method": "log_brain_output",
+                },
+                brain_client=object(),
+                system_prompt=FOLLOWUP_SYSTEM_MESSAGE,
+                brain_payload="",
+                runtime_actions={},
+            )
+
+        self.assertEqual(text, "<SAVE_SESSION>")
+        self.assertEqual(reasoning, "")
+        self.assertFalse(context.runtime_save_session_requested)
+        save_l3.assert_awaited_once_with(
+            context=context,
+        )
+        self.assertEqual(
+            context.runtime_tool_results[-1],
+            {
+                "kind": TOOL_RESULT_KIND_SESSION,
+                "result": context.runtime_save_session_result,
+            },
         )
 
     async def test_save_session_follow_up_records_missing_l3_result(self):

@@ -300,13 +300,13 @@ def build_context_limit_recovery_context(
 
 
 FOLLOWUP_SYSTEM_MESSAGE = (
-    "This is runtime system follow-up tick message!\n"
-    "Multi-step task in progress!\n"
-    "DO NOT START a new sequence!\n"
-    "YOU MUST continue unfinished steps for the task derived from CURRENT_SEQUENCE block!\n"
+    "MANDATORY: YOU MUST USE CURRENT_SEQUENCE BLOCK AS THE SOLE SOURCE OF TRUTH FOR THE ACTION ORDER AND EXECUTION STATUS!\n"
+    "MANDATORY: THIS IS NOT START OF A SEQUENCE!\n"
+    "MANDATORY: YOU ARE IN THE MIDDLE OF RUNNING SEQUENCE!\n"
+    "MANDATORY: YOU MUST FINISH CURRENT SEQUENCE AND DO NOT START NEW SEQUENCE!\n"
+    "MANDATORY: YOU MUST DERIVE REMAINING STEPS FROM <INITIAL_SEQUENCE_USER_MESSAGE> AND CONTINUE FROM CURRENT_SEQUENCE!\n"
     "\n"
-    "You must use CURRENT_SEQUENCE and tool_results as the sole source of truth for the goal, action order, and execution status.\n"
-    "You need to make all required actions and complete remaining steps!\n"
+    "\n"
     "If the original user request is satisfied - stop execute and notify user!\n"
     "If conditions are not met - continue without confirmation!\n"
     "\n"
@@ -1280,6 +1280,23 @@ class BrainNode(BaseNode):
                 if str(part or "").strip()
             )
 
+        # A SAVE_SESSION marker can be emitted on the initial brain response
+        # or on any internal follow-up tick. Complete L3 here, at the shared
+        # stream boundary, so the next tick cannot start before the save
+        # result exists and has been added to TOOL_RESULTS. This deliberately
+        # bypasses the ordinary post-turn L1 update. Preserve the old abort
+        # behavior: a stopped turn must not start a new L3 request.
+        if not getattr(
+            context,
+            "runtime_turn_abort_requested",
+            False,
+        ):
+            await complete_save_session_memory_before_follow_up(
+                context=context,
+                state=state,
+                response_text=text or "",
+            )
+
         return (
             text or "",
             runtime.stream.reasoning,
@@ -1444,15 +1461,6 @@ class BrainNode(BaseNode):
         ):
             state.brain_response = text or ""
             return
-
-        # SAVE_SESSION resolves against the snapshots that already exist, then
-        # immediately enters the normal follow-up loop. The current request and
-        # final confirmation reach L1/L2 only after the complete JIN response.
-        await complete_save_session_memory_before_follow_up(
-            context=context,
-            state=state,
-            response_text=text,
-        )
 
         asset_result_offset = 0
         delayed_memory_result_offset = 0

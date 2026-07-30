@@ -340,19 +340,11 @@ def find_runtime_action_matches(
         *match_regexp(text, concrete_regexp),
     ]
 
-    # Block actions are intentionally strict: prose containing a bare action
-    # name must never become a control event. Their only accepted envelope is
-    # the canonical <ACTION>...</ACTION> block handled above.
-    if not close_tag:
-        matches.extend(
-            match_regexp_templates(
-                text,
-                private_marker,
-                runtime_action,
-                regexp_templates,
-            )
-        )
-
+    # All runtime actions are strict. Only the canonical action tag compiled
+    # above is accepted. Bare action names and legacy call/tool-call wrappers
+    # are ordinary model text and must never become control events. Custom
+    # callers may still pass explicit templates to ``match_regexp_templates``
+    # directly, but the runtime parser does not use them.
     return select_non_overlapping_regexp_matches(matches)
 
 
@@ -377,22 +369,10 @@ def get_runtime_action_start_markers(
             angle_marker,
         ]
 
-        # Legacy bare/tool-call envelopes are retained for one-line actions.
-        # Block actions must begin with their explicit angle-bracket tag so a
-        # normal sentence or inline-code token such as `ASSET_ACTION` cannot
-        # stall the stream or be interpreted as a validator payload.
-        if not close_tag:
-            candidates.extend((
-                f"<|tool_call>call:{name}{payload_suffix}",
-                f"<tool_call>call:{name}{payload_suffix}",
-                f"call:{name}{payload_suffix}",
-                f"{name}{payload_suffix}",
-            ))
-
-            if placeholder_payload:
-                candidates.append(
-                    f"<{name} name="
-                )
+        # The action's own opening ``<...>`` tag is mandatory for every
+        # runtime action. Do not advertise bare or tool-call prefixes to the
+        # streaming detector, otherwise ordinary prose can be buffered and
+        # later misclassified as a control event.
 
         for marker in candidates:
             if marker not in markers:
