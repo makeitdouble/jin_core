@@ -59,6 +59,7 @@ from utils.session_actions_history import (
     build_reasoning_loop_history_text,
     compact_session_action_history_since,
     emit_session_actions_update,
+    extract_asset_action_marker_name,
     replace_session_action_history_since,
     record_session_action_history,
     upsert_session_action_marker_history_since,
@@ -2006,9 +2007,26 @@ class RuntimeStream:
                 "name",
                 "unknown",
             )
+            action_label = str(
+                name
+                or "unknown"
+            ).strip()
+
+            if action_label.casefold() == "asset_action":
+                action_label = "ASSET_ACTION"
+                asset_action_name = extract_asset_action_marker_name(
+                    event.get("payload")
+                    or event.get("asset_result")
+                    or event.get("detail")
+                    or ""
+                )
+                if asset_action_name:
+                    action_label = (
+                        f"{action_label}: {asset_action_name}"
+                    )
 
             lines.append(
-                f"action: {name}"
+                f"action: {action_label}"
             )
 
             action_id = event.get(

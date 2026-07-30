@@ -355,18 +355,47 @@ def format_followup_action_from_event(
     ):
         return ""
 
-    runtime_action = event.get(
-        "name",
-        "",
-    )
+    runtime_action = str(
+        event.get(
+            "name",
+            "",
+        )
+        or ""
+    ).strip()
+    normalized_runtime_action = runtime_action.upper()
     contract_name = get_action_contract_name_for_runtime_action(
         runtime_action
+    ) or get_action_contract_name_for_runtime_action(
+        normalized_runtime_action
     )
-
-    return _compact_followup_value(
+    display_name = get_runtime_action_display_name(
         contract_name
+        or normalized_runtime_action
         or runtime_action
     )
+    action_name = _compact_followup_value(
+        normalized_runtime_action
+        or contract_name
+        or display_name
+        or runtime_action
+    )
+
+    if action_name.upper() == "ASSET_ACTION":
+        from utils.session_actions_history import (
+            extract_asset_action_marker_name,
+        )
+
+        asset_action_name = extract_asset_action_marker_name(
+            event.get("payload")
+            or event.get("asset_result")
+            or event.get("detail")
+            or ""
+        )
+
+        if asset_action_name:
+            return f"{action_name}: {asset_action_name}"
+
+    return action_name
 
 
 def format_followup_action_from_asset_result(

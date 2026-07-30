@@ -380,6 +380,117 @@ def build_asset_action_history_text(
     return text
 
 
+def _find_asset_action_marker_name(
+    value,
+    *,
+    depth: int = 0,
+) -> str:
+
+    if depth > 3:
+        return ""
+
+    if not isinstance(
+        value,
+        dict,
+    ):
+        return ""
+
+    action = " ".join(
+        str(
+            value.get(
+                "action",
+                "",
+            )
+            or ""
+        ).split()
+    ).strip()
+
+    if (
+        action
+        and action.casefold() != "asset_action"
+    ):
+        return action
+
+    for key in (
+        "args",
+        "payload",
+        "asset_action",
+        "asset",
+        "request",
+    ):
+        nested_action = _find_asset_action_marker_name(
+            value.get(
+                key
+            ),
+            depth=depth + 1,
+        )
+        if nested_action:
+            return nested_action
+
+    for nested_value in value.values():
+        nested_action = _find_asset_action_marker_name(
+            nested_value,
+            depth=depth + 1,
+        )
+        if nested_action:
+            return nested_action
+
+    return ""
+
+
+def extract_asset_action_marker_name(
+    action_payload,
+) -> str:
+
+    if isinstance(
+        action_payload,
+        dict,
+    ):
+        return _find_asset_action_marker_name(
+            action_payload
+        )
+
+    normalized_payload = str(
+        action_payload
+        or ""
+    ).strip()
+
+    if not normalized_payload:
+        return ""
+
+    try:
+        parsed_payload = json.loads(
+            normalized_payload
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        parsed_payload = {}
+
+    action = _find_asset_action_marker_name(
+        parsed_payload
+    )
+
+    if action:
+        return action
+
+    match = re.search(
+        r"""["']?action["']?\s*[:=]\s*["'](?P<action>[^"']+)["']""",
+        normalized_payload,
+        re.IGNORECASE,
+    )
+
+    if match is None:
+        return ""
+
+    return " ".join(
+        match.group(
+            "action"
+        ).split()
+    ).strip()
+
+
 def build_asset_action_marker_text(
     result: dict,
 ) -> str:
@@ -1333,7 +1444,22 @@ def _build_formatted_session_action_marker_parts(
         if colors:
             part["colors"] = colors
         else:
-            if details:
+            if (
+                action_name == "ASSET_ACTION"
+                and payloads
+            ):
+                asset_action_names = _unique_session_action_values(
+                    extract_asset_action_marker_name(
+                        payload
+                    )
+                    for payload in payloads
+                )
+                if asset_action_names:
+                    part["text"] = (
+                        f"{action_name}: "
+                        f"{', '.join(asset_action_names)}"
+                    )
+            elif details:
                 part["detail"] = ", ".join(
                     details
                 )

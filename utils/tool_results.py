@@ -8,6 +8,13 @@ TOOL_RESULT_KIND_ACTIVE_MEMORY = "active_memory"
 TOOL_RESULT_KIND_DELAYED_MEMORY = "delayed_memory"
 TOOL_RESULT_KIND_SESSION = "session"
 
+RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES = (
+    "runtime_asset_results",
+    "runtime_asset_retry_results",
+    "runtime_asset_retry_context",
+    "runtime_delayed_memory_results",
+)
+
 
 def _failed_tool_result_dedupe_key(
     entry: dict,
@@ -166,6 +173,203 @@ def remove_runtime_tool_results(
     ]
 
 
+def _runtime_result_list_count(
+    context,
+    attribute_name: str,
+) -> int:
+
+    results = getattr(
+        context,
+        attribute_name,
+        None,
+    )
+
+    if not isinstance(
+        results,
+        list,
+    ):
+        return 0
+
+    return len(
+        results
+    )
+
+
+def snapshot_runtime_tool_results_state(
+    context,
+) -> dict:
+
+    return {
+        "tool_result_count": len(
+            get_runtime_tool_results(
+                context
+            )
+        ),
+        "runtime_search_result": getattr(
+            context,
+            "runtime_search_result",
+            "",
+        ),
+        "runtime_search_result_id": getattr(
+            context,
+            "runtime_search_result_id",
+            "",
+        ),
+        "list_counts": {
+            attribute_name: _runtime_result_list_count(
+                context,
+                attribute_name,
+            )
+            for attribute_name in RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES
+        },
+    }
+
+
+def _trim_runtime_result_list_prefix(
+    context,
+    attribute_name: str,
+    count: int,
+) -> None:
+
+    results = getattr(
+        context,
+        attribute_name,
+        None,
+    )
+
+    if not isinstance(
+        results,
+        list,
+    ):
+        setattr(
+            context,
+            attribute_name,
+            [],
+        )
+        return
+
+    if count <= 0:
+        return
+
+    del results[
+        :min(
+            count,
+            len(results),
+        )
+    ]
+
+
+def clear_runtime_tool_results_before_state(
+    context,
+    state: dict,
+) -> None:
+
+    if not isinstance(
+        state,
+        dict,
+    ):
+        clear_runtime_tool_results(
+            context
+        )
+        return
+
+    tool_results = get_runtime_tool_results(
+        context
+    )
+    try:
+        tool_result_count = max(
+            0,
+            int(
+                state.get(
+                    "tool_result_count",
+                    0,
+                )
+                or 0
+            ),
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        tool_result_count = 0
+
+    if tool_result_count:
+        del tool_results[
+            :min(
+                tool_result_count,
+                len(tool_results),
+            )
+        ]
+
+    generation = int(
+        getattr(
+            context,
+            "runtime_tool_results_generation",
+            0,
+        )
+        or 0
+    )
+    setattr(
+        context,
+        "runtime_tool_results_generation",
+        generation + 1,
+    )
+    setattr(
+        context,
+        "runtime_tool_results_turn_count",
+        len(tool_results),
+    )
+
+    if (
+        state.get("runtime_search_result")
+        or state.get("runtime_search_result_id")
+    ):
+        setattr(
+            context,
+            "runtime_search_result",
+            "",
+        )
+        setattr(
+            context,
+            "runtime_search_result_id",
+            "",
+        )
+
+    list_counts = state.get(
+        "list_counts",
+        {},
+    )
+    if not isinstance(
+        list_counts,
+        dict,
+    ):
+        list_counts = {}
+
+    for attribute_name in RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES:
+        try:
+            list_count = max(
+                0,
+                int(
+                    list_counts.get(
+                        attribute_name,
+                        0,
+                    )
+                    or 0
+                ),
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            list_count = 0
+
+        _trim_runtime_result_list_prefix(
+            context,
+            attribute_name,
+            list_count,
+        )
+
+
 def clear_runtime_tool_results(
     context,
 ) -> None:
@@ -202,12 +406,7 @@ def clear_runtime_tool_results(
         "runtime_search_result_id",
         "",
     )
-    for attribute_name in (
-        "runtime_asset_results",
-        "runtime_asset_retry_results",
-        "runtime_asset_retry_context",
-        "runtime_delayed_memory_results",
-    ):
+    for attribute_name in RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES:
         results = getattr(
             context,
             attribute_name,

@@ -37,7 +37,8 @@ from utils.skills_asset_utils import (
     normalize_skill_name,
 )
 from utils.tool_results import (
-    clear_runtime_tool_results,
+    clear_runtime_tool_results_before_state,
+    snapshot_runtime_tool_results_state,
 )
 from utils.runtime_action_abort import (
     mark_runtime_action_started,
@@ -178,6 +179,9 @@ async def apply_runtime_action_calls(
         return enriched_payload
 
     ensure_assets_tree()
+    tool_results_clean_state = snapshot_runtime_tool_results_state(
+        context
+    )
 
     search_action_count = sum(
         1
@@ -223,6 +227,8 @@ async def apply_runtime_action_calls(
         RUNTIME_ACTION_LIST_SKILLS,
         RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
         RUNTIME_ACTION_IDLE,
+        RUNTIME_ACTION_WEB_SEARCH,
+        RUNTIME_ACTION_JIN_COLOR,
     }
     todo_action_names = {
         RUNTIME_ACTION_CREATE_TODO_LIST,
@@ -1395,8 +1401,9 @@ async def apply_runtime_action_calls(
                 "[RUNTIME ACTION] clean_tool_results requested"
             )
 
-        clear_runtime_tool_results(
-            context
+        clear_runtime_tool_results_before_state(
+            context,
+            tool_results_clean_state,
         )
 
         emitter = getattr(
