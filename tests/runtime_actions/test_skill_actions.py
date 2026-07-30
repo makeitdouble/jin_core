@@ -227,7 +227,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
         )
 
 
-    def test_extracts_append_skill_marker_with_name_attribute(self):
+    def test_append_skill_name_attribute_stays_visible_text(self):
 
         result = extract_runtime_actions(
             '<APPEND_SKILL name="file_manager" />',
@@ -238,20 +238,15 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
 
         self.assertEqual(
             result.text,
-            "",
+            '<APPEND_SKILL name="file_manager" />',
         )
         self.assertEqual(
             result.actions,
-            (
-                RuntimeActionCall(
-                    name="APPEND_SKILL",
-                    payload="file_manager",
-                ),
-            ),
+            (),
         )
 
 
-    def test_stream_filter_handles_split_append_skill_marker_with_name_attribute(self):
+    def test_stream_filter_keeps_split_append_skill_name_attribute_as_text(self):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=[
@@ -268,7 +263,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
 
         self.assertEqual(
             first.text,
-            "",
+            '<APPEND_SKILL name="file',
         )
         self.assertEqual(
             first.actions,
@@ -276,16 +271,11 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             second.text,
-            "",
+            '_manager" />',
         )
         self.assertEqual(
             second.actions,
-            (
-                RuntimeActionCall(
-                    name="APPEND_SKILL",
-                    payload="file_manager",
-                ),
-            ),
+            (),
         )
         self.assertEqual(
             stream_filter.flush(),

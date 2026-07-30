@@ -696,8 +696,8 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 context.runtime_action_events
             ),
             (
-                "save_active_memory, "
-                "save_delayed_memory"
+                "SAVE_ACTIVE_MEMORY, "
+                "SAVE_DELAYED_MEMORY_CONTENT"
             ),
         )
         self.assertFalse(

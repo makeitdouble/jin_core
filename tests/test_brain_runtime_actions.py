@@ -325,7 +325,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "RUNTIME ACTION MARKERS are internal mechanics.",
+            "RUNTIME ACTION MARKERS are internal mechanics only.",
         )
         assert_contains_text(
             self,
@@ -608,10 +608,17 @@ class BrainRuntimeActionTests(unittest.TestCase):
         finally:
             config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
 
+        self.assertIn(
+            {
+                "type": "content",
+                "content": "ok",
+            },
+            chunks,
+        )
         self.assertEqual(
             chunks[-1],
             {
-                "type": "content",
+                "type": "raw_model_output",
                 "content": "ok",
             },
         )
@@ -692,10 +699,17 @@ class BrainRuntimeActionTests(unittest.TestCase):
             client.user_prompt,
             "",
         )
+        self.assertIn(
+            {
+                "type": "content",
+                "content": "ok",
+            },
+            chunks,
+        )
         self.assertEqual(
             chunks[-1],
             {
-                "type": "content",
+                "type": "raw_model_output",
                 "content": "ok",
             },
         )
@@ -744,7 +758,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         self.assertEqual(
             chunks,
-            [],
+            [
+                {
+                    "type": "raw_model_output",
+                    "content": "<SAVE_SESSION>",
+                },
+            ],
         )
         self.assertTrue(
             context.runtime_save_session_requested,
@@ -1915,7 +1934,17 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         self.assertEqual(
             chunks,
-            [],
+            [
+                {
+                    "type": "raw_model_output",
+                    "content": (
+                        "<JIN_COLOR: #ff0000>"
+                        "<JIN_COLOR: #ff0000>"
+                        "<JIN_COLOR: #ff0000>"
+                        "<JIN_COLOR: #ff0000>"
+                    ),
+                },
+            ],
         )
         self.assertEqual(
             state["emitted_markers"],
@@ -2117,7 +2146,17 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         self.assertEqual(
             chunks,
-            [],
+            [
+                {
+                    "type": "raw_model_output",
+                    "content": (
+                        "<RESOLVE_ACTIVE_MEMORY: active_memory_id: 5fdg4g>"
+                        "<RESOLVE_ACTIVE_MEMORY: active_memory_id: 5fdg4g>"
+                        "<RESOLVE_ACTIVE_MEMORY: active_memory_id: 5fdg4g>"
+                        "<RESOLVE_ACTIVE_MEMORY: active_memory_id: 5fdg4g>"
+                    ),
+                },
+            ],
         )
         self.assertEqual(
             context.active_memory_records,
@@ -2704,7 +2743,22 @@ class BrainRuntimeActionTests(unittest.TestCase):
             if event.get("type") == "runtime_action"
         ]
 
-        self.assertEqual(chunks, [])
+        self.assertEqual(
+            chunks,
+            [
+                {
+                    "type": "raw_model_output",
+                    "content": (
+                        "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+                        "title: Test delayed memory report\n"
+                        "summary: Current runtime state.\n"
+                        "tags: runtime, test\n"
+                        "body: Complete report body.\n"
+                        "</SAVE_DELAYED_MEMORY_CONTENT>\n"
+                    ),
+                },
+            ],
+        )
         self.assertEqual(
             [
                 event.get("status")

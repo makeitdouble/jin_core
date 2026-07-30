@@ -526,7 +526,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 "id": "save-123",
                 "query": "ignored query",
             }),
-            "save_session",
+            "SAVE_SESSION",
         )
 
     async def test_followup_event_formatter_groups_duplicate_action_names(self):
@@ -547,7 +547,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     "payload": "ignored",
                 },
             ]),
-            "resolve_active_memory (count: 2), save_session",
+            "RESOLVE_ACTIVE_MEMORY (count: 2), SAVE_SESSION",
         )
 
     async def test_followup_renames_runtime_memory_block(self):
@@ -1790,7 +1790,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     self,
                     kwargs,
                     state.translated_input,
-                    'append_skill',
+                    'APPEND_SKILL',
                 )
                 return (
                     "Ready to use the wildcard skill.",
@@ -1866,7 +1866,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     self,
                     kwargs,
                     state.translated_input,
-                    'append_skill',
+                    'APPEND_SKILL',
                 )
                 return (
                     "Ready to test with the wildcards skill loaded.",
@@ -2114,7 +2114,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             3,
         )
         self.assertIn(
-            "list_skills",
+            "LIST_SKILLS",
             fake_client.system_prompts[1],
         )
         self.assertIn(
@@ -2122,7 +2122,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             fake_client.system_prompts[1],
         )
         self.assertIn(
-            "append_skill",
+            "APPEND_SKILL",
             fake_client.system_prompts[2],
         )
         self.assertIn(
@@ -3021,19 +3021,19 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             5,
         )
         self.assertIn(
-            'append_skill',
+            'APPEND_SKILL',
             calls[1]["system_prompt"],
         )
         self.assertIn(
-            'append_delayed_memory',
+            'APPEND_DELAYED_MEMORY',
             calls[2]["system_prompt"],
         )
         self.assertIn(
-            'list_skills',
+            'LIST_SKILLS',
             calls[3]["system_prompt"],
         )
         self.assertIn(
-            'check_todo',
+            'CHECK_TODO',
             calls[4]["system_prompt"],
         )
         for call in calls[1:]:
@@ -3073,11 +3073,11 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 return "", ""
 
             self.assertIn(
-                'append_skill',
+                'APPEND_SKILL',
                 kwargs["system_prompt"],
             )
             self.assertIn(
-                'resolve_active_memory',
+                'RESOLVE_ACTIVE_MEMORY',
                 kwargs["system_prompt"],
             )
             self.assertNotIn(
