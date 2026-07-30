@@ -9,6 +9,21 @@ from config_loader import (
 
 class ConfigLoaderTests(unittest.TestCase):
 
+    def test_uses_default_example_when_config_is_missing(self):
+
+        root = Path(__file__).resolve().parents[1]
+
+        config = load_config_module(
+            config_path=(
+                root / "missing.config.py"
+            ),
+        )
+
+        self.assertEqual(
+            config.BRAIN_MODEL_UID,
+            "brain-model",
+        )
+
     def test_falls_back_to_example_config(self):
 
         root = Path(__file__).resolve().parents[1]

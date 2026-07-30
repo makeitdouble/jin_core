@@ -140,6 +140,9 @@ def load_config_module(
     if config_path is None:
         config_path = ROOT / "config.py"
 
+    if example_path is None:
+        example_path = ROOT / "config.example.py"
+
     if config_path.exists():
         return apply_env_overrides(
             load_config_from_path(
@@ -147,21 +150,16 @@ def load_config_module(
             )
         )
 
-    if example_path is not None:
-        if example_path.exists():
-            return apply_env_overrides(
-                load_config_from_path(
-                    example_path
-                )
+    if example_path.exists():
+        return apply_env_overrides(
+            load_config_from_path(
+                example_path
             )
-
-        raise FileNotFoundError(
-            f"example config not found at {example_path}"
         )
 
     raise FileNotFoundError(
-        f"config.py is required at {config_path}. "
-        "config.example.py is a template only."
+        f"config not found at {config_path} "
+        f"or {example_path}"
     )
 
 
