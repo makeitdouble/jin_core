@@ -155,10 +155,14 @@
 
   function renderEmphasis(escapedText) {
 
-    return escapedText
+    return String(escapedText || "")
       .replace(
-        /(\*\*|__)([\s\S]+?)\1/g,
-        "<strong>$2</strong>"
+        /\*\*([^*\n]+?)\*\*/g,
+        "<strong>$1</strong>"
+      )
+      .replace(
+        /__([^_\n]+?)__/g,
+        "<strong>$1</strong>"
       )
       .replace(
         /(^|[^\*])\*([^*\n]+)\*/g,

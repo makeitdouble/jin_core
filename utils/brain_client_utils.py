@@ -22,6 +22,9 @@ def get_brain_runtime_config():
             "log_method": (
                 "log_service_as_brain"
             ),
+            "model_output_log_method": (
+                "log_service_as_brain_output"
+            ),
             "runtime_actions": (
                 SERVICE_AS_BRAIN_RUNTIME_ACTIONS
             ),
@@ -39,6 +42,9 @@ def get_brain_runtime_config():
         ),
         "log_method": (
             "log_brain"
+        ),
+        "model_output_log_method": (
+            "log_brain_output"
         ),
         "runtime_actions": (
             BRAIN_RUNTIME_ACTIONS

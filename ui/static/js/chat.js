@@ -1162,8 +1162,12 @@ function stripInternalActionMarkers(
       "$1"
     )
     .replace(
-      /(^|\n)[^\S\r\n]*<ASSET_ACTION>[\s\S]*?<\/ASSET_ACTION>[^\S\r\n]*(?=\n|$)/gi,
-      "$1"
+      /(^|\n)[^\S\r\n]*<ASSET_ACTION>([\s\S]*?)<\/ASSET_ACTION>[^\S\r\n]*(?=\n|$)/gi,
+      (fullMatch, lineStart, payload) => (
+        String(payload || "").trim()
+          ? lineStart
+          : fullMatch
+      )
     )
     .replace(
       /\n{3,}/g,

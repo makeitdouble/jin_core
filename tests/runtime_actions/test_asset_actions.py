@@ -174,6 +174,82 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
         )
 
 
+    def test_empty_asset_action_markers_remain_visible_text(self):
+
+        variants = (
+            "<ASSET_ACTION>",
+            "<ASSET_ACTION/>",
+            "<ASSET_ACTION></ASSET_ACTION>",
+            "</ASSET_ACTION>",
+            "<ASSET_ACTION>\n   \n</ASSET_ACTION>",
+        )
+
+        for marker in variants:
+            with self.subTest(marker=marker):
+                result = extract_runtime_actions(
+                    marker,
+                    enabled_actions=[
+                        "CAN_USE_ASSETS",
+                    ],
+                )
+
+                self.assertEqual(
+                    result.text,
+                    marker,
+                )
+                self.assertEqual(
+                    result.actions,
+                    (),
+                )
+                self.assertEqual(
+                    result.removed_markers,
+                    (),
+                )
+
+
+    def test_stream_filter_keeps_empty_asset_action_markers_as_text(self):
+
+        variants = (
+            ("<ASSET_ACTION>",),
+            ("<ASSET_ACTION/>",),
+            ("<ASSET_ACTION></ASSET_ACTION>",),
+            ("</ASSET_ACTION>",),
+            ("<ASSET_ACTION>", "</ASSET_ACTION>"),
+            ("<ASSET_ACTION>", "</ASSET", "_ACTION>"),
+            ("<ASSET_ACTION>", "< / ASSET", "_ACTION >"),
+            ("<ASSET_ACTION>\n", "   \n", "</ASSET_ACTION>"),
+        )
+
+        for chunks in variants:
+            with self.subTest(chunks=chunks):
+                stream_filter = RuntimeActionStreamFilter(
+                    enabled_actions=[
+                        "CAN_USE_ASSETS",
+                    ],
+                )
+                results = [
+                    stream_filter.filter(chunk)
+                    for chunk in chunks
+                ]
+                results.append(
+                    stream_filter.flush_result()
+                )
+
+                self.assertEqual(
+                    "".join(result.text for result in results),
+                    "".join(chunks),
+                )
+                self.assertTrue(
+                    all(not result.actions for result in results)
+                )
+                self.assertTrue(
+                    all(not result.started_actions for result in results)
+                )
+                self.assertTrue(
+                    all(not result.removed_markers for result in results)
+                )
+
+
     def test_stream_filter_strips_asset_action_block(self):
 
         stream_filter = RuntimeActionStreamFilter(

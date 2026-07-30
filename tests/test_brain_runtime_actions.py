@@ -2112,6 +2112,87 @@ class BrainRuntimeActionTests(unittest.TestCase):
             chunks,
         )
 
+    def test_empty_asset_action_markers_stay_visible_without_runtime_bubble(self):
+
+        class FakeBrainClient:
+
+            def __init__(self, content):
+                self.content = content
+
+            async def stream(self, **_kwargs):
+                yield {
+                    "type": "content",
+                    "content": self.content,
+                }
+
+        class TrackingEmitter:
+
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        async def collect(marker, context):
+            chunks = []
+
+            async for chunk in ask_brain_stream(
+                client=FakeBrainClient(marker),
+                text="test empty asset marker",
+                context=context,
+                system_prompt="system prompt",
+                brain_payload="brain payload",
+                runtime_actions={
+                    "CAN_USE_ASSETS": True,
+                },
+            ):
+                chunks.append(chunk)
+
+            return chunks
+
+        variants = (
+            "<ASSET_ACTION>",
+            "<ASSET_ACTION/>",
+            "<ASSET_ACTION></ASSET_ACTION>",
+            "</ASSET_ACTION>",
+        )
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            for marker in variants:
+                with self.subTest(marker=marker):
+                    context = Context()
+                    context.emitter = TrackingEmitter()
+                    chunks = asyncio.run(
+                        collect(marker, context)
+                    )
+                    visible_text = "".join(
+                        chunk.get("content", "")
+                        for chunk in chunks
+                        if chunk.get("type") == "content"
+                    )
+                    runtime_events = [
+                        event
+                        for event in context.emitter.events
+                        if event.get("type") == "runtime_action"
+                    ]
+
+                    self.assertEqual(
+                        visible_text,
+                        marker,
+                    )
+                    self.assertEqual(
+                        runtime_events,
+                        [],
+                    )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+
     def test_stream_asset_action_is_runtime_boundary(self):
 
         class FakeBrainClient:

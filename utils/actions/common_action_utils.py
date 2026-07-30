@@ -1,3 +1,5 @@
+import re
+
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -48,6 +50,7 @@ from .regexp_utils import (
     RuntimeActionRegexpMatch,
     compile_runtime_action_end_regexp,
     compile_runtime_action_start_regexp,
+    compile_runtime_action_tag_regexp,
     extract_private_marker_parts,
     find_runtime_action_matches,
     find_unclosed_runtime_action_start,
@@ -126,13 +129,22 @@ def _find_all_runtime_action_matches(
             action_name
         )
 
-        matches.extend(
-            find_runtime_action_matches(
-                text,
-                private_marker,
-                action_name,
-                close_tag,
+        action_matches = find_runtime_action_matches(
+            text,
+            private_marker,
+            action_name,
+            close_tag,
+        )
+
+        if action_name == RUNTIME_ACTION_ASSET_ACTION:
+            action_matches = tuple(
+                match
+                for match in action_matches
+                if match.payload.strip()
             )
+
+        matches.extend(
+            action_matches
         )
 
     return select_non_overlapping_regexp_matches(
@@ -1009,13 +1021,14 @@ def _enabled_action_start_markers(
     for action_name in normalize_runtime_action_names(
         enabled_actions
     ):
-        private_marker, _ = _runtime_action_marker_config(
+        private_marker, close_tag = _runtime_action_marker_config(
             action_name
         )
 
         for marker in get_runtime_action_start_markers(
             private_marker,
             action_name,
+            close_tag,
         ):
             if marker not in markers:
                 markers.append(
@@ -1147,7 +1160,7 @@ def _enabled_action_stream_candidates(
     bare_markers = []
 
     for action_name in enabled_action_names:
-        private_marker, _ = _runtime_action_marker_config(
+        private_marker, close_tag = _runtime_action_marker_config(
             action_name
         )
         marker_name, _ = extract_private_marker_parts(
@@ -1171,6 +1184,7 @@ def _enabled_action_stream_candidates(
         for marker in get_runtime_action_start_markers(
             private_marker,
             action_name,
+            close_tag,
         ):
             upper_marker = marker.upper()
 
@@ -1304,6 +1318,88 @@ def _unclosed_internal_action_request_start(
     )
 
 
+def _asset_action_block_has_payload(
+    text: str,
+    opening_match,
+    private_marker: str,
+) -> bool:
+
+    tail = text[
+        opening_match.end():
+    ]
+    next_tag = compile_runtime_action_tag_regexp(
+        private_marker,
+        RUNTIME_ACTION_ASSET_ACTION,
+    ).search(
+        tail,
+    )
+
+    if next_tag is not None:
+        return bool(
+            tail[:next_tag.start()].strip()
+        )
+
+    candidate = tail.strip()
+
+    if not candidate:
+        return False
+
+    # During streaming the closing tag can arrive in several chunks. A tail
+    # such as ``</ASSET`` is not payload; it is only an incomplete delimiter.
+    # Do not emit the started action bubble until actual payload text appears.
+    if candidate.startswith("<"):
+        compact_candidate = re.sub(
+            r"\s+",
+            "",
+            candidate,
+        ).upper()
+        empty_tag_variants = (
+            "<ASSET_ACTION>",
+            "<ASSET_ACTION/>",
+            "</ASSET_ACTION>",
+        )
+
+        if any(
+            variant.startswith(
+                compact_candidate
+            )
+            for variant in empty_tag_variants
+        ):
+            return False
+
+    return bool(
+        candidate
+    )
+
+
+def _is_empty_unclosed_asset_action(
+    text: str,
+) -> bool:
+
+    value = str(text or "")
+
+    if not value:
+        return False
+
+    private_marker, _ = _runtime_action_marker_config(
+        RUNTIME_ACTION_ASSET_ACTION
+    )
+    opening_match = compile_runtime_action_start_regexp(
+        private_marker,
+        RUNTIME_ACTION_ASSET_ACTION,
+    ).search(
+        value
+    )
+
+    if opening_match is None:
+        return False
+
+    return (
+        not value[:opening_match.start()].strip()
+        and not value[opening_match.end():].strip()
+    )
+
+
 class RuntimeActionStreamFilter:
 
     def __init__(
@@ -1342,9 +1438,21 @@ class RuntimeActionStreamFilter:
                 action_name,
             )
 
-            if not start_pattern.match(
+            opening_match = start_pattern.match(
                 text,
                 marker_start,
+            )
+
+            if opening_match is None:
+                continue
+
+            if (
+                action_name == RUNTIME_ACTION_ASSET_ACTION
+                and not _asset_action_block_has_payload(
+                    text,
+                    opening_match,
+                    private_marker,
+                )
             ):
                 continue
 
@@ -1366,11 +1474,17 @@ class RuntimeActionStreamFilter:
     def _find_started_actions(
         self,
         text: str,
+        action_names=None,
     ) -> tuple[RuntimeActionCall, ...]:
 
         marker_starts = []
+        candidate_action_names = (
+            tuple(action_names)
+            if action_names is not None
+            else self.enabled_actions
+        )
 
-        for action_name in self.enabled_actions:
+        for action_name in candidate_action_names:
             if action_name not in CLOSE_TAG_RUNTIME_ACTIONS:
                 continue
 
@@ -1546,9 +1660,16 @@ class RuntimeActionStreamFilter:
 
             if not action_may_be_complete:
                 self.pending += chunk
+                started_actions = self._find_started_actions(
+                    self.pending,
+                    action_names=(
+                        RUNTIME_ACTION_ASSET_ACTION,
+                    ),
+                )
 
                 return RuntimeActionResult(
                     text="",
+                    started_actions=started_actions,
                 )
 
         self.pending = ""
@@ -1658,6 +1779,13 @@ class RuntimeActionStreamFilter:
         self.pending_started_actions.clear()
 
         if self.preserve_action_text:
+            return RuntimeActionResult(
+                text=pending,
+            )
+
+        if _is_empty_unclosed_asset_action(
+            pending
+        ):
             return RuntimeActionResult(
                 text=pending,
             )

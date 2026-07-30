@@ -4,6 +4,9 @@ from fastapi import WebSocket
 
 
 class WebSocketLogger:
+    MODEL_OUTPUT_PREVIEW_LIMIT = 100
+    MODEL_OUTPUT_PAYLOAD_THRESHOLD = 150
+
     def __init__(self, websocket: WebSocket):
         self.websocket = websocket
 
@@ -45,8 +48,50 @@ class WebSocketLogger:
     async def log_payload(self, payload: str, limit: int = 500):
         await self.log("[PAYLOAD]", payload[:limit])
 
+    async def _log_model_output(
+            self,
+            tag: str,
+            message: str,
+    ):
+        full_text = str(
+            message
+            or ""
+        ).strip()
+
+        if not full_text:
+            return
+
+        has_payload = (
+            len(full_text)
+            > self.MODEL_OUTPUT_PAYLOAD_THRESHOLD
+        )
+        preview = (
+            full_text[
+                :self.MODEL_OUTPUT_PREVIEW_LIMIT
+            ]
+            + "..."
+            if has_payload
+            else full_text
+        )
+
+        await self.log(
+            tag,
+            preview,
+            details=(
+                full_text
+                if has_payload
+                else None
+            ),
+        )
+
     async def log_brain(self, message: str):
         return None
+
+    async def log_brain_output(self, message: str):
+        await self._log_model_output(
+            "[BRAIN]",
+            message,
+        )
 
     async def log_service(self, message: str):
         return None
@@ -107,6 +152,12 @@ class WebSocketLogger:
 
     async def log_service_as_brain(self, message: str):
         return None
+
+    async def log_service_as_brain_output(self, message: str):
+        await self._log_model_output(
+            "[SERVICE]",
+            message,
+        )
 
     async def log_error(
             self,

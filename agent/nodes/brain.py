@@ -1112,6 +1112,14 @@ class BrainNode(BaseNode):
                     "log_method"
                 ],
             ),
+            model_output_log_method=getattr(
+                context.logger,
+                brain_runtime.get(
+                    "model_output_log_method",
+                    "",
+                ),
+                None,
+            ),
             enable_validator=True,
             emit_to_chat=True,
             emit_content_to_chat=emit_content_to_chat,
@@ -1221,6 +1229,14 @@ class BrainNode(BaseNode):
                 brain_runtime[
                     "log_method"
                 ],
+            ),
+            model_output_log_method=getattr(
+                logger,
+                brain_runtime.get(
+                    "model_output_log_method",
+                    "",
+                ),
+                None,
             ),
             enable_validator=True,
             emit_to_chat=True,

@@ -1079,6 +1079,37 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
 
+
+    def test_stream_filter_keeps_bare_block_action_name_as_text(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "ASSET_ACTION",
+            ],
+        )
+
+        chunks = (
+            "`",
+            "ASSET_ACTION",
+            "` relates to tool management.",
+        )
+        results = tuple(
+            stream_filter.filter(chunk)
+            for chunk in chunks
+        )
+
+        self.assertEqual(
+            "".join(result.text for result in results),
+            "`ASSET_ACTION` relates to tool management.",
+        )
+        self.assertTrue(
+            all(not result.actions for result in results)
+        )
+        self.assertTrue(
+            all(not result.started_actions for result in results)
+        )
+
+
     def test_stream_filter_handles_split_bare_call_style_web_search_marker(self):
 
         stream_filter = RuntimeActionStreamFilter(

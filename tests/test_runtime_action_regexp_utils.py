@@ -6,6 +6,7 @@ from utils.actions.regexp_utils import (
     REGEXP_TEMPLATES,
     compile_runtime_action_regexp,
     find_runtime_action_matches,
+    find_unclosed_runtime_action_start,
     match_regexp,
     match_regexp_templates,
 )
@@ -90,6 +91,27 @@ class RuntimeActionRegexpUtilsTests(unittest.TestCase):
         self.assertEqual(len(matches), 1)
         self.assertEqual(matches[0].name, "ASSET_ACTION")
         self.assertEqual(matches[0].payload, '{"action":"list_assets"}')
+
+
+    def test_close_tag_action_rejects_bare_name_in_prose(self):
+        matches = find_runtime_action_matches(
+            "`ASSET_ACTION` relates to tool management.",
+            "<ASSET_ACTION>",
+            "ASSET_ACTION",
+            close_tag=True,
+        )
+
+        self.assertEqual(matches, ())
+
+    def test_close_tag_action_does_not_hold_bare_stream_token(self):
+        marker_start = find_unclosed_runtime_action_start(
+            "ASSET_ACTION` relates to tool management.",
+            "<ASSET_ACTION>",
+            "ASSET_ACTION",
+            close_tag=True,
+        )
+
+        self.assertIsNone(marker_start)
 
     def test_explicit_regexp_can_be_used_without_templates(self):
         regexp = re.compile(

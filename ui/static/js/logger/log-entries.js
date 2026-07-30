@@ -738,6 +738,16 @@ function appendLog(
   const normalizedTag =
     String(tag || "").toUpperCase();
 
+  const isBrainOutput =
+    normalizedTag === "[BRAIN]";
+
+  const isServiceBrainOutput =
+    normalizedTag === "[SERVICE]";
+
+  const isModelOutput =
+    isBrainOutput
+    || isServiceBrainOutput;
+
   let logKind =
     "default";
 
@@ -810,6 +820,36 @@ function appendLog(
   if (tag.includes("SERVICE")) {
     tagClass =
       "text-blue-500";
+  }
+
+  if (isBrainOutput) {
+    tagClass =
+      "text-pink-400 font-bold";
+
+    logDiv.classList.add(
+      "font-mono",
+      "text-[12px]",
+      "bg-pink-500/5",
+      "p-2",
+      "rounded",
+      "border",
+      "border-pink-500/10",
+    );
+  }
+
+  if (isServiceBrainOutput) {
+    tagClass =
+      "text-blue-400 font-bold";
+
+    logDiv.classList.add(
+      "font-mono",
+      "text-[12px]",
+      "bg-blue-500/5",
+      "p-2",
+      "rounded",
+      "border",
+      "border-blue-500/10",
+    );
   }
 
   if (tag.includes("SUMMARIZER")) {
@@ -1129,7 +1169,11 @@ function appendLog(
       "button";
 
     traceButton.className =
-      isActiveMemory || isFactsMemory
+      isBrainOutput
+        ? "inline-flex items-center rounded border border-pink-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-pink-300 hover:bg-pink-500/10 transition"
+        : isServiceBrainOutput
+        ? "inline-flex items-center rounded border border-blue-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-blue-300 hover:bg-blue-500/10 transition"
+        : isActiveMemory || isFactsMemory
         ? "inline-flex items-center rounded border border-zinc-600/40 px-2 py-1 text-[10px] uppercase tracking-wider text-zinc-300 hover:bg-zinc-700/40 transition"
         : isSummarizer
         ? "mt-2 inline-flex items-center rounded border border-blue-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-blue-300 hover:bg-blue-500/10 transition"
@@ -1138,7 +1182,9 @@ function appendLog(
         : "mt-2 inline-flex items-center rounded border border-red-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-red-300 hover:bg-red-500/10 transition";
 
     traceButton.textContent =
-      isPatternResult
+      isModelOutput
+        ? "payload"
+        : isPatternResult
         ? "patterns"
         : isSession || isLatestSnapshots || isActiveMemory || isFactsMemory
         ? "show"
@@ -1154,7 +1200,9 @@ function appendLog(
       "click",
       function () {
         showTrace(
-          isUser
+          isModelOutput
+            ? String(normalized.details || "")
+            : isUser
             ? formatUserPayloadTrace(
                 parseTraceJson(normalized.details)
                 || normalized.details
@@ -1172,6 +1220,10 @@ function appendLog(
               ? "Active memory payload"
               : isFactsMemory
               ? `Facts memory · ${String(meta?.facts_memory_session_id || "session")}`
+              : isBrainOutput
+              ? "Brain output"
+              : isServiceBrainOutput
+              ? "Service as brain output"
               : isSummarizer
               ? normalized.message || "Summarizer payload"
               : isJsonParseError

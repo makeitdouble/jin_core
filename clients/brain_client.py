@@ -687,6 +687,7 @@ async def ask_brain_stream(
     )
     action_counter = RuntimeActionCounter()
     raw_content_parts = []
+    raw_model_output_parts = []
     pending_idle_action_calls = []
     confirmed_action_guard_names = set()
     rejected_action_guard_names = set()
@@ -1149,23 +1150,25 @@ async def ask_brain_stream(
             None,
         )
 
-        pending_source = str(
-            getattr(
-                content_filter,
-                "pending",
-                "",
+        asset_action_started = any(
+            action.name == RUNTIME_ACTION_ASSET_ACTION
+            for action in getattr(
+                result,
+                "started_actions",
+                (),
             )
-            or ""
-        )
-        pending = pending_source.upper()
-        has_pending_asset_action_marker = (
-            "INTERNAL_ACTION_ASSET_ACTION" in pending
-            or "ASSET_ACTION" in pending
+            or ()
         )
 
         if (
             asset_action_call is None
-            and not has_pending_asset_action_marker
+            and not asset_action_started
+        ):
+            return
+
+        if (
+            asset_action_call is not None
+            and asset_action_bubble_started
         ):
             return
 
@@ -1233,17 +1236,9 @@ async def ask_brain_stream(
                 asset_result
             )
         else:
-            asset_result = build_pending_asset_action_stream_preview(
-                pending_source
+            next_text = build_runtime_action_display_text(
+                RUNTIME_ACTION_ASSET_ACTION
             )
-            if asset_result:
-                next_text = build_asset_action_marker_text(
-                    asset_result
-                )
-            else:
-                next_text = build_runtime_action_display_text(
-                    RUNTIME_ACTION_ASSET_ACTION
-                )
 
         if (
             asset_action_bubble_started
@@ -1302,14 +1297,18 @@ async def ask_brain_stream(
         if chunk_type == "thinking":
             return action_chunk
 
-        raw_content_parts.append(
-            str(
-                action_chunk.get(
-                    "content",
-                    "",
-                )
-                or ""
+        content_text = str(
+            action_chunk.get(
+                "content",
+                "",
             )
+            or ""
+        )
+        raw_model_output_parts.append(
+            content_text
+        )
+        raw_content_parts.append(
+            content_text
         )
 
         if not filter_runtime_actions:
@@ -1386,6 +1385,15 @@ async def ask_brain_stream(
         return {
             **action_chunk,
             "content": result.text,
+        }
+
+    def build_raw_model_output_chunk() -> dict:
+
+        return {
+            "type": "raw_model_output",
+            "content": "".join(
+                raw_model_output_parts
+            ),
         }
 
     async def stop_on_marker_repetition(
@@ -1632,6 +1640,7 @@ async def ask_brain_stream(
                 tail_result
             ):
                 await finalize_session_action_history()
+                yield build_raw_model_output_chunk()
                 return
             await flush_pending_idle_actions()
 
@@ -1647,6 +1656,7 @@ async def ask_brain_stream(
                 }
 
             await finalize_session_action_history()
+            yield build_raw_model_output_chunk()
             return
 
         except asyncio.CancelledError:
@@ -1737,6 +1747,7 @@ async def ask_brain_stream(
             tail_result
         ):
             await finalize_session_action_history()
+            yield build_raw_model_output_chunk()
             return
         await flush_pending_idle_actions()
 
@@ -1752,6 +1763,7 @@ async def ask_brain_stream(
             }
 
         await finalize_session_action_history()
+        yield build_raw_model_output_chunk()
 
     except asyncio.CancelledError:
         await finalize_session_action_history()

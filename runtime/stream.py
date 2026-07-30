@@ -109,6 +109,7 @@ class RuntimeStream:
             context_snapshot: dict | None = None,
             runtime_actions=None,
             filter_runtime_actions: bool = True,
+            model_output_log_method=None,
     ):
 
         self.context = context
@@ -123,6 +124,9 @@ class RuntimeStream:
         )
 
         self.log_method = log_method
+        self.model_output_log_method = (
+            model_output_log_method
+        )
         self.emit_to_chat = emit_to_chat
         self.emit_content_to_chat = (
             emit_to_chat
@@ -150,6 +154,7 @@ class RuntimeStream:
         self.session_action_history_start = 0
         self.delayed_memory_action_payload = ""
         self.raw_content_parts = []
+        self.raw_model_output = ""
         self.pending_idle_actions = []
         self.action_filter = RuntimeActionStreamFilter(
             enabled_actions=self.runtime_actions,
@@ -2128,6 +2133,22 @@ class RuntimeStream:
 
                     continue
 
+                # The brain client sends the unfiltered answer content at
+                # the end of the stream. Keep it out of chat, but use it for
+                # the dedicated BRAIN / SERVICE logger card so marker tags are
+                # still visible there after runtime filtering. Reasoning is
+                # intentionally excluded from this logger payload.
+                if chunk_type == "raw_model_output":
+                    self.raw_model_output += str(
+                        chunk.get(
+                            "content",
+                            "",
+                        )
+                        or ""
+                    )
+
+                    continue
+
                 # -------------------------------------------------
                 # THINKING
                 # -------------------------------------------------
@@ -2270,6 +2291,21 @@ class RuntimeStream:
             self.record_token_usage()
             await self.refresh_provider_token_usage()
             self.capture_runtime_turn_response()
+
+            raw_model_output = (
+                self.raw_model_output
+                or "".join(
+                    self.raw_content_parts
+                )
+            )
+
+            if (
+                self.model_output_log_method is not None
+                and raw_model_output
+            ):
+                await self.model_output_log_method(
+                    raw_model_output
+                )
 
             log_response = self.stream.response
 

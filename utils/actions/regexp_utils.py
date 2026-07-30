@@ -330,7 +330,7 @@ def find_runtime_action_matches(
     regexp: Pattern[str] | str | None = None,
     regexp_templates: tuple[str, ...] = REGEXP_TEMPLATES,
 ) -> tuple[RuntimeActionRegexpMatch, ...]:
-    """Use a concrete regexp first and shared templates as the fallback set."""
+    """Use the canonical regexp first and legacy templates only for inline actions."""
     concrete_regexp = regexp or compile_runtime_action_regexp(
         private_marker,
         runtime_action,
@@ -338,13 +338,20 @@ def find_runtime_action_matches(
     )
     matches = [
         *match_regexp(text, concrete_regexp),
-        *match_regexp_templates(
-            text,
-            private_marker,
-            runtime_action,
-            regexp_templates,
-        ),
     ]
+
+    # Block actions are intentionally strict: prose containing a bare action
+    # name must never become a control event. Their only accepted envelope is
+    # the canonical <ACTION>...</ACTION> block handled above.
+    if not close_tag:
+        matches.extend(
+            match_regexp_templates(
+                text,
+                private_marker,
+                runtime_action,
+                regexp_templates,
+            )
+        )
 
     return select_non_overlapping_regexp_matches(matches)
 
@@ -352,6 +359,7 @@ def find_runtime_action_matches(
 def get_runtime_action_start_markers(
     private_marker: str,
     runtime_action: str = "",
+    close_tag: bool = False,
 ) -> tuple[str, ...]:
     markers: list[str] = []
     _, placeholder_payload = extract_private_marker_parts(
@@ -367,16 +375,24 @@ def get_runtime_action_start_markers(
 
         candidates = [
             angle_marker,
-            f"<|tool_call>call:{name}{payload_suffix}",
-            f"<tool_call>call:{name}{payload_suffix}",
-            f"call:{name}{payload_suffix}",
-            f"{name}{payload_suffix}",
         ]
 
-        if placeholder_payload:
+        # Legacy bare/tool-call envelopes are retained for one-line actions.
+        # Block actions must begin with their explicit angle-bracket tag so a
+        # normal sentence or inline-code token such as `ASSET_ACTION` cannot
+        # stall the stream or be interpreted as a validator payload.
+        if not close_tag:
             candidates.extend((
-                f"<{name} name=",
+                f"<|tool_call>call:{name}{payload_suffix}",
+                f"<tool_call>call:{name}{payload_suffix}",
+                f"call:{name}{payload_suffix}",
+                f"{name}{payload_suffix}",
             ))
+
+            if placeholder_payload:
+                candidates.append(
+                    f"<{name} name="
+                )
 
         for marker in candidates:
             if marker not in markers:
@@ -430,7 +446,11 @@ def find_unclosed_runtime_action_start(
     upper_value = value.upper()
     best_start: int | None = None
 
-    for marker in get_runtime_action_start_markers(private_marker, runtime_action):
+    for marker in get_runtime_action_start_markers(
+        private_marker,
+        runtime_action,
+        close_tag,
+    ):
         marker_upper = marker.upper()
         start = upper_value.rfind(marker_upper)
 
