@@ -162,9 +162,22 @@ async def apply_runtime_action_calls(
         runtime_message_id
         or ""
     ).strip()
+    resolved_runtime_turn_id = str(
+        getattr(
+            context,
+            "runtime_current_turn_id",
+            "",
+        )
+        or ""
+    ).strip()
 
     def with_action_context(payload: dict) -> dict:
         enriched_payload = dict(payload)
+
+        if resolved_runtime_turn_id:
+            enriched_payload["runtime_turn_id"] = (
+                resolved_runtime_turn_id
+            )
 
         if resolved_runtime_message_id:
             enriched_payload["runtime_message_id"] = (
@@ -623,12 +636,6 @@ async def apply_runtime_action_calls(
             continue
 
         if action.name == RUNTIME_ACTION_JIN_COLOR:
-            if not accept_runtime_action_once_per_message(
-                action,
-                jin_color,
-            ):
-                continue
-
             current_jin_color = jin_color
             jin_color_last_by_message[
                 jin_color_message_scope

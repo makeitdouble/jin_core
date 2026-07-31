@@ -215,6 +215,41 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             source,
         )
 
+    def test_jin_color_uses_one_live_aggregate_bubble(self):
+
+        source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "socket"
+            / "runtime-actions.js"
+        ).read_text(
+            encoding="utf-8"
+        )
+
+        handle_start = source.index(
+            "function handleRuntimeAction("
+        )
+        color_start = source.index(
+            'if (action === "jin_color") {',
+            handle_start,
+        )
+        color_end = source.index(
+            "\n    return;\n  }",
+            color_start,
+        )
+        color_block = source[color_start:color_end]
+
+        self.assertIn(
+            "aggregateMarkers: true",
+            color_block,
+        )
+        self.assertNotIn(
+            "aggregateMarkers,\n          counterOnly:",
+            color_block,
+        )
+
     def test_socket_runtime_actions_fade_terminal_failures_with_scope(self):
 
         source = (

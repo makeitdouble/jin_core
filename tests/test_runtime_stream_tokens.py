@@ -2111,8 +2111,24 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             [event.get("status") for event in runtime_events],
             ["counted"]
-            + ["completed"] * 2
+            + ["completed"] * 8
             + ["interrupted", "counter_final"],
+        )
+        self.assertEqual(
+            {
+                event.get("runtime_turn_id")
+                for event in runtime_events
+            },
+            {
+                "turn_color_repetition",
+            },
+        )
+        self.assertEqual(
+            len({
+                event.get("runtime_message_id")
+                for event in runtime_events
+            }),
+            1,
         )
         interrupted_event = next(
             event
@@ -2128,6 +2144,12 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             [{
                 "text": "JIN_COLOR",
                 "colors": [
+                    "#0000ff",
+                    "#ff0000",
+                    "#0000ff",
+                    "#ff0000",
+                    "#0000ff",
+                    "#ff0000",
                     "#0000ff",
                     "#ff0000",
                 ],

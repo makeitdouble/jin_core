@@ -290,6 +290,62 @@ main.panels-collapsed-2 #scene-shade {
     color: #d08a8a !important;
 }
 
+/* Logger cards only. Chat bubbles are intentionally untouched. */
+#console-stream [data-log-kind="user"] {
+    background:
+            radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.022), transparent 44%),
+            linear-gradient(180deg, rgba(255, 255, 255, 0.014), rgba(0, 0, 0, 0.035)),
+            rgba(13, 15, 18, 0.90) !important;
+    border-color: rgba(148, 155, 164, 0.18) !important;
+    box-shadow:
+            0 10px 26px rgba(0, 0, 0, 0.20),
+            inset 0 1px 0 rgba(255, 255, 255, 0.025),
+            inset 0 0 22px rgba(148, 155, 164, 0.012);
+}
+
+#console-stream [data-log-kind="user"] > .logger-tag {
+    color: #a7b0b8 !important;
+}
+
+#console-stream [data-log-kind="user"] > span:not(.logger-tag) {
+    color: rgba(207, 213, 219, 0.72) !important;
+}
+
+#console-stream [data-log-kind="user"] button {
+    color: #aab4bc !important;
+    border-color: rgba(148, 155, 164, 0.24) !important;
+}
+
+#console-stream [data-log-kind="user"] button:hover {
+    background: rgba(148, 155, 164, 0.08) !important;
+}
+
+#console-stream [data-log-kind="brain"][class~="bg-pink-500/5"],
+#console-stream [data-log-kind="service"][class~="bg-blue-500/5"] {
+    background:
+            radial-gradient(circle at 18% 0%, rgba(129, 216, 208, 0.090), transparent 46%),
+            radial-gradient(circle at 90% 24%, rgba(129, 216, 208, 0.040), transparent 42%),
+            linear-gradient(180deg, rgba(129, 216, 208, 0.020), rgba(0, 0, 0, 0.045)),
+            rgba(12, 17, 18, 0.91) !important;
+    border-color: rgba(129, 216, 208, 0.21) !important;
+    box-shadow:
+            0 0 0 1px rgba(129, 216, 208, 0.025),
+            0 10px 28px rgba(0, 0, 0, 0.22),
+            0 0 24px rgba(129, 216, 208, 0.045),
+            inset 0 1px 0 rgba(217, 245, 242, 0.035),
+            inset 0 0 24px rgba(129, 216, 208, 0.018);
+}
+
+#console-stream [data-log-kind="brain"][class~="bg-pink-500/5"] > .logger-tag,
+#console-stream [data-log-kind="service"][class~="bg-blue-500/5"] > .logger-tag {
+    color: #81d8d0 !important;
+}
+
+#console-stream [data-log-kind="brain"][class~="bg-pink-500/5"] > span:not(.logger-tag),
+#console-stream [data-log-kind="service"][class~="bg-blue-500/5"] > span:not(.logger-tag) {
+    color: rgba(208, 229, 226, 0.76) !important;
+}
+
 .session-action-color-swatches {
     line-height: 1;
     vertical-align: middle;

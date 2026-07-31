@@ -746,6 +746,55 @@ class StreamValidator:
         )
 
     # -----------------------------------------------------
+    # NORMALIZE CHANGING QUOTED SENTENCE TEMPLATES
+    # -----------------------------------------------------
+
+    @staticmethod
+    def normalize_sentence_template(
+        sentence: str,
+    ) -> tuple[str, bool]:
+
+        normalized = " ".join(
+            str(sentence or "")
+            .casefold()
+            .split()
+        ).strip(" *_~-\t")
+
+        quote_indexes = [
+            index
+            for quote in (
+                '"',
+                "“",
+                "„",
+                "`",
+            )
+            if (index := normalized.find(quote)) >= 0
+        ]
+
+        if not quote_indexes:
+            return (
+                normalized,
+                False,
+            )
+
+        quote_index = min(quote_indexes)
+        prefix = normalized[:quote_index].rstrip()
+
+        if sum(
+            char.isalnum()
+            for char in prefix
+        ) < 8:
+            return (
+                normalized,
+                False,
+            )
+
+        return (
+            f"{prefix}<quoted>",
+            True,
+        )
+
+    # -----------------------------------------------------
     # VALIDATE SENTENCES
     # -----------------------------------------------------
 
@@ -773,12 +822,43 @@ class StreamValidator:
             1,
             max_sequence_size + 1,
         ):
-            if (
+            current_sentence = (
                 self.sentence_history[-1]
-                == self.sentence_history[
+            )
+            previous_sentence = (
+                self.sentence_history[
                     -1 - sequence_size
                 ]
+            )
+
+            sentences_match = (
+                current_sentence
+                == previous_sentence
+            )
+
+            if (
+                not sentences_match
+                and sequence_size >= 2
             ):
+                current_template, current_generalized = (
+                    self.normalize_sentence_template(
+                        current_sentence
+                    )
+                )
+                previous_template, previous_generalized = (
+                    self.normalize_sentence_template(
+                        previous_sentence
+                    )
+                )
+
+                sentences_match = (
+                    current_generalized
+                    and previous_generalized
+                    and current_template
+                    == previous_template
+                )
+
+            if sentences_match:
                 self.sentence_period_match_counts[
                     sequence_size
                 ] += 1

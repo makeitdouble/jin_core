@@ -886,11 +886,13 @@ function handleRuntimeAction(
           displayName,
           sceneEffect,
           closeTag,
-          reuseCompleted:
-            counterOnly,
+          reuseCompleted: true,
           reviveCompleted:
             !counterFinal,
-          aggregateMarkers,
+          // Every applied color belongs to one live sequence row.
+          // Counter events use another display id, so the shared turn/message
+          // scope keeps them attached to this same aggregate bubble.
+          aggregateMarkers: true,
           counterOnly:
             displayCounterOnly,
           markerCount:
