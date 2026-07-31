@@ -653,7 +653,7 @@ class SearchFlowTests(
             ),
         )
         self.assertIn(
-            f"<INITIAL_SEQUENCE_USER_MESSAGE>{state.translated_input}",
+            f"INITIAL_SEQUENCE_INSTRUCTION: {state.translated_input}",
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertNotIn(

@@ -224,15 +224,15 @@ class RuntimeTodoTests(unittest.TestCase):
             snapshot["hide_internal_action_rules"],
         )
         self.assertIn(
-            "RUNTIME ACTION MARKERS are internal mechanics",
+            "RUNTIME ACTION EXECUTION RULES:",
             snapshot["system_prompt"],
         )
         self.assertNotIn(
-            "RUNTIME ACTION MARKERS are internal mechanics",
+            "RUNTIME ACTION EXECUTION RULES:",
             snapshot["visible_system_prompt"],
         )
         self.assertNotIn(
-            "SAVE_SESSION: high priority action",
+            "<SAVE_SESSION>",
             snapshot["visible_system_prompt"],
         )
         self.assertIn(

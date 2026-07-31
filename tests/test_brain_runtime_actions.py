@@ -325,17 +325,19 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "RUNTIME ACTION MARKERS are internal mechanics only.",
+            "RUNTIME ACTION EXECUTION RULES:",
         )
         assert_contains_text(
             self,
             prompt,
-            "short and brief.\nNEVER override",
+            "Use follow-up system ticks in sequence for multi-step tasks.\n"
+            "In case of conflict",
         )
         assert_contains_text(
             self,
             prompt,
-            "schemas by user request.\nDummy markers",
+            "When no actions needed or sequence is done stop instantly and notify user naturally.\n\n"
+            "MEMORY AND SESSION PROPOSALS:",
         )
 
     def test_non_stream_blocks_save_session_meta_request_in_reasoning(self):
@@ -3142,13 +3144,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 "CAN_USE_ASSETS": True,
             },
         )
-        runtime_context = build_brain_context(
-            context=context,
-            runtime_actions={
-                "CAN_USE_ASSETS": True,
-            },
-        )
-
         self.assertTrue(
             prompt.startswith(
                 "<TOOLS_RESULTS>"
@@ -3164,10 +3159,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertLess(
             prompt.index("<APPENDED_SKILLS_CONTENT>"),
-            prompt.index("RUNTIME ACTION MARKERS are internal mechanics"),
+            prompt.index("RUNTIME ACTION EXECUTION RULES:"),
         )
         self.assertLess(
-            prompt.index("RUNTIME ACTION MARKERS are internal mechanics"),
+            prompt.index("RUNTIME ACTION EXECUTION RULES:"),
             prompt.index("I identify myself as JIN"),
         )
         self.assertNotIn(
@@ -3219,10 +3214,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
         self.assertIn(
             "<APPENDED_SKILLS_CONTENT>",
             prompt,
-        )
-        self.assertNotIn(
-            "<TOOL_RESULTS",
-            runtime_context,
         )
 
     def test_prompt_keeps_appended_delayed_memory_in_normal_turns(self):

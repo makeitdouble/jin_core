@@ -69,7 +69,19 @@ def test_brain_stream_jin_color_executes_without_confirmation():
         "reject",
     )
 
-    assert chunks == [{"type": "content", "content": "Принято."}]
+    assert [
+        chunk
+        for chunk in chunks
+        if chunk.get("type") == "content"
+    ] == [{"type": "content", "content": "Принято."}]
+    assert [
+        chunk
+        for chunk in chunks
+        if chunk.get("type") == "raw_model_output"
+    ] == [{
+        "type": "raw_model_output",
+        "content": "Принято. <JIN_COLOR: #ff0000 >",
+    }]
     assert [
         (event.get("type"), event.get("status"))
         for event in context.emitter.events
@@ -90,7 +102,19 @@ def test_brain_stream_matching_trigger_executes_without_confirmation():
         "поставь цвет красный яркий",
     )
 
-    assert chunks == [{"type": "content", "content": "Принято."}]
+    assert [
+        chunk
+        for chunk in chunks
+        if chunk.get("type") == "content"
+    ] == [{"type": "content", "content": "Принято."}]
+    assert [
+        chunk
+        for chunk in chunks
+        if chunk.get("type") == "raw_model_output"
+    ] == [{
+        "type": "raw_model_output",
+        "content": "Принято. <JIN_COLOR: #ff0000 >",
+    }]
     assert [
         (event.get("type"), event.get("status"))
         for event in context.emitter.events

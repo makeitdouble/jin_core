@@ -112,7 +112,7 @@ def _assert_latest_request_payload(
         ),
     )
     test_case.assertIn(
-        f"<INITIAL_SEQUENCE_USER_MESSAGE>{user_input}",
+        f"INITIAL_SEQUENCE_INSTRUCTION: {user_input}",
         system_prompt,
     )
     test_case.assertNotIn(
@@ -343,8 +343,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn(
             "<CURRENT_SEQUENCE>\n"
-            "MANDATORY: DO NOT START A NEW SEQUENCE! SEQUENCE IS ALREADY IN PROGRESS! CONTINUE ONLY WITH STEPS CURRENTLY NOT DONE!\n\n"
-            "<INITIAL_SEQUENCE_USER_MESSAGE>keep &lt;this&gt; in delayed memory ( 10s ago )\n\n"
+            "INITIAL_SEQUENCE_INSTRUCTION: keep &lt;this&gt; in delayed memory ( 10s ago )\n"
+            "DO NOT FOLLOW INITIAL_SEQUENCE_INSTRUCTION EXPLICITLY, CHECK CURRENT_SEQUENCE HISTORY BELOW!\n"
             "    --- Sequence started ---\n"
             "    JIN message 1 executed - LIST_SKILLS ( 5s ago )\n"
             "</CURRENT_SEQUENCE>",
@@ -617,7 +617,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             prompt,
         )
         self.assertIn(
-            "<INITIAL_SEQUENCE_USER_MESSAGE>append the delayed memory",
+            "INITIAL_SEQUENCE_INSTRUCTION: append the delayed memory",
             prompt,
         )
         self.assertIn(
@@ -689,8 +689,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn(
             "<CURRENT_SEQUENCE>\n"
-            "MANDATORY: DO NOT START A NEW SEQUENCE! SEQUENCE IS ALREADY IN PROGRESS! CONTINUE ONLY WITH STEPS CURRENTLY NOT DONE!\n\n"
-            "<INITIAL_SEQUENCE_USER_MESSAGE>first list skills, then append one ( 1m ago )\n\n"
+            "INITIAL_SEQUENCE_INSTRUCTION: first list skills, then append one ( 1m ago )\n"
+            "DO NOT FOLLOW INITIAL_SEQUENCE_INSTRUCTION EXPLICITLY, CHECK CURRENT_SEQUENCE HISTORY BELOW!\n"
             "    --- Sequence started ---\n"
             "    JIN message 1 executed - LIST_SKILLS ( 55s ago )\n"
             "    JIN message 2 executed - APPEND_SKILL ( 2s ago )\n"
@@ -755,8 +755,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn(
             "<CURRENT_SEQUENCE>\n"
-            "MANDATORY: DO NOT START A NEW SEQUENCE! SEQUENCE IS ALREADY IN PROGRESS! CONTINUE ONLY WITH STEPS CURRENTLY NOT DONE!\n\n"
-            "<INITIAL_SEQUENCE_USER_MESSAGE>first idle 30s, then idle 20s and search ( 32s ago )\n\n"
+            "INITIAL_SEQUENCE_INSTRUCTION: first idle 30s, then idle 20s and search ( 32s ago )\n"
+            "DO NOT FOLLOW INITIAL_SEQUENCE_INSTRUCTION EXPLICITLY, CHECK CURRENT_SEQUENCE HISTORY BELOW!\n"
             "    --- Sequence started ---\n"
             "    JIN message 1 executed - IDLE - 30s ( 32s ago )\n"
             "    JIN message 2 executed - IDLE - 20s, WEB_SEARCH ( 1s ago )\n"
@@ -954,7 +954,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 "",
             )
             self.assertIn(
-                "<INITIAL_SEQUENCE_USER_MESSAGE>что на скриншоте?\n\n"
+                "INITIAL_SEQUENCE_INSTRUCTION: что на скриншоте?\n\n"
                 "Attached context:",
                 kwargs["system_prompt"],
             )

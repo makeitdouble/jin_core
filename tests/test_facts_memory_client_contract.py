@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class FactsMemoryClientContractTests(unittest.TestCase):
 
-    def test_facts_memory_uses_new_storage_namespace_with_one_time_migration(self):
+    def test_facts_memory_uses_new_storage_namespace_without_legacy_aliases(self):
         source = (
             ROOT
             / "ui"
@@ -22,15 +22,19 @@ class FactsMemoryClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            "function migrateSessionSignalsStorageKeysToFactsMemory()",
+            "function isFactsMemoryStorageKey(",
             source,
         )
         self.assertIn(
-            'const legacyPrefix =\n      "jin.sessionSignals.";',
+            "function getSessionIdFromFactsMemoryStorageKey(",
             source,
         )
-        self.assertIn(
-            "migrateSessionSignalsStorageKeysToFactsMemory();",
+        self.assertNotIn(
+            "migrateSessionSignalsStorageKeysToFactsMemory",
+            source,
+        )
+        self.assertNotIn(
+            "jin.sessionSignals.",
             source,
         )
         self.assertNotIn(
