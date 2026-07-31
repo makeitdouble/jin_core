@@ -1369,8 +1369,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
             formatted,
             (
                 "LIST_SKILLS, "
-                "APPEND_SKILL: wildcards, file_manager (count: 3), "
-                "REMOVE_SKILL: image_prompt_generator, file_manager (count: 3)"
+                "APPEND_SKILL: wildcards, "
+                "APPEND_SKILL: file_manager, "
+                "REMOVE_SKILL: image_prompt_generator, "
+                "REMOVE_SKILL: file_manager"
             ),
         )
 
@@ -1424,8 +1426,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     "detail": "5s",
                 },
                 {
-                    "text": "APPEND_SKILL: wildcards, file_manager",
-                    "count": 2,
+                    "text": "APPEND_SKILL: wildcards",
+                },
+                {
+                    "text": "APPEND_SKILL: file_manager",
                 },
             ],
         )
@@ -1777,7 +1781,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             context.runtime_session_action_history[0]["text"],
             (
-                "APPEND_SKILL: wildcards, file_manager (count: 3), "
+                "APPEND_SKILL: wildcards, "
+                "APPEND_SKILL: file_manager, "
                 "REMOVE_SKILL: image_prompt_generator"
             ),
         )
@@ -1873,7 +1878,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             context.runtime_session_action_history[-1]["text"],
             (
                 "APPEND_SKILL: name of skill "
-                "( does not exist ) (count: 2)"
+                "( does not exist )"
             ),
         )
         self.assertIn(
@@ -1893,8 +1898,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
         ]
 
         self.assertEqual(
-            counter_final_events[-1]["text"],
-            "APPEND_SKILL: name of skill ( does not exist )",
+            counter_final_events,
+            [],
         )
 
     def test_stream_allows_four_identical_jin_color_markers(self):

@@ -196,37 +196,76 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
             result.text,
             "",
         )
+        append_payload = (
+            "file_manager, image_prompt_generator, porn, wildcards"
+        )
+        remove_payload = "old_skill, unused_skill"
         self.assertEqual(
             result.actions,
             (
                 RuntimeActionCall(
                     name="APPEND_SKILL",
                     payload="file_manager",
+                    marker_name="APPEND_SKILLS",
+                    marker_payload=append_payload,
+                    marker_group="append_skills_001",
                 ),
                 RuntimeActionCall(
                     name="APPEND_SKILL",
                     payload="image_prompt_generator",
+                    marker_name="APPEND_SKILLS",
+                    marker_payload=append_payload,
+                    marker_group="append_skills_001",
                 ),
                 RuntimeActionCall(
                     name="APPEND_SKILL",
                     payload="porn",
+                    marker_name="APPEND_SKILLS",
+                    marker_payload=append_payload,
+                    marker_group="append_skills_001",
                 ),
                 RuntimeActionCall(
                     name="APPEND_SKILL",
                     payload="wildcards",
+                    marker_name="APPEND_SKILLS",
+                    marker_payload=append_payload,
+                    marker_group="append_skills_001",
                 ),
                 RuntimeActionCall(
                     name="REMOVE_SKILL",
                     payload="old_skill",
+                    marker_name="REMOVE_SKILLS",
+                    marker_payload=remove_payload,
+                    marker_group="remove_skills_002",
                 ),
                 RuntimeActionCall(
                     name="REMOVE_SKILL",
                     payload="unused_skill",
+                    marker_name="REMOVE_SKILLS",
+                    marker_payload=remove_payload,
+                    marker_group="remove_skills_002",
                 ),
             ),
         )
-
-
+        self.assertEqual(
+            result.observed_actions,
+            (
+                RuntimeActionCall(
+                    name="APPEND_SKILLS",
+                    payload=append_payload,
+                    marker_name="APPEND_SKILLS",
+                    marker_payload=append_payload,
+                    marker_group="append_skills_001",
+                ),
+                RuntimeActionCall(
+                    name="REMOVE_SKILLS",
+                    payload=remove_payload,
+                    marker_name="REMOVE_SKILLS",
+                    marker_payload=remove_payload,
+                    marker_group="remove_skills_002",
+                ),
+            ),
+        )
     def test_append_skill_name_attribute_stays_visible_text(self):
 
         result = extract_runtime_actions(
@@ -310,24 +349,51 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
             second.text,
             "",
         )
+        marker_payload = (
+            "file_manager, image_prompt_generator, porn, wildcards"
+        )
         self.assertEqual(
             second.actions,
             (
                 RuntimeActionCall(
                     name="APPEND_SKILL",
                     payload="file_manager",
+                    marker_name="APPEND_SKILLS",
+                    marker_payload=marker_payload,
+                    marker_group="append_skills_001",
                 ),
                 RuntimeActionCall(
                     name="APPEND_SKILL",
                     payload="image_prompt_generator",
+                    marker_name="APPEND_SKILLS",
+                    marker_payload=marker_payload,
+                    marker_group="append_skills_001",
                 ),
                 RuntimeActionCall(
                     name="APPEND_SKILL",
                     payload="porn",
+                    marker_name="APPEND_SKILLS",
+                    marker_payload=marker_payload,
+                    marker_group="append_skills_001",
                 ),
                 RuntimeActionCall(
                     name="APPEND_SKILL",
                     payload="wildcards",
+                    marker_name="APPEND_SKILLS",
+                    marker_payload=marker_payload,
+                    marker_group="append_skills_001",
+                ),
+            ),
+        )
+        self.assertEqual(
+            second.observed_actions,
+            (
+                RuntimeActionCall(
+                    name="APPEND_SKILLS",
+                    payload=marker_payload,
+                    marker_name="APPEND_SKILLS",
+                    marker_payload=marker_payload,
+                    marker_group="append_skills_001",
                 ),
             ),
         )
@@ -335,8 +401,6 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
             stream_filter.flush(),
             "",
         )
-
-
     def test_duplicate_append_skill_markers_are_preserved_as_text(self):
 
         appended_skill_names = set()
@@ -737,7 +801,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "Appended skill: image_prompt_generator",
+                    "APPEND_SKILL: Image Prompt Generator.txt",
                 )
                 self.assertEqual(
                     context.emitter.events[2]["action"],
@@ -745,7 +809,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[2]["text"],
-                    "Removed skill: wildcards",
+                    "REMOVE_SKILL: wildcards",
                 )
                 self.assertEqual(
                     {
@@ -818,7 +882,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.runtime_session_action_history[0]["text"],
-                    "Appended skill: file_writer ( does not exist )",
+                    "APPEND_SKILL: file_writer ( does not exist )",
                 )
                 self.assertEqual(
                     len(context.emitter.events),
@@ -826,7 +890,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "Appended skill: file_writer ( does not exist )",
+                    "APPEND_SKILL: file_writer ( does not exist )",
                 )
                 self.assertEqual(
                     context.emitter.events[0]["status"],

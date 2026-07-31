@@ -1,5 +1,6 @@
 from collections import OrderedDict
 from dataclasses import dataclass
+import hashlib
 
 from contracts.rules_assembler import (
     build_runtime_action_display_text,
@@ -13,119 +14,12 @@ from .common_action_utils import (
 from .jin_color_utils import (
     normalize_jin_color_payload,
 )
-from utils.skills_asset_utils import (
-    normalize_skill_name,
-)
-
-
-def build_append_skill_display_payloads(
-    context,
-    payloads,
-    *,
-    runtime_turn_id: str = "",
-) -> list[str]:
-    """Annotate missing APPEND_SKILL payloads for counters and history."""
-
-    resolved_turn_id = str(
-        runtime_turn_id
-        or getattr(
-            context,
-            "runtime_current_turn_id",
-            "",
-        )
-        or ""
-    ).strip()
-    missing_skill_names = set()
-
-    for result in getattr(
-        context,
-        "runtime_asset_results",
-        [],
-    ) or []:
-        if not isinstance(
-            result,
-            dict,
-        ):
-            continue
-
-        if (
-            str(
-                result.get(
-                    "action",
-                    "",
-                )
-                or ""
-            ).strip().casefold() != "append_skill"
-            or result.get("ok") is not False
-            or str(
-                result.get(
-                    "error",
-                    "",
-                )
-                or ""
-            ).strip().casefold() != "skill_not_found"
-        ):
-            continue
-
-        result_turn_id = str(
-            result.get(
-                "runtime_turn_id",
-                "",
-            )
-            or ""
-        ).strip()
-
-        if (
-            resolved_turn_id
-            and result_turn_id
-            and result_turn_id != resolved_turn_id
-        ):
-            continue
-
-        requested_skill = normalize_skill_name(
-            result.get(
-                "requested",
-                "",
-            )
-        )
-
-        if requested_skill:
-            missing_skill_names.add(
-                requested_skill
-            )
-
-    display_payloads = []
-
-    for payload in payloads or ():
-        raw_payload = str(
-            payload
-            or ""
-        ).strip()
-
-        if not raw_payload:
-            continue
-
-        normalized_skill = normalize_skill_name(
-            raw_payload
-        )
-
-        if normalized_skill in missing_skill_names:
-            display_payloads.append(
-                f"{raw_payload} ( does not exist )"
-            )
-        else:
-            display_payloads.append(
-                raw_payload
-            )
-
-    return display_payloads
-
-
 @dataclass(frozen=True)
 class RuntimeActionCount:
     name: str
     count: int
     payloads: tuple[str, ...] = ()
+    identity: str = ""
 
     @property
     def payload(self) -> str:
@@ -137,14 +31,39 @@ class RuntimeActionCount:
 
 
 class RuntimeActionCounter:
-    """Count every parsed runtime marker once, before execution dedupe."""
+    """Count identical parsed markers once, before execution dedupe."""
+
+    _EXCLUDED_ACTIONS = frozenset({
+        "APPEND_SKILL",
+        "APPEND_SKILLS",
+        "REMOVE_SKILL",
+        "REMOVE_SKILLS",
+    })
 
     def __init__(self):
         self._counts = OrderedDict()
         self._payloads = {}
 
+    @staticmethod
+    def _identity_key(
+        name: str,
+        payload: str,
+    ) -> tuple[str, str]:
+
+        # JIN_COLOR intentionally remains one ordered aggregate sequence.
+        if name == "JIN_COLOR":
+            return (
+                name,
+                "",
+            )
+
+        return (
+            name,
+            payload,
+        )
+
     def record(self, actions) -> tuple[RuntimeActionCount, ...]:
-        changed_names = []
+        changed_keys = []
 
         for action in actions or ():
             name = normalize_runtime_action_name(
@@ -155,14 +74,11 @@ class RuntimeActionCounter:
                 )
             )
 
-            if not name:
+            if (
+                not name
+                or name in self._EXCLUDED_ACTIONS
+            ):
                 continue
-
-            if name not in self._counts:
-                self._counts[name] = 0
-                self._payloads[name] = []
-
-            self._counts[name] += 1
 
             payload = str(
                 getattr(
@@ -172,50 +88,93 @@ class RuntimeActionCounter:
                 )
                 or ""
             ).strip()
+            identity_key = self._identity_key(
+                name,
+                payload,
+            )
+
+            if identity_key not in self._counts:
+                self._counts[identity_key] = 0
+                self._payloads[identity_key] = []
+
+            self._counts[identity_key] += 1
 
             if payload:
-                self._payloads[name].append(
+                self._payloads[identity_key].append(
                     payload
                 )
 
-            if name not in changed_names:
-                changed_names.append(
-                    name
+            if identity_key not in changed_keys:
+                changed_keys.append(
+                    identity_key
                 )
 
         return tuple(
-            self.get(name)
-            for name in changed_names
+            self._get_by_key(identity_key)
+            for identity_key in changed_keys
+        )
+
+    def _get_by_key(
+        self,
+        identity_key: tuple[str, str],
+    ) -> RuntimeActionCount | None:
+
+        if identity_key not in self._counts:
+            return None
+
+        name, identity = identity_key
+
+        return RuntimeActionCount(
+            name=name,
+            count=int(
+                self._counts[identity_key]
+            ),
+            payloads=tuple(
+                self._payloads.get(
+                    identity_key,
+                    (),
+                )
+            ),
+            identity=identity,
         )
 
     def get(
         self,
         action_name: str,
+        payload: str | None = None,
     ) -> RuntimeActionCount | None:
         name = normalize_runtime_action_name(
             action_name
         )
 
-        if name not in self._counts:
+        if payload is not None:
+            return self._get_by_key(
+                self._identity_key(
+                    name,
+                    str(
+                        payload
+                        or ""
+                    ).strip(),
+                )
+            )
+
+        matches = [
+            identity_key
+            for identity_key in self._counts
+            if identity_key[0] == name
+        ]
+
+        if len(matches) != 1:
             return None
 
-        return RuntimeActionCount(
-            name=name,
-            count=int(
-                self._counts[name]
-            ),
-            payloads=tuple(
-                self._payloads.get(
-                    name,
-                    (),
-                )
-            ),
+        return self._get_by_key(
+            matches[0]
         )
 
     def entries(self) -> tuple[RuntimeActionCount, ...]:
         return tuple(
-            self.get(name)
-            for name in self._counts
+            self._get_by_key(identity_key)
+            for identity_key in self._counts
         )
 
     def marker_actions(
@@ -467,9 +426,26 @@ async def emit_runtime_action_counter_updates(
             event["runtime_turn_id"] = (
                 runtime_turn_id
             )
+            counter_identity = str(
+                entry.identity
+                or ""
+            ).strip()
+            counter_suffix = ""
+
+            if counter_identity:
+                counter_suffix = (
+                    ":"
+                    + hashlib.sha1(
+                        counter_identity.encode(
+                            "utf-8"
+                        )
+                    ).hexdigest()[:10]
+                )
+
             event["counter_id"] = (
                 f"{runtime_turn_id}:"
                 f"{entry.name.lower()}"
+                f"{counter_suffix}"
             )
 
         if resolved_runtime_message_id:

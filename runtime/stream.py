@@ -24,7 +24,6 @@ from utils.tokens import (
     estimate_stream_live_tokens,
 )
 from utils.actions import (
-    build_append_skill_display_payloads,
     build_runtime_action_id,
     emit_runtime_action_counter_updates,
     RuntimeActionCounter,
@@ -862,28 +861,6 @@ class RuntimeStream:
                 payload
             )
 
-        append_skill_entry = self.action_counter.get(
-            RUNTIME_ACTION_APPEND_SKILL
-        )
-
-        if (
-            append_skill_entry is not None
-            and append_skill_entry.payloads
-        ):
-            display_payloads[
-                RUNTIME_ACTION_APPEND_SKILL
-            ] = build_append_skill_display_payloads(
-                self.context,
-                append_skill_entry.payloads,
-                runtime_turn_id=(
-                    getattr(
-                        self.context,
-                        "runtime_current_turn_id",
-                        "",
-                    )
-                ),
-            )
-
         return display_payloads
 
     async def sync_session_action_marker_history(
@@ -932,7 +909,12 @@ class RuntimeStream:
                 action,
                 "name",
                 "",
-            )
+            ),
+            getattr(
+                action,
+                "payload",
+                "",
+            ),
         )
 
         if entry is None:

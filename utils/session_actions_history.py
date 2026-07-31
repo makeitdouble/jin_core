@@ -801,6 +801,7 @@ def record_session_action_history(
     text: str,
     *,
     display_parts=None,
+    preserve_separate: bool = False,
 ) -> None:
 
     if context is None:
@@ -865,6 +866,9 @@ def record_session_action_history(
 
     if normalized_display_parts:
         item["parts"] = normalized_display_parts
+
+    if preserve_separate:
+        item["runtime_session_action_preserve_separate"] = True
 
     runtime_turn_id = get_current_action_sequence_turn_id(
         context
@@ -1163,7 +1167,17 @@ def _build_payload_distinct_session_action_parts(
                 detail
             )
 
-    if len(payload_groups) <= 1:
+    skill_marker_action = action_name in {
+        "APPEND_SKILL",
+        "APPEND_SKILLS",
+        "REMOVE_SKILL",
+        "REMOVE_SKILLS",
+    }
+
+    if (
+        len(payload_groups) <= 1
+        and not skill_marker_action
+    ):
         return []
 
     parts = []
@@ -1172,19 +1186,24 @@ def _build_payload_distinct_session_action_parts(
         details = _unique_session_action_values(
             payload_group["details"]
         )
+        display_payload = (
+            payload_group["fallback"]
+            or payload_key
+        )
         part = {
             "text": action_name,
         }
 
-        if details:
+        if skill_marker_action:
+            part["text"] = (
+                f"{action_name}: {display_payload}"
+            )
+        elif details:
             part["detail"] = ", ".join(
                 details
             )
         else:
-            part["detail"] = (
-                payload_group["fallback"]
-                or payload_key
-            )
+            part["detail"] = display_payload
 
         if (
             action_name in {
@@ -1200,7 +1219,9 @@ def _build_payload_distinct_session_action_parts(
             part["id"] = payload_key
 
         parts.append(
-            _with_session_action_marker_count(
+            part
+            if skill_marker_action
+            else _with_session_action_marker_count(
                 part,
                 payload_group["count"],
             )
@@ -1219,6 +1240,7 @@ def _build_formatted_session_action_marker_parts(
         marker_count = 1
         marker_payloads = []
         marker_identity_payloads = []
+        marker_identity_aware = False
         marker_colors = []
 
         if isinstance(
@@ -1236,6 +1258,9 @@ def _build_formatted_session_action_marker_parts(
             raw_payloads = marker_action.get(
                 "payloads",
                 [],
+            )
+            marker_identity_aware = (
+                "raw_payloads" in marker_action
             )
             raw_identity_payloads = marker_action.get(
                 "raw_payloads",
@@ -1362,11 +1387,16 @@ def _build_formatted_session_action_marker_parts(
                 "count": 0,
                 "payloads": [],
                 "payload_entries": [],
+                "payload_identity_aware": False,
                 "colors": [],
                 "details": [],
             },
         )
         group["count"] += marker_count
+        group["payload_identity_aware"] = (
+            group["payload_identity_aware"]
+            or marker_identity_aware
+        )
         group["payloads"].extend(
             marker_payloads
         )
@@ -1412,11 +1442,55 @@ def _build_formatted_session_action_marker_parts(
 
     for group in action_groups.values():
         action_name = group["action_name"]
+        payload_identity_count = len({
+            str(
+                entry.get(
+                    "key",
+                    "",
+                )
+                or entry.get(
+                    "display",
+                    "",
+                )
+                or ""
+            ).strip()
+            for entry in group.get(
+                "payload_entries",
+                [],
+            )
+            if str(
+                entry.get(
+                    "key",
+                    "",
+                )
+                or entry.get(
+                    "display",
+                    "",
+                )
+                or ""
+            ).strip()
+        })
+        skill_marker_action = action_name in {
+            "APPEND_SKILL",
+            "APPEND_SKILLS",
+            "REMOVE_SKILL",
+            "REMOVE_SKILLS",
+        }
         payload_distinct_parts = (
             _build_payload_distinct_session_action_parts(
                 group
             )
-            if action_name in PAYLOAD_DISTINCT_SESSION_ACTIONS
+            if (
+                action_name in PAYLOAD_DISTINCT_SESSION_ACTIONS
+                or skill_marker_action
+                or (
+                    group.get(
+                        "payload_identity_aware"
+                    ) is True
+                    and payload_identity_count > 1
+                    and action_name != "JIN_COLOR"
+                )
+            )
             else []
         )
 
@@ -1737,80 +1811,128 @@ def compact_session_action_history_since(
     if len(new_items) < 2:
         return False
 
-    merged_item = dict(
-        new_items[0]
-    )
-    merged_item["text"] = ", ".join(
-        str(
-            item.get(
-                "text",
-                "",
+    def merge_items(items):
+        if len(items) == 1:
+            return dict(
+                items[0]
             )
-            or ""
-        ).strip()
-        for item in new_items
-    )
 
-    merged_parts = []
-
-    for item in new_items:
-        item_parts = (
-            _normalize_session_action_display_parts(
+        merged_item = dict(
+            items[0]
+        )
+        merged_item["text"] = ", ".join(
+            str(
                 item.get(
-                    "parts",
-                    [],
+                    "text",
+                    "",
                 )
-            )
+                or ""
+            ).strip()
+            for item in items
         )
+        merged_parts = []
 
-        if not item_parts:
-            fallback_part = (
-                _build_session_action_display_part(
+        for item in items:
+            item_parts = (
+                _normalize_session_action_display_parts(
                     item.get(
-                        "text",
-                        "",
+                        "parts",
+                        [],
                     )
                 )
             )
-            if fallback_part:
-                item_parts = [
-                    fallback_part,
-                ]
 
-        merged_parts.extend(
-            item_parts
+            if not item_parts:
+                fallback_part = (
+                    _build_session_action_display_part(
+                        item.get(
+                            "text",
+                            "",
+                        )
+                    )
+                )
+                if fallback_part:
+                    item_parts = [
+                        fallback_part,
+                    ]
+
+            merged_parts.extend(
+                item_parts
+            )
+
+        if merged_parts:
+            merged_item["parts"] = merged_parts
+
+        created_at_values = []
+
+        for item in items:
+            try:
+                created_at_values.append(
+                    float(
+                        item.get(
+                            "created_at",
+                            0,
+                        )
+                        or 0
+                    )
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                continue
+
+        if created_at_values:
+            merged_item["created_at"] = min(
+                created_at_values
+            )
+
+        return merged_item
+
+    compacted_items = []
+    merge_buffer = []
+    did_merge = False
+
+    def flush_merge_buffer():
+        nonlocal did_merge
+
+        if not merge_buffer:
+            return
+
+        if len(merge_buffer) > 1:
+            did_merge = True
+
+        compacted_items.append(
+            merge_items(
+                merge_buffer
+            )
         )
-
-    if merged_parts:
-        merged_item["parts"] = merged_parts
-
-    created_at_values = []
+        merge_buffer.clear()
 
     for item in new_items:
-        try:
-            created_at_values.append(
-                float(
-                    item.get(
-                        "created_at",
-                        0,
-                    )
-                    or 0
+        if item.get(
+            "runtime_session_action_preserve_separate"
+        ) is True:
+            flush_merge_buffer()
+            compacted_items.append(
+                dict(
+                    item
                 )
             )
-        except (
-            TypeError,
-            ValueError,
-        ):
             continue
 
-    if created_at_values:
-        merged_item["created_at"] = min(
-            created_at_values
+        merge_buffer.append(
+            item
         )
 
+    flush_merge_buffer()
+
+    if not did_merge:
+        return False
+
     del history[safe_start_index:]
-    history.append(
-        merged_item
+    history.extend(
+        compacted_items
     )
 
     return True

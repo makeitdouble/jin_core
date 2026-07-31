@@ -12,6 +12,275 @@ from utils.skills_asset_utils import (
 )
 
 
+_RUNTIME_MARKER_NAME = "_runtime_marker_name"
+_RUNTIME_MARKER_PAYLOAD = "_runtime_marker_payload"
+_RUNTIME_MARKER_GROUP = "_runtime_marker_group"
+
+
+def _attach_skill_marker_metadata(
+    result: dict,
+    action,
+) -> dict:
+
+    enriched_result = dict(
+        result
+    )
+    marker_name = str(
+        getattr(
+            action,
+            "marker_name",
+            "",
+        )
+        or getattr(
+            action,
+            "name",
+            "",
+        )
+        or ""
+    ).strip().upper()
+    marker_payload = str(
+        getattr(
+            action,
+            "marker_payload",
+            "",
+        )
+        or getattr(
+            action,
+            "payload",
+            "",
+        )
+        or ""
+    ).strip()
+    marker_group = str(
+        getattr(
+            action,
+            "marker_group",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if marker_name:
+        enriched_result[_RUNTIME_MARKER_NAME] = marker_name
+
+    if marker_payload:
+        enriched_result[_RUNTIME_MARKER_PAYLOAD] = marker_payload
+
+    if marker_group:
+        enriched_result[_RUNTIME_MARKER_GROUP] = marker_group
+
+    return enriched_result
+
+
+def _public_skill_result(
+    result: dict,
+) -> dict:
+
+    return {
+        key: value
+        for key, value in result.items()
+        if not str(
+            key
+            or ""
+        ).startswith(
+            "_runtime_"
+        )
+    }
+
+
+def _group_skill_state_results(
+    skill_state_results,
+) -> list[list[dict]]:
+
+    groups = []
+    plural_groups = {}
+
+    for result in skill_state_results or ():
+        if not isinstance(
+            result,
+            dict,
+        ):
+            continue
+
+        marker_name = str(
+            result.get(
+                _RUNTIME_MARKER_NAME,
+                "",
+            )
+            or ""
+        ).strip().upper()
+        marker_group = str(
+            result.get(
+                _RUNTIME_MARKER_GROUP,
+                "",
+            )
+            or ""
+        ).strip()
+        is_plural = marker_name in {
+            "APPEND_SKILLS",
+            "REMOVE_SKILLS",
+        }
+
+        if not is_plural or not marker_group:
+            groups.append([
+                result,
+            ])
+            continue
+
+        group = plural_groups.get(
+            marker_group
+        )
+
+        if group is None:
+            group = []
+            plural_groups[marker_group] = group
+            groups.append(
+                group
+            )
+
+        group.append(
+            result
+        )
+
+    return groups
+
+
+def _build_skill_state_group_payload(
+    results,
+) -> tuple[str, str, str, str, dict, bool]:
+
+    first_result = results[0]
+    first_action = str(
+        first_result.get(
+            "action",
+            "skill",
+        )
+        or "skill"
+    ).strip().casefold()
+    marker_name = str(
+        first_result.get(
+            _RUNTIME_MARKER_NAME,
+            "",
+        )
+        or ""
+    ).strip().upper()
+    marker_payload = str(
+        first_result.get(
+            _RUNTIME_MARKER_PAYLOAD,
+            "",
+        )
+        or ""
+    ).strip()
+
+    if not marker_name:
+        marker_name = (
+            "APPEND_SKILL"
+            if first_action == "append_skill"
+            else (
+                "REMOVE_SKILL"
+                if first_action == "remove_skill"
+                else first_action.upper()
+            )
+        )
+
+    is_plural = marker_name in {
+        "APPEND_SKILLS",
+        "REMOVE_SKILLS",
+    }
+
+    if marker_payload:
+        requested_names = [
+            part.strip()
+            for part in marker_payload.split(",")
+            if part.strip()
+        ]
+    else:
+        requested_names = [
+            str(
+                result.get(
+                    "requested",
+                    "",
+                )
+                or ""
+            ).strip()
+            for result in results
+        ]
+
+    failures_by_name = {
+        normalize_skill_name(
+            result.get(
+                "requested",
+                "",
+            )
+        ): result
+        for result in results
+        if result.get("ok") is False
+    }
+    display_payloads = []
+
+    for requested_name in requested_names:
+        display_name = requested_name
+        failed_result = failures_by_name.get(
+            normalize_skill_name(
+                requested_name
+            )
+        )
+
+        if (
+            failed_result is not None
+            and failed_result.get("error") == "skill_not_found"
+        ):
+            display_name = (
+                f"{display_name} "
+                "( does not exist )"
+            )
+
+        if display_name:
+            display_payloads.append(
+                display_name
+            )
+
+    display_payload = ", ".join(
+        display_payloads
+    )
+    text = (
+        f"{marker_name}: {display_payload}"
+        if display_payload
+        else marker_name
+    )
+    event_action = marker_name.lower()
+    all_ok = all(
+        result.get("ok") is not False
+        for result in results
+    )
+
+    if is_plural:
+        skill_result = {
+            "ok": all_ok,
+            "action": event_action,
+            "requested": requested_names,
+            "results": [
+                _public_skill_result(
+                    result
+                )
+                for result in results
+            ],
+        }
+    else:
+        skill_result = _public_skill_result(
+            first_result
+        )
+
+    return (
+        marker_name,
+        event_action,
+        display_payload,
+        text,
+        skill_result,
+        all_ok,
+    )
+
+
 async def apply_skill_actions(
     context,
     *,
@@ -102,17 +371,23 @@ async def apply_skill_actions(
                 action,
                 result,
             )
-            appended_skill_results.append(
-                result
-            )
             if (
                 result.get("ok") is False
                 and result.get("error") == "skill_not_found"
             ):
                 append_asset_runtime_result(
                     context,
-                    result,
+                    dict(
+                        result
+                    ),
                 )
+
+            appended_skill_results.append(
+                _attach_skill_marker_metadata(
+                    result,
+                    action,
+                )
+            )
 
     removed_skill_results = []
 
@@ -149,12 +424,18 @@ async def apply_skill_actions(
                 ) != requested
             ]
             context.runtime_appended_skills = current_skills
-            removed_skill_results.append({
+            result = {
                 "ok": True,
                 "action": "remove_skill",
                 "requested": requested,
                 "removed": len(current_skills) < before_count,
-            })
+            }
+            removed_skill_results.append(
+                _attach_skill_marker_metadata(
+                    result,
+                    action,
+                )
+            )
 
     if (
         appended_skill_results
@@ -175,49 +456,47 @@ async def emit_skill_state_results(
     *,
     with_action_context,
 ):
-    skill_state_result_texts = []
+    if not skill_state_results:
+        return
 
-    for result in skill_state_results:
-        result_action = str(
-            result.get(
-                "action",
-                "skill",
-            )
-            or "skill"
-        )
-        requested_skill = str(
-            result.get(
-                "requested",
-                "",
-            )
-            or ""
-        )
-        if result_action == "append_skill":
-            text = f"Appended skill: {requested_skill}"
-        elif result_action == "remove_skill":
-            text = f"Removed skill: {requested_skill}"
-        else:
-            text = "Updated skills"
-        if (
-            result_action == "append_skill"
-            and result.get("ok") is False
-            and result.get("error") == "skill_not_found"
-        ):
-            text = f"{text} ( does not exist )"
+    grouped_results = _group_skill_state_results(
+        skill_state_results
+    )
+    skill_state_result_events = []
 
-        skill_state_result_texts.append(
-            (
-                result,
-                text,
-            )
+    for results in grouped_results:
+        if not results:
+            continue
+
+        (
+            marker_name,
+            result_action,
+            display_payload,
+            text,
+            skill_result,
+            all_ok,
+        ) = _build_skill_state_group_payload(
+            results
         )
+        skill_state_result_events.append({
+            "marker_name": marker_name,
+            "action": result_action,
+            "display_payload": display_payload,
+            "text": text,
+            "skill_result": skill_result,
+            "ok": all_ok,
+        })
         record_session_action_history(
             context,
             text,
+            preserve_separate=(
+                marker_name
+                not in {
+                    "APPEND_SKILLS",
+                    "REMOVE_SKILLS",
+                }
+            ),
         )
-
-    if not skill_state_results:
-        return
 
     emitter = getattr(
         context,
@@ -231,16 +510,23 @@ async def emit_skill_state_results(
     )
 
     if emit is not None:
-        for result_index, (result, text) in enumerate(
-            skill_state_result_texts,
+        for result_index, result_event in enumerate(
+            skill_state_result_events,
             start=1,
         ):
             result_action = str(
-                result.get(
+                result_event.get(
                     "action",
                     "skill",
                 )
                 or "skill"
+            )
+            text = str(
+                result_event.get(
+                    "text",
+                    "",
+                )
+                or ""
             )
             action_id = build_runtime_action_id(
                 result_action,
@@ -249,21 +535,31 @@ async def emit_skill_state_results(
             )
             status = (
                 "completed"
-                if result.get("ok") is not False
+                if result_event.get("ok") is not False
                 else "failed"
             )
             payload = {
                 "type": "runtime_action",
                 "action": result_action,
                 "id": action_id,
-                "display_name": get_runtime_action_display_name(
+                "display_name": result_event.get(
+                    "marker_name",
+                    "",
+                ) or get_runtime_action_display_name(
                     result_action
                 ),
                 "close_tag": runtime_action_has_close_tag(
                     result_action
                 ),
                 "text": text,
-                "skill_result": result,
+                "payload": result_event.get(
+                    "display_payload",
+                    "",
+                ),
+                "skill_result": result_event.get(
+                    "skill_result",
+                    {},
+                ),
             }
 
             if status == "failed":

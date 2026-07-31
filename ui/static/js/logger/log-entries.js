@@ -364,17 +364,35 @@ function log_user(
 }
 
 function getInternalActionLogKey(
-  actionName
+  actionName,
+  data = {}
 ) {
+  const normalizedActionName =
+    normalizeInternalActionName(
+      actionName
+    );
+  const keepSkillMarkerSeparate = [
+    "APPEND_SKILL",
+    "APPEND_SKILLS",
+    "REMOVE_SKILL",
+    "REMOVE_SKILLS",
+  ].includes(normalizedActionName);
+  const instanceKey = keepSkillMarkerSeparate
+    ? String(
+      data.id
+      || data.runtime_action_id
+      || ""
+    ).trim()
+    : "";
+
   return [
     String(
       typeof jinConversationTurnCounter === "undefined"
         ? 0
         : jinConversationTurnCounter
     ),
-    normalizeInternalActionName(
-      actionName
-    ),
+    normalizedActionName,
+    instanceKey,
   ].join(":");
 }
 
@@ -582,6 +600,10 @@ function log_internal_action(
       10
     ) || 0
   );
+  const suppressMarkerCount = [
+    "APPEND_SKILL",
+    "APPEND_SKILLS",
+  ].includes(actionName);
   const cancelledByUser =
     String(data.status || "").toLowerCase() === "failed"
     && Boolean(
@@ -593,7 +615,8 @@ function log_internal_action(
     String(data.status || "").toLowerCase() === "aborted";
   const actionLogKey =
     getInternalActionLogKey(
-      actionName
+      actionName,
+      data
     );
   let logDiv =
     findInternalActionLog(
@@ -638,7 +661,9 @@ function log_internal_action(
   );
   const markerCount = Math.max(
     currentMarkerCount,
-    explicitMarkerCount
+    suppressMarkerCount
+      ? 0
+      : explicitMarkerCount
   );
 
   logDiv.dataset.actionMarkerCount =

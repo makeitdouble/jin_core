@@ -763,16 +763,24 @@ function handleRuntimeAction(
       closeTag
     );
 
-  const markerCount = Math.max(
-    0,
-    Number.parseInt(
-      data.marker_count || 0,
-      10
-    ) || 0
-  );
+  const suppressMarkerCount = [
+    "append_skill",
+    "append_skills",
+  ].includes(action);
+
+  const markerCount = suppressMarkerCount
+    ? 0
+    : Math.max(
+      0,
+      Number.parseInt(
+        data.marker_count || 0,
+        10
+      ) || 0
+    );
 
   const counterOnly =
-    data.counter_only === true;
+    data.counter_only === true
+    && !suppressMarkerCount;
 
   const counterFinal =
     data.counter_final === true

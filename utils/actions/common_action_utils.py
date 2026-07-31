@@ -156,6 +156,9 @@ def _find_all_runtime_action_matches(
 class RuntimeActionCall:
     name: str
     payload: str = ""
+    marker_name: str = ""
+    marker_payload: str = ""
+    marker_group: str = ""
 
 
 @dataclass(frozen=True)
@@ -748,6 +751,7 @@ def extract_runtime_actions(
     removed_markers = []
     marker_repetition_exceeded = False
     marker_repetition_reason = ""
+    plural_skill_marker_index = 0
 
     if seen_action_keys is None:
         seen_action_keys = set()
@@ -876,6 +880,7 @@ def extract_runtime_actions(
     ) -> str:
         nonlocal marker_repetition_exceeded
         nonlocal marker_repetition_reason
+        nonlocal plural_skill_marker_index
 
         if marker_repetition_exceeded:
             if not preserve_action_text:
@@ -895,6 +900,19 @@ def extract_runtime_actions(
         skill_names = _split_internal_skill_marker_list(
             query
         )
+        plural_marker_name = (
+            "APPEND_SKILLS"
+            if action_name == RUNTIME_ACTION_APPEND_SKILL
+            else "REMOVE_SKILLS"
+        )
+        plural_marker_payload = ", ".join(
+            skill_names
+        )
+        plural_skill_marker_index += 1
+        plural_marker_group = (
+            f"{plural_marker_name.lower()}_"
+            f"{plural_skill_marker_index:03d}"
+        )
         plural_actions = []
 
         for skill_name in skill_names:
@@ -905,7 +923,13 @@ def extract_runtime_actions(
 
             if action is not None:
                 plural_actions.append(
-                    action
+                    RuntimeActionCall(
+                        name=action.name,
+                        payload=action.payload,
+                        marker_name=plural_marker_name,
+                        marker_payload=plural_marker_payload,
+                        marker_group=plural_marker_group,
+                    )
                 )
 
         if not plural_actions:
@@ -920,20 +944,26 @@ def extract_runtime_actions(
                 else ""
             )
 
-        for action in plural_actions:
-            observed_actions.append(
-                action
-            )
+        plural_marker_action = RuntimeActionCall(
+            name=plural_marker_name,
+            payload=plural_marker_payload,
+            marker_name=plural_marker_name,
+            marker_payload=plural_marker_payload,
+            marker_group=plural_marker_group,
+        )
+        observed_actions.append(
+            plural_marker_action
+        )
 
-            if (
-                repetition_guard is not None
-                and repetition_guard.record(
-                    action
-                )
-            ):
-                marker_repetition_exceeded = True
-                marker_repetition_reason = repetition_guard.reason
-                return ""
+        if (
+            repetition_guard is not None
+            and repetition_guard.record(
+                plural_marker_action
+            )
+        ):
+            marker_repetition_exceeded = True
+            marker_repetition_reason = repetition_guard.reason
+            return ""
 
         should_preserve_marker = False
 

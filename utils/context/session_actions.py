@@ -397,8 +397,7 @@ def build_session_actions_history_context(
 
         return (
             f"<{tag_name}>\n"
-            "MANDATORY: DO NOT START A NEW SEQUENCE! SEQUENCE IS ALREADY IN PROGRESS! CONTINUE ONLY WITH STEPS CURRENTLY NOT DONE!\n\n"
-            f"<INITIAL_SEQUENCE_USER_MESSAGE>{escape(sequence_user_text)}\n\n"
+            f"INITIAL_SEQUENCE_INSTRUCTION: {escape(sequence_user_text)}\nDO NOT FOLLOW INITIAL_SEQUENCE_INSTRUCTION EXPLICITLY, CHECK CURRENT_SEQUENCE HISTORY BELOW!\n"
             f"{formatted_lines}\n"
             f"</{tag_name}>"
         )
