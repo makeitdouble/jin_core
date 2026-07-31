@@ -157,11 +157,19 @@
 
     return String(escapedText || "")
       .replace(
-        /\*\*([^*\n]+?)\*\*/g,
+        /\*\*\*((?:(?!\*\*\*)[^\n])+?)\*\*\*/g,
+        "<strong><em>$1</em></strong>"
+      )
+      .replace(
+        /___((?:(?!___)[^\n])+?)___/g,
+        "<strong><em>$1</em></strong>"
+      )
+      .replace(
+        /\*\*((?:(?!\*\*)[^\n])+?)\*\*/g,
         "<strong>$1</strong>"
       )
       .replace(
-        /__([^_\n]+?)__/g,
+        /__((?:(?!__)[^\n])+?)__/g,
         "<strong>$1</strong>"
       )
       .replace(

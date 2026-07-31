@@ -543,8 +543,11 @@ class StreamValidator:
             if not clean_word:
                 continue
 
+            # Pure numeric fragments are common in streamed decimals,
+            # counters, coordinates, and probabilities. They are not words
+            # and must not trigger the repeated-word loop guard.
             if not any(
-                char.isalnum()
+                char.isalpha()
                 for char in clean_word
             ):
                 continue

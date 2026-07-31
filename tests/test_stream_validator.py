@@ -180,6 +180,20 @@ def test_stream_validator_stops_repeated_short_word_sequence():
     assert validator.last_failure_loop_preview == "запиши or"
 
 
+def test_stream_validator_allows_repeated_numeric_stream_fragments():
+    validator = StreamValidator()
+
+    for chunk in ["0"] * 12:
+        clean, is_valid = validator.filter_chunk(chunk)
+
+        assert clean == chunk
+        assert is_valid
+
+    assert validator.last_failure_reason is None
+    assert validator.last_failure_preview == ""
+    assert validator.last_failure_loop_preview == ""
+
+
 def test_stream_validator_allows_short_repeated_sentences():
     validator = StreamValidator()
 
