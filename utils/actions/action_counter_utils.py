@@ -13,6 +13,112 @@ from .common_action_utils import (
 from .jin_color_utils import (
     normalize_jin_color_payload,
 )
+from utils.skills_asset_utils import (
+    normalize_skill_name,
+)
+
+
+def build_append_skill_display_payloads(
+    context,
+    payloads,
+    *,
+    runtime_turn_id: str = "",
+) -> list[str]:
+    """Annotate missing APPEND_SKILL payloads for counters and history."""
+
+    resolved_turn_id = str(
+        runtime_turn_id
+        or getattr(
+            context,
+            "runtime_current_turn_id",
+            "",
+        )
+        or ""
+    ).strip()
+    missing_skill_names = set()
+
+    for result in getattr(
+        context,
+        "runtime_asset_results",
+        [],
+    ) or []:
+        if not isinstance(
+            result,
+            dict,
+        ):
+            continue
+
+        if (
+            str(
+                result.get(
+                    "action",
+                    "",
+                )
+                or ""
+            ).strip().casefold() != "append_skill"
+            or result.get("ok") is not False
+            or str(
+                result.get(
+                    "error",
+                    "",
+                )
+                or ""
+            ).strip().casefold() != "skill_not_found"
+        ):
+            continue
+
+        result_turn_id = str(
+            result.get(
+                "runtime_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if (
+            resolved_turn_id
+            and result_turn_id
+            and result_turn_id != resolved_turn_id
+        ):
+            continue
+
+        requested_skill = normalize_skill_name(
+            result.get(
+                "requested",
+                "",
+            )
+        )
+
+        if requested_skill:
+            missing_skill_names.add(
+                requested_skill
+            )
+
+    display_payloads = []
+
+    for payload in payloads or ():
+        raw_payload = str(
+            payload
+            or ""
+        ).strip()
+
+        if not raw_payload:
+            continue
+
+        normalized_skill = normalize_skill_name(
+            raw_payload
+        )
+
+        if normalized_skill in missing_skill_names:
+            display_payloads.append(
+                f"{raw_payload} ( does not exist )"
+            )
+        else:
+            display_payloads.append(
+                raw_payload
+            )
+
+    return display_payloads
 
 
 @dataclass(frozen=True)

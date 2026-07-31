@@ -193,12 +193,12 @@ body.theme-win95 #console-stream > div:last-child {
 
 body.theme-win95 #console-stream > div.rounded {
     padding: 10px;
-    background: var(--win95-face);
-    border: 1px solid var(--win95-shadow);
+    background: var(--win95-face) !important;
+    border: 1px solid var(--win95-shadow) !important;
     border-radius: var(--win95-radius);
     box-shadow:
             inset 1px 1px 0 var(--win95-light),
-            inset -1px -1px 0 #8a8a8a;
+            inset -1px -1px 0 #8a8a8a !important;
 }
 
 body.theme-win95 #console-stream span {
@@ -234,13 +234,25 @@ body.theme-win95 #console-stream [data-log-kind="after"] > .logger-tag {
     color: #5a2aa0 !important;
 }
 
-body.theme-win95 #console-stream [data-log-kind="user"] > .logger-tag,
-body.theme-win95 #console-stream [data-log-kind="service"] > .logger-tag {
-    color: #0067a8 !important;
+body.theme-win95 #console-stream [data-log-kind="user"] {
+    --logger-role-accent: #404040;
 }
 
-body.theme-win95 #console-stream [data-log-kind="brain"] > .logger-tag {
-    color: #8a2a68 !important;
+body.theme-win95 #console-stream [data-log-kind="brain"],
+body.theme-win95 #console-stream [data-log-kind="service"] {
+    --logger-role-accent: #005650;
+}
+
+body.theme-win95 #console-stream [data-log-kind="user"] > .logger-tag,
+body.theme-win95 #console-stream [data-log-kind="brain"] > .logger-tag,
+body.theme-win95 #console-stream [data-log-kind="service"] > .logger-tag {
+    color: var(--logger-role-accent) !important;
+}
+
+body.theme-win95 #console-stream [data-log-kind="user"] > span:not(.logger-tag),
+body.theme-win95 #console-stream [data-log-kind="brain"] > span:not(.logger-tag),
+body.theme-win95 #console-stream [data-log-kind="service"] > span:not(.logger-tag) {
+    color: var(--win95-text) !important;
 }
 
 body.theme-win95 #console-stream [data-log-kind="usage"] > .logger-tag {
@@ -270,6 +282,11 @@ body.theme-win95 #console-stream button {
 
 body.theme-win95 #console-stream button:hover {
     background: var(--win95-face-soft);
+}
+
+body.theme-win95 #console-stream [data-log-kind="brain"] button,
+body.theme-win95 #console-stream [data-log-kind="service"] button {
+    color: var(--logger-role-accent) !important;
 }
 
 body.theme-win95 #console-stream button:active {

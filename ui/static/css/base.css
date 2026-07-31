@@ -292,6 +292,9 @@ main.panels-collapsed-2 #scene-shade {
 
 /* Logger cards only. Chat bubbles are intentionally untouched. */
 #console-stream [data-log-kind="user"] {
+    --logger-role-accent: #a7b0b8;
+    --logger-role-border: rgba(148, 155, 164, 0.24);
+    --logger-role-hover: rgba(148, 155, 164, 0.08);
     background:
             radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.022), transparent 44%),
             linear-gradient(180deg, rgba(255, 255, 255, 0.014), rgba(0, 0, 0, 0.035)),
@@ -304,7 +307,7 @@ main.panels-collapsed-2 #scene-shade {
 }
 
 #console-stream [data-log-kind="user"] > .logger-tag {
-    color: #a7b0b8 !important;
+    color: var(--logger-role-accent) !important;
 }
 
 #console-stream [data-log-kind="user"] > span:not(.logger-tag) {
@@ -312,16 +315,19 @@ main.panels-collapsed-2 #scene-shade {
 }
 
 #console-stream [data-log-kind="user"] button {
-    color: #aab4bc !important;
-    border-color: rgba(148, 155, 164, 0.24) !important;
+    color: var(--logger-role-accent) !important;
+    border-color: var(--logger-role-border) !important;
 }
 
 #console-stream [data-log-kind="user"] button:hover {
-    background: rgba(148, 155, 164, 0.08) !important;
+    background: var(--logger-role-hover) !important;
 }
 
 #console-stream [data-log-kind="brain"][class~="bg-pink-500/5"],
 #console-stream [data-log-kind="service"][class~="bg-blue-500/5"] {
+    --logger-role-accent: #81d8d0;
+    --logger-role-border: rgba(129, 216, 208, 0.28);
+    --logger-role-hover: rgba(129, 216, 208, 0.10);
     background:
             radial-gradient(circle at 18% 0%, rgba(129, 216, 208, 0.090), transparent 46%),
             radial-gradient(circle at 90% 24%, rgba(129, 216, 208, 0.040), transparent 42%),
@@ -338,12 +344,23 @@ main.panels-collapsed-2 #scene-shade {
 
 #console-stream [data-log-kind="brain"][class~="bg-pink-500/5"] > .logger-tag,
 #console-stream [data-log-kind="service"][class~="bg-blue-500/5"] > .logger-tag {
-    color: #81d8d0 !important;
+    color: var(--logger-role-accent) !important;
 }
 
 #console-stream [data-log-kind="brain"][class~="bg-pink-500/5"] > span:not(.logger-tag),
 #console-stream [data-log-kind="service"][class~="bg-blue-500/5"] > span:not(.logger-tag) {
     color: rgba(208, 229, 226, 0.76) !important;
+}
+
+#console-stream [data-log-kind="brain"][class~="bg-pink-500/5"] button,
+#console-stream [data-log-kind="service"][class~="bg-blue-500/5"] button {
+    color: var(--logger-role-accent) !important;
+    border-color: var(--logger-role-border) !important;
+}
+
+#console-stream [data-log-kind="brain"][class~="bg-pink-500/5"] button:hover,
+#console-stream [data-log-kind="service"][class~="bg-blue-500/5"] button:hover {
+    background: var(--logger-role-hover) !important;
 }
 
 .session-action-color-swatches {

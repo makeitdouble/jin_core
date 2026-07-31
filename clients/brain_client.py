@@ -62,6 +62,7 @@ from clients.response_extractor import (
 )
 
 from utils.actions import (
+    build_append_skill_display_payloads,
     build_runtime_action_id,
     emit_runtime_action_counter_updates,
     RuntimeActionCounter,
@@ -849,6 +850,28 @@ async def ask_brain_stream(
             display_payloads[
                 RUNTIME_ACTION_JIN_COLOR
             ] = applied_colors
+
+        append_skill_entry = action_counter.get(
+            RUNTIME_ACTION_APPEND_SKILL
+        )
+
+        if (
+            append_skill_entry is not None
+            and append_skill_entry.payloads
+        ):
+            display_payloads[
+                RUNTIME_ACTION_APPEND_SKILL
+            ] = build_append_skill_display_payloads(
+                context,
+                append_skill_entry.payloads,
+                runtime_turn_id=(
+                    getattr(
+                        context,
+                        "runtime_current_turn_id",
+                        "",
+                    )
+                ),
+            )
 
         delayed_memory_display_actions = (
             RUNTIME_ACTION_APPEND_DELAYED_MEMORY,

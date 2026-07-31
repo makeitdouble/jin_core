@@ -1797,6 +1797,15 @@ class BrainRuntimeActionTests(unittest.TestCase):
         class Context:
             pass
 
+        class TrackingEmitter:
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(
+                    event
+                )
+
         async def collect(context):
             chunks = []
 
@@ -1815,6 +1824,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
             return chunks
 
         context = Context()
+        context.runtime_current_turn_id = "turn-1"
+        context.emitter = TrackingEmitter()
         original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
         config.USE_SERVICE_AS_BRAIN = False
 
@@ -1845,6 +1856,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             [
                 {
                     "name": "append_skill",
+                    "runtime_turn_id": "turn-1",
                     "payload": "name of skill",
                 },
             ],
@@ -1859,7 +1871,30 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertEqual(
             context.runtime_session_action_history[-1]["text"],
-            "APPEND_SKILL: name of skill (count: 2)",
+            (
+                "APPEND_SKILL: name of skill "
+                "( does not exist ) (count: 2)"
+            ),
+        )
+        self.assertIn(
+            "APPEND_SKILL: name of skill ( does not exist )",
+            build_session_actions_history_context(
+                context,
+                current_sequence=True,
+            ),
+        )
+
+        counter_final_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "runtime_action"
+            and event.get("action") == "append_skill"
+            and event.get("status") == "counter_final"
+        ]
+
+        self.assertEqual(
+            counter_final_events[-1]["text"],
+            "APPEND_SKILL: name of skill ( does not exist )",
         )
 
     def test_stream_allows_four_identical_jin_color_markers(self):

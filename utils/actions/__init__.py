@@ -1,6 +1,7 @@
 from .action_counter_utils import (
     RuntimeActionCount,
     RuntimeActionCounter,
+    build_append_skill_display_payloads,
     emit_runtime_action_counter_updates,
     format_runtime_action_count,
 )
@@ -62,6 +63,7 @@ __all__ = [
     "RuntimeActionResult",
     "RuntimeActionStreamFilter",
     "REGEXP_TEMPLATES",
+    "build_append_skill_display_payloads",
     "build_runtime_action_id",
     "collect_active_memory_slot_ids",
     "compile_runtime_action_regexp",
