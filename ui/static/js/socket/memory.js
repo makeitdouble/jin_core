@@ -134,12 +134,12 @@ function getFactsMemoryRecordsForStartupLog() {
 
   if (
       !storage
-      || !storage.collectSessionSignalsRecords
+      || !storage.collectFactsMemoryRecords
   ) {
     return [];
   }
 
-  return storage.collectSessionSignalsRecords();
+  return storage.collectFactsMemoryRecords();
 
 }
 

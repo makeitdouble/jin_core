@@ -218,7 +218,7 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
         self.assertIn('"append_skills"', runtime_source)
         self.assertIn("suppressMarkerCount", runtime_source)
         self.assertIn(
-            "/static/js/logger/log-entries.js?v=logger-log-entries-6",
+            "/static/js/logger/log-entries.js?v=logger-log-entries-7",
             index_source,
         )
         self.assertIn(

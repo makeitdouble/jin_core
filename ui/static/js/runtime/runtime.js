@@ -115,11 +115,11 @@ const {
   readDelayedMemoryReports,
   writeDelayedMemoryReports,
   appendDelayedMemoryReports: appendStoredDelayedMemoryReports,
-  readSessionSignals,
-  writeSessionSignals,
-  removeSessionSignalField,
+  readFactsMemory,
+  writeFactsMemory,
+  removeFactsMemoryField,
   getCurrentRuntimeSessionId,
-  getCurrentSessionSignalsSessionId,
+  getCurrentFactsMemorySessionId,
 } = storage;
 
 const runtimeMemoryCount =
@@ -221,25 +221,25 @@ function buildRuntimeMemoryDisplaySnapshot(
 }
 
 
-const SESSION_SIGNAL_EXCLUDED_KEYS = new Set([
+const FACTS_MEMORY_EXCLUDED_KEYS = new Set([
   "user_message",
   "user_idle",
 ]);
 
-const deletedSessionSignalKeys =
+const deletedFactsMemoryKeys =
   new Set();
 
 
-function getSessionSignalIdentity(
+function getFactsMemoryIdentity(
   key
 ) {
 
-  return `${getCurrentSessionSignalsSessionId()}:${key}`;
+  return `${getCurrentFactsMemorySessionId()}:${key}`;
 
 }
 
 
-function persistRuntimeSessionSignals(
+function persistRuntimeFactsMemory(
   snapshot
 ) {
 
@@ -251,7 +251,7 @@ function persistRuntimeSessionSignals(
   }
 
   const fields =
-    readSessionSignals();
+    readFactsMemory();
 
   const runtimeSnapshotId =
     String(
@@ -275,10 +275,10 @@ function persistRuntimeSessionSignals(
       if (
           !key
           || !content
-          || deletedSessionSignalKeys.has(
-            getSessionSignalIdentity(key)
+          || deletedFactsMemoryKeys.has(
+            getFactsMemoryIdentity(key)
           )
-          || SESSION_SIGNAL_EXCLUDED_KEYS.has(key)
+          || FACTS_MEMORY_EXCLUDED_KEYS.has(key)
           || isJinResponseRuntimeMemoryKey(key)
           || isActiveMemoryRuntimeMemoryLine(line)
       ) {
@@ -305,7 +305,7 @@ function persistRuntimeSessionSignals(
     }
   );
 
-  writeSessionSignals(
+  writeFactsMemory(
     fields
   );
 
@@ -314,7 +314,7 @@ function persistRuntimeSessionSignals(
 
 function getFactsMemoryFields() {
 
-  return readSessionSignals();
+  return readFactsMemory();
 
 }
 
@@ -332,13 +332,13 @@ function deleteFactsMemoryFieldAndRender(
     return false;
   }
 
-  deletedSessionSignalKeys.add(
-    getSessionSignalIdentity(
+  deletedFactsMemoryKeys.add(
+    getFactsMemoryIdentity(
       normalizedKey
     )
   );
 
-  removeSessionSignalField(
+  removeFactsMemoryField(
     normalizedKey
   );
 
@@ -382,10 +382,10 @@ function persistRuntimeMemorySnapshot(
   const savedAt =
     new Date().toISOString();
 
-  // Session signals are a companion index for the persisted live runtime.
+  // Facts memory is a companion index for the persisted live runtime.
   // Keep them behind the exact same updates > 0 gate so bootstrap/reload
-  // snapshots never create empty one-off sessionSignals records.
-  persistRuntimeSessionSignals(
+  // snapshots never create empty one-off factsMemory records.
+  persistRuntimeFactsMemory(
     persistedSnapshot
   );
 

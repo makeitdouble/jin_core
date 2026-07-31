@@ -715,6 +715,120 @@ function log_internal_action(
     consoleStream.scrollHeight;
 }
 
+function getFactsMemoryStorage() {
+  return (
+    window.JinRuntime
+    && window.JinRuntime.storage
+  ) || null;
+}
+
+function setFactsMemoryAppendButtonVisible(
+  appendButton,
+  visible,
+) {
+  const isVisible =
+    Boolean(visible);
+
+  appendButton.hidden =
+    !isVisible;
+
+  appendButton.disabled =
+    !isVisible;
+
+  appendButton.setAttribute(
+    "aria-hidden",
+    isVisible ? "false" : "true"
+  );
+
+  if (isVisible) {
+    appendButton.style.removeProperty(
+      "display"
+    );
+  } else {
+    // The button has an inline-flex utility class, which can override the
+    // browser's default [hidden] rule. Force it out of layout immediately.
+    appendButton.style.display =
+      "none";
+  }
+}
+
+function refreshFactsMemoryAppendButtons() {
+  const storage =
+    getFactsMemoryStorage();
+
+  if (
+      !storage
+      || !storage.getCurrentFactsMemorySessionId
+      || !storage.getSessionIdFromFactsMemoryStorageKey
+      || !storage.hasFactsMemoryForSession
+      || !storage.canAppendFactsMemoryByStorageKey
+  ) {
+    return;
+  }
+
+  const currentSessionId =
+    String(
+      storage.getCurrentFactsMemorySessionId()
+      || ""
+    ).trim();
+
+  const currentSessionHasFacts =
+    Boolean(
+      currentSessionId
+      && storage.hasFactsMemoryForSession(
+        currentSessionId
+      )
+    );
+
+  document.querySelectorAll(
+    "[data-facts-memory-storage-key]"
+  ).forEach(
+    function (logDiv) {
+      const appendButton =
+        logDiv.querySelector(
+          "[data-facts-memory-append]"
+        );
+
+      if (!appendButton) {
+        return;
+      }
+
+      const storageKey =
+        String(
+          logDiv.dataset.factsMemoryStorageKey
+          || ""
+        ).trim();
+
+      const sourceSessionId =
+        String(
+          storage.getSessionIdFromFactsMemoryStorageKey(
+            storageKey
+          )
+          || ""
+        ).trim();
+
+      const canAppend =
+        Boolean(
+          sourceSessionId
+          && currentSessionId
+          && sourceSessionId !== currentSessionId
+          && !currentSessionHasFacts
+          && storage.hasFactsMemoryForSession(
+            sourceSessionId
+          )
+          && storage.canAppendFactsMemoryByStorageKey(
+            storageKey
+          )
+        );
+
+      setFactsMemoryAppendButtonVisible(
+        appendButton,
+        canAppend
+      );
+    }
+  );
+}
+
 function appendLog(
   tag,
   message,
@@ -1144,6 +1258,14 @@ function appendLog(
     const isFactsMemory =
       tag.includes("FACTS_MEMORY");
 
+    if (isFactsMemory) {
+      logDiv.dataset.factsMemoryStorageKey =
+        String(
+          meta?.facts_memory_storage_key
+          || ""
+        ).trim();
+    }
+
     const isUser =
       tag.includes("USER");
 
@@ -1313,16 +1435,16 @@ function appendLog(
 
             if (
                 storage
-                && storage.clearSessionSignalsByStorageKey
+                && storage.clearFactsMemoryByStorageKey
                 && storageKey
             ) {
-              storage.clearSessionSignalsByStorageKey(
+              storage.clearFactsMemoryByStorageKey(
                 storageKey
               );
 
               if (
-                  storage.getSessionSignalsStorageKey
-                  && storageKey === storage.getSessionSignalsStorageKey()
+                  storage.getFactsMemoryStorageKey
+                  && storageKey === storage.getFactsMemoryStorageKey()
                   && window.JinRuntime
                   && window.JinRuntime.runtime
                   && window.JinRuntime.runtime.renderRuntimeMemorySnapshot
@@ -1332,6 +1454,10 @@ function appendLog(
             }
           } else if (window.clearPersistedSessionBootstrap) {
             window.clearPersistedSessionBootstrap();
+          }
+
+          if (isFactsMemory) {
+            refreshFactsMemoryAppendButtons();
           }
 
           normalized.details = null;
@@ -1353,6 +1479,82 @@ function appendLog(
       );
     }
 
+    if (isFactsMemory) {
+      const appendButton =
+        document.createElement("button");
+
+      appendButton.type =
+        "button";
+
+      appendButton.className =
+        "inline-flex items-center rounded border border-cyan-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/10 transition";
+
+      appendButton.textContent =
+        "append";
+
+      appendButton.dataset.factsMemoryAppend =
+        "true";
+
+      appendButton.addEventListener(
+        "click",
+        function () {
+          const storage =
+            getFactsMemoryStorage();
+
+          const storageKey =
+            String(
+              logDiv.dataset.factsMemoryStorageKey
+              || ""
+            ).trim();
+
+          const appended =
+            storage
+            && storage.appendFactsMemoryByStorageKey
+            && storage.appendFactsMemoryByStorageKey(
+              storageKey
+            );
+
+          if (!appended) {
+            refreshFactsMemoryAppendButtons();
+            return;
+          }
+
+          meta.facts_memory_session_id =
+            appended.session_id || "";
+
+          meta.facts_memory_storage_key =
+            appended.storage_key || "";
+
+          logDiv.dataset.factsMemoryStorageKey =
+            meta.facts_memory_storage_key;
+
+          normalized.message =
+            String(normalized.message || "")
+              .replace(
+                /^session:\s*.*$/m,
+                `session: ${meta.facts_memory_session_id}`
+              );
+
+          messageSpan.textContent =
+            normalized.message;
+
+          if (
+              window.JinRuntime
+              && window.JinRuntime.runtime
+              && window.JinRuntime.runtime.renderRuntimeMemorySnapshot
+          ) {
+            window.JinRuntime.runtime.renderRuntimeMemorySnapshot();
+          }
+
+          refreshFactsMemoryAppendButtons();
+        }
+      );
+
+      actions.appendChild(
+        appendButton
+      );
+    }
+
     logDiv.appendChild(
       actions
     );
@@ -1368,6 +1570,10 @@ function appendLog(
     );
   }
 
+  if (normalizedTag.includes("FACTS_MEMORY")) {
+    refreshFactsMemoryAppendButtons();
+  }
+
   registerL1SummarizerRequest(
     logDiv,
     normalized.message,
@@ -1379,6 +1585,9 @@ function appendLog(
 
   return logDiv;
 }
+
+window.refreshFactsMemoryAppendButtons =
+  refreshFactsMemoryAppendButtons;
 
 window.appendLog =
   appendLog;

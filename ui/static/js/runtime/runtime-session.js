@@ -72,7 +72,8 @@
       getSavedRuntimeMemoryFallback,
       getCurrentLatestRuntimeMemoryStorageKey,
       getCurrentRuntimeSessionId,
-      activateSessionSignalsSession,
+      getCurrentFactsMemorySessionId,
+      activateFactsMemorySession,
     } = storage;
 
     let pendingBootstrapRuntimeMemorySnapshot = null;
@@ -82,6 +83,32 @@
     let pendingSessionSaveSavedAt = "";
     let persistedSessionBootstrapCleared = false;
     let hasUnsavedSessionActivity = false;
+
+    function getCurrentSavedSessionId() {
+      return String(
+        (
+          getCurrentFactsMemorySessionId
+          && getCurrentFactsMemorySessionId()
+        )
+        || getCurrentRuntimeSessionId()
+        || ""
+      ).trim();
+    }
+
+    function buildSessionSaveRuntimeSnapshot(snapshot) {
+      const persistedSnapshot =
+        buildPersistedRuntimeSnapshot(
+          snapshot
+        );
+
+      return persistedSnapshot
+        ? {
+            ...persistedSnapshot,
+            session_id:
+              getCurrentSavedSessionId(),
+          }
+        : null;
+    }
 
     function runtimeMemoryObjectFromSnapshot(snapshot) {
       const runtimeMemory =
@@ -527,7 +554,7 @@
         version: 1,
         explicit_save: true,
         session_id:
-          getCurrentRuntimeSessionId(),
+          getCurrentSavedSessionId(),
         saved_at:
           pendingSessionSaveSavedAt,
         runtime_memory:
@@ -535,7 +562,7 @@
         runtime_memory_updates:
           latestSavedRuntimeMemory.runtime_memory_updates || 0,
         runtime_snapshot:
-          buildPersistedRuntimeSnapshot(
+          buildSessionSaveRuntimeSnapshot(
             latestSavedRuntimeMemory.runtime_snapshot
           ),
       });
@@ -585,7 +612,7 @@
         version: 1,
         explicit_save: true,
         session_id:
-          getCurrentRuntimeSessionId(),
+          getCurrentSavedSessionId(),
         saved_at: savedAt,
         appended_memory_ids:
           collectCurrentSessionAppendedMemoryIds(),
@@ -997,13 +1024,20 @@
       if (
           bootstrap
           && bootstrap.source_session_id
-          && activateSessionSignalsSession
+          && activateFactsMemorySession
       ) {
         // Continue boosting the original saved session facts in-place.
         // Never clone them into the transient tab/runtime session id.
-        activateSessionSignalsSession(
+        activateFactsMemorySession(
           bootstrap.source_session_id
         );
+
+        if (
+            typeof window.refreshFactsMemoryAppendButtons
+            === "function"
+        ) {
+          window.refreshFactsMemoryAppendButtons();
+        }
       }
 
       const snapshot =
