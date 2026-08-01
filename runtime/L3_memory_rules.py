@@ -48,13 +48,13 @@ L3_OMITTED_MEMORY_LINES_TEMPLATE = "omitted_memory_lines: {count}\n{text}"
 L3_SNAPSHOT_ROLE_LATEST = "latest"
 L3_SNAPSHOT_ROLE_SELECTED = "selected"
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # ROLE
 # L3 — слой сессионной памяти, живущий выше L1 и L2. Его задача — создать
 # компактный снимок сессии, который обеспечит плавное продолжение после
 # перезагрузки браузера, новой вкладки или паузы в работе.
 # Возвращает только текст нового снимка, без объяснений и мета-комментариев.
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 ROLE = (
     "You are JIN's L3 session memory summarizer.\n"
     "L3 independently summarizes the complete L1 runtime snapshot history of the session.\n"
@@ -64,22 +64,22 @@ ROLE = (
     "The final L3 snapshot should feel like a session handoff note for fluent continuation.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # OUTPUT FORMAT
 # Формат строк: key: value, одна семантическая единица на строку.
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 OUTPUT_FORMAT = (
     "Write memory as atomic lines using the format: <key>: <value>\n"
     "One line = one semantic entity. Do not merge unrelated facts into one line.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # MERGE STRATEGY
 # L3 перезаписывается целиком при каждом сохранении путём слияния текущего
 # снимка L3 с хвостом новых L1-патчей. Более старые L1-снимки не нужны —
 # они уже свёрнуты в текущий L3. Массив событий сессии хранится рантаймом
 # и доступен как постоянная история причинно-следственных цепочек.
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 MERGE_STRATEGY = (
     "Rewrite the whole L3 session snapshot by merging Current L3 session memory "
     "with only the provided unsaved L1 runtime snapshots.\n"
@@ -90,12 +90,12 @@ MERGE_STRATEGY = (
     "Do not copy every L1 line. Compress repeated or superseded states.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # WHAT TO PRESERVE
 # L3 сохраняет только то, что важно для продолжения после разрыва сессии.
 # Транзиентные детали последнего ответа JIN выкидываются, если не несут
 # незавершённый вопрос или следующий шаг.
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 WHAT_TO_PRESERVE = (
     "Preserve what should survive a browser reload or a new tab: "
     "active project direction, explicit decisions, durable facts, "
@@ -111,12 +111,12 @@ WHAT_TO_PRESERVE = (
     "if it contains a useful re-entry point, user constraint, unresolved task, or viewing/work progress.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # TIME NORMALIZATION
 # Относительные временные слова нормализуются к доверенной дате из
 # CURRENT_TRUSTED_RUNTIME_VARIABLES. В снимок сессии не должны попадать голые «сегодня»
 # или «недавно». Временные предпочтения кодируются с явной датой истечения.
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 TIME_NORMALIZATION = (
     "Treat CURRENT_TRUSTED_RUNTIME_VARIABLES USER_DATETIME as the source of truth for current time.\n"
     "Convert relative temporal phrases from L1 snapshots into absolute or "
@@ -129,11 +129,11 @@ TIME_NORMALIZATION = (
     "rather than pretending it is durable calendar time.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # IMPORTANT SESSION EVENTS
 # L3 independently extracts important events from the supplied L1 runtime
 # snapshots. Events remain ordinary atomic L3 lines linked to source snapshots.
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 IMPORTANT_SESSION_EVENTS = (
     "Identify important session events directly from the supplied L1 runtime snapshots.\n"
     "An event should preserve a meaningful decision, turning point, correction, discovery, "
@@ -147,9 +147,9 @@ IMPORTANT_SESSION_EVENTS = (
     "Use only IDs present in the supplied snapshots; never invent, reorder, or omit the suffix.\n"
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # ASSEMBLED PROMPT
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 RUNTIME_L3_SESSION_MEMORY_SYSTEM_PROMPT = (
         ROLE
         + OUTPUT_FORMAT

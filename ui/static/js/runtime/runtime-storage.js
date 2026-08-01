@@ -5,6 +5,9 @@
   const latestSavedSessionMemoryStorageKey =
     "jin.latestSavedSessionMemory.v1";
 
+  const savedSessionMemoryHistoryStorageKey =
+    "jin.savedSessionMemoryHistory.v1";
+
   const runtimeSessionIdSessionStorageKey =
     "jin.runtimeSessionId.v1";
 
@@ -22,6 +25,12 @@
 
   const delayedMemoryReportsStorageKey =
     "jin.delayedMemoryReports.v1";
+
+  const factsMemoryStorageKeyPrefix =
+    "jin.factsMemory";
+
+  const factsMemoryStorageKeyVersion =
+    "v1";
 
   const savedRuntimeFallbackPath =
     "/saved_runtime.txt";
@@ -131,6 +140,12 @@
   let runtimeSessionId =
     createRuntimeSessionId();
 
+  // Facts restored from an explicit saved session must keep using the
+  // original factsMemory bucket. The live WebSocket/runtime session may
+  // have its own id, but that must not fork or duplicate restored facts.
+  let factsMemorySessionId =
+    runtimeSessionId;
+
   let latestRuntimeMemoryStorageKey =
     getLatestRuntimeMemoryStorageKey(
       runtimeSessionId
@@ -149,6 +164,28 @@
   function getCurrentRuntimeSessionId() {
 
     return runtimeSessionId;
+
+  }
+
+
+  function getCurrentFactsMemorySessionId() {
+
+    return factsMemorySessionId;
+
+  }
+
+
+  function setCurrentFactsMemorySessionId(
+    nextFactsMemorySessionId
+  ) {
+
+    const normalizedSessionId =
+      String(nextFactsMemorySessionId || "").trim();
+
+    factsMemorySessionId =
+      normalizedSessionId || runtimeSessionId;
+
+    return factsMemorySessionId;
 
   }
 
@@ -331,9 +368,81 @@
     value
   ) {
 
+    const normalizedValue =
+      (
+        value
+        && typeof value === "object"
+        && !Array.isArray(value)
+      )
+        ? {
+            ...value,
+            session_id:
+              String(value.session_id || runtimeSessionId || "").trim(),
+          }
+        : value;
+
+    archiveLatestSavedSessionMemory();
+
     writeBrowserMemory(
       latestSavedSessionMemoryStorageKey,
-      value
+      normalizedValue
+    );
+
+  }
+
+
+  function readSavedSessionMemoryHistory() {
+
+    const history =
+      readBrowserMemory(
+        savedSessionMemoryHistoryStorageKey
+      );
+
+    return Array.isArray(history)
+      ? history.filter(
+          item => item && typeof item === "object"
+        )
+      : [];
+
+  }
+
+
+  function writeSavedSessionMemoryHistory(
+    history
+  ) {
+
+    writeBrowserMemory(
+      savedSessionMemoryHistoryStorageKey,
+      Array.isArray(history)
+        ? history.filter(
+            item => item && typeof item === "object"
+          )
+        : []
+    );
+
+  }
+
+
+  function archiveLatestSavedSessionMemory() {
+
+    const previous =
+      readLatestSavedSessionMemory();
+
+    if (
+        !previous
+        || typeof previous !== "object"
+        || Array.isArray(previous)
+    ) {
+      return;
+    }
+
+    writeSavedSessionMemoryHistory(
+      readSavedSessionMemoryHistory().concat([
+        {
+          ...previous,
+          archived_at: new Date().toISOString(),
+        },
+      ])
     );
 
   }
@@ -455,6 +564,420 @@
   }
 
 
+  function getFactsMemoryStorageKey(
+    sessionId = factsMemorySessionId
+  ) {
+
+    const normalizedSessionId =
+      String(sessionId || "").trim();
+
+    return normalizedSessionId
+      ? `${factsMemoryStorageKeyPrefix}`
+        + `.${normalizedSessionId}`
+        + `.${factsMemoryStorageKeyVersion}`
+      : "";
+
+  }
+
+
+  function isFactsMemoryStorageKey(
+    key
+  ) {
+
+    const prefix =
+      `${factsMemoryStorageKeyPrefix}.`;
+
+    const suffix =
+      `.${factsMemoryStorageKeyVersion}`;
+
+    return (
+      typeof key === "string"
+      && key.startsWith(prefix)
+      && key.endsWith(suffix)
+      && key.length > prefix.length + suffix.length
+    );
+
+  }
+
+
+  function getSessionIdFromFactsMemoryStorageKey(
+    key
+  ) {
+
+    if (!isFactsMemoryStorageKey(key)) {
+      return "";
+    }
+
+    const prefix =
+      `${factsMemoryStorageKeyPrefix}.`;
+
+    const suffix =
+      `.${factsMemoryStorageKeyVersion}`;
+
+    return key.slice(
+      prefix.length,
+      key.length - suffix.length
+    );
+
+  }
+
+
+  function isLegacyFactsMemoryValue(
+    value
+  ) {
+
+    return (
+      value
+      && typeof value === "object"
+      && !Array.isArray(value)
+      && Object.keys(value).length === 1
+      && value.fields
+      && typeof value.fields === "object"
+      && !Array.isArray(value.fields)
+    );
+
+  }
+
+
+  function normalizeFactsMemory(
+    value
+  ) {
+
+    if (
+        !value
+        || typeof value !== "object"
+        || Array.isArray(value)
+    ) {
+      return {};
+    }
+
+    const source =
+      isLegacyFactsMemoryValue(value)
+        ? value.fields
+        : value;
+
+    const signals = {};
+
+    Object.entries(source).forEach(
+      function ([fieldKey, field]) {
+        const normalizedKey =
+          String(fieldKey || "").trim();
+
+        if (
+            !normalizedKey
+            || !field
+            || typeof field !== "object"
+            || Array.isArray(field)
+        ) {
+          return;
+        }
+
+        signals[normalizedKey] = {
+          ...field,
+        };
+      }
+    );
+
+    return signals;
+
+  }
+
+
+  function collectFactsMemoryRecords() {
+
+    const records = [];
+
+    try {
+      for (let index = 0; index < window.localStorage.length; index += 1) {
+        const storageKey =
+          window.localStorage.key(index);
+
+        if (!isFactsMemoryStorageKey(storageKey)) {
+          continue;
+        }
+
+        const stored =
+          readBrowserMemory(storageKey);
+
+        const signals =
+          normalizeFactsMemory(
+            stored
+          );
+
+        const signalCount =
+          Object.keys(signals).length;
+
+        if (!signalCount) {
+          continue;
+        }
+
+        if (isLegacyFactsMemoryValue(stored)) {
+          writeBrowserMemory(
+            storageKey,
+            signals
+          );
+        }
+
+        records.push({
+          storage_key: storageKey,
+          session_id:
+            getSessionIdFromFactsMemoryStorageKey(
+              storageKey
+            ),
+          signal_count: signalCount,
+          signals: {
+            ...signals,
+          },
+        });
+      }
+    } catch (error) {
+      return [];
+    }
+
+    return records.sort(
+      function (left, right) {
+        const leftIsCurrent =
+          left.session_id === factsMemorySessionId;
+
+        const rightIsCurrent =
+          right.session_id === factsMemorySessionId;
+
+        if (leftIsCurrent !== rightIsCurrent) {
+          return leftIsCurrent ? -1 : 1;
+        }
+
+        return String(left.session_id || "").localeCompare(
+          String(right.session_id || "")
+        );
+      }
+    );
+
+  }
+
+  function hasFactsMemoryForSession(
+    sessionId
+  ) {
+
+    return Object.keys(
+      readFactsMemory(
+        sessionId
+      )
+    ).length > 0;
+
+  }
+
+
+  function canAppendFactsMemoryByStorageKey(
+    storageKey
+  ) {
+
+    const sourceSessionId =
+      getSessionIdFromFactsMemoryStorageKey(
+        storageKey
+      );
+
+    const currentSessionId =
+      getCurrentFactsMemorySessionId();
+
+    if (
+        !sourceSessionId
+        || !currentSessionId
+        || sourceSessionId === currentSessionId
+        || hasFactsMemoryForSession(currentSessionId)
+    ) {
+      return false;
+    }
+
+    return hasFactsMemoryForSession(
+      sourceSessionId
+    );
+
+  }
+
+
+  function appendFactsMemoryByStorageKey(
+    storageKey
+  ) {
+
+    if (!canAppendFactsMemoryByStorageKey(storageKey)) {
+      return null;
+    }
+
+    const sourceSessionId =
+      getSessionIdFromFactsMemoryStorageKey(
+        storageKey
+      );
+
+    const currentSessionId =
+      getCurrentFactsMemorySessionId();
+
+    const signals =
+      readFactsMemory(
+        sourceSessionId
+      );
+
+    const targetStorageKey =
+      getFactsMemoryStorageKey(
+        currentSessionId
+      );
+
+    writeBrowserMemory(
+      targetStorageKey,
+      signals
+    );
+
+    removeBrowserMemory(
+      storageKey
+    );
+
+    return {
+      storage_key: targetStorageKey,
+      session_id: currentSessionId,
+      signal_count: Object.keys(signals).length,
+      signals: {
+        ...signals,
+      },
+    };
+
+  }
+
+
+  function clearFactsMemoryByStorageKey(
+    storageKey
+  ) {
+
+    if (!isFactsMemoryStorageKey(storageKey)) {
+      return false;
+    }
+
+    removeBrowserMemory(
+      storageKey
+    );
+
+    return true;
+
+  }
+
+
+  function readFactsMemory(
+    sessionId = factsMemorySessionId
+  ) {
+
+    const key =
+      getFactsMemoryStorageKey(
+        sessionId
+      );
+
+    const stored =
+      key
+        ? readBrowserMemory(key)
+        : null;
+
+    const signals =
+      normalizeFactsMemory(
+        stored
+      );
+
+    if (
+        key
+        && isLegacyFactsMemoryValue(stored)
+    ) {
+      writeBrowserMemory(
+        key,
+        signals
+      );
+    }
+
+    return signals;
+
+  }
+
+
+  function writeFactsMemory(
+    value,
+    sessionId = factsMemorySessionId
+  ) {
+
+    const key =
+      getFactsMemoryStorageKey(
+        sessionId
+      );
+
+    const signals =
+      normalizeFactsMemory(
+        value
+      );
+
+    if (key) {
+      writeBrowserMemory(
+        key,
+        signals
+      );
+    }
+
+    return signals;
+
+  }
+
+
+  function mergeFactsMemoryFields(
+    current,
+    source
+  ) {
+
+    if (!current) {
+      return {
+        ...source,
+      };
+    }
+
+    return {
+      ...current,
+      ...source,
+    };
+
+  }
+
+
+  function activateFactsMemorySession(
+    sourceSessionId
+  ) {
+
+    setCurrentFactsMemorySessionId(
+      sourceSessionId
+    );
+
+    return readFactsMemory();
+
+  }
+
+
+  function removeFactsMemoryField(
+    fieldKey,
+    sessionId = factsMemorySessionId
+  ) {
+
+    const key =
+      String(fieldKey || "").trim();
+
+    const signals =
+      readFactsMemory(
+        sessionId
+      );
+
+    if (key) {
+      delete signals[
+        key
+      ];
+    }
+
+    return writeFactsMemory(
+      signals,
+      sessionId
+    );
+
+  }
+
   function normalizeDelayedMemoryReports(
     value
   ) {
@@ -505,6 +1028,14 @@
           normalizedKey
         );
 
+        const createdDate =
+          String(
+            report.created_date
+            || report.created_time
+            || ""
+          ).trim()
+          || new Date().toISOString();
+
         reports[normalizedKey] = {
           title,
           summary:
@@ -523,12 +1054,103 @@
           created_session_id:
             String(report.created_session_id || "").trim(),
           created_time:
-            String(report.created_time || "").trim(),
+            String(report.created_time || "").trim()
+            || createdDate,
+          created_date:
+            createdDate,
+          appended_times:
+            normalizeDelayedMemoryCounter(
+              report.appended_times
+            ),
+          append_streak:
+            normalizeDelayedMemoryCounter(
+              report.append_streak
+            ),
+          last_appended_date:
+            String(report.last_appended_date || "").trim(),
+          last_appended_session_id:
+            String(report.last_appended_session_id || "").trim(),
+          all_appended_session_ids:
+            normalizeDelayedMemorySessionIds(
+              report.all_appended_session_ids
+            ),
         };
       }
     );
 
     return reports;
+
+  }
+
+
+  function normalizeDelayedMemoryCounter(
+    value
+  ) {
+
+    const numericValue =
+      Number(value || 0);
+
+    return Number.isFinite(numericValue)
+      ? Math.max(
+          Math.floor(numericValue),
+          0
+        )
+      : 0;
+
+  }
+
+
+  function normalizeDelayedMemorySessionIds(
+    value
+  ) {
+
+    const source =
+      Array.isArray(value)
+        ? value
+        : [];
+    const seen = new Set();
+    const sessionIds = [];
+
+    source.forEach(function (item) {
+      const sessionId =
+        String(item || "").trim();
+
+      if (
+          !sessionId
+          || seen.has(sessionId)
+      ) {
+        return;
+      }
+
+      seen.add(sessionId);
+      sessionIds.push(sessionId);
+    });
+
+    return sessionIds;
+
+  }
+
+
+  function collectCurrentSessionAppendedMemoryIds() {
+
+    const sessionId =
+      getCurrentRuntimeSessionId();
+    const reports =
+      readDelayedMemoryReports();
+
+    if (!sessionId) {
+      return [];
+    }
+
+    return Object.entries(reports)
+      .filter(function ([, report]) {
+        return (
+          report
+          && Array.isArray(report.all_appended_session_ids)
+          && report.all_appended_session_ids.includes(sessionId)
+        );
+      })
+      .map(([reportId]) => reportId);
 
   }
 
@@ -1048,16 +1670,21 @@
   const storage = {
     keys: {
       latestSavedSessionMemoryStorageKey,
+      savedSessionMemoryHistoryStorageKey,
       runtimeSessionIdSessionStorageKey,
       latestRuntimeMemoryStorageKeyPrefix,
       latestRuntimeMemoryStorageKeyVersion,
       latestSavedRuntimeMemoryStorageKey,
       activeMemoryStorageKey,
       delayedMemoryReportsStorageKey,
+      factsMemoryStorageKeyPrefix,
+      factsMemoryStorageKeyVersion,
       savedRuntimeFallbackPath,
     },
     getRuntimeSessionId,
     getCurrentRuntimeSessionId,
+    getCurrentFactsMemorySessionId,
+    setCurrentFactsMemorySessionId,
     setRuntimeSessionId,
     generateRuntimeSessionId,
     getLatestRuntimeMemoryStorageKey,
@@ -1071,6 +1698,9 @@
     writeLatestRuntimeMemory,
     readLatestSavedSessionMemory,
     writeLatestSavedSessionMemory,
+    readSavedSessionMemoryHistory,
+    writeSavedSessionMemoryHistory,
+    collectCurrentSessionAppendedMemoryIds,
     readLatestSavedRuntimeMemory,
     writeLatestSavedRuntimeMemory,
     normalizeActiveMemoryRecords,
@@ -1079,6 +1709,18 @@
     clearActiveMemoryRecords,
     appendActiveMemoryRecords,
     removeActiveMemoryRecordById,
+    getFactsMemoryStorageKey,
+    isFactsMemoryStorageKey,
+    getSessionIdFromFactsMemoryStorageKey,
+    collectFactsMemoryRecords,
+    hasFactsMemoryForSession,
+    canAppendFactsMemoryByStorageKey,
+    appendFactsMemoryByStorageKey,
+    clearFactsMemoryByStorageKey,
+    readFactsMemory,
+    writeFactsMemory,
+    activateFactsMemorySession,
+    removeFactsMemoryField,
     normalizeDelayedMemoryReports,
     readDelayedMemoryReports,
     writeDelayedMemoryReports,

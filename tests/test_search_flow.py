@@ -11,25 +11,22 @@ from agent import (
 from agent.nodes import (
     BrainNode,
 )
-from clients import (
+from clients.search_client import (
     build_empty_search_result,
     build_failed_search_result,
     build_search_result_fallback_answer,
     format_search_provider_error,
     normalize_search_results,
-    normalize_serper_item,
 )
-from clients.brain_context_builder import (
-    build_sequence_origin_request_context,
-)
-from runtime import (
+from clients.search_provider import normalize_serper_item
+from runtime.runtime_context import (
     RuntimeContext,
     RuntimeEmitter,
 )
-from websocket_logger import (
+from websocket.logger import (
     WebSocketLogger,
 )
-from rules.assembler import (
+from rules.brain_context_builder import (
     SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
 )
 
@@ -530,7 +527,7 @@ class SearchFlowTests(
                         "type": "content",
                         "content": (
                             "Needs current pricing. "
-                            "<INTERNAL_ACTION_WEB_SEARCH:tesla car price>"
+                            "<WEB_SEARCH:tesla car price>"
                         ),
                     },
                 ],
@@ -592,12 +589,26 @@ class SearchFlowTests(
             "web_search_001",
         )
         self.assertEqual(
+            runtime_events[0]["display_name"],
+            "WEB_SEARCH",
+        )
+        self.assertEqual(
+            runtime_events[0]["text"],
+            "WEB_SEARCH: tesla car price",
+        )
+        self.assertNotIn(
+            "Searching for",
+            runtime_events[0]["text"],
+        )
+        self.assertEqual(
             runtime_events[1],
             {
                 "type": "runtime_action",
                 "action": "web_search",
+                "display_name": "WEB_SEARCH",
                 "id": "web_search_001",
                 "status": "completed",
+                "scene_effect": "search",
             },
         )
         self.assertIn(
@@ -642,9 +653,11 @@ class SearchFlowTests(
             ),
         )
         self.assertIn(
-            build_sequence_origin_request_context(
-                state.translated_input
-            ),
+            f"INITIAL_SEQUENCE_INSTRUCTION: {state.translated_input}",
+            brain_client.prompts[1]["system_prompt"],
+        )
+        self.assertNotIn(
+            "<SEQUENCE_ORIGIN_REQUEST>",
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertNotIn(
@@ -654,10 +667,6 @@ class SearchFlowTests(
         self.assertNotIn(
             "<SEARCH_RESULT>",
             brain_client.prompts[1]["user_prompt"],
-        )
-        self.assertIn(
-            "<TOOL_RESULTS",
-            brain_client.prompts[1]["system_prompt"],
         )
         self.assertIn(
             '<TOOL_RESULT name="WEB_SEARCH" id="web_search_001">',
@@ -700,7 +709,7 @@ class SearchFlowTests(
                         "type": "content",
                         "content": (
                             "I will check. "
-                            "<INTERNAL_ACTION_WEB_SEARCH:tesla car price>"
+                            "<WEB_SEARCH:tesla car price>"
                         ),
                     },
                 ],
@@ -769,7 +778,7 @@ class SearchFlowTests(
                         "type": "content",
                         "content": (
                             "Needs current pricing. "
-                            "<INTERNAL_ACTION_WEB_SEARCH:apple price>"
+                            "<WEB_SEARCH:apple price>"
                         ),
                     },
                     {
@@ -834,7 +843,7 @@ class SearchFlowTests(
                     {
                         "type": "content",
                         "content": (
-                            "<INTERNAL_ACTION_WEB_SEARCH:jupiter cost>"
+                            "<WEB_SEARCH:jupiter cost>"
                         ),
                     },
                 ],
@@ -886,7 +895,7 @@ class SearchFlowTests(
                     {
                         "type": "content",
                         "content": (
-                            "<INTERNAL_ACTION_WEB_SEARCH:latest Python version>"
+                            "<WEB_SEARCH:latest Python version>"
                         ),
                     },
                 ],
@@ -919,3 +928,5 @@ class SearchFlowTests(
 
 if __name__ == "__main__":
     unittest.main()
+
+

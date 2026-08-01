@@ -11,6 +11,8 @@
   let setActiveMemoryRecords = null;
   let deleteRuntimeMemoryLine = null;
   let getDelayedMemoryReports = null;
+  let getFactsMemoryFields = null;
+  let deleteFactsMemoryField = null;
   let getDisplayMode = null;
   let setDisplayMode = null;
 
@@ -18,6 +20,8 @@
   const MEMORY_DELETE_HOLD_MS = 1500;
   const THINK_RUNTIME_CITATION_HOVER_EVENT = "jin:think-runtime-citation-hover";
   const RUNTIME_MEMORY_LINE_HOVER_SOURCE_ID = "runtime-memory-line-hover";
+  const normalizeRuntimeCitationIdentity =
+      window.JinRuntime.normalizeCitationIdentity;
 
   const pinnedRuntimeMemorySnapshotIndexes = new Set();
 
@@ -147,37 +151,142 @@
     }
   }
 
+  function getFactsMemoryFieldRecords() {
+    const fields =
+        typeof getFactsMemoryFields === "function"
+          ? getFactsMemoryFields()
+          : {};
+
+    if (
+        !fields
+        || typeof fields !== "object"
+        || Array.isArray(fields)
+    ) {
+      return [];
+    }
+
+    return Object.entries(fields)
+      .map(([key, field]) => {
+        if (
+            !field
+            || typeof field !== "object"
+            || Array.isArray(field)
+        ) {
+          return null;
+        }
+
+        const content =
+            String(field.content || "").trim();
+
+        if (!content) {
+          return null;
+        }
+
+        return {
+          key,
+          ...field,
+          content,
+        };
+      })
+      .filter(Boolean)
+      .sort((left, right) => {
+        const traceDifference =
+            Number(right.max_trace || 0)
+            - Number(left.max_trace || 0);
+
+        if (traceDifference) {
+          return traceDifference;
+        }
+
+        return String(left.key || "").localeCompare(
+            String(right.key || "")
+        );
+      });
+  }
+
+  function getAvailableRuntimeMemoryDisplayModes() {
+    const modes = [
+      "runtime",
+    ];
+
+    if (getActiveMemoryRecordTexts().length > 0) {
+      modes.push(
+          "active"
+      );
+    }
+
+    if (getDelayedMemoryReportRecords().length > 0) {
+      modes.push(
+          "delayed"
+      );
+    }
+
+    if (getFactsMemoryFieldRecords().length > 0) {
+      modes.push(
+          "facts"
+      );
+    }
+
+    return modes;
+  }
+
+  function ensureRuntimeMemoryDisplayModeAvailable() {
+    const modes =
+        getAvailableRuntimeMemoryDisplayModes();
+
+    const displayMode =
+        getRuntimeMemoryDisplayMode();
+
+    if (modes.includes(displayMode)) {
+      return displayMode;
+    }
+
+    setRuntimeMemoryDisplayMode(
+        "runtime"
+    );
+
+    return "runtime";
+  }
+
   function updateRuntimeMemoryTitleState() {
     if (!runtimeMemoryTitle) {
       return;
     }
 
-    const hasActiveMemory =
-        getActiveMemoryRecordTexts().length > 0;
+    const modes =
+        getAvailableRuntimeMemoryDisplayModes();
 
-    const hasDelayedMemory =
-        getDelayedMemoryReportRecords().length > 0;
+    const currentMode =
+        getRuntimeMemoryDisplayMode();
 
     const displayMode =
-        getRuntimeMemoryDisplayMode();
+        modes.includes(currentMode)
+          ? currentMode
+          : "runtime";
 
     runtimeMemoryTitle.textContent =
         displayMode === "active"
           ? "[ active memory ]"
           : displayMode === "delayed"
             ? "[ delayed memory ]"
-            : "[ runtime memory ]";
+            : displayMode === "facts"
+              ? "[ facts memory ]"
+              : "[ runtime memory ]";
+
+    const hasAlternativeMemory =
+        modes.length > 1;
 
     runtimeMemoryTitle.classList.toggle(
         "runtime-memory-title-clickable",
-        hasActiveMemory || hasDelayedMemory
+        hasAlternativeMemory
     );
 
-    if (hasActiveMemory || hasDelayedMemory) {
+    if (hasAlternativeMemory) {
       runtimeMemoryTitle.setAttribute(
           "role",
           "button"
       );
+
       runtimeMemoryTitle.setAttribute(
           "tabindex",
           "0"
@@ -188,6 +297,7 @@
     runtimeMemoryTitle.removeAttribute(
         "role"
     );
+
     runtimeMemoryTitle.removeAttribute(
         "tabindex"
     );
@@ -571,6 +681,7 @@
     requireRuntimeMemoryHistory();
     clearRuntimeMemoryLineAvatarHover();
     clampRuntimeMemoryHistoryIndex();
+    ensureRuntimeMemoryDisplayModeAvailable();
     updateRuntimeMemoryTitleState();
 
     if (getRuntimeMemoryDisplayMode() === "active") {
@@ -580,6 +691,11 @@
 
     if (getRuntimeMemoryDisplayMode() === "delayed") {
       renderDelayedMemoryReports();
+      return;
+    }
+
+    if (getRuntimeMemoryDisplayMode() === "facts") {
+      renderFactsMemoryFields();
       return;
     }
 
@@ -662,6 +778,35 @@
     return Math.max(
         0,
         Math.min(1, number)
+    );
+  }
+
+  function runtimeMemoryTraceFontWeight(line) {
+    const strength =
+        Number(line && line.strength);
+
+    if (!Number.isFinite(strength)) {
+      return 400;
+    }
+
+    const normalized =
+        clampMemoryRatio(strength);
+    const eased =
+        Math.sqrt(
+            Math.max(
+                0,
+                normalized - 0.5
+            ) / 0.5
+        );
+
+    return Math.round(
+        Math.max(
+            400,
+            Math.min(
+                500,
+                400 + eased * 100
+            )
+        )
     );
   }
 
@@ -776,18 +921,6 @@
 
     autoFlashedRuntimeMemorySnapshots.add(sourceSnapshot);
     return true;
-  }
-
-  function normalizeRuntimeCitationIdentity(value) {
-    const source = String(value || "");
-    const normalized = source.normalize
-      ? source.normalize("NFKC")
-      : source;
-
-    return normalized
-      .toLowerCase()
-      .replace(/\s+/g, " ")
-      .trim();
   }
 
   function dispatchRuntimeMemoryLineAvatarHover(
@@ -981,6 +1114,10 @@
 
       valueSpan.textContent =
           ` ${valuePresentation.text}`;
+      valueSpan.style.fontWeight =
+          String(
+              runtimeMemoryTraceFontWeight(line)
+          );
 
       const hoverTitle =
           formatRuntimeMemoryHoverTitle(fullRawLine);
@@ -997,6 +1134,11 @@
         configureActiveMemoryRow(
             row,
             index,
+            line
+        );
+      } else if (options.interactiveFactsMemory) {
+        configureFactsMemoryRow(
+            row,
             line
         );
       } else if (options.interactiveRuntimeMemory) {
@@ -1300,6 +1442,47 @@
       return;
     }
 
+    configureRuntimeMemoryDeleteHold(
+        row,
+        () => {
+          if (typeof deleteRuntimeMemoryLine === "function") {
+            deleteRuntimeMemoryLine(
+                index,
+                line
+            );
+          }
+        }
+    );
+  }
+
+  function configureFactsMemoryRow(
+      row,
+      line
+  ) {
+    if (
+        !row
+        || !line
+        || !line.key
+    ) {
+      return;
+    }
+
+    configureRuntimeMemoryDeleteHold(
+        row,
+        () => {
+          if (typeof deleteFactsMemoryField === "function") {
+            deleteFactsMemoryField(
+                line.key
+            );
+          }
+        }
+    );
+  }
+
+  function configureRuntimeMemoryDeleteHold(
+      row,
+      onDelete
+  ) {
     row.classList.add(
         "runtime-memory-removable-row"
     );
@@ -1358,11 +1541,8 @@
         deleteCompleted = true;
         pointerDown = false;
 
-        if (typeof deleteRuntimeMemoryLine === "function") {
-          deleteRuntimeMemoryLine(
-              index,
-              line
-          );
+        if (typeof onDelete === "function") {
+          onDelete();
         }
       }, MEMORY_DELETE_HOLD_MS);
     });
@@ -1386,23 +1566,18 @@
         "pointercancel",
         cancelPendingDelete
     );
+
     row.addEventListener(
         "pointerleave",
         cancelPendingDelete
     );
   }
 
+
   function renderDelayedMemoryReports() {
     const reports =
         getDelayedMemoryReportRecords();
 
-    if (!reports.length) {
-      setRuntimeMemoryDisplayMode(
-          "runtime"
-      );
-      renderRuntimeMemorySnapshot();
-      return;
-    }
 
     if (runtimeMemoryText) {
       runtimeMemoryText.innerHTML = "";
@@ -1886,17 +2061,78 @@
     );
   }
 
+  function buildFactsMemoryLine(record) {
+    const content =
+        String(record.content || "").trim();
+
+    return {
+      key: String(record.key || "").trim(),
+      value: memoryModel.appendProperties(
+          content,
+          [
+            `runtime_snapshot_id: ${String(record.runtime_snapshot_id || "").trim()}`,
+          ]
+      ),
+      status: "same",
+      key_status: "same",
+      value_status: "same",
+      key_change_ratio: 0,
+      value_change_ratio: 0,
+    };
+  }
+
+
+  function renderFactsMemoryFields() {
+    const records =
+        getFactsMemoryFieldRecords();
+
+    const lines =
+        records.map(
+          buildFactsMemoryLine
+        );
+
+    if (runtimeMemoryText) {
+      runtimeMemoryText.innerHTML = "";
+      runtimeMemoryText.classList.remove(
+          "runtime-memory-text-pinned"
+      );
+      runtimeMemoryText.removeAttribute(
+          "title"
+      );
+
+      appendRuntimeMemoryLineRows(
+          lines,
+          false,
+          {
+            applyFlash: false,
+            interactiveFactsMemory: true,
+          }
+      );
+    }
+
+    if (runtimeMemoryPosition) {
+      runtimeMemoryPosition.textContent =
+          String(records.length);
+    }
+
+    userIdleValueNode = null;
+    idle.stop();
+
+    updateRuntimeMemoryTitleMetricsFromText(
+        lines
+          .map(line => `${line.key}: ${line.value}`)
+          .join("\n")
+    );
+
+    updateRuntimeMemoryArrows();
+    updateRuntimeMemoryPinGlow();
+    updateRuntimeMemoryTitleState();
+  }
+
+
   function renderActiveMemoryRecords() {
     const records =
         getActiveMemoryRecordTexts();
-
-    if (!records.length) {
-      setRuntimeMemoryDisplayMode(
-          "runtime"
-      );
-      renderRuntimeMemorySnapshot();
-      return;
-    }
 
     if (runtimeMemoryText) {
       runtimeMemoryText.innerHTML = "";
@@ -2019,32 +2255,11 @@
   }
 
   function toggleRuntimeMemoryDisplayMode() {
-    const hasActiveMemory =
-        getActiveMemoryRecordTexts().length > 0;
-
-    const hasDelayedMemory =
-        getDelayedMemoryReportRecords().length > 0;
-
-    if (
-        !hasActiveMemory
-        && !hasDelayedMemory
-    ) {
-      return;
-    }
-
     const modes =
-        ["runtime"];
+        getAvailableRuntimeMemoryDisplayModes();
 
-    if (hasActiveMemory) {
-      modes.push(
-          "active"
-      );
-    }
-
-    if (hasDelayedMemory) {
-      modes.push(
-          "delayed"
-      );
+    if (modes.length <= 1) {
+      return;
     }
 
     const currentMode =
@@ -2190,6 +2405,8 @@
     setActiveMemoryRecords = options.setActiveMemoryRecords || null;
     deleteRuntimeMemoryLine = options.deleteRuntimeMemoryLine || null;
     getDelayedMemoryReports = options.getDelayedMemoryReports || null;
+    getFactsMemoryFields = options.getFactsMemoryFields || null;
+    deleteFactsMemoryField = options.deleteFactsMemoryField || null;
     getDisplayMode = options.getDisplayMode || null;
     setDisplayMode = options.setDisplayMode || null;
 
@@ -2226,6 +2443,7 @@
 
   window.JinRuntime.memoryView = {
     init,
+    openDelayedMemoryReportModal,
     render: renderRuntimeMemorySnapshot,
     renderRuntimeMemorySnapshot,
     renderDiffs: renderRuntimeDiffs,

@@ -1,0 +1,17 @@
+{
+  "clean_tool_results": {
+    "version": 1,
+    "description": "Allows the model to clean redundant tool results.",
+    "runtime_action": "CLEAN_TOOL_RESULTS",
+    "private_marker": "<CLEAN_TOOL_RESULTS>",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": false
+    },
+    "rules": [
+      "Emit at any moment in you answer to clean redundant tool results and only if they are present in the context inside <TOOLS_RESULTS> block."
+    ],
+    "close_tag": false
+  }
+}

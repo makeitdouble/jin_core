@@ -1,4 +1,3 @@
-from importlib import import_module
 from importlib import util
 import os
 from pathlib import Path
@@ -139,37 +138,28 @@ def load_config_module(
 ):
 
     if config_path is None:
+        config_path = ROOT / "config.py"
 
-        try:
-            return apply_env_overrides(
-                import_module(
-                    "config"
-                )
+    if example_path is None:
+        example_path = ROOT / "config.example.py"
+
+    if config_path.exists():
+        return apply_env_overrides(
+            load_config_from_path(
+                config_path
             )
-
-        except ModuleNotFoundError as error:
-
-            if error.name != "config":
-                raise
-
-    else:
-
-        if config_path.exists():
-            return apply_env_overrides(
-                load_config_from_path(
-                    config_path
-                )
-            )
-
-    fallback_path = (
-        example_path
-        or ROOT / "config.example.py"
-    )
-
-    return apply_env_overrides(
-        load_config_from_path(
-            fallback_path
         )
+
+    if example_path.exists():
+        return apply_env_overrides(
+            load_config_from_path(
+                example_path
+            )
+        )
+
+    raise FileNotFoundError(
+        f"config not found at {config_path} "
+        f"or {example_path}"
     )
 
 

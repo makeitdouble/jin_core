@@ -1,59 +1,27 @@
 from __future__ import annotations
 
-import json
-from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
-
-_CONTRACT_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "contracts"
-    / "behavior_contract.json"
+from contracts.rules_assembler import (
+    get_action_contract,
+    get_action_contract_name_for_runtime_action,
+    get_action_contracts,
+    get_behavior_contract as load_behavior_contract,
 )
 
 
-@lru_cache(maxsize=1)
 def get_behavior_contract() -> dict[str, Any]:
-    with _CONTRACT_PATH.open(
-        "r",
-        encoding="utf-8",
-    ) as contract_file:
-        return json.load(
-            contract_file
-        )
+    return load_behavior_contract()
 
 
 def get_action_guards() -> dict[str, Any]:
-    guards = get_behavior_contract().get(
-        "action_guards",
-        {},
-    )
-
-    if not isinstance(
-        guards,
-        dict,
-    ):
-        return {}
-
-    return guards
+    return get_action_contracts()
 
 
 def get_action_guard(
     name: str,
 ) -> dict[str, Any]:
-    guard = get_action_guards().get(
-        name,
-        {},
-    )
-
-    if not isinstance(
-        guard,
-        dict,
-    ):
-        return {}
-
-    return guard
+    return get_action_contract(name)
 
 
 def _get_action_guard_strings(
@@ -98,6 +66,14 @@ def get_action_guard_blockers(
     return _get_action_guard_strings(
         name,
         "blockers",
+    )
+
+
+def get_action_guard_name_for_runtime_action(
+    runtime_action: str,
+) -> str:
+    return get_action_contract_name_for_runtime_action(
+        runtime_action
     )
 
 
@@ -152,7 +128,44 @@ def _has_guard_trigger(
         start = index + 1
 
 
-def should_execute_action_guard(
+def action_guard_has_blocker_match(
+    name: str,
+    user_text: str,
+) -> bool:
+    return bool(
+        get_action_guard_blocker_match(
+            name,
+            user_text,
+        )
+    )
+
+
+def get_action_guard_blocker_match(
+    name: str,
+    user_text: str,
+) -> str:
+    normalized_text = _normalize_guard_text(
+        user_text
+    )
+
+    if not normalized_text:
+        return ""
+
+    for blocker in get_action_guard_blockers(
+        name
+    ):
+        if _has_guard_trigger(
+            normalized_text,
+            _normalize_guard_text(
+                blocker
+            ),
+        ):
+            return blocker
+
+    return ""
+
+
+def action_guard_has_trigger_match(
     name: str,
     user_text: str,
 ) -> bool:
@@ -161,21 +174,6 @@ def should_execute_action_guard(
     )
 
     if not normalized_text:
-        return False
-
-    has_blocker = any(
-        _has_guard_trigger(
-            normalized_text,
-            _normalize_guard_text(
-                blocker
-            ),
-        )
-        for blocker in get_action_guard_blockers(
-            name
-        )
-    )
-
-    if has_blocker:
         return False
 
     return any(
@@ -187,5 +185,63 @@ def should_execute_action_guard(
         )
         for trigger in get_action_guard_triggers(
             name
+        )
+    )
+
+
+def should_pause_action_guard_for_confirmation(
+    name: str,
+    user_text: str,
+) -> bool:
+    return (
+        bool(get_action_guard_triggers(name))
+        and not action_guard_has_blocker_match(
+            name,
+            user_text,
+        )
+        and not action_guard_has_trigger_match(
+            name,
+            user_text,
+        )
+    )
+
+
+def should_execute_action_guard(
+    name: str,
+    user_text: str,
+) -> bool:
+    normalized_text = _normalize_guard_text(
+        user_text
+    )
+
+    if not normalized_text:
+        return False
+
+    if action_guard_has_blocker_match(
+        name,
+        user_text,
+    ):
+        return False
+
+    if not get_action_guard_triggers(
+        name
+    ):
+        return True
+
+    return action_guard_has_trigger_match(
+        name,
+        user_text,
+    )
+
+
+def should_prearm_action_guard(
+    name: str,
+    user_text: str,
+) -> bool:
+    return (
+        bool(get_action_guard_triggers(name))
+        and should_execute_action_guard(
+            name,
+            user_text,
         )
     )

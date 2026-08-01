@@ -13,10 +13,8 @@ from agent.nodes import (
     TranslationNode,
 )
 
-from clients import (
-    build_clients,
-    build_translation_system_prompt,
-)
+from clients.registry import build_clients
+from clients.translation_client import build_translation_system_prompt
 
 
 TRANSLATION_CASES = [

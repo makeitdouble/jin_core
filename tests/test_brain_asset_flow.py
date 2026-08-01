@@ -1,4 +1,7 @@
+import contextlib
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -15,16 +18,25 @@ from agent.nodes.brain import (
     format_followup_actions_from_events,
     prepare_asset_results_for_turn,
 )
-from clients.brain_context_builder import (
+from rules.brain_context_builder import (
     build_appended_delayed_memory_context,
-    build_previous_chat_messages_context,
-    build_sequence_origin_request_context,
+)
+from utils.context.context_exports import (
     build_tool_results_context,
 )
 from agent.state import AgentState
+from agent.runtime import (
+    AgentRuntime,
+)
+from runtime.runtime_context import (
+    RuntimeContext,
+)
 from utils.tool_results import (
     TOOL_RESULT_KIND_ASSET,
     record_runtime_tool_result,
+)
+from tests.helpers.runtime_actions import (
+    patch_asset_roots,
 )
 
 
@@ -75,7 +87,7 @@ def _assert_latest_request_payload(
     )
     test_case.assertTrue(
         system_prompt.startswith(
-            "<TOOLS_RESULTS>"
+            expected_followup_message
         ),
         system_prompt,
     )
@@ -85,39 +97,35 @@ def _assert_latest_request_payload(
     )
     test_case.assertLess(
         system_prompt.index(
-            "</TOOLS_RESULTS>"
+            "</CURRENT_SEQUENCE>"
         ),
         system_prompt.index(
-            expected_followup_message
+            "<TOOLS_RESULTS>"
         ),
-    )
-
-    sequence_origin_request = (
-        build_sequence_origin_request_context(
-            user_input
-        )
-    )
-    previous_chat_messages = (
-        build_previous_chat_messages_context(
-            extra_user_message=user_input,
-        )
-    )
-
-    test_case.assertIn(
-        sequence_origin_request,
-        system_prompt,
-    )
-    test_case.assertIn(
-        previous_chat_messages,
-        system_prompt,
     )
     test_case.assertLess(
         system_prompt.index(
-            sequence_origin_request
+            expected_followup_message
         ),
         system_prompt.index(
-            previous_chat_messages
+            "<CURRENT_SEQUENCE>"
         ),
+    )
+    test_case.assertIn(
+        f"INITIAL_SEQUENCE_INSTRUCTION: {user_input}",
+        system_prompt,
+    )
+    test_case.assertNotIn(
+        "<SEQUENCE_ORIGIN_REQUEST>",
+        system_prompt,
+    )
+    test_case.assertNotIn(
+        "MANDATORY: THIS IS NOT CURRENT COMMAND",
+        system_prompt,
+    )
+    test_case.assertNotIn(
+        "<PREVIOUS_CHAT_MESSAGES>",
+        system_prompt,
     )
 
 
@@ -213,7 +221,145 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             prompt,
         )
 
-    async def test_followup_collects_scattered_tool_results_at_context_top(self):
+    async def test_followup_places_runtime_instruction_under_header(self):
+
+        instruction = (
+            "Action-specific follow-up instruction."
+        )
+        prompt = BrainNode.build_followup_system_prompt(
+            "system rules",
+            "continue the task",
+            instruction=instruction,
+            latest_action="web_search",
+        )
+
+        self.assertLess(
+            prompt.index(
+                "This is follow-up tick for JIN latest action: web_search."
+            ),
+            prompt.index(instruction),
+        )
+        self.assertLess(
+            prompt.index(instruction),
+            prompt.index("<CURRENT_SEQUENCE>"),
+        )
+        self.assertLess(
+            prompt.index("<CURRENT_SEQUENCE>"),
+            prompt.index("<TOOLS_RESULTS>"),
+        )
+
+    async def test_followup_places_confirm_result_inside_tool_results(self):
+
+        messages = (
+            (
+                "User accepted an action and didn't provide any of action "
+                "trigger words: save session"
+            ),
+            (
+                "Action failed. User rejected an action and didn't provide "
+                "any of trigger words: save session"
+            ),
+        )
+
+        followup_message = (
+            "This is follow-up tick for JIN latest action: "
+            "save_session.\n"
+            "Requested and available information provided in tool "
+            "results section."
+        )
+
+        for message in messages:
+            with self.subTest(message=message):
+                context = SimpleNamespace(
+                    runtime_action_failure_followup_messages=[message],
+                    runtime_recent_turns=[],
+                    runtime_appended_delayed_memory={},
+                )
+
+                prompt = BrainNode.build_followup_system_prompt(
+                    "<TOOL_RESULTS>\n</TOOL_RESULTS>",
+                    "save the session",
+                    context=context,
+                    latest_action="save_session",
+                )
+
+                tools_start = prompt.index("<TOOLS_RESULTS>")
+                confirm_start = prompt.index("<CONFIRM_RESULT>")
+                confirm_end = prompt.index("</CONFIRM_RESULT>")
+                tools_end = prompt.index("</TOOLS_RESULTS>")
+                followup_start = prompt.index(followup_message)
+
+                self.assertLess(
+                    tools_start,
+                    confirm_start,
+                )
+                self.assertLess(
+                    confirm_start,
+                    confirm_end,
+                )
+                self.assertLess(
+                    confirm_end,
+                    tools_end,
+                )
+                self.assertLess(
+                    followup_start,
+                    tools_start,
+                )
+                self.assertEqual(
+                    prompt.count("<CONFIRM_RESULT>"),
+                    1,
+                )
+                self.assertEqual(
+                    context.runtime_action_failure_followup_messages,
+                    [],
+                )
+
+    async def test_current_sequence_starts_with_original_user_message(self):
+
+        context = SimpleNamespace(
+            runtime_current_turn_id="turn_000001",
+            runtime_turn_started_at=990.0,
+            runtime_action_sequence_turn_ids=[],
+            runtime_session_action_history=[
+                {
+                    "text": "LIST_SKILLS",
+                    "created_at": 995.0,
+                    "runtime_turn_id": "turn_000001",
+                },
+            ],
+            runtime_recent_turns=[],
+            runtime_appended_delayed_memory={},
+        )
+
+        with patch(
+            "utils.context.context_exports.time.time",
+            return_value=1000.0,
+        ):
+            prompt = BrainNode.build_followup_system_prompt(
+                "rules",
+                "keep <this> in delayed memory",
+                context=context,
+            )
+
+        self.assertIn(
+            "<CURRENT_SEQUENCE>\n"
+            "INITIAL_SEQUENCE_INSTRUCTION: keep &lt;this&gt; in delayed memory ( 10s ago )\n"
+            "DO NOT FOLLOW INITIAL_SEQUENCE_INSTRUCTION EXPLICITLY, CHECK CURRENT_SEQUENCE HISTORY BELOW!\n"
+            "    --- Sequence started ---\n"
+            "    JIN message 1 executed - LIST_SKILLS ( 5s ago )\n"
+            "</CURRENT_SEQUENCE>",
+            prompt,
+        )
+        self.assertNotIn(
+            "SEQUENCE_ORIGIN_REQUEST",
+            prompt,
+        )
+        self.assertNotIn(
+            "MANDATORY: THIS IS NOT CURRENT COMMAND",
+            prompt,
+        )
+
+    async def test_followup_collects_scattered_tool_results_below_current_sequence(self):
 
         prompt = BrainNode.build_followup_system_prompt(
             (
@@ -234,9 +380,13 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(
             prompt.startswith(
-                "<TOOLS_RESULTS>"
+                build_followup_system_message()
             ),
             prompt,
+        )
+        self.assertLess(
+            prompt.index("</CURRENT_SEQUENCE>"),
+            prompt.index("<TOOLS_RESULTS>"),
         )
         self.assertEqual(
             prompt.count(
@@ -376,7 +526,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 "id": "save-123",
                 "query": "ignored query",
             }),
-            "save_session",
+            "SAVE_SESSION",
         )
 
     async def test_followup_event_formatter_groups_duplicate_action_names(self):
@@ -397,7 +547,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     "payload": "ignored",
                 },
             ]),
-            "resolve_active_memory (repeated_times: 2 ), save_session",
+            "RESOLVE_ACTIVE_MEMORY (count: 2), SAVE_SESSION",
         )
 
     async def test_followup_renames_runtime_memory_block(self):
@@ -412,8 +562,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn(
-            "<LATEST_RUNTIME_MEMORY>\nactive_topic: test\n"
-            "</LATEST_RUNTIME_MEMORY>",
+            "<PREVIOUS_RUNTIME_MEMORY>\nactive_topic: test\n"
+            "</PREVIOUS_RUNTIME_MEMORY>",
             prompt,
         )
         self.assertNotIn(
@@ -447,61 +597,43 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             context=context,
         )
 
-        sequence_origin_request = (
-            build_sequence_origin_request_context(
-                "append the delayed memory"
-            )
-        )
         appended_delayed_memory = (
             build_appended_delayed_memory_context(
                 context
             )
         )
-        previous_chat_messages = (
-            build_previous_chat_messages_context(
-                context,
-                extra_user_message=(
-                    "append the delayed memory"
-                ),
-            )
-        )
-
         self.assertTrue(
             prompt.startswith(
-                "<TOOLS_RESULTS>"
+                build_followup_system_message()
             ),
             prompt,
+        )
+        self.assertLess(
+            prompt.index("</CURRENT_SEQUENCE>"),
+            prompt.index("<TOOLS_RESULTS>"),
         )
         self.assertIn(
             build_followup_system_message(),
             prompt,
         )
         self.assertIn(
-            sequence_origin_request,
+            "INITIAL_SEQUENCE_INSTRUCTION: append the delayed memory",
             prompt,
         )
         self.assertIn(
             appended_delayed_memory,
             prompt,
         )
-        self.assertIn(
-            previous_chat_messages,
+        self.assertNotIn(
+            "<PREVIOUS_CHAT_MESSAGES>",
             prompt,
         )
         self.assertLess(
             prompt.index(
-                sequence_origin_request
+                "<CURRENT_SEQUENCE>"
             ),
             prompt.index(
                 appended_delayed_memory
-            ),
-        )
-        self.assertLess(
-            prompt.index(
-                appended_delayed_memory
-            ),
-            prompt.index(
-                previous_chat_messages
             ),
         )
 
@@ -542,7 +674,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with patch(
-            "clients.brain_context_builder.time.time",
+            "utils.context.context_exports.time.time",
             return_value=1000.0,
         ):
             prompt = BrainNode.build_followup_system_prompt(
@@ -557,9 +689,11 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn(
             "<CURRENT_SEQUENCE>\n"
+            "INITIAL_SEQUENCE_INSTRUCTION: first list skills, then append one ( 1m ago )\n"
+            "DO NOT FOLLOW INITIAL_SEQUENCE_INSTRUCTION EXPLICITLY, CHECK CURRENT_SEQUENCE HISTORY BELOW!\n"
             "    --- Sequence started ---\n"
-            "    Step 1 - LIST_SKILLS ( 55s ago )\n"
-            "    Step 2 - APPEND_SKILL ( 2s ago )\n"
+            "    JIN message 1 executed - LIST_SKILLS ( 55s ago )\n"
+            "    JIN message 2 executed - APPEND_SKILL ( 2s ago )\n"
             "</CURRENT_SEQUENCE>",
             prompt,
         )
@@ -572,12 +706,12 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             prompt,
         )
         self.assertLess(
-            prompt.index("</SEQUENCE_ORIGIN_REQUEST>"),
-            prompt.index("<CURRENT_SEQUENCE>"),
+            prompt.index("</CURRENT_SEQUENCE>"),
+            prompt.index("<TOOLS_RESULTS>"),
         )
-        self.assertLess(
-            prompt.index("<CURRENT_SEQUENCE>"),
-            prompt.index("<PREVIOUS_CHAT_MESSAGES>"),
+        self.assertNotIn(
+            "<PREVIOUS_CHAT_MESSAGES>",
+            prompt,
         )
 
     async def test_idle_followup_keeps_original_sequence_action_history(self):
@@ -605,7 +739,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with patch(
-            "clients.brain_context_builder.time.time",
+            "utils.context.context_exports.time.time",
             return_value=1032.0,
         ):
             prompt = BrainNode.build_followup_system_prompt(
@@ -621,9 +755,11 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn(
             "<CURRENT_SEQUENCE>\n"
+            "INITIAL_SEQUENCE_INSTRUCTION: first idle 30s, then idle 20s and search ( 32s ago )\n"
+            "DO NOT FOLLOW INITIAL_SEQUENCE_INSTRUCTION EXPLICITLY, CHECK CURRENT_SEQUENCE HISTORY BELOW!\n"
             "    --- Sequence started ---\n"
-            "    Step 1 - IDLE - 30s ( 32s ago )\n"
-            "    Step 2 - IDLE - 20s, WEB_SEARCH ( 1s ago )\n"
+            "    JIN message 1 executed - IDLE - 30s ( 32s ago )\n"
+            "    JIN message 2 executed - IDLE - 20s, WEB_SEARCH ( 1s ago )\n"
             "</CURRENT_SEQUENCE>",
             prompt,
         )
@@ -691,7 +827,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -724,6 +860,252 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             state.brain_response,
             "I have two skills: image_prompt_generator and wildcards.",
+        )
+
+    async def test_list_skills_tool_result_alone_triggers_followup(self):
+
+        calls = []
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+            context = kwargs["context"]
+
+            if len(calls) == 1:
+                record_runtime_tool_result(
+                    context,
+                    TOOL_RESULT_KIND_ASSET,
+                    {
+                        "ok": True,
+                        "action": "list_skills",
+                        "runtime_turn_id": "turn_000001",
+                        "skills": [
+                            {
+                                "name": "chunk_reader",
+                            },
+                        ],
+                    },
+                )
+                return "", ""
+
+            self.assertEqual(
+                kwargs["brain_payload"],
+                "",
+            )
+            self.assertIn(
+                "list_skills",
+                kwargs["system_prompt"],
+            )
+            return "Follow-up continued.", ""
+
+        context = _context()
+        context.runtime_current_turn_id = "turn_000001"
+        state = AgentState(
+            user_input="list skills, then append chunk_reader",
+        )
+        state.translated_input = state.user_input
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=_brain_runtime(),
+        ), patch(
+            "agent.nodes.brain.build_brain_context",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.build_brain_payload",
+            return_value="brain payload",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            len(calls),
+            2,
+        )
+        self.assertEqual(
+            state.brain_response,
+            "Follow-up continued.",
+        )
+
+    async def test_list_skills_followup_keeps_attachment_context_in_sequence(self):
+
+        calls = []
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+            context = kwargs["context"]
+
+            if len(calls) == 1:
+                context.runtime_action_events.append({
+                    "name": "list_skills",
+                })
+                return "", ""
+
+            self.assertEqual(
+                kwargs["brain_payload"],
+                "",
+            )
+            self.assertIn(
+                "INITIAL_SEQUENCE_INSTRUCTION: что на скриншоте?\n\n"
+                "Attached context:",
+                kwargs["system_prompt"],
+            )
+            self.assertIn(
+                "- screen.png: image, image/png, 462.8 KB",
+                kwargs["system_prompt"],
+            )
+            self.assertNotIn(
+                "runtime_attachment",
+                kwargs["system_prompt"],
+            )
+            return "Follow-up saw attachment context.", ""
+
+        context = _context()
+        context.runtime_current_turn_id = "turn_000001"
+        context.runtime_turn_started_at = 1000.0
+        context.runtime_turn_user_message = (
+            "что на скриншоте?\n\n"
+            "Attached context:\n"
+            "- screen.png: image, image/png, 462.8 KB\n"
+            "  runtime_attachment: full content is available to appended skills"
+        )
+        state = AgentState(
+            user_input="что на скриншоте?",
+        )
+        state.translated_input = state.user_input
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=_brain_runtime(),
+        ), patch(
+            "agent.nodes.brain.build_brain_context",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.build_brain_payload",
+            return_value="brain payload",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            len(calls),
+            2,
+        )
+        self.assertEqual(
+            state.brain_response,
+            "Follow-up saw attachment context.",
+        )
+
+    async def test_followup_stream_sends_attachment_payload_without_user_request(self):
+
+        attachment = {
+            "name": "screen.png",
+            "kind": "image",
+            "type": "image/png",
+            "data_url": "data:image/png;base64,AAAA",
+        }
+        observed = {}
+
+        async def fake_ask_brain_stream(**kwargs):
+            observed["brain_payload"] = kwargs["brain_payload"]
+            observed["attachments"] = list(
+                getattr(
+                    kwargs["context"],
+                    "runtime_turn_attachments",
+                    [],
+                )
+            )
+            if False:
+                yield {}
+
+        class FakeRuntimeStream:
+
+            def __init__(self, **_kwargs):
+                self.stream = SimpleNamespace(
+                    reasoning="",
+                )
+
+            async def run(self, generator):
+                async for _event in generator:
+                    pass
+                return ""
+
+        context = _context()
+        context.runtime_turn_attachments = []
+        context.runtime_current_sequence_turn_id = "turn_000001"
+        context.runtime_current_sequence_attachments_turn_id = "turn_000001"
+        context.runtime_current_sequence_attachments = [
+            attachment,
+        ]
+        context.logger = SimpleNamespace(
+            log_brain=lambda _message: _async_noop(),
+        )
+        state = AgentState(
+            user_input="что на скриншоте?",
+        )
+        state.translated_input = state.user_input
+
+        with patch(
+            "agent.nodes.brain.ask_brain_stream",
+            new=fake_ask_brain_stream,
+        ), patch(
+            "agent.nodes.brain.RuntimeStream",
+            new=FakeRuntimeStream,
+        ):
+            await BrainNode.run_brain_stream(
+                state=state,
+                context=context,
+                brain_runtime=_brain_runtime(),
+                brain_client=object(),
+                system_prompt=build_followup_system_message(
+                    "list_skills"
+                ),
+                brain_payload="",
+                runtime_actions={},
+            )
+
+        self.assertIn(
+            "Attached context:",
+            observed["brain_payload"],
+        )
+        self.assertIn(
+            "- screen.png: image, image/png",
+            observed["brain_payload"],
+        )
+        self.assertNotIn(
+            "runtime_attachment",
+            observed["brain_payload"],
+        )
+        self.assertNotIn(
+            "что на скриншоте?",
+            observed["brain_payload"],
+        )
+        self.assertEqual(
+            observed["attachments"],
+            [
+                attachment,
+            ],
+        )
+        self.assertEqual(
+            context.runtime_followup_tick_active,
+            False,
         )
 
     async def test_list_delayed_memory_result_triggers_followup(self):
@@ -784,7 +1166,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -817,7 +1199,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         failed_payload = (
             "<SAVE_DELAYED_MEMORY_CONTENT>\n"
             "CONDITIONS: Simulation step 2/5\n"
-            "</CREATE_ACTIVE_MEMORY>"
+            "</SAVE_ACTIVE_MEMORY>"
         )
 
         async def fake_run_brain_stream(**kwargs):
@@ -856,7 +1238,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     kwargs["system_prompt"],
                 )
                 self.assertIn(
-                    "&lt;/CREATE_ACTIVE_MEMORY&gt;",
+                    "&lt;/SAVE_ACTIVE_MEMORY&gt;",
                     kwargs["system_prompt"],
                 )
                 return "Retrying the failed save.", ""
@@ -876,7 +1258,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             side_effect=lambda current_context, **_kwargs: (
                 "system prompt\n"
                 + build_tool_results_context(
@@ -958,7 +1340,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
@@ -1045,7 +1427,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
@@ -1104,7 +1486,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertTrue(
                     kwargs["system_prompt"].startswith(
-                        "<TOOLS_RESULTS>"
+                        FOLLOWUP_SYSTEM_MESSAGE
                     ),
                     kwargs["system_prompt"],
                 )
@@ -1133,7 +1515,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
@@ -1186,7 +1568,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertTrue(
                     kwargs["system_prompt"].startswith(
-                        "<TOOLS_RESULTS>"
+                        FOLLOWUP_SYSTEM_MESSAGE
                     ),
                     kwargs["system_prompt"],
                 )
@@ -1215,7 +1597,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
@@ -1332,7 +1714,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -1408,7 +1790,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     self,
                     kwargs,
                     state.translated_input,
-                    'append_skill',
+                    'APPEND_SKILL',
                 )
                 return (
                     "Ready to use the wildcard skill.",
@@ -1428,7 +1810,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -1484,7 +1866,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     self,
                     kwargs,
                     state.translated_input,
-                    'append_skill',
+                    'APPEND_SKILL',
                 )
                 return (
                     "Ready to test with the wildcards skill loaded.",
@@ -1504,7 +1886,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -1529,6 +1911,398 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             state.brain_response,
             "Ready to test with the wildcards skill loaded.",
+        )
+
+    async def test_streamed_list_skills_append_skills_reaches_final_followup(self):
+
+        class FakeBrainClient:
+
+            def __init__(self):
+                self.calls = 0
+                self.system_prompts = []
+
+            async def stream(self, **_kwargs):
+                self.calls += 1
+                self.system_prompts.append(
+                    _kwargs.get(
+                        "system_prompt",
+                        "",
+                    )
+                )
+
+                if self.calls == 1:
+                    yield {
+                        "type": "content",
+                        "content": (
+                            "Need the available skills first. "
+                            "<LIST_SKILLS>"
+                        ),
+                    }
+                    return
+
+                if self.calls == 2:
+                    yield {
+                        "type": "content",
+                        "content": (
+                            "Append the requested skills. "
+                            "<APPEND_SKILL: chunk_reader>\n"
+                            "<APPEND_SKILL: image_prompt_generator>"
+                        ),
+                    }
+                    return
+
+                yield {
+                    "type": "content",
+                    "content": "Ready.",
+                }
+
+        class FakeWebSocket:
+
+            def __init__(self):
+                self.events = []
+
+            async def send_json(self, payload):
+                self.events.append(payload)
+
+        class FakeEmitter:
+
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, payload):
+                self.events.append(payload)
+
+        class FakeLogger:
+
+            async def log_runtime(self, *_args, **_kwargs):
+                return None
+
+            async def log_validator(self, *_args, **_kwargs):
+                return None
+
+            async def log_error(self, *_args, **_kwargs):
+                return None
+
+            async def log_brain(self, *_args, **_kwargs):
+                return None
+
+            async def log(self, *_args, **_kwargs):
+                return None
+
+            async def log_system(self, *_args, **_kwargs):
+                return None
+
+        def write_skill(root, name, content):
+            path = (
+                root
+                / "assets"
+                / "skills"
+                / name
+            )
+            path.parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+            path.write_text(
+                content,
+                encoding="utf-8",
+            )
+
+        fake_client = FakeBrainClient()
+        websocket = FakeWebSocket()
+        emitter = FakeEmitter()
+        user_input = (
+            "посмотри скилы, сделай апенд chunk_reader "
+            "и image_prompt_generator"
+        )
+        context = SimpleNamespace(
+            logger=FakeLogger(),
+            websocket=websocket,
+            emitter=emitter,
+            clients={
+                "brain": fake_client,
+            },
+            active_streams={},
+            runtime_search_queries=[],
+            runtime_search_calls=[],
+            runtime_search_result="",
+            runtime_search_result_id="",
+            runtime_asset_results=[],
+            runtime_asset_retry_results=[],
+            runtime_asset_retry_context=[],
+            runtime_delayed_memory_results=[],
+            runtime_appended_skills=[],
+            runtime_action_events=[],
+            runtime_tool_results=[],
+            runtime_tool_results_turn_count=0,
+            runtime_tool_results_generation=0,
+            runtime_current_turn_id="turn_000001",
+            runtime_current_sequence_turn_id="turn_000001",
+            runtime_turn_started_at=1,
+            runtime_current_sequence_started_at=1,
+            runtime_turn_user_message=user_input,
+            runtime_turn_abort_requested=False,
+            runtime_turn_interrupted=False,
+            runtime_reasoning_recovery_pending=False,
+            runtime_context_limit_recovery_pending=False,
+            runtime_active_action_markers=[],
+            runtime_session_action_history=[],
+            runtime_turn_attachments=[],
+            runtime_current_sequence_attachments=[],
+            runtime_current_sequence_attachments_turn_id="turn_000001",
+            runtime_save_session_requested=False,
+            runtime_memory="",
+            runtime_memory_stable="",
+            runtime_token_usage={},
+            runtime_provider_token_usage={},
+            active_memory_records=[],
+            background_tasks=set(),
+        )
+        state = AgentState(
+            user_input=user_input,
+        )
+        state.translated_input = state.user_input
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                write_skill(
+                    root,
+                    "chunk_reader.txt",
+                    "chunk_reader\nRead large files in chunks.",
+                )
+                write_skill(
+                    root,
+                    "image_prompt_generator.txt",
+                    "image_prompt_generator\nGenerate image prompts.",
+                )
+
+                with patch(
+                    "agent.nodes.brain.get_brain_runtime_config",
+                    return_value=_brain_runtime(),
+                ), patch(
+                    "agent.nodes.brain.build_brain_context",
+                    side_effect=lambda current_context, **_kwargs: (
+                        "system prompt\n"
+                        + build_tool_results_context(
+                            current_context
+                        )
+                    ),
+                ), patch(
+                    "agent.nodes.brain.build_brain_payload",
+                    return_value="brain payload",
+                ), patch(
+                    "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+                    new=lambda _context: _async_noop(),
+                ), patch(
+                    "runtime.stream.refresh_runtime_state",
+                    new=lambda *_args, **_kwargs: _async_noop(),
+                ), patch(
+                    "runtime.stream.record_stream_token_usage",
+                    new=lambda *_args, **_kwargs: None,
+                ):
+                    await BrainNode().run(
+                        state,
+                        context,
+                    )
+
+        self.assertEqual(
+            fake_client.calls,
+            3,
+        )
+        self.assertIn(
+            "LIST_SKILLS",
+            fake_client.system_prompts[1],
+        )
+        self.assertIn(
+            "chunk_reader",
+            fake_client.system_prompts[1],
+        )
+        self.assertIn(
+            "APPEND_SKILL",
+            fake_client.system_prompts[2],
+        )
+        self.assertIn(
+            "image_prompt_generator",
+            fake_client.system_prompts[2],
+        )
+        self.assertEqual(
+            state.brain_response,
+            "Ready.",
+        )
+        self.assertEqual(
+            [
+                event["name"]
+                for event in context.runtime_action_events
+            ],
+            [
+                "list_skills",
+                "append_skill",
+                "append_skill",
+            ],
+        )
+        self.assertEqual(
+            [
+                entry["result"]["action"]
+                for entry in context.runtime_tool_results
+                if entry.get("kind") == TOOL_RESULT_KIND_ASSET
+            ],
+            [
+                "list_skills",
+            ],
+        )
+        self.assertEqual(
+            [
+                skill["name"]
+                for skill in context.runtime_appended_skills
+            ],
+            [
+                "chunk_reader",
+                "image_prompt_generator",
+            ],
+        )
+
+    async def test_list_skills_followup_survives_current_turn_id_shift(self):
+
+        class FakeBrainClient:
+
+            def __init__(self):
+                self.calls = 0
+
+            async def stream(self, **kwargs):
+                self.calls += 1
+
+                if self.calls == 1:
+                    yield {
+                        "type": "content",
+                        "content": (
+                            "Need available skills. "
+                            "<LIST_SKILLS> trailing text"
+                        ),
+                    }
+                    kwargs["context"].runtime_current_turn_id = (
+                        "turn_changed_after_list_skills"
+                    )
+                    return
+
+                yield {
+                    "type": "content",
+                    "content": "Follow-up continued.",
+                }
+
+        class FakeWebSocket:
+
+            async def send_json(self, _payload):
+                return None
+
+        class FakeEmitter:
+
+            async def emit(self, _payload):
+                return None
+
+        class FakeLogger:
+
+            async def log_runtime(self, *_args, **_kwargs):
+                return None
+
+            async def log_validator(self, *_args, **_kwargs):
+                return None
+
+            async def log_error(self, *_args, **_kwargs):
+                return None
+
+            async def log_brain(self, *_args, **_kwargs):
+                return None
+
+            async def log_service_as_brain(self, *_args, **_kwargs):
+                return None
+
+            async def log_service_as_brain_output(self, *_args, **_kwargs):
+                return None
+
+            async def log_flow(self, *_args, **_kwargs):
+                return None
+
+            async def log(self, *_args, **_kwargs):
+                return None
+
+            async def log_system(self, *_args, **_kwargs):
+                return None
+
+        fake_client = FakeBrainClient()
+        context = RuntimeContext(
+            websocket=FakeWebSocket(),
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={
+                "brain": fake_client,
+                "service": fake_client,
+            },
+        )
+        context.runtime_current_turn_id = "turn_000001"
+        context.runtime_current_sequence_turn_id = "turn_000001"
+        context.runtime_turn_started_at = 1
+        context.runtime_current_sequence_started_at = 1
+        context.runtime_turn_user_message = (
+            "посмотри скилы, потом продолжай"
+        )
+
+        state = AgentState(
+            user_input=context.runtime_turn_user_message,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                skill_path = (
+                    root
+                    / "assets"
+                    / "skills"
+                    / "chunk_reader.txt"
+                )
+                skill_path.parent.mkdir(
+                    parents=True,
+                    exist_ok=True,
+                )
+                skill_path.write_text(
+                    "chunk_reader\nRead large files.",
+                    encoding="utf-8",
+                )
+
+                await AgentRuntime().run(
+                    state,
+                    context,
+                )
+
+        self.assertEqual(
+            fake_client.calls,
+            2,
+        )
+        self.assertEqual(
+            state.final_answer,
+            "Follow-up continued.",
+        )
+        self.assertEqual(
+            context.runtime_action_events[0]["name"],
+            "list_skills",
+        )
+        self.assertEqual(
+            context.runtime_action_events[0]["runtime_turn_id"],
+            "turn_000001",
+        )
+        self.assertEqual(
+            context.runtime_current_turn_id,
+            "turn_changed_after_list_skills",
+        )
+        self.assertEqual(
+            context.runtime_asset_results[0]["action"],
+            "list_skills",
         )
 
     async def test_asset_workflow_can_continue_after_create_file_to_prompt_batch(self):
@@ -1632,7 +2406,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -1766,7 +2540,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -1892,7 +2666,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "run_brain_stream",
             staticmethod(fake_run_brain_stream),
         ), patch(
-            "clients.brain_context_builder.time.time",
+            "utils.context.context_exports.time.time",
             return_value=1030.0,
         ):
             await BrainNode().run(
@@ -1905,9 +2679,31 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             1,
         )
         prompt = calls[0]["system_prompt"]
+        idle_instruction = (
+            "This is a follow-up tick from an IDLE timer JIN chose to set."
+        )
+        self.assertEqual(
+            prompt.count(idle_instruction),
+            1,
+            prompt,
+        )
+        self.assertLess(
+            prompt.index(
+                "This is follow-up tick for JIN latest action: idle."
+            ),
+            prompt.index(idle_instruction),
+        )
+        self.assertLess(
+            prompt.index(idle_instruction),
+            prompt.index("<CURRENT_SEQUENCE>"),
+        )
+        self.assertLess(
+            prompt.index("<CURRENT_SEQUENCE>"),
+            prompt.index("<TOOLS_RESULTS>"),
+        )
         self.assertEqual(
             prompt.count("<SEQUENCE_ORIGIN_REQUEST>"),
-            1,
+            0,
             prompt,
         )
         self.assertEqual(
@@ -1917,7 +2713,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             prompt.count("<PREVIOUS_CHAT_MESSAGES>"),
-            1,
+            0,
             prompt,
         )
         self.assertIn(
@@ -1925,7 +2721,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             prompt,
         )
         self.assertIn(
-            "Step 1 - IDLE - 30s ( 30s ago )",
+            "JIN message 1 executed - IDLE - 30s ( 30s ago )",
             prompt,
         )
         self.assertNotIn(
@@ -1972,11 +2768,11 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             1,
         )
         self.assertIn(
-            "<LATEST_RUNTIME_MEMORY>frozen state</LATEST_RUNTIME_MEMORY>",
+            "<PREVIOUS_RUNTIME_MEMORY>frozen state</PREVIOUS_RUNTIME_MEMORY>",
             prompt,
         )
 
-    async def test_no_follow_up_action_without_visible_answer_triggers_tick(self):
+    async def test_no_follow_up_action_without_visible_answer_does_not_trigger_tick(self):
 
         calls = []
 
@@ -1989,7 +2785,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 })
                 return "", ""
 
-            return "Follow-up complete.", ""
+            return "Unexpected follow-up.", ""
 
         context = _context()
         state = AgentState(
@@ -2001,7 +2797,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=_brain_runtime(),
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -2021,13 +2817,12 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             len(calls),
-            2,
+            1,
         )
         self.assertEqual(
             state.brain_response,
-            "Follow-up complete.",
+            "",
         )
-
 
     async def test_no_follow_up_action_keeps_visible_answer_without_tick(self):
 
@@ -2050,7 +2845,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=_brain_runtime(),
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -2081,13 +2876,37 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 "name": "clean_tool_results",
             })
         )
+        self.assertFalse(
+            action_event_requires_follow_up({
+                "name": "jin_color",
+            })
+        )
         self.assertTrue(
             action_event_requires_follow_up({
                 "name": "web_search",
             })
         )
+        self.assertFalse(
+            action_event_requires_follow_up({
+                "name": "web_search",
+                "status": "aborted",
+            })
+        )
+        self.assertFalse(
+            action_batch_requires_follow_up(
+                [
+                    {
+                        "name": "clean_tool_results",
+                    },
+                    {
+                        "name": "clean_tool_results",
+                    },
+                ],
+                "",
+            )
+        )
 
-    async def test_no_follow_up_action_in_multi_marker_batch_triggers_tick(self):
+    async def test_no_follow_up_action_batch_stops_without_tick(self):
 
         calls = []
 
@@ -2100,8 +2919,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                         "name": "clean_tool_results",
                     },
                     {
-                        "name": "create_active_memory",
-                        "payload": "active_memory=test",
+                        "name": "resolve_active_memory",
+                        "id": "active_memory_1",
                     },
                 ])
                 return "First action batch processed.", ""
@@ -2118,7 +2937,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=_brain_runtime(),
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -2138,22 +2957,22 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             len(calls),
-            2,
+            1,
         )
         self.assertEqual(
             state.brain_response,
-            "Workflow complete.",
+            "First action batch processed.",
         )
 
 
-    async def test_every_action_message_triggers_followup_and_keeps_actions_enabled(self):
+    async def test_follow_up_action_messages_keep_actions_enabled(self):
 
         calls = []
         action_names = [
-            "create_active_memory",
             "append_skill",
-            "hide_skills",
-            "save_session",
+            "append_delayed_memory",
+            "list_skills",
+            "check_todo",
         ]
 
         async def fake_run_brain_stream(**kwargs):
@@ -2186,7 +3005,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -2209,19 +3028,19 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             5,
         )
         self.assertIn(
-            'create_active_memory',
+            'APPEND_SKILL',
             calls[1]["system_prompt"],
         )
         self.assertIn(
-            'append_skill',
+            'APPEND_DELAYED_MEMORY',
             calls[2]["system_prompt"],
         )
         self.assertIn(
-            'hide_skills',
+            'LIST_SKILLS',
             calls[3]["system_prompt"],
         )
         self.assertIn(
-            'save_session',
+            'CHECK_TODO',
             calls[4]["system_prompt"],
         )
         for call in calls[1:]:
@@ -2250,7 +3069,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             if len(calls) == 1:
                 context.runtime_action_events.extend([
                     {
-                        "name": "create_active_memory",
+                        "name": "append_skill",
                         "payload": "first",
                     },
                     {
@@ -2261,11 +3080,11 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 return "", ""
 
             self.assertIn(
-                'create_active_memory',
+                'APPEND_SKILL',
                 kwargs["system_prompt"],
             )
             self.assertIn(
-                'resolve_active_memory',
+                'RESOLVE_ACTIVE_MEMORY',
                 kwargs["system_prompt"],
             )
             self.assertNotIn(
@@ -2297,7 +3116,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -2359,7 +3178,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=_brain_runtime(),
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -2386,7 +3205,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "list_skills",
         )
 
-    async def test_multi_step_tool_results_clear_after_sequence(self):
+    async def test_multi_step_tool_results_remain_after_sequence(self):
 
         calls = []
 
@@ -2436,7 +3255,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=_brain_runtime(),
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -2459,8 +3278,18 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             3,
         )
         self.assertEqual(
-            context.runtime_tool_results,
-            [],
+            len(context.runtime_tool_results),
+            2,
+        )
+        self.assertEqual(
+            [
+                entry["result"]["action"]
+                for entry in context.runtime_tool_results
+            ],
+            [
+                "list_skills",
+                "read_asset_file",
+            ],
         )
         self.assertEqual(
             context.runtime_asset_results,
@@ -2511,6 +3340,22 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 "<FOLLOWUP_LIMIT_REACHED>",
                 kwargs["system_prompt"],
             )
+            self.assertLess(
+                kwargs["system_prompt"].index(
+                    "<FOLLOWUP_LIMIT_REACHED>"
+                ),
+                kwargs["system_prompt"].index(
+                    "<CURRENT_SEQUENCE>"
+                ),
+            )
+            self.assertLess(
+                kwargs["system_prompt"].index(
+                    "<CURRENT_SEQUENCE>"
+                ),
+                kwargs["system_prompt"].index(
+                    "<TOOLS_RESULTS>"
+                ),
+            )
             return "<ASSET_ACTION>still pending</ASSET_ACTION>", ""
 
         context = _context()
@@ -2528,7 +3373,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "agent.nodes.brain.get_brain_runtime_config",
             return_value=brain_runtime,
         ), patch(
-            "agent.nodes.brain.build_brain_system_prompt",
+            "agent.nodes.brain.build_brain_context",
             return_value="system prompt",
         ), patch(
             "agent.nodes.brain.build_brain_payload",
@@ -2584,3 +3429,6 @@ async def _async_noop():
 
 if __name__ == "__main__":
     unittest.main()
+
+
+

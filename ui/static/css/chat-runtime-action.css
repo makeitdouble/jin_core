@@ -1,0 +1,308 @@
+.jin-runtime-action-row {
+    --jin-runtime-action-label-nudge: 8px;
+    perspective: 520px;
+    transform-style: preserve-3d;
+}
+
+.jin-runtime-action-row[data-runtime-action-completed="true"] {
+    opacity: 0.45;
+}
+
+.jin-runtime-action-label {
+    margin-left: var(--jin-runtime-action-label-nudge);
+}
+
+.jin-runtime-action-confirm-prefix {
+    display: inline-block;
+    margin-right: 0.45em;
+}
+
+.jin-runtime-action-color-row .jin-runtime-action-confirm-prefix {
+    margin-right: 0;
+}
+
+.jin-runtime-action-guard-label {
+    margin-left: var(--jin-runtime-action-label-nudge);
+    --jin-runtime-action-guard-motion: 3.2s;
+    --jin-runtime-action-guard-perspective: 360px;
+    --jin-runtime-action-guard-green-x: 2px;
+    --jin-runtime-action-guard-red-x: -2px;
+    --jin-runtime-action-guard-green-rotate: -8deg;
+    --jin-runtime-action-guard-red-rotate: 5deg;
+    --jin-runtime-action-guard-z: 5px;
+    --jin-runtime-action-guard-scale-x: 1.006;
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    transform-origin: center center;
+    transform-style: preserve-3d;
+    backface-visibility: hidden;
+}
+
+.jin-runtime-action-guard-label::before,
+.jin-runtime-action-guard-label::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    border-radius: inherit;
+    opacity: 0;
+}
+
+.jin-runtime-action-guard-label::before {
+    background:
+            linear-gradient(90deg,
+                    rgba(248, 113, 113, 0.27) 0%,
+                    rgba(248, 113, 113, 0.12) 18%,
+                    rgba(248, 113, 113, 0.035) 42%,
+                    transparent 70%);
+    box-shadow:
+            inset 1px 0 0 rgba(248, 113, 113, 0.08),
+            inset 16px 0 24px rgba(127, 29, 29, 0.12),
+            -8px 0 22px rgba(248, 113, 113, 0.16);
+}
+
+.jin-runtime-action-guard-label::after {
+    background:
+            linear-gradient(270deg,
+                    rgba(74, 222, 128, 0.27) 0%,
+                    rgba(74, 222, 128, 0.12) 18%,
+                    rgba(74, 222, 128, 0.035) 42%,
+                    transparent 70%);
+    box-shadow:
+            inset -1px 0 0 rgba(74, 222, 128, 0.08),
+            inset -16px 0 24px rgba(20, 83, 45, 0.12),
+            8px 0 22px rgba(74, 222, 128, 0.16);
+}
+
+.jin-runtime-action-guard-pending .jin-runtime-action-guard-label {
+    cursor: pointer;
+    animation:
+            jinRuntimeActionGuardProjection
+            var(--jin-runtime-action-guard-motion)
+            cubic-bezier(0.45, 0, 0.55, 1)
+            infinite;
+    will-change: transform, filter, box-shadow;
+}
+
+.jin-runtime-action-guard-pending .jin-runtime-action-guard-label::before {
+    animation:
+            jinRuntimeActionGuardRedGlow
+            var(--jin-runtime-action-guard-motion)
+            cubic-bezier(0.45, 0, 0.55, 1)
+            infinite;
+}
+
+.jin-runtime-action-guard-pending .jin-runtime-action-guard-label::after {
+    animation:
+            jinRuntimeActionGuardGreenGlow
+            var(--jin-runtime-action-guard-motion)
+            cubic-bezier(0.45, 0, 0.55, 1)
+            infinite;
+}
+
+.jin-runtime-action-guard-zones {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-radius: inherit;
+    overflow: hidden;
+}
+
+.jin-runtime-action-guard-zone {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+}
+
+.jin-runtime-action-guard-zone-reject:hover {
+    background: linear-gradient(90deg, rgba(248, 113, 113, 0.10), transparent);
+}
+
+.jin-runtime-action-guard-zone-continue:hover {
+    background: linear-gradient(270deg, rgba(74, 222, 128, 0.10), transparent);
+}
+
+.jin-runtime-action-guard-rejected .jin-runtime-action-guard-label {
+    box-shadow:
+            0 14px 42px rgba(0, 0, 0, 0.25),
+            0 0 28px rgba(248, 113, 113, 0.10),
+            inset 0 0 26px rgba(248, 113, 113, 0.05);
+}
+
+.jin-runtime-action-guard-continued .jin-runtime-action-guard-label {
+    box-shadow:
+            0 14px 42px rgba(0, 0, 0, 0.25),
+            0 0 28px rgba(74, 222, 128, 0.11),
+            inset 0 0 26px rgba(74, 222, 128, 0.05);
+}
+
+@keyframes jinRuntimeActionGuardProjection {
+    0%,
+    100% {
+        transform:
+                perspective(var(--jin-runtime-action-guard-perspective))
+                translateX(var(--jin-runtime-action-guard-green-x))
+                rotateY(var(--jin-runtime-action-guard-green-rotate))
+                translateZ(var(--jin-runtime-action-guard-z))
+                scaleX(var(--jin-runtime-action-guard-scale-x));
+        filter: saturate(1.07) brightness(1.025);
+        box-shadow:
+                9px 0 24px rgba(74, 222, 128, 0.15),
+                0 12px 30px rgba(0, 0, 0, 0.26),
+                inset 0 0 20px rgba(74, 222, 128, 0.030);
+    }
+
+    50% {
+        transform:
+                perspective(var(--jin-runtime-action-guard-perspective))
+                translateX(var(--jin-runtime-action-guard-red-x))
+                rotateY(var(--jin-runtime-action-guard-red-rotate))
+                translateZ(var(--jin-runtime-action-guard-z))
+                scaleX(var(--jin-runtime-action-guard-scale-x));
+        filter: saturate(1.07) brightness(1.025);
+        box-shadow:
+                -9px 0 24px rgba(248, 113, 113, 0.15),
+                0 12px 30px rgba(0, 0, 0, 0.26),
+                inset 0 0 20px rgba(248, 113, 113, 0.030);
+    }
+}
+
+@keyframes jinRuntimeActionGuardRedGlow {
+    0%,
+    100% {
+        opacity: 0.02;
+    }
+
+    50% {
+        opacity: 0.95;
+    }
+}
+
+@keyframes jinRuntimeActionGuardGreenGlow {
+    0%,
+    100% {
+        opacity: 0.95;
+    }
+
+    50% {
+        opacity: 0.02;
+    }
+}
+
+.jin-runtime-action-color-row:not([data-runtime-action-completed="true"]) .jin-runtime-action-label {
+    box-shadow:
+            0 12px 34px rgba(0, 0, 0, 0.24),
+            0 0 24px color-mix(in srgb, var(--jin-color, #00f2ff) 24%, transparent),
+            inset 0 0 18px color-mix(in srgb, var(--jin-color, #00f2ff) 8%, transparent);
+    filter: brightness(1.08) saturate(1.08);
+}
+
+.jin-runtime-action-pending-l3:not(.jin-runtime-action-cancelled) {
+    opacity: 1 !important;
+}
+
+.jin-runtime-action-pending-l3[data-runtime-action-completion-deferred="true"] {
+    opacity: 1;
+}
+
+.jin-runtime-action-cancelled .jin-runtime-action-label {
+    border-color: rgba(63, 63, 70, 0.55) !important;
+    background: rgba(24, 24, 27, 0.30) !important;
+    color: rgba(161, 161, 170, 0.80) !important;
+    box-shadow: none !important;
+    filter: none !important;
+}
+
+.jin-runtime-action-cancelled > :first-child {
+    border-color: rgba(63, 63, 70, 0.55) !important;
+    background: rgba(24, 24, 27, 0.30) !important;
+    color: rgba(161, 161, 170, 0.80) !important;
+    box-shadow: none !important;
+}
+
+.jin-runtime-action-color-row .jin-runtime-action-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.jin-runtime-action-color-swatch {
+    display: block;
+    width: 9px;
+    height: 9px;
+    flex: 0 0 9px;
+    border-radius: 1px;
+    border: 1px solid rgba(255, 255, 255, 0.34);
+    box-sizing: border-box;
+    box-shadow:
+            0 0 0 1px rgba(0, 0, 0, 0.38),
+            0 0 9px currentColor;
+}
+
+.jin-runtime-action-name {
+    line-height: 1;
+}
+
+.jin-runtime-action-cancelled .jin-runtime-action-label,
+.jin-runtime-action-label.jin-runtime-action-label-cancelled,
+.jin-runtime-action-cancelled .jin-runtime-action-name,
+.jin-runtime-action-name.jin-runtime-action-name-cancelled {
+    text-decoration-line: line-through;
+    text-decoration-thickness: 1px;
+    text-decoration-color: currentColor;
+}
+
+.jin-runtime-action-count {
+    margin-left: 0.45em;
+    opacity: 0.72;
+}
+
+.jin-runtime-action-color-row .jin-runtime-action-count {
+    margin-left: 0;
+}
+
+.jin-chat-runtime-marker {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: fit-content;
+    max-width: 100%;
+    margin: 0 0.15rem;
+    padding: 3px 8px;
+    border: 1px solid rgba(103, 232, 249, 0.18);
+    border-radius: 4px;
+    background: rgba(8, 14, 18, 0.42);
+    color: rgba(203, 213, 225, 0.72);
+    font-size: 11px;
+    line-height: 1;
+    vertical-align: middle;
+}
+
+.jin-chat-jin-color-marker {
+    box-shadow:
+            0 0 16px color-mix(in srgb, var(--jin-chat-marker-color, #00f2ff) 18%, transparent),
+            inset 0 0 12px color-mix(in srgb, var(--jin-chat-marker-color, #00f2ff) 7%, transparent);
+}
+
+.jin-chat-jin-color-swatch {
+    display: block;
+    width: 9px;
+    height: 9px;
+    flex: 0 0 9px;
+    border-radius: 1px;
+    border: 1px solid rgba(255, 255, 255, 0.34);
+    background: var(--jin-chat-marker-color, #00f2ff);
+    box-shadow:
+            0 0 0 1px rgba(0, 0, 0, 0.38),
+            0 0 10px var(--jin-chat-marker-color, #00f2ff);
+    box-sizing: border-box;
+}
+
+.jin-runtime-action-payload {
+    color: rgba(203, 213, 225, 0.62);
+}

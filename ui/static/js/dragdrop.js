@@ -25,6 +25,10 @@ const TEXT_EXTENSIONS = new Set([
   "log",
 ]);
 
+const BINARY_DOCUMENT_EXTENSIONS = new Set([
+  "pdf",
+]);
+
 let droppedFiles = [];
 let dragDepth = 0;
 let dropOverlay = null;
@@ -254,11 +258,28 @@ function hideDropOverlay() {
   chatColumn.classList.remove("jin-drop-zone-active");
 }
 
+function hideRenderedAttachmentPreviews() {
+  if (!attachedFiles) {
+    return;
+  }
+
+  attachedFiles
+    .querySelectorAll(".jin-attachment-bubble")
+    .forEach((item) => {
+      item.dispatchEvent(
+        new Event("mouseleave")
+      );
+    });
+}
+
 function renderFiles() {
   if (!attachedFiles) {
     return;
   }
 
+  // A hover preview lives under document.body, outside the attachment list.
+  // Dismiss it before replacing/removing bubbles so it cannot become orphaned.
+  hideRenderedAttachmentPreviews();
   attachedFiles.innerHTML = "";
 
   droppedFiles.forEach((file, index) => {
@@ -267,17 +288,17 @@ function renderFiles() {
       createLocalAttachment(file);
 
     item.className =
-      "flex max-w-full items-center gap-2 rounded border border-sky-500/25 bg-sky-950/35 px-3 py-2 text-xs text-sky-50 shadow transition hover:border-sky-300/50 hover:bg-sky-900/45";
+      "flex max-w-[220px] items-center gap-1.5 rounded border border-sky-500/25 bg-sky-950/35 px-2 py-1.5 text-xs text-sky-50 shadow transition hover:border-sky-300/50 hover:bg-sky-900/45";
 
     item.innerHTML = `
-      <span class="truncate max-w-[220px]">
+      <span class="min-w-0 max-w-[132px] truncate">
         ${escapeHtml(file.name)}
       </span>
-      <span class="shrink-0 text-sky-100/50">
+      <span class="shrink-0 text-[10px] text-sky-100/45">
         ${escapeHtml(formatBytes(file.size))}
       </span>
       <button
-        class="shrink-0 text-sky-200/70 hover:text-red-300 transition"
+        class="shrink-0 px-0.5 text-sky-200/70 transition hover:text-red-300"
         data-index="${index}"
         title="Remove attachment"
         type="button"
@@ -415,6 +436,20 @@ async function buildAttachmentPayload(file, index) {
 
     attachment.width = dimensions.width;
     attachment.height = dimensions.height;
+
+    if (dataUrl) {
+      attachment.data_url = dataUrl;
+      attachment.data_url_bytes = dataUrl.length;
+    }
+  }
+
+  if (
+      attachment.kind === "binary"
+      && BINARY_DOCUMENT_EXTENSIONS.has(
+        getFileExtension(file)
+      )
+  ) {
+    const dataUrl = await readFileAsDataUrl(file);
 
     if (dataUrl) {
       attachment.data_url = dataUrl;

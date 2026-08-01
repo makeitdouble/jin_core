@@ -148,6 +148,55 @@ def set_runtime_save_session_result(
     return result
 
 
+def runtime_save_session_abort_requested(
+        context,
+) -> bool:
+
+    return bool(
+        getattr(
+            context,
+            "runtime_turn_abort_requested",
+            False,
+        )
+        or getattr(
+            context,
+            "runtime_turn_discard_requested",
+            False,
+        )
+    )
+
+
+def abort_runtime_save_session_request(
+        context,
+) -> str:
+
+    current_session_memory = getattr(
+        context,
+        "runtime_l3_session_memory",
+        "",
+    ) or getattr(
+        context,
+        "session_memory",
+        "",
+    )
+
+    set_runtime_save_session_result(
+        context,
+        ok=False,
+        status="aborted",
+        reason="turn_aborted",
+        message=(
+            "Session snapshot was not saved because the current turn "
+            "was aborted."
+        ),
+    )
+    complete_runtime_save_session_request(
+        context
+    )
+
+    return current_session_memory
+
+
 async def ask_runtime_session_memory_model(
         *,
         context=None,
@@ -258,6 +307,13 @@ async def maybe_summarize_runtime_session_memory(
             context,
             "runtime_l3_session_memory",
             DEFAULT_RUNTIME_L3_SESSION_MEMORY,
+        )
+
+    if runtime_save_session_abort_requested(
+        context
+    ):
+        return abort_runtime_save_session_request(
+            context
         )
 
     service_client = (
@@ -400,6 +456,12 @@ async def maybe_summarize_runtime_session_memory(
         saved_runtime_snapshot_index=saved_runtime_snapshot_index,
     )
 
+    if runtime_save_session_abort_requested(
+        context
+    ):
+        return abort_runtime_save_session_request(
+            context
+        )
 
     try:
         response = await ask_runtime_session_memory_model(
@@ -409,6 +471,13 @@ async def maybe_summarize_runtime_session_memory(
             runtime_memory_snapshots=unsaved_snapshots,
             diff_history=unsaved_diff_history,
         )
+
+        if runtime_save_session_abort_requested(
+            context
+        ):
+            return abort_runtime_save_session_request(
+                context
+            )
 
         updated_session_memory = extract_runtime_memory_text(
             response

@@ -44,7 +44,7 @@ def _iter_constant_assignments(
 
     tree = ast.parse(
         path.read_text(
-            encoding="utf-8"
+            encoding="utf-8-sig"
         ),
         filename=str(path),
     )

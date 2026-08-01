@@ -88,6 +88,9 @@ const {
   extractActiveMemoryRuntimeMemoryLines,
   stripActiveMemoryRuntimeMemoryText,
   isActiveMemoryRuntimeMemoryLine,
+  normalizeRuntimeMemoryKey,
+  stripRuntimeMemoryMeta,
+  isJinResponseRuntimeMemoryKey,
 } = memoryModel;
 
 const {
@@ -112,6 +115,11 @@ const {
   readDelayedMemoryReports,
   writeDelayedMemoryReports,
   appendDelayedMemoryReports: appendStoredDelayedMemoryReports,
+  readFactsMemory,
+  writeFactsMemory,
+  removeFactsMemoryField,
+  getCurrentRuntimeSessionId,
+  getCurrentFactsMemorySessionId,
 } = storage;
 
 const runtimeMemoryCount =
@@ -213,6 +221,133 @@ function buildRuntimeMemoryDisplaySnapshot(
 }
 
 
+const FACTS_MEMORY_EXCLUDED_KEYS = new Set([
+  "user_message",
+  "user_idle",
+]);
+
+const deletedFactsMemoryKeys =
+  new Set();
+
+
+function getFactsMemoryIdentity(
+  key
+) {
+
+  return `${getCurrentFactsMemorySessionId()}:${key}`;
+
+}
+
+
+function persistRuntimeFactsMemory(
+  snapshot
+) {
+
+  if (
+      !snapshot
+      || !Array.isArray(snapshot.lines)
+  ) {
+    return;
+  }
+
+  const fields =
+    readFactsMemory();
+
+  const runtimeSnapshotId =
+    String(
+      snapshot.runtime_memory_id || ""
+    ).trim();
+
+  snapshot.lines.forEach(
+    function (line) {
+      const key =
+        normalizeRuntimeMemoryKey(
+          line && line.key
+        );
+
+      const content =
+        String(
+          stripRuntimeMemoryMeta(
+            line && line.value || ""
+          )
+        ).trim();
+
+      if (
+          !key
+          || !content
+          || deletedFactsMemoryKeys.has(
+            getFactsMemoryIdentity(key)
+          )
+          || FACTS_MEMORY_EXCLUDED_KEYS.has(key)
+          || isJinResponseRuntimeMemoryKey(key)
+          || isActiveMemoryRuntimeMemoryLine(line)
+      ) {
+        return;
+      }
+
+      const existing =
+        fields[key];
+
+      if (!existing) {
+        fields[key] = {
+          content,
+          runtime_snapshot_id: runtimeSnapshotId,
+        };
+
+        return;
+      }
+
+      fields[key] = {
+        ...existing,
+        content,
+        runtime_snapshot_id: runtimeSnapshotId,
+      };
+    }
+  );
+
+  writeFactsMemory(
+    fields
+  );
+
+}
+
+
+function getFactsMemoryFields() {
+
+  return readFactsMemory();
+
+}
+
+
+function deleteFactsMemoryFieldAndRender(
+  key
+) {
+
+  const normalizedKey =
+    normalizeRuntimeMemoryKey(
+      key
+    );
+
+  if (!normalizedKey) {
+    return false;
+  }
+
+  deletedFactsMemoryKeys.add(
+    getFactsMemoryIdentity(
+      normalizedKey
+    )
+  );
+
+  removeFactsMemoryField(
+    normalizedKey
+  );
+
+  renderRuntimeMemorySnapshot();
+  return true;
+
+}
+
+
 function persistRuntimeMemorySnapshot(
   data
 ) {
@@ -246,6 +381,13 @@ function persistRuntimeMemorySnapshot(
 
   const savedAt =
     new Date().toISOString();
+
+  // Facts memory is a companion index for the persisted live runtime.
+  // Keep them behind the exact same updates > 0 gate so bootstrap/reload
+  // snapshots never create empty one-off factsMemory records.
+  persistRuntimeFactsMemory(
+    persistedSnapshot
+  );
 
   writeLatestRuntimeMemory({
     version: 1,
@@ -379,6 +521,8 @@ memoryView.init({
   setActiveMemoryRecords: writeActiveMemoryRecords,
   deleteRuntimeMemoryLine: deleteRuntimeMemoryLineAndRender,
   getDelayedMemoryReports: readDelayedMemoryReports,
+  getFactsMemoryFields,
+  deleteFactsMemoryField: deleteFactsMemoryFieldAndRender,
   getDisplayMode: () => runtimeMemoryDisplayMode,
   setDisplayMode: (value) => {
     runtimeMemoryDisplayMode = value;
@@ -600,7 +744,7 @@ function appendDelayedMemoryReports(
 }
 
 const ACTIVE_MEMORY_RUNTIME_ACTIONS_TO_SILENCE_ON_L1 = [
-  "create_active_memory",
+  "save_active_memory",
   "resolve_active_memory",
 ];
 
@@ -657,19 +801,6 @@ function handleRuntimeMemoryMessage(data) {
     session.persistSessionMemory(
       data
     );
-
-    if (
-        data.persist === true
-        && window.fadeRuntimeAction
-    ) {
-      window.fadeRuntimeAction(
-        "save_session"
-      );
-    }
-
-    if (window.stopL3MemoryGlow) {
-      window.stopL3MemoryGlow();
-    }
 
     return;
   }
@@ -831,6 +962,8 @@ window.JinRuntime.runtime = {
   appendActiveMemoryRecords: appendActiveMemoryRecordsAndRender,
   removeActiveMemoryRecordById: removeActiveMemoryRecordByIdAndRender,
   getDelayedMemoryReports: readDelayedMemoryReports,
+  getFactsMemoryFields,
+  deleteFactsMemoryField: deleteFactsMemoryFieldAndRender,
   replaceDelayedMemoryReports: writeDelayedMemoryReports,
   appendDelayedMemoryReports,
 };

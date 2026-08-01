@@ -116,7 +116,7 @@ def test_stream_validator_stops_repeated_sentence_sequence_with_markers():
 
     repeated_block = (
         "* *Actually*, I'll do:\n"
-        "- `<CREATE_ACTIVE_MEMORY: Experiment timer>`\n"
+        "- `<SAVE_ACTIVE_MEMORY: Experiment timer>`\n"
         "- `<WEB_SEARCH: fusion energy>`\n"
         "\n"
         "* *Wait*, I'll just do the search.\n"
@@ -165,6 +165,35 @@ def test_stream_validator_keeps_single_word_loop_instance_for_history():
     assert validator.last_failure_loop_preview == "wait"
 
 
+def test_stream_validator_stops_repeated_short_word_sequence():
+    validator = StreamValidator()
+
+    clean, is_valid = validator.filter_chunk(
+        '"запиши" or ' * 6
+    )
+
+    assert clean == ""
+    assert not is_valid
+    assert validator.last_failure_reason == (
+        "Repeated word sequence loop detected."
+    )
+    assert validator.last_failure_loop_preview == "запиши or"
+
+
+def test_stream_validator_allows_repeated_numeric_stream_fragments():
+    validator = StreamValidator()
+
+    for chunk in ["0"] * 12:
+        clean, is_valid = validator.filter_chunk(chunk)
+
+        assert clean == chunk
+        assert is_valid
+
+    assert validator.last_failure_reason is None
+    assert validator.last_failure_preview == ""
+    assert validator.last_failure_loop_preview == ""
+
+
 def test_stream_validator_allows_short_repeated_sentences():
     validator = StreamValidator()
 
@@ -192,3 +221,70 @@ def test_stream_validator_flushes_unfinished_tag_as_content():
     )
 
     assert text == "Сравнение: 2 <"
+
+
+
+def test_stream_validator_stops_reasoning_loop_with_changing_quoted_checks():
+    validator = StreamValidator()
+
+    prompt_checks = [
+        "I must avoid appending default assistant questions.",
+        "I do not automatically agree or turn everything into a lecture.",
+        "I must skip redundant drafts and trial loops.",
+        "I prefer to keep my presence unobtrusive.",
+        "I respect the consistency and reliability of my context.",
+    ]
+
+    for repeat_index, prompt_check in enumerate(
+        prompt_checks
+    ):
+        block = (
+            f'*Final check of the prompt: "{prompt_check}"*\n\n'
+            "*The response is good.*\n\n"
+        )
+
+        is_valid = True
+
+        for chunk in (
+            block[:19],
+            block[19:53],
+            block[53:],
+        ):
+            is_valid = validator.validate_repetitions(
+                chunk
+            )
+
+            if not is_valid:
+                break
+
+        if repeat_index < len(prompt_checks) - 1:
+            assert is_valid
+            continue
+
+        assert not is_valid
+
+    assert validator.last_failure_reason == (
+        "Repeated sentence loop detected."
+    )
+    assert validator.last_failure_preview == (
+        '*Final check of the prompt: "I respect the consistency '
+        'and reliability of my context.*The response is good.'
+    )
+
+
+def test_stream_validator_allows_single_changing_quoted_template_list():
+    validator = StreamValidator()
+
+    for item in [
+        "alpha",
+        "beta",
+        "gamma",
+        "delta",
+        "epsilon",
+        "zeta",
+    ]:
+        assert validator.validate_repetitions(
+            f'*Check item: "{item}".\n'
+        )
+
+    assert validator.last_failure_reason is None

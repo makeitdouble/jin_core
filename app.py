@@ -37,20 +37,16 @@ from websocket import (
     websocket_router,
 )
 
-from clients import (
-    build_clients,
-)
+from clients.registry import build_clients
 
-from runtime import (
-    RUNTIME_MEMORY_SUMMARIZER_LABEL,
-)
+from runtime.state import RUNTIME_MEMORY_SUMMARIZER_LABEL
 from runtime.behavior_contract import (
     get_behavior_contract,
 )
 from utils.rule_citations import (
     get_rule_citation_registry,
 )
-from utils.assets_service import (
+from utils.file_manager_asset_utils import (
     read_asset_text_preview,
 )
 
@@ -220,6 +216,9 @@ async def index(
                 "brain": status_snapshot["brain"],
                 "service": status_snapshot["service"],
             },
+            "format_response": (
+                status_snapshot["format_response"]
+            ),
         },
     )
 
@@ -282,6 +281,13 @@ async def build_status_snapshot(
         "translator": None,
         "use_service_as_brain": (
             effective_use_service_as_brain
+        ),
+        "format_response": bool(
+            getattr(
+                config,
+                "FORMAT_RESPONSE",
+                True,
+            )
         ),
         "runtime_config": build_runtime_config(
             use_service_as_brain=(
@@ -372,4 +378,12 @@ if __name__ == "__main__":
         app,
         host="127.0.0.1",
         port=8000,
+        ws_max_size=int(
+            getattr(
+                config,
+                "WEBSOCKET_MAX_MESSAGE_BYTES",
+                64 * 1024 * 1024,
+            )
+            or 64 * 1024 * 1024
+        ),
     )

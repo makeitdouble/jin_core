@@ -193,12 +193,12 @@ body.theme-win95 #console-stream > div:last-child {
 
 body.theme-win95 #console-stream > div.rounded {
     padding: 10px;
-    background: var(--win95-face);
-    border: 1px solid var(--win95-shadow);
+    background: var(--win95-face) !important;
+    border: 1px solid var(--win95-shadow) !important;
     border-radius: var(--win95-radius);
     box-shadow:
             inset 1px 1px 0 var(--win95-light),
-            inset -1px -1px 0 #8a8a8a;
+            inset -1px -1px 0 #8a8a8a !important;
 }
 
 body.theme-win95 #console-stream span {
@@ -234,13 +234,25 @@ body.theme-win95 #console-stream [data-log-kind="after"] > .logger-tag {
     color: #5a2aa0 !important;
 }
 
-body.theme-win95 #console-stream [data-log-kind="user"] > .logger-tag,
-body.theme-win95 #console-stream [data-log-kind="service"] > .logger-tag {
-    color: #0067a8 !important;
+body.theme-win95 #console-stream [data-log-kind="user"] {
+    --logger-role-accent: #404040;
 }
 
-body.theme-win95 #console-stream [data-log-kind="brain"] > .logger-tag {
-    color: #8a2a68 !important;
+body.theme-win95 #console-stream [data-log-kind="brain"],
+body.theme-win95 #console-stream [data-log-kind="service"] {
+    --logger-role-accent: #005650;
+}
+
+body.theme-win95 #console-stream [data-log-kind="user"] > .logger-tag,
+body.theme-win95 #console-stream [data-log-kind="brain"] > .logger-tag,
+body.theme-win95 #console-stream [data-log-kind="service"] > .logger-tag {
+    color: var(--logger-role-accent) !important;
+}
+
+body.theme-win95 #console-stream [data-log-kind="user"] > span:not(.logger-tag),
+body.theme-win95 #console-stream [data-log-kind="brain"] > span:not(.logger-tag),
+body.theme-win95 #console-stream [data-log-kind="service"] > span:not(.logger-tag) {
+    color: var(--win95-text) !important;
 }
 
 body.theme-win95 #console-stream [data-log-kind="usage"] > .logger-tag {
@@ -270,6 +282,11 @@ body.theme-win95 #console-stream button {
 
 body.theme-win95 #console-stream button:hover {
     background: var(--win95-face-soft);
+}
+
+body.theme-win95 #console-stream [data-log-kind="brain"] button,
+body.theme-win95 #console-stream [data-log-kind="service"] button {
+    color: var(--logger-role-accent) !important;
 }
 
 body.theme-win95 #console-stream button:active {
@@ -741,7 +758,7 @@ body.theme-win95 .jin-chat-bubble::after {
 body.theme-win95 .jin-chat-bubble .jin-chat-pre {
     color: var(--win95-text);
     font-family: Calibri, Arial, sans-serif;
-    font-size: 14px;
+    font-size: var(--theme-light-font-size);
     font-weight: 500;
     line-height: 1.45;
     text-shadow: none;
@@ -767,23 +784,73 @@ body.theme-win95 .jin-chat-bubble-service .jin-chat-pre {
     text-shadow: none;
 }
 
-body.theme-win95 .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-minus:hover),
-body.theme-win95 .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-neutral:hover),
-body.theme-win95 .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):has(.jin-rating-zone-plus:hover),
-body.theme-win95 .jin-chat-bubble-rateable.jin-rating-press-minus,
-body.theme-win95 .jin-chat-bubble-rateable.jin-rating-press-neutral,
-body.theme-win95 .jin-chat-bubble-rateable.jin-rating-press-plus,
-body.theme-win95 .jin-chat-bubble-rateable.jin-rating-selected-minus,
-body.theme-win95 .jin-chat-bubble-rateable.jin-rating-selected-neutral,
-body.theme-win95 .jin-chat-bubble-rateable.jin-rating-selected-plus {
+body.theme-win95 .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):not(.jin-rating-interaction-blocked):has(.jin-rating-zone-minus:hover),
+body.theme-win95 .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):not(.jin-rating-interaction-blocked):has(.jin-rating-zone-neutral:hover),
+body.theme-win95 .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(.jin-rating-committed):not(.jin-rating-interaction-blocked):has(.jin-rating-zone-plus:hover),
+body.theme-win95 .jin-chat-bubble-rateable.jin-rating-press-minus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked),
+body.theme-win95 .jin-chat-bubble-rateable.jin-rating-press-neutral:not(.jin-rating-committed):not(.jin-rating-interaction-blocked),
+body.theme-win95 .jin-chat-bubble-rateable.jin-rating-press-plus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked),
+body.theme-win95 .jin-chat-bubble-rateable.jin-rating-selected-minus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked),
+body.theme-win95 .jin-chat-bubble-rateable.jin-rating-selected-neutral:not(.jin-rating-committed):not(.jin-rating-interaction-blocked),
+body.theme-win95 .jin-chat-bubble-rateable.jin-rating-selected-plus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked) {
     box-shadow: none;
 }
 
 body.theme-win95 .jin-chat-bubble-rateable.jin-rating-l1-waiting,
 body.theme-win95 .jin-chat-bubble-rateable.jin-rating-l1-waiting .jin-rating-zone,
+body.theme-win95 .jin-chat-bubble-rateable.jin-rating-interaction-blocked,
+body.theme-win95 .jin-chat-bubble-rateable.jin-rating-interaction-blocked .jin-rating-zone,
 body.theme-win95 .jin-chat-bubble-rateable.jin-rating-committed,
 body.theme-win95 .jin-chat-bubble-rateable.jin-rating-committed .jin-rating-zone {
     cursor: default;
+}
+
+body.theme-win95 .jin-chat-bubble-service {
+    background:
+            linear-gradient(
+                    180deg,
+                    rgba(255, 255, 255, calc(var(--JIN_BUBBLE_INVERT) * 0.42)),
+                    rgba(232, 232, 232, calc(var(--JIN_BUBBLE_INVERT) * 0.16))
+            ),
+            linear-gradient(
+                    180deg,
+                    rgba(46, 139, 118, calc(var(--jin-bubble-invert-off) * 0.050)),
+                    rgba(46, 139, 118, calc(var(--jin-bubble-invert-off) * 0.050))
+            ),
+            color-mix(
+                    in srgb,
+                    var(--win95-face) calc(var(--jin-bubble-invert-off) * 100%),
+                    rgba(246, 246, 246, 0.90) calc(var(--JIN_BUBBLE_INVERT) * 100%)
+            );
+}
+
+body.theme-win95 .jin-chat-bubble-brain {
+    background:
+            linear-gradient(
+                    180deg,
+                    rgba(255, 255, 255, calc(var(--JIN_BUBBLE_INVERT) * 0.42)),
+                    rgba(232, 232, 232, calc(var(--JIN_BUBBLE_INVERT) * 0.16))
+            ),
+            color-mix(
+                    in srgb,
+                    var(--win95-face) calc(var(--jin-bubble-invert-off) * 100%),
+                    rgba(246, 246, 246, 0.90) calc(var(--JIN_BUBBLE_INVERT) * 100%)
+            );
+}
+
+body.theme-win95 .jin-chat-bubble-service,
+body.theme-win95 .jin-chat-bubble-brain {
+    color: color-mix(
+            in srgb,
+            var(--win95-text) calc(var(--jin-bubble-invert-off) * 100%),
+            #2d2d2d calc(var(--JIN_BUBBLE_INVERT) * 100%)
+    );
+}
+
+body.theme-win95 .jin-chat-bubble-service .jin-chat-pre,
+body.theme-win95 .jin-chat-bubble-brain .jin-chat-pre {
+    color: inherit;
+    text-shadow: none;
 }
 
 body.theme-win95 .jin-think-wrapper {
@@ -800,7 +867,7 @@ body.theme-win95 .jin-think-content {
     border-radius: 2px;
     color: var(--win95-text);
     font-family: Calibri, Arial, sans-serif;
-    font-size: 14px;
+    font-size: var(--theme-light-think-font-size);
     font-weight: 500;
     line-height: 1.55;
     text-shadow: none;

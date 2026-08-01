@@ -1,16 +1,20 @@
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from typing import TYPE_CHECKING
 from xml.sax.saxutils import escape
-
-from websocket_logger import WebSocketLogger
 
 from runtime.L1_memory_rules import (
     DEFAULT_RUNTIME_MEMORY,
 )
 
 
+if TYPE_CHECKING:
+    from websocket.logger import WebSocketLogger
+
+
 RECENT_MESSAGES_MAX_PAIRS = 3
 RECENT_MESSAGE_MAX_CHARS = 220
+DEFAULT_JIN_COLOR = "#1f4f8f"
 
 
 class RuntimeEmitter:
@@ -39,7 +43,7 @@ class RuntimeContext:
 
     emitter: RuntimeEmitter
 
-    logger: WebSocketLogger
+    logger: "WebSocketLogger"
 
     clients: dict
 
@@ -73,6 +77,8 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_active_asset_action_id: str = ""
+
     runtime_asset_retry_results: list[dict] = field(
         default_factory=list
     )
@@ -99,18 +105,32 @@ class RuntimeContext:
         default_factory=list
     )
 
-    runtime_visible_skills_result: dict = field(
-        default_factory=dict
-    )
-
     runtime_action_events: list[dict] = field(
         default_factory=list
     )
+
+    runtime_active_action_markers: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_turn_aborted_actions: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_turn_abort_requested: bool = False
+
+    runtime_turn_discard_requested: bool = False
+
+    runtime_turn_interrupted_memory_update_scheduled: bool = False
 
     runtime_idle_action_sequence: int = 0
 
     runtime_pending_idle_followups: list[dict] = field(
         default_factory=list
+    )
+
+    runtime_action_guard_confirmations: dict[str, object] = field(
+        default_factory=dict
     )
 
     runtime_pending_requests_queue: object | None = None
@@ -139,6 +159,10 @@ class RuntimeContext:
 
     runtime_usage_events: list[dict] = field(
         default_factory=list
+    )
+
+    runtime_token_estimate_scales: dict[str, float] = field(
+        default_factory=dict
     )
 
     runtime_memory: str = DEFAULT_RUNTIME_MEMORY
@@ -199,6 +223,12 @@ class RuntimeContext:
 
     runtime_current_sequence_started_at: float = 0.0
 
+    runtime_current_sequence_attachments: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_current_sequence_attachments_turn_id: str = ""
+
     user_message_count: int = 0
 
     assistant_message_count: int = 0
@@ -217,6 +247,14 @@ class RuntimeContext:
 
     runtime_memory_snapshots: list[dict] = field(
         default_factory=list
+    )
+
+    runtime_memory_quote_history: dict = field(
+        default_factory=dict
+    )
+
+    runtime_memory_pending_quote_identities: set = field(
+        default_factory=set
     )
 
     runtime_memory_snapshot_index: int = 0
@@ -244,6 +282,8 @@ class RuntimeContext:
     )
 
     runtime_turn_assistant_response: str = ""
+
+    runtime_turn_reasoning_content: str = ""
 
     runtime_turn_interrupted: bool = False
 
@@ -385,10 +425,11 @@ class ContextContract:
     runtime_mode: str = ""
     service_model_uid: str = ""
     brain_model_uid: str = ""
+    jin_color: str = DEFAULT_JIN_COLOR
     can_web_search: bool = True
     can_use_assets: bool = False
     can_save_session: bool = False
-    can_create_active_memory: bool = False
+    can_save_active_memory: bool = False
 
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
     current_date: str = field(default_factory=lambda: datetime.now().date().isoformat())
@@ -418,6 +459,9 @@ class ContextContract:
             and self.brain_model_uid
         ):
             fields["BRAIN_MODEL_UID"] = self.brain_model_uid
+
+        if self.jin_color:
+            fields["JIN_COLOR"] = self.jin_color
 
         fields["USER_DATETIME"] = format_user_datetime(
             self.current_date,

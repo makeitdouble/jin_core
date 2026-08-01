@@ -13,6 +13,7 @@ class AppSettings:
     NATIVE_MODELS_ENDPOINT: str
 
     USE_SERVICE_AS_BRAIN: bool
+    FORMAT_RESPONSE: bool
 
     SERVICE_API_BASE: str
     SERVICE_MODEL_UID: str
@@ -55,6 +56,11 @@ settings = AppSettings(
     ),
 
     USE_SERVICE_AS_BRAIN=config.USE_SERVICE_AS_BRAIN,
+    FORMAT_RESPONSE=getattr(
+        config,
+        "FORMAT_RESPONSE",
+        True,
+    ),
 
     SERVICE_API_BASE=config.SERVICE_API_BASE,
     SERVICE_MODEL_UID=config.SERVICE_MODEL_UID,

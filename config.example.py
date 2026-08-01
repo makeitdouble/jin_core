@@ -3,6 +3,7 @@
 USE_SERVICE_AS_BRAIN = True
 TRANSLATION_ENABLED = False
 TRANSLATE_RESPONSE = False
+FORMAT_RESPONSE = True
 DEBUG_RULE_CITATIONS = True
 
 # When True, a brain generation stopped by the model/context output limit
@@ -18,13 +19,17 @@ MODELS_ENDPOINT = "/v1/models"
 # /v1/models responses. Leave empty to disable native metadata probing.
 NATIVE_MODELS_ENDPOINT = "/api/v0/models"
 
+# Large document attachments are transported through the existing WebSocket.
+# Base64 adds overhead, so 64 MiB allows roughly 45 MiB source files.
+WEBSOCKET_MAX_MESSAGE_BYTES = 64 * 1024 * 1024
+
 # ---------------------------------------------------------
 # TOKEN BUDGETING
 # ---------------------------------------------------------
 
 # Reserved context space kept free when calculating dynamic response budget.
 # This prevents the request from filling the whole context window exactly.
-RUNTIME_OUTPUT_TOKEN_RESERVE = 512
+RUNTIME_OUTPUT_TOKEN_RESERVE = 256
 
 # When True, JIN prefers the loaded model limits reported by the runtime
 # server (/v1/models or provider-native metadata) over local config values.
@@ -36,7 +41,33 @@ RUNTIME_CONTEXT_WINDOW_FALLBACK_TO_SERVER = True
 # the detected loaded context window as the upper output cap and still
 # applies the dynamic prompt + reserve budget. Per-call smaller caps are
 # preserved. When False, JIN uses *_MAX_TOKENS from config.py only.
-RUNTIME_MAX_TOKENS_FALLBACK_TO_SERVER = True
+RUNTIME_MAX_TOKENS_FALLBACK_TO_SERVER = False
+
+# ---------------------------------------------------------
+# DOCUMENT / PYTHON SKILLS
+# ---------------------------------------------------------
+
+# Internal document reader limits. Chunk size is still recalculated on every
+# iteration from the active model context window and the current result size.
+DOCUMENT_READER_MAX_ITERATIONS = 128
+DOCUMENT_READER_MIN_CHUNK_TOKENS = 256
+# 0 = automatic. The runtime scales the chunk ceiling from the active context
+# window (up to 32768 tokens) instead of pinning large models to tiny chunks.
+DOCUMENT_READER_MAX_CHUNK_TOKENS = 0
+# 0 = automatic. The runtime scales the cumulative result up to the active
+# model output limit (capped at 16384 tokens).
+DOCUMENT_READER_RESULT_MAX_TOKENS = 0
+DOCUMENT_READER_TEMPERATURE = 0.1
+DOCUMENT_READER_SCRIPT_TIMEOUT_SECONDS = 120
+DOCUMENT_READER_MODEL_TIMEOUT_SECONDS = 1000.0
+# While a model is processing one chunk, refresh the same chat bubble so it
+# visibly remains alive even when another window has focus.
+DOCUMENT_READER_PROGRESS_HEARTBEAT_SECONDS = 1.0
+
+# Generic local Python skill execution is restricted to .py files inside the
+# selected assets/skills/<skill>/ directory and never uses a shell.
+PYTHON_SKILL_TIMEOUT_SECONDS = 120
+PYTHON_SKILL_OUTPUT_MAX_CHARS = 60000
 
 # ---------------------------------------------------------
 # BRAIN MODEL
@@ -58,6 +89,10 @@ BRAIN_MAX_TOKENS = 8192
 
 BRAIN_MAX_FOLLOWUPS = 50
 
+# Enable only when the selected runtime/model accepts OpenAI-compatible
+# multimodal chat content with {"type": "image_url"} user message parts.
+BRAIN_IMAGE_INPUT_ENABLED = False
+
 # ---------------------------------------------------------
 # SERVICE MODEL
 # ---------------------------------------------------------
@@ -73,6 +108,10 @@ SERVICE_CONTEXT_WINDOW = 4096
 SERVICE_TEMPERATURE = 0.1
 
 SERVICE_MAX_TOKENS = 4096
+
+# Enable only when the selected runtime/model accepts OpenAI-compatible
+# multimodal chat content with {"type": "image_url"} user message parts.
+SERVICE_IMAGE_INPUT_ENABLED = False
 
 # ---------------------------------------------------------
 # WEB_SEARCH
@@ -102,6 +141,6 @@ TRANSLATION_RETRIES = 1
 
 TRANSLATION_TEMPERATURE = 0.1
 
-TRANSLATION_MIN_TOKENS = 64
+TRANSLATION_MIN_TOKENS = 1024
 
 TRANSLATION_MAX_TOKENS = 2048

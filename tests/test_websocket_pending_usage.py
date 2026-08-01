@@ -2,14 +2,12 @@ import unittest
 import asyncio
 from types import SimpleNamespace
 
-from runtime import (
-    emit_runtime_session_memory_update,
-    runtime_state,
-)
+from runtime.L1_memory_utils import emit_runtime_session_memory_update
+from runtime.registry import runtime_state
 from config_loader import (
     config,
 )
-from clients.brain_client_utils import (
+from utils.brain_client_utils import (
     get_brain_runtime_config,
     schedule_idle_followup,
 )
@@ -21,10 +19,14 @@ from websocket import (
     apply_runtime_resume,
     apply_session_bootstrap,
     arm_save_session_from_user_text,
+    cancel_current_task,
     reject_when_all_models_offline,
     refresh_pending_brain_usage,
     wait_for_runtime_memory_update,
     merge_runtime_idle_followup_turn,
+)
+from utils.runtime_action_abort import (
+    mark_runtime_action_started,
 )
 
 
@@ -148,6 +150,57 @@ class FakeWebSocket:
 
 class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
 
+    async def test_cancel_current_task_aborts_active_action_when_task_already_done(self):
+
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+            runtime_action_events=[],
+            runtime_active_action_markers=[],
+            runtime_turn_aborted_actions=[],
+            runtime_action_guard_confirmations={},
+            runtime_current_turn_id="turn_done_abort",
+            active_streams={},
+        )
+        logger = FakeLogger()
+
+        async def finished():
+            return None
+
+        task = asyncio.create_task(
+            finished()
+        )
+        await task
+
+        mark_runtime_action_started(
+            context,
+            action="save_delayed_memory_content",
+            action_id="save_delayed_memory_content_1",
+            display_name="SAVE_DELAYED_MEMORY_CONTENT",
+            text="SAVE_DELAYED_MEMORY_CONTENT",
+            close_tag=True,
+        )
+
+        await cancel_current_task(
+            task,
+            logger,
+            context,
+            update_memory=False,
+            emit_aborted_actions=True,
+        )
+
+        self.assertEqual(
+            context.runtime_active_action_markers,
+            [],
+        )
+        self.assertEqual(
+            context.runtime_action_events[0]["status"],
+            "aborted",
+        )
+        self.assertEqual(
+            context.emitter.events[0]["text"],
+            "SAVE_DELAYED_MEMORY_CONTENT: ABORTED",
+        )
+
     def test_idle_followups_replace_same_recent_turn_instead_of_duplicating_it(self):
 
         context = SimpleNamespace(
@@ -204,7 +257,6 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             runtime_tool_results_turn_count=1,
             runtime_search_result="old search",
             runtime_search_result_id="search_1",
-            runtime_visible_skills_result={},
             runtime_asset_results=[],
             runtime_asset_retry_results=[],
             runtime_asset_retry_context=[],
@@ -285,6 +337,57 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             followup["sequence_started_at"],
             1000.0,
+        )
+
+    async def test_idle_followup_inherits_sequence_attachments(self):
+
+        queue = asyncio.Queue()
+        context = SimpleNamespace(
+            background_tasks=set(),
+            runtime_pending_requests_queue=queue,
+            runtime_pending_idle_followups=[],
+            runtime_idle_action_sequence=0,
+            runtime_tool_results_generation=0,
+            runtime_turn_attachments=[],
+            runtime_current_turn_id="idle_000002",
+            runtime_current_sequence_turn_id="turn_000001",
+            runtime_turn_started_at=1031.0,
+            runtime_current_sequence_started_at=1000.0,
+            runtime_current_sequence_attachments_turn_id="turn_000001",
+            runtime_current_sequence_attachments=[
+                {
+                    "name": "README.md",
+                    "kind": "text",
+                    "text_content": "body",
+                },
+            ],
+        )
+
+        schedule_idle_followup(
+            context,
+            seconds=0,
+            source_message="<IDLE: 0s>",
+            user_message="timed sequence",
+            context_snapshot={
+                "system_prompt": "frozen prompt",
+            },
+        )
+
+        queued = await asyncio.wait_for(
+            queue.get(),
+            timeout=1,
+        )
+        followup = queued["idle_followup"]
+
+        self.assertEqual(
+            followup["attachments"],
+            [
+                {
+                    "name": "README.md",
+                    "kind": "text",
+                    "text_content": "body",
+                },
+            ],
         )
 
     async def test_due_idle_followup_runs_before_queued_dialogue_requests(self):
@@ -783,7 +886,7 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
                 status=original_state["status"],
             )
 
-    async def test_pending_brain_usage_waits_for_translated_input(self):
+    async def test_pending_brain_usage_emits_provisional_cyrillic_input(self):
 
         brain_runtime = get_brain_runtime_config()
         runtime_id = brain_runtime["runtime_id"]
@@ -807,20 +910,73 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
                 runtime_id
             )
 
-            self.assertEqual(
+            self.assertGreater(
                 current_state["used_tokens"],
-                original_state["used_tokens"],
+                0,
             )
 
             self.assertEqual(
-                context.emitter.events,
-                [],
+                context.emitter.events[-1]["runtime"][runtime_id]["used_tokens"],
+                current_state["used_tokens"],
             )
 
         finally:
             runtime_state.update_runtime_state(
                 runtime_id=runtime_id,
                 used_tokens=original_state["used_tokens"],
+                context_tokens=original_state["context_tokens"],
+                total_tokens=original_state["total_tokens"],
+                max_tokens=original_state["max_tokens"],
+                last_error=original_state["last_error"],
+                status=original_state["status"],
+            )
+
+    async def test_pending_brain_usage_applies_provider_calibration(self):
+
+        brain_runtime = get_brain_runtime_config()
+        runtime_id = brain_runtime["runtime_id"]
+        original_state = runtime_state.get_runtime_state(
+            runtime_id
+        )
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+            deep_thought_count=0,
+            runtime_search_result="",
+            runtime_search_result_id="",
+            runtime_token_estimate_scales={
+                runtime_id: 2.0,
+            },
+        )
+
+        try:
+            await refresh_pending_brain_usage(
+                context,
+                "hi",
+            )
+            calibrated_tokens = runtime_state.get_runtime_state(
+                runtime_id
+            )["used_tokens"]
+
+            context.runtime_token_estimate_scales = {}
+            await refresh_pending_brain_usage(
+                context,
+                "hi",
+            )
+            baseline_tokens = runtime_state.get_runtime_state(
+                runtime_id
+            )["used_tokens"]
+
+            self.assertEqual(
+                calibrated_tokens,
+                baseline_tokens * 2,
+            )
+
+        finally:
+            runtime_state.update_runtime_state(
+                runtime_id=runtime_id,
+                used_tokens=original_state["used_tokens"],
+                context_tokens=original_state["context_tokens"],
+                total_tokens=original_state["total_tokens"],
                 max_tokens=original_state["max_tokens"],
                 last_error=original_state["last_error"],
                 status=original_state["status"],

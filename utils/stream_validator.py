@@ -1,23 +1,5 @@
-from rules.runtime import (
-    DELAYED_MEMORY_APPEND_MARKER,
-    DELAYED_MEMORY_LIST_MARKER,
-    DELAYED_MEMORY_REMOVE_MARKER,
-    INTERNAL_ACTION_APPEND_SKILL_MARKER,
-    INTERNAL_ACTION_APPEND_SKILLS_MARKER,
-    INTERNAL_ACTION_ASSET_ACTION_MARKER,
-    INTERNAL_ACTION_CHECK_TODO_MARKER,
-    INTERNAL_ACTION_CLEAN_TOOL_RESULTS_MARKER,
-    INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER,
-    INTERNAL_ACTION_CREATE_TODO_LIST_MARKER,
-    INTERNAL_ACTION_HIDE_SKILLS_MARKER,
-    INTERNAL_ACTION_LIST_SKILLS_MARKER,
-    INTERNAL_ACTION_REMOVE_SKILL_MARKER,
-    INTERNAL_ACTION_REMOVE_SKILLS_MARKER,
-    INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY_MARKER,
-    INTERNAL_ACTION_RESOLVE_TODO_MARKER,
-    INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_MARKER,
-    INTERNAL_ACTION_SAVE_SESSION_MARKER,
-    INTERNAL_ACTION_WEB_SEARCH_MARKER,
+from contracts.rules_assembler import (
+    get_stream_validator_excluded_markers,
 )
 
 # ---------------------------------------------------------
@@ -58,35 +40,19 @@ TRAILING_ARTIFACTS = [
 
 WORD_WINDOW_SIZE = 30
 MAX_REPEAT_WORDS = 8
-MAX_REPEAT_SENTENCES = 10
-MAX_SENTENCE_LOOP_SEQUENCE_SIZE = 32
+MAX_REPEAT_WORD_SEQUENCE_SIZE = 6
+MAX_REPEAT_WORD_SEQUENCE_REPETITIONS = 6
+MAX_REPEAT_SENTENCES = 5
+MAX_SENTENCE_LOOP_SEQUENCE_SIZE = 16
 SENTENCE_HISTORY_SIZE = (
     MAX_SENTENCE_LOOP_SEQUENCE_SIZE
     + 1
 )
 TRUNCATE = 160
 
-STREAM_VALIDATOR_EXCLUDED_MARKERS = [
-    INTERNAL_ACTION_WEB_SEARCH_MARKER,
-    INTERNAL_ACTION_SAVE_SESSION_MARKER,
-    INTERNAL_ACTION_CREATE_ACTIVE_MEMORY_MARKER,
-    INTERNAL_ACTION_RESOLVE_ACTIVE_MEMORY_MARKER,
-    INTERNAL_ACTION_LIST_SKILLS_MARKER,
-    INTERNAL_ACTION_HIDE_SKILLS_MARKER,
-    INTERNAL_ACTION_CLEAN_TOOL_RESULTS_MARKER,
-    INTERNAL_ACTION_APPEND_SKILL_MARKER,
-    INTERNAL_ACTION_REMOVE_SKILL_MARKER,
-    INTERNAL_ACTION_APPEND_SKILLS_MARKER,
-    INTERNAL_ACTION_REMOVE_SKILLS_MARKER,
-    INTERNAL_ACTION_ASSET_ACTION_MARKER,
-    INTERNAL_ACTION_CREATE_TODO_LIST_MARKER,
-    INTERNAL_ACTION_RESOLVE_TODO_MARKER,
-    INTERNAL_ACTION_CHECK_TODO_MARKER,
-    INTERNAL_ACTION_SAVE_DELAYED_MEMORY_CONTENT_MARKER,
-    DELAYED_MEMORY_LIST_MARKER,
-    DELAYED_MEMORY_APPEND_MARKER,
-    DELAYED_MEMORY_REMOVE_MARKER,
-]
+STREAM_VALIDATOR_EXCLUDED_MARKERS = list(
+    get_stream_validator_excluded_markers()
+)
 
 
 def extract_marker_name(
@@ -570,13 +536,18 @@ class StreamValidator:
             if word == "":
                 continue
 
-            clean_word = word.lower()
+            clean_word = word.lower().strip(
+                " \t\r\n`*_~\"'“”‘’.,:;!?()[]{}<>"
+            )
 
             if not clean_word:
                 continue
 
+            # Pure numeric fragments are common in streamed decimals,
+            # counters, coordinates, and probabilities. They are not words
+            # and must not trigger the repeated-word loop guard.
             if not any(
-                char.isalnum()
+                char.isalpha()
                 for char in clean_word
             ):
                 continue
@@ -614,6 +585,61 @@ class StreamValidator:
                     )
 
                     return False
+
+            max_sequence_size = min(
+                MAX_REPEAT_WORD_SEQUENCE_SIZE,
+                len(self.recent_words) // 2,
+            )
+
+            for sequence_size in range(
+                2,
+                max_sequence_size + 1,
+            ):
+                required_words = (
+                    sequence_size
+                    * MAX_REPEAT_WORD_SEQUENCE_REPETITIONS
+                )
+
+                if len(self.recent_words) < required_words:
+                    continue
+
+                recent_sequence = self.recent_words[
+                    -sequence_size:
+                ]
+                window = self.recent_words[
+                    -required_words:
+                ]
+                repeated_sequence = all(
+                    window[index:index + sequence_size]
+                    == recent_sequence
+                    for index in range(
+                        0,
+                        required_words,
+                        sequence_size,
+                    )
+                )
+
+                if not repeated_sequence:
+                    continue
+
+                preview = " ".join(
+                    window
+                )
+                loop_preview = " ".join(
+                    recent_sequence
+                )
+
+                self.last_failure_reason = (
+                    "Repeated word sequence loop detected."
+                )
+                self.last_failure_preview = build_preview(
+                    preview
+                )
+                self.last_failure_loop_preview = build_preview(
+                    loop_preview
+                )
+
+                return False
 
         return True
 
@@ -723,6 +749,55 @@ class StreamValidator:
         )
 
     # -----------------------------------------------------
+    # NORMALIZE CHANGING QUOTED SENTENCE TEMPLATES
+    # -----------------------------------------------------
+
+    @staticmethod
+    def normalize_sentence_template(
+        sentence: str,
+    ) -> tuple[str, bool]:
+
+        normalized = " ".join(
+            str(sentence or "")
+            .casefold()
+            .split()
+        ).strip(" *_~-\t")
+
+        quote_indexes = [
+            index
+            for quote in (
+                '"',
+                "“",
+                "„",
+                "`",
+            )
+            if (index := normalized.find(quote)) >= 0
+        ]
+
+        if not quote_indexes:
+            return (
+                normalized,
+                False,
+            )
+
+        quote_index = min(quote_indexes)
+        prefix = normalized[:quote_index].rstrip()
+
+        if sum(
+            char.isalnum()
+            for char in prefix
+        ) < 8:
+            return (
+                normalized,
+                False,
+            )
+
+        return (
+            f"{prefix}<quoted>",
+            True,
+        )
+
+    # -----------------------------------------------------
     # VALIDATE SENTENCES
     # -----------------------------------------------------
 
@@ -750,12 +825,43 @@ class StreamValidator:
             1,
             max_sequence_size + 1,
         ):
-            if (
+            current_sentence = (
                 self.sentence_history[-1]
-                == self.sentence_history[
+            )
+            previous_sentence = (
+                self.sentence_history[
                     -1 - sequence_size
                 ]
+            )
+
+            sentences_match = (
+                current_sentence
+                == previous_sentence
+            )
+
+            if (
+                not sentences_match
+                and sequence_size >= 2
             ):
+                current_template, current_generalized = (
+                    self.normalize_sentence_template(
+                        current_sentence
+                    )
+                )
+                previous_template, previous_generalized = (
+                    self.normalize_sentence_template(
+                        previous_sentence
+                    )
+                )
+
+                sentences_match = (
+                    current_generalized
+                    and previous_generalized
+                    and current_template
+                    == previous_template
+                )
+
+            if sentences_match:
                 self.sentence_period_match_counts[
                     sequence_size
                 ] += 1

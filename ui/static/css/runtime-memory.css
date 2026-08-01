@@ -49,6 +49,7 @@
     color: rgba(244,244,245,0.62);
     transition:
             color 1.3s ease,
+            font-weight 1.3s ease,
             text-shadow 1.3s ease;
 }
 

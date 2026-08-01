@@ -16,16 +16,22 @@ from clients.brain_client import (
     build_brain_payload,
     emit_active_memory_records_update_if_dirty,
 )
-from rules.assembler import (
-    build_brain_system_prompt,
+from rules.brain_context_builder import (
+    build_brain_context,
 )
 from rules.runtime import (
     CONTEXT_LIMIT_RECOVERY_MESSAGE,
-    DELAYED_MEMORY_SAVE_REJECTED_MESSAGE,
     IDLE_FOLLOWUP_MESSAGE,
-    RUNTIME_ACTION_IDLE,
-    NO_FOLLOW_UP_INTERNAL_ACTIONS,
     REASONING_RECOVERY_MESSAGE,
+)
+from contracts.rules_assembler import (
+    RUNTIME_ACTION_IDLE,
+    RUNTIME_ACTION_WEB_SEARCH,
+)
+from contracts.rules_assembler import (
+    get_action_contract_name_for_runtime_action,
+    get_runtime_action_display_name,
+    runtime_action_emits_followup,
 )
 
 from clients.search_client import (
@@ -33,18 +39,25 @@ from clients.search_client import (
     run_search_service,
 )
 
-from clients.brain_client_utils import (
+from utils.brain_client_utils import (
     get_brain_runtime_config,
+)
+from utils.runtime_action_abort import (
+    mark_runtime_action_completed,
+)
+
+from utils.actions.action_counter_utils import (
+    format_runtime_action_count,
 )
 
 from utils.language import (
     contains_cyrillic,
 )
 from utils.tool_results import (
+    TOOL_RESULT_KIND_ASSET,
     TOOL_RESULT_KIND_SEARCH,
     TOOL_RESULT_KIND_SESSION,
     begin_runtime_tool_results_turn,
-    clear_runtime_tool_results,
     record_runtime_tool_result,
 )
 from utils.tool_results_context import (
@@ -57,39 +70,21 @@ from config_loader import (
     config,
 )
 
-def build_no_follow_up_action_names() -> frozenset[str]:
-
-    names = set()
-
-    for marker in NO_FOLLOW_UP_INTERNAL_ACTIONS:
-        marker_text = str(marker or "").strip()
-
-        if not marker_text:
-            continue
-
-        marker_text = marker_text.lstrip("<").split(":", 1)[0]
-        marker_text = marker_text.split(">", 1)[0].strip()
-
-        if marker_text.startswith("INTERNAL_ACTION_"):
-            marker_text = marker_text[len("INTERNAL_ACTION_"):]
-
-        if marker_text:
-            names.add(marker_text.casefold())
-
-    return frozenset(names)
-
-
-NO_FOLLOW_UP_ACTION_NAMES = build_no_follow_up_action_names()
-
-
 def action_event_requires_follow_up(event) -> bool:
 
     if not isinstance(event, dict):
         return True
 
+    status = str(event.get("status", "") or "").strip().casefold()
+
+    if status == "aborted":
+        return False
+
     name = str(event.get("name", "") or "").strip().casefold()
 
-    return name not in NO_FOLLOW_UP_ACTION_NAMES
+    return runtime_action_emits_followup(
+        name
+    )
 
 
 def action_event_defers_follow_up(event) -> bool:
@@ -113,24 +108,22 @@ def action_batch_requires_follow_up(
     if not events:
         return False
 
+    events_requiring_follow_up = [
+        event
+        for event in events
+        if action_event_requires_follow_up(event)
+    ]
+
+    if not events_requiring_follow_up:
+        return False
+
     if all(
         action_event_defers_follow_up(event)
-        for event in events
+        for event in events_requiring_follow_up
     ):
         return False
 
-    if len(events) != 1:
-        return True
-
-    event = events[0]
-
-    if action_event_defers_follow_up(event):
-        return False
-
-    if action_event_requires_follow_up(event):
-        return True
-
-    return not str(response_text or "").strip()
+    return True
 
 
 async def complete_save_session_memory_before_follow_up(
@@ -240,13 +233,31 @@ def build_reasoning_recovery_context() -> str:
     )
 
 
-def build_delayed_memory_save_rejected_context() -> str:
+def consume_confirm_result_context(
+        context,
+) -> str:
+
+    messages = [
+        str(message or "").strip()
+        for message in getattr(
+            context,
+            "runtime_action_failure_followup_messages",
+            [],
+        )
+        or []
+        if str(message or "").strip()
+    ]
+
+    context.runtime_action_failure_followup_messages = []
+
+    if not messages:
+        return ""
 
     return (
-        "<DELAYED_MEMORY_SAVE_REJECTED>\n"
-        + DELAYED_MEMORY_SAVE_REJECTED_MESSAGE
+        "<CONFIRM_RESULT>\n"
+        + "\n".join(messages)
         + ".\n"
-        "</DELAYED_MEMORY_SAVE_REJECTED>"
+        "</CONFIRM_RESULT>"
     )
 
 
@@ -289,14 +300,14 @@ def build_context_limit_recovery_context(
 
 
 FOLLOWUP_SYSTEM_MESSAGE = (
-    "This is runtime system message!\n"
-    "Multi-step task in progress!\n"
-    "This is not a start of a task sequence!\n"
-    "This is not a new request!\n"
+    "MANDATORY: YOU MUST USE CURRENT_SEQUENCE BLOCK AS THE SOLE SOURCE OF TRUTH FOR THE ACTION ORDER AND EXECUTION STATUS!\n"
+    "MANDATORY: THIS IS NOT START OF A SEQUENCE!\n"
+    "MANDATORY: YOU ARE IN THE MIDDLE OF RUNNING SEQUENCE!\n"
+    "MANDATORY: YOU MUST FINISH CURRENT SEQUENCE AND DO NOT START NEW SEQUENCE!\n"
+    "MANDATORY: YOU MUST DERIVE REMAINING STEPS FROM <INITIAL_SEQUENCE_USER_MESSAGE> AND CONTINUE FROM CURRENT_SEQUENCE!\n"
     "\n"
-    "YOU MUST derive your next action from SEQUENCE_ORIGIN_REQUEST and CURRENT_SEQUENCE.\n"
-    "You need to make all required actions and complete remaining steps!\n"
-    "If SEQUENCE_ORIGIN_REQUEST conditions are met - stop execute and notify user!\n"
+    "\n"
+    "If the original user request is satisfied - stop execute and notify user!\n"
     "If conditions are not met - continue without confirmation!\n"
     "\n"
 )
@@ -314,6 +325,26 @@ def _compact_followup_value(
     ).strip()
 
 
+def sanitize_sequence_user_request(
+        value,
+) -> str:
+
+    # Attachment payload transport hints are useful to the runtime, but they
+    # are not part of the user's request and must not leak into the visible
+    # CURRENT_SEQUENCE block on follow-up ticks.
+    lines = []
+
+    for line in str(value or "").splitlines():
+        if line.strip().casefold().startswith(
+            "runtime_attachment:"
+        ):
+            continue
+
+        lines.append(line)
+
+    return "\n".join(lines).strip()
+
+
 def format_followup_action_from_event(
         event: dict,
 ) -> str:
@@ -324,12 +355,47 @@ def format_followup_action_from_event(
     ):
         return ""
 
-    return _compact_followup_value(
+    runtime_action = str(
         event.get(
             "name",
             "",
         )
+        or ""
+    ).strip()
+    normalized_runtime_action = runtime_action.upper()
+    contract_name = get_action_contract_name_for_runtime_action(
+        runtime_action
+    ) or get_action_contract_name_for_runtime_action(
+        normalized_runtime_action
     )
+    display_name = get_runtime_action_display_name(
+        contract_name
+        or normalized_runtime_action
+        or runtime_action
+    )
+    action_name = _compact_followup_value(
+        normalized_runtime_action
+        or contract_name
+        or display_name
+        or runtime_action
+    )
+
+    if action_name.upper() == "ASSET_ACTION":
+        from utils.session_actions_history import (
+            extract_asset_action_marker_name,
+        )
+
+        asset_action_name = extract_asset_action_marker_name(
+            event.get("payload")
+            or event.get("asset_result")
+            or event.get("detail")
+            or ""
+        )
+
+        if asset_action_name:
+            return f"{action_name}: {asset_action_name}"
+
+    return action_name
 
 
 def format_followup_action_from_asset_result(
@@ -378,14 +444,11 @@ def format_followup_actions_from_events(
     formatted_actions = []
 
     for action_name, count in action_counts.items():
-        if count > 1:
-            formatted_actions.append(
-                f"{action_name} (repeated_times: {count} )"
-            )
-            continue
-
         formatted_actions.append(
-            action_name
+            format_runtime_action_count(
+                action_name,
+                count,
+            )
         )
 
     return ", ".join(
@@ -420,9 +483,9 @@ def rename_runtime_memory_for_followup(
 
     return (
         prompt[:opening_index]
-        + "<LATEST_RUNTIME_MEMORY>"
+        + "<PREVIOUS_RUNTIME_MEMORY>"
         + prompt[opening_index + len(opening_tag):closing_index]
-        + "</LATEST_RUNTIME_MEMORY>"
+        + "</PREVIOUS_RUNTIME_MEMORY>"
         + prompt[closing_index + len(closing_tag):]
     )
 
@@ -498,7 +561,6 @@ def build_idle_followup_system_prompt(
         build_tools_results_context(
             inherited_tool_results
         ),
-        IDLE_FOLLOWUP_MESSAGE.strip(),
     ]
 
     if frozen_system_prompt:
@@ -541,6 +603,71 @@ def build_followup_system_message(
     ).strip()
 
 
+def restore_sequence_attachments_for_followup(
+        context,
+) -> None:
+
+    current_attachments = getattr(
+        context,
+        "runtime_turn_attachments",
+        [],
+    )
+    if current_attachments:
+        return
+
+    current_sequence_turn_id = str(
+        getattr(
+            context,
+            "runtime_current_sequence_turn_id",
+            "",
+        )
+        or ""
+    ).strip()
+    sequence_attachment_turn_id = str(
+        getattr(
+            context,
+            "runtime_current_sequence_attachments_turn_id",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if (
+        current_sequence_turn_id
+        and current_sequence_turn_id == sequence_attachment_turn_id
+    ):
+        context.runtime_turn_attachments = deepcopy(
+            getattr(
+                context,
+                "runtime_current_sequence_attachments",
+                [],
+            )
+            or []
+        )
+
+
+def build_followup_attachment_payload(
+        context,
+) -> str:
+
+    from websocket.attachments import (
+        format_attachment_context,
+    )
+
+    attachments = getattr(
+        context,
+        "runtime_turn_attachments",
+        [],
+    )
+
+    if not attachments:
+        return ""
+
+    return format_attachment_context({
+        "attachments": attachments,
+    })
+
+
 class BrainNode(BaseNode):
 
     @staticmethod
@@ -553,8 +680,7 @@ class BrainNode(BaseNode):
             latest_action: str = "",
     ) -> str:
 
-        from clients.brain_context_builder import (
-            build_sequence_origin_request_context,
+        from utils.context.context_exports import (
             build_session_actions_history_context,
             strip_actions_history_context,
         )
@@ -563,21 +689,13 @@ class BrainNode(BaseNode):
             mark_current_action_sequence,
         )
 
-        if context is not None:
-            sequence_origin_request_context = (
-                build_sequence_origin_request_context(
-                    initial_user_request,
-                    created_at=get_current_action_sequence_started_at(
-                        context
-                    ),
-                )
+        sequence_started_at = (
+            get_current_action_sequence_started_at(
+                context
             )
-        else:
-            sequence_origin_request_context = (
-                build_sequence_origin_request_context(
-                    initial_user_request
-                )
-            )
+            if context is not None
+            else None
+        )
 
         tool_result_blocks, system_prompt = (
             split_tools_results_context(
@@ -585,15 +703,45 @@ class BrainNode(BaseNode):
             )
         )
 
+        confirm_result_context = (
+            consume_confirm_result_context(
+                context
+            )
+            if context is not None
+            else ""
+        )
+
+        if confirm_result_context:
+            tool_result_blocks.append(
+                confirm_result_context
+            )
+
+        current_actions_history_context = ""
+
+        if context is not None:
+            mark_current_action_sequence(
+                context
+            )
+
+        current_actions_history_context = (
+            build_session_actions_history_context(
+                context,
+                current_sequence=True,
+                sequence_user_message=initial_user_request,
+                sequence_user_created_at=sequence_started_at,
+            )
+        )
+
         sections = [
-            build_tools_results_context(
-                tool_result_blocks
-            ),
             build_followup_system_message(
                 latest_action
             ),
-            sequence_origin_request_context
         ]
+
+        if instruction.strip():
+            sections.append(
+                instruction.strip()
+            )
 
         if (
             context is not None
@@ -610,20 +758,6 @@ class BrainNode(BaseNode):
             context.runtime_turn_interrupted = False
             context.runtime_turn_interruption_reason = ""
             context.runtime_turn_interruption_quote = ""
-
-        if (
-            context is not None
-            and getattr(
-                context,
-                "runtime_delayed_memory_save_rejected_pending",
-                False,
-            )
-        ):
-            sections.append(
-                build_delayed_memory_save_rejected_context()
-            )
-            context.runtime_delayed_memory_save_rejected_pending = False
-            context.runtime_delayed_memory_save_rejected_title = ""
 
         if (
             context is not None
@@ -655,25 +789,31 @@ class BrainNode(BaseNode):
             context.runtime_turn_interruption_reason = ""
             context.runtime_turn_interruption_quote = ""
 
+        if current_actions_history_context:
+            sections.append(
+                current_actions_history_context
+            )
+
+        sections.append(
+            build_tools_results_context(
+                tool_result_blocks
+            )
+        )
+
+        if (
+            context is not None
+            and getattr(
+                context,
+                "runtime_delayed_memory_save_rejected_pending",
+                False,
+            )
+        ):
+            context.runtime_delayed_memory_save_rejected_pending = False
+            context.runtime_delayed_memory_save_rejected_title = ""
+
         if context is not None:
-            mark_current_action_sequence(
-                context
-            )
-            current_actions_history_context = (
-                build_session_actions_history_context(
-                    context,
-                    current_sequence=True,
-                )
-            )
-
-            if current_actions_history_context:
-                sections.append(
-                    current_actions_history_context
-                )
-
-            from clients.brain_context_builder import (
+            from rules.brain_context_builder import (
                 build_appended_delayed_memory_context,
-                build_previous_chat_messages_context,
             )
 
             appended_delayed_memory_context = (
@@ -686,23 +826,6 @@ class BrainNode(BaseNode):
                 sections.append(
                     appended_delayed_memory_context
                 )
-
-            previous_chat_messages_context = (
-                build_previous_chat_messages_context(
-                    context,
-                    extra_user_message=initial_user_request,
-                )
-            )
-
-            if previous_chat_messages_context:
-                sections.append(
-                    previous_chat_messages_context
-                )
-
-        if instruction.strip():
-            sections.append(
-                instruction.strip()
-            )
 
         sections.append(
             rename_runtime_memory_for_followup(
@@ -989,6 +1112,14 @@ class BrainNode(BaseNode):
                     "log_method"
                 ],
             ),
+            model_output_log_method=getattr(
+                context.logger,
+                brain_runtime.get(
+                    "model_output_log_method",
+                    "",
+                ),
+                None,
+            ),
             enable_validator=True,
             emit_to_chat=True,
             emit_content_to_chat=emit_content_to_chat,
@@ -1029,10 +1160,42 @@ class BrainNode(BaseNode):
 
         logger = context.logger
 
+        is_followup_tick = (
+            not str(
+                brain_payload
+                or ""
+            ).strip()
+            and str(
+                system_prompt
+                or ""
+            ).lstrip().startswith(
+                FOLLOWUP_SYSTEM_MESSAGE
+            )
+        )
+        previous_followup_tick = getattr(
+            context,
+            "runtime_followup_tick_active",
+            False,
+        )
+
+        effective_brain_payload = brain_payload
+
+        if is_followup_tick:
+            restore_sequence_attachments_for_followup(
+                context
+            )
+            effective_brain_payload = (
+                build_followup_attachment_payload(
+                    context
+                )
+                or brain_payload
+            )
+            context.runtime_followup_tick_active = True
+
         context_snapshot = build_brain_context_snapshot(
             context=context,
             system_prompt=system_prompt,
-            user_prompt=brain_payload,
+            user_prompt=effective_brain_payload,
             runtime_actions=runtime_actions,
         )
 
@@ -1067,6 +1230,14 @@ class BrainNode(BaseNode):
                     "log_method"
                 ],
             ),
+            model_output_log_method=getattr(
+                logger,
+                brain_runtime.get(
+                    "model_output_log_method",
+                    "",
+                ),
+                None,
+            ),
             enable_validator=True,
             emit_to_chat=True,
             emit_content_to_chat=emit_content_to_chat,
@@ -1075,19 +1246,56 @@ class BrainNode(BaseNode):
             filter_runtime_actions=filter_runtime_actions,
         )
 
-        generator = ask_brain_stream(
-            client=brain_client,
-            text=state.translated_input,
-            context=context,
-            system_prompt=system_prompt,
-            brain_payload=brain_payload,
-            runtime_actions=runtime_actions,
-            filter_runtime_actions=filter_runtime_actions,
-        )
+        try:
+            generator = ask_brain_stream(
+                client=brain_client,
+                text=state.translated_input,
+                context=context,
+                system_prompt=system_prompt,
+                brain_payload=effective_brain_payload,
+                runtime_actions=runtime_actions,
+                filter_runtime_actions=filter_runtime_actions,
+            )
 
-        text = await runtime.run(
-            generator
-        )
+            text = await runtime.run(
+                generator
+            )
+        finally:
+            if is_followup_tick:
+                context.runtime_followup_tick_active = (
+                    previous_followup_tick
+                )
+
+        if runtime.stream.reasoning:
+            context.runtime_turn_reasoning_content = "\n".join(
+                part
+                for part in (
+                    getattr(
+                        context,
+                        "runtime_turn_reasoning_content",
+                        "",
+                    ),
+                    runtime.stream.reasoning,
+                )
+                if str(part or "").strip()
+            )
+
+        # A SAVE_SESSION marker can be emitted on the initial brain response
+        # or on any internal follow-up tick. Complete L3 here, at the shared
+        # stream boundary, so the next tick cannot start before the save
+        # result exists and has been added to TOOL_RESULTS. This deliberately
+        # bypasses the ordinary post-turn L1 update. Preserve the old abort
+        # behavior: a stopped turn must not start a new L3 request.
+        if not getattr(
+            context,
+            "runtime_turn_abort_requested",
+            False,
+        ):
+            await complete_save_session_memory_before_follow_up(
+                context=context,
+                state=state,
+                response_text=text or "",
+            )
 
         return (
             text or "",
@@ -1126,6 +1334,7 @@ class BrainNode(BaseNode):
         begin_runtime_tool_results_turn(
             context
         )
+        context.runtime_turn_reasoning_content = ""
         context.runtime_search_queries.clear()
         context.runtime_search_calls.clear()
         context.runtime_search_result = ""
@@ -1142,10 +1351,10 @@ class BrainNode(BaseNode):
             context.runtime_delayed_memory_results.clear()
 
         # Reset per-turn signal for schedule_runtime_memory_update(): it
-        # needs to know whether CREATE_ACTIVE_MEMORY actually wrote a
+        # needs to know whether SAVE_ACTIVE_MEMORY actually wrote a
         # record this turn even when the visible assistant text is empty
         # (e.g. the user explicitly asked JIN to emit only the marker).
-        context.runtime_active_memory_created_this_turn = False
+        context.runtime_active_memory_saved_this_turn = False
         context.runtime_active_memory_refresh_tick = 0
         context.runtime_save_session_memory_committed_this_turn = False
         context.runtime_save_session_result = {}
@@ -1177,12 +1386,14 @@ class BrainNode(BaseNode):
                 idle_system_prompt,
                 sequence_origin_request,
                 context=context,
+                instruction=IDLE_FOLLOWUP_MESSAGE,
                 latest_action="idle",
             )
             brain_payload = ""
+            sequence_user_request = sequence_origin_request
         else:
             system_prompt = (
-                build_brain_system_prompt(
+                build_brain_context(
                     context,
                     runtime_actions=runtime_actions,
                     commit_active_memory_refresh=True,
@@ -1193,6 +1404,18 @@ class BrainNode(BaseNode):
                     state.translated_input,
                     context=context,
                 )
+            )
+            sequence_user_request = str(
+                getattr(
+                    context,
+                    "runtime_turn_user_message",
+                    "",
+                )
+                or state.translated_input
+                or ""
+            )
+            sequence_user_request = sanitize_sequence_user_request(
+                sequence_user_request
             )
 
         await emit_active_memory_records_update_if_dirty(
@@ -1205,6 +1428,14 @@ class BrainNode(BaseNode):
             getattr(
                 context,
                 "runtime_action_events",
+                [],
+            )
+            or []
+        )
+        runtime_tool_result_followup_offset = len(
+            getattr(
+                context,
+                "runtime_tool_results",
                 [],
             )
             or []
@@ -1223,14 +1454,13 @@ class BrainNode(BaseNode):
             ),
         )
 
-        # SAVE_SESSION resolves against the snapshots that already exist, then
-        # immediately enters the normal follow-up loop. The current request and
-        # final confirmation reach L1/L2 only after the complete JIN response.
-        await complete_save_session_memory_before_follow_up(
-            context=context,
-            state=state,
-            response_text=text,
-        )
+        if getattr(
+            context,
+            "runtime_turn_abort_requested",
+            False,
+        ):
+            state.brain_response = text or ""
+            return
 
         asset_result_offset = 0
         delayed_memory_result_offset = 0
@@ -1249,6 +1479,27 @@ class BrainNode(BaseNode):
             )
             or ""
         ).strip()
+        current_sequence_turn_id = str(
+            getattr(
+                context,
+                "runtime_current_sequence_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
+
+        def abort_requested():
+            return bool(
+                getattr(
+                    context,
+                    "runtime_turn_abort_requested",
+                    False,
+                )
+            )
+
+        if abort_requested():
+            state.brain_response = text or ""
+            return
 
         def belongs_to_current_turn(
                 item,
@@ -1273,8 +1524,52 @@ class BrainNode(BaseNode):
 
             return (
                 not item_turn_id
-                or item_turn_id == current_turn_id
+                or item_turn_id
+                in {
+                    current_turn_id,
+                    current_sequence_turn_id,
+                }
             )
+
+        def collect_pending_asset_tool_results():
+
+            tool_results = getattr(
+                context,
+                "runtime_tool_results",
+                [],
+            )
+            pending_results = []
+
+            for entry in tool_results[
+                runtime_tool_result_followup_offset:
+            ]:
+                if (
+                    not isinstance(entry, dict)
+                    or entry.get("kind") != TOOL_RESULT_KIND_ASSET
+                ):
+                    continue
+
+                result = entry.get("result")
+                if (
+                    not isinstance(result, dict)
+                    or not belongs_to_current_turn(result)
+                ):
+                    continue
+
+                runtime_action = str(
+                    result.get("runtime_action_name")
+                    or result.get("action")
+                    or "asset_action"
+                ).strip()
+
+                if not runtime_action_emits_followup(
+                    runtime_action
+                ):
+                    continue
+
+                pending_results.append(result)
+
+            return pending_results
 
         action_event_followup_offset = (
             runtime_action_event_offset
@@ -1282,7 +1577,6 @@ class BrainNode(BaseNode):
         skill_state_followup_event_names = {
             "append_skill",
             "remove_skill",
-            "hide_skills",
             "append_delayed_memory",
         }
 
@@ -1316,6 +1610,7 @@ class BrainNode(BaseNode):
             nonlocal action_event_followup_offset
             nonlocal asset_result_offset
             nonlocal delayed_memory_result_offset
+            nonlocal runtime_tool_result_followup_offset
 
             pending_action_events = (
                 collect_pending_action_events()
@@ -1357,10 +1652,21 @@ class BrainNode(BaseNode):
             delayed_memory_result_offset = len(
                 current_delayed_memory_results
             )
+            runtime_tool_result_followup_offset = len(
+                getattr(
+                    context,
+                    "runtime_tool_results",
+                    [],
+                )
+                or []
+            )
 
             return pending_action_events
 
         while followup_count < max_followups:
+
+            if abort_requested():
+                break
 
             context.runtime_active_memory_refresh_tick = (
                 followup_count + 1
@@ -1403,13 +1709,13 @@ class BrainNode(BaseNode):
 
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
-                        build_brain_system_prompt(
+                        build_brain_context(
                             context,
                             runtime_actions=followup_runtime_actions,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
                         ),
-                        state.translated_input,
+                        sequence_user_request,
                         context=context,
                         latest_action=latest_followup_action,
                     )
@@ -1459,15 +1765,22 @@ class BrainNode(BaseNode):
                     f"executing search id={tool_call_id!r} "
                     f"query={query!r}"
                 )
+                search_display_name = (
+                    get_runtime_action_display_name(
+                        RUNTIME_ACTION_WEB_SEARCH
+                    )
+                )
 
                 await context.websocket.send_json({
                     "type": "runtime_action",
-                    "action": "web_search",
+                    "action": RUNTIME_ACTION_WEB_SEARCH.lower(),
+                    "display_name": search_display_name,
                     "id": tool_call_id,
                     "text": (
-                        f'Searching for "{query}"'
+                        f"{search_display_name}: {query}"
                     ),
                     "query": query,
+                    "scene_effect": "search",
                     "context": search_call.get(
                         "context",
                     ),
@@ -1480,10 +1793,17 @@ class BrainNode(BaseNode):
 
                 await context.websocket.send_json({
                     "type": "runtime_action",
-                    "action": "web_search",
+                    "action": RUNTIME_ACTION_WEB_SEARCH.lower(),
+                    "display_name": search_display_name,
                     "id": tool_call_id,
                     "status": "completed",
+                    "scene_effect": "search",
                 })
+                mark_runtime_action_completed(
+                    context,
+                    action=RUNTIME_ACTION_WEB_SEARCH,
+                    action_id=tool_call_id,
+                )
 
                 context.runtime_search_result = search_result
                 context.runtime_search_result_id = tool_call_id
@@ -1506,7 +1826,7 @@ class BrainNode(BaseNode):
                         followup_action_events
                     )
                     or format_followup_action_from_event({
-                        "name": "web_search",
+                        "name": RUNTIME_ACTION_WEB_SEARCH.lower(),
                         "query": query,
                         "id": tool_call_id,
                     })
@@ -1514,13 +1834,13 @@ class BrainNode(BaseNode):
 
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
-                        build_brain_system_prompt(
+                        build_brain_context(
                             context,
                             runtime_actions=followup_runtime_actions,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
                         ),
-                        state.translated_input,
+                        sequence_user_request,
                         context=context,
                         latest_action=latest_followup_action,
                         instruction=(
@@ -1583,13 +1903,13 @@ class BrainNode(BaseNode):
 
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
-                        build_brain_system_prompt(
+                        build_brain_context(
                             context,
                             runtime_actions=followup_runtime_actions,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
                         ),
-                        state.translated_input,
+                        sequence_user_request,
                         context=context,
                         latest_action=latest_followup_action,
                     )
@@ -1651,13 +1971,13 @@ class BrainNode(BaseNode):
 
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
-                        build_brain_system_prompt(
+                        build_brain_context(
                             context,
                             runtime_actions=followup_runtime_actions,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
                         ),
-                        state.translated_input,
+                        sequence_user_request,
                         context=context,
                         latest_action=latest_followup_action,
                     )
@@ -1701,9 +2021,13 @@ class BrainNode(BaseNode):
                 pending_action_events = (
                     collect_pending_action_events()
                 )
+                pending_asset_tool_results = (
+                    collect_pending_asset_tool_results()
+                )
 
                 if (
                     not pending_action_events
+                    and not pending_asset_tool_results
                     and not getattr(
                         context,
                         "runtime_reasoning_recovery_pending",
@@ -1728,17 +2052,22 @@ class BrainNode(BaseNode):
                     format_followup_actions_from_events(
                         followup_action_events
                     )
+                    or format_followup_action_from_asset_result(
+                        pending_asset_tool_results[-1]
+                        if pending_asset_tool_results
+                        else {}
+                    )
                 )
 
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
-                        build_brain_system_prompt(
+                        build_brain_context(
                             context,
                             runtime_actions=followup_runtime_actions,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
                         ),
-                        state.translated_input,
+                        sequence_user_request,
                         context=context,
                         latest_action=latest_followup_action,
                     )
@@ -1783,13 +2112,13 @@ class BrainNode(BaseNode):
 
             followup_system_prompt = (
                 self.build_followup_system_prompt(
-                    build_brain_system_prompt(
+                    build_brain_context(
                         context,
                         runtime_actions=followup_runtime_actions,
                         commit_active_memory_refresh=True,
                         include_previous_chat_messages=False,
                     ),
-                    state.translated_input,
+                    sequence_user_request,
                     context=context,
                     latest_action=latest_followup_action,
                 )
@@ -1851,21 +2180,8 @@ class BrainNode(BaseNode):
                 for key in runtime_actions
             }
 
-            final_system_prompt = (
-                self.build_followup_system_prompt(
-                    build_brain_system_prompt(
-                        context,
-                        runtime_actions=final_runtime_actions,
-                        commit_active_memory_refresh=True,
-                        include_previous_chat_messages=False,
-                    ),
-                    state.translated_input,
-                    context=context,
-                    latest_action="followup_limit_reached",
-                )
-            )
-            final_system_prompt += (
-                "\n\n<FOLLOWUP_LIMIT_REACHED>\n"
+            followup_limit_instruction = (
+                "<FOLLOWUP_LIMIT_REACHED>\n"
                 f"The runtime stopped this workflow after {max_followups} "
                 "internal follow-up ticks. This is the final response "
                 "tick. No runtime action emitted in this response will "
@@ -1879,6 +2195,21 @@ class BrainNode(BaseNode):
                 "summarize what was completed and what remains. Do not "
                 "claim unfinished work is complete.\n"
                 "</FOLLOWUP_LIMIT_REACHED>"
+            )
+
+            final_system_prompt = (
+                self.build_followup_system_prompt(
+                    build_brain_context(
+                        context,
+                        runtime_actions=final_runtime_actions,
+                        commit_active_memory_refresh=True,
+                        include_previous_chat_messages=False,
+                    ),
+                    sequence_user_request,
+                    context=context,
+                    instruction=followup_limit_instruction,
+                    latest_action="followup_limit_reached",
+                )
             )
 
             await emit_active_memory_records_update_if_dirty(
@@ -1900,32 +2231,7 @@ class BrainNode(BaseNode):
                 preserve_runtime_action_markers=True,
             )
 
-        sequence_action_count = len([
-            event
-            for event in getattr(
-                context,
-                "runtime_action_events",
-                [],
-            )[runtime_action_event_offset:]
-            if belongs_to_current_turn(
-                event
-            )
-        ])
-        current_turn_tool_result_count = int(
-            getattr(
-                context,
-                "runtime_tool_results_turn_count",
-                0,
-            )
-            or 0
-        )
-
-        if (
-            sequence_action_count > 1
-            and current_turn_tool_result_count > 0
-        ):
-            clear_runtime_tool_results(
-                context
-            )
-
         state.brain_response = text or ""
+
+
+

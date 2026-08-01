@@ -1266,6 +1266,29 @@ def build_runtime_l2_memory_user_prompt(
             *,
             changed: bool = False,
     ) -> str:
+        def quote_count_suffix(
+                item: dict,
+                *,
+                prefix: str = "",
+        ) -> str:
+
+            total = item.get(
+                f"{prefix}total_quotes_count",
+            )
+            messages = item.get(
+                f"{prefix}messages_quote_count",
+            )
+
+            if (
+                    total is None
+                    and messages is None
+            ):
+                return ""
+
+            return (
+                f" [ total_quotes_count: {int(total or 0)} ]"
+                f" [ messages_quote_count: {int(messages or 0)} ]"
+            )
 
         if changed:
             previous_strength = entry.get(
@@ -1294,6 +1317,10 @@ def build_runtime_l2_memory_user_prompt(
                         else "?"
                     ),
                 )
+                + quote_count_suffix(
+                    entry,
+                    prefix="current_",
+                )
             )
 
         strength = entry.get(
@@ -1305,6 +1332,8 @@ def build_runtime_l2_memory_user_prompt(
 
         return RUNTIME_L2_TRACE_SUFFIX_TEMPLATE.format(
             strength=strength,
+        ) + quote_count_suffix(
+            entry
         )
 
     lines = [

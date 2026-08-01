@@ -65,7 +65,7 @@ from runtime.L1_memory_utils import (
     remove_runtime_response_feedback_text,
     remove_runtime_user_idle_lines,
 )
-from utils.runtime_actions import (
+from utils.actions import (
     refresh_active_memory_runtime_metadata,
     remove_active_memory_entries,
 )
@@ -1071,7 +1071,7 @@ def schedule_runtime_memory_update(
             )
             and not getattr(
                 context,
-                "runtime_active_memory_created_this_turn",
+                "runtime_active_memory_saved_this_turn",
                 False,
             )
     ):
@@ -1133,6 +1133,17 @@ def schedule_interrupted_runtime_memory_update(
         context,
 ) -> asyncio.Task | None:
 
+    if getattr(
+        context,
+        "runtime_turn_interrupted_memory_update_scheduled",
+        False,
+    ):
+        return getattr(
+            context,
+            "runtime_memory_update_task",
+            None,
+        )
+
     user_message = getattr(
         context,
         "runtime_turn_user_message",
@@ -1157,11 +1168,18 @@ def schedule_interrupted_runtime_memory_update(
                 "runtime_turn_interruption_quote",
                 "",
             ),
+            aborted_actions=getattr(
+                context,
+                "runtime_turn_aborted_actions",
+                [],
+            ),
         )
     )
 
     if not user_message.strip():
         return None
+
+    context.runtime_turn_interrupted_memory_update_scheduled = True
 
     return schedule_runtime_memory_update(
         context=context,

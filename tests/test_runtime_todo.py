@@ -1,9 +1,8 @@
 import unittest
 from dataclasses import dataclass, field
 
-from clients.brain_context_builder import append_current_runtime_todo
 from clients.brain_client import build_brain_context_snapshot
-from utils.runtime_actions import RuntimeActionStreamFilter, extract_runtime_actions
+from utils.actions import RuntimeActionStreamFilter, extract_runtime_actions
 from utils.runtime_todo import (
     apply_runtime_todo_action_result,
     check_runtime_todo_item,
@@ -12,9 +11,9 @@ from utils.runtime_todo import (
     parse_runtime_todo_payload,
     resolve_runtime_todo_item,
 )
-from rules.assembler import (
+from rules.brain_context_builder import (
     BRAIN_RUNTIME_ACTIONS,
-    build_brain_system_prompt,
+    build_brain_context,
     get_enabled_runtime_actions,
 )
 
@@ -40,7 +39,7 @@ class RuntimeTodoTests(unittest.TestCase):
             "1. LIST_SKILLS\n"
             "2. APPEND_SKILL wildcards\n"
             "</TODO_LIST>\n"
-            "<INTERNAL_ACTION_LIST_SKILLS>",
+            "<LIST_SKILLS>",
             enabled_actions=enabled_actions,
         )
 
@@ -55,16 +54,16 @@ class RuntimeTodoTests(unittest.TestCase):
 
 
 
-    def test_extract_internal_action_todo_list_alias_block(self):
+    def test_extract_todo_list_block_with_asset_action(self):
         enabled_actions = self.enabled_actions_with_runtime_todo()
         result = extract_runtime_actions(
-            "<INTERNAL_ACTION_TODO_LIST>\n"
+            "<TODO_LIST>\n"
             "1. Create wildcard file assets/wildcards/clothing/shoes.txt with 10 shoe types.\n"
             "2. Generate prompt batch and save it.\n"
-            "</INTERNAL_ACTION_TODO_LIST>\n"
-            "<INTERNAL_ACTION_ASSET_ACTION>\n"
+            "</TODO_LIST>\n"
+            "<ASSET_ACTION>\n"
             "create_wildcard_file\n"
-            "</INTERNAL_ACTION_ASSET_ACTION>",
+            "</ASSET_ACTION>",
             enabled_actions=enabled_actions,
         )
 
@@ -196,9 +195,10 @@ class RuntimeTodoTests(unittest.TestCase):
         context = DummyContext(
             runtime_todo=parse_runtime_todo_payload("1. LIST_SKILLS\n2. Save file")
         )
-        parts = []
-        append_current_runtime_todo(parts, context)
-        rendered = "\n".join(parts)
+        rendered = build_brain_context(
+            context,
+            runtime_actions=BRAIN_RUNTIME_ACTIONS,
+        )
 
         self.assertIn("<CURRENT_RUNTIME_TODO_LIST>", rendered)
         self.assertIn('<ITEM id="1" status="pending">LIST_SKILLS</ITEM>', rendered)
@@ -208,7 +208,7 @@ class RuntimeTodoTests(unittest.TestCase):
         context = DummyContext(
             runtime_todo=parse_runtime_todo_payload("1. Generate prompt batch")
         )
-        system_prompt = build_brain_system_prompt(
+        system_prompt = build_brain_context(
             context,
             runtime_actions=BRAIN_RUNTIME_ACTIONS,
         )
@@ -224,15 +224,15 @@ class RuntimeTodoTests(unittest.TestCase):
             snapshot["hide_internal_action_rules"],
         )
         self.assertIn(
-            "RUNTIME ACTION MARKERS are internal mechanics",
+            "RUNTIME ACTION EXECUTION RULES:",
             snapshot["system_prompt"],
         )
         self.assertNotIn(
-            "RUNTIME ACTION MARKERS are internal mechanics",
+            "RUNTIME ACTION EXECUTION RULES:",
             snapshot["visible_system_prompt"],
         )
         self.assertNotIn(
-            "SAVE_SESSION: high priority action",
+            "<SAVE_SESSION>",
             snapshot["visible_system_prompt"],
         )
         self.assertIn(
@@ -270,9 +270,10 @@ class RuntimeTodoTests(unittest.TestCase):
             "create_wildcard_file",
         )
 
-        parts = []
-        append_current_runtime_todo(parts, context)
-        rendered = "\n".join(parts)
+        rendered = build_brain_context(
+            context,
+            runtime_actions=BRAIN_RUNTIME_ACTIONS,
+        )
 
         self.assertIn(
             'actual_path="assets/wildcards/shoes.txt"',
@@ -334,3 +335,5 @@ class RuntimeTodoTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+

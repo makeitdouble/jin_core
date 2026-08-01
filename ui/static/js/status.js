@@ -147,6 +147,8 @@ async function updateRuntime(options = {}) {
                 Boolean(
                     data.use_service_as_brain
                 ),
+            formatResponse:
+                data.format_response !== false,
             runtimeStatus: {
                 brain: Boolean(data.brain),
                 service: Boolean(data.service),
@@ -168,6 +170,10 @@ async function updateRuntime(options = {}) {
             service: false,
             translator: false,
             use_service_as_brain: false,
+            format_response: (
+                window.jinRuntimeConfig
+                && window.jinRuntimeConfig.formatResponse
+            ) !== false,
             runtime_config: (
                 window.jinRuntimeConfig
                 && window.jinRuntimeConfig.runtimeConfig

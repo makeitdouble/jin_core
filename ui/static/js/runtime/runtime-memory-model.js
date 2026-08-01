@@ -728,6 +728,29 @@
   }
 
 
+  function formatRuntimeMemoryQuoteCountProperties(line) {
+
+    const totalQuotes =
+        Number(line && line.total_quotes_count);
+
+    const messagesQuotes =
+        Number(line && line.messages_quote_count);
+
+    if (
+        (!Number.isFinite(totalQuotes) || totalQuotes <= 0)
+        && (!Number.isFinite(messagesQuotes) || messagesQuotes <= 0)
+    ) {
+      return [];
+    }
+
+    return [
+      `total_quotes_count: ${Math.max(0, Math.trunc(totalQuotes || 0))}`,
+      `messages_quote_count: ${Math.max(0, Math.trunc(messagesQuotes || 0))}`,
+    ];
+
+  }
+
+
   // Builds the UI value presentation while keeping raw hover data, e.g. value "Book" with strength 0.5 -> text "Book", raw "Book [trace: 0.50]".
   function buildRuntimeMemoryValuePresentation(line) {
 
@@ -744,11 +767,21 @@
         memoryMetaHasTag(parsedValue, "trace")
           ? []
           : formatRuntimeMemoryStrengthProperties(line);
+    const quoteCountProperties =
+        [
+          "total_quotes_count",
+          "messages_quote_count",
+        ].some(tag => memoryMetaHasTag(parsedValue, tag))
+          ? []
+          : formatRuntimeMemoryQuoteCountProperties(line);
 
     const rawValue =
         appendProperties(
           displayValue,
-          strengthProperties
+          [
+            ...strengthProperties,
+            ...quoteCountProperties,
+          ]
         );
 
     const presentation =

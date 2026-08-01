@@ -11,6 +11,10 @@
    ========================= */
 
 :root {
+    /* JIN_BUBBLE_INVERT = False. Set to 1 for True. */
+    --JIN_BUBBLE_INVERT: 0;
+    --jin-bubble-invert-off: calc(1 - var(--JIN_BUBBLE_INVERT));
+
     /* Общий цвет линий/акцентов JIN. Влияет на холодный cyan-вайб интерфейса. */
     --jin-chat-line: rgba(103, 232, 249, 0.60);
 
@@ -280,7 +284,7 @@
     font-family: inherit;
 
     /* Размер и ритм текста в сообщениях. */
-    font-size: 13px;
+    font-size: var(--theme-dark-font-size);
     line-height: 1.72;
     letter-spacing: 0.01em;
 
@@ -289,6 +293,120 @@
 
     /* Базовое cyan-свечение текста; ниже JIN/USER могут переопределять. */
     text-shadow: 0 0 10px rgba(94, 234, 212, 0.08);
+}
+
+.jin-chat-pre.jin-chat-markdown {
+    white-space: normal;
+}
+
+.jin-chat-markdown > :first-child {
+    margin-top: 0;
+}
+
+.jin-chat-markdown > :last-child {
+    margin-bottom: 0;
+}
+
+.jin-chat-markdown p {
+    margin: 0 0 0.82em;
+}
+
+.jin-chat-markdown h1,
+.jin-chat-markdown h2,
+.jin-chat-markdown h3,
+.jin-chat-markdown h4 {
+    margin: 1.05em 0 0.48em;
+    color: inherit;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.jin-chat-markdown h1 {
+    font-size: 1.18em;
+}
+
+.jin-chat-markdown h2 {
+    font-size: 1.12em;
+}
+
+.jin-chat-markdown h3,
+.jin-chat-markdown h4 {
+    font-size: 1.04em;
+}
+
+.jin-chat-markdown ul,
+.jin-chat-markdown ol {
+    margin: 0.45em 0 0.9em;
+    padding-left: 1.65em;
+}
+
+.jin-chat-markdown ul {
+    list-style: disc;
+}
+
+.jin-chat-markdown ol {
+    list-style: decimal;
+}
+
+.jin-chat-markdown li + li {
+    margin-top: 0.25em;
+}
+
+.jin-chat-markdown strong {
+    color: rgba(230, 247, 250, 0.98);
+    font-weight: 700;
+}
+
+.jin-chat-markdown em {
+    font-style: italic;
+}
+
+.jin-chat-markdown code {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
+    color: rgba(226, 232, 240, 0.94);
+    font-family: inherit;
+    font-size: 0.95em;
+}
+
+.jin-chat-markdown .jin-chat-code-block {
+    margin: 0.7em 0 0.95em;
+    max-width: 100%;
+    overflow-x: auto;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 4px;
+    background: rgba(2, 6, 23, 0.34);
+    padding: 0.75em 0.9em;
+    white-space: pre;
+}
+
+.jin-chat-markdown .jin-chat-code-block code {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    white-space: pre;
+}
+
+.jin-chat-markdown blockquote {
+    margin: 0.65em 0 0.95em;
+    border-left: 2px solid rgba(165, 180, 252, 0.34);
+    padding-left: 0.9em;
+    color: rgba(203, 213, 225, 0.82);
+}
+
+.jin-chat-markdown hr {
+    margin: 1em 0;
+    border: 0;
+    border-top: 1px solid rgba(148, 163, 184, 0.20);
+}
+
+.jin-chat-markdown .jin-chat-link {
+    color: rgba(125, 211, 252, 0.95);
+    text-decoration: underline;
+    text-decoration-color: rgba(125, 211, 252, 0.44);
+    text-underline-offset: 0.16em;
 }
 
 .jin-think-wrapper {
@@ -314,7 +432,7 @@
     color: var(--jin-chat-muted);
 
     /* Think чуть мельче обычного ответа. */
-    font-size: 12px;
+    font-size: var(--theme-dark-think-font-size);
     line-height: 1.65;
 
     /* Курсив отделяет мысль от обычного голоса. */
@@ -489,4 +607,76 @@
     text-shadow:
             0 0 10px rgba(45, 212, 191, 0.040),
             0 0 14px rgba(103, 232, 249, 0.024);
+}
+
+.jin-chat-bubble-service {
+    border-color: color-mix(
+            in srgb,
+            rgba(103, 232, 249, 0.20) calc(var(--jin-bubble-invert-off) * 100%),
+            rgba(255, 255, 255, 0.62) calc(var(--JIN_BUBBLE_INVERT) * 100%)
+    );
+    box-shadow:
+            inset 0 0 0 9999px rgba(246, 249, 247, calc(var(--JIN_BUBBLE_INVERT) * 0.86)),
+            0 0 0 1px rgba(103, 232, 249, 0.060),
+            0 14px 42px rgba(0, 0, 0, 0.24),
+            0 0 32px rgba(45, 212, 191, calc(var(--jin-bubble-invert-off) * 0.070)),
+            0 0 44px rgba(103, 232, 249, calc(var(--jin-bubble-invert-off) * 0.035)),
+            0 0 34px rgba(129, 140, 248, calc(var(--jin-bubble-invert-off) * 0.018)),
+            inset 0 1px 0 rgba(204, 251, 241, 0.045),
+            inset 0 0 26px rgba(45, 212, 191, calc(var(--jin-bubble-invert-off) * 0.020)),
+            inset 0 0 30px rgba(103, 232, 249, calc(var(--jin-bubble-invert-off) * 0.014));
+}
+
+.jin-chat-bubble-brain {
+    border-color: color-mix(
+            in srgb,
+            rgba(165, 180, 252, 0.20) calc(var(--jin-bubble-invert-off) * 100%),
+            rgba(255, 255, 255, 0.62) calc(var(--JIN_BUBBLE_INVERT) * 100%)
+    );
+    box-shadow:
+            inset 0 0 0 9999px rgba(246, 249, 247, calc(var(--JIN_BUBBLE_INVERT) * 0.86)),
+            0 0 0 1px rgba(165, 180, 252, 0.045),
+            0 10px 32px rgba(0, 0, 0, 0.32),
+            0 0 24px rgba(129, 140, 248, calc(var(--jin-bubble-invert-off) * 0.10)),
+            inset 0 0 28px rgba(255, 255, 255, 0.022),
+            inset 0 0 28px rgba(129, 140, 248, calc(var(--jin-bubble-invert-off) * 0.035));
+}
+
+.jin-chat-bubble-service .jin-chat-pre {
+    color: color-mix(
+            in srgb,
+            rgba(222, 238, 235, 0.69) calc(var(--jin-bubble-invert-off) * 100%),
+            rgba(39, 45, 48, 0.92) calc(var(--JIN_BUBBLE_INVERT) * 100%)
+    );
+    text-shadow:
+            0 0 10px rgba(45, 212, 191, calc(var(--jin-bubble-invert-off) * 0.040)),
+            0 0 14px rgba(103, 232, 249, calc(var(--jin-bubble-invert-off) * 0.024));
+}
+
+.jin-chat-bubble-brain .jin-chat-pre {
+    color: color-mix(
+            in srgb,
+            rgba(185, 222, 230, 0.90) calc(var(--jin-bubble-invert-off) * 100%),
+            rgba(39, 45, 48, 0.92) calc(var(--JIN_BUBBLE_INVERT) * 100%)
+    );
+    text-shadow: none;
+}
+
+.jin-chat-bubble-service .jin-chat-markdown strong,
+.jin-chat-bubble-brain .jin-chat-markdown strong {
+    color: color-mix(
+            in srgb,
+            rgba(230, 247, 250, 0.98) calc(var(--jin-bubble-invert-off) * 100%),
+            rgba(22, 27, 30, 0.96) calc(var(--JIN_BUBBLE_INVERT) * 100%)
+    );
+}
+
+.jin-chat-bubble-service .jin-chat-markdown code,
+.jin-chat-bubble-brain .jin-chat-markdown code {
+    background: transparent;
+    color: color-mix(
+            in srgb,
+            rgba(226, 232, 240, 0.94) calc(var(--jin-bubble-invert-off) * 100%),
+            rgba(30, 35, 39, 0.94) calc(var(--JIN_BUBBLE_INVERT) * 100%)
+    );
 }

@@ -20,6 +20,145 @@ from clients.response_extractor import (
 logger = logging.getLogger(__name__)
 
 
+def _preview_runtime_payload(
+        value,
+        *,
+        limit: int = 4000,
+) -> str:
+
+    if isinstance(
+        value,
+        (
+            dict,
+            list,
+        ),
+    ):
+        text = json.dumps(
+            value,
+            ensure_ascii=False,
+            indent=2,
+            default=str,
+        )
+    else:
+        text = str(
+            value
+            or ""
+        )
+
+    if len(text) <= limit:
+        return text
+
+    return (
+        text[:limit]
+        + f"\n... <truncated {len(text) - limit} chars>"
+    )
+
+
+def _build_stream_json_error_details(
+        *,
+        payload: dict,
+        error: Exception | None = None,
+        invalid_json_samples: list[str] | None = None,
+        valid_json_chunks: int = 0,
+        followup_tick: bool = False,
+) -> str:
+
+    messages = payload.get(
+        "messages",
+        [],
+    )
+    system_prompt = ""
+    user_prompt = ""
+
+    if isinstance(
+        messages,
+        list,
+    ):
+        for message in messages:
+            if not isinstance(
+                message,
+                dict,
+            ):
+                continue
+
+            role = message.get(
+                "role",
+            )
+            if role == "system":
+                system_prompt = message.get(
+                    "content",
+                    "",
+                )
+            elif role == "user":
+                user_prompt = message.get(
+                    "content",
+                    "",
+                )
+
+    details = {
+        "error": repr(error) if error is not None else "",
+        "model": payload.get("model"),
+        "stream": payload.get("stream"),
+        "max_tokens": payload.get("max_tokens"),
+        "temperature": payload.get("temperature"),
+        "followup_tick": followup_tick,
+        "valid_json_chunks": valid_json_chunks,
+        "invalid_json_samples": invalid_json_samples or [],
+        "system_prompt_preview": _preview_runtime_payload(
+            system_prompt,
+            limit=2500,
+        ),
+        "user_prompt_type": type(user_prompt).__name__,
+        "user_prompt_preview": _preview_runtime_payload(
+            user_prompt,
+            limit=2500,
+        ),
+    }
+
+    return json.dumps(
+        details,
+        ensure_ascii=False,
+        indent=2,
+        default=str,
+    )
+
+
+async def _log_context_error(
+        context,
+        message: str,
+        *,
+        details: str | None = None,
+) -> None:
+
+    context_logger = getattr(
+        context,
+        "logger",
+        None,
+    )
+    log_error = getattr(
+        context_logger,
+        "log_error",
+        None,
+    )
+
+    if log_error is None:
+        logger.warning(
+            "%s",
+            message,
+        )
+        return
+
+    try:
+        await log_error(
+            message,
+            details=details,
+        )
+    except TypeError:
+        await log_error(
+            message
+        )
+
+
 class RuntimeClient:
 
     def __init__(
@@ -328,7 +467,16 @@ class RuntimeClient:
 
         return endpoints
 
-    async def detect_model_limits(self) -> tuple[int | None, int | None]:
+    async def detect_model_limits(
+            self,
+            *,
+            force_refresh: bool = False,
+    ) -> tuple[int | None, int | None]:
+
+        if force_refresh:
+            self.model_limits_detection_attempted = False
+            self.detected_context_window = None
+            self.detected_max_tokens = None
 
         if self.model_limits_detection_attempted:
             return (
@@ -397,9 +545,15 @@ class RuntimeClient:
             self.detected_max_tokens,
         )
 
-    async def detect_context_window(self) -> int | None:
+    async def detect_context_window(
+            self,
+            *,
+            force_refresh: bool = False,
+    ) -> int | None:
 
-        detected_context_window, _ = await self.detect_model_limits()
+        detected_context_window, _ = await self.detect_model_limits(
+            force_refresh=force_refresh,
+        )
         return detected_context_window
 
     async def detect_max_tokens(self) -> int | None:
@@ -407,12 +561,18 @@ class RuntimeClient:
         _, detected_max_tokens = await self.detect_model_limits()
         return detected_max_tokens
 
-    async def resolve_request_context_window(self) -> int | None:
+    async def resolve_request_context_window(
+            self,
+            *,
+            force_refresh: bool = False,
+    ) -> int | None:
 
         if not settings.RUNTIME_CONTEXT_WINDOW_FALLBACK_TO_SERVER:
             return self.configured_context_window
 
-        detected_context_window = await self.detect_context_window()
+        detected_context_window = await self.detect_context_window(
+            force_refresh=force_refresh,
+        )
 
         return (
             detected_context_window
@@ -571,6 +731,34 @@ class RuntimeClient:
 
         return payload
 
+    @staticmethod
+    def provider_user_prompt(
+            context,
+            user_prompt,
+    ):
+
+        if (
+            isinstance(
+                user_prompt,
+                str,
+            )
+            and user_prompt == ""
+            and bool(
+                getattr(
+                    context,
+                    "runtime_followup_tick_active",
+                    False,
+                )
+            )
+        ):
+            # Do not replace this with "" or "(empty)": LM Studio prompt
+            # templates reject a truly empty user message ("No user query
+            # found"), while visible context must still stay empty so the
+            # model does not interpret a follow-up label as user input.
+            return " "
+
+        return user_prompt
+
     async def build_safe_payload(
             self,
             *,
@@ -648,15 +836,22 @@ class RuntimeClient:
             max_tokens: int,
     ):
 
+        provider_user_prompt = self.provider_user_prompt(
+            context,
+            user_prompt,
+        )
+
         payload = await self.build_safe_payload(
             system_prompt=system_prompt,
-            user_prompt=user_prompt,
+            user_prompt=provider_user_prompt,
             temperature=temperature,
             max_tokens=max_tokens,
             stream=True,
         )
 
         stream_id = None
+        valid_json_chunks = 0
+        invalid_json_samples: list[str] = []
 
         try:
 
@@ -678,6 +873,21 @@ class RuntimeClient:
                     stream_id
                 ] = response
 
+                response_headers = getattr(
+                    response,
+                    "headers",
+                    {},
+                ) or {}
+                content_type = str(
+                    response_headers.get(
+                        "content-type",
+                        "",
+                    )
+                ).lower()
+                is_sse_stream = (
+                    "text/event-stream" in content_type
+                )
+
                 async for raw_line in response.aiter_lines():
 
                     if raw_line is None:
@@ -694,6 +904,7 @@ class RuntimeClient:
 
                     if line.startswith("data:"):
 
+                        is_sse_stream = True
                         data = (
                             line.split(
                                 "data:",
@@ -704,6 +915,29 @@ class RuntimeClient:
 
                     else:
 
+                        if line.startswith(":"):
+                            continue
+
+                        sse_field = (
+                            line.split(
+                                ":",
+                                1,
+                            )[0]
+                            .strip()
+                            .lower()
+                        )
+
+                        if sse_field in {
+                            "event",
+                            "id",
+                            "retry",
+                        }:
+                            is_sse_stream = True
+                            continue
+
+                        if is_sse_stream:
+                            continue
+
                         data = line.strip()
 
                     # -------------------------------------------------
@@ -713,6 +947,10 @@ class RuntimeClient:
                     if data == "[DONE]":
 
                         break
+
+                    if not data:
+
+                        continue
 
                     # -------------------------------------------------
                     # JSON
@@ -726,28 +964,35 @@ class RuntimeClient:
 
                     except Exception as e:
 
-                        context_logger = getattr(
-                            context,
-                            "logger",
-                            None,
-                        )
-                        log_error = getattr(
-                            context_logger,
-                            "log_error",
-                            None,
-                        )
+                        if len(invalid_json_samples) < 3:
+                            invalid_json_samples.append(
+                                data[:200]
+                            )
 
-                        if log_error is not None:
-                            await log_error(
-                                f"[JSON PARSE ERROR] {e}"
+                        followup_tick = bool(
+                            getattr(
+                                context,
+                                "runtime_followup_tick_active",
+                                False,
                             )
-                        else:
-                            logger.warning(
-                                "JSON parse error: %s",
-                                e,
-                            )
+                        )
+                        await _log_context_error(
+                            context,
+                            f"[JSON PARSE ERROR] {e}",
+                            details=_build_stream_json_error_details(
+                                payload=payload,
+                                error=e,
+                                invalid_json_samples=[
+                                    data[:200],
+                                ],
+                                valid_json_chunks=valid_json_chunks,
+                                followup_tick=followup_tick,
+                            ),
+                        )
 
                         continue
+
+                    valid_json_chunks += 1
 
                     # -------------------------------------------------
                     # USAGE
@@ -813,6 +1058,33 @@ class RuntimeClient:
                         }
 
                         continue
+
+                if valid_json_chunks <= 0:
+                    followup_tick = bool(
+                        getattr(
+                            context,
+                            "runtime_followup_tick_active",
+                            False,
+                        )
+                    )
+                    error_details = _build_stream_json_error_details(
+                        payload=payload,
+                        invalid_json_samples=invalid_json_samples,
+                        valid_json_chunks=valid_json_chunks,
+                        followup_tick=followup_tick,
+                    )
+
+                    if invalid_json_samples:
+                        first_sample = invalid_json_samples[0]
+                        raise RuntimeError(
+                            "runtime stream ended without any valid JSON "
+                            "chunks; first invalid payload: "
+                            f"{first_sample!r}"
+                        )
+
+                    raise RuntimeError(
+                        "runtime stream ended without any JSON chunks"
+                    )
 
         # ---------------------------------------------------------
         # TASK CANCELLED

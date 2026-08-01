@@ -1,0 +1,27 @@
+{
+  "save_session": {
+    "version": 1,
+    "description": "Allows the model to request saving the current session.",
+    "runtime_action": "SAVE_SESSION",
+    "private_marker": "<SAVE_SESSION>",
+    "triggers": [
+      "сохрани сессию",
+      "save session"
+    ],
+    "blockers": [
+      "покажи тег",
+      "show tag",
+      "покажи",
+      "show"
+    ],
+    "effects": {
+      "emit_followup": true
+    },
+    "rules": [
+      "SAVE_SESSION:",
+      "Emit <SAVE_SESSION> and wait for follow-up tick",
+      "Use when the user clearly and explicitly ends session or asks to save the session."
+    ],
+    "close_tag": false
+  }
+}

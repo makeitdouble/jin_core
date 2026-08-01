@@ -1,14 +1,16 @@
 import unittest
 import asyncio
 import contextlib
+import json
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from runtime import (
-    RuntimeStream,
-    runtime_state,
+from runtime.stream import RuntimeStream
+from runtime.registry import runtime_state
+from utils.stream_validator import (
+    MAX_REPEAT_SENTENCES,
 )
 from agent.nodes.brain import (
     BrainNode,
@@ -16,15 +18,17 @@ from agent.nodes.brain import (
 from app_settings import (
     settings,
 )
-from clients.brain_context_builder import (
+from utils.context.context_exports import (
     build_session_actions_history_context,
 )
 from utils.session_actions_history import (
     record_session_action_history,
 )
-from rules.runtime import (
-    DELAYED_MEMORY_SAVE_REJECTED_MESSAGE,
+from utils.runtime_action_abort import (
+    abort_active_runtime_actions,
+    mark_runtime_action_started,
 )
+from tests.helpers.runtime_actions import patch_asset_roots
 
 
 class FakeEmitter:
@@ -249,9 +253,9 @@ async def fake_raw_asset_action_generator():
     yield {
         "type": "content",
         "content": (
-            "<INTERNAL_ACTION_ASSET_ACTION>\n"
+            "<ASSET_ACTION>\n"
             '{"action":"create_wildcard_file","args":{"path":"clothing/test_tops","content":"silk camisole\\ncrochet halter top"}}\n'
-            "</INTERNAL_ACTION_ASSET_ACTION>\n"
+            "</ASSET_ACTION>\n"
             "Создал wildcard файл."
         ),
     }
@@ -259,16 +263,93 @@ async def fake_raw_asset_action_generator():
 
 class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
-    def patch_asset_roots(self, root: Path):
-        assets_root = root / "assets"
-        return (
-            patch("utils.assets_service.PROJECT_ROOT", root),
-            patch("utils.assets_service.ASSETS_ROOT", assets_root),
-            patch("utils.assets_service.SKILLS_ROOT", assets_root / "skills"),
-            patch("utils.assets_service.WILDCARDS_ROOT", assets_root / "wildcards"),
-            patch("utils.assets_service.PROMPTS_ROOT", assets_root / "prompts"),
-            patch("utils.assets_service.TEMPLATES_ROOT", assets_root / "templates"),
-            patch("utils.assets_service.OUTPUTS_ROOT", assets_root / "outputs"),
+    async def test_abort_active_runtime_action_records_event_and_emits_aborted(self):
+
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+            runtime_action_events=[],
+            runtime_active_action_markers=[],
+            runtime_turn_aborted_actions=[],
+            runtime_action_guard_confirmations={},
+            runtime_current_turn_id="turn_abort_action",
+        )
+        logger = FakeLogger()
+
+        mark_runtime_action_started(
+            context,
+            action="save_delayed_memory_content",
+            action_id="save_delayed_memory_content_1",
+            display_name="SAVE_DELAYED_MEMORY_CONTENT",
+            text="SAVE_DELAYED_MEMORY_CONTENT",
+            close_tag=True,
+        )
+
+        aborted = await abort_active_runtime_actions(
+            context,
+            logger=logger,
+        )
+
+        self.assertEqual(
+            aborted[0]["status"],
+            "aborted",
+        )
+        self.assertEqual(
+            context.runtime_action_events[0]["name"],
+            "save_delayed_memory_content",
+        )
+        self.assertEqual(
+            context.runtime_action_events[0]["status"],
+            "aborted",
+        )
+        self.assertEqual(
+            context.runtime_turn_aborted_actions[0]["name"],
+            "SAVE_DELAYED_MEMORY_CONTENT",
+        )
+        self.assertEqual(
+            context.runtime_active_action_markers,
+            [],
+        )
+        self.assertEqual(
+            context.emitter.events[0]["text"],
+            "SAVE_DELAYED_MEMORY_CONTENT: ABORTED",
+        )
+        self.assertIn(
+            "SAVE_DELAYED_MEMORY_CONTENT: ABORTED",
+            logger.messages[0][1],
+        )
+
+    async def test_session_history_never_adds_single_action_count(self):
+
+        context = SimpleNamespace(
+            runtime_session_action_history=[],
+            runtime_current_turn_id="turn_count_one",
+            runtime_action_sequence_turn_ids=[
+                "turn_count_one",
+            ],
+        )
+
+        record_session_action_history(
+            context,
+            "LIST_SKILLS (count: 1)",
+            display_parts=[
+                {
+                    "text": "LIST_SKILLS",
+                    "count": 1,
+                },
+            ],
+        )
+
+        self.assertEqual(
+            context.runtime_session_action_history[0]["text"],
+            "LIST_SKILLS",
+        )
+        self.assertEqual(
+            context.runtime_session_action_history[0]["parts"],
+            [
+                {
+                    "text": "LIST_SKILLS",
+                },
+            ],
         )
 
     def build_limit_context(self):
@@ -509,13 +590,18 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                 if event.get("type") == "telemetry"
             ]
             self.assertEqual(
-                telemetry_counts[:4],
-                [
-                    4,
-                    6,
-                    8,
-                    10,
-                ],
+                telemetry_counts[0],
+                7,
+            )
+            self.assertEqual(
+                telemetry_counts[1],
+                42,
+            )
+            self.assertTrue(
+                all(
+                    token_count >= 42
+                    for token_count in telemetry_counts[1:]
+                )
             )
 
             self.assertEqual(
@@ -723,31 +809,31 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn(
-            "Step 1 - WEB_SEARCH",
+            "JIN message 1 executed - WEB_SEARCH",
             sequence_context,
         )
         self.assertIn(
             (
-                "Step 2 - stuck in a reasoning loop with "
+                "JIN message 2 executed - stuck in a reasoning loop with "
                 '"* Wait, I\'ll use the search marker."'
             ),
             sequence_context,
         )
         self.assertIn(
-            "Step 3 - WEB_SEARCH",
+            "JIN message 3 executed - WEB_SEARCH",
             sequence_context,
         )
         self.assertLess(
-            sequence_context.index("Step 1 - WEB_SEARCH"),
+            sequence_context.index("JIN message 1 executed - WEB_SEARCH"),
             sequence_context.index(
-                "Step 2 - stuck in a reasoning loop"
+                "JIN message 2 executed - stuck in a reasoning loop"
             ),
         )
         self.assertLess(
             sequence_context.index(
-                "Step 2 - stuck in a reasoning loop"
+                "JIN message 2 executed - stuck in a reasoning loop"
             ),
-            sequence_context.index("Step 3 - WEB_SEARCH"),
+            sequence_context.index("JIN message 3 executed - WEB_SEARCH"),
         )
 
         errors = [
@@ -831,7 +917,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(
             len(thinking_chunks),
-            9,
+            MAX_REPEAT_SENTENCES - 1,
         )
 
         errors = [
@@ -903,7 +989,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                         "prompt_tokens": 12,
                         "completion_tokens": 30,
                         "total_tokens": 42,
-                        "context_tokens": 6,
+                        "context_tokens": 9,
                     },
                 ],
             )
@@ -924,7 +1010,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             with contextlib.ExitStack() as stack:
-                for patcher in self.patch_asset_roots(root):
+                for patcher in patch_asset_roots(root):
                     stack.enter_context(patcher)
 
                 context = SimpleNamespace(
@@ -968,7 +1054,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                 )
 
                 self.assertNotIn(
-                    "INTERNAL_ACTION_ASSET_ACTION",
+                    "ASSET_ACTION",
                     emitted_text,
                 )
                 self.assertIn(
@@ -1022,7 +1108,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
                 yield {
                     "type": "content",
-                    "content": "<INTERNAL_ACTION_ASSET_ACTION>\n",
+                    "content": "<ASSET_ACTION>\n",
                 }
                 yield {
                     "type": "content",
@@ -1035,13 +1121,13 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                 yield {
                     "type": "content",
                     "content": (
-                        "</INTERNAL_ACTION_ASSET_ACTION>\n"
+                        "</ASSET_ACTION>\n"
                         "Done."
                     ),
                 }
 
             with contextlib.ExitStack() as stack:
-                for patcher in self.patch_asset_roots(root):
+                for patcher in patch_asset_roots(root):
                     stack.enter_context(patcher)
 
                 context = SimpleNamespace(
@@ -1086,34 +1172,175 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                     ],
                     [
                         "started",
+                        "counted",
                         "started",
                         "completed",
+                        "counter_final",
                     ],
                 )
+                lifecycle_events = [
+                    event
+                    for event in runtime_events
+                    if not event.get("counter_only")
+                ]
                 self.assertEqual(
                     len({
                         event.get("id")
-                        for event in runtime_events
+                        for event in lifecycle_events
                     }),
                     1,
                 )
                 self.assertEqual(
                     runtime_events[0]["text"],
-                    "Processed asset action",
+                    "ASSET_ACTION",
+                )
+                self.assertTrue(
+                    runtime_events[0]["close_tag"],
                 )
                 self.assertFalse(
                     runtime_events[0]["file_exists_at_emit"],
                 )
                 self.assertEqual(
-                    runtime_events[1]["text"],
+                    lifecycle_events[1]["text"],
+                    (
+                        "ASSET_ACTION: create_asset_file - "
+                        "assets/outputs/rain_simulator.py"
+                    ),
+                )
+                self.assertEqual(
+                    lifecycle_events[2]["text"],
                     "Created asset file - assets/outputs/rain_simulator.py",
                 )
                 self.assertTrue(
-                    runtime_events[2]["file_exists_at_emit"],
+                    lifecycle_events[2]["file_exists_at_emit"],
                 )
                 self.assertTrue(
                     output_path.exists(),
                 )
+
+    async def test_failed_asset_action_replaces_marker_session_update(self):
+
+        runtime_id = settings.SERVICE_MODEL_UID
+
+        class Response:
+            status_code = 400
+            reason_phrase = "Bad Request"
+            text = '{"error":{"message":"max_tokens exceeds limit"}}'
+
+        class BadRequestError(Exception):
+            response = Response()
+
+        class FailingServiceClient:
+            configured_context_window = 2048
+            configured_max_tokens = 1024
+            detected_max_tokens = 1024
+
+            async def resolve_request_context_window(
+                self,
+                *,
+                force_refresh=False,
+            ):
+                return self.configured_context_window
+
+            async def detect_max_tokens(self):
+                return self.detected_max_tokens
+
+            async def ask(
+                self,
+                **_kwargs,
+            ):
+                raise BadRequestError(
+                    "Client error '400 Bad Request'"
+                )
+
+        async def asset_action_generator():
+            yield {
+                "type": "content",
+                "content": (
+                    "<ASSET_ACTION>\n"
+                    + json.dumps({
+                        "action": "run_document_reader",
+                        "skill": "chunk_reader",
+                        "attachment": "README.md",
+                        "mode": "plain-mode.md",
+                        "question": "Summarize.",
+                    })
+                    + "\n</ASSET_ACTION>\n"
+                ),
+            }
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            clients={
+                "service": FailingServiceClient(),
+            },
+            active_streams={},
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_asset_results=[],
+            runtime_session_action_history=[],
+            runtime_appended_skills=[
+                {
+                    "name": "chunk_reader",
+                },
+            ],
+            runtime_turn_attachments=[
+                {
+                    "name": "README.md",
+                    "kind": "text",
+                    "type": "text/markdown",
+                    "text_content": "word " * 120,
+                },
+            ],
+            active_memory_records=[],
+            runtime_current_turn_id="turn_failed_asset",
+            runtime_turn_started_at=0,
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=runtime_id,
+            role="service",
+            context_window=(
+                settings.SERVICE_CONTEXT_WINDOW
+            ),
+            log_method=(
+                context.logger.log_service
+            ),
+            runtime_actions={
+                "CAN_USE_ASSETS": True,
+            },
+        )
+
+        await stream.run(
+            asset_action_generator()
+        )
+
+        session_updates = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "session_actions_update"
+        ]
+        latest_items = session_updates[-1]["items"]
+
+        self.assertIn(
+            "Read document iteratively - plain-mode.md - README.md - failed: HTTP 400 Bad Request",
+            latest_items[-1]["text"],
+        )
+        self.assertNotEqual(
+            latest_items[-1]["text"],
+            "ASSET_ACTION",
+        )
+        self.assertTrue(
+            any(
+                message[0] == "runtime"
+                and "asset_action failed" in message[1]
+                and "HTTP 400 Bad Request" in message[1]
+                for message in context.logger.messages
+            )
+        )
 
     async def test_delayed_memory_started_and_completed_events_share_id(self):
 
@@ -1182,16 +1409,30 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             ],
             [
                 "started",
+                "counted",
                 "completed",
+                "counter_final",
             ],
         )
+        lifecycle_events = [
+            event
+            for event in runtime_events
+            if not event.get("counter_only")
+        ]
         self.assertEqual(
-            runtime_events[0]["id"],
-            runtime_events[1]["id"],
+            lifecycle_events[0]["id"],
+            lifecycle_events[1]["id"],
         )
         self.assertEqual(
-            runtime_events[1]["text"],
+            lifecycle_events[1]["text"],
             "Saved delayed memory: Runtime state report",
+        )
+        self.assertEqual(
+            lifecycle_events[0]["text"],
+            "SAVE_DELAYED_MEMORY_CONTENT",
+        )
+        self.assertTrue(
+            lifecycle_events[0]["close_tag"],
         )
         self.assertEqual(
             len(context.delayed_memory_reports),
@@ -1217,12 +1458,13 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         context = SimpleNamespace(
             websocket=FakeWebSocket(),
             logger=FakeLogger(),
-            emitter=FakeEmitter(),
+            emitter=None,
             runtime_action_events=[],
             runtime_usage_events=[],
             runtime_asset_results=[],
             runtime_delayed_memory_results=[],
             runtime_session_action_history=[],
+            runtime_action_guard_confirmations={},
             delayed_memory_reports={},
             active_memory_records=[],
             runtime_turn_user_message="выполни другое действие",
@@ -1231,6 +1473,32 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             session_id="session-1",
             timestamp="2026-07-13T17:00:00",
         )
+
+        class RejectingEmitter(FakeEmitter):
+
+            async def emit(
+                self,
+                event,
+            ):
+
+                await super().emit(
+                    event
+                )
+
+                if (
+                    event.get("type")
+                    != "runtime_action_guard_confirmation"
+                ):
+                    return
+
+                future = context.runtime_action_guard_confirmations[
+                    event["confirmation_id"]
+                ]
+                future.set_result(
+                    "reject"
+                )
+
+        context.emitter = RejectingEmitter()
 
         stream = RuntimeStream(
             context=context,
@@ -1252,35 +1520,36 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             for event in context.emitter.events
             if event.get("type") == "runtime_action"
         ]
-        failure_result = context.runtime_delayed_memory_results[0]
-
         self.assertEqual(
             [event.get("status") for event in runtime_events],
-            ["started", "failed"],
+            ["counted", "started", "failed", "counter_final"],
         )
         self.assertEqual(
-            runtime_events[0]["id"],
-            runtime_events[1]["id"],
+            {
+                event.get("runtime_message_id")
+                for event in runtime_events
+            },
+            {
+                stream.stream.message_id,
+            },
+        )
+        lifecycle_events = [
+            event
+            for event in runtime_events
+            if not event.get("counter_only")
+        ]
+        self.assertEqual(
+            lifecycle_events[0]["id"],
+            lifecycle_events[1]["id"],
         )
         self.assertEqual(
-            failure_result["error"],
-            "user_did_not_explicitly_request_report_save",
-        )
-        self.assertEqual(
-            context.delayed_memory_reports,
-            {},
+            len(context.delayed_memory_reports),
+            0,
         )
         self.assertIn(
             "SAVE_DELAYED_MEMORY_CONTENT - failed: Unrequested report",
             context.runtime_session_action_history[-1]["text"],
         )
-        self.assertTrue(
-            any(
-                event.get("type") == "session_actions_update"
-                for event in context.emitter.events
-            )
-        )
-
         followup_prompt = BrainNode.build_followup_system_prompt(
             "<TOOL_RESULTS>\n</TOOL_RESULTS>",
             "выполни другое действие",
@@ -1289,15 +1558,780 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn(
-            DELAYED_MEMORY_SAVE_REJECTED_MESSAGE.strip(),
-            followup_prompt,
-        )
-        self.assertIn(
-            "Step 1 - SAVE_DELAYED_MEMORY_CONTENT - failed",
+            "JIN message 1 executed - SAVE_DELAYED_MEMORY_CONTENT - failed: Unrequested report",
             followup_prompt,
         )
         self.assertFalse(
-            context.runtime_delayed_memory_save_rejected_pending,
+            getattr(
+                context,
+                "runtime_delayed_memory_save_rejected_pending",
+                False,
+            ),
+        )
+
+    async def test_rejecting_started_delayed_memory_guard_aborts_generation(self):
+
+        state = {
+            "body_requested": False,
+        }
+
+        async def delayed_memory_generator():
+
+            yield {
+                "type": "content",
+                "content": "<SAVE_DELAYED_MEMORY_CONTENT>\n",
+            }
+
+            state["body_requested"] = True
+
+            yield {
+                "type": "content",
+                "content": (
+                    "title: Should not be generated\n"
+                    "summary: Runtime summary.\n"
+                    "tags: runtime, summary\n"
+                    "body: Full report.\n"
+                    "</SAVE_DELAYED_MEMORY_CONTENT>\n"
+                ),
+            }
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=None,
+            active_streams={},
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_asset_results=[],
+            runtime_delayed_memory_results=[],
+            runtime_session_action_history=[],
+            runtime_action_guard_confirmations={},
+            delayed_memory_reports={},
+            active_memory_records=[],
+            runtime_turn_user_message="please keep going with the current work",
+            runtime_current_turn_id="turn_delayed_guard_early_reject",
+            runtime_turn_started_at=0,
+            session_id="session-1",
+            timestamp="2026-07-13T17:00:00",
+        )
+
+        class RejectingEmitter(FakeEmitter):
+
+            async def emit(
+                self,
+                event,
+            ):
+
+                await super().emit(
+                    event
+                )
+
+                if (
+                    event.get("type")
+                    != "runtime_action_guard_confirmation"
+                ):
+                    return
+
+                future = context.runtime_action_guard_confirmations[
+                    event["confirmation_id"]
+                ]
+                future.set_result(
+                    "reject"
+                )
+
+        context.emitter = RejectingEmitter()
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=settings.SERVICE_MODEL_UID,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            runtime_actions={
+                "CAN_SAVE_DELAYED_MEMORY": True,
+            },
+        )
+
+        await stream.run(
+            delayed_memory_generator()
+        )
+
+        runtime_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "runtime_action"
+        ]
+
+        self.assertFalse(
+            state["body_requested"],
+        )
+        self.assertEqual(
+            [event.get("status") for event in runtime_events],
+            ["started", "failed"],
+        )
+        self.assertEqual(
+            len(context.delayed_memory_reports),
+            0,
+        )
+
+    async def test_confirmed_delayed_memory_save_bypasses_missing_trigger_words(self):
+
+        async def delayed_memory_generator():
+
+            yield {
+                "type": "content",
+                "content": (
+                    "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+                    "title: Confirmed report\n"
+                    "summary: Runtime summary.\n"
+                    "tags: runtime, summary\n"
+                    "body: Full report.\n"
+                    "</SAVE_DELAYED_MEMORY_CONTENT>\n"
+                ),
+            }
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=None,
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_asset_results=[],
+            runtime_delayed_memory_results=[],
+            runtime_session_action_history=[],
+            runtime_action_guard_confirmations={},
+            delayed_memory_reports={},
+            active_memory_records=[],
+            runtime_turn_user_message="please keep going with the current work",
+            runtime_current_turn_id="turn_delayed_guard_continue",
+            runtime_turn_started_at=0,
+            session_id="session-1",
+            timestamp="2026-07-13T17:00:00",
+        )
+
+        class ContinuingEmitter(FakeEmitter):
+
+            async def emit(
+                self,
+                event,
+            ):
+
+                await super().emit(
+                    event
+                )
+
+                if (
+                    event.get("type")
+                    != "runtime_action_guard_confirmation"
+                ):
+                    return
+
+                future = context.runtime_action_guard_confirmations[
+                    event["confirmation_id"]
+                ]
+                future.set_result(
+                    "continue"
+                )
+
+        context.emitter = ContinuingEmitter()
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=settings.SERVICE_MODEL_UID,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            runtime_actions={
+                "CAN_SAVE_DELAYED_MEMORY": True,
+            },
+        )
+
+        await stream.run(
+            delayed_memory_generator()
+        )
+
+        runtime_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "runtime_action"
+        ]
+        confirmation_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "runtime_action_guard_confirmation"
+        ]
+
+        self.assertEqual(
+            len(confirmation_events),
+            1,
+        )
+        self.assertEqual(
+            [event.get("status") for event in runtime_events],
+            ["counted", "started", "completed", "counter_final"],
+        )
+        self.assertEqual(
+            len(context.delayed_memory_reports),
+            1,
+        )
+        self.assertFalse(
+            getattr(
+                context,
+                "runtime_delayed_memory_save_rejected_pending",
+                False,
+            )
+        )
+
+    async def test_jin_color_applies_without_trigger_confirmation(self):
+
+        state = {
+            "generation_continued": False,
+        }
+
+        async def color_generator():
+
+            yield {
+                "type": "content",
+                "content": "<JIN_COLOR: #ff0000>",
+            }
+
+            state["generation_continued"] = True
+
+            yield {
+                "type": "content",
+                "content": "generation continues",
+            }
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            active_streams={},
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_asset_results=[],
+            runtime_delayed_memory_results=[],
+            runtime_session_action_history=[],
+            runtime_action_guard_confirmations={},
+            delayed_memory_reports={},
+            active_memory_records=[],
+            runtime_turn_user_message="поставь себе красный яркий",
+            runtime_current_turn_id="turn_color_no_confirmation",
+            runtime_turn_started_at=0,
+            session_id="session-1",
+            timestamp="2026-07-20T18:00:00",
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=settings.SERVICE_MODEL_UID,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            runtime_actions={
+                "CAN_JIN_COLOR": True,
+            },
+        )
+
+        await stream.run(
+            color_generator()
+        )
+
+        confirmation_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type")
+            == "runtime_action_guard_confirmation"
+        ]
+        runtime_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "runtime_action"
+        ]
+
+        self.assertTrue(
+            state["generation_continued"],
+        )
+        self.assertEqual(
+            confirmation_events,
+            [],
+        )
+        self.assertEqual(
+            [event.get("status") for event in runtime_events],
+            ["counted", "completed", "counter_final"],
+        )
+        self.assertEqual(
+            runtime_events[0]["color"],
+            "#ff0000",
+        )
+        self.assertEqual(
+            runtime_events[0]["colors"],
+            [
+                "#ff0000",
+            ],
+        )
+        self.assertEqual(
+            context.runtime_action_events[-1]["color"],
+            "#ff0000",
+        )
+
+    async def test_jin_color_matching_trigger_applies_without_confirmation(self):
+
+        async def color_generator():
+
+            yield {
+                "type": "content",
+                "content": "<JIN_COLOR: #ff0000>",
+            }
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            active_streams={},
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_asset_results=[],
+            runtime_delayed_memory_results=[],
+            runtime_session_action_history=[],
+            runtime_action_guard_confirmations={},
+            delayed_memory_reports={},
+            active_memory_records=[],
+            runtime_turn_user_message="поставь цвет красный",
+            runtime_current_turn_id="turn_color_matching_trigger",
+            runtime_turn_started_at=0,
+            session_id="session-1",
+            timestamp="2026-07-20T18:00:00",
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=settings.SERVICE_MODEL_UID,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            runtime_actions={
+                "CAN_JIN_COLOR": True,
+            },
+        )
+
+        await stream.run(
+            color_generator()
+        )
+
+        confirmation_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type")
+            == "runtime_action_guard_confirmation"
+        ]
+        runtime_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "runtime_action"
+        ]
+
+        self.assertEqual(
+            confirmation_events,
+            [],
+        )
+        self.assertEqual(
+            [event.get("status") for event in runtime_events],
+            ["counted", "completed", "counter_final"],
+        )
+        self.assertEqual(
+            context.runtime_action_events[-1]["color"],
+            "#ff0000",
+        )
+
+    async def test_session_actions_update_streams_after_each_applied_marker(self):
+
+        async def color_generator():
+
+            yield {
+                "type": "content",
+                "content": "<JIN_COLOR: #0000ff>",
+            }
+
+            yield {
+                "type": "content",
+                "content": "<JIN_COLOR: #ff0000>",
+            }
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            active_streams={},
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_asset_results=[],
+            runtime_delayed_memory_results=[],
+            runtime_session_action_history=[],
+            runtime_action_guard_confirmations={},
+            delayed_memory_reports={},
+            active_memory_records=[],
+            runtime_turn_user_message="blink blue then red",
+            runtime_current_turn_id="turn_live_session_actions",
+            runtime_turn_started_at=0,
+            session_id="session-1",
+            timestamp="2026-07-20T18:00:00",
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=settings.SERVICE_MODEL_UID,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            runtime_actions={
+                "CAN_JIN_COLOR": True,
+            },
+        )
+
+        await stream.run(
+            color_generator()
+        )
+
+        session_updates = [
+            event
+            for event in context.emitter.events
+            if event.get("type")
+            == "session_actions_update"
+        ]
+        counter_final_index = next(
+            index
+            for index, event in enumerate(
+                context.emitter.events
+            )
+            if (
+                event.get("type") == "runtime_action"
+                and event.get("status") == "counter_final"
+            )
+        )
+        first_session_update_index = next(
+            index
+            for index, event in enumerate(
+                context.emitter.events
+            )
+            if event.get("type") == "session_actions_update"
+        )
+
+        self.assertLess(
+            first_session_update_index,
+            counter_final_index,
+        )
+        self.assertGreaterEqual(
+            len(session_updates),
+            2,
+        )
+        self.assertEqual(
+            session_updates[0]["items"][-1]["parts"],
+            [{
+                "text": "JIN_COLOR",
+                "colors": [
+                    "#0000ff",
+                ],
+            }],
+        )
+        self.assertEqual(
+            session_updates[-1]["items"][-1]["parts"],
+            [{
+                "text": "JIN_COLOR",
+                "colors": [
+                    "#0000ff",
+                    "#ff0000",
+                ],
+                "count": 2,
+            }],
+        )
+
+    async def test_jin_color_repetition_reports_total_marker_count(self):
+
+        async def color_generator():
+
+            yield {
+                "type": "content",
+                "content": "".join(
+                    f"<JIN_COLOR: {color}>"
+                    for _ in range(5)
+                    for color in (
+                        "#0000ff",
+                        "#ff0000",
+                    )
+                ),
+            }
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            active_streams={},
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_asset_results=[],
+            runtime_delayed_memory_results=[],
+            runtime_session_action_history=[],
+            runtime_action_guard_confirmations={},
+            delayed_memory_reports={},
+            active_memory_records=[],
+            runtime_turn_user_message="мигай цветом как полиция",
+            runtime_current_turn_id="turn_color_repetition",
+            runtime_turn_started_at=0,
+            session_id="session-1",
+            timestamp="2026-07-20T18:00:00",
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=settings.SERVICE_MODEL_UID,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            runtime_actions={
+                "CAN_JIN_COLOR": True,
+            },
+        )
+
+        await stream.run(
+            color_generator()
+        )
+
+        runtime_events = [
+            event
+            for event in context.emitter.events
+            if (
+                event.get("type") == "runtime_action"
+                and event.get("action") == "jin_color"
+            )
+        ]
+
+        self.assertTrue(
+            stream.marker_repetition_aborted,
+        )
+        self.assertEqual(
+            [event.get("status") for event in runtime_events],
+            ["counted"]
+            + ["completed"] * 8
+            + ["interrupted", "counter_final"],
+        )
+        self.assertEqual(
+            {
+                event.get("runtime_turn_id")
+                for event in runtime_events
+            },
+            {
+                "turn_color_repetition",
+            },
+        )
+        self.assertEqual(
+            len({
+                event.get("runtime_message_id")
+                for event in runtime_events
+            }),
+            1,
+        )
+        interrupted_event = next(
+            event
+            for event in runtime_events
+            if event.get("status") == "interrupted"
+        )
+        self.assertIn(
+            "5 identical occurrences in one message",
+            interrupted_event["detail"],
+        )
+        self.assertEqual(
+            context.runtime_session_action_history[-1]["parts"],
+            [{
+                "text": "JIN_COLOR",
+                "colors": [
+                    "#0000ff",
+                    "#ff0000",
+                    "#0000ff",
+                    "#ff0000",
+                    "#0000ff",
+                    "#ff0000",
+                    "#0000ff",
+                    "#ff0000",
+                ],
+                "count": 9,
+            }],
+        )
+
+    async def test_jin_color_dedup_resets_for_new_stream(self):
+
+        state = {
+            "generation_continued": False,
+        }
+
+        async def color_generator():
+
+            yield {
+                "type": "content",
+                "content": "<JIN_COLOR: #ff0000>",
+            }
+
+            yield {
+                "type": "content",
+                "content": "<JIN_COLOR: #ff0000>",
+            }
+
+            state["generation_continued"] = True
+
+            yield {
+                "type": "content",
+                "content": "generation continues",
+            }
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            active_streams={},
+            runtime_action_events=[
+                {
+                    "name": "jin_color",
+                    "color": "#ff0000",
+                    "payload": "#ff0000",
+                },
+            ],
+            runtime_usage_events=[],
+            runtime_asset_results=[],
+            runtime_delayed_memory_results=[],
+            runtime_session_action_history=[],
+            runtime_action_guard_confirmations={},
+            delayed_memory_reports={},
+            active_memory_records=[],
+            runtime_turn_user_message="просто продолжай",
+            runtime_current_turn_id="turn_color_dedup_reset",
+            runtime_turn_started_at=0,
+            session_id="session-1",
+            timestamp="2026-07-21T01:00:00",
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=settings.SERVICE_MODEL_UID,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            runtime_actions={
+                "CAN_JIN_COLOR": True,
+            },
+        )
+
+        await stream.run(
+            color_generator()
+        )
+
+        self.assertTrue(
+            state["generation_continued"],
+        )
+        runtime_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "runtime_action"
+        ]
+        self.assertEqual(
+            [event.get("status") for event in runtime_events],
+            ["counted", "completed", "counted", "counter_final"],
+        )
+        self.assertEqual(
+            runtime_events[0]["marker_count"],
+            1,
+        )
+        self.assertEqual(
+            runtime_events[1]["color"],
+            "#ff0000",
+        )
+        self.assertEqual(
+            runtime_events[2]["marker_count"],
+            2,
+        )
+        self.assertEqual(
+            len(context.runtime_action_events),
+            2,
+        )
+        self.assertEqual(
+            context.runtime_action_events[-1]["runtime_turn_id"],
+            "turn_color_dedup_reset",
+        )
+        self.assertEqual(
+            {
+                event.get("runtime_message_id")
+                for event in runtime_events
+            },
+            {
+                stream.stream.message_id,
+            },
+        )
+
+    async def test_matching_blocker_skips_action_without_confirmation(self):
+
+        async def save_session_generator():
+
+            yield {
+                "type": "content",
+                "content": "<SAVE_SESSION>",
+            }
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            active_streams={},
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_asset_results=[],
+            runtime_delayed_memory_results=[],
+            runtime_session_action_history=[],
+            runtime_action_guard_confirmations={},
+            delayed_memory_reports={},
+            active_memory_records=[],
+            runtime_turn_user_message="покажи тег",
+            runtime_current_turn_id="turn_save_session_blocker",
+            runtime_turn_started_at=0,
+            session_id="session-1",
+            timestamp="2026-07-20T18:00:00",
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=settings.SERVICE_MODEL_UID,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            runtime_actions={
+                "CAN_SAVE_SESSION": True,
+            },
+        )
+
+        await stream.run(
+            save_session_generator()
+        )
+
+        confirmation_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type")
+            == "runtime_action_guard_confirmation"
+        ]
+        runtime_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "runtime_action"
+        ]
+
+        self.assertEqual(
+            confirmation_events,
+            [],
+        )
+        self.assertEqual(
+            [event.get("status") for event in runtime_events],
+            ["counted", "failed", "counter_final"],
+        )
+        self.assertEqual(
+            context.runtime_action_events[-1]["error"],
+            "behavior_contract_blocker_matched",
         )
 
     async def test_runtime_groups_inner_and_outer_markers_from_one_message(self):
@@ -1307,7 +2341,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             record_session_action_history(
                 context,
                 (
-                    "CREATE_ACTIVE_MEMORY - "
+                    "SAVE_ACTIVE_MEMORY - "
                     "current session context and task status"
                 ),
             )
@@ -1327,12 +2361,13 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         context = SimpleNamespace(
             websocket=FakeWebSocket(),
             logger=FakeLogger(),
-            emitter=FakeEmitter(),
+            emitter=None,
             runtime_action_events=[],
             runtime_usage_events=[],
             runtime_asset_results=[],
             runtime_delayed_memory_results=[],
             runtime_session_action_history=[],
+            runtime_action_guard_confirmations={},
             delayed_memory_reports={},
             active_memory_records=[],
             runtime_turn_user_message=(
@@ -1346,6 +2381,32 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             session_id="session-1",
             timestamp="2026-07-13T17:00:00",
         )
+
+        class RejectingEmitter(FakeEmitter):
+
+            async def emit(
+                self,
+                event,
+            ):
+
+                await super().emit(
+                    event
+                )
+
+                if (
+                    event.get("type")
+                    != "runtime_action_guard_confirmation"
+                ):
+                    return
+
+                future = context.runtime_action_guard_confirmations[
+                    event["confirmation_id"]
+                ]
+                future.set_result(
+                    "reject"
+                )
+
+        context.emitter = RejectingEmitter()
 
         stream = RuntimeStream(
             context=context,
@@ -1371,10 +2432,9 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             context.runtime_session_action_history[0]["text"],
             (
-                "CREATE_ACTIVE_MEMORY - "
+                "SAVE_ACTIVE_MEMORY - "
                 "current session context and task status, "
-                "SAVE_DELAYED_MEMORY_CONTENT - failed: "
-                "Unrequested report "
+                "SAVE_DELAYED_MEMORY_CONTENT - failed: Unrequested report "
                 "(user did not provided system allowed trigger words for this action)"
             ),
         )
@@ -1388,15 +2448,14 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn(
             (
-                "Step 1 - CREATE_ACTIVE_MEMORY - "
+                "JIN message 1 executed - SAVE_ACTIVE_MEMORY - "
                 "current session context and task status, "
-                "SAVE_DELAYED_MEMORY_CONTENT - failed: "
-                "Unrequested report"
+                "SAVE_DELAYED_MEMORY_CONTENT - failed: Unrequested report"
             ),
             sequence_context,
         )
         self.assertNotIn(
-            "Step 2 -",
+            "JIN message 2 executed -",
             sequence_context,
         )
 
@@ -1420,7 +2479,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             session_action_updates[-1]["items"][0]["parts"],
             [
                 {
-                    "text": "CREATE_ACTIVE_MEMORY",
+                    "text": "SAVE_ACTIVE_MEMORY",
                     "detail": "current session context and task status",
                 },
                 {
@@ -1438,7 +2497,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         failed_payload = (
             "<SAVE_DELAYED_MEMORY_CONTENT>\n"
             "CONDITIONS: Simulation step 2/5\n"
-            "</CREATE_ACTIVE_MEMORY>\n"
+            "</SAVE_ACTIVE_MEMORY>\n"
         )
 
         async def incomplete_delayed_memory_generator():
@@ -1518,3 +2577,4 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

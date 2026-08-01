@@ -1426,6 +1426,8 @@
         Boolean(
           data.use_service_as_brain
         ),
+      formatResponse:
+        data.format_response !== false,
       runtimeStatus: {
         brain: Boolean(data.brain),
         service: Boolean(data.service),
