@@ -81,6 +81,88 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             runtime_actions_source,
         )
 
+    def test_appended_delayed_memory_bubbles_open_their_own_reports(self):
+
+        runtime_actions_source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "socket"
+            / "runtime-actions.js"
+        ).read_text(
+            encoding="utf-8"
+        )
+        chat_actions_source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "chat-runtime-actions.js"
+        ).read_text(
+            encoding="utf-8"
+        )
+        attachments_source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "chat-attachments.js"
+        ).read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            "function getDelayedMemoryRuntimeActionPreview",
+            runtime_actions_source,
+        )
+        self.assertIn(
+            "delayedMemoryResult.report",
+            runtime_actions_source,
+        )
+        self.assertIn(
+            "delayedMemoryResult.id",
+            runtime_actions_source,
+        )
+        self.assertIn(
+            "function normalizeDelayedMemoryRuntimeActionId",
+            runtime_actions_source,
+        )
+        self.assertIn(
+            "reportScopedDelayedAction",
+            runtime_actions_source,
+        )
+        self.assertIn(
+            "delayedMemoryPreview.reportId",
+            runtime_actions_source,
+        )
+        self.assertIn(
+            "delayedMemoryPreview.title",
+            runtime_actions_source,
+        )
+        self.assertIn(
+            "counterOnly\n    && reportScopedDelayedAction",
+            runtime_actions_source,
+        )
+        self.assertIn(
+            '"append_delayed_memory",',
+            chat_actions_source,
+        )
+        self.assertGreaterEqual(
+            chat_actions_source.count(
+                "bindDelayedMemoryReportPreview("
+            ),
+            2,
+        )
+        self.assertIn(
+            "function getDelayedMemoryReportPreviewSource",
+            attachments_source,
+        )
+        self.assertIn(
+            "reports[requestedId]",
+            attachments_source,
+        )
+
     def test_runtime_action_detail_ignores_generic_marker_payload_titles(self):
 
         runtime_actions_source = (

@@ -16,7 +16,6 @@ from utils.tool_results import (
 async def apply_delayed_memory_actions(
     context,
     *,
-    list_delayed_memory_actions,
     append_delayed_memory_actions,
     remove_delayed_memory_actions,
     log_runtime,
@@ -29,34 +28,11 @@ async def apply_delayed_memory_actions(
         clear_appended_delayed_memory_report,
         clear_delayed_memory_runtime_results,
         get_delayed_memory_reports,
-        list_delayed_memory_reports,
         remove_delayed_memory_report,
         set_appended_delayed_memory_report,
     )
 
     delayed_memory_results = []
-
-    if list_delayed_memory_actions:
-        if log_runtime is not None:
-            await log_runtime(
-                "[RUNTIME ACTION] list_delayed_memory requested"
-            )
-
-        clear_delayed_memory_runtime_results(
-            context
-        )
-
-        for action in list_delayed_memory_actions:
-            result = list_delayed_memory_reports(
-                context
-            )
-            append_delayed_memory_runtime_result(
-                context,
-                result,
-            )
-            delayed_memory_results.append(
-                result
-            )
 
     if append_delayed_memory_actions:
         if log_runtime is not None:
@@ -216,12 +192,25 @@ async def emit_delayed_memory_results(
             )
             or "delayed_memory"
         )
-        action_id = build_runtime_action_id(
-            result_action,
-            first_delayed_result_index
-            + result_index,
+        report_id = str(
+            result.get(
+                "id",
+                "",
+            )
+            or ""
+        ).strip().casefold()
+        report = result.get(
+            "report",
         )
-        await emit(with_action_context({
+        action_id = (
+            report_id
+            or build_runtime_action_id(
+                result_action,
+                first_delayed_result_index
+                + result_index,
+            )
+        )
+        event = {
             "type": "runtime_action",
             "action": result_action,
             "id": action_id,
@@ -240,6 +229,31 @@ async def emit_delayed_memory_results(
                 result
             ),
             "delayed_memory_result": result,
+        }
+
+        if report_id:
+            event["delayed_memory_report_id"] = (
+                report_id
+            )
+
+        if isinstance(
+            report,
+            dict,
+        ):
+            event["delayed_memory_report"] = {
+                **report,
+                "id": report_id
+                or str(
+                    report.get(
+                        "id",
+                        "",
+                    )
+                    or ""
+                ).strip().casefold(),
+            }
+
+        await emit(with_action_context({
+            **event,
         }))
 
 
@@ -302,6 +316,30 @@ async def apply_save_delayed_memory_actions(
             report
         )
 
+        file_errors = []
+
+        if bool(
+            getattr(
+                context,
+                "delayed_memory_file_store_enabled",
+                False,
+            )
+        ):
+            from utils.delayed_memory_file_store import (
+                persist_delayed_memory_reports,
+            )
+
+            file_errors = persist_delayed_memory_reports(
+                report
+            )
+
+            if file_errors and log_runtime is not None:
+                for file_error in file_errors:
+                    await log_runtime(
+                        "[DELAYED MEMORY] local file save failed: "
+                        + file_error
+                    )
+
         saved_delayed_memory_reports.append(
             report
         )
@@ -353,6 +391,8 @@ async def apply_save_delayed_memory_actions(
                     **report_value,
                     "id": report_id,
                 },
+                "file_saved": not file_errors,
+                "file_errors": list(file_errors),
             }
             record_runtime_tool_result(
                 context,

@@ -1736,9 +1736,9 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             context,
             TOOL_RESULT_KIND_DELAYED_MEMORY,
             {
-                "ok": True,
-                "action": "list_delayed_memory",
-                "reports": [],
+                "ok": False,
+                "action": "remove_delayed_memory",
+                "failure": "No entries found.",
             },
         )
 
@@ -1872,7 +1872,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         ]
         context.runtime_delayed_memory_results = [
             {
-                "action": "list_delayed_memory",
+                "action": "append_delayed_memory",
             },
         ]
         applied_count = asyncio.run(

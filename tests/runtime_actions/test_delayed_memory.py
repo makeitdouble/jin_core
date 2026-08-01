@@ -16,6 +16,7 @@ from contracts.rules_assembler import (
     get_runtime_action_private_marker,
 )
 from rules.brain_context_builder import build_appended_delayed_memory_context
+from runtime.stream import RuntimeStream
 from tests.helpers.runtime_actions import (
     FakeContext,
     FakeEmitter,
@@ -280,15 +281,11 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
 
         self.assertEqual(
             result.text,
-            "",
+            "<LIST_DELAYED_MEMORY>\n",
         )
         self.assertEqual(
             result.actions,
             (
-                RuntimeActionCall(
-                    name="LIST_DELAYED_MEMORY",
-                    payload="",
-                ),
                 RuntimeActionCall(
                     name="APPEND_DELAYED_MEMORY",
                     payload="a1b2c3",
@@ -829,9 +826,6 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="LIST_DELAYED_MEMORY",
-                    ),
-                    RuntimeActionCall(
                         name="APPEND_DELAYED_MEMORY",
                         payload="a1b2c3",
                     ),
@@ -841,30 +835,14 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
 
         self.assertEqual(
             applied_count,
-            2,
+            1,
         )
         tool_results = build_tool_results_context(
             context
         )
-        self.assertIn(
-            "<TOOLS_RESULTS>",
+        self.assertEqual(
             tool_results,
-        )
-        self.assertNotIn(
-            "<TOOL_RESULTS",
-            tool_results,
-        )
-        self.assertIn(
-            "1. Русский отчёт | id: a1b2c3",
-            tool_results,
-        )
-        self.assertNotIn(
-            '<TOOL_RESULT name="APPEND_DELAYED_MEMORY">',
-            tool_results,
-        )
-        self.assertNotIn(
-            "<APPENDED_DELAYED_MEMORY>",
-            tool_results,
+            "<TOOLS_RESULTS>\n</TOOLS_RESULTS>",
         )
         appended_context = build_appended_delayed_memory_context(
             context
@@ -879,10 +857,6 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             context.emitter.events[0]["text"],
-            "Listing delayed memory",
-        )
-        self.assertEqual(
-            context.emitter.events[1]["text"],
             (
                 "Appending: "
                 + context.delayed_memory_reports[
@@ -892,7 +866,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             len(context.emitter.events),
-            2,
+            1,
         )
         self.assertEqual(
             context.runtime_session_action_history[0]["text"],
@@ -905,7 +879,77 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_append_delayed_memory_replaces_current_report(self):
+    def test_started_append_delayed_memory_events_are_report_scoped(self):
+
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+            delayed_memory_reports={
+                "a1b2c3": {
+                    "title": "First report",
+                    "summary": "Summary",
+                    "body": "Body",
+                },
+                "b2c3d4": {
+                    "title": "Second report",
+                    "summary": "Summary",
+                    "body": "Body",
+                },
+            },
+            runtime_active_action_markers=[],
+            runtime_current_turn_id="turn_000001",
+        )
+        runtime_stream = RuntimeStream.__new__(
+            RuntimeStream
+        )
+        runtime_stream.context = context
+        runtime_stream.context_snapshot = {}
+        runtime_stream.stream = SimpleNamespace(
+            message_id="message_000001",
+        )
+        runtime_stream.started_delayed_memory_action_ids = []
+        runtime_stream.jin_color_action_id = ""
+
+        asyncio.run(
+            runtime_stream.emit_started_runtime_actions((
+                RuntimeActionCall(
+                    name="APPEND_DELAYED_MEMORY",
+                    payload="a1b2c3",
+                ),
+                RuntimeActionCall(
+                    name="APPEND_DELAYED_MEMORY",
+                    payload="b2c3d4",
+                ),
+            ))
+        )
+
+        self.assertEqual(
+            [
+                (
+                    event["id"],
+                    event["text"],
+                    event["delayed_memory_report_id"],
+                    event["delayed_memory_report"]["title"],
+                )
+                for event in context.emitter.events
+            ],
+            [
+                (
+                    "a1b2c3",
+                    "APPEND_DELAYED_MEMORY: First report",
+                    "a1b2c3",
+                    "First report",
+                ),
+                (
+                    "b2c3d4",
+                    "APPEND_DELAYED_MEMORY: Second report",
+                    "b2c3d4",
+                    "Second report",
+                ),
+            ],
+        )
+
+
+    def test_append_delayed_memory_keeps_multiple_reports(self):
 
         Emitter = FakeEmitter
 
@@ -961,23 +1005,30 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             2,
         )
         self.assertEqual(
-            context.runtime_appended_delayed_memory["id"],
-            "b2c3d4",
+            set(
+                context.runtime_appended_delayed_memory
+            ),
+            {
+                "a1b2c3",
+                "b2c3d4",
+            },
         )
 
         appended_context = build_appended_delayed_memory_context(
             context
         )
+        self.assertEqual(
+            appended_context.count(
+                "<APPENDED_DELAYED_MEMORY>"
+            ),
+            2,
+        )
         self.assertIn(
-            "<APPENDED_DELAYED_MEMORY>",
+            '"title": "First report"',
             appended_context,
         )
         self.assertIn(
             '"title": "Second report"',
-            appended_context,
-        )
-        self.assertNotIn(
-            '"title": "First report"',
             appended_context,
         )
 
@@ -1000,6 +1051,31 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             [
                 "Delayed memory appended: First report",
                 "Delayed memory appended: Second report",
+            ],
+        )
+        self.assertEqual(
+            [
+                (
+                    event["id"],
+                    event["text"],
+                    event["delayed_memory_report_id"],
+                    event["delayed_memory_report"]["title"],
+                )
+                for event in context.emitter.events
+            ],
+            [
+                (
+                    "a1b2c3",
+                    "Appending: First report",
+                    "a1b2c3",
+                    "First report",
+                ),
+                (
+                    "b2c3d4",
+                    "Appending: Second report",
+                    "b2c3d4",
+                    "Second report",
+                ),
             ],
         )
 
@@ -1276,6 +1352,106 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             context.runtime_session_action_history[0]["text"],
             "Delayed memory removed from context: Pinned report",
         )
+
+
+    def test_remove_delayed_memory_detaches_multiple_reports(self):
+
+        Emitter = FakeEmitter
+
+        Context = FakeContext
+
+        context = Context()
+        context.emitter = Emitter()
+        context.runtime_action_events = []
+        context.runtime_search_calls = []
+        context.runtime_appended_skills = []
+        context.runtime_asset_results = []
+        context.runtime_appended_delayed_memory = {
+            "a1b2c3": {
+                "id": "a1b2c3",
+                "title": "First report",
+            },
+            "b2c3d4": {
+                "id": "b2c3d4",
+                "title": "Second report",
+            },
+            "c3d4e5": {
+                "id": "c3d4e5",
+                "title": "Third report",
+            },
+        }
+        context.runtime_appended_delayed_memory_ids = [
+            "a1b2c3",
+            "b2c3d4",
+            "c3d4e5",
+        ]
+        context.delayed_memory_reports = {
+            "a1b2c3": {
+                "title": "First report",
+            },
+            "b2c3d4": {
+                "title": "Second report",
+            },
+            "c3d4e5": {
+                "title": "Third report",
+            },
+        }
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="REMOVE_DELAYED_MEMORY",
+                        payload="a1b2c3",
+                    ),
+                    RuntimeActionCall(
+                        name="REMOVE_DELAYED_MEMORY",
+                        payload="b2c3d4",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            2,
+        )
+        self.assertEqual(
+            set(
+                context.runtime_appended_delayed_memory
+            ),
+            {
+                "c3d4e5",
+            },
+        )
+        self.assertEqual(
+            context.runtime_appended_delayed_memory_ids,
+            [
+                "c3d4e5",
+            ],
+        )
+        self.assertEqual(
+            set(
+                context.delayed_memory_reports
+            ),
+            {
+                "a1b2c3",
+                "b2c3d4",
+                "c3d4e5",
+            },
+        )
+        self.assertEqual(
+            [
+                event["text"]
+                for event in context.emitter.events
+            ],
+            [
+                "Removing: First report",
+                "Removing: Second report",
+            ],
+        )
+
 
 
     def test_invalid_remove_delayed_memory_id_returns_failed_result(self):

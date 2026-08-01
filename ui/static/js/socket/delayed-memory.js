@@ -373,3 +373,36 @@ function syncDelayedMemoryReportsToRuntime() {
 }
 
 
+
+function handleDelayedMemoryStoreSnapshot(
+  data
+) {
+
+  if (
+      !data
+      || !data.delayed_memory_reports
+      || typeof data.delayed_memory_reports !== "object"
+      || Array.isArray(data.delayed_memory_reports)
+      || !window.JinRuntime
+      || !window.JinRuntime.runtime
+      || !window.JinRuntime.runtime.getDelayedMemoryReports
+      || !window.JinRuntime.runtime.replaceDelayedMemoryReports
+  ) {
+    return;
+  }
+
+  const localReports =
+    window.JinRuntime.runtime.getDelayedMemoryReports();
+
+  window.JinRuntime.runtime.replaceDelayedMemoryReports({
+    ...data.delayed_memory_reports,
+    ...localReports,
+  });
+
+}
+
+
+registerSocketMessageHandler(
+  "delayed_memory_store_snapshot",
+  handleDelayedMemoryStoreSnapshot
+);

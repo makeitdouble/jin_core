@@ -22,9 +22,13 @@ from runtime.L3_memory_utils import parse_l3_session_snapshot_metadata
 from runtime.telemetry import send_telemetry
 from utils.actions import (
     is_active_memory_key,
-    is_delayed_memory_report_id,
     refresh_active_memory_runtime_metadata,
     remove_active_memory_entries,
+)
+from utils.delayed_memory_file_store import (
+    load_delayed_memory_reports_from_files,
+    merge_delayed_memory_reports,
+    normalize_delayed_memory_reports,
 )
 
 
@@ -98,233 +102,11 @@ def active_memory_records_text(context) -> str:
     )
 
 
-def clean_delayed_memory_counter(value) -> int:
-
-    try:
-        return max(
-            int(
-                value
-                or 0
-            ),
-            0,
-        )
-    except (TypeError, ValueError):
-        return 0
-
-
-def clean_delayed_memory_session_ids(value) -> list[str]:
-
-    source = (
-        value
-        if isinstance(
-            value,
-            list,
-        )
-        else []
-    )
-    session_ids = []
-    seen = set()
-
-    for item in source:
-        session_id = clean_bootstrap_memory(
-            str(
-                item
-                or ""
-            ),
-            limit=200,
-        )
-
-        if (
-            not session_id
-            or session_id in seen
-        ):
-            continue
-
-        seen.add(
-            session_id
-        )
-        session_ids.append(
-            session_id
-        )
-
-    return session_ids
-
-
 def clean_delayed_memory_reports(value) -> dict:
 
-    if not isinstance(
-        value,
-        dict,
-    ):
-        return {}
-
-    reports = {}
-
-    for key, report in value.items():
-        report_id = str(
-            key
-            or ""
-        ).strip().casefold()
-
-        if not is_delayed_memory_report_id(
-            report_id
-        ):
-            continue
-
-        if not isinstance(
-            report,
-            dict,
-        ):
-            continue
-
-        title = clean_bootstrap_memory(
-            str(
-                report.get(
-                    "title",
-                    "",
-                )
-                or ""
-            ),
-            limit=500,
-        )
-
-        if not title:
-            continue
-
-        tags = report.get(
-            "tags",
-            [],
-        )
-
-        if isinstance(
-            tags,
-            list,
-        ):
-            clean_tags = [
-                clean_bootstrap_memory(
-                    str(tag or ""),
-                    limit=80,
-                )
-                for tag in tags
-                if clean_bootstrap_memory(
-                    str(tag or ""),
-                    limit=80,
-                )
-            ][:30]
-        else:
-            clean_tags = [
-                clean_bootstrap_memory(
-                    tag,
-                    limit=80,
-                )
-                for tag in str(
-                    tags
-                    or ""
-                ).split(",")
-                if clean_bootstrap_memory(
-                    tag,
-                    limit=80,
-                )
-            ][:30]
-
-        reports[report_id] = {
-            "title": title,
-            "summary": clean_bootstrap_memory(
-                str(
-                    report.get(
-                        "summary",
-                        "",
-                    )
-                    or ""
-                ),
-                limit=2000,
-            ),
-            "tags": clean_tags,
-            "body": clean_bootstrap_memory(
-                str(
-                    report.get(
-                        "body",
-                        "",
-                    )
-                    or ""
-                ),
-                limit=12000,
-            ),
-            "created_session_id": clean_bootstrap_memory(
-                str(
-                    report.get(
-                        "created_session_id",
-                        "",
-                    )
-                    or ""
-                ),
-                limit=200,
-            ),
-            "created_time": clean_bootstrap_memory(
-                str(
-                    report.get(
-                        "created_time",
-                        "",
-                    )
-                    or ""
-                ),
-                limit=100,
-            ),
-            "created_date": clean_bootstrap_memory(
-                str(
-                    report.get(
-                        "created_date",
-                        "",
-                    )
-                    or report.get(
-                        "created_time",
-                        "",
-                    )
-                    or ""
-                ),
-                limit=100,
-            ),
-            "appended_times": clean_delayed_memory_counter(
-                report.get(
-                    "appended_times",
-                    0,
-                )
-            ),
-            "append_streak": clean_delayed_memory_counter(
-                report.get(
-                    "append_streak",
-                    0,
-                )
-            ),
-            "last_appended_date": clean_bootstrap_memory(
-                str(
-                    report.get(
-                        "last_appended_date",
-                        "",
-                    )
-                    or ""
-                ),
-                limit=100,
-            ),
-            "last_appended_session_id": clean_bootstrap_memory(
-                str(
-                    report.get(
-                        "last_appended_session_id",
-                        "",
-                    )
-                    or ""
-                ),
-                limit=200,
-            ),
-            "all_appended_session_ids": clean_delayed_memory_session_ids(
-                report.get(
-                    "all_appended_session_ids",
-                    [],
-                )
-            ),
-        }
-
-    return reports
+    return normalize_delayed_memory_reports(
+        value
+    )
 
 
 def apply_delayed_memory_reports(
@@ -332,15 +114,70 @@ def apply_delayed_memory_reports(
     message_data: dict,
 ) -> None:
 
-    reports = clean_delayed_memory_reports(
+    if "delayed_memory_reports" not in message_data:
+        return
+
+    incoming_reports = clean_delayed_memory_reports(
         message_data.get(
             "delayed_memory_reports",
             {},
         )
     )
+    existing_reports = clean_delayed_memory_reports(
+        getattr(
+            context,
+            "delayed_memory_reports",
+            {},
+        )
+    )
 
-    if "delayed_memory_reports" in message_data:
-        context.delayed_memory_reports = reports
+    context.delayed_memory_reports = merge_delayed_memory_reports(
+        incoming_reports,
+        existing_reports,
+    )
+
+
+def hydrate_delayed_memory_reports_from_files(
+    context,
+) -> None:
+
+    file_reports, warnings = (
+        load_delayed_memory_reports_from_files()
+    )
+    current_reports = clean_delayed_memory_reports(
+        getattr(
+            context,
+            "delayed_memory_reports",
+            {},
+        )
+    )
+
+    context.delayed_memory_reports = merge_delayed_memory_reports(
+        current_reports,
+        file_reports,
+    )
+
+    if warnings:
+        current_warnings = getattr(
+            context,
+            "runtime_delayed_memory_file_warnings",
+            None,
+        )
+
+        if not isinstance(
+            current_warnings,
+            list,
+        ):
+            current_warnings = []
+            context.runtime_delayed_memory_file_warnings = (
+                current_warnings
+            )
+
+        current_warnings.extend(
+            warning
+            for warning in warnings
+            if warning not in current_warnings
+        )
 
 
 def remove_runtime_memory_slot_by_key(
@@ -593,6 +430,9 @@ def get_or_create_connection_context(
             logger=logger,
             clients=websocket.app.state.clients,
         )
+        hydrate_delayed_memory_reports_from_files(
+            context
+        )
 
         return context, False
 
@@ -614,6 +454,9 @@ def get_or_create_connection_context(
             logger,
         )
         existing_context.session_id = client_id
+        hydrate_delayed_memory_reports_from_files(
+            existing_context
+        )
         return existing_context, True
 
     context = RuntimeContext(
@@ -624,6 +467,9 @@ def get_or_create_connection_context(
         logger=logger,
         clients=websocket.app.state.clients,
         session_id=client_id,
+    )
+    hydrate_delayed_memory_reports_from_files(
+        context
     )
 
     store[client_id] = context
@@ -1561,6 +1407,24 @@ def apply_session_bootstrap(
 # CONNECTION SETUP
 # ---------------------------------------------------------
 
+async def emit_delayed_memory_store_snapshot(
+    context,
+) -> None:
+
+    reports = clean_delayed_memory_reports(
+        getattr(
+            context,
+            "delayed_memory_reports",
+            {},
+        )
+    )
+
+    await context.emitter.emit({
+        "type": "delayed_memory_store_snapshot",
+        "delayed_memory_reports": reports,
+    })
+
+
 async def initialize_connection(
     context,
     *,
@@ -1570,6 +1434,25 @@ async def initialize_connection(
     await context.websocket.accept()
 
     await send_telemetry(
+        context
+    )
+
+    file_warnings = list(
+        getattr(
+            context,
+            "runtime_delayed_memory_file_warnings",
+            [],
+        )
+        or []
+    )
+    context.runtime_delayed_memory_file_warnings = []
+
+    for warning in file_warnings:
+        await context.logger.log_system(
+            "[DELAYED MEMORY] " + str(warning)
+        )
+
+    await emit_delayed_memory_store_snapshot(
         context
     )
 

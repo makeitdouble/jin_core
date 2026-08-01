@@ -11,7 +11,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_CHECK_TODO,
     RUNTIME_ACTION_CREATE_TODO_LIST,
-    RUNTIME_ACTION_LIST_DELAYED_MEMORY,
     RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
@@ -305,7 +304,6 @@ def normalize_runtime_action_name(
         "SAVE_SESSION": RUNTIME_ACTION_SAVE_SESSION,
         "SAVE_DELAYED_MEMORY": RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
         "SAVE_DELAYED_MEMORY_CONTENT": RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
-        "LIST_DELAYED_MEMORY": RUNTIME_ACTION_LIST_DELAYED_MEMORY,
         "APPEND_DELAYED_MEMORY": RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
         "REMOVE_DELAYED_MEMORY": RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
         "SAVE_ACTIVE_MEMORY": RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
@@ -372,9 +370,6 @@ def normalize_runtime_action_names(
 
         if normalized_name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT:
             normalized_names.append(
-                RUNTIME_ACTION_LIST_DELAYED_MEMORY
-            )
-            normalized_names.append(
                 RUNTIME_ACTION_APPEND_DELAYED_MEMORY
             )
             normalized_names.append(
@@ -438,14 +433,6 @@ def _build_internal_action_call(
 
     if normalized_name not in KNOWN_RUNTIME_ACTIONS:
         return None
-
-    if normalized_name in {
-        RUNTIME_ACTION_LIST_DELAYED_MEMORY,
-    }:
-        return RuntimeActionCall(
-            name=normalized_name,
-            payload="",
-        )
 
     if normalized_name == RUNTIME_ACTION_LIST_SKILLS:
         return RuntimeActionCall(

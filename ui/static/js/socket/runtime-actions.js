@@ -635,6 +635,86 @@ function shouldSplitPayloadDistinctRuntimeAction(
 
 }
 
+function normalizeDelayedMemoryRuntimeActionId(
+  value
+) {
+
+  const reportId = String(
+    value || ""
+  ).trim().toLowerCase();
+
+  return /^[a-z0-9]{6}$/.test(reportId)
+    ? reportId
+    : "";
+
+}
+
+function getDelayedMemoryRuntimeActionPreview(
+  data,
+  action = ""
+) {
+
+  const delayedMemoryResult =
+    data
+    && data.delayed_memory_result
+    && typeof data.delayed_memory_result === "object"
+    && !Array.isArray(data.delayed_memory_result)
+      ? data.delayed_memory_result
+      : null;
+  const report =
+    data.delayed_memory_report
+    || (
+      delayedMemoryResult
+        ? delayedMemoryResult.report
+        : null
+    )
+    || null;
+  const reportId =
+    normalizeDelayedMemoryRuntimeActionId(
+      data.delayed_memory_report_id
+      || (
+        delayedMemoryResult
+          ? delayedMemoryResult.id
+          : ""
+      )
+      || (
+        report
+        && typeof report === "object"
+        && !Array.isArray(report)
+          ? report.id
+          : ""
+      )
+      || (
+        [
+          "append_delayed_memory",
+          "remove_delayed_memory",
+        ].includes(action)
+          ? data.payload
+          : ""
+      )
+      || ""
+    );
+  const title = String(
+    report
+    && typeof report === "object"
+    && !Array.isArray(report)
+      ? report.title || ""
+      : (
+        delayedMemoryResult
+        && typeof delayedMemoryResult === "object"
+          ? delayedMemoryResult.title || ""
+          : ""
+      )
+  ).trim();
+
+  return {
+    report,
+    reportId,
+    title,
+  };
+
+}
+
 function handleRuntimeAction(
   data
 ) {
@@ -656,6 +736,19 @@ function handleRuntimeAction(
 
   const runtimeMessageId =
     getRuntimeActionMessageId(data);
+  const delayedMemoryPreview =
+    getDelayedMemoryRuntimeActionPreview(
+      data,
+      action
+    );
+  const reportScopedDelayedAction =
+    [
+      "append_delayed_memory",
+      "remove_delayed_memory",
+    ].includes(action)
+    && Boolean(
+      delayedMemoryPreview.reportId
+    );
 
   const text =
     String(
@@ -721,7 +814,7 @@ function handleRuntimeAction(
     );
   }
 
-  const displayText =
+  const baseDisplayText =
     action === "resolve_active_memory"
       ? buildResolveActiveMemoryRuntimeActionText(
         data,
@@ -740,6 +833,15 @@ function handleRuntimeAction(
             ].includes(status),
         }
       );
+
+  const displayText =
+    reportScopedDelayedAction
+    && delayedMemoryPreview.title
+      ? (
+        `${getRuntimeActionDisplayName(data, action)}: `
+        + delayedMemoryPreview.title
+      )
+      : baseDisplayText;
 
   const displayName =
     getRuntimeActionDisplayName(
@@ -799,7 +901,8 @@ function handleRuntimeAction(
     );
 
   const aggregateMarkers =
-    !splitPayloadDistinctMarkers
+    !reportScopedDelayedAction
+    && !splitPayloadDistinctMarkers
     && (
       data.aggregate_markers === true
       || counterOnly
@@ -831,9 +934,18 @@ function handleRuntimeAction(
     && PAYLOAD_DISTINCT_RUNTIME_ACTIONS.has(action);
 
   const actionDisplayId =
-    data.counter_id
-    || data.id
-    || "";
+    reportScopedDelayedAction
+      ? (
+        delayedMemoryPreview.reportId
+        || data.id
+        || data.counter_id
+        || ""
+      )
+      : (
+        data.counter_id
+        || data.id
+        || ""
+      );
 
   const pendingUntilL3 =
     action === "save_session"
@@ -860,6 +972,13 @@ function handleRuntimeAction(
     ].includes(
       status
     );
+
+  if (
+    counterOnly
+    && reportScopedDelayedAction
+  ) {
+    return;
+  }
 
   if (action === "jin_color") {
     const color =
@@ -1062,9 +1181,9 @@ function handleRuntimeAction(
           assetResult:
             data.asset_result || null,
           delayedMemoryReportId:
-            data.delayed_memory_report_id || "",
+            delayedMemoryPreview.reportId,
           delayedMemoryReport:
-            data.delayed_memory_report || null,
+            delayedMemoryPreview.report,
           completed:
             !aggregateMarkers
             || completeImmediately,
@@ -1159,6 +1278,10 @@ function handleRuntimeAction(
         data.context || null,
       assetResult:
         data.asset_result || null,
+      delayedMemoryReportId:
+        delayedMemoryPreview.reportId,
+      delayedMemoryReport:
+        delayedMemoryPreview.report,
       detail: runtimeDetail,
       displayName,
       sceneEffect,

@@ -26,6 +26,7 @@ from utils.tokens import (
 from utils.actions import (
     build_runtime_action_id,
     emit_runtime_action_counter_updates,
+    is_delayed_memory_report_id,
     RuntimeActionCounter,
     normalize_jin_color_payload,
     RuntimeActionRepetitionGuard,
@@ -37,10 +38,12 @@ from runtime.behavior_contract import (
     should_pause_action_guard_for_confirmation,
 )
 from contracts.rules_assembler import (
+    RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
     RUNTIME_ACTION_APPEND_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
+    RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     build_runtime_action_display_text,
     get_runtime_action_display_name,
@@ -1133,6 +1136,17 @@ class RuntimeStream:
 
             return self.jin_color_action_id
 
+        if action.name in {
+            RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
+            RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
+        }:
+            report_id, _report = (
+                self.get_delayed_memory_runtime_action_report(
+                    action
+                )
+            )
+            return report_id
+
         if (
             action.name
             == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
@@ -1141,6 +1155,54 @@ class RuntimeStream:
             return self.started_delayed_memory_action_ids[-1]
 
         return ""
+
+    def get_delayed_memory_runtime_action_report(
+        self,
+        action,
+    ):
+
+        if action.name not in {
+            RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
+            RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
+        }:
+            return "", None
+
+        report_id = str(
+            action.payload
+            or ""
+        ).strip().casefold()
+
+        if not is_delayed_memory_report_id(
+            report_id
+        ):
+            return "", None
+
+        reports = getattr(
+            self.context,
+            "delayed_memory_reports",
+            None,
+        )
+
+        if not isinstance(
+            reports,
+            dict,
+        ):
+            return report_id, None
+
+        report = reports.get(
+            report_id
+        )
+
+        if not isinstance(
+            report,
+            dict,
+        ):
+            return report_id, None
+
+        return report_id, {
+            **report,
+            "id": report_id,
+        }
 
     async def confirm_unmatched_action_guards(
         self,
@@ -1579,6 +1641,26 @@ class RuntimeStream:
                 action.name,
                 action.payload,
             )
+            (
+                delayed_memory_report_id,
+                delayed_memory_report,
+            ) = self.get_delayed_memory_runtime_action_report(
+                action
+            )
+            delayed_memory_title = str(
+                delayed_memory_report.get(
+                    "title",
+                    "",
+                )
+                if delayed_memory_report
+                else ""
+            ).strip()
+
+            if delayed_memory_title:
+                display_text = (
+                    f"{display_name}: "
+                    f"{delayed_memory_title}"
+                )
             has_close_tag = runtime_action_has_close_tag(
                 action.name
             )
@@ -1736,6 +1818,16 @@ class RuntimeStream:
 
                 if action.payload and not has_close_tag:
                     payload["payload"] = action.payload
+
+            if delayed_memory_report_id:
+                payload["delayed_memory_report_id"] = (
+                    delayed_memory_report_id
+                )
+
+            if delayed_memory_report:
+                payload["delayed_memory_report"] = (
+                    delayed_memory_report
+                )
 
             if action_context_snapshot:
                 payload["context"] = action_context_snapshot

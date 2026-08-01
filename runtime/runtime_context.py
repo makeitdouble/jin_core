@@ -101,6 +101,16 @@ class RuntimeContext:
         default_factory=dict
     )
 
+    runtime_appended_delayed_memory_ids: list[str] = field(
+        default_factory=list
+    )
+
+    runtime_delayed_memory_file_warnings: list[str] = field(
+        default_factory=list
+    )
+
+    delayed_memory_file_store_enabled: bool = True
+
     runtime_appended_skills: list[dict] = field(
         default_factory=list
     )

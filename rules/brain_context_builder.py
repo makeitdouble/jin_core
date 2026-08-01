@@ -513,6 +513,61 @@ def _build_current_appended_skills_context(
     )
 
 
+def build_delayed_memory_inventory_context(
+    context=None,
+) -> str:
+
+    from utils.delayed_memory_file_store import (
+        delayed_memory_filename,
+        normalize_delayed_memory_reports,
+    )
+
+    if context is None:
+        return ""
+
+    reports = normalize_delayed_memory_reports(
+        getattr(
+            context,
+            "delayed_memory_reports",
+            {},
+        )
+    )
+
+    if not reports:
+        return ""
+
+    report_names = []
+
+    for report_id, report in reports.items():
+        try:
+            filename = delayed_memory_filename(
+                report_id,
+                report.get(
+                    "title",
+                    "",
+                ),
+            )
+        except (TypeError, ValueError):
+            continue
+
+        report_names.append(
+            filename[:-5]
+        )
+
+    if not report_names:
+        return ""
+
+    report_names.sort(
+        key=str.casefold
+    )
+
+    return (
+        "<DELAYED_MEMORY>\n"
+        + "\n".join(report_names)
+        + "\n</DELAYED_MEMORY>"
+    )
+
+
 def build_appended_delayed_memory_context(
     context=None,
 ) -> str:
@@ -521,31 +576,41 @@ def build_appended_delayed_memory_context(
         format_tool_result_payload,
     )
     from utils.brain_client_utils import (
+        get_appended_delayed_memory_report,
         indent_xml,
     )
 
     if context is None:
         return ""
 
-    appended_report = getattr(
-        context,
-        "runtime_appended_delayed_memory",
-        {},
+    appended_reports = get_appended_delayed_memory_report(
+        context
     )
 
-    if not isinstance(
-        appended_report,
-        dict,
-    ):
+    if not appended_reports:
         return ""
 
-    if not appended_report:
-        return ""
+    blocks = []
 
-    return (
-        "<APPENDED_DELAYED_MEMORY>\n"
-        f"{indent_xml(escape(format_tool_result_payload(appended_report)))}\n"
-        "</APPENDED_DELAYED_MEMORY>"
+    for report_id, report in appended_reports.items():
+        if not isinstance(
+            report,
+            dict,
+        ):
+            continue
+
+        payload = {
+            **report,
+            "id": report_id,
+        }
+        blocks.append(
+            "<APPENDED_DELAYED_MEMORY>\n"
+            f"{indent_xml(escape(format_tool_result_payload(payload)))}\n"
+            "</APPENDED_DELAYED_MEMORY>"
+        )
+
+    return "\n".join(
+        blocks
     )
 
 
@@ -619,6 +684,19 @@ def build_brain_context(
         runtime_context_parts,
         context,
     )
+
+    # Delayed memory inventory block: exposes every available report directly
+    # below CURRENT_SESSION_STATE, so no separate list action is needed.
+    delayed_memory_inventory_context = (
+        build_delayed_memory_inventory_context(
+            context
+        )
+    )
+
+    if delayed_memory_inventory_context:
+        runtime_context_parts.append(
+            delayed_memory_inventory_context
+        )
 
     # Current runtime todo block: keeps active task checklist state in view.
     _append_current_runtime_todo(

@@ -10,14 +10,8 @@
       "emit_followup": false
     },
     "rules": [
-      "DELAYED MEMORY ACTIONS:",
-      "Use delayed memory actions only for already saved delayed memory reports.",
-      "Emit <LIST_DELAYED_MEMORY> when you need the current saved delayed memory report ids before choosing one.",
-      "Runtime returns delayed memory lists as trusted TOOL_RESULTS type='delayed_memory'.",
-      "Emit <APPEND_DELAYED_MEMORY: id > to append one saved delayed memory, use when user asks to include or append summary/report into the session context.",
-      "Emit <REMOVE_DELAYED_MEMORY: id > only when the user explicitly asks to remove a saved delayed memory from the current session context; it never deletes the saved report from storage.",
-      "id is a placeholder; replace it with an actual 6-character delayed memory id from TOOL_RESULTS.",
-      "After APPEND_DELAYED_MEMORY returns the report, use its content to answer the latest user request."
+      "Emit <REMOVE_DELAYED_MEMORY: id > marker to remove single APPENDED_DELAYED_MEMORY from context in the next turn/message; saved reports are never deleted from storage",
+      "id - is a placeholder word; replace it with the 6-character id prefix shown in <DELAYED_MEMORY>."
     ],
     "close_tag": false
   }

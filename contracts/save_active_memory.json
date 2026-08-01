@@ -10,8 +10,9 @@
       "emit_followup": false
     },
     "rules": [
-      "Use when user asks to remember, remind, track, or keep a pending live-session condition.",
-      "CONDITIONS is a placeholder; replace it with description, value, or conditions."
+      "Use SAVE_ACTIVE_MEMORY action marker when user asks to remember, remind, track, or keep a pending live-session condition.",
+      "CONDITIONS is a placeholder word; replace placeholder with description, value, or conditions.",
+      "When JIN explicitly derives a live rule from the current context and needs to remember it, fulfill the conditions and emit a marker."
     ],
     "close_tag": false
   }

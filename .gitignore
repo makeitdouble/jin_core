@@ -23,4 +23,10 @@ assets/*
 !assets/skills/
 !assets/skills/**
 
-.gitkeep
+# Memory contents
+memory/**/*.json
+
+# Keep empty memory directory structure
+!memory/**/.gitkeep
+# Atomic memory write leftovers
+memory/**/*.tmp

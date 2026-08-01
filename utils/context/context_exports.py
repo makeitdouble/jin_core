@@ -36,7 +36,6 @@ from .assets import (
     format_asset_result_sections,
 )
 from .delayed_memory import (
-    format_delayed_memory_list_result,
     format_delayed_memory_report_result,
     format_delayed_memory_result_sections,
 )
@@ -59,7 +58,6 @@ __all__ = [
     "format_active_memory_result_sections",
     "format_asset_result_sections",
     "format_context_message_age_suffix",
-    "format_delayed_memory_list_result",
     "format_delayed_memory_report_result",
     "format_delayed_memory_result_sections",
     "format_list_skills_result",

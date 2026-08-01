@@ -30,6 +30,7 @@ from .bootstrap import (
     apply_runtime_resume,
     apply_session_bootstrap,
     emit_current_runtime_memory,
+    emit_delayed_memory_store_snapshot,
     ensure_initial_runtime_snapshot,
     get_or_create_connection_context,
     initialize_connection,
@@ -48,6 +49,10 @@ from .messages import (
 from .tasks import (
     PendingRequestQueue,
     cancel_current_task,
+)
+
+from utils.delayed_memory_file_store import (
+    persist_delayed_memory_reports,
 )
 
 
@@ -257,19 +262,30 @@ async def websocket_endpoint(
                     context,
                     message_data,
                 )
+                reports = getattr(
+                    context,
+                    "delayed_memory_reports",
+                    {},
+                ) or {}
+                file_errors = persist_delayed_memory_reports(
+                    reports
+                )
                 report_count = len(
-                    getattr(
-                        context,
-                        "delayed_memory_reports",
-                        {},
-                    )
-                    or {}
+                    reports
                 )
                 await logger.log_system(
                     (
                         "[WS] delayed memory store synced "
                         f"({report_count} reports)"
                     )
+                )
+                for file_error in file_errors:
+                    await logger.log_system(
+                        "[DELAYED MEMORY] local file save failed: "
+                        + file_error
+                    )
+                await emit_delayed_memory_store_snapshot(
+                    context
                 )
                 continue
 

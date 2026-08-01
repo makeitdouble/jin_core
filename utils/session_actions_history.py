@@ -134,7 +134,6 @@ ACTION_DISPLAY_ALIASES = {
     "create_wildcard_library": "Created wildcard library",
     "expand_template": "Expanded template",
     "generate_prompt_batch": "Generated prompt batch",
-    "list_delayed_memory": "Listed delayed memory",
     "list_skills": "Listed skills",
     "list_wildcards": "Listed wildcards",
     "preview_file": "Previewed file",

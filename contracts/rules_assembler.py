@@ -30,7 +30,6 @@ ACTION_CONFIG_KEYS = (
     ("RESOLVE_TODO", "CAN_RUNTIME_TODO"),
     ("CHECK_TODO", "CAN_RUNTIME_TODO"),
     ("SAVE_DELAYED_MEMORY_CONTENT", "CAN_SAVE_DELAYED_MEMORY"),
-    ("LIST_DELAYED_MEMORY", "CAN_SAVE_DELAYED_MEMORY"),
     ("APPEND_DELAYED_MEMORY", "CAN_SAVE_DELAYED_MEMORY"),
     ("REMOVE_DELAYED_MEMORY", "CAN_SAVE_DELAYED_MEMORY"),
     ("SAVE_ACTIVE_MEMORY", "CAN_SAVE_ACTIVE_MEMORY"),
@@ -297,7 +296,6 @@ def normalize_runtime_action_names(enabled_actions=None) -> tuple[str, ...]:
 
         if normalized_name == "SAVE_DELAYED_MEMORY_CONTENT":
             normalized_names.extend((
-                "LIST_DELAYED_MEMORY",
                 "APPEND_DELAYED_MEMORY",
                 "REMOVE_DELAYED_MEMORY",
             ))
@@ -531,7 +529,6 @@ def build_runtime_action_instructions(
             continue
 
         if normalized_name in {
-            "LIST_DELAYED_MEMORY",
             "APPEND_DELAYED_MEMORY",
             "REMOVE_DELAYED_MEMORY",
         } and not _context_has_delayed_memory_reports(context):
@@ -559,9 +556,6 @@ RUNTIME_ACTION_WEB_SEARCH = get_runtime_action_name("web_search")
 RUNTIME_ACTION_SAVE_SESSION = get_runtime_action_name("save_session")
 RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT = get_runtime_action_name(
     "save_delayed_memory"
-)
-RUNTIME_ACTION_LIST_DELAYED_MEMORY = get_runtime_action_name(
-    "list_delayed_memory"
 )
 RUNTIME_ACTION_APPEND_DELAYED_MEMORY = get_runtime_action_name(
     "append_delayed_memory"

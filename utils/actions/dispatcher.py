@@ -5,7 +5,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_CHECK_TODO,
     RUNTIME_ACTION_CREATE_TODO_LIST,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
-    RUNTIME_ACTION_LIST_DELAYED_MEMORY,
     RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
@@ -225,7 +224,6 @@ async def apply_runtime_action_calls(
     resolve_active_memory_ids_seen = set()
     resolve_active_memory_failures_seen = set()
     save_delayed_memory_seen = set()
-    list_delayed_memory_seen = False
     list_skills_seen = False
     resolved_user_message = resolve_runtime_action_user_message(
         context,
@@ -710,24 +708,6 @@ async def apply_runtime_action_calls(
             save_delayed_memory_seen.add(
                 save_delayed_memory_key
             )
-            accepted_action_names.add(
-                action_event_name
-            )
-            filtered_actions.append(
-                action
-            )
-            continue
-
-        if action.name == RUNTIME_ACTION_LIST_DELAYED_MEMORY:
-            if list_delayed_memory_seen:
-                continue
-
-            if not accept_runtime_action_once_per_message(
-                action
-            ):
-                continue
-
-            list_delayed_memory_seen = True
             accepted_action_names.add(
                 action_event_name
             )
@@ -1270,12 +1250,6 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
     ]
 
-    list_delayed_memory_actions = [
-        action
-        for action in filtered_actions
-        if action.name == RUNTIME_ACTION_LIST_DELAYED_MEMORY
-    ]
-
     append_delayed_memory_actions = [
         action
         for action in filtered_actions
@@ -1471,7 +1445,6 @@ async def apply_runtime_action_calls(
 
     delayed_memory_results = await apply_delayed_memory_actions(
         context,
-        list_delayed_memory_actions=list_delayed_memory_actions,
         append_delayed_memory_actions=append_delayed_memory_actions,
         remove_delayed_memory_actions=remove_delayed_memory_actions,
         log_runtime=log_runtime,

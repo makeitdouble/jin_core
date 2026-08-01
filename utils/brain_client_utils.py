@@ -67,7 +67,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_CHECK_TODO,
     RUNTIME_ACTION_CREATE_TODO_LIST,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
-    RUNTIME_ACTION_LIST_DELAYED_MEMORY,
     RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
@@ -1624,24 +1623,77 @@ def get_appended_delayed_memory_report(
     context,
 ) -> dict:
 
-    appended_report = getattr(
+    appended_reports = getattr(
         context,
         "runtime_appended_delayed_memory",
         None,
     )
 
     if not isinstance(
-        appended_report,
+        appended_reports,
         dict,
     ):
-        appended_report = {}
-        setattr(
-            context,
-            "runtime_appended_delayed_memory",
-            appended_report,
-        )
+        appended_reports = {}
 
-    return appended_report
+    legacy_report_id = str(
+        appended_reports.get(
+            "id",
+            "",
+        )
+        or ""
+    ).strip().casefold()
+
+    if (
+        legacy_report_id
+        and is_delayed_memory_report_id(
+            legacy_report_id
+        )
+        and (
+            "title" in appended_reports
+            or "body" in appended_reports
+            or "summary" in appended_reports
+        )
+    ):
+        appended_reports = {
+            legacy_report_id: {
+                **appended_reports,
+                "id": legacy_report_id,
+            },
+        }
+    else:
+        normalized_reports = {}
+
+        for report_id, report in appended_reports.items():
+            normalized_report_id = str(
+                report_id
+                or ""
+            ).strip().casefold()
+
+            if (
+                not is_delayed_memory_report_id(
+                    normalized_report_id
+                )
+                or not isinstance(
+                    report,
+                    dict,
+                )
+            ):
+                continue
+
+            normalized_reports[normalized_report_id] = {
+                **report,
+                "id": normalized_report_id,
+            }
+
+        appended_reports = normalized_reports
+
+    setattr(
+        context,
+        "runtime_appended_delayed_memory",
+        appended_reports,
+    )
+
+    return appended_reports
 
 
 def set_appended_delayed_memory_report(
@@ -1680,31 +1732,23 @@ def set_appended_delayed_memory_report(
         or ""
     ).strip().casefold()
 
-    if not report_id:
+    if not is_delayed_memory_report_id(
+        report_id
+    ):
         return False
 
-    current_report = get_appended_delayed_memory_report(
+    appended_reports = get_appended_delayed_memory_report(
         context
     )
-    current_id = str(
-        current_report.get(
-            "id",
-            "",
-        )
-        or ""
-    ).strip().casefold()
 
-    if current_id == report_id:
+    if report_id in appended_reports:
         return False
 
-    setattr(
-        context,
-        "runtime_appended_delayed_memory",
-        {
-            **report,
-            "id": report_id,
-        },
-    )
+    appended_reports[report_id] = {
+        **report,
+        "id": report_id,
+    }
+
     return True
 
 
@@ -1713,40 +1757,43 @@ def clear_appended_delayed_memory_report(
     report_id: str = "",
 ) -> bool:
 
-    current_report = get_appended_delayed_memory_report(
-        context
-    )
-
-    if not current_report:
-        return False
-
     normalized_report_id = str(
         report_id
         or ""
     ).strip().casefold()
 
-    current_id = str(
-        current_report.get(
-            "id",
-            "",
-        )
-        or ""
-    ).strip().casefold()
-
-    if (
+    if not is_delayed_memory_report_id(
         normalized_report_id
-        and current_id
-        and normalized_report_id != current_id
     ):
         return False
 
-    setattr(
-        context,
-        "runtime_appended_delayed_memory",
-        {},
+    appended_reports = get_appended_delayed_memory_report(
+        context
     )
-    return True
 
+    if normalized_report_id not in appended_reports:
+        return False
+
+    del appended_reports[normalized_report_id]
+
+    appended_ids = getattr(
+        context,
+        "runtime_appended_delayed_memory_ids",
+        None,
+    )
+
+    if isinstance(
+        appended_ids,
+        list,
+    ):
+        appended_ids[:] = [
+            item
+            for item in appended_ids
+            if str(item or "").strip().casefold()
+            != normalized_report_id
+        ]
+
+    return True
 
 def get_delayed_memory_reports(
     context,
@@ -1808,37 +1855,6 @@ def build_delayed_memory_failure_result(
     }
 
 
-def list_delayed_memory_reports(
-    context,
-) -> dict:
-
-    reports = get_delayed_memory_reports(
-        context
-    )
-
-    return {
-        "ok": True,
-        "action": "list_delayed_memory",
-        "reports": [
-            {
-                "id": report_id,
-                "title": str(
-                    report.get(
-                        "title",
-                        "",
-                    )
-                    or ""
-                ).strip(),
-            }
-            for report_id, report in reports.items()
-            if isinstance(
-                report,
-                dict,
-            )
-        ],
-    }
-
-
 def append_delayed_memory_report(
     context,
     payload: str,
@@ -1879,6 +1895,23 @@ def append_delayed_memory_report(
         report_id,
     )
 
+    file_errors = []
+
+    if bool(
+        getattr(
+            context,
+            "delayed_memory_file_store_enabled",
+            False,
+        )
+    ):
+        from utils.delayed_memory_file_store import (
+            persist_delayed_memory_reports,
+        )
+
+        file_errors = persist_delayed_memory_reports({
+            report_id: updated_report,
+        })
+
     return {
         "ok": True,
         "action": "append_delayed_memory",
@@ -1894,6 +1927,8 @@ def append_delayed_memory_report(
             **updated_report,
             "id": report_id,
         },
+        "file_saved": not file_errors,
+        "file_errors": file_errors,
     }
 
 
@@ -1975,9 +2010,6 @@ def build_delayed_memory_action_text(
         )
         or ""
     )
-
-    if action == "list_delayed_memory":
-        return "Listing delayed memory"
 
     title = str(
         result.get(

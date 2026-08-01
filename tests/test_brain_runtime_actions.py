@@ -118,7 +118,6 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
         expected_actions.extend(
             (
                 "SAVE_DELAYED_MEMORY_CONTENT",
-                "LIST_DELAYED_MEMORY",
                 "APPEND_DELAYED_MEMORY",
                 "REMOVE_DELAYED_MEMORY",
             )
@@ -3261,7 +3260,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ),
         )
 
-    def test_prompt_adds_delayed_memory_rules_only_when_reports_exist(self):
+    def test_prompt_lists_available_delayed_memory_below_session_state(self):
 
         empty_context = SimpleNamespace(
             runtime_memory="session_status: active",
@@ -3282,6 +3281,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
             "DELAYED MEMORY ACTIONS:",
             prompt_without_reports,
         )
+        self.assertNotIn(
+            "<DELAYED_MEMORY>",
+            prompt_without_reports,
+        )
 
         context = SimpleNamespace(
             runtime_memory="session_status: active",
@@ -3289,8 +3292,17 @@ class BrainRuntimeActionTests(unittest.TestCase):
             runtime_l2_memory="",
             active_memory_records=[],
             delayed_memory_reports={
-                "a1b2c3": {
-                    "title": "Saved report",
+                "3gs007": {
+                    "title": "JIN Multi-Layered Memory Architecture",
+                },
+                "1put0q": {
+                    "title": (
+                        "Синтез: Интеллект как контролируемый хаос "
+                        "(Эволюция через ошибку)"
+                    ),
+                },
+                "bad": {
+                    "title": "Invalid id",
                 },
             },
         )
@@ -3302,12 +3314,56 @@ class BrainRuntimeActionTests(unittest.TestCase):
             },
         )
 
+        expected_inventory = (
+            "<DELAYED_MEMORY>\n"
+            "1put0q_Синтез_Интеллект_как_контролируемый_хаос_"
+            "Эволюция_через_ошибку\n"
+            "3gs007_JIN_Multi_Layered_Memory_Architecture\n"
+            "</DELAYED_MEMORY>"
+        )
+
         self.assertIn(
             "DELAYED MEMORY ACTIONS:",
             prompt,
         )
         self.assertIn(
+            "<APPEND_DELAYED_MEMORY: id >",
+            prompt,
+        )
+        self.assertIn(
+            "<REMOVE_DELAYED_MEMORY: id >",
+            prompt,
+        )
+        self.assertNotIn(
             "<LIST_DELAYED_MEMORY>",
+            prompt,
+        )
+        self.assertEqual(
+            prompt.count(
+                "\n<DELAYED_MEMORY>\n"
+            ),
+            1,
+        )
+        self.assertIn(
+            "</CURRENT_SESSION_STATE>\n"
+            + expected_inventory,
+            prompt,
+        )
+        self.assertLess(
+            prompt.index(
+                expected_inventory
+            ),
+            prompt.index(
+                "RUNTIME ACTION EXECUTION RULES:"
+            ),
+        )
+        self.assertFalse(
+            prompt.rstrip().endswith(
+                expected_inventory
+            ),
+        )
+        self.assertNotIn(
+            "bad_Invalid_id",
             prompt,
         )
 

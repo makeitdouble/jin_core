@@ -1,65 +1,7 @@
 # Formats delayed memory tool results and appended delayed memory context blocks.
-from rules.runtime import (
-    NO_ENTRIES_FOUND_MESSAGE,
-)
-
 from .formatting import (
     format_tool_result_payload,
 )
-
-
-def format_delayed_memory_list_result(
-    result: dict,
-) -> str:
-
-    reports = [
-        report
-        for report in result.get(
-            "reports",
-            [],
-        )
-        or []
-        if isinstance(
-            report,
-            dict,
-        )
-    ]
-
-    if not reports:
-        return NO_ENTRIES_FOUND_MESSAGE
-
-    lines = []
-
-    for index, report in enumerate(
-        reports,
-        start=1,
-    ):
-        title = str(
-            report.get(
-                "title",
-                "",
-            )
-            or ""
-        ).strip()
-
-        if not title:
-            title = "Untitled delayed memory"
-
-        report_id = str(
-            report.get(
-                "id",
-                "",
-            )
-            or ""
-        ).strip()
-
-        lines.append(
-            f"{index}. {title} | id: {report_id}"
-        )
-
-    return "\n".join(
-        lines
-    )
 
 
 def format_delayed_memory_report_result(
@@ -147,17 +89,6 @@ def format_delayed_memory_result_sections(
             )
             or ""
         )
-
-        if action == "list_delayed_memory":
-            sections.append(
-                (
-                    "LIST_DELAYED_MEMORY",
-                    format_delayed_memory_list_result(
-                        result
-                    ),
-                )
-            )
-            continue
 
         if action == "append_delayed_memory":
             if result.get("ok") is False:

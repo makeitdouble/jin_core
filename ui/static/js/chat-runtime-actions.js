@@ -1746,7 +1746,12 @@ function updateRuntimeActionRow(
     );
   }
 
-  if (action === "save_delayed_memory_content") {
+  if (
+    [
+      "save_delayed_memory_content",
+      "append_delayed_memory",
+    ].includes(action)
+  ) {
     if (
       options.delayedMemoryReport
       || options.delayedMemoryReportId
@@ -2374,7 +2379,12 @@ function appendRuntimeAction(
     );
   }
 
-  if (action === "save_delayed_memory_content") {
+  if (
+    [
+      "save_delayed_memory_content",
+      "append_delayed_memory",
+    ].includes(action)
+  ) {
     if (
       options.delayedMemoryReport
       || options.delayedMemoryReportId

@@ -857,6 +857,56 @@ function normalizeDelayedMemoryReportForModal(
 
 }
 
+function getDelayedMemoryReportPreviewSource(
+  delayedMemoryReport,
+  delayedMemoryReportId = ""
+) {
+
+  if (
+    delayedMemoryReport
+    && typeof delayedMemoryReport === "object"
+    && !Array.isArray(delayedMemoryReport)
+  ) {
+    return delayedMemoryReport;
+  }
+
+  const requestedId =
+    String(
+      delayedMemoryReportId || ""
+    ).trim();
+
+  if (
+    !requestedId
+    || !window.JinRuntime
+    || !window.JinRuntime.runtime
+    || !window.JinRuntime.runtime.getDelayedMemoryReports
+  ) {
+    return null;
+  }
+
+  const reports =
+    window.JinRuntime.runtime.getDelayedMemoryReports();
+  const report =
+    reports
+    && typeof reports === "object"
+    && !Array.isArray(reports)
+      ? reports[requestedId]
+      : null;
+
+  if (
+    !report
+    || typeof report !== "object"
+    || Array.isArray(report)
+  ) {
+    return null;
+  }
+
+  return {
+    [requestedId]: report,
+  };
+
+}
+
 function bindDelayedMemoryReportPreview(
   element,
   delayedMemoryReport,
@@ -869,7 +919,10 @@ function bindDelayedMemoryReportPreview(
 
   const report =
     normalizeDelayedMemoryReportForModal(
-      delayedMemoryReport,
+      getDelayedMemoryReportPreviewSource(
+        delayedMemoryReport,
+        delayedMemoryReportId
+      ),
       delayedMemoryReportId
     );
 
