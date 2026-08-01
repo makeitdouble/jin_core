@@ -654,7 +654,6 @@ async def ask_brain_stream(
         #preserve_action_text=True
     )
     stop_for_runtime_action = False
-    runtime_action_boundary_seen = False
     delayed_memory_bubble_started = False
     asset_action_bubble_started = False
     asset_action_bubble_id = ""
@@ -1281,7 +1280,6 @@ async def ask_brain_stream(
     ):
 
         nonlocal stop_for_runtime_action
-        nonlocal runtime_action_boundary_seen
 
         chunk_type = action_chunk.get(
             "type"
@@ -1350,17 +1348,6 @@ async def ask_brain_stream(
         if await stop_on_marker_repetition(
             result
         ):
-            return None
-
-        if runtime_action_boundary_seen:
-            # Boundary actions require a follow-up, so ordinary model text
-            # emitted after the first boundary remains hidden from chat. Do
-            # not abort the provider stream here, though: token chunks can
-            # split visible text mid-word. Stopping on the first fragment
-            # truncates the model output and starts the follow-up before the
-            # current generation has actually ended.
-            # Keep draining the full response so later markers are processed,
-            # usage is finalized, and the raw BRAIN/SERVICE log is complete.
             return None
 
         if action_applied:
@@ -1462,8 +1449,6 @@ async def ask_brain_stream(
         result,
     ) -> bool:
 
-        nonlocal runtime_action_boundary_seen
-
         runtime_action_calls = tuple(
             result.actions
         )
@@ -1513,18 +1498,6 @@ async def ask_brain_stream(
                 action_display_ids=action_display_ids,
                 runtime_message_id=runtime_message_id,
             )
-
-        if any(
-            action.name in (
-                RUNTIME_ACTION_ASSET_ACTION,
-                RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
-                RUNTIME_ACTION_WEB_SEARCH,
-                RUNTIME_ACTION_LIST_SKILLS,
-                RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
-            )
-            for action in immediate_action_calls
-        ):
-            runtime_action_boundary_seen = True
 
         return True
 
@@ -1645,7 +1618,6 @@ async def ask_brain_stream(
             if (
                 content_tail
                 and not stop_for_runtime_action
-                and not runtime_action_boundary_seen
             ):
                 yield {
                     "type": "content",
@@ -1752,7 +1724,6 @@ async def ask_brain_stream(
         if (
             content_tail
             and not stop_for_runtime_action
-            and not runtime_action_boundary_seen
         ):
             yield {
                 "type": "content",

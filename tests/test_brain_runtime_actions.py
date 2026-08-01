@@ -860,7 +860,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             all(message_ids),
         )
 
-    def test_stream_drains_adjacent_markers_after_web_search_boundary(self):
+    def test_stream_processes_adjacent_markers_after_web_search(self):
 
         class FakeBrainClient:
             async def stream(self, **_kwargs):
@@ -972,7 +972,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
-    def test_stream_drains_full_hidden_response_after_runtime_boundary(self):
+    def test_stream_preserves_text_after_runtime_actions(self):
 
         class FakeBrainClient:
             def __init__(self):
@@ -980,10 +980,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
             async def stream(self, **_kwargs):
                 for content in (
-                    "<WEB_SEARCH: runtime boundary regression>",
+                    "<WEB_SEARCH: runtime action regression>",
                     "\n",
                     "Про",
-                    "должаю скрытый текст.\n",
+                    "должаю видимый текст.\n",
                     "<JIN_COLOR: #ff00ff>",
                     "\nФинал генерации.",
                 ):
@@ -1002,7 +1002,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 chunk
                 async for chunk in ask_brain_stream(
                     client=client,
-                    text="run boundary actions",
+                    text="run runtime actions",
                     context=context,
                     system_prompt="system prompt",
                     brain_payload="brain payload",
@@ -1037,9 +1037,20 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertTrue(client.completed)
-        self.assertEqual(visible_text, "")
+        self.assertEqual(
+            visible_text,
+            "\nПродолжаю видимый текст.\nФинал генерации.",
+        )
+        self.assertNotIn(
+            "WEB_SEARCH",
+            visible_text,
+        )
+        self.assertNotIn(
+            "JIN_COLOR",
+            visible_text,
+        )
         self.assertIn(
-            "Продолжаю скрытый текст.",
+            "Продолжаю видимый текст.",
             raw_model_output,
         )
         self.assertIn(
@@ -2459,7 +2470,109 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
 
-    def test_stream_asset_action_is_runtime_boundary(self):
+    def test_non_followup_delayed_memory_action_keeps_visible_text(self):
+
+        visible_answer = (
+            "Я просмотрел доступные отчёты и выбрал отчёт. "
+            "Добавляю его в контекст."
+        )
+
+        class FakeBrainClient:
+
+            async def stream(self, **_kwargs):
+                yield {
+                    "type": "content",
+                    "content": (
+                        "<APPEND_DELAYED_MEMORY: pwajtw>\n\n"
+                        f"{visible_answer}\n\n"
+                        "<CLEAN_TOOL_RESULTS>"
+                    ),
+                }
+
+        class TrackingEmitter:
+
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, event):
+                self.events.append(event)
+
+        class Context:
+            pass
+
+        async def collect(context):
+            return [
+                chunk
+                async for chunk in ask_brain_stream(
+                    client=FakeBrainClient(),
+                    text="append one delayed memory report",
+                    context=context,
+                    system_prompt="system prompt",
+                    brain_payload="brain payload",
+                    runtime_actions={
+                        "CAN_SAVE_DELAYED_MEMORY": True,
+                        "CAN_CLEAN_TOOL_RESULTS": True,
+                    },
+                )
+            ]
+
+        context = Context()
+        context.emitter = TrackingEmitter()
+        context.runtime_current_turn_id = "turn-delayed-append"
+        context.session_id = "session-1"
+        context.timestamp = "2026-08-01T16:20:00"
+        context.delayed_memory_reports = {
+            "pwajtw": {
+                "title": "Архитектурный Срез",
+                "summary": "Current JIN architecture.",
+                "tags": ["architecture"],
+                "body": "Complete report body.",
+            },
+        }
+        context.runtime_tool_results = [
+            {
+                "kind": "asset",
+                "result": {
+                    "ok": True,
+                },
+            },
+        ]
+        context.runtime_tool_results_turn_count = 1
+        context.runtime_tool_results_generation = 0
+
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            chunks = asyncio.run(
+                collect(context)
+            )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        visible_text = "".join(
+            chunk.get("content", "")
+            for chunk in chunks
+            if chunk.get("type") == "content"
+        )
+
+        self.assertEqual(
+            visible_text,
+            visible_answer,
+        )
+        self.assertEqual(
+            [
+                event.get("name")
+                for event in context.runtime_action_events
+            ],
+            [
+                "append_delayed_memory",
+                "clean_tool_results",
+            ],
+        )
+
+
+    def test_stream_asset_action_strips_marker_and_keeps_text(self):
 
         class FakeBrainClient:
             async def stream(self, **_kwargs):
@@ -2475,7 +2588,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                         "  }\n"
                         "}\n"
                         "</ASSET_ACTION>\n"
-                        "This should not be visible."
+                        "This should remain visible."
                     ),
                 }
 
@@ -2530,7 +2643,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
                     self.assertEqual(
                         visible_text,
-                        "",
+                        "This should remain visible.",
                     )
                     self.assertNotIn(
                         "ASSET_ACTION",
@@ -2578,7 +2691,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     "type": "content",
                     "content": (
                         "</ASSET_ACTION>\n"
-                        "This should not be visible."
+                        "This should remain visible."
                     ),
                 }
 
@@ -2656,7 +2769,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
                     self.assertEqual(
                         visible_text,
-                        "",
+                        "This should remain visible.",
                     )
                     self.assertEqual(
                         [
@@ -3322,7 +3435,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             "</DELAYED_MEMORY>"
         )
 
-        self.assertIn(
+        self.assertNotIn(
             "DELAYED MEMORY ACTIONS:",
             prompt,
         )

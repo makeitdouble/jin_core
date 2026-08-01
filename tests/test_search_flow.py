@@ -625,32 +625,23 @@ class SearchFlowTests(
                 "tesla car price",
             ],
         )
-        self.assertIn(
-            "action: web_search",
-            "\n".join(
-                message
-                for _, message, _ in get_fake_logger(
-                    context
-                ).messages
-            ),
+        logger_text = "\n".join(
+            message
+            for _, message, _ in get_fake_logger(
+                context
+            ).messages
         )
         self.assertIn(
-            "query: tesla car price",
-            "\n".join(
-                message
-                for _, message, _ in get_fake_logger(
-                    context
-                ).messages
-            ),
+            "[RUNTIME ACTION] executing search",
+            logger_text,
         )
         self.assertIn(
-            "id: web_search_001",
-            "\n".join(
-                message
-                for _, message, _ in get_fake_logger(
-                    context
-                ).messages
-            ),
+            "id='web_search_001'",
+            logger_text,
+        )
+        self.assertIn(
+            "query='tesla car price'",
+            logger_text,
         )
         self.assertIn(
             f"INITIAL_SEQUENCE_INSTRUCTION: {state.translated_input}",
@@ -760,7 +751,7 @@ class SearchFlowTests(
             2,
         )
 
-    async def test_search_action_stops_initial_brain_stream(self):
+    async def test_search_action_preserves_initial_brain_stream(self):
 
         search_provider = FakeSearchProvider(
             results=[
@@ -819,11 +810,24 @@ class SearchFlowTests(
             if message.get("type") == "message_chunk"
         ]
 
-        self.assertNotIn(
+        visible_text = "".join(
+            message_chunks
+        )
+        self.assertIn(
+            "Needs current pricing.",
+            visible_text,
+        )
+        self.assertIn(
             "Guessed apple price before search.",
-            "".join(
-                message_chunks
-            ),
+            visible_text,
+        )
+        self.assertIn(
+            "Apple price from search result.",
+            visible_text,
+        )
+        self.assertNotIn(
+            "<WEB_SEARCH:",
+            visible_text,
         )
         self.assertEqual(
             state.brain_response,
