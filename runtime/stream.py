@@ -57,6 +57,7 @@ from utils.skills_asset_utils import (
     normalize_skill_name,
 )
 from utils.session_actions_history import (
+    attach_session_action_jin_message_since,
     build_context_limit_history_text,
     build_delayed_memory_save_rejected_history_text,
     build_reasoning_loop_history_text,
@@ -2643,7 +2644,21 @@ class RuntimeStream:
                     or marker_history_replaced
                 )
 
-            if history_compacted:
+            history_message_attached = False
+
+            if counted_markers:
+                history_message_attached = (
+                    attach_session_action_jin_message_since(
+                        self.context,
+                        session_action_history_start,
+                        self.stream.response,
+                    )
+                )
+
+            if (
+                history_compacted
+                or history_message_attached
+            ):
                 with contextlib.suppress(
                     Exception
                 ):

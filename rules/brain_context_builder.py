@@ -614,6 +614,21 @@ def build_appended_delayed_memory_context(
     )
 
 
+def build_long_term_memory_context(
+    context=None,
+    user_input: str = "",
+) -> str:
+
+    if context is None:
+        return ""
+
+    from runtime.L4_memory import build_runtime_l4_memory_context
+
+    return build_runtime_l4_memory_context(
+        context=context,
+    )
+
+
 # Runtime action rules are assembled from contracts/rules_assembler.py.
 
 # Brain context assembly
@@ -739,6 +754,17 @@ def build_brain_context(
         runtime_context_parts,
         context,
     )
+
+    # L4 memory block: always-on canonical facts that survive sessions.
+    long_term_memory_context = build_long_term_memory_context(
+        context,
+        user_input=user_input,
+    )
+
+    if long_term_memory_context:
+        runtime_context_parts.append(
+            long_term_memory_context
+        )
 
     # Zero-diff alert block: warns the brain when a repeated answer stalled.
     _append_zero_diff_alert(

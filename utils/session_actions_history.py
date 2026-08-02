@@ -1578,6 +1578,86 @@ def format_session_action_marker_names(
     )
 
 
+def _normalize_jin_message_content(
+    value,
+) -> str:
+
+    return re.sub(
+        r"\s+",
+        " ",
+        str(
+            value
+            or ""
+        ).strip(),
+    )
+
+
+def attach_session_action_jin_message_since(
+    context,
+    start_index: int,
+    jin_message_content: str,
+) -> bool:
+
+    content = _normalize_jin_message_content(
+        jin_message_content
+    )
+
+    if (
+        context is None
+        or not content
+    ):
+        return False
+
+    history = getattr(
+        context,
+        "runtime_session_action_history",
+        None,
+    )
+
+    if not isinstance(
+        history,
+        list,
+    ):
+        return False
+
+    safe_start_index = max(
+        0,
+        min(
+            int(
+                start_index
+                or 0
+            ),
+            len(history),
+        ),
+    )
+
+    for item in history[safe_start_index:]:
+        if not isinstance(
+            item,
+            dict,
+        ):
+            continue
+
+        if not str(
+            item.get(
+                "text",
+                "",
+            )
+            or ""
+        ).strip():
+            continue
+
+        if item.get(
+            "jin_message_content"
+        ) == content:
+            return False
+
+        item["jin_message_content"] = content
+        return True
+
+    return False
+
+
 def replace_session_action_history_since(
     context,
     start_index: int,
@@ -1740,6 +1820,20 @@ def upsert_session_action_marker_history_since(
         ),
         "runtime_session_action_marker_item": True,
     }
+    previous_jin_message_content = _normalize_jin_message_content(
+        previous_item.get(
+            "jin_message_content",
+            "",
+        )
+        if isinstance(
+            previous_item,
+            dict,
+        )
+        else ""
+    )
+
+    if previous_jin_message_content:
+        item["jin_message_content"] = previous_jin_message_content
 
     runtime_turn_id = get_current_action_sequence_turn_id(
         context
@@ -1861,6 +1955,18 @@ def compact_session_action_history_since(
 
         if merged_parts:
             merged_item["parts"] = merged_parts
+
+        for item in items:
+            jin_message_content = _normalize_jin_message_content(
+                item.get(
+                    "jin_message_content",
+                    "",
+                )
+            )
+
+            if jin_message_content:
+                merged_item["jin_message_content"] = jin_message_content
+                break
 
         created_at_values = []
 

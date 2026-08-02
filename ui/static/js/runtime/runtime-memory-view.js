@@ -13,6 +13,8 @@
   let getDelayedMemoryReports = null;
   let getFactsMemoryFields = null;
   let deleteFactsMemoryField = null;
+  let getLongTermMemoryFacts = null;
+  let deleteLongTermMemoryFact = null;
   let getDisplayMode = null;
   let setDisplayMode = null;
 
@@ -204,6 +206,40 @@
       });
   }
 
+  function getLongTermMemoryFactRecords() {
+    const facts =
+        typeof getLongTermMemoryFacts === "function"
+          ? getLongTermMemoryFacts()
+          : [];
+
+    if (!Array.isArray(facts)) {
+      return [];
+    }
+
+    return facts
+      .filter(fact => (
+        fact
+        && typeof fact === "object"
+        && !Array.isArray(fact)
+        && String(fact.key || "").trim()
+        && String(fact.value || "").trim()
+      ))
+      .sort((left, right) => {
+        const updatedDifference =
+            String(right.updated_at || "").localeCompare(
+              String(left.updated_at || "")
+            );
+
+        if (updatedDifference) {
+          return updatedDifference;
+        }
+
+        return String(left.key || "").localeCompare(
+            String(right.key || "")
+        );
+      });
+  }
+
   function getAvailableRuntimeMemoryDisplayModes() {
     const modes = [
       "runtime",
@@ -224,6 +260,12 @@
     if (getFactsMemoryFieldRecords().length > 0) {
       modes.push(
           "facts"
+      );
+    }
+
+    if (getLongTermMemoryFactRecords().length > 0) {
+      modes.push(
+          "long_term"
       );
     }
 
@@ -271,7 +313,9 @@
             ? "[ delayed memory ]"
             : displayMode === "facts"
               ? "[ facts memory ]"
-              : "[ runtime memory ]";
+              : displayMode === "long_term"
+                ? "[ long term memory ]"
+                : "[ runtime memory ]";
 
     const hasAlternativeMemory =
         modes.length > 1;
@@ -696,6 +740,11 @@
 
     if (getRuntimeMemoryDisplayMode() === "facts") {
       renderFactsMemoryFields();
+      return;
+    }
+
+    if (getRuntimeMemoryDisplayMode() === "long_term") {
+      renderLongTermMemoryFacts();
       return;
     }
 
@@ -1141,6 +1190,11 @@
             row,
             line
         );
+      } else if (options.interactiveLongTermMemory) {
+        configureLongTermMemoryRow(
+            row,
+            line
+        );
       } else if (options.interactiveRuntimeMemory) {
         configureRuntimeMemoryRow(
             row,
@@ -1456,8 +1510,8 @@
   }
 
   function configureFactsMemoryRow(
-      row,
-      line
+    row,
+    line
   ) {
     if (
         !row
@@ -1473,6 +1527,30 @@
           if (typeof deleteFactsMemoryField === "function") {
             deleteFactsMemoryField(
                 line.key
+            );
+          }
+        }
+    );
+  }
+
+  function configureLongTermMemoryRow(
+    row,
+    line
+  ) {
+    if (
+        !row
+        || !line
+        || !line.id
+    ) {
+      return;
+    }
+
+    configureRuntimeMemoryDeleteHold(
+        row,
+        () => {
+          if (typeof deleteLongTermMemoryFact === "function") {
+            deleteLongTermMemoryFact(
+                line.id
             );
           }
         }
@@ -2071,6 +2149,10 @@
           content,
           [
             `runtime_snapshot_id: ${String(record.runtime_snapshot_id || "").trim()}`,
+            `session_id: ${String(record.session_id || "").trim()}`,
+            `l4_status: ${String(record.l4_status || "pending").trim()}`,
+            `l4_content_hash: ${String(record.l4_content_hash || "").trim()}`,
+            `l4_analyzed_at: ${String(record.l4_analyzed_at || "").trim()}`,
           ]
       ),
       status: "same",
@@ -2108,6 +2190,136 @@
             interactiveFactsMemory: true,
           }
       );
+    }
+
+    if (runtimeMemoryPosition) {
+      runtimeMemoryPosition.textContent =
+          String(records.length);
+    }
+
+    userIdleValueNode = null;
+    idle.stop();
+
+    updateRuntimeMemoryTitleMetricsFromText(
+        lines
+          .map(line => `${line.key}: ${line.value}`)
+          .join("\n")
+    );
+
+    updateRuntimeMemoryArrows();
+    updateRuntimeMemoryPinGlow();
+    updateRuntimeMemoryTitleState();
+  }
+
+
+  function formatLongTermFactMetadata(
+    fact
+  ) {
+
+    const entries = [];
+
+    [
+      "id",
+      "category",
+      "confidence",
+      "mention_count",
+      "source_session_ids",
+      "source_runtime_snapshot_ids",
+      "source_keys",
+      "created_at",
+      "updated_at",
+    ].forEach((key) => {
+      let value =
+        fact[key];
+
+      if (Array.isArray(value)) {
+        value =
+          value
+            .map(item => String(item || "").trim())
+            .filter(Boolean)
+            .join(", ");
+      }
+
+      if (
+          value === undefined
+          || value === null
+          || String(value).trim() === ""
+      ) {
+        return;
+      }
+
+      if (typeof value === "number") {
+        value =
+          value.toFixed(2).replace(/\.00$/, "");
+      }
+
+      entries.push(
+        `${key}: ${value}`
+      );
+    });
+
+    return entries;
+
+  }
+
+
+  function buildLongTermMemoryLine(
+    fact
+  ) {
+
+    const key =
+      String(fact.key || "").trim();
+    const value =
+      String(fact.value || "").trim();
+
+    return {
+      id: String(fact.id || "").trim(),
+      key,
+      value: memoryModel.appendProperties(
+          value,
+          formatLongTermFactMetadata(fact)
+      ),
+      status: "same",
+      key_status: "same",
+      value_status: "same",
+      key_change_ratio: 0,
+      value_change_ratio: 0,
+    };
+
+  }
+
+
+  function renderLongTermMemoryFacts() {
+    const records =
+        getLongTermMemoryFactRecords();
+
+    const lines =
+        records.map(
+          buildLongTermMemoryLine
+        );
+
+    if (runtimeMemoryText) {
+      runtimeMemoryText.innerHTML = "";
+      runtimeMemoryText.classList.remove(
+          "runtime-memory-text-pinned"
+      );
+      runtimeMemoryText.removeAttribute(
+          "title"
+      );
+
+      if (!lines.length) {
+        runtimeMemoryText.textContent =
+          "No long-term facts stored.";
+      } else {
+        appendRuntimeMemoryLineRows(
+            lines,
+            false,
+            {
+              applyFlash: false,
+              interactiveLongTermMemory: true,
+            }
+        );
+      }
     }
 
     if (runtimeMemoryPosition) {
@@ -2407,6 +2619,8 @@
     getDelayedMemoryReports = options.getDelayedMemoryReports || null;
     getFactsMemoryFields = options.getFactsMemoryFields || null;
     deleteFactsMemoryField = options.deleteFactsMemoryField || null;
+    getLongTermMemoryFacts = options.getLongTermMemoryFacts || null;
+    deleteLongTermMemoryFact = options.deleteLongTermMemoryFact || null;
     getDisplayMode = options.getDisplayMode || null;
     setDisplayMode = options.setDisplayMode || null;
 

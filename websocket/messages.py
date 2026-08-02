@@ -321,6 +321,7 @@ async def refresh_pending_brain_usage(
         build_brain_context(
             context,
             runtime_actions=runtime_actions,
+            user_input=user_text,
         )
     )
 

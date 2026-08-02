@@ -38,6 +38,14 @@ const feedback =
   window.JinRuntime
   && window.JinRuntime.feedback;
 
+const l4Memory =
+  window.JINRuntimeL4Memory
+  || (
+    window.JinRuntime
+    && window.JinRuntime.l4Memory
+  )
+  || null;
+
 if (!feedback) {
   throw new Error(
     "JinRuntime.feedback must be loaded before runtime.js"
@@ -258,6 +266,13 @@ function persistRuntimeFactsMemory(
       snapshot.runtime_memory_id || ""
     ).trim();
 
+  const sessionId =
+    String(
+      storage.getCurrentFactsMemorySessionId
+        ? storage.getCurrentFactsMemorySessionId()
+        : ""
+    ).trim();
+
   snapshot.lines.forEach(
     function (line) {
       const key =
@@ -287,20 +302,50 @@ function persistRuntimeFactsMemory(
 
       const existing =
         fields[key];
+      const contentHash =
+        storage.buildFactsMemoryContentHash
+          ? storage.buildFactsMemoryContentHash(
+              content
+            )
+          : content;
 
       if (!existing) {
         fields[key] = {
           content,
           runtime_snapshot_id: runtimeSnapshotId,
+          session_id: sessionId,
+          l4_status: "pending",
+          l4_content_hash: contentHash,
+          l4_analyzed_at: "",
         };
 
         return;
       }
 
+      const previousHash =
+        String(
+          existing.l4_content_hash || ""
+        ).trim();
+      const contentChanged =
+        previousHash !== contentHash
+        || String(existing.content || "").trim() !== content;
+
       fields[key] = {
         ...existing,
         content,
         runtime_snapshot_id: runtimeSnapshotId,
+        session_id: sessionId,
+        l4_status: contentChanged
+          ? "pending"
+          : (
+              existing.l4_status === "analyzed"
+                ? "analyzed"
+                : "pending"
+            ),
+        l4_content_hash: contentHash,
+        l4_analyzed_at: contentChanged
+          ? ""
+          : String(existing.l4_analyzed_at || "").trim(),
       };
     }
   );
@@ -523,6 +568,16 @@ memoryView.init({
   getDelayedMemoryReports: readDelayedMemoryReports,
   getFactsMemoryFields,
   deleteFactsMemoryField: deleteFactsMemoryFieldAndRender,
+  getLongTermMemoryFacts: () => (
+    l4Memory && l4Memory.getFacts
+      ? l4Memory.getFacts()
+      : []
+  ),
+  deleteLongTermMemoryFact: (factId) => (
+    l4Memory && l4Memory.requestFactDelete
+      ? l4Memory.requestFactDelete(factId)
+      : false
+  ),
   getDisplayMode: () => runtimeMemoryDisplayMode,
   setDisplayMode: (value) => {
     runtimeMemoryDisplayMode = value;
@@ -964,6 +1019,16 @@ window.JinRuntime.runtime = {
   getDelayedMemoryReports: readDelayedMemoryReports,
   getFactsMemoryFields,
   deleteFactsMemoryField: deleteFactsMemoryFieldAndRender,
+  getLongTermMemoryFacts() {
+    return l4Memory && l4Memory.getFacts
+      ? l4Memory.getFacts()
+      : [];
+  },
+  deleteLongTermMemoryFact(factId) {
+    return l4Memory && l4Memory.requestFactDelete
+      ? l4Memory.requestFactDelete(factId)
+      : false;
+  },
   replaceDelayedMemoryReports: writeDelayedMemoryReports,
   appendDelayedMemoryReports,
 };

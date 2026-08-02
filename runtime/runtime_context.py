@@ -167,6 +167,16 @@ class RuntimeContext:
         default_factory=dict
     )
 
+    runtime_facts_memory_records: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_long_term_memory_store: dict = field(
+        default_factory=dict
+    )
+
+    runtime_l4_memory_update_task: object | None = None
+
     runtime_usage_events: list[dict] = field(
         default_factory=list
     )

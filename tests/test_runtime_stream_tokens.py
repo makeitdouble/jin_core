@@ -809,31 +809,31 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn(
-            "JIN message 1 executed - WEB_SEARCH",
+            "JIN message 1 executed: WEB_SEARCH",
             sequence_context,
         )
         self.assertIn(
             (
-                "JIN message 2 executed - stuck in a reasoning loop with "
+                "JIN message 2 executed: stuck in a reasoning loop with "
                 '"* Wait, I\'ll use the search marker."'
             ),
             sequence_context,
         )
         self.assertIn(
-            "JIN message 3 executed - WEB_SEARCH",
+            "JIN message 3 executed: WEB_SEARCH",
             sequence_context,
         )
         self.assertLess(
-            sequence_context.index("JIN message 1 executed - WEB_SEARCH"),
+            sequence_context.index("JIN message 1 executed: WEB_SEARCH"),
             sequence_context.index(
-                "JIN message 2 executed - stuck in a reasoning loop"
+                "JIN message 2 executed: stuck in a reasoning loop"
             ),
         )
         self.assertLess(
             sequence_context.index(
-                "JIN message 2 executed - stuck in a reasoning loop"
+                "JIN message 2 executed: stuck in a reasoning loop"
             ),
-            sequence_context.index("JIN message 3 executed - WEB_SEARCH"),
+            sequence_context.index("JIN message 3 executed: WEB_SEARCH"),
         )
 
         errors = [
@@ -1558,7 +1558,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn(
-            "JIN message 1 executed - SAVE_DELAYED_MEMORY_CONTENT - failed: Unrequested report",
+            "JIN message 1 executed: SAVE_DELAYED_MEMORY_CONTENT: failed: Unrequested report",
             followup_prompt,
         )
         self.assertFalse(
@@ -2448,14 +2448,14 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn(
             (
-                "JIN message 1 executed - SAVE_ACTIVE_MEMORY - "
+                "JIN message 1 executed: SAVE_ACTIVE_MEMORY: "
                 "current session context and task status, "
-                "SAVE_DELAYED_MEMORY_CONTENT - failed: Unrequested report"
+                "SAVE_DELAYED_MEMORY_CONTENT: failed: Unrequested report"
             ),
             sequence_context,
         )
         self.assertNotIn(
-            "JIN message 2 executed -",
+            "JIN message 2 executed:",
             sequence_context,
         )
 

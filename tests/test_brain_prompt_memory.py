@@ -309,7 +309,7 @@ class BrainPromptMemoryTests(
                 )
 
             self.assertIn(
-                "JIN message 1 executed - ASSET_ACTION ( 1s ago )",
+                "JIN message 1 executed: ASSET_ACTION ( 1s ago )",
                 history,
             )
             self.assertNotIn(
@@ -383,19 +383,96 @@ class BrainPromptMemoryTests(
                 history,
             )
             self.assertIn(
-                "JIN message 1 executed - LIST_SKILLS ( 5s ago )",
+                "JIN message 1 executed: LIST_SKILLS ( 5s ago )",
                 history,
             )
             self.assertIn(
                 (
-                    "JIN message 2 executed - APPEND_SKILL: file_manager (count: 3), "
+                    "JIN message 2 executed: APPEND_SKILL: file_manager (count: 3), "
                     "CLEAN_TOOL_RESULTS ( 2s ago )"
                 ),
                 history,
             )
             self.assertIn(
-                "JIN message 3 executed - SAVE_SESSION ( 1s ago )",
+                "JIN message 3 executed: SAVE_SESSION ( 1s ago )",
                 history,
+            )
+
+    def test_current_sequence_includes_jin_content_for_marker_message_only(self):
+
+            jin_content = (
+                "Приятно познакомиться, Сергей. "
+                "Сейчас посмотрю, что это за проект Ouroboros."
+            )
+            context = SimpleNamespace(
+                runtime_current_turn_id="turn_000002",
+                runtime_turn_started_at=900.0,
+                runtime_action_sequence_turn_ids=[
+                    "turn_000002",
+                ],
+                runtime_session_action_history=[
+                    {
+                        "text": (
+                            "WEB_SEARCH - Ouroboros AI project framework "
+                            "competitor LLM agents"
+                        ),
+                        "parts": [
+                            {
+                                "text": "WEB_SEARCH",
+                                "detail": (
+                                    "Ouroboros AI project framework "
+                                    "competitor LLM agents"
+                                ),
+                            },
+                        ],
+                        "created_at": 999.0,
+                        "runtime_turn_id": "turn_000002",
+                        "jin_message_content": jin_content,
+                    },
+                ],
+            )
+
+            with patch(
+                "utils.context.context_exports.time.time",
+                return_value=1000.0,
+            ):
+                current_sequence = build_session_actions_history_context(
+                    context,
+                    current_sequence=True,
+                )
+                session_history = build_session_actions_history_context(
+                    context,
+                )
+
+            self.assertIn(
+                (
+                    "JIN message 1 content: "
+                    f"{jin_content} ( 1s ago )"
+                ),
+                current_sequence,
+            )
+            self.assertIn(
+                (
+                    "JIN message 1 executed: WEB_SEARCH: "
+                    "Ouroboros AI project framework competitor LLM agents "
+                    "( 1s ago )"
+                ),
+                current_sequence,
+            )
+            self.assertIn(
+                (
+                    "1. WEB_SEARCH: Ouroboros AI project framework "
+                    "competitor LLM agents ( 1s ago )"
+                ),
+                session_history,
+            )
+            self.assertNotIn(
+                "JIN message 1 content",
+                session_history,
+            )
+            self.assertNotIn(
+                jin_content,
+                session_history,
             )
 
     def test_current_actions_history_filters_older_session_actions(self):
@@ -444,8 +521,8 @@ class BrainPromptMemoryTests(
                 (
                     "<CURRENT_SEQUENCE>\n"
                     "    --- Sequence started ---\n"
-                    "    JIN message 1 executed - LIST_SKILLS ( 55s ago )\n"
-                    "    JIN message 2 executed - APPEND_SKILL ( 2s ago )\n"
+                    "    JIN message 1 executed: LIST_SKILLS ( 55s ago )\n"
+                    "    JIN message 2 executed: APPEND_SKILL ( 2s ago )\n"
                     "</CURRENT_SEQUENCE>"
                 ),
             )
@@ -502,9 +579,9 @@ class BrainPromptMemoryTests(
 
             self.assertIn(
                 (
-                    "JIN message 1 executed - RESOLVE_ACTIVE_MEMORY - "
+                    "JIN message 1 executed: RESOLVE_ACTIVE_MEMORY: "
                     "id: enrrqo; content: word: кукушка, "
-                    "RESOLVE_ACTIVE_MEMORY - id: yfpywn; "
+                    "RESOLVE_ACTIVE_MEMORY: id: yfpywn; "
                     "content: word: кулёк ( 2s ago )"
                 ),
                 history,

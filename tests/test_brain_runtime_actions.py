@@ -1754,7 +1754,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
             expected_text,
         )
         self.assertIn(
-            f"JIN message 1 executed - {expected_text}",
+            (
+                "JIN message 1 executed: "
+                f"{expected_text.replace(' - ', ': ', 1)}"
+            ),
             build_session_actions_history_context(
                 context,
                 current_sequence=True,

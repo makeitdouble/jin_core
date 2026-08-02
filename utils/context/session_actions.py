@@ -53,18 +53,27 @@ def _normalize_session_action_history_item(
             "parts",
             [],
         )
+        jin_message_content = str(
+            item.get(
+                "jin_message_content",
+                "",
+            )
+            or ""
+        ).strip()
     else:
         text = str(
             item
             or ""
         ).strip()
         parts = []
+        jin_message_content = ""
 
     return {
         "text": text,
         "parts": parts,
         "created_at": created_at,
         "runtime_turn_id": runtime_turn_id,
+        "jin_message_content": jin_message_content,
     }
 
 
@@ -224,6 +233,34 @@ def _format_session_action_context_parts(
     ).strip()
 
 
+def _format_context_action_text(
+    text: str,
+) -> str:
+
+    return re.sub(
+        r"\b([A-Z][A-Z0-9_]*)\s+-\s+",
+        r"\1: ",
+        str(
+            text
+            or ""
+        ).strip(),
+    )
+
+
+def _format_jin_message_content(
+    text: str,
+) -> str:
+
+    return re.sub(
+        r"\s+",
+        " ",
+        str(
+            text
+            or ""
+        ).strip(),
+    )
+
+
 def build_session_actions_history_context(
     context=None,
     *,
@@ -338,27 +375,44 @@ def build_session_actions_history_context(
             )
             open_sequence_turn_id = ""
 
-        text = _format_session_action_context_parts(
-            item.get(
-                "parts",
-                [],
-            ),
-            fallback_text=item[
-                "text"
-            ],
+        text = _format_context_action_text(
+            _format_session_action_context_parts(
+                item.get(
+                    "parts",
+                    [],
+                ),
+                fallback_text=item[
+                    "text"
+                ],
+            )
         )
         created_at = item.get(
             "created_at"
         )
+        age_suffix = ""
         if created_at is not None:
-            text = (
-                f"{text} ( {format_session_action_age(now - created_at)} ago )"
+            age_suffix = (
+                f" ( {format_session_action_age(now - created_at)} ago )"
             )
+            text = f"{text}{age_suffix}"
 
         action_index += 1
         if current_sequence:
+            jin_message_content = _format_jin_message_content(
+                item.get(
+                    "jin_message_content",
+                    "",
+                )
+            )
+            if jin_message_content:
+                lines.append(
+                    (
+                        f"JIN message {action_index} content: "
+                        f"{jin_message_content}{age_suffix}"
+                    )
+                )
             lines.append(
-                f"JIN message {action_index} executed - {text}"
+                f"JIN message {action_index} executed: {text}"
             )
         else:
             lines.append(

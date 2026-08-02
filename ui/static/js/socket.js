@@ -473,6 +473,12 @@ async function handleSocketOpen() {
     }
 
     syncDelayedMemoryReportsToRuntime();
+    if (typeof window.syncFactsMemoryToRuntime === "function") {
+      window.syncFactsMemoryToRuntime();
+    }
+    if (typeof window.syncLongTermMemoryToRuntime === "function") {
+      window.syncLongTermMemoryToRuntime();
+    }
 
     return;
   }
@@ -482,6 +488,12 @@ async function handleSocketOpen() {
       || !window.getPersistedSessionBootstrap
   ) {
     syncDelayedMemoryReportsToRuntime();
+    if (typeof window.syncFactsMemoryToRuntime === "function") {
+      window.syncFactsMemoryToRuntime();
+    }
+    if (typeof window.syncLongTermMemoryToRuntime === "function") {
+      window.syncLongTermMemoryToRuntime();
+    }
     return;
   }
 
@@ -531,6 +543,12 @@ async function handleSocketOpen() {
     );
 
     syncDelayedMemoryReportsToRuntime();
+    if (typeof window.syncFactsMemoryToRuntime === "function") {
+      window.syncFactsMemoryToRuntime();
+    }
+    if (typeof window.syncLongTermMemoryToRuntime === "function") {
+      window.syncLongTermMemoryToRuntime();
+    }
 
     return;
   }
@@ -561,6 +579,12 @@ async function handleSocketOpen() {
   }
 
   syncDelayedMemoryReportsToRuntime();
+  if (typeof window.syncFactsMemoryToRuntime === "function") {
+    window.syncFactsMemoryToRuntime();
+  }
+  if (typeof window.syncLongTermMemoryToRuntime === "function") {
+    window.syncLongTermMemoryToRuntime();
+  }
 
 }
 

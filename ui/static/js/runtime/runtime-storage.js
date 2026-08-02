@@ -39,6 +39,47 @@
   let savedRuntimeFileFallback = null;
   let savedRuntimeFileFallbackLoaded = false;
 
+  function normalizeFactsMemoryStatus(
+    value
+  ) {
+
+    const status =
+      String(value || "")
+        .trim()
+        .toLowerCase();
+
+    return (
+        status === "analyzed"
+        || status === "analized"
+      )
+      ? "analyzed"
+      : "pending";
+
+  }
+
+
+  function buildFactsMemoryContentHash(
+    value
+  ) {
+
+    const text =
+      String(value || "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    let hash = 5381;
+
+    for (let index = 0; index < text.length; index += 1) {
+      hash =
+        ((hash << 5) + hash)
+        ^ text.charCodeAt(index);
+    }
+
+    return `h${(hash >>> 0).toString(36)}`;
+
+  }
+
+
   function generateRuntimeSessionId() {
 
     if (
@@ -672,8 +713,37 @@
           return;
         }
 
+        const content =
+          String(
+            field.content || field.value || ""
+          ).trim();
+
+        if (!content) {
+          return;
+        }
+
+        const contentHash =
+          String(
+            field.l4_content_hash || ""
+          ).trim()
+          || buildFactsMemoryContentHash(
+            content
+          );
+
         signals[normalizedKey] = {
           ...field,
+          content,
+          l4_status:
+            normalizeFactsMemoryStatus(
+              field.l4_status
+            ),
+          l4_content_hash: contentHash,
+          l4_analyzed_at:
+            normalizeFactsMemoryStatus(
+              field.l4_status
+            ) === "analyzed"
+              ? String(field.l4_analyzed_at || "").trim()
+              : "",
         };
       }
     );
@@ -1719,6 +1789,7 @@
     clearFactsMemoryByStorageKey,
     readFactsMemory,
     writeFactsMemory,
+    buildFactsMemoryContentHash,
     activateFactsMemorySession,
     removeFactsMemoryField,
     normalizeDelayedMemoryReports,

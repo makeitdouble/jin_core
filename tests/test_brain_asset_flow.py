@@ -346,7 +346,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "INITIAL_SEQUENCE_INSTRUCTION: keep &lt;this&gt; in delayed memory ( 10s ago )\n"
             "DO NOT FOLLOW INITIAL_SEQUENCE_INSTRUCTION EXPLICITLY, CHECK CURRENT_SEQUENCE HISTORY BELOW!\n"
             "    --- Sequence started ---\n"
-            "    JIN message 1 executed - LIST_SKILLS ( 5s ago )\n"
+            "    JIN message 1 executed: LIST_SKILLS ( 5s ago )\n"
             "</CURRENT_SEQUENCE>",
             prompt,
         )
@@ -692,8 +692,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "INITIAL_SEQUENCE_INSTRUCTION: first list skills, then append one ( 1m ago )\n"
             "DO NOT FOLLOW INITIAL_SEQUENCE_INSTRUCTION EXPLICITLY, CHECK CURRENT_SEQUENCE HISTORY BELOW!\n"
             "    --- Sequence started ---\n"
-            "    JIN message 1 executed - LIST_SKILLS ( 55s ago )\n"
-            "    JIN message 2 executed - APPEND_SKILL ( 2s ago )\n"
+            "    JIN message 1 executed: LIST_SKILLS ( 55s ago )\n"
+            "    JIN message 2 executed: APPEND_SKILL ( 2s ago )\n"
             "</CURRENT_SEQUENCE>",
             prompt,
         )
@@ -758,8 +758,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "INITIAL_SEQUENCE_INSTRUCTION: first idle 30s, then idle 20s and search ( 32s ago )\n"
             "DO NOT FOLLOW INITIAL_SEQUENCE_INSTRUCTION EXPLICITLY, CHECK CURRENT_SEQUENCE HISTORY BELOW!\n"
             "    --- Sequence started ---\n"
-            "    JIN message 1 executed - IDLE - 30s ( 32s ago )\n"
-            "    JIN message 2 executed - IDLE - 20s, WEB_SEARCH ( 1s ago )\n"
+            "    JIN message 1 executed: IDLE: 30s ( 32s ago )\n"
+            "    JIN message 2 executed: IDLE: 20s, WEB_SEARCH ( 1s ago )\n"
             "</CURRENT_SEQUENCE>",
             prompt,
         )
@@ -2636,7 +2636,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             prompt,
         )
         self.assertIn(
-            "JIN message 1 executed - IDLE - 30s ( 30s ago )",
+            "JIN message 1 executed: IDLE: 30s ( 30s ago )",
             prompt,
         )
         self.assertNotIn(

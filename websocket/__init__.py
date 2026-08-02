@@ -15,6 +15,14 @@ from runtime.L1_memory_utils import (
     emit_runtime_l1_diff_update,
     emit_runtime_session_memory_update,
 )
+from runtime.L4_memory import (
+    apply_facts_memory_store_sync,
+    apply_l4_memory_store_sync,
+    delete_l4_memory_fact,
+    emit_facts_memory_store_update,
+    emit_l4_memory_update,
+    schedule_l4_memory_idle_update,
+)
 from runtime.fact_check import run_fact_check_once
 from utils.ws_errors import handle_websocket_error
 from .attachments import (
@@ -134,7 +142,6 @@ async def websocket_endpoint(
                 await wait_for_runtime_memory_update(
                     context
                 )
-
                 if not is_idle_followup:
                     await apply_runtime_response_feedback(
                         context,
@@ -286,6 +293,89 @@ async def websocket_endpoint(
                     )
                 await emit_delayed_memory_store_snapshot(
                     context
+                )
+                continue
+
+            if message_type == "facts_memory_store_sync":
+                stats = apply_facts_memory_store_sync(
+                    context,
+                    message_data.get(
+                        "records",
+                        [],
+                    ),
+                )
+                await logger.log_system(
+                    (
+                        "[WS] facts memory store synced "
+                        f"({stats['records_count']} records, "
+                        f"{stats['pending_count']} pending)"
+                    )
+                )
+                await emit_facts_memory_store_update(
+                    context
+                )
+                continue
+
+            if message_type == "l4_memory_store_sync":
+                applied = apply_l4_memory_store_sync(
+                    context,
+                    message_data.get(
+                        "store",
+                        {},
+                    ),
+                )
+                await logger.log_system(
+                    (
+                        "[WS] L4 memory store synced"
+                        if applied
+                        else "[WS] L4 memory store sync ignored"
+                    )
+                )
+                await emit_l4_memory_update(
+                    context,
+                    change={
+                        "synced": bool(applied),
+                    },
+                )
+                continue
+
+            if message_type == "l4_memory_idle_tick":
+                if "records" in message_data:
+                    apply_facts_memory_store_sync(
+                        context,
+                        message_data.get(
+                            "records",
+                            [],
+                        ),
+                    )
+
+                if "store" in message_data:
+                    apply_l4_memory_store_sync(
+                        context,
+                        message_data.get(
+                            "store",
+                            {},
+                        ),
+                    )
+
+                schedule_l4_memory_idle_update(
+                    context=context,
+                    user_idle_seconds=message_data.get(
+                        "user_idle_seconds",
+                    ),
+                )
+                continue
+
+            if message_type == "l4_memory_delete_fact":
+                await delete_l4_memory_fact(
+                    context,
+                    str(
+                        message_data.get(
+                            "fact_id",
+                            "",
+                        )
+                        or ""
+                    ),
                 )
                 continue
 

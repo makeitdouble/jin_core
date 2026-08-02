@@ -22,6 +22,36 @@ function handleSessionActionsUpdate(
 
 }
 
+function handleFactsMemoryStoreUpdate(
+  data
+) {
+
+  if (
+      window.JINRuntimeL4Memory
+      && window.JINRuntimeL4Memory.applyFactsMemoryRecordsUpdate
+  ) {
+    window.JINRuntimeL4Memory.applyFactsMemoryRecordsUpdate(
+      data
+    );
+  }
+
+}
+
+function handleL4MemoryUpdate(
+  data
+) {
+
+  if (
+      window.JINRuntimeL4Memory
+      && window.JINRuntimeL4Memory.applyServerUpdate
+  ) {
+    window.JINRuntimeL4Memory.applyServerUpdate(
+      data
+    );
+  }
+
+}
+
 function handleSocketError(
   data
 ) {
@@ -205,6 +235,16 @@ function handleMessageError(
 registerSocketMessageHandler(
   "session_actions_update",
   handleSessionActionsUpdate
+);
+
+registerSocketMessageHandler(
+  "facts_memory_store_update",
+  handleFactsMemoryStoreUpdate
+);
+
+registerSocketMessageHandler(
+  "l4_memory_update",
+  handleL4MemoryUpdate
 );
 
 [
