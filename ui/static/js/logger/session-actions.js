@@ -577,7 +577,7 @@ function ensureSessionActionsModal() {
     "button";
 
   closeButton.className =
-    "inline-flex h-7 w-7 items-center justify-center rounded text-[18px] leading-none text-zinc-400 transition hover:bg-zinc-800/60 hover:text-zinc-100 focus:outline-none";
+    "inline-flex h-7 w-7 items-center justify-center rounded text-[18px] leading-none text-zinc-400 transition hover:text-zinc-100 focus:outline-none";
 
   closeButton.setAttribute(
     "aria-label",
