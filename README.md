@@ -203,6 +203,8 @@ It does not download models automatically and does not replace model IDs or prov
 ### Manual Start
 
 ```bash
+git clone https://github.com
+cd jin_core
 python -m venv .venv
 ```
 
@@ -245,17 +247,17 @@ Copy `config.example.py` to `config.py` and set the provider URLs and model IDs.
 
 Main options:
 
-| Option | Purpose |
-| --- | --- |
-| `USE_SERVICE_AS_BRAIN` | Use the service model for visible brain responses. |
-| `BRAIN_API_BASE`, `BRAIN_MODEL_UID` | Brain provider and model. |
-| `SERVICE_API_BASE`, `SERVICE_MODEL_UID` | Service provider and model. |
-| `TRANSLATION_ENABLED` | Enable the translator path. |
-| `*_CONTEXT_WINDOW`, `*_MAX_TOKENS` | Local fallbacks for context and output limits. |
-| `BRAIN_IMAGE_INPUT_ENABLED`, `SERVICE_IMAGE_INPUT_ENABLED` | Send image attachments to roles that support OpenAI-compatible image input. |
-| `L4_MEMORY_ENABLED`, `L4_IDLE_SECONDS` | Enable long-term memory consolidation and set the idle delay. |
-| `SEARCH_SERPER_API_KEY`, `SEARCH_MAX_RESULTS` | Configure built-in web search. |
-| `BRAIN_MAX_FOLLOWUPS` | Limit internal action and follow-up steps for one user turn. |
+| Option                                                     | Purpose                                                                     |
+|------------------------------------------------------------|-----------------------------------------------------------------------------|
+| `USE_SERVICE_AS_BRAIN`                                     | Use the service model for visible brain responses.                          |
+| `BRAIN_API_BASE`, `BRAIN_MODEL_UID`                        | Brain provider and model.                                                   |
+| `SERVICE_API_BASE`, `SERVICE_MODEL_UID`                    | Service provider and model.                                                 |
+| `TRANSLATION_ENABLED`                                      | Enable the translator path.                                                 |
+| `BRAIN_CONTEXT_WINDOW`, `BRAIN_MAX_TOKENS`                 | Local fallbacks for context and output limits.                              |
+| `BRAIN_IMAGE_INPUT_ENABLED`                                | Send image attachments to roles that support OpenAI-compatible image input. |
+| `L4_MEMORY_ENABLED`, `L4_IDLE_SECONDS`                     | Enable long-term memory consolidation and set the idle delay.               |
+| `SEARCH_SERPER_API_KEY`, `SEARCH_MAX_RESULTS`              | Configure built-in web search.                                              |
+| `BRAIN_MAX_FOLLOWUPS`                                      | Limit internal action and follow-up steps for one user turn.                |
 
 Every uppercase option can also be set through environment variables. Plain names and `JIN_`-prefixed names are supported; plain names take priority.
 
