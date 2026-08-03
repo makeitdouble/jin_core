@@ -34,11 +34,14 @@ from utils.actions import (
     get_save_active_memory_placeholder_payload,
     normalize_jin_color_payload,
     parse_delayed_memory_content_payload,
+    parse_update_delayed_memory_payload,
 )
 from utils.assets_utils import run_asset_action
 from utils.brain_client_utils import (
     append_delayed_memory_runtime_result,
+    build_delayed_memory_report,
     flush_pending_active_memory_resolve_failure_history,
+    include_pinned_delayed_memory_reports,
 )
 from utils.context.context_exports import build_tool_results_context
 from utils.file_manager_asset_utils import read_asset_text_preview
@@ -133,9 +136,79 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                     "### Radius of Influence Specs\n\n"
                     "A complete, self-sufficient summary..."
                 ),
+                "pinned": False,
+                "long_term_facts_ids": [],
                 "created_session_id": "session-1",
                 "created_time": "2026-06-29T12:00:00",
             },
+        )
+
+
+    def test_parses_long_term_fact_ids_for_delayed_memory_report(self):
+
+        report = parse_delayed_memory_content_payload(
+            (
+                "title: Project context\n"
+                "summary: Consolidated project details.\n"
+                "tags: project, context\n"
+                "body:\n"
+                "Reusable project summary.\n"
+                "long_term_facts_ids: "
+                "l4_abc123, l4_def456, invalid, l4_abc123"
+            )
+        )
+
+        report_value = next(
+            iter(report.values())
+        )
+
+        self.assertEqual(
+            report_value["long_term_facts_ids"],
+            [
+                "l4_abc123",
+                "l4_def456",
+            ],
+        )
+
+
+    def test_build_report_keeps_only_existing_l4_fact_ids(self):
+
+        context = SimpleNamespace(
+            session_id="session-1",
+            timestamp="2026-08-02T19:00:00",
+            runtime_long_term_memory_store={
+                "facts": [
+                    {
+                        "id": "l4_existing",
+                        "key": "project.fact",
+                        "value": "Existing fact",
+                    },
+                ],
+            },
+        )
+        report = build_delayed_memory_report(
+            context,
+            json.dumps({
+                "abc123": {
+                    "title": "Project context",
+                    "summary": "Summary",
+                    "tags": ["project"],
+                    "body": "Body",
+                    "long_term_facts_ids": [
+                        "l4_existing",
+                        "l4_missing",
+                    ],
+                },
+            }),
+        )
+
+        report_value = report["abc123"]
+
+        self.assertEqual(
+            report_value["long_term_facts_ids"],
+            [
+                "l4_existing",
+            ],
         )
 
 
@@ -810,6 +883,19 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                     "tag",
                 ],
                 "body": "Body",
+                "long_term_facts_ids": [
+                    "14_1dbac3ba8724",
+                ],
+                "created_session_id": "session-a",
+                "created_time": "2026-08-02T19:51:41.803270",
+                "created_date": "2026-08-02T19:51:41.803270",
+                "appended_times": 1,
+                "append_streak": 1,
+                "last_appended_date": "2026-08-02T19:57:42.787241",
+                "last_appended_session_id": "session-a",
+                "all_appended_session_ids": [
+                    "session-a",
+                ],
             },
             "b2c3d4": {
                 "title": "Second report",
@@ -855,6 +941,29 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             '"id": "a1b2c3"',
             appended_context,
         )
+        self.assertLess(
+            appended_context.index(
+                '"id": "a1b2c3"',
+            ),
+            appended_context.index(
+                '"title":',
+            ),
+        )
+        for metadata_key in (
+            "long_term_facts_ids",
+            "created_session_id",
+            "created_time",
+            "created_date",
+            "appended_times",
+            "append_streak",
+            "last_appended_date",
+            "last_appended_session_id",
+            "all_appended_session_ids",
+        ):
+            self.assertNotIn(
+                metadata_key,
+                appended_context,
+            )
         self.assertEqual(
             context.emitter.events[0]["text"],
             (
@@ -1610,3 +1719,231 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             tool_results,
         )
 
+    def test_extracts_update_delayed_memory_block_with_header_id(self):
+
+        result = extract_runtime_actions(
+            (
+                "<UPDATE_DELAYED_MEMORY: a1b2c3>\n"
+                "tags: social, context\n"
+                "long_term_facts_ids: l4_existing, l4_missing\n"
+                "body:\n"
+                "Additional durable context.\n"
+                "</UPDATE_DELAYED_MEMORY>"
+            ),
+            enabled_actions=(
+                "UPDATE_DELAYED_MEMORY",
+            ),
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            len(result.actions),
+            1,
+        )
+        self.assertEqual(
+            result.actions[0].name,
+            "UPDATE_DELAYED_MEMORY",
+        )
+        self.assertEqual(
+            parse_update_delayed_memory_payload(
+                result.actions[0].payload
+            ),
+            {
+                "id": "a1b2c3",
+                "tags": [
+                    "social",
+                    "context",
+                ],
+                "long_term_facts_ids": [
+                    "l4_existing",
+                    "l4_missing",
+                ],
+                "body": "Additional durable context.",
+            },
+        )
+
+
+    def test_update_delayed_memory_appends_only_supported_fields(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.runtime_action_events = []
+        context.runtime_search_calls = []
+        context.runtime_appended_skills = []
+        context.runtime_asset_results = []
+        context.runtime_delayed_memory_results = []
+        context.delayed_memory_reports = {
+            "a1b2c3": {
+                "title": "Social context",
+                "summary": "Summary",
+                "tags": [
+                    "social",
+                ],
+                "body": "Original body.",
+                "long_term_facts_ids": [
+                    "l4_existing",
+                ],
+                "pinned": False,
+            },
+        }
+        context.runtime_long_term_memory_store = {
+            "facts": [
+                {
+                    "id": "l4_existing",
+                    "key": "user.name",
+                    "value": "Sergey",
+                },
+                {
+                    "id": "l4_new",
+                    "key": "user.role",
+                    "value": "Developer",
+                },
+            ],
+        }
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="UPDATE_DELAYED_MEMORY",
+                        payload=(
+                            "a1b2c3\n"
+                            "tags: context, social\n"
+                            "long_term_facts_ids: l4_new, l4_missing\n"
+                            "body:\n"
+                            "Additional body."
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(applied_count, 1)
+        report = context.delayed_memory_reports["a1b2c3"]
+        self.assertEqual(
+            report["tags"],
+            [
+                "social",
+                "context",
+            ],
+        )
+        self.assertEqual(
+            report["long_term_facts_ids"],
+            [
+                "l4_existing",
+                "l4_new",
+            ],
+        )
+        self.assertEqual(
+            report["body"],
+            "Original body.\n\nAdditional body.",
+        )
+        self.assertEqual(
+            context.emitter.events[0]["status"],
+            "completed",
+        )
+        self.assertIn(
+            '<TOOL_RESULT name="UPDATE_DELAYED_MEMORY">',
+            build_tool_results_context(context),
+        )
+
+
+    def test_pinned_delayed_memory_is_included_once_per_turn(self):
+
+        context = SimpleNamespace(
+            delayed_memory_reports={
+                "a1b2c3": {
+                    "title": "Pinned context",
+                    "summary": "Summary",
+                    "tags": [],
+                    "body": "Pinned body",
+                    "pinned": True,
+                },
+            },
+            runtime_appended_delayed_memory={},
+            runtime_current_turn_id="turn-1",
+            runtime_pinned_delayed_memory_turns={},
+            session_id="session-1",
+            timestamp="2026-08-02T20:00:00",
+            delayed_memory_file_store_enabled=False,
+        )
+
+        first = include_pinned_delayed_memory_reports(context)
+        second = include_pinned_delayed_memory_reports(context)
+
+        self.assertIn("a1b2c3", first)
+        self.assertIn("a1b2c3", second)
+        self.assertEqual(
+            context.delayed_memory_reports["a1b2c3"]["appended_times"],
+            1,
+        )
+
+        context.runtime_current_turn_id = "turn-2"
+        context.timestamp = "2026-08-02T20:01:00"
+        include_pinned_delayed_memory_reports(context)
+
+        self.assertEqual(
+            context.delayed_memory_reports["a1b2c3"]["appended_times"],
+            2,
+        )
+        self.assertEqual(
+            context.delayed_memory_reports["a1b2c3"]["last_appended_date"],
+            "2026-08-02T20:01:00",
+        )
+
+
+    def test_remove_pinned_delayed_memory_returns_failed_result(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.runtime_action_events = []
+        context.runtime_search_calls = []
+        context.runtime_appended_skills = []
+        context.runtime_asset_results = []
+        context.runtime_delayed_memory_results = []
+        context.runtime_appended_delayed_memory = {
+            "a1b2c3": {
+                "id": "a1b2c3",
+                "title": "Pinned report",
+                "pinned": True,
+            },
+        }
+        context.delayed_memory_reports = {
+            "a1b2c3": {
+                "title": "Pinned report",
+                "summary": "Summary",
+                "tags": [],
+                "body": "Body",
+                "pinned": True,
+            },
+        }
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="REMOVE_DELAYED_MEMORY",
+                        payload="a1b2c3",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(applied_count, 1)
+        self.assertEqual(
+            context.emitter.events[0]["status"],
+            "failed",
+        )
+        self.assertEqual(
+            context.runtime_delayed_memory_results[0]["error"],
+            "delayed_memory_pinned",
+        )
+        self.assertIn(
+            "a1b2c3",
+            context.runtime_appended_delayed_memory,
+        )

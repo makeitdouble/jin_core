@@ -40,6 +40,13 @@ BRAIN_RUNTIME_ACTIONS = {
     "CAN_JIN_COLOR": True,
 }
 
+APPENDED_DELAYED_MEMORY_CONTEXT_FIELDS = (
+    "title",
+    "summary",
+    "tags",
+    "body",
+)
+
 
 def build_loop_rules(
     context=None,
@@ -576,14 +583,14 @@ def build_appended_delayed_memory_context(
         format_tool_result_payload,
     )
     from utils.brain_client_utils import (
-        get_appended_delayed_memory_report,
+        include_pinned_delayed_memory_reports,
         indent_xml,
     )
 
     if context is None:
         return ""
 
-    appended_reports = get_appended_delayed_memory_report(
+    appended_reports = include_pinned_delayed_memory_reports(
         context
     )
 
@@ -600,9 +607,12 @@ def build_appended_delayed_memory_context(
             continue
 
         payload = {
-            **report,
             "id": report_id,
         }
+        for field_name in APPENDED_DELAYED_MEMORY_CONTEXT_FIELDS:
+            if field_name in report:
+                payload[field_name] = report[field_name]
+
         blocks.append(
             "<APPENDED_DELAYED_MEMORY>\n"
             f"{indent_xml(escape(format_tool_result_payload(payload)))}\n"

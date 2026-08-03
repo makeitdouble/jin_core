@@ -11,6 +11,7 @@
   let setActiveMemoryRecords = null;
   let deleteRuntimeMemoryLine = null;
   let getDelayedMemoryReports = null;
+  let setDelayedMemoryReportPinned = null;
   let getFactsMemoryFields = null;
   let deleteFactsMemoryField = null;
   let getLongTermMemoryFacts = null;
@@ -34,6 +35,8 @@
   let delayedMemoryModalPanel = null;
   let delayedMemoryModalTitle = null;
   let delayedMemoryModalContent = null;
+  let delayedMemoryModalPinButton = null;
+  let delayedMemoryModalReport = null;
 
   const runtimeDiffHistory = {
     diffs: [],
@@ -142,7 +145,33 @@
             ...report,
           };
         })
-        .filter(Boolean);
+        .filter(Boolean)
+        .sort((left, right) => {
+          const pinDelta =
+            Number(Boolean(right.pinned))
+            - Number(Boolean(left.pinned));
+
+          if (pinDelta) {
+            return pinDelta;
+          }
+
+          const leftDate =
+            Date.parse(
+              left.last_appended_date
+              || left.created_date
+              || left.created_time
+              || ""
+            ) || 0;
+          const rightDate =
+            Date.parse(
+              right.last_appended_date
+              || right.created_date
+              || right.created_time
+              || ""
+            ) || 0;
+
+          return rightDate - leftDate;
+        });
   }
 
   function setActiveMemoryRecordTexts(records) {
@@ -1679,6 +1708,12 @@
         row.className =
             "runtime-memory-line runtime-memory-delayed-row";
 
+        if (Boolean(report.pinned)) {
+          row.classList.add(
+              "runtime-memory-delayed-row-pinned"
+          );
+        }
+
         row.setAttribute(
             "role",
             "button"
@@ -1823,6 +1858,27 @@
     return `${year}-${month}-${day} ${hours}:${minutes}, ${weekday}`;
   }
 
+  function updateDelayedMemoryModalPinState(report) {
+    if (!delayedMemoryModalPinButton) {
+      return;
+    }
+
+    const pinned =
+        Boolean(report && report.pinned);
+
+    delayedMemoryModalPinButton.classList.toggle(
+        "delayed-memory-modal-pin-active",
+        pinned
+    );
+    delayedMemoryModalPinButton.setAttribute(
+        "aria-pressed",
+        pinned ? "true" : "false"
+    );
+    delayedMemoryModalPinButton.title =
+        pinned ? "Unpin delayed memory" : "Pin delayed memory";
+  }
+
+
   function closeDelayedMemoryReportModal() {
     if (!delayedMemoryModal) {
       return;
@@ -1835,6 +1891,7 @@
     delayedMemoryModal.classList.remove(
         "flex"
     );
+    delayedMemoryModalReport = null;
   }
 
   function ensureDelayedMemoryModal() {
@@ -1866,6 +1923,34 @@
     delayedMemoryModalTitle.className =
         "min-w-0 truncate text-xs uppercase tracking-widest text-zinc-300";
 
+    const headerActions =
+        document.createElement("div");
+
+    headerActions.className =
+        "delayed-memory-modal-actions";
+
+    delayedMemoryModalPinButton =
+        document.createElement("button");
+
+    delayedMemoryModalPinButton.type =
+        "button";
+
+    delayedMemoryModalPinButton.className =
+        "delayed-memory-modal-icon-button delayed-memory-modal-pin";
+
+    delayedMemoryModalPinButton.setAttribute(
+        "aria-label",
+        "Pin delayed memory"
+    );
+
+    delayedMemoryModalPinButton.setAttribute(
+        "aria-pressed",
+        "false"
+    );
+
+    delayedMemoryModalPinButton.innerHTML =
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 3.3 20.7 9.3 18.6 11.4 16.9 9.7 13.7 12.9 14.4 15.7 12.9 17.2 9.4 13.7 5.3 17.8 4.2 16.7 8.3 12.6 4.8 9.1 6.3 7.6 9.1 8.3 12.3 5.1 10.6 3.4 12.7 1.3Z"/></svg>';
+
     const closeButton =
         document.createElement("button");
 
@@ -1873,10 +1958,15 @@
         "button";
 
     closeButton.className =
-        "text-xs text-zinc-400 hover:text-zinc-100 transition";
+        "delayed-memory-modal-icon-button delayed-memory-modal-close";
+
+    closeButton.setAttribute(
+        "aria-label",
+        "Close"
+    );
 
     closeButton.textContent =
-        "close";
+        "×";
 
     delayedMemoryModalContent =
         document.createElement("div");
@@ -1888,8 +1978,16 @@
         delayedMemoryModalTitle
     );
 
-    header.appendChild(
+    headerActions.appendChild(
+        delayedMemoryModalPinButton
+    );
+
+    headerActions.appendChild(
         closeButton
+    );
+
+    header.appendChild(
+        headerActions
     );
 
     delayedMemoryModalPanel.appendChild(
@@ -1906,6 +2004,38 @@
 
     document.body.appendChild(
         delayedMemoryModal
+    );
+
+    delayedMemoryModalPinButton.addEventListener(
+        "click",
+        () => {
+          if (
+              !delayedMemoryModalReport
+              || typeof setDelayedMemoryReportPinned !== "function"
+          ) {
+            return;
+          }
+
+          const nextPinned =
+              !Boolean(delayedMemoryModalReport.pinned);
+          const changed =
+              setDelayedMemoryReportPinned(
+                  delayedMemoryModalReport._storage_key,
+                  nextPinned
+              );
+
+          if (!changed) {
+            return;
+          }
+
+          delayedMemoryModalReport = {
+            ...delayedMemoryModalReport,
+            pinned: nextPinned,
+          };
+          updateDelayedMemoryModalPinState(
+              delayedMemoryModalReport
+          );
+        }
     );
 
     closeButton.addEventListener(
@@ -2035,6 +2165,7 @@
           "created_session_id",
           "tags",
           "body",
+          "pinned",
         ]);
 
     Object.entries(report || {}).forEach(([key, value]) => {
@@ -2065,6 +2196,12 @@
 
   function openDelayedMemoryReportModal(report) {
     ensureDelayedMemoryModal();
+    delayedMemoryModalReport = {
+      ...report,
+    };
+    updateDelayedMemoryModalPinState(
+        delayedMemoryModalReport
+    );
 
     delayedMemoryModalTitle.textContent =
         normalizeDelayedMemoryDisplayText(report.title)
@@ -2617,6 +2754,7 @@
     setActiveMemoryRecords = options.setActiveMemoryRecords || null;
     deleteRuntimeMemoryLine = options.deleteRuntimeMemoryLine || null;
     getDelayedMemoryReports = options.getDelayedMemoryReports || null;
+    setDelayedMemoryReportPinned = options.setDelayedMemoryReportPinned || null;
     getFactsMemoryFields = options.getFactsMemoryFields || null;
     deleteFactsMemoryField = options.deleteFactsMemoryField || null;
     getLongTermMemoryFacts = options.getLongTermMemoryFacts || null;

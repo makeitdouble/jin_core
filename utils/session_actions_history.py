@@ -1050,6 +1050,9 @@ def _build_session_action_marker_detail(
     }:
         return normalized_payload
 
+    if normalized_name == "UPDATE_DELAYED_MEMORY":
+        return normalized_payload.splitlines()[0].strip()
+
     if not normalized_name.startswith(
         "SAVE_"
     ):
@@ -1076,6 +1079,7 @@ PAYLOAD_DISTINCT_SESSION_ACTIONS = {
     "SAVE_DELAYED_MEMORY_CONTENT",
     "APPEND_DELAYED_MEMORY",
     "REMOVE_DELAYED_MEMORY",
+    "UPDATE_DELAYED_MEMORY",
 }
 
 
@@ -1208,6 +1212,7 @@ def _build_payload_distinct_session_action_parts(
             action_name in {
                 "APPEND_DELAYED_MEMORY",
                 "REMOVE_DELAYED_MEMORY",
+                "UPDATE_DELAYED_MEMORY",
             }
             and payload_key
             and payload_key != part.get(

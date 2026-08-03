@@ -113,9 +113,13 @@ from utils.actions import (
     parse_delayed_memory_content_payload,
     parse_idle_seconds,
     normalize_jin_color_payload,
+    normalize_long_term_fact_ids,
     refresh_active_memory_runtime_metadata,
     strip_active_memory_runtime_metadata,
     strip_active_memory_managed_suffixes,
+)
+from utils.actions.update_delayed_memory_utils import (
+    parse_update_delayed_memory_payload,
 )
 from utils.session_actions_history import (
     build_active_memory_resolve_failed_history_text,
@@ -214,6 +218,39 @@ def build_action_missing_trigger_words_message(
     )
 
 
+def get_runtime_l4_fact_ids(
+    context,
+) -> set[str]:
+
+    store = getattr(
+        context,
+        "runtime_long_term_memory_store",
+        {},
+    )
+
+    if not isinstance(store, dict):
+        return set()
+
+    fact_ids = set()
+
+    for fact in store.get("facts", []) or []:
+        if not isinstance(fact, dict):
+            continue
+
+        fact_id = str(
+            fact.get(
+                "id",
+                "",
+            )
+            or ""
+        ).strip().casefold()
+
+        if fact_id:
+            fact_ids.add(fact_id)
+
+    return fact_ids
+
+
 def build_delayed_memory_report(
     context,
     payload: str,
@@ -293,8 +330,24 @@ def build_delayed_memory_report(
             report_id
         )
 
+        requested_l4_fact_ids = normalize_long_term_fact_ids(
+            value.get(
+                "long_term_facts_ids",
+                [],
+            )
+        )
+        available_l4_fact_ids = get_runtime_l4_fact_ids(
+            context
+        )
+
         enriched_report[report_id] = {
             **value,
+            "long_term_facts_ids": [
+                fact_id
+                for fact_id in requested_l4_fact_ids
+                if fact_id in available_l4_fact_ids
+            ],
+            "pinned": bool(value.get("pinned", False)),
             "created_session_id": (
                 str(
                     value.get(
@@ -1767,6 +1820,13 @@ def clear_appended_delayed_memory_report(
     ):
         return False
 
+    saved_report = get_delayed_memory_reports(
+        context
+    ).get(normalized_report_id)
+
+    if isinstance(saved_report, dict) and bool(saved_report.get("pinned", False)):
+        return False
+
     appended_reports = get_appended_delayed_memory_report(
         context
     )
@@ -1932,6 +1992,215 @@ def append_delayed_memory_report(
     }
 
 
+def _append_unique_delayed_memory_values(
+    existing,
+    incoming,
+    *,
+    casefold: bool = False,
+) -> list[str]:
+
+    result = []
+    seen = set()
+
+    for value in (existing, incoming):
+        source = value if isinstance(value, list) else []
+
+        for item in source:
+            text = str(item or "").strip()
+            identity = text.casefold() if casefold else text
+
+            if not text or identity in seen:
+                continue
+
+            seen.add(identity)
+            result.append(text)
+
+    return result
+
+
+def update_delayed_memory_report(
+    context,
+    payload: str,
+) -> dict:
+
+    update = parse_update_delayed_memory_payload(payload)
+    report_id = str(update.get("id", "") or "").strip().casefold()
+
+    if not report_id:
+        return build_delayed_memory_failure_result(
+            action="update_delayed_memory",
+            requested=payload,
+            error="invalid_delayed_memory_update",
+        )
+
+    reports = get_delayed_memory_reports(context)
+    report = reports.get(report_id)
+
+    if not isinstance(report, dict):
+        return build_delayed_memory_failure_result(
+            action="update_delayed_memory",
+            requested=report_id,
+            error="delayed_memory_not_found",
+        )
+
+    available_l4_fact_ids = get_runtime_l4_fact_ids(context)
+    requested_l4_fact_ids = normalize_long_term_fact_ids(
+        update.get("long_term_facts_ids", [])
+    )
+    accepted_l4_fact_ids = [
+        fact_id
+        for fact_id in requested_l4_fact_ids
+        if fact_id in available_l4_fact_ids
+    ]
+    next_tags = _append_unique_delayed_memory_values(
+        report.get("tags", []),
+        update.get("tags", []),
+        casefold=True,
+    )
+    next_fact_ids = normalize_long_term_fact_ids([
+        *normalize_long_term_fact_ids(
+            report.get("long_term_facts_ids", [])
+        ),
+        *accepted_l4_fact_ids,
+    ])
+    appended_body = str(update.get("body", "") or "").strip()
+    current_body = str(report.get("body", "") or "").rstrip()
+    next_body = current_body
+
+    if appended_body:
+        next_body = "\n\n".join(
+            part
+            for part in (current_body, appended_body)
+            if part
+        )
+
+    if (
+        next_tags == list(report.get("tags", []) or [])
+        and next_fact_ids == normalize_long_term_fact_ids(
+            report.get("long_term_facts_ids", [])
+        )
+        and next_body == current_body
+    ):
+        return build_delayed_memory_failure_result(
+            action="update_delayed_memory",
+            requested=report_id,
+            error="delayed_memory_update_empty",
+        )
+
+    updated_report = {
+        **report,
+        "tags": next_tags,
+        "long_term_facts_ids": next_fact_ids,
+        "body": next_body,
+    }
+    reports[report_id] = updated_report
+
+    appended_reports = get_appended_delayed_memory_report(context)
+
+    if report_id in appended_reports:
+        appended_reports[report_id] = {
+            **updated_report,
+            "id": report_id,
+        }
+
+    file_errors = []
+
+    if bool(
+        getattr(
+            context,
+            "delayed_memory_file_store_enabled",
+            False,
+        )
+    ):
+        from utils.delayed_memory_file_store import (
+            persist_delayed_memory_reports,
+        )
+
+        file_errors = persist_delayed_memory_reports({
+            report_id: updated_report,
+        })
+
+    return {
+        "ok": True,
+        "action": "update_delayed_memory",
+        "id": report_id,
+        "title": str(updated_report.get("title", "") or "").strip(),
+        "report": {
+            **updated_report,
+            "id": report_id,
+        },
+        "file_saved": not file_errors,
+        "file_errors": file_errors,
+    }
+
+
+def include_pinned_delayed_memory_reports(
+    context,
+) -> dict:
+
+    reports = getattr(
+        context,
+        "delayed_memory_reports",
+        None,
+    )
+    appended_reports = get_appended_delayed_memory_report(context)
+
+    if not isinstance(reports, dict):
+        return appended_reports
+    turn_id = str(
+        getattr(context, "runtime_current_turn_id", "")
+        or getattr(context, "runtime_message_id", "")
+        or ""
+    ).strip()
+    touched_by_report = getattr(
+        context,
+        "runtime_pinned_delayed_memory_turns",
+        None,
+    )
+
+    if not isinstance(touched_by_report, dict):
+        touched_by_report = {}
+        context.runtime_pinned_delayed_memory_turns = touched_by_report
+
+    reports_to_persist = {}
+
+    for report_id, report in reports.items():
+        if not isinstance(report, dict) or not bool(report.get("pinned", False)):
+            continue
+
+        updated_report = report
+
+        if turn_id and touched_by_report.get(report_id) != turn_id:
+            updated_report = update_delayed_memory_append_metadata(
+                context,
+                report,
+            )
+            updated_report["pinned"] = True
+            reports[report_id] = updated_report
+            touched_by_report[report_id] = turn_id
+            reports_to_persist[report_id] = updated_report
+
+        appended_reports[report_id] = {
+            **updated_report,
+            "id": report_id,
+        }
+
+    if reports_to_persist and bool(
+        getattr(
+            context,
+            "delayed_memory_file_store_enabled",
+            False,
+        )
+    ):
+        from utils.delayed_memory_file_store import (
+            persist_delayed_memory_reports,
+        )
+
+        persist_delayed_memory_reports(reports_to_persist)
+
+    return appended_reports
+
+
 def remove_delayed_memory_report(
     context,
     payload: str,
@@ -1967,6 +2236,13 @@ def remove_delayed_memory_report(
             action="remove_delayed_memory",
             requested=report_id,
             error="delayed_memory_not_found",
+        )
+
+    if bool(report.get("pinned", False)):
+        return build_delayed_memory_failure_result(
+            action="remove_delayed_memory",
+            requested=report_id,
+            error="delayed_memory_pinned",
         )
 
     return {
@@ -2051,11 +2327,28 @@ def build_delayed_memory_action_text(
             or "unknown"
         ).strip()
 
+    failed = result.get("ok") is False
+
     if action == "append_delayed_memory":
-        return f"Appending: {title}"
+        return (
+            f"Append failed: {title}"
+            if failed
+            else f"Appending: {title}"
+        )
 
     if action == "remove_delayed_memory":
-        return f"Removing: {title}"
+        return (
+            f"Remove failed: {title}"
+            if failed
+            else f"Removing: {title}"
+        )
+
+    if action == "update_delayed_memory":
+        return (
+            f"Update failed: {title}"
+            if failed
+            else f"Updating: {title}"
+        )
 
     return "Delayed memory updated"
 
@@ -2132,6 +2425,9 @@ def build_delayed_memory_history_text(
 
     if action == "remove_delayed_memory":
         return f"Delayed memory removed from context: {title}"
+
+    if action == "update_delayed_memory":
+        return f"Delayed memory updated: {title}"
 
     return ""
 

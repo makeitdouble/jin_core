@@ -826,15 +826,34 @@ def format_l4_fact_line(fact: dict, *, include_metadata: bool = True) -> str:
 
 
 def format_long_term_memory_context(facts: list[dict]) -> str:
-    lines = [
-        format_l4_fact_line(fact, include_metadata=False)
-        for fact in facts
-    ]
-    lines = [line for line in lines if line]
+    lines = []
+
+    for fact in facts:
+        line = format_l4_fact_line(
+            fact,
+            include_metadata=False,
+        )
+        fact_id = normalize_l4_text(
+            fact.get(
+                "id",
+                "",
+            )
+        )
+
+        if not line or not fact_id:
+            continue
+
+        lines.append(
+            f"{line} [ id: {fact_id} ]"
+        )
+
     if not lines:
         return ""
 
-    body = "\n".join(escape(line) for line in lines)
+    body = "\n".join(
+        escape(line)
+        for line in lines
+    )
     return f"<LONG_TERM_MEMORY>\n{body}\n</LONG_TERM_MEMORY>"
 
 

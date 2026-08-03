@@ -577,10 +577,15 @@ function ensureSessionActionsModal() {
     "button";
 
   closeButton.className =
-    "text-xs text-zinc-400 hover:text-zinc-100 transition";
+    "inline-flex h-7 w-7 items-center justify-center rounded text-[18px] leading-none text-zinc-400 transition hover:bg-zinc-800/60 hover:text-zinc-100 focus:outline-none";
+
+  closeButton.setAttribute(
+    "aria-label",
+    "Close"
+  );
 
   closeButton.textContent =
-    "close";
+    "\u00d7";
 
   sessionActionsModalList =
     document.createElement("div");

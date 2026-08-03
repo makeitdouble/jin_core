@@ -929,6 +929,65 @@
   }
 
 
+  function clearFactsMemorySessionIfFullyAnalyzed(
+    sessionId,
+    value
+  ) {
+
+    const normalizedSessionId =
+      String(sessionId || "").trim();
+
+    const currentSessionId =
+      String(getCurrentFactsMemorySessionId() || "").trim();
+
+    if (
+        !normalizedSessionId
+        || normalizedSessionId === currentSessionId
+    ) {
+      return false;
+    }
+
+    const key =
+      getFactsMemoryStorageKey(
+        normalizedSessionId
+      );
+
+    if (!key) {
+      return false;
+    }
+
+    const signals =
+      value === undefined
+        ? readFactsMemory(
+            normalizedSessionId
+          )
+        : normalizeFactsMemory(
+            value
+          );
+
+    const signalKeys =
+      Object.keys(signals);
+
+    if (
+        !signalKeys.length
+        || !signalKeys.every(
+          function (signalKey) {
+            return signals[signalKey].l4_status === "analyzed";
+          }
+        )
+    ) {
+      return false;
+    }
+
+    removeBrowserMemory(
+      key
+    );
+
+    return true;
+
+  }
+
+
   function readFactsMemory(
     sessionId = factsMemorySessionId
   ) {
@@ -1048,6 +1107,41 @@
 
   }
 
+  function normalizeLongTermFactIds(
+    value
+  ) {
+
+    const source =
+      Array.isArray(value)
+        ? value
+        : [value];
+    const seen = new Set();
+    const factIds = [];
+
+    source.forEach(function (item) {
+      String(item || "")
+        .split(/[\s,;]+/)
+        .forEach(function (candidate) {
+          const factId =
+            String(candidate || "").trim().toLowerCase();
+
+          if (
+              !/^l4_[a-z0-9_-]+$/.test(factId)
+              || seen.has(factId)
+          ) {
+            return;
+          }
+
+          seen.add(factId);
+          factIds.push(factId);
+        });
+    });
+
+    return factIds;
+
+  }
+
+
   function normalizeDelayedMemoryReports(
     value
   ) {
@@ -1121,6 +1215,12 @@
                   .filter(Boolean),
           body:
             String(report.body || "").trim(),
+          pinned:
+            Boolean(report.pinned),
+          long_term_facts_ids:
+            normalizeLongTermFactIds(
+              report.long_term_facts_ids
+            ),
           created_session_id:
             String(report.created_session_id || "").trim(),
           created_time:
@@ -1787,6 +1887,7 @@
     canAppendFactsMemoryByStorageKey,
     appendFactsMemoryByStorageKey,
     clearFactsMemoryByStorageKey,
+    clearFactsMemorySessionIfFullyAnalyzed,
     readFactsMemory,
     writeFactsMemory,
     buildFactsMemoryContentHash,

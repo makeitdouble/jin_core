@@ -24,6 +24,9 @@ from runtime.L4_memory_utils import (
     normalize_l4_merge_operations,
     normalize_l4_store,
 )
+from utils.actions.save_delayed_memory_utils import (
+    collect_long_term_fact_ids_from_reports,
+)
 from runtime.memory_common import (
     build_memory_failure_details,
     build_runtime_summarizer_payload,
@@ -50,6 +53,23 @@ def get_l4_idle_seconds() -> int:
         getattr(config, "L4_IDLE_SECONDS", L4_DEFAULT_IDLE_SECONDS)
         or L4_DEFAULT_IDLE_SECONDS
     )
+
+
+def refresh_runtime_l4_archived_fact_ids(
+    context,
+) -> set[str]:
+
+    fact_ids = collect_long_term_fact_ids_from_reports(
+        getattr(
+            context,
+            "delayed_memory_reports",
+            {},
+        )
+    )
+    context.runtime_l4_archived_fact_ids = set(
+        fact_ids
+    )
+    return context.runtime_l4_archived_fact_ids
 
 
 def ensure_runtime_l4_state(context) -> dict:
@@ -367,8 +387,26 @@ def schedule_l4_memory_idle_update(
 def build_runtime_l4_memory_context(*, context) -> str:
     if not l4_memory_enabled():
         return ""
+
     store = ensure_runtime_l4_state(context)
-    return format_long_term_memory_context(store.get("facts") or [])
+    archived_fact_ids = refresh_runtime_l4_archived_fact_ids(
+        context
+    )
+    active_facts = [
+        fact
+        for fact in store.get("facts") or []
+        if str(
+            fact.get(
+                "id",
+                "",
+            )
+            or ""
+        ).strip().casefold()
+        not in archived_fact_ids
+    ]
+    return format_long_term_memory_context(
+        active_facts
+    )
 
 
 async def delete_l4_memory_fact(context, fact_id: str) -> bool:

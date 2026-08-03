@@ -752,6 +752,35 @@ function setFactsMemoryAppendButtonVisible(
   }
 }
 
+function dismissFactsMemoryLogEntry(
+  logDiv,
+) {
+
+  if (
+      !logDiv
+      || logDiv.dataset.factsMemoryDismissed === "true"
+  ) {
+    return false;
+  }
+
+  logDiv.dataset.factsMemoryDismissed =
+    "true";
+
+  logDiv.querySelectorAll("button").forEach(
+    function (button) {
+      button.disabled =
+        true;
+    }
+  );
+
+  dismissLogAfterClear(
+    logDiv
+  );
+
+  return true;
+
+}
+
 function refreshFactsMemoryAppendButtons() {
   const storage =
     getFactsMemoryStorage();
@@ -789,10 +818,6 @@ function refreshFactsMemoryAppendButtons() {
           "[data-facts-memory-append]"
         );
 
-      if (!appendButton) {
-        return;
-      }
-
       const storageKey =
         String(
           logDiv.dataset.factsMemoryStorageKey
@@ -806,6 +831,23 @@ function refreshFactsMemoryAppendButtons() {
           )
           || ""
         ).trim();
+
+      if (
+          storageKey
+          && sourceSessionId
+          && !storage.hasFactsMemoryForSession(
+            sourceSessionId
+          )
+      ) {
+        dismissFactsMemoryLogEntry(
+          logDiv
+        );
+        return;
+      }
+
+      if (!appendButton) {
+        return;
+      }
 
       const canAppend =
         Boolean(

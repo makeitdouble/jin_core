@@ -15,17 +15,20 @@
       "emit_followup": true
     },
     "rules": [
-      "Use this marker ONLY when the user explicitly asks to create or save in delayed memory a summary/digest/recap/report of the current state.",
-      "Skip save_delayed_memory when user request is to save session or append already existing delayed memory report.",
-      "Emit fulfilled form inside marker:",
+      "Use this marker only after the user explicitly asks to create/save a delayed memory report or explicitly accepts a proposal to consolidate L4 facts into delayed memory.",
+      "Skip save_delayed_memory when the user request is to save session or append an already existing delayed memory report.",
+      "Emit the fulfilled form inside the marker:",
       "<SAVE_DELAYED_MEMORY_CONTENT>",
       "title:",
       "summary:",
       "tags:",
       "body:",
+      "long_term_facts_ids:",
       "</SAVE_DELAYED_MEMORY_CONTENT>",
-      "You must fulfill ALL fields of delayed memory form so it will be valid for processing by runtime.",
-      "DO NOT add any other text while making a report! Do not notify user or acknowledge saving and immediately proceed with marker in response."
+      "You must fulfill title, summary, tags, and body so the report is valid for runtime processing.",
+      "When the report consolidates facts from <LONG_TERM_MEMORY>, fill long_term_facts_ids with the raw ids copied from the [ id: ... ] suffixes of every fact absorbed by the report, separated by commas.",
+      "Do not list unrelated ids. Leave long_term_facts_ids empty when the report does not consolidate L4 facts.",
+      "DO NOT add any other text while making a report. Do not notify or acknowledge saving; immediately emit only the marker."
     ],
     "close_tag": true
   }

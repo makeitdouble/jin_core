@@ -69,6 +69,10 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             storage_source,
         )
         self.assertIn(
+            "long_term_facts_ids",
+            storage_source,
+        )
+        self.assertIn(
             "collectCurrentSessionAppendedMemoryIds",
             storage_source,
         )

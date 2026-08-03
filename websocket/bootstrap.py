@@ -136,6 +136,14 @@ def apply_delayed_memory_reports(
         existing_reports,
     )
 
+    from runtime.L4_memory import (
+        refresh_runtime_l4_archived_fact_ids,
+    )
+
+    refresh_runtime_l4_archived_fact_ids(
+        context
+    )
+
 
 def hydrate_delayed_memory_reports_from_files(
     context,
@@ -155,6 +163,14 @@ def hydrate_delayed_memory_reports_from_files(
     context.delayed_memory_reports = merge_delayed_memory_reports(
         current_reports,
         file_reports,
+    )
+
+    from runtime.L4_memory import (
+        refresh_runtime_l4_archived_fact_ids,
+    )
+
+    refresh_runtime_l4_archived_fact_ids(
+        context
     )
 
     if warnings:

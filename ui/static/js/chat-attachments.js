@@ -322,9 +322,13 @@ function ensureJinAttachmentModal() {
   closeButton.type =
     "button";
   closeButton.className =
-    "shrink-0 rounded border border-zinc-700 px-2 py-1 text-[11px] text-zinc-300 transition hover:border-red-300/50 hover:text-red-200";
+    "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded p-0 text-[18px] leading-none text-zinc-300 transition hover:bg-zinc-800/60 hover:text-red-200 focus:outline-none";
+  closeButton.setAttribute(
+    "aria-label",
+    "Close"
+  );
   closeButton.textContent =
-    "x";
+    "\u00d7";
 
   closeButton.addEventListener(
     "click",

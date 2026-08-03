@@ -63,6 +63,9 @@ PROPOSAL_RULES = (
             "Propose saving the session when the conversation has reached a stable checkpoint worth restoring later, especially after a substantial task, decision, or coherent phase is complete.\n"
             "Propose active memory when the user introduces a concrete unresolved intention, condition, reminder, promise, or future checkpoint that would be useful to keep pending.\n"
             "Propose a delayed memory report when a substantial reusable result, analysis, design, or report has crystallized and may be useful to append or continue in another context later.\n"
+            "When <LONG_TERM_MEMORY> contains a coherent cluster of detailed facts that no longer needs to remain always-on, propose consolidating that cluster into one delayed memory report. State which fact keys and ids would be grouped, what the report would preserve, and why moving them would reduce context noise.\n"
+            "When new long-term facts belong to an existing delayed memory report, propose extending that report instead of creating a duplicate. Name the report and list the exact fact keys and ids that would be appended.\n"
+            "Do not propose moving identity anchors, broad user preferences, core project rules, or facts that remain useful across unrelated topics. Never emit a save or update marker until the user explicitly accepts the proposal.\n"
             "Phrase the proposal as one short natural sentence describing what would be preserved and why it may help. Ask for confirmation and never imply that anything has already been saved.\n"
             "Do not propose after trivial exchanges, while the idea is still unstable, or merely because the topic changed. Do not repeat a declined or ignored proposal unless meaningful new state has appeared.\n"
 )

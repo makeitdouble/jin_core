@@ -9,6 +9,9 @@ from tempfile import NamedTemporaryFile
 from utils.actions.delayed_memory_utils import (
     is_delayed_memory_report_id,
 )
+from utils.actions.save_delayed_memory_utils import (
+    normalize_long_term_fact_ids,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -149,6 +152,13 @@ def normalize_delayed_memory_report(
             report.get("body", ""),
             limit=MAX_DELAYED_MEMORY_BODY_CHARS,
         ),
+        "pinned": bool(report.get("pinned", False)),
+        "long_term_facts_ids": normalize_long_term_fact_ids(
+            report.get(
+                "long_term_facts_ids",
+                [],
+            )
+        ),
         "created_session_id": _clean_text(
             report.get("created_session_id", "")
             or report.get("session", ""),
@@ -230,11 +240,30 @@ def merge_delayed_memory_reports(
     primary_reports = normalize_delayed_memory_reports(
         primary,
     )
-
-    return {
+    reports = {
         **fallback_reports,
         **primary_reports,
     }
+
+    for report_id in set(
+        fallback_reports
+    ).intersection(
+        primary_reports
+    ):
+        reports[report_id][
+            "long_term_facts_ids"
+        ] = normalize_long_term_fact_ids([
+            *fallback_reports[report_id].get(
+                "long_term_facts_ids",
+                [],
+            ),
+            *primary_reports[report_id].get(
+                "long_term_facts_ids",
+                [],
+            ),
+        ])
+
+    return reports
 
 
 def delayed_memory_filename(
@@ -292,6 +321,10 @@ def build_delayed_memory_file_payload(
             "all_appended_session_ids"
         ],
         "body": clean_report["body"],
+        "pinned": clean_report["pinned"],
+        "long_term_facts_ids": clean_report[
+            "long_term_facts_ids"
+        ],
         "appended_times": clean_report["appended_times"],
         "append_streak": clean_report["append_streak"],
         "last_appended_date": clean_report[

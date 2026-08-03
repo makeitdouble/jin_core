@@ -3,9 +3,9 @@
 #memory-drag-handle {
     position: relative;
     isolation: isolate;
-    flex: 0 0 clamp(248px, 30vh, 286px);
-    height: clamp(248px, 30vh, 286px);
-    min-height: clamp(248px, 30vh, 286px);
+    flex: 0 0 var(--runtime-avatar-panel-size);
+    height: var(--runtime-avatar-panel-size);
+    min-height: var(--runtime-avatar-panel-size);
     justify-content: center;
     padding: 8px 10px;
     overflow: hidden;
@@ -246,10 +246,11 @@
 }
 
 #settings-panel.panel-collapsed #memory-drag-handle {
-    flex-basis: 40px;
-    height: 40px;
-    min-height: 40px;
-    padding: 2px 10px;
+    flex: 0 0 var(--runtime-avatar-panel-size);
+    height: var(--runtime-avatar-panel-size);
+    min-height: var(--runtime-avatar-panel-size);
+    padding: 8px 10px;
+    border-bottom: 0;
 }
 
 #settings-panel.panel-collapsed #memory-drag-handle::before,
@@ -258,12 +259,12 @@
 }
 
 #settings-panel.panel-collapsed .jin-runtime-avatar-shell {
-    width: 36px;
+    width: min(100%, 278px);
 }
 
 #settings-panel.panel-collapsed .jin-runtime-avatar-core-button {
-    width: 24px;
-    height: 24px;
+    width: 44px;
+    height: 44px;
 }
 
 #settings-panel.panel-collapsed .jin-runtime-avatar {
@@ -273,9 +274,9 @@
 body.theme-win95 #memory-drag-handle {
     position: relative;
     /* Theme switching must not resize the live avatar workspace. */
-    flex: 0 0 clamp(248px, 30vh, 286px);
-    height: clamp(248px, 30vh, 286px);
-    min-height: clamp(248px, 30vh, 286px);
+    flex: 0 0 var(--runtime-avatar-panel-size);
+    height: var(--runtime-avatar-panel-size);
+    min-height: var(--runtime-avatar-panel-size);
     justify-content: center;
     padding: 8px 10px;
     overflow: hidden;
@@ -303,19 +304,20 @@ body.theme-win95 #memory-drag-handle .win95-window-controls {
 }
 
 body.theme-win95 #settings-panel.panel-collapsed #memory-drag-handle {
-    flex-basis: 28px;
-    height: 28px;
-    min-height: 28px;
-    padding: 1px 5px;
+    flex: 0 0 var(--runtime-avatar-panel-size);
+    height: var(--runtime-avatar-panel-size);
+    min-height: var(--runtime-avatar-panel-size);
+    padding: 8px 10px;
+    border-bottom: 0;
 }
 
 body.theme-win95 #settings-panel.panel-collapsed .jin-runtime-avatar-shell {
-    width: 26px;
+    width: min(100%, 278px);
 }
 
 body.theme-win95 #settings-panel.panel-collapsed .jin-runtime-avatar-core-button {
-    width: 18px;
-    height: 18px;
+    width: 44px;
+    height: 44px;
 }
 
 @media (prefers-reduced-motion: reduce) {

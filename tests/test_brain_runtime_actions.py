@@ -120,6 +120,7 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
                 "SAVE_DELAYED_MEMORY_CONTENT",
                 "APPEND_DELAYED_MEMORY",
                 "REMOVE_DELAYED_MEMORY",
+                "UPDATE_DELAYED_MEMORY",
             )
         )
 

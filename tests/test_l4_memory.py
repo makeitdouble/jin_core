@@ -1,6 +1,10 @@
+import json
 import unittest
 
-from runtime.L4_memory import maybe_update_runtime_l4_memory
+from runtime.L4_memory import (
+    build_runtime_l4_memory_context,
+    maybe_update_runtime_l4_memory,
+)
 from runtime.L4_memory_utils import (
     add_l4_pending_candidates,
     apply_l4_merge_operations,
@@ -18,6 +22,10 @@ from runtime.L4_memory_utils import (
 from runtime.runtime_context import RuntimeContext
 from rules.brain_context_builder import build_brain_context
 from tests.helpers.memory import FakeLogger, FakeServiceClient
+from utils.actions import RuntimeActionCall
+from utils.actions.delayed_memory_actions import (
+    apply_save_delayed_memory_actions,
+)
 
 
 class FakeEmitter:
@@ -280,8 +288,142 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("user.hardware.main_gpu:", context_block)
         self.assertIn("user.preference.response_style:", context_block)
+        self.assertIn("[ id: l4_gpu ]", context_block)
+        self.assertIn("[ id: l4_style ]", context_block)
         self.assertNotIn("source_session_ids", context_block)
         self.assertIn("[source_session_ids: session-a]", ui_line)
+
+    def test_delayed_report_fact_ids_hide_only_from_brain_context(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=None,
+            logger=None,
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_l4_store({
+            "facts": [
+                {
+                    "id": "l4_archived",
+                    "key": "project.topic.details",
+                    "value": "Detailed topic facts moved into a report.",
+                },
+                {
+                    "id": "l4_active",
+                    "key": "user.name",
+                    "value": "Sergey",
+                },
+            ],
+        })
+        context.delayed_memory_reports = {
+            "abc123": {
+                "title": "Topic report",
+                "long_term_facts_ids": [
+                    "l4_archived",
+                ],
+            },
+        }
+
+        context_block = build_runtime_l4_memory_context(
+            context=context
+        )
+
+        self.assertNotIn(
+            "project.topic.details",
+            context_block,
+        )
+        self.assertIn(
+            "user.name: Sergey [ id: l4_active ]",
+            context_block,
+        )
+        self.assertEqual(
+            context.runtime_l4_archived_fact_ids,
+            {
+                "l4_archived",
+            },
+        )
+        self.assertEqual(
+            len(
+                context.runtime_long_term_memory_store[
+                    "facts"
+                ]
+            ),
+            2,
+        )
+
+
+    async def test_saved_delayed_report_hides_linked_facts_on_next_context(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_l4_store({
+            "facts": [
+                {
+                    "id": "l4_project_details",
+                    "key": "project.topic.details",
+                    "value": "Detailed project context.",
+                },
+            ],
+        })
+        payload = json.dumps({
+            "abc123": {
+                "title": "Project context",
+                "summary": "Consolidated project details.",
+                "tags": [
+                    "project",
+                ],
+                "body": "Reusable project report.",
+                "long_term_facts_ids": [
+                    "l4_project_details",
+                ],
+            },
+        })
+
+        await apply_save_delayed_memory_actions(
+            context,
+            [
+                RuntimeActionCall(
+                    name="SAVE_DELAYED_MEMORY_CONTENT",
+                    payload=payload,
+                ),
+            ],
+            log_runtime=None,
+            with_action_context=lambda event: event,
+        )
+
+        self.assertEqual(
+            context.delayed_memory_reports[
+                "abc123"
+            ][
+                "long_term_facts_ids"
+            ],
+            [
+                "l4_project_details",
+            ],
+        )
+        self.assertEqual(
+            context.runtime_l4_archived_fact_ids,
+            {
+                "l4_project_details",
+            },
+        )
+        self.assertEqual(
+            build_runtime_l4_memory_context(
+                context=context
+            ),
+            "",
+        )
+        self.assertEqual(
+            len(
+                context.runtime_long_term_memory_store[
+                    "facts"
+                ]
+            ),
+            1,
+        )
+
 
     def test_brain_context_always_injects_complete_long_term_memory(self):
         context = RuntimeContext(
@@ -427,8 +569,8 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context.runtime_long_term_memory_store["pending_facts"], [])
         self.assertEqual(len(context.runtime_long_term_memory_store["facts"]), 2)
         self.assertEqual(len(service_client.calls), 3)
-        self.assertIn("permanent long-term memory", service_client.calls[0]["system_prompt"])
-        self.assertIn("consolidate all pending", service_client.calls[2]["system_prompt"].lower())
+        self.assertIn("cross-session long-term memory", service_client.calls[0]["system_prompt"])
+        self.assertIn("consolidate pending candidates", service_client.calls[2]["system_prompt"].lower())
 
 
 if __name__ == "__main__":

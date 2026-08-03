@@ -297,6 +297,10 @@ function dismissLogAfterClear(
 const consolePanel = document.getElementById("console-panel");
     const consoleDragHandle = document.getElementById("console-drag-handle");
     const PANEL_VIEWPORT_GAP = 8;
+    const STARTUP_COLLAPSE_CLASS = "panel-startup-collapse-active";
+    let startupCollapseClassTimer = null;
+    let startupCollapseFrameId = null;
+    let startupCollapsePreviousDuration = null;
 
     function syncSceneShadeToPanelCollapse() {
         const root =
@@ -330,6 +334,9 @@ const consolePanel = document.getElementById("console-panel");
     function togglePanelCollapseFromHeader(event, panel, handle, options = {}) {
         const ignoredTarget =
             options.ignoredTarget || null;
+        const isCollapsed =
+            panel
+            && panel.classList.contains("panel-collapsed");
 
         if (
             !handle
@@ -338,14 +345,396 @@ const consolePanel = document.getElementById("console-panel");
             || (
                 ignoredTarget
                 && ignoredTarget.contains(event.target)
+                && !isCollapsed
             )
         ) {
             return;
         }
 
         event.preventDefault();
-        panel.classList.toggle("panel-collapsed");
+        finishStartupCollapseAnimation();
+        setPanelCollapsed(
+            panel,
+            !panel.classList.contains("panel-collapsed")
+        );
         syncSceneShadeToPanelCollapse();
+    }
+
+    function setPanelCollapsed(panel, collapsed) {
+        if (!panel) {
+            return;
+        }
+
+        if (collapsed) {
+            if (!panel.classList.contains("panel-collapsed")) {
+                panel.dataset.expandedHeight =
+                    panel.style.height
+                    || `${Math.round(panel.getBoundingClientRect().height)}px`;
+                panel.dataset.expandedMinHeight =
+                    panel.style.minHeight || "";
+                panel.dataset.expandedMaxHeight =
+                    panel.style.maxHeight || "";
+            }
+
+            panel.classList.add(
+                "panel-collapsed"
+            );
+
+            const collapsedHeight =
+                getCollapsedPanelHeight(panel);
+
+            panel.style.height =
+                collapsedHeight;
+            panel.style.minHeight =
+                collapsedHeight;
+            panel.style.maxHeight =
+                collapsedHeight;
+
+            return;
+        }
+
+        panel.classList.remove(
+            "panel-collapsed"
+        );
+
+        if (panel.dataset.expandedHeight) {
+            panel.style.height =
+                panel.dataset.expandedHeight;
+            delete panel.dataset.expandedHeight;
+        } else {
+            panel.style.removeProperty(
+                "height"
+            );
+        }
+
+        restorePanelDimension(
+            panel,
+            "minHeight",
+            "expandedMinHeight"
+        );
+
+        restorePanelDimension(
+            panel,
+            "maxHeight",
+            "expandedMaxHeight"
+        );
+    }
+
+    function restorePanelDimension(panel, styleName, datasetName) {
+        if (panel.dataset[datasetName]) {
+            panel.style[styleName] =
+                panel.dataset[datasetName];
+        } else {
+            panel.style[styleName] =
+                "";
+        }
+
+        delete panel.dataset[datasetName];
+    }
+
+    function getPanelFrameHeight(panel) {
+        return Math.max(
+            0,
+            panel.offsetHeight - panel.clientHeight
+        );
+    }
+
+    function getCollapsedPanelHeight(panel) {
+        if (panel === memoryPanel && memoryDragHandle) {
+            return `${
+                Math.round(
+                    memoryDragHandle.getBoundingClientRect().height
+                    + getPanelFrameHeight(panel)
+                )
+            }px`;
+        }
+
+        const collapsedTitleHeight =
+            getComputedStyle(panel)
+                .getPropertyValue("--panel-collapsed-title-height")
+                .trim();
+
+        return collapsedTitleHeight || "40px";
+    }
+
+    function refreshCollapsedPanelHeights() {
+        [
+            consolePanel,
+            memoryPanel,
+        ].forEach((panel) => {
+            if (
+                panel
+                && panel.classList.contains("panel-collapsed")
+            ) {
+                panel.style.height =
+                    getCollapsedPanelHeight(panel);
+                panel.style.minHeight =
+                    panel.style.height;
+                panel.style.maxHeight =
+                    panel.style.height;
+            }
+        });
+    }
+
+    function getPanelRoot() {
+        return document.querySelector("main");
+    }
+
+    function parseCssDurationMs(duration) {
+        const value =
+            String(duration || "").trim();
+
+        if (!value) {
+            return 0;
+        }
+
+        if (value.endsWith("ms")) {
+            return Number.parseFloat(value) || 0;
+        }
+
+        if (value.endsWith("s")) {
+            return (Number.parseFloat(value) || 0) * 1000;
+        }
+
+        return Number.parseFloat(value) || 0;
+    }
+
+    function beginStartupCollapseAnimation() {
+        const root =
+            getPanelRoot();
+
+        if (!root) {
+            return;
+        }
+
+        if (startupCollapseClassTimer !== null) {
+            window.clearTimeout(
+                startupCollapseClassTimer
+            );
+        }
+
+        const duration =
+            getComputedStyle(root)
+                .getPropertyValue("--panel-startup-collapse-duration")
+                .trim()
+            || "5s";
+
+        if (startupCollapsePreviousDuration === null) {
+            startupCollapsePreviousDuration =
+                root.style.getPropertyValue(
+                    "--panel-collapse-duration"
+                );
+        }
+
+        root.style.setProperty(
+            "--panel-collapse-duration",
+            duration
+        );
+
+        root.classList.add(
+            STARTUP_COLLAPSE_CLASS
+        );
+
+        root.getBoundingClientRect();
+
+        const durationMs =
+            parseCssDurationMs(
+                duration
+            );
+
+        startupCollapseClassTimer =
+            window.setTimeout(
+                finishStartupCollapseAnimation,
+                Math.max(0, durationMs) + 80
+            );
+    }
+
+    function finishStartupCollapseAnimation() {
+        cancelStartupCollapseFrame();
+
+        if (startupCollapseClassTimer !== null) {
+            window.clearTimeout(
+                startupCollapseClassTimer
+            );
+
+            startupCollapseClassTimer = null;
+        }
+
+        const root =
+            getPanelRoot();
+
+        if (root) {
+            root.classList.remove(
+                STARTUP_COLLAPSE_CLASS
+            );
+
+            if (startupCollapsePreviousDuration !== null) {
+                if (startupCollapsePreviousDuration) {
+                    root.style.setProperty(
+                        "--panel-collapse-duration",
+                        startupCollapsePreviousDuration
+                    );
+                } else {
+                    root.style.removeProperty(
+                        "--panel-collapse-duration"
+                    );
+                }
+
+                startupCollapsePreviousDuration = null;
+            }
+        }
+    }
+
+    function isStartupCollapseAnimationActive() {
+        const root =
+            getPanelRoot();
+
+        return Boolean(
+            startupCollapseFrameId !== null
+            || startupCollapseClassTimer !== null
+            || (
+                root
+                && root.classList.contains(
+                    STARTUP_COLLAPSE_CLASS
+                )
+            )
+        );
+    }
+
+    function cancelStartupCollapseFrame() {
+        if (startupCollapseFrameId === null) {
+            return;
+        }
+
+        window.cancelAnimationFrame(
+            startupCollapseFrameId
+        );
+
+        startupCollapseFrameId = null;
+    }
+
+    function getPanelTransitionElements() {
+        return [
+            consolePanel,
+            consoleStream,
+            memoryPanel,
+            memoryPanel
+                ? memoryPanel.querySelector(".settings-scroll")
+                : null,
+        ].filter(Boolean);
+    }
+
+    function withoutPanelTransitions(callback) {
+        const elements =
+            getPanelTransitionElements();
+
+        const previousTransitions =
+            elements.map((element) => ({
+                element,
+                transition:
+                    element.style.transition,
+            }));
+
+        elements.forEach((element) => {
+            element.style.transition =
+                "none";
+        });
+
+        callback();
+
+        elements.forEach((element) => {
+            element.getBoundingClientRect();
+        });
+
+        window.requestAnimationFrame(() => {
+            previousTransitions.forEach((entry) => {
+                if (entry.transition) {
+                    entry.element.style.transition =
+                        entry.transition;
+                } else {
+                    entry.element.style.removeProperty(
+                        "transition"
+                    );
+                }
+            });
+        });
+    }
+
+    function expandPanelAfterStartupCancel(panel) {
+        if (
+            !panel
+            || (
+                !panel.classList.contains("panel-collapsed")
+                && !panel.dataset.expandedHeight
+            )
+        ) {
+            return;
+        }
+
+        setPanelCollapsed(
+            panel,
+            false
+        );
+    }
+
+    function cancelStartupCollapseAnimation() {
+        if (!isStartupCollapseAnimationActive()) {
+            return false;
+        }
+
+        finishStartupCollapseAnimation();
+
+        withoutPanelTransitions(() => {
+            [
+                consolePanel,
+                memoryPanel,
+            ].forEach(
+                expandPanelAfterStartupCancel
+            );
+
+            syncSceneShadeToPanelCollapse();
+        });
+
+        return true;
+    }
+
+    function collapsePanelsNow() {
+        [
+            consolePanel,
+            memoryPanel,
+        ].forEach((panel) => {
+            setPanelCollapsed(
+                panel,
+                true
+            );
+        });
+
+        syncSceneShadeToPanelCollapse();
+    }
+
+    function collapseAllPanels(options = {}) {
+        if (options.startup) {
+            beginStartupCollapseAnimation();
+            cancelStartupCollapseFrame();
+
+            startupCollapseFrameId =
+                window.requestAnimationFrame(
+                    function () {
+                        startupCollapseFrameId =
+                            window.requestAnimationFrame(
+                                function () {
+                                    startupCollapseFrameId = null;
+                                    collapsePanelsNow();
+                                }
+                            );
+                    }
+                );
+
+            return;
+        }
+
+        finishStartupCollapseAnimation();
+        collapsePanelsNow();
     }
 
     function getPanelResizeBounds(panel) {
@@ -532,6 +921,10 @@ const consolePanel = document.getElementById("console-panel");
             isResizing =
                 true;
 
+            panel.classList.add(
+                "panel-resizing"
+            );
+
             resizeStartY =
                 event.clientY;
 
@@ -566,6 +959,10 @@ const consolePanel = document.getElementById("console-panel");
 
             isResizing =
                 false;
+
+            panel.classList.remove(
+                "panel-resizing"
+            );
 
             document.body.style.cursor =
                 "";
@@ -650,6 +1047,17 @@ const consolePanel = document.getElementById("console-panel");
 const memoryPanel = document.getElementById("settings-panel");
 const memoryDragHandle = document.getElementById("memory-drag-handle");
 
+window.JinPanels =
+    Object.assign(
+        window.JinPanels || {},
+        {
+            collapseAllPanels,
+            cancelStartupCollapseAnimation,
+            refreshCollapsedPanelHeights,
+            syncSceneShadeToPanelCollapse,
+        }
+    );
+
 let isMemoryDragging = false;
 let memoryOffsetX = 0;
 let memoryOffsetY = 0;
@@ -733,5 +1141,8 @@ requestAnimationFrame(
 
 window.addEventListener(
     "resize",
-    clampAllPanelGeometry
+    () => {
+        clampAllPanelGeometry();
+        refreshCollapsedPanelHeights();
+    }
 );

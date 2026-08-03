@@ -6,6 +6,15 @@
     function applyWin95Theme(enabled) {
         document.body.classList.toggle(themeClass, enabled);
         localStorage.setItem(themeKey, enabled ? "1" : "0");
+
+        if (
+            window.JinPanels
+            && typeof window.JinPanels.refreshCollapsedPanelHeights === "function"
+        ) {
+            window.requestAnimationFrame(
+                window.JinPanels.refreshCollapsedPanelHeights
+            );
+        }
     }
 
     applyWin95Theme(localStorage.getItem(themeKey) === "1");

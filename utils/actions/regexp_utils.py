@@ -136,7 +136,9 @@ def compile_runtime_action_regexp(
         expression = (
             r"<\s*(?P<name>"
             + name
-            + r")\s*>"
+            + r")"
+            r"(?:\s*:\s*(?P<attribute_payload>[^>]*?))?"
+            r"\s*>"
             r"[^\S\r\n]*(?:\r?\n)?"
             r"(?P<payload>.*?)"
             r"(?:"
@@ -191,7 +193,11 @@ def compile_runtime_action_start_regexp(
         return re.compile(r"(?!x)x")
 
     return re.compile(
-        r"<\s*(?P<name>" + name + r")\s*>",
+        (
+            r"<\s*(?P<name>" + name + r")"
+            r"(?:\s*:\s*(?P<attribute_payload>[^>]*?))?"
+            r"\s*>"
+        ),
         re.IGNORECASE,
     )
 
@@ -233,12 +239,20 @@ def compile_runtime_action_tag_regexp(
 
 def _payload_from_match(match: re.Match[str]) -> str:
     groups = match.groupdict()
-
-    return str(
-        groups.get("payload")
-        or groups.get("attribute_payload")
+    attribute_payload = str(
+        groups.get("attribute_payload")
         or ""
     ).strip()
+    payload = str(
+        groups.get("payload")
+        or ""
+    ).strip()
+
+    return "\n".join(
+        part
+        for part in (attribute_payload, payload)
+        if part
+    )
 
 
 def match_regexp(

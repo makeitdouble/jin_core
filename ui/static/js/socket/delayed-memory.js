@@ -374,6 +374,10 @@ function syncDelayedMemoryReportsToRuntime() {
 
 
 
+window.syncDelayedMemoryReportsToRuntime =
+  syncDelayedMemoryReportsToRuntime;
+
+
 function handleDelayedMemoryStoreSnapshot(
   data
 ) {
@@ -395,8 +399,8 @@ function handleDelayedMemoryStoreSnapshot(
     window.JinRuntime.runtime.getDelayedMemoryReports();
 
   window.JinRuntime.runtime.replaceDelayedMemoryReports({
-    ...data.delayed_memory_reports,
     ...localReports,
+    ...data.delayed_memory_reports,
   });
 
 }

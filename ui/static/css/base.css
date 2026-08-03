@@ -21,6 +21,13 @@
 :root {
     --panel-gap: 24px;
     --panel-width: 330px;
+    --panel-collapsed-title-height: 40px;
+    --runtime-avatar-panel-size: clamp(278px, 30vh, 286px);
+    --settings-avatar-collapsed-height: calc(var(--runtime-avatar-panel-size) + 2px);
+    --panel-collapse-duration: 0.22s;
+    --panel-startup-collapse-duration: 5s;
+    --panel-collapse-easing: cubic-bezier(0.45, 0, 0.55, 1);
+    --panel-geometry-transition: height var(--panel-collapse-duration) var(--panel-collapse-easing), min-height var(--panel-collapse-duration) var(--panel-collapse-easing), max-height var(--panel-collapse-duration) var(--panel-collapse-easing);
 
     --safe-left: 380px;
     --safe-right: 380px;
@@ -31,6 +38,13 @@
     --jin-color: #1f4f8f;
     --scene-base-color: #0f1b2c;
     --scene-jin-tint-alpha: 0.40;
+    --scene-context-tint-boost: 0;
+
+    --scene-layer-base: 0;
+    --scene-layer-context: 1;
+    --scene-layer-search: 2;
+    --scene-layer-tint: 3;
+    --scene-layer-shade: 4;
 
     /* Вертикальный ритм чата: добавляет немного воздуха между ходами. */
     --chat-turn-gap: 2.05rem;
@@ -48,8 +62,12 @@ main {
     transition: background-color 0.22s ease;
 }
 
+main.panel-startup-collapse-active {
+    --panel-collapse-duration: var(--panel-startup-collapse-duration);
+}
+
 #scene-bg {
-    z-index: 0;
+    z-index: var(--scene-layer-base);
     background-image: url('/static/images/states/default.jpg');
     background-size: cover;
     background-position: center;
@@ -66,7 +84,7 @@ main {
 
 #scene-clutter-overlay,
 #scene-cluttered-overlay {
-    z-index: 1;
+    z-index: var(--scene-layer-context);
     transition: opacity 3s ease;
 }
 
@@ -79,7 +97,7 @@ main {
 }
 
 #scene-search-overlay {
-    z-index: 2;
+    z-index: var(--scene-layer-search);
     transition: opacity 0.22s ease;
 
     background-image: url('/static/images/states/searching.png');
@@ -92,18 +110,32 @@ main.scene-searching #scene-search-overlay {
     opacity: 1;
 }
 
+main.scene-clutter-middle {
+    --scene-context-tint-boost: 0.06;
+}
+
+main.scene-cluttered {
+    --scene-context-tint-boost: 0.12;
+}
+
+main.scene-searching {
+    --scene-context-tint-boost: 0.08;
+}
+
 #scene-jin-tint {
-    z-index: 3;
+    z-index: var(--scene-layer-tint);
     background-color: var(--jin-color);
-    opacity: var(--scene-jin-tint-alpha);
-    mix-blend-mode: multiply;
+    opacity: min(
+            0.34,
+            calc(var(--scene-jin-tint-alpha) + var(--scene-context-tint-boost))
+    );
     transition:
             background-color 0.22s ease,
             opacity 0.22s ease;
 }
 
 #scene-shade {
-    z-index: 4;
+    z-index: var(--scene-layer-shade);
     background:
             radial-gradient(
                     circle at 50% 52%,
@@ -128,7 +160,7 @@ main.scene-searching #scene-search-overlay {
     inset: 0;
     background: #000;
     opacity: var(--scene-shade-alpha);
-    transition: opacity 0.22s ease;
+    transition: opacity var(--panel-collapse-duration) var(--panel-collapse-easing);
 }
 
 main.panels-collapsed-1 #scene-shade {
@@ -144,7 +176,14 @@ main.panels-collapsed-2 #scene-shade {
     width: var(--panel-width);
     max-height: 100%;
     opacity: 1;
-    transition: opacity 0.35s ease;
+    transition:
+            var(--panel-geometry-transition),
+            opacity 0.35s ease;
+}
+
+#console-drag-handle,
+#memory-drag-handle {
+    flex-shrink: 0;
 }
 
 #console-panel:not(.panel-collapsed),
@@ -152,16 +191,35 @@ main.panels-collapsed-2 #scene-shade {
     min-height: 49%;
 }
 
-#console-panel.panel-collapsed,
+#console-panel.panel-collapsed {
+    height: var(--panel-collapsed-title-height) !important;
+    min-height: var(--panel-collapsed-title-height) !important;
+    max-height: var(--panel-collapsed-title-height) !important;
+}
+
 #settings-panel.panel-collapsed {
-    height: 40px !important;
-    min-height: 40px;
-    max-height: 40px;
+    height: var(--settings-avatar-collapsed-height) !important;
+    min-height: var(--settings-avatar-collapsed-height) !important;
+    max-height: var(--settings-avatar-collapsed-height) !important;
+}
+
+#console-stream,
+.settings-scroll {
+    max-height: calc(100vh - var(--panel-collapsed-title-height));
+    min-height: 0;
+    transition:
+            max-height var(--panel-collapse-duration) var(--panel-collapse-easing),
+            padding-top var(--panel-collapse-duration) var(--panel-collapse-easing),
+            padding-bottom var(--panel-collapse-duration) var(--panel-collapse-easing);
+    will-change: max-height, padding-top, padding-bottom;
 }
 
 #console-panel.panel-collapsed #console-stream,
 #settings-panel.panel-collapsed .settings-scroll {
-    display: none;
+    max-height: 0;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    overflow: hidden;
 }
 
 .panel-bottom-resize-handle {
@@ -192,6 +250,11 @@ main.panels-collapsed-2 #scene-shade {
 
 .panel-collapsed .panel-bottom-resize-handle {
     display: none;
+}
+
+#console-panel.panel-resizing,
+#settings-panel.panel-resizing {
+    transition: opacity 0.35s ease;
 }
 
 #console-panel {
@@ -226,9 +289,9 @@ main.panels-collapsed-2 #scene-shade {
 }
 
 #memory-drag-handle {
-    flex: 0 0 40px;
-    height: 40px;
-    min-height: 40px;
+    flex: 0 0 var(--panel-collapsed-title-height);
+    height: var(--panel-collapsed-title-height);
+    min-height: var(--panel-collapsed-title-height);
 }
 
 #memory-drag-handle h3 {
@@ -532,6 +595,14 @@ main.panels-collapsed-2 #scene-shade {
     transition:
             border-color 1.8s ease,
             box-shadow 1.8s ease,
+            var(--panel-geometry-transition),
+            opacity 0.35s ease;
+}
+
+#settings-panel.panel-resizing {
+    transition:
+            border-color 1.8s ease,
+            box-shadow 1.8s ease,
             opacity 0.35s ease;
 }
 
@@ -559,6 +630,25 @@ main.panels-collapsed-2 #scene-shade {
             border-color 1.8s ease,
             box-shadow 1.8s ease,
             opacity 0.35s ease;
+}
+
+main.panel-startup-collapse-active #console-panel,
+main.panel-startup-collapse-active #settings-panel {
+    transition:
+            height var(--panel-collapse-duration) var(--panel-collapse-easing),
+            min-height var(--panel-collapse-duration) var(--panel-collapse-easing),
+            max-height var(--panel-collapse-duration) var(--panel-collapse-easing),
+            opacity var(--panel-collapse-duration) var(--panel-collapse-easing) !important;
+}
+
+main.panel-startup-collapse-active #settings-panel {
+    transition:
+            border-color 1.8s ease,
+            box-shadow 1.8s ease,
+            height var(--panel-collapse-duration) var(--panel-collapse-easing),
+            min-height var(--panel-collapse-duration) var(--panel-collapse-easing),
+            max-height var(--panel-collapse-duration) var(--panel-collapse-easing),
+            opacity var(--panel-collapse-duration) var(--panel-collapse-easing) !important;
 }
 
 #settings-panel.memory-updating {

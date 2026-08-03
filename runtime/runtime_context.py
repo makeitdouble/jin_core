@@ -105,6 +105,10 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_pinned_delayed_memory_turns: dict[str, str] = field(
+        default_factory=dict
+    )
+
     runtime_delayed_memory_file_warnings: list[str] = field(
         default_factory=list
     )
@@ -173,6 +177,10 @@ class RuntimeContext:
 
     runtime_long_term_memory_store: dict = field(
         default_factory=dict
+    )
+
+    runtime_l4_archived_fact_ids: set[str] = field(
+        default_factory=set
     )
 
     runtime_l4_memory_update_task: object | None = None

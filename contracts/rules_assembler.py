@@ -32,6 +32,7 @@ ACTION_CONFIG_KEYS = (
     ("SAVE_DELAYED_MEMORY_CONTENT", "CAN_SAVE_DELAYED_MEMORY"),
     ("APPEND_DELAYED_MEMORY", "CAN_SAVE_DELAYED_MEMORY"),
     ("REMOVE_DELAYED_MEMORY", "CAN_SAVE_DELAYED_MEMORY"),
+    ("UPDATE_DELAYED_MEMORY", "CAN_SAVE_DELAYED_MEMORY"),
     ("SAVE_ACTIVE_MEMORY", "CAN_SAVE_ACTIVE_MEMORY"),
     ("RESOLVE_ACTIVE_MEMORY", "CAN_SAVE_ACTIVE_MEMORY"),
 )
@@ -298,6 +299,7 @@ def normalize_runtime_action_names(enabled_actions=None) -> tuple[str, ...]:
             normalized_names.extend((
                 "APPEND_DELAYED_MEMORY",
                 "REMOVE_DELAYED_MEMORY",
+                "UPDATE_DELAYED_MEMORY",
             ))
 
         if normalized_name == "ASSET_ACTION":
@@ -531,6 +533,7 @@ def build_runtime_action_instructions(
         if normalized_name in {
             "APPEND_DELAYED_MEMORY",
             "REMOVE_DELAYED_MEMORY",
+            "UPDATE_DELAYED_MEMORY",
         } and not _context_has_delayed_memory_reports(context):
             continue
 
@@ -562,6 +565,9 @@ RUNTIME_ACTION_APPEND_DELAYED_MEMORY = get_runtime_action_name(
 )
 RUNTIME_ACTION_REMOVE_DELAYED_MEMORY = get_runtime_action_name(
     "remove_delayed_memory"
+)
+RUNTIME_ACTION_UPDATE_DELAYED_MEMORY = get_runtime_action_name(
+    "update_delayed_memory"
 )
 RUNTIME_ACTION_SAVE_ACTIVE_MEMORY = get_runtime_action_name(
     "save_active_memory"

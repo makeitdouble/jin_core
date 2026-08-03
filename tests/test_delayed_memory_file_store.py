@@ -30,6 +30,11 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
                 "evolution",
             ],
             "body": body,
+            "pinned": True,
+            "long_term_facts_ids": [
+                "l4_abc123",
+                "l4_def456",
+            ],
             "created_session_id": "session-a",
             "created_time": "2026-07-19T16:14:14.628194",
             "created_date": "2026-07-19T16:14:14.628194",
@@ -71,6 +76,17 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
                 payload["time"],
                 "2026-07-19T16:14:14.628194",
             )
+            self.assertEqual(
+                payload["pinned"],
+                True,
+            )
+            self.assertEqual(
+                payload["long_term_facts_ids"],
+                [
+                    "l4_abc123",
+                    "l4_def456",
+                ],
+            )
 
             reports, warnings = (
                 load_delayed_memory_reports_from_files(
@@ -89,6 +105,17 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
             self.assertEqual(
                 reports["48ggds"]["created_session_id"],
                 "session-a",
+            )
+            self.assertEqual(
+                reports["48ggds"]["pinned"],
+                True,
+            )
+            self.assertEqual(
+                reports["48ggds"]["long_term_facts_ids"],
+                [
+                    "l4_abc123",
+                    "l4_def456",
+                ],
             )
 
     def test_save_replaces_old_filename_for_same_id(self):
@@ -185,10 +212,12 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
                 title="File only",
             ),
         }
+        browser_report = self.build_report(
+            title="Browser title",
+        )
+        browser_report["long_term_facts_ids"] = []
         browser_reports = {
-            "48ggds": self.build_report(
-                title="Browser title",
-            ),
+            "48ggds": browser_report,
         }
 
         merged = merge_delayed_memory_reports(
@@ -203,6 +232,13 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
         self.assertEqual(
             merged["a1b2c3"]["title"],
             "File only",
+        )
+        self.assertEqual(
+            merged["48ggds"]["long_term_facts_ids"],
+            [
+                "l4_abc123",
+                "l4_def456",
+            ],
         )
 
     def test_websocket_sync_merges_browser_primary_with_file_fallback(self):

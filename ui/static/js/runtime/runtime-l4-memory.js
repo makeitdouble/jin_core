@@ -194,7 +194,22 @@
         return;
       }
 
-      storage.writeFactsMemory(record.signals, record.session_id);
+      const signals =
+        storage.writeFactsMemory(record.signals, record.session_id);
+
+      const removedFullyAnalyzedSnapshot =
+        storage.clearFactsMemorySessionIfFullyAnalyzed
+        && storage.clearFactsMemorySessionIfFullyAnalyzed(
+          record.session_id,
+          signals
+        );
+
+      if (
+          removedFullyAnalyzedSnapshot
+          && typeof window.refreshFactsMemoryAppendButtons === "function"
+      ) {
+        window.refreshFactsMemoryAppendButtons();
+      }
     });
 
     if (

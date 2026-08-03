@@ -1,6 +1,7 @@
 /* Переопределения интерфейса для темы Windows 95. */
 
 body.theme-win95 {
+    --settings-avatar-collapsed-height: calc(var(--runtime-avatar-panel-size) + 4px);
     --win95-face: #bbbabb;
     --win95-face-dark: #b8b8b8;
     --win95-face-soft: #d2d2d2;

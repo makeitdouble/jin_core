@@ -117,6 +117,21 @@ def format_delayed_memory_result_sections(
             )
             continue
 
+        if action == "update_delayed_memory":
+            sections.append(
+                (
+                    "UPDATE_DELAYED_MEMORY",
+                    (
+                        format_delayed_memory_failure_result
+                        if result.get("ok") is False
+                        else format_tool_result_payload
+                    )(
+                        result
+                    ),
+                )
+            )
+            continue
+
         if action == "save_delayed_memory_content":
             sections.append(
                 (

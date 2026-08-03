@@ -566,6 +566,7 @@ memoryView.init({
   setActiveMemoryRecords: writeActiveMemoryRecords,
   deleteRuntimeMemoryLine: deleteRuntimeMemoryLineAndRender,
   getDelayedMemoryReports: readDelayedMemoryReports,
+  setDelayedMemoryReportPinned,
   getFactsMemoryFields,
   deleteFactsMemoryField: deleteFactsMemoryFieldAndRender,
   getLongTermMemoryFacts: () => (
@@ -779,6 +780,50 @@ function removeActiveMemoryRecordByIdAndRender(
   renderRuntimeMemorySnapshot();
 
   return nextRecords;
+
+}
+
+
+function setDelayedMemoryReportPinned(
+  reportId,
+  pinned
+) {
+
+  const normalizedId =
+    String(reportId || "").trim().toLowerCase();
+  const reports =
+    readDelayedMemoryReports();
+  const report =
+    reports[normalizedId];
+
+  if (
+      !/^[a-z0-9]{6}$/.test(normalizedId)
+      || !report
+      || typeof report !== "object"
+      || Array.isArray(report)
+  ) {
+    return false;
+  }
+
+  reports[normalizedId] = {
+    ...report,
+    pinned: Boolean(pinned),
+    last_appended_date:
+      Boolean(pinned)
+        ? new Date().toISOString()
+        : String(report.last_appended_date || "").trim(),
+  };
+
+  writeDelayedMemoryReports(
+    reports
+  );
+  renderRuntimeMemorySnapshot();
+
+  if (typeof window.syncDelayedMemoryReportsToRuntime === "function") {
+    window.syncDelayedMemoryReportsToRuntime();
+  }
+
+  return true;
 
 }
 
@@ -1017,6 +1062,7 @@ window.JinRuntime.runtime = {
   appendActiveMemoryRecords: appendActiveMemoryRecordsAndRender,
   removeActiveMemoryRecordById: removeActiveMemoryRecordByIdAndRender,
   getDelayedMemoryReports: readDelayedMemoryReports,
+  setDelayedMemoryReportPinned,
   getFactsMemoryFields,
   deleteFactsMemoryField: deleteFactsMemoryFieldAndRender,
   getLongTermMemoryFacts() {
