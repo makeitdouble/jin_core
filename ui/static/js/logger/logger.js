@@ -297,10 +297,53 @@ function dismissLogAfterClear(
 const consolePanel = document.getElementById("console-panel");
     const consoleDragHandle = document.getElementById("console-drag-handle");
     const PANEL_VIEWPORT_GAP = 8;
+    const PANEL_DOCK_FREE = "free";
     const STARTUP_COLLAPSE_CLASS = "panel-startup-collapse-active";
     let startupCollapseClassTimer = null;
     let startupCollapseFrameId = null;
     let startupCollapsePreviousDuration = null;
+
+    function getDefaultPanelDock(panel) {
+        if (panel === consolePanel) {
+            return "left";
+        }
+
+        if (panel === memoryPanel) {
+            return "right";
+        }
+
+        return PANEL_DOCK_FREE;
+    }
+
+    function getPanelDock(panel) {
+        return (
+            panel.dataset.panelDock
+            || getDefaultPanelDock(panel)
+        );
+    }
+
+    function setPanelFreeDock(panel) {
+        panel.dataset.panelDock =
+            PANEL_DOCK_FREE;
+    }
+
+    function getPanelGapPixels(panel) {
+        const root =
+            panel.parentElement
+            || document.documentElement;
+
+        const rawGap =
+            getComputedStyle(root)
+                .getPropertyValue("--panel-gap")
+                .trim();
+
+        const parsedGap =
+            Number.parseFloat(rawGap);
+
+        return Number.isFinite(parsedGap)
+            ? parsedGap
+            : PANEL_VIEWPORT_GAP;
+    }
 
     function syncSceneShadeToPanelCollapse() {
         const root =
@@ -390,6 +433,8 @@ const consolePanel = document.getElementById("console-panel");
             panel.style.maxHeight =
                 collapsedHeight;
 
+            clampPanelGeometry(panel);
+
             return;
         }
 
@@ -418,6 +463,8 @@ const consolePanel = document.getElementById("console-panel");
             "maxHeight",
             "expandedMaxHeight"
         );
+
+        clampPanelGeometry(panel);
     }
 
     function restorePanelDimension(panel, styleName, datasetName) {
@@ -775,14 +822,49 @@ const consolePanel = document.getElementById("console-panel");
         );
     }
 
-    function clampPanelGeometry(panel) {
-        if (
-            !panel
-            || panel.classList.contains("panel-collapsed")
-        ) {
+    function clampDockedPanelGeometry(panel, dock) {
+        const parentRect =
+            panel.parentElement.getBoundingClientRect();
+
+        const panelRect =
+            panel.getBoundingClientRect();
+
+        const gap =
+            getPanelGapPixels(panel);
+
+        const nextTop =
+            gap;
+
+        panel.style.top =
+            `${nextTop}px`;
+
+        if (dock === "right") {
+            panel.style.left =
+                "auto";
+            panel.style.right =
+                `${gap}px`;
+        } else {
+            panel.style.left =
+                `${gap}px`;
+            panel.style.right =
+                "auto";
+        }
+
+        if (panel.classList.contains("panel-collapsed")) {
             return;
         }
 
+        const nextHeight =
+            Math.max(
+                0,
+                parentRect.height - nextTop - gap
+            );
+
+        panel.style.height =
+            `${nextHeight}px`;
+    }
+
+    function clampFreePanelGeometry(panel) {
         const parentRect =
             panel.parentElement.getBoundingClientRect();
 
@@ -821,6 +903,34 @@ const consolePanel = document.getElementById("console-panel");
                     maxLeft
                 )
             );
+
+        if (panel.classList.contains("panel-collapsed")) {
+            const maxTop =
+                Math.max(
+                    PANEL_VIEWPORT_GAP,
+                    parentRect.height - panelRect.height - PANEL_VIEWPORT_GAP
+                );
+
+            const nextTop =
+                Math.max(
+                    PANEL_VIEWPORT_GAP,
+                    Math.min(
+                        currentTop,
+                        maxTop
+                    )
+                );
+
+            panel.style.left =
+                `${nextLeft}px`;
+
+            panel.style.top =
+                `${nextTop}px`;
+
+            panel.style.right =
+                "auto";
+
+            return;
+        }
 
         const minHeight =
             Math.round(parentRect.height * 0.49);
@@ -866,6 +976,25 @@ const consolePanel = document.getElementById("console-panel");
 
         panel.style.height =
             `${nextHeight}px`;
+    }
+
+    function clampPanelGeometry(panel) {
+        if (!panel) {
+            return;
+        }
+
+        const dock =
+            getPanelDock(panel);
+
+        if (dock !== PANEL_DOCK_FREE) {
+            clampDockedPanelGeometry(
+                panel,
+                dock
+            );
+            return;
+        }
+
+        clampFreePanelGeometry(panel);
     }
 
     function clampAllPanelGeometry() {
@@ -975,6 +1104,9 @@ const consolePanel = document.getElementById("console-panel");
     let isConsoleDragging = false;
     let consoleOffsetX = 0;
     let consoleOffsetY = 0;
+    let consoleDragStartX = 0;
+    let consoleDragStartY = 0;
+    let consoleHasMoved = false;
 
     consoleDragHandle.addEventListener("mousedown", (event) => {
         if (event.detail > 1) {
@@ -987,6 +1119,9 @@ const consolePanel = document.getElementById("console-panel");
 
         consoleOffsetX = event.clientX - rect.left;
         consoleOffsetY = event.clientY - rect.top;
+        consoleDragStartX = event.clientX;
+        consoleDragStartY = event.clientY;
+        consoleHasMoved = false;
 
         consolePanel.style.right = "auto";
         consolePanel.style.bottom = "auto";
@@ -997,6 +1132,17 @@ const consolePanel = document.getElementById("console-panel");
 
     window.addEventListener("mousemove", (event) => {
         if (!isConsoleDragging) return;
+
+        if (
+            !consoleHasMoved
+            && (
+                Math.abs(event.clientX - consoleDragStartX) > 2
+                || Math.abs(event.clientY - consoleDragStartY) > 2
+            )
+        ) {
+            consoleHasMoved = true;
+            setPanelFreeDock(consolePanel);
+        }
 
         const parentRect = consolePanel.parentElement.getBoundingClientRect();
         const panelRect = consolePanel.getBoundingClientRect();
@@ -1061,6 +1207,9 @@ window.JinPanels =
 let isMemoryDragging = false;
 let memoryOffsetX = 0;
 let memoryOffsetY = 0;
+let memoryDragStartX = 0;
+let memoryDragStartY = 0;
+let memoryHasMoved = false;
 
 memoryDragHandle.addEventListener("mousedown", (event) => {
     if (event.detail > 1) {
@@ -1073,12 +1222,26 @@ memoryDragHandle.addEventListener("mousedown", (event) => {
 
     memoryOffsetX = event.clientX - rect.left;
     memoryOffsetY = event.clientY - rect.top;
+    memoryDragStartX = event.clientX;
+    memoryDragStartY = event.clientY;
+    memoryHasMoved = false;
 
     document.body.style.userSelect = "none";
 });
 
 window.addEventListener("mousemove", (event) => {
     if (!isMemoryDragging) return;
+
+    if (
+        !memoryHasMoved
+        && (
+            Math.abs(event.clientX - memoryDragStartX) > 2
+            || Math.abs(event.clientY - memoryDragStartY) > 2
+        )
+    ) {
+        memoryHasMoved = true;
+        setPanelFreeDock(memoryPanel);
+    }
 
     const parentRect = memoryPanel.parentElement.getBoundingClientRect();
     const panelRect = memoryPanel.getBoundingClientRect();
