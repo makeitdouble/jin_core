@@ -198,6 +198,9 @@ def normalize_l4_fact(
         "source_keys": normalize_l4_string_list(
             value.get("source_keys") or value.get("source_key")
         ),
+        "source_fact_ids": normalize_l4_string_list(
+            value.get("source_fact_ids") or value.get("source_fact_id")
+        ),
     }
 
 
@@ -222,6 +225,10 @@ def merge_same_l4_fact(existing: dict, incoming: dict, *, now: str) -> dict:
     result["source_keys"] = merge_l4_string_lists(
         existing.get("source_keys"),
         incoming.get("source_keys"),
+    )
+    result["source_fact_ids"] = merge_l4_string_lists(
+        existing.get("source_fact_ids"),
+        incoming.get("source_fact_ids"),
     )
     result["updated_at"] = now
     return result
@@ -249,6 +256,244 @@ def deduplicate_l4_facts(facts: list[dict], *, pending: bool, now: str) -> list[
         )
 
     return result
+
+
+def merge_l4_snapshot_fact(
+    existing: dict,
+    incoming: dict,
+    *,
+    pending: bool,
+    now: str,
+) -> dict:
+
+    existing_fact = normalize_l4_fact(
+        existing,
+        pending=pending,
+        now=now,
+    )
+    incoming_fact = normalize_l4_fact(
+        incoming,
+        pending=pending,
+        now=now,
+    )
+
+    if existing_fact is None:
+        return incoming_fact or {}
+    if incoming_fact is None:
+        return existing_fact
+
+    existing_updated_at = normalize_l4_text(
+        existing_fact.get("updated_at")
+    )
+    incoming_updated_at = normalize_l4_text(
+        incoming_fact.get("updated_at")
+    )
+    prefer_incoming = incoming_updated_at > existing_updated_at
+    base = incoming_fact if prefer_incoming else existing_fact
+    existing_id = normalize_l4_text(
+        existing_fact.get("id")
+    )
+    incoming_id = normalize_l4_text(
+        incoming_fact.get("id")
+    )
+
+    merged = {
+        **base,
+        "id": existing_id or incoming_id,
+        "confidence": max(
+            clamp_float(existing_fact.get("confidence"), default=1.0),
+            clamp_float(incoming_fact.get("confidence"), default=1.0),
+        ),
+        "mention_count": max(
+            max(1, int(existing_fact.get("mention_count") or 1)),
+            max(1, int(incoming_fact.get("mention_count") or 1)),
+        ),
+        "created_at": (
+            existing_fact.get("created_at")
+            or incoming_fact.get("created_at")
+            or now
+        ),
+        "updated_at": (
+            max(
+                existing_updated_at,
+                incoming_updated_at,
+            )
+            or now
+        ),
+        "source_session_ids": merge_l4_string_lists(
+            existing_fact.get("source_session_ids"),
+            incoming_fact.get("source_session_ids"),
+        ),
+        "source_runtime_snapshot_ids": merge_l4_string_lists(
+            existing_fact.get("source_runtime_snapshot_ids"),
+            incoming_fact.get("source_runtime_snapshot_ids"),
+        ),
+        "source_keys": merge_l4_string_lists(
+            existing_fact.get("source_keys"),
+            incoming_fact.get("source_keys"),
+        ),
+        "source_fact_ids": merge_l4_string_lists(
+            existing_fact.get("source_fact_ids"),
+            incoming_fact.get("source_fact_ids"),
+            [incoming_id] if incoming_id and incoming_id != existing_id else [],
+        ),
+    }
+
+    normalized = normalize_l4_fact(
+        merged,
+        pending=pending,
+        now=now,
+    )
+    return normalized or existing_fact
+
+
+def merge_l4_snapshot_fact_lists(
+    existing_facts,
+    incoming_facts,
+    *,
+    pending: bool,
+    now: str,
+) -> tuple[list[dict], bool]:
+
+    normalized_existing = deduplicate_l4_facts(
+        existing_facts if isinstance(existing_facts, list) else [],
+        pending=pending,
+        now=now,
+    )
+    original = deepcopy(
+        normalized_existing
+    )
+
+    facts = []
+    for fact in normalized_existing:
+        existing_index = next(
+            (
+                index
+                for index, existing_fact in enumerate(facts)
+                if existing_fact.get("key") == fact.get("key")
+            ),
+            None,
+        )
+        if existing_index is None:
+            facts.append(
+                dict(fact)
+            )
+            continue
+
+        facts[existing_index] = merge_l4_snapshot_fact(
+            facts[existing_index],
+            fact,
+            pending=pending,
+            now=now,
+        )
+
+    by_id = {
+        fact["id"]: index
+        for index, fact in enumerate(facts)
+    }
+    by_key = {
+        fact["key"]: index
+        for index, fact in enumerate(facts)
+    }
+
+    incoming = deduplicate_l4_facts(
+        incoming_facts if isinstance(incoming_facts, list) else [],
+        pending=pending,
+        now=now,
+    )
+
+    for fact in incoming:
+        existing_index = by_id.get(
+            fact["id"]
+        )
+        if existing_index is None:
+            existing_index = by_key.get(
+                fact["key"]
+            )
+
+        if existing_index is None:
+            by_id[fact["id"]] = len(facts)
+            by_key[fact["key"]] = len(facts)
+            facts.append(
+                fact
+            )
+            continue
+
+        merged = merge_l4_snapshot_fact(
+            facts[existing_index],
+            fact,
+            pending=pending,
+            now=now,
+        )
+        previous_id = facts[existing_index]["id"]
+        previous_key = facts[existing_index]["key"]
+        facts[existing_index] = merged
+        by_id.pop(
+            previous_id,
+            None,
+        )
+        by_key.pop(
+            previous_key,
+            None,
+        )
+        by_id[merged["id"]] = existing_index
+        by_key[merged["key"]] = existing_index
+
+    return facts, facts != original
+
+
+def merge_l4_store_snapshots(
+    primary_store,
+    incoming_store,
+    *,
+    now: str | None = None,
+) -> tuple[dict, dict]:
+
+    current_time = now or utc_now_iso()
+    primary = normalize_l4_store(
+        primary_store,
+        now=current_time,
+    )
+    incoming = normalize_l4_store(
+        incoming_store,
+        now=current_time,
+    )
+
+    facts, facts_changed = merge_l4_snapshot_fact_lists(
+        primary.get("facts"),
+        incoming.get("facts"),
+        pending=False,
+        now=current_time,
+    )
+    pending_facts, pending_changed = merge_l4_snapshot_fact_lists(
+        primary.get("pending_facts"),
+        incoming.get("pending_facts"),
+        pending=True,
+        now=current_time,
+    )
+    changed = bool(
+        facts_changed
+        or pending_changed
+    )
+
+    merged = {
+        **primary,
+        "facts": facts,
+        "pending_facts": pending_facts,
+    }
+
+    if changed:
+        merged["revision"] = max(
+            int(primary.get("revision") or 0),
+            int(incoming.get("revision") or 0),
+        ) + 1
+        merged["updated_at"] = current_time
+
+    return merged, {
+        "changed": changed,
+        "facts_count": len(facts),
+        "pending_count": len(pending_facts),
+    }
 
 
 def empty_l4_store(*, now: str | None = None) -> dict:
@@ -797,6 +1042,7 @@ def format_l4_fact_metadata_suffixes(fact: dict) -> list[str]:
         "source_session_ids",
         "source_runtime_snapshot_ids",
         "source_keys",
+        "source_fact_ids",
         "created_at",
         "updated_at",
     ):

@@ -2363,6 +2363,7 @@
       "source_session_ids",
       "source_runtime_snapshot_ids",
       "source_keys",
+      "source_fact_ids",
       "created_at",
       "updated_at",
     ].forEach((key) => {

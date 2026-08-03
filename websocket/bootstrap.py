@@ -1472,6 +1472,17 @@ async def initialize_connection(
         context
     )
 
+    from runtime.L4_memory import (
+        emit_l4_memory_update,
+    )
+
+    await emit_l4_memory_update(
+        context,
+        change={
+            "source": "file_bootstrap",
+        },
+    )
+
     if skip_initial_runtime_state:
         await context.logger.log_system(
             "[WS] soft reconnect: initial runtime state skipped"

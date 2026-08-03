@@ -19,6 +19,7 @@ from runtime.L4_memory_utils import (
     extract_l4_json_payload,
     format_long_term_memory_context,
     mark_facts_memory_fields_analyzed,
+    merge_l4_store_snapshots,
     normalize_facts_memory_records,
     normalize_l4_candidates,
     normalize_l4_merge_operations,
@@ -26,6 +27,10 @@ from runtime.L4_memory_utils import (
 )
 from utils.actions.save_delayed_memory_utils import (
     collect_long_term_fact_ids_from_reports,
+)
+from utils.long_term_facts_file_store import (
+    load_long_term_facts_store,
+    persist_long_term_facts_store,
 )
 from runtime.memory_common import (
     build_memory_failure_details,
@@ -55,6 +60,115 @@ def get_l4_idle_seconds() -> int:
     )
 
 
+def runtime_l4_file_store_enabled(context) -> bool:
+
+    explicit = getattr(
+        context,
+        "runtime_l4_file_store_enabled",
+        None,
+    )
+    if explicit is not None:
+        return bool(
+            explicit
+        )
+
+    return getattr(
+        context,
+        "websocket",
+        None,
+    ) is not None
+
+
+def get_runtime_l4_file_store_root(context):
+
+    return getattr(
+        context,
+        "runtime_l4_file_store_root",
+        None,
+    )
+
+
+def load_runtime_l4_file_store(context) -> dict:
+
+    root = get_runtime_l4_file_store_root(
+        context,
+    )
+
+    if root is None:
+        store, _warnings = load_long_term_facts_store()
+    else:
+        store, _warnings = load_long_term_facts_store(
+            root=root,
+        )
+
+    return store
+
+
+def persist_runtime_l4_file_store(context, store) -> None:
+
+    if not runtime_l4_file_store_enabled(
+        context,
+    ):
+        return
+
+    root = get_runtime_l4_file_store_root(
+        context,
+    )
+
+    if root is None:
+        persist_long_term_facts_store(
+            store,
+        )
+        return
+
+    persist_long_term_facts_store(
+        store,
+        root=root,
+    )
+
+
+def merge_with_runtime_l4_file_store(context, store) -> tuple[dict, bool]:
+
+    if not runtime_l4_file_store_enabled(
+        context,
+    ):
+        return normalize_l4_store(
+            store,
+        ), False
+
+    file_store = load_runtime_l4_file_store(
+        context,
+    )
+    merged, change = merge_l4_store_snapshots(
+        file_store,
+        store,
+    )
+
+    if change.get(
+        "changed",
+    ):
+        persist_runtime_l4_file_store(
+            context,
+            merged,
+        )
+
+    return merged, bool(
+        change.get(
+            "changed",
+        )
+    )
+
+
+def set_runtime_l4_state(context, store) -> dict:
+
+    merged, _changed = merge_with_runtime_l4_file_store(
+        context,
+        store,
+    )
+    context.runtime_long_term_memory_store = merged
+    return merged
+
+
 def refresh_runtime_l4_archived_fact_ids(
     context,
 ) -> set[str]:
@@ -76,8 +190,12 @@ def ensure_runtime_l4_state(context) -> dict:
     context.runtime_facts_memory_records = normalize_facts_memory_records(
         getattr(context, "runtime_facts_memory_records", [])
     )
-    context.runtime_long_term_memory_store = normalize_l4_store(
+    normalized_store = normalize_l4_store(
         getattr(context, "runtime_long_term_memory_store", None)
+    )
+    context.runtime_long_term_memory_store = set_runtime_l4_state(
+        context,
+        normalized_store,
     )
     return context.runtime_long_term_memory_store
 
@@ -95,17 +213,24 @@ def apply_facts_memory_store_sync(context, raw_records) -> dict:
 def apply_l4_memory_store_sync(context, raw_store) -> bool:
     incoming = normalize_l4_store(raw_store)
     current = ensure_runtime_l4_state(context)
-    incoming_revision = int(incoming.get("revision") or 0)
-    current_revision = int(current.get("revision") or 0)
-    current_has_data = bool(current.get("facts") or current.get("pending_facts"))
+    merged, change = merge_l4_store_snapshots(
+        current,
+        incoming,
+    )
+    changed = bool(
+        change.get(
+            "changed",
+        )
+    )
+    context.runtime_long_term_memory_store = merged
 
-    if incoming_revision < current_revision:
-        return False
-    if current_has_data and incoming_revision == current_revision and incoming != current:
-        return False
+    if changed:
+        persist_runtime_l4_file_store(
+            context,
+            merged,
+        )
 
-    context.runtime_long_term_memory_store = incoming
-    return True
+    return changed
 
 
 async def emit_facts_memory_store_update(context) -> None:
@@ -222,6 +347,10 @@ async def run_l4_extraction_phase(
         candidates,
     )
     context.runtime_long_term_memory_store = store
+    persist_runtime_l4_file_store(
+        context,
+        store,
+    )
 
     records, records_changed = mark_facts_memory_fields_analyzed(
         getattr(context, "runtime_facts_memory_records", []),
@@ -284,6 +413,10 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
         }
 
     context.runtime_long_term_memory_store = next_store
+    persist_runtime_l4_file_store(
+        context,
+        next_store,
+    )
     await emit_l4_memory_update(context, change=merge_change)
 
     return {
@@ -384,6 +517,45 @@ def schedule_l4_memory_idle_update(
     return task
 
 
+def l4_fact_matches_archived_ids(
+    fact: dict,
+    archived_fact_ids: set[str],
+) -> bool:
+
+    if not archived_fact_ids:
+        return False
+
+    candidate_ids = [
+        fact.get(
+            "id",
+            "",
+        ),
+        *(
+            fact.get(
+                "source_fact_ids",
+                [],
+            )
+            if isinstance(
+                fact.get(
+                    "source_fact_ids",
+                    [],
+                ),
+                list,
+            )
+            else []
+        ),
+    ]
+
+    return any(
+        str(
+            candidate_id
+            or ""
+        ).strip().casefold()
+        in archived_fact_ids
+        for candidate_id in candidate_ids
+    )
+
+
 def build_runtime_l4_memory_context(*, context) -> str:
     if not l4_memory_enabled():
         return ""
@@ -395,14 +567,10 @@ def build_runtime_l4_memory_context(*, context) -> str:
     active_facts = [
         fact
         for fact in store.get("facts") or []
-        if str(
-            fact.get(
-                "id",
-                "",
-            )
-            or ""
-        ).strip().casefold()
-        not in archived_fact_ids
+        if not l4_fact_matches_archived_ids(
+            fact,
+            archived_fact_ids,
+        )
     ]
     return format_long_term_memory_context(
         active_facts
@@ -418,6 +586,10 @@ async def delete_l4_memory_fact(context, fact_id: str) -> bool:
         return False
 
     context.runtime_long_term_memory_store = store
+    persist_runtime_l4_file_store(
+        context,
+        store,
+    )
     await log_memory_event(
         context,
         level=L4_LOG_LEVEL,

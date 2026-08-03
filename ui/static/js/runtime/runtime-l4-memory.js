@@ -83,6 +83,9 @@
         value.source_runtime_snapshot_ids || value.source_runtime_snapshot_id
       ),
       source_keys: normalizeList(value.source_keys),
+      source_fact_ids: normalizeList(
+        value.source_fact_ids || value.source_fact_id
+      ),
     };
   }
 
@@ -128,6 +131,17 @@
   function readStore() {
     return normalizeStore(
       storage.readBrowserMemory(longTermFactsStorageKey)
+    );
+  }
+
+  function countStoreItems(store) {
+    return (
+      (Array.isArray(store && store.facts) ? store.facts.length : 0)
+      + (
+        Array.isArray(store && store.pending_facts)
+          ? store.pending_facts.length
+          : 0
+      )
     );
   }
 
@@ -225,6 +239,13 @@
     const local = readStore();
 
     if (incoming.revision < local.revision) {
+      return local;
+    }
+
+    if (
+      incoming.revision === local.revision
+      && countStoreItems(local) > countStoreItems(incoming)
+    ) {
       return local;
     }
 

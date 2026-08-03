@@ -1,8 +1,11 @@
 import json
+import tempfile
 import unittest
 
 from runtime.L4_memory import (
+    apply_l4_memory_store_sync,
     build_runtime_l4_memory_context,
+    ensure_runtime_l4_state,
     maybe_update_runtime_l4_memory,
 )
 from runtime.L4_memory_utils import (
@@ -14,6 +17,7 @@ from runtime.L4_memory_utils import (
     format_l4_fact_line,
     format_long_term_memory_context,
     mark_facts_memory_fields_analyzed,
+    merge_l4_store_snapshots,
     normalize_facts_memory_records,
     normalize_l4_candidates,
     normalize_l4_merge_operations,
@@ -25,6 +29,10 @@ from tests.helpers.memory import FakeLogger, FakeServiceClient
 from utils.actions import RuntimeActionCall
 from utils.actions.delayed_memory_actions import (
     apply_save_delayed_memory_actions,
+)
+from utils.long_term_facts_file_store import (
+    load_long_term_facts_store,
+    persist_long_term_facts_store,
 )
 
 
@@ -129,6 +137,99 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             ["runtime_001"],
         )
         self.assertEqual(candidates[0]["source_keys"], ["gpu"])
+
+    def test_file_store_fallback_survives_empty_browser_sync(self):
+        with tempfile.TemporaryDirectory() as directory:
+            persisted_store = normalize_l4_store({
+                "revision": 4,
+                "facts": [
+                    {
+                        "id": "l4_saved",
+                        "key": "user.identity",
+                        "value": "Sergey",
+                        "source_session_ids": ["session-normal"],
+                    },
+                ],
+            })
+            persist_long_term_facts_store(
+                persisted_store,
+                root=directory,
+            )
+
+            context = RuntimeContext(
+                websocket=None,
+                emitter=FakeEmitter(),
+                logger=None,
+                clients={},
+            )
+            context.runtime_l4_file_store_enabled = True
+            context.runtime_l4_file_store_root = directory
+
+            loaded = ensure_runtime_l4_state(
+                context,
+            )
+            self.assertEqual(len(loaded["facts"]), 1)
+
+            changed = apply_l4_memory_store_sync(
+                context,
+                {
+                    "revision": 99,
+                    "facts": [],
+                    "pending_facts": [],
+                },
+            )
+            stored, warnings = load_long_term_facts_store(
+                root=directory,
+            )
+
+            self.assertFalse(changed)
+            self.assertEqual(warnings, [])
+            self.assertEqual(len(stored["facts"]), 1)
+            self.assertEqual(stored["facts"][0]["key"], "user.identity")
+
+    def test_store_snapshot_merge_keeps_one_fact_per_key_with_sources(self):
+        merged, change = merge_l4_store_snapshots(
+            {
+                "revision": 4,
+                "facts": [
+                    {
+                        "id": "l4_existing",
+                        "key": "relationship.association",
+                        "value": "Anya is associated with known cohabitation data.",
+                        "updated_at": "2026-08-03T18:15:34Z",
+                        "source_session_ids": ["session-a"],
+                    },
+                ],
+            },
+            {
+                "revision": 4,
+                "facts": [
+                    {
+                        "id": "l4_incoming",
+                        "key": "relationship.association",
+                        "value": "Anya is associated with newer relationship context.",
+                        "updated_at": "2026-08-03T18:20:00Z",
+                        "source_session_ids": ["session-b"],
+                    },
+                ],
+            },
+            now="2026-08-03T18:21:00Z",
+        )
+
+        self.assertTrue(change["changed"])
+        self.assertEqual(len(merged["facts"]), 1)
+        self.assertEqual(
+            merged["facts"][0]["value"],
+            "Anya is associated with newer relationship context.",
+        )
+        self.assertEqual(
+            merged["facts"][0]["source_session_ids"],
+            ["session-a", "session-b"],
+        )
+        self.assertEqual(
+            merged["facts"][0]["source_fact_ids"],
+            ["l4_incoming"],
+        )
 
     def test_pending_candidates_accumulate_without_touching_final_memory(self):
         store = normalize_l4_store({
@@ -348,6 +449,57 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 ]
             ),
             2,
+        )
+
+    def test_delayed_report_fact_ids_hide_merged_source_fact_ids_only_from_context(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=None,
+            logger=None,
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_l4_store({
+            "facts": [
+                {
+                    "id": "l4_current",
+                    "key": "relationship.association",
+                    "value": "Anya is associated with known cohabitation data.",
+                    "source_fact_ids": [
+                        "l4_archived_source",
+                    ],
+                },
+            ],
+        })
+        context.delayed_memory_reports = {
+            "abc123": {
+                "title": "Social context",
+                "long_term_facts_ids": [
+                    "l4_archived_source",
+                ],
+            },
+        }
+
+        self.assertEqual(
+            build_runtime_l4_memory_context(
+                context=context,
+            ),
+            "",
+        )
+        self.assertEqual(
+            len(
+                context.runtime_long_term_memory_store[
+                    "facts"
+                ]
+            ),
+            1,
+        )
+        self.assertEqual(
+            context.runtime_long_term_memory_store[
+                "facts"
+            ][0][
+                "id"
+            ],
+            "l4_current",
         )
 
 
