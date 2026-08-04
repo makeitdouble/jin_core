@@ -277,15 +277,6 @@ async def websocket_endpoint(
                 file_errors = persist_delayed_memory_reports(
                     reports
                 )
-                report_count = len(
-                    reports
-                )
-                await logger.log_system(
-                    (
-                        "[WS] delayed memory store synced "
-                        f"({report_count} reports)"
-                    )
-                )
                 for file_error in file_errors:
                     await logger.log_system(
                         "[DELAYED MEMORY] local file save failed: "

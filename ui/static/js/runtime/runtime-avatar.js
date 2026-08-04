@@ -8,8 +8,33 @@
   const THINK_RUNTIME_CITATION_HOVER_EVENT = "jin:think-runtime-citation-hover";
 
   const CENTER = 180;
-  const MIN_RING_RADIUS = 48;
-  const MAX_RING_RADIUS = 160;
+  const INNER_RING_SCALE = 0.90;
+  const MIN_RING_RADIUS = 48 * INNER_RING_SCALE;
+  const MAX_RING_RADIUS = 160 * INNER_RING_SCALE;
+  const INNER_DECORATION_MAX_RADIUS = 151;
+  const STATIC_SCAFFOLD_RADII =
+    [42, 61, 83, 108, 135, 162]
+      .map(radius => radius * INNER_RING_SCALE);
+  const STATIC_RADIAL_LINE_INNER_RADIUS = 38 * INNER_RING_SCALE;
+  const STATIC_RADIAL_LINE_OUTER_RADIUS = 166 * INNER_RING_SCALE;
+  const MEMORY_RING_LAYOUT = Object.freeze({
+    delayed: Object.freeze({
+      radius: 158,
+      strokeWidth: 1.05,
+      minArcDegrees: 3.2,
+      maxArcDegrees: 8.8,
+      arcRatio: 0.42,
+      startAngle: -6,
+    }),
+    active: Object.freeze({
+      radius: 169,
+      strokeWidth: 1.35,
+      minArcDegrees: 3.8,
+      maxArcDegrees: 10.8,
+      arcRatio: 0.48,
+      startAngle: -9,
+    }),
+  });
   const SNAPSHOT_GLOW_CLEAR_DELAY_MS = 360;
   const CENTER_COLOR_STEP_MS = 120;
 
@@ -39,6 +64,9 @@
   const DEFAULT_CENTER_COLOR = "#1f4f8f";
   const ACCENT_RING_COLOR = "#5be8df";
   const AMBER_ACCENT = "#e3a64e";
+  const ACTIVE_MEMORY_RING_COLOR = "#d7fff9";
+  const DELAYED_MEMORY_RING_COLOR = "#7ab8d8";
+  const PINNED_DELAYED_MEMORY_RING_COLOR = "#efffff";
 
   const avatarRoot = document.getElementById("jin-runtime-avatar");
   const factCheckTrigger = document.getElementById("fact-check-trigger");
@@ -426,6 +454,376 @@
     };
   }
 
+  function describeArcPath(radius, startAngle, endAngle) {
+    const start = polarPoint(radius, startAngle);
+    const end = polarPoint(radius, endAngle);
+    const arcDegrees = Math.abs(endAngle - startAngle);
+
+    return [
+      `M ${start.x.toFixed(3)} ${start.y.toFixed(3)}`,
+      `A ${radius.toFixed(3)} ${radius.toFixed(3)} 0 ${arcDegrees > 180 ? 1 : 0} 1`,
+      `${end.x.toFixed(3)} ${end.y.toFixed(3)}`,
+    ].join(" ");
+  }
+
+  function getRuntimeApi() {
+    return window.JinRuntime && window.JinRuntime.runtime
+      ? window.JinRuntime.runtime
+      : null;
+  }
+
+  function getActiveMemoryAvatarRecords() {
+    const runtime = getRuntimeApi();
+    const records =
+      runtime && typeof runtime.getActiveMemoryRecords === "function"
+        ? runtime.getActiveMemoryRecords()
+        : [];
+
+    return (Array.isArray(records) ? records : [])
+      .map((record, index) => {
+        const text = String(record || "").trim();
+
+        if (!text) {
+          return null;
+        }
+
+        const parsed = parseRawMemory(text)[0] || {
+          key: `active_memory_${index + 1}`,
+          value: text,
+        };
+        const key =
+          String(parsed.key || `active_memory_${index + 1}`).trim();
+        const value =
+          String(parsed.value || text).trim();
+        const lineText =
+          `${key}: ${value}`.trim();
+
+        if (!lineText) {
+          return null;
+        }
+
+        return {
+          index,
+          key,
+          value,
+          text: lineText,
+          citationText:
+            normalizeRuntimeCitationIdentity(lineText),
+        };
+      })
+      .filter(record => record && record.citationText);
+  }
+
+  function getDelayedMemoryAvatarRecords() {
+    const runtime = getRuntimeApi();
+    const reports =
+      runtime && typeof runtime.getDelayedMemoryReports === "function"
+        ? runtime.getDelayedMemoryReports()
+        : {};
+
+    if (
+      !reports
+      || typeof reports !== "object"
+      || Array.isArray(reports)
+    ) {
+      return [];
+    }
+
+    return Object.entries(reports)
+      .map(([key, report]) => {
+        if (
+          !report
+          || typeof report !== "object"
+          || Array.isArray(report)
+        ) {
+          return null;
+        }
+
+        const id =
+          String(key || "").trim().toLowerCase();
+        const title =
+          String(report.title || "").trim();
+        const summary =
+          String(report.summary || "").trim();
+
+        if (!id || !title) {
+          return null;
+        }
+
+        return {
+          id,
+          title,
+          summary,
+          pinned: Boolean(report.pinned),
+        };
+      })
+      .filter(Boolean)
+      .sort((left, right) => {
+        return String(left.id || "").localeCompare(
+          String(right.id || "")
+        );
+      });
+  }
+
+  function appendMemoryDashSegment(parent, layout, options) {
+    const arcDegrees =
+      clamp(
+        options.arcDegrees,
+        layout.minArcDegrees,
+        layout.maxArcDegrees
+      );
+    const startAngle = options.angle - arcDegrees / 2;
+    const endAngle = options.angle + arcDegrees / 2;
+    const color = options.color;
+    const glowColor = options.glowColor || color;
+    const classNames = [
+      "jin-avatar-memory-dash",
+      `jin-avatar-memory-dash-${options.kind}`,
+    ];
+
+    if (options.pinned) {
+      classNames.push("is-memory-pinned");
+    }
+
+    const dashGroup = createSvgElement("g", {
+      class: classNames.join(" "),
+      "data-runtime-line-key": options.citationKey || null,
+      "data-runtime-line-text": options.citationText || null,
+      "data-delayed-memory-id": options.delayedMemoryId || null,
+    });
+
+    setMemoryDashGlowVariables(
+      dashGroup,
+      glowColor,
+      layout.strokeWidth + 0.75
+    );
+
+    appendTitle(
+      dashGroup,
+      options.title
+    );
+
+    dashGroup.appendChild(createSvgElement("path", {
+      d: describeArcPath(layout.radius, startAngle, endAngle),
+      fill: "none",
+      stroke: color,
+      "stroke-width": layout.strokeWidth,
+      "stroke-opacity": options.opacity,
+      "stroke-linecap": "round",
+    }));
+
+    parent.appendChild(dashGroup);
+  }
+
+  function setMemoryDashGlowVariables(dashGroup, glowColor, hoverWidth) {
+    const glowRgb = hexToRgb(glowColor);
+
+    dashGroup.style.setProperty(
+      "--jin-avatar-memory-glow-near",
+      `rgba(${glowRgb.r},${glowRgb.g},${glowRgb.b},0.92)`
+    );
+    dashGroup.style.setProperty(
+      "--jin-avatar-memory-glow-mid",
+      `rgba(${glowRgb.r},${glowRgb.g},${glowRgb.b},0.54)`
+    );
+    dashGroup.style.setProperty(
+      "--jin-avatar-memory-glow-far",
+      `rgba(${glowRgb.r},${glowRgb.g},${glowRgb.b},0.24)`
+    );
+    dashGroup.style.setProperty(
+      "--jin-avatar-memory-hover-width",
+      `${Number(hoverWidth || 2).toFixed(2)}px`
+    );
+  }
+
+  function getMemoryRingAnimation(records, kind) {
+    const seedText = records
+      .map(record => (
+        kind === "active"
+          ? record.text
+          : record.id
+      ))
+      .join("|");
+    const random =
+      createRandom(`memory-ring:${kind}:${seedText}`);
+    const baseDuration =
+      kind === "active"
+        ? 38
+        : 54;
+    const durationSpread =
+      kind === "active"
+        ? 72
+        : 112;
+
+    return {
+      duration: baseDuration + random() * durationSpread,
+      direction: random() > 0.5 ? "normal" : "reverse",
+    };
+  }
+
+  function appendMemorySignalRing(svg, records, layout, kind, overallColor) {
+    if (!records.length) {
+      return;
+    }
+
+    const animation =
+      getMemoryRingAnimation(records, kind);
+    const ring = createSvgElement("g", {
+      class: [
+        "jin-avatar-memory-ring",
+        `jin-avatar-memory-ring-${kind}`,
+        "jin-avatar-orbit",
+      ].join(" "),
+      fill: "none",
+      "pointer-events": "none",
+      style: [
+        `--jin-avatar-duration:${animation.duration.toFixed(2)}s`,
+        `--jin-avatar-direction:${animation.direction}`,
+        "--jin-avatar-play-state:running",
+      ].join(";"),
+    });
+    const slotDegrees = 360 / records.length;
+    const arcDegrees =
+      clamp(
+        slotDegrees * layout.arcRatio,
+        layout.minArcDegrees,
+        layout.maxArcDegrees
+      );
+
+    records.forEach((record, index) => {
+      const angle = layout.startAngle + slotDegrees * index;
+
+      if (kind === "active") {
+        const color =
+          mixColors(
+            ACTIVE_MEMORY_RING_COLOR,
+            overallColor,
+            0.18
+          );
+
+        appendMemoryDashSegment(
+          ring,
+          layout,
+          {
+            kind,
+            angle,
+            arcDegrees,
+            color,
+            glowColor: ACTIVE_MEMORY_RING_COLOR,
+            opacity: 0.76,
+            citationText: record.citationText,
+            title: `Active memory ${index + 1}: ${record.value || record.text}`,
+          }
+        );
+        return;
+      }
+
+      const pinned = Boolean(record.pinned);
+      const color = pinned
+        ? PINNED_DELAYED_MEMORY_RING_COLOR
+        : mixColors(DELAYED_MEMORY_RING_COLOR, overallColor, 0.12);
+
+      appendMemoryDashSegment(
+        ring,
+        layout,
+        {
+          kind,
+          angle,
+          arcDegrees,
+          color,
+          glowColor: pinned
+            ? PINNED_DELAYED_MEMORY_RING_COLOR
+            : color,
+          opacity: pinned ? 0.82 : 0.36,
+          pinned,
+          citationKey:
+            normalizeRuntimeCitationIdentity(record.id),
+          delayedMemoryId: record.id,
+          title: `${record.title}${record.summary ? `: ${record.summary}` : ""}`,
+        }
+      );
+    });
+
+    svg.appendChild(ring);
+  }
+
+  function setDelayedMemoryDashPinned(reportId, pinned) {
+    const delayedMemoryId =
+      String(reportId || "").trim().toLowerCase();
+
+    if (!/^[a-z0-9]{6}$/.test(delayedMemoryId)) {
+      return false;
+    }
+
+    const dashGroup =
+      avatarRoot.querySelector(
+        `.jin-avatar-memory-dash-delayed[data-delayed-memory-id="${delayedMemoryId}"]`
+      );
+
+    if (!dashGroup) {
+      return false;
+    }
+
+    const path =
+      dashGroup.querySelector("path");
+    const overallColor =
+      avatarRoot.style.getPropertyValue("--jin-avatar-overall-color").trim()
+      || DEFAULT_RING_COLOR;
+    const nextPinned =
+      Boolean(pinned);
+    const nextColor =
+      nextPinned
+        ? PINNED_DELAYED_MEMORY_RING_COLOR
+        : mixColors(DELAYED_MEMORY_RING_COLOR, overallColor, 0.12);
+
+    dashGroup.classList.toggle(
+      "is-memory-pinned",
+      nextPinned
+    );
+    setMemoryDashGlowVariables(
+      dashGroup,
+      nextPinned
+        ? PINNED_DELAYED_MEMORY_RING_COLOR
+        : nextColor,
+      MEMORY_RING_LAYOUT.delayed.strokeWidth + 0.75
+    );
+
+    if (path) {
+      path.setAttribute(
+        "stroke",
+        nextColor
+      );
+      path.setAttribute(
+        "stroke-opacity",
+        nextPinned ? "0.82" : "0.36"
+      );
+    }
+
+    return true;
+  }
+
+  function appendMemorySignalRings(
+    svg,
+    activeMemoryRecords,
+    delayedMemoryRecords,
+    overallColor
+  ) {
+    appendMemorySignalRing(
+      svg,
+      delayedMemoryRecords,
+      MEMORY_RING_LAYOUT.delayed,
+      "delayed",
+      overallColor
+    );
+    appendMemorySignalRing(
+      svg,
+      activeMemoryRecords,
+      MEMORY_RING_LAYOUT.active,
+      "active",
+      overallColor
+    );
+  }
+
   function appendDefs(svg, overallColor, currentCenterColor) {
     const defs = createSvgElement("defs");
 
@@ -534,7 +932,7 @@
       fill: "url(#jin-avatar-halo)",
     }));
 
-    [42, 61, 83, 108, 135, 162].forEach((radius, index) => {
+    STATIC_SCAFFOLD_RADII.forEach((radius, index) => {
       scaffold.appendChild(createSvgElement("circle", {
         cx: CENTER,
         cy: CENTER,
@@ -548,8 +946,8 @@
 
     for (let index = 0; index < 16; index += 1) {
       const angle = index * 22.5 + (random() - 0.5) * 2;
-      const inner = polarPoint(38, angle);
-      const outer = polarPoint(166, angle);
+      const inner = polarPoint(STATIC_RADIAL_LINE_INNER_RADIUS, angle);
+      const outer = polarPoint(STATIC_RADIAL_LINE_OUTER_RADIUS, angle);
 
       scaffold.appendChild(createSvgElement("line", {
         x1: inner.x,
@@ -594,7 +992,10 @@
       const ratio = stripeCount <= 1 ? 0 : index / (stripeCount - 1);
       const angle = startAngle + arcSpan * ratio;
       const innerRadius = record.radius - 1.5;
-      const outerRadius = record.radius + stripeHeight * (0.55 + random() * 0.45);
+      const outerRadius = Math.min(
+        INNER_DECORATION_MAX_RADIUS,
+        record.radius + stripeHeight * (0.55 + random() * 0.45)
+      );
       const inner = polarPoint(innerRadius, angle);
       const outer = polarPoint(outerRadius, angle);
 
@@ -630,7 +1031,12 @@
 
     for (let index = 0; index < nodeCount; index += 1) {
       const angle = startAngle + index * (15 + random() * 24);
-      const nodeRadius = record.radius + (random() - 0.5) * 8;
+      const nodeRadius =
+        clamp(
+          record.radius + (random() - 0.5) * 8,
+          MIN_RING_RADIUS,
+          INNER_DECORATION_MAX_RADIUS - 6
+        );
       const point = polarPoint(nodeRadius, angle);
       const color = PENDING_NODE_PALETTE[index % PENDING_NODE_PALETTE.length];
 
@@ -891,7 +1297,7 @@
 
     Array.from(
       svg.querySelectorAll(
-        ".jin-avatar-orbit[data-runtime-line-key], .jin-avatar-counter-orbit[data-runtime-line-key]"
+        ".jin-avatar-orbit[data-runtime-line-key], .jin-avatar-counter-orbit[data-runtime-line-key], .jin-avatar-memory-dash"
       )
     ).forEach((orbitGroup) => {
       const lineKey =
@@ -913,12 +1319,19 @@
     });
   }
 
-  function buildRenderSignature(snapshot, lines) {
+  function buildRenderSignature(
+    snapshot,
+    lines,
+    activeMemoryRecords = [],
+    delayedMemoryRecords = []
+  ) {
     return [
       snapshot && snapshot.runtime_memory_id,
       snapshot && snapshot.index,
       snapshot && snapshot.total_diff,
       lines.map(line => [line.key, line.value, line.status, line.key_status, line.value_status].join("␟")).join("␞"),
+      activeMemoryRecords.map(record => record.text).join("␞"),
+      delayedMemoryRecords.map(record => [record.id, record.title, record.summary, record.pinned].join("␟")).join("␞"),
     ].join("␝");
   }
 
@@ -937,13 +1350,21 @@
     ].join(":");
     const random = createRandom(seed || "jin-avatar");
     const records = lines.length ? computeRingRecords(lines, seed || "jin-avatar") : [];
+    const activeMemoryRecords = getActiveMemoryAvatarRecords();
+    const delayedMemoryRecords = getDelayedMemoryAvatarRecords();
     const overallColor = lines.length
       ? computeOverallColor(lines, records)
       : DEFAULT_RING_COLOR;
     const diffPercent = lines.length
       ? getSnapshotDiff(snapshot, lines)
       : 0;
-    const signature = buildRenderSignature(snapshot, lines) + `:${options.seedNonce || avatarRefreshNonce}`;
+    const signature =
+      buildRenderSignature(
+        snapshot,
+        lines,
+        activeMemoryRecords,
+        delayedMemoryRecords
+      ) + `:${options.seedNonce || avatarRefreshNonce}`;
     const shouldAnimate = Boolean(lastRenderSignature) && signature !== lastRenderSignature;
 
     const svg = createSvgElement("svg", {
@@ -962,6 +1383,13 @@
         entryDelay: Math.min(0.32, index * 0.045),
       });
     });
+
+    appendMemorySignalRings(
+      svg,
+      activeMemoryRecords,
+      delayedMemoryRecords,
+      overallColor
+    );
 
     appendCenter(svg, overallColor, centerColor);
 
@@ -1281,6 +1709,7 @@
     render: renderAvatar,
     refresh: reinitializeAvatar,
     setCenterColor,
+    setDelayedMemoryPinned: setDelayedMemoryDashPinned,
     get aggressivePalette() {
       return AGGRESSIVE_PALETTE;
     },

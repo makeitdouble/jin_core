@@ -23,6 +23,7 @@
   const MEMORY_DELETE_HOLD_MS = 1500;
   const THINK_RUNTIME_CITATION_HOVER_EVENT = "jin:think-runtime-citation-hover";
   const RUNTIME_MEMORY_LINE_HOVER_SOURCE_ID = "runtime-memory-line-hover";
+  const DELAYED_MEMORY_ROW_HOVER_SOURCE_ID = "delayed-memory-row-hover";
   const normalizeRuntimeCitationIdentity =
       window.JinRuntime.normalizeCitationIdentity;
 
@@ -1047,6 +1048,37 @@
     );
   }
 
+  function dispatchDelayedMemoryAvatarHover(
+      report,
+      active
+  ) {
+    const memoryId =
+        normalizeRuntimeCitationIdentity(
+          report && report._storage_key
+        );
+
+    window.dispatchEvent(
+      new CustomEvent(
+        THINK_RUNTIME_CITATION_HOVER_EVENT,
+        {
+          detail: active && memoryId
+            ? {
+              active: true,
+              sourceId: `${DELAYED_MEMORY_ROW_HOVER_SOURCE_ID}:${memoryId}`,
+              lineKeys: [memoryId],
+              lineTexts: [],
+            }
+            : {
+              active: false,
+              sourceId: `${DELAYED_MEMORY_ROW_HOVER_SOURCE_ID}:${memoryId || "none"}`,
+              lineKeys: [],
+              lineTexts: [],
+            },
+        }
+      )
+    );
+  }
+
   function renderRuntimeMemoryLines(
       snapshot,
       persistGlow = false,
@@ -1746,6 +1778,10 @@
             `${title}: ${summary}`.trim();
         valueSpan.title =
             row.title;
+        row.dataset.delayedMemoryId =
+            normalizeRuntimeCitationIdentity(
+              report._storage_key
+            );
 
         row.appendChild(
             keySpan
@@ -1757,6 +1793,20 @@
         row.addEventListener("click", () => {
           openDelayedMemoryReportModal(
               report
+          );
+        });
+
+        row.addEventListener("mouseenter", () => {
+          dispatchDelayedMemoryAvatarHover(
+              report,
+              true
+          );
+        });
+
+        row.addEventListener("mouseleave", () => {
+          dispatchDelayedMemoryAvatarHover(
+              report,
+              false
           );
         });
 

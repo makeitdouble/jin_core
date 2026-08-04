@@ -196,6 +196,47 @@
     fill-opacity: 1 !important;
 }
 
+.jin-avatar-memory-dash {
+    transition:
+        filter 0.28s cubic-bezier(0.22, 0.61, 0.36, 1),
+        opacity 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.jin-avatar-memory-dash path {
+    transition:
+        stroke-opacity 0.28s cubic-bezier(0.22, 0.61, 0.36, 1),
+        stroke-width 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.jin-avatar-memory-dash-active {
+    filter:
+        brightness(1.16)
+        drop-shadow(0 0 4px var(--jin-avatar-memory-glow-near, rgba(215, 255, 249, 0.92)))
+        drop-shadow(0 0 10px var(--jin-avatar-memory-glow-mid, rgba(215, 255, 249, 0.54)));
+}
+
+.jin-avatar-memory-dash-delayed.is-memory-pinned {
+    filter:
+        brightness(1.18)
+        drop-shadow(0 0 4px var(--jin-avatar-memory-glow-near, rgba(239, 255, 255, 0.92)))
+        drop-shadow(0 0 11px var(--jin-avatar-memory-glow-mid, rgba(239, 255, 255, 0.54)));
+}
+
+.jin-avatar-memory-dash.is-runtime-cited {
+    filter:
+        brightness(1.72)
+        saturate(1.65)
+        drop-shadow(0 0 5px var(--jin-avatar-memory-glow-near, rgba(190, 252, 255, 0.92)))
+        drop-shadow(0 0 12px var(--jin-avatar-memory-glow-mid, rgba(52, 211, 222, 0.54)))
+        drop-shadow(0 0 24px var(--jin-avatar-memory-glow-far, rgba(34, 211, 238, 0.24)))
+        drop-shadow(0 0 38px var(--jin-avatar-memory-glow-far, rgba(34, 211, 238, 0.18)));
+}
+
+.jin-avatar-memory-dash.is-runtime-cited path {
+    stroke-opacity: 1 !important;
+    stroke-width: var(--jin-avatar-memory-hover-width, 2px);
+}
+
 .jin-avatar-center-glow-fill,
 .jin-avatar-center-soft,
 .jin-avatar-center-core,

@@ -120,6 +120,7 @@ const {
   clearActiveMemoryRecords,
   appendActiveMemoryRecords: appendStoredActiveMemoryRecords,
   removeActiveMemoryRecordById: removeStoredActiveMemoryRecordById,
+  normalizeDelayedMemoryReports,
   readDelayedMemoryReports,
   writeDelayedMemoryReports,
   appendDelayedMemoryReports: appendStoredDelayedMemoryReports,
@@ -563,7 +564,7 @@ memoryView.init({
   memoryModel,
   buildDisplaySnapshot: buildRuntimeMemoryDisplaySnapshot,
   getActiveMemoryRecords: readActiveMemoryRecords,
-  setActiveMemoryRecords: writeActiveMemoryRecords,
+  setActiveMemoryRecords: writeActiveMemoryRecordsAndRefresh,
   deleteRuntimeMemoryLine: deleteRuntimeMemoryLineAndRender,
   getDelayedMemoryReports: readDelayedMemoryReports,
   setDelayedMemoryReportPinned,
@@ -587,6 +588,51 @@ memoryView.init({
 
 function renderRuntimeMemorySnapshot() {
   memoryView.renderRuntimeMemorySnapshot();
+}
+
+function refreshRuntimeAvatar() {
+  const avatar =
+      window.JinRuntime
+      && window.JinRuntime.avatar;
+
+  if (
+      avatar
+      && typeof avatar.refresh === "function"
+  ) {
+    avatar.refresh();
+  }
+}
+
+function setDelayedMemoryPinnedOnAvatar(
+  reportId,
+  pinned
+) {
+  const avatar =
+      window.JinRuntime
+      && window.JinRuntime.avatar;
+
+  if (
+      avatar
+      && typeof avatar.setDelayedMemoryPinned === "function"
+  ) {
+    return avatar.setDelayedMemoryPinned(
+      reportId,
+      pinned
+    );
+  }
+
+  return false;
+}
+
+function writeActiveMemoryRecordsAndRefresh(
+  records
+) {
+  writeActiveMemoryRecords(
+    records
+  );
+  refreshRuntimeAvatar();
+
+  return readActiveMemoryRecords();
 }
 
 function showLatestRuntimeMemorySnapshot() {
@@ -745,6 +791,7 @@ function appendActiveMemoryRecordsAndRender(
 
   showLatestRuntimeMemorySnapshot();
   renderRuntimeMemorySnapshot();
+  refreshRuntimeAvatar();
 
   return nextRecords;
 
@@ -761,6 +808,7 @@ function replaceActiveMemoryRecordsAndRender(
 
   showLatestRuntimeMemorySnapshot();
   renderRuntimeMemorySnapshot();
+  refreshRuntimeAvatar();
 
   return readActiveMemoryRecords();
 
@@ -778,6 +826,7 @@ function removeActiveMemoryRecordByIdAndRender(
 
   showLatestRuntimeMemorySnapshot();
   renderRuntimeMemorySnapshot();
+  refreshRuntimeAvatar();
 
   return nextRecords;
 
@@ -819,6 +868,15 @@ function setDelayedMemoryReportPinned(
   );
   renderRuntimeMemorySnapshot();
 
+  if (
+      !setDelayedMemoryPinnedOnAvatar(
+        normalizedId,
+        pinned
+      )
+  ) {
+    refreshRuntimeAvatar();
+  }
+
   if (typeof window.syncDelayedMemoryReportsToRuntime === "function") {
     window.syncDelayedMemoryReportsToRuntime();
   }
@@ -838,9 +896,129 @@ function appendDelayedMemoryReports(
     );
 
   renderRuntimeMemorySnapshot();
+  refreshRuntimeAvatar();
 
   return nextReports;
 
+}
+
+function buildDelayedMemoryReportsSignature(
+  reports
+) {
+
+  const normalizedReports =
+    normalizeDelayedMemoryReports(
+      reports
+    );
+
+  return JSON.stringify(
+    Object.keys(normalizedReports)
+      .sort()
+      .map(
+        reportId => [
+          reportId,
+          normalizedReports[reportId],
+        ]
+      )
+  );
+
+}
+
+function buildDelayedMemoryAvatarLayoutSignature(
+  reports
+) {
+
+  const normalizedReports =
+    normalizeDelayedMemoryReports(
+      reports
+    );
+
+  return JSON.stringify(
+    Object.keys(normalizedReports)
+      .sort()
+      .map(
+        reportId => {
+          const report =
+            normalizedReports[reportId];
+
+          return [
+            reportId,
+            report.title,
+            report.summary,
+          ];
+        }
+      )
+  );
+
+}
+
+function syncDelayedMemoryPinsToAvatar(
+  reports
+) {
+
+  const normalizedReports =
+    normalizeDelayedMemoryReports(
+      reports
+    );
+  let synced = true;
+
+  Object.entries(normalizedReports).forEach(
+    ([reportId, report]) => {
+      if (
+          !setDelayedMemoryPinnedOnAvatar(
+            reportId,
+            Boolean(report && report.pinned)
+          )
+      ) {
+        synced = false;
+      }
+    }
+  );
+
+  return synced;
+
+}
+
+function replaceDelayedMemoryReportsAndRender(
+  reports
+) {
+  const currentReports =
+    readDelayedMemoryReports();
+  const nextReports =
+    normalizeDelayedMemoryReports(
+      reports
+    );
+  const currentAvatarLayoutSignature =
+    buildDelayedMemoryAvatarLayoutSignature(
+      currentReports
+    );
+  const nextAvatarLayoutSignature =
+    buildDelayedMemoryAvatarLayoutSignature(
+      nextReports
+    );
+
+  if (
+      buildDelayedMemoryReportsSignature(currentReports)
+      === buildDelayedMemoryReportsSignature(nextReports)
+  ) {
+    return currentReports;
+  }
+
+  writeDelayedMemoryReports(
+    nextReports
+  );
+  renderRuntimeMemorySnapshot();
+
+  if (
+      currentAvatarLayoutSignature === nextAvatarLayoutSignature
+      && syncDelayedMemoryPinsToAvatar(nextReports)
+  ) {
+    return readDelayedMemoryReports();
+  }
+
+  refreshRuntimeAvatar();
+
+  return readDelayedMemoryReports();
 }
 
 const ACTIVE_MEMORY_RUNTIME_ACTIONS_TO_SILENCE_ON_L1 = [
@@ -1055,6 +1233,7 @@ window.JinRuntime.runtime = {
       clearActiveMemoryRecords();
 
     renderRuntimeMemorySnapshot();
+    refreshRuntimeAvatar();
 
     return records;
   },
@@ -1075,7 +1254,7 @@ window.JinRuntime.runtime = {
       ? l4Memory.requestFactDelete(factId)
       : false;
   },
-  replaceDelayedMemoryReports: writeDelayedMemoryReports,
+  replaceDelayedMemoryReports: replaceDelayedMemoryReportsAndRender,
   appendDelayedMemoryReports,
 };
 
