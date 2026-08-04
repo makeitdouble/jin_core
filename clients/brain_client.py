@@ -259,6 +259,7 @@ def build_brain_context_snapshot(
     system_prompt: str,
     user_prompt: str,
     runtime_actions=None,
+    include_previous_reasoning: bool = True,
 ) -> dict:
 
     snapshot = {
@@ -278,6 +279,7 @@ def build_brain_context_snapshot(
         runtime_actions,
         user_input=user_prompt,
         include_runtime_action_instructions=False,
+        include_previous_reasoning=include_previous_reasoning,
     )
 
     return snapshot

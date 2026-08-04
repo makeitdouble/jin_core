@@ -111,6 +111,56 @@ def test_stream_validator_allows_non_consecutive_repeated_sentences():
     assert validator.last_failure_reason is None
 
 
+def test_stream_validator_stops_recurrent_sentence_inside_mixed_loop():
+    validator = StreamValidator()
+
+    anchor = "Actually, I'll just do the task.\n"
+    mixed_blocks = [
+        (
+            "Wait, I'll do this:\n"
+            '"I used the wrong tag, so the tool never ran."\n'
+            "Then the task.\n"
+        ),
+        (
+            "Let's try to be very precise.\n"
+            "1. Acknowledge the error.\n"
+            "2. Perform the task.\n"
+        ),
+    ]
+
+    for repeat_index in range(
+        MAX_REPEAT_SENTENCES
+    ):
+        chunk = (
+            anchor
+            + mixed_blocks[
+                repeat_index % len(mixed_blocks)
+            ]
+        )
+
+        clean, is_valid = validator.filter_chunk(
+            chunk
+        )
+
+        if repeat_index < MAX_REPEAT_SENTENCES - 1:
+            assert clean == chunk
+            assert is_valid
+            continue
+
+        assert clean == ""
+        assert not is_valid
+
+    assert validator.last_failure_reason == (
+        "Repeated sentence loop detected."
+    )
+    assert validator.last_failure_preview.startswith(
+        "Actually, I'll just do the task."
+    )
+    assert validator.last_failure_loop_preview == (
+        "Actually, I'll just do the task."
+    )
+
+
 def test_stream_validator_stops_repeated_sentence_sequence_with_markers():
     validator = StreamValidator()
 

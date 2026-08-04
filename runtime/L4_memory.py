@@ -17,6 +17,7 @@ from runtime.L4_memory_utils import (
     collect_pending_facts_memory_fields,
     delete_l4_fact_from_store,
     extract_l4_json_payload,
+    format_l4_merge_operation_details,
     format_long_term_memory_context,
     mark_facts_memory_fields_analyzed,
     merge_l4_store_snapshots,
@@ -417,6 +418,18 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
         context,
         next_store,
     )
+    merge_details = format_l4_merge_operation_details(
+        merge_change,
+    )
+    if merge_details:
+        await log_memory_event(
+            context,
+            level=L4_LOG_LEVEL,
+            message="L4 merge applied",
+            details=merge_details,
+            fallback_channel="summarizer",
+            event="merge_applied",
+        )
     await emit_l4_memory_update(context, change=merge_change)
 
     return {

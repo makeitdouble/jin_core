@@ -15,6 +15,7 @@ from runtime.L4_memory_utils import (
     collect_pending_facts_memory_fields,
     extract_l4_json_payload,
     format_l4_fact_line,
+    format_l4_merge_operation_details,
     format_long_term_memory_context,
     mark_facts_memory_fields_analyzed,
     merge_l4_store_snapshots,
@@ -121,7 +122,6 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                         "key": "user.hardware.main_gpu",
                         "value": "User's main GPU is RTX 3080 Ti.",
                         "category": "environment",
-                        "confidence": 0.9,
                         "source_keys": ["gpu"],
                     },
                 ],
@@ -137,6 +137,30 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             ["runtime_001"],
         )
         self.assertEqual(candidates[0]["source_keys"], ["gpu"])
+
+    def test_l4_fact_normalization_ignores_legacy_score_field(self):
+        legacy_field = "con" + "fidence"
+        store = normalize_l4_store({
+            "facts": [
+                {
+                    "id": "l4_gpu",
+                    "key": "user.hardware.main_gpu",
+                    "value": "User's main GPU is RTX 4090.",
+                    "category": "environment",
+                    legacy_field: 0.42,
+                },
+            ],
+            "pending_facts": [
+                {
+                    "key": "user.preference.response_language",
+                    "value": "User prefers Russian replies.",
+                    legacy_field: 0.95,
+                },
+            ],
+        })
+
+        self.assertNotIn(legacy_field, store["facts"][0])
+        self.assertNotIn(legacy_field, store["pending_facts"][0])
 
     def test_file_store_fallback_survives_empty_browser_sync(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -329,7 +353,6 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                     "key": "user.hardware.main_gpu",
                     "value": "User's main GPU is RTX 4090.",
                     "category": "environment",
-                    "confidence": 0.95,
                 },
                 {
                     "action": "ignore",
@@ -349,7 +372,185 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(merged["facts"]), 1)
         self.assertEqual(merged["facts"][0]["id"], "l4_gpu")
         self.assertIn("RTX 4090", merged["facts"][0]["value"])
+        self.assertEqual(
+            merged["facts"][0]["source_fact_ids"],
+            [gpu_pending["id"]],
+        )
         self.assertEqual(change["ignored_pending_ids"], [task_pending["id"]])
+        self.assertEqual(len(change["operation_details"]), 2)
+
+        update_detail = change["operation_details"][0]
+        self.assertEqual(update_detail["action"], "update")
+        self.assertEqual(update_detail["pending_id"], gpu_pending["id"])
+        self.assertEqual(update_detail["target_id"], "l4_gpu")
+        self.assertIn("RTX 4090", update_detail["pending_fact"]["value"])
+        self.assertIn("RTX 3080 Ti", update_detail["target_before"]["value"])
+        self.assertIn("RTX 4090", update_detail["target_after"]["value"])
+
+        ignore_detail = change["operation_details"][1]
+        self.assertEqual(ignore_detail["action"], "ignore")
+        self.assertEqual(ignore_detail["pending_id"], task_pending["id"])
+
+        detail_text = format_l4_merge_operation_details(change)
+        self.assertIn("UPDATE", detail_text)
+        self.assertIn("incoming: user.hardware.main_gpu", detail_text)
+        self.assertIn("before:   user.hardware.main_gpu", detail_text)
+        self.assertIn("after:    user.hardware.main_gpu", detail_text)
+        self.assertIn("IGNORE", detail_text)
+
+    def test_merge_reinforce_tracks_pending_fact_source_id(self):
+        existing = normalize_l4_store({
+            "facts": [
+                {
+                    "id": "l4_language",
+                    "key": "user.preference.response_language",
+                    "value": "The user prefers Russian replies.",
+                    "category": "user_preference",
+                    "source_fact_ids": ["l4_legacy_source"],
+                },
+            ],
+        })
+        store, _ = add_l4_pending_candidates(
+            existing,
+            [
+                {
+                    "key": "user.preference.response_language",
+                    "value": "The user prefers Russian replies.",
+                    "category": "user_preference",
+                    "source_fact_ids": ["l4_imported_source"],
+                },
+            ],
+            now="2026-08-02T12:00:00Z",
+        )
+        pending = store["pending_facts"][0]
+        operations = normalize_l4_merge_operations({
+            "operations": [
+                {
+                    "action": "reinforce",
+                    "pending_id": pending["id"],
+                    "target_id": "l4_language",
+                },
+            ],
+        })
+
+        merged, change = apply_l4_merge_operations(
+            store,
+            operations,
+            now="2026-08-02T12:01:00Z",
+        )
+
+        self.assertTrue(change["valid"])
+        self.assertEqual(change["reinforced_ids"], ["l4_language"])
+        self.assertEqual(len(change["operation_details"]), 1)
+        reinforce_detail = change["operation_details"][0]
+        self.assertEqual(reinforce_detail["action"], "reinforce")
+        self.assertEqual(reinforce_detail["pending_id"], pending["id"])
+        self.assertEqual(reinforce_detail["target_id"], "l4_language")
+        self.assertEqual(
+            reinforce_detail["pending_fact"]["value"],
+            "The user prefers Russian replies.",
+        )
+        self.assertEqual(
+            reinforce_detail["target_before"]["value"],
+            "The user prefers Russian replies.",
+        )
+        self.assertEqual(
+            reinforce_detail["target_after"]["mention_count"],
+            2,
+        )
+        detail_text = format_l4_merge_operation_details(change)
+        self.assertIn("REINFORCE", detail_text)
+        self.assertIn("confirmation: user.preference.response_language", detail_text)
+        self.assertIn("existing:     user.preference.response_language", detail_text)
+        self.assertEqual(
+            merged["facts"][0]["source_fact_ids"],
+            [
+                "l4_legacy_source",
+                "l4_imported_source",
+                pending["id"],
+            ],
+        )
+
+    async def test_merge_phase_logs_concrete_operation_details(self):
+        existing = normalize_l4_store({
+            "facts": [
+                {
+                    "id": "l4_gpu",
+                    "key": "user.hardware.main_gpu",
+                    "value": "User's main GPU is RTX 3080 Ti.",
+                    "category": "environment",
+                },
+                {
+                    "id": "l4_language",
+                    "key": "user.preference.response_language",
+                    "value": "The user prefers Russian replies.",
+                    "category": "user_preference",
+                },
+            ],
+        })
+        store, _ = add_l4_pending_candidates(
+            existing,
+            [
+                {
+                    "key": "user.hardware.main_gpu",
+                    "value": "User's main GPU is RTX 4090.",
+                    "category": "environment",
+                },
+                {
+                    "key": "user.preference.response_language",
+                    "value": "The user prefers Russian replies.",
+                    "category": "user_preference",
+                },
+            ],
+            now="2026-08-02T12:00:00Z",
+        )
+        gpu_pending, language_pending = store["pending_facts"]
+        service_client = FakeServiceClient(f'''{{
+          "operations": [
+            {{
+              "action": "update",
+              "pending_id": "{gpu_pending["id"]}",
+              "target_id": "l4_gpu",
+              "key": "user.hardware.main_gpu",
+              "value": "User's main GPU is RTX 4090.",
+              "category": "environment"
+            }},
+            {{
+              "action": "reinforce",
+              "pending_id": "{language_pending["id"]}",
+              "target_id": "l4_language"
+            }}
+          ]
+        }}''')
+        logger = FakeLogger()
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=logger,
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+
+        result = await maybe_update_runtime_l4_memory(
+            context=context,
+            user_idle_seconds=61,
+        )
+
+        self.assertEqual(result["phase"], "merge")
+        self.assertEqual(result["status"], "completed")
+        merge_logs = [
+            details
+            for message, details in logger.summarizer_logs
+            if message == "[MEMORY:L4] L4 merge applied"
+        ]
+        self.assertEqual(len(merge_logs), 1)
+        detail_text = merge_logs[0]
+        self.assertIn("UPDATE", detail_text)
+        self.assertIn("before:   user.hardware.main_gpu", detail_text)
+        self.assertIn("after:    user.hardware.main_gpu", detail_text)
+        self.assertIn("REINFORCE", detail_text)
+        self.assertIn("confirmation: user.preference.response_language", detail_text)
+        self.assertIn("existing:     user.preference.response_language", detail_text)
 
     def test_store_does_not_truncate_values_or_fact_count(self):
         long_value = "fact " * 1000
@@ -628,7 +829,6 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 "key": "user.hardware.main_gpu",
                 "value": "{gpu_value}",
                 "category": "environment",
-                "confidence": 0.95,
                 "source_keys": ["gpu"]
               }}]
             }}''',
@@ -637,7 +837,6 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 "key": "user.preference.response_language",
                 "value": "{language_value}",
                 "category": "user_preference",
-                "confidence": 0.9,
                 "source_keys": ["language"]
               }}]
             }}''',
@@ -648,16 +847,14 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                   "pending_id": "{gpu_pending_id}",
                   "key": "user.hardware.main_gpu",
                   "value": "{gpu_value}",
-                  "category": "environment",
-                  "confidence": 0.95
+                  "category": "environment"
                 }},
                 {{
                   "action": "create",
                   "pending_id": "{language_pending_id}",
                   "key": "user.preference.response_language",
                   "value": "{language_value}",
-                  "category": "user_preference",
-                  "confidence": 0.9
+                  "category": "user_preference"
                 }}
               ]
             }}''',

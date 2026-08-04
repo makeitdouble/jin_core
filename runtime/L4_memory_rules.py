@@ -8,44 +8,36 @@ The input contains changed Facts Memory fields. They may be compressed,
 temporary, incomplete, or partly interpretive. Long-term memory is included in
 every future Brain context, so prefer returning nothing over saving noise.
 
-Save only information that is both:
-- likely to remain useful across future sessions;
-- directly supported by the input.
+Save a fact only when it is:
+- directly supported by the input;
+- likely to remain true or relevant across future sessions;
+- useful enough that forgetting it could noticeably worsen a future response.
 
 Suitable information includes stable user facts and preferences, durable project
-facts, decisions, goals, constraints, habits, environment, and explicit
-corrections.
+facts, accepted decisions, persistent goals and constraints, recurring habits,
+durable environment, and explicit corrections.
 
 Do not save current tasks, temporary topics, next steps, session state, tool
-results, incidental names, one-off examples, assistant speculation, or external
-knowledge that does not describe the user or a durable project.
+results, incidental names, one-off examples, isolated behavior, assistant
+speculation, or external knowledge unrelated to the user or a durable project.
 
-Never expand the source meaning:
+Distinguish facts from interpretations:
 - a mention does not establish a relationship or role;
-- discussion does not establish ownership, participation, or project focus;
-- current activity does not establish a long-term goal;
-- repeated summaries do not establish truth;
+- discussion, exploration, or a proposal does not establish a decision;
+- current activity does not establish a long-term goal or identity;
+- one successful example does not establish a general preference or habit;
+- presence at a location does not establish residence;
 - missing details must not be guessed.
 
-If an incomplete relationship may matter later, preserve only the known part and
-state the uncertainty explicitly, for example:
-"The user mentioned a person named X; their relationship is unknown and should
-be clarified if relevant."
-
-Do not save such uncertainty when the entity appears incidental.
+Save people only when their relationship or role is explicit and likely to matter
+again. Otherwise ignore the mention.
 
 Keep every fact:
-- atomic: one durable idea;
+- atomic: one durable idea only;
 - narrow: no broader than the source;
 - concrete and independently understandable;
-- free of temporary wording such as "currently", "today", or "next";
+- stated without temporary wording such as "currently", "today", or "next";
 - linked to one or more exact input keys in source_keys.
-
-Confidence measures support for the exact wording:
-- 0.95: explicit, stable, and unambiguous;
-- 0.75: directly supported but durability or scope is not fully established;
-- 0.55: the known part is explicit and an important unknown is stated as unknown;
-- below 0.55: do not save.
 
 Return JSON only:
 {
@@ -54,7 +46,6 @@ Return JSON only:
       "key": "user.preference.response_language",
       "value": "The user prefers Russian replies.",
       "category": "user_preference",
-      "confidence": 0.95,
       "source_keys": ["response_language"]
     }
   ]
@@ -76,34 +67,45 @@ memory.
 Both existing facts and pending candidates are provisional. Existing memory is
 not evidence merely because it already exists.
 
-Keep memory minimal, accurate, atomic, and free of duplicates. Preserve only
-what is supported; remove or narrow inferred roles, relationships, ownership,
-causality, project focus, and architectural meaning.
+Keep memory minimal, accurate, atomic, useful, and free of semantic duplicates.
+Compare candidates against all existing facts by meaning, not only by key,
+wording, category, visibility, or report coverage.
 
 Return exactly one operation for every pending_id, using only IDs from the
 input.
 
 Actions:
-- create: add a genuinely new durable fact;
-- update: correct, narrow, or refine an existing fact;
-- reinforce: the candidate has the same meaning, scope, and uncertainty;
-- ignore: the candidate is temporary, incidental, redundant, speculative, or
-  not useful enough for always-on memory.
+- create: add a genuinely new durable fact not already represented;
+- update: correct an existing fact or add durable information to the same atomic
+  fact;
+- reinforce: the candidate restates the same durable fact without changing its
+  meaning;
+- ignore: the candidate is temporary, incidental, speculative, too weak, or adds
+  no valid long-term information.
+
+Merge order:
+1. Find any existing fact with the same or overlapping meaning.
+2. If the candidate is a paraphrase of the same durable fact, reinforce it.
+3. If it corrects or materially extends the same atomic fact, update it.
+4. If it is only a weaker, temporary, or incomplete echo, ignore it.
+5. Create only when no existing fact already represents the candidate.
 
 Rules:
+- Different wording or keys do not make a fact new.
+- Hidden or report-covered facts are still existing facts for merge purposes.
+- Reinforce or update a matching covered fact; never create a visible duplicate.
+- Do not update an existing fact merely to replace it with a weaker restatement.
+- A new independent durable detail should remain atomic rather than being merged
+  into an unrelated or overly broad fact.
 - A mention is not a relationship or role.
-- Discussion is not ownership or participation.
-- Current activity is not durable identity or project focus.
+- Discussion, exploration, or a proposal is not an accepted decision.
+- Current activity is not durable identity, preference, goal, or project focus.
+- One example is not a recurring preference or habit.
+- Presence at a location is not residence.
 - Unknown details must remain unknown, not be guessed.
 - Direct user corrections override incompatible existing facts.
-- Prefer a narrower fact over a broader interpretation.
-- Prefer updating an existing fact over creating a duplicate.
-- If uncertainty is useful, state the known part and what remains unknown.
-- If uncertainty is not useful, ignore the candidate.
-- Do not increase confidence merely because wording was repeated by memory
-  summaries.
-- Keep or change an existing key according to the corrected meaning; a key must
-  not preserve a false claim.
+- Prefer updating an existing fact over creating a semantic duplicate.
+- A key must describe the final supported meaning, not preserve an older claim.
 - Never invent facts, IDs, relationships, or source metadata.
 
 For update and reinforce, target_id must identify an existing fact.
@@ -113,13 +115,9 @@ Return JSON only:
 {
   "operations": [
     {
-      "action": "update",
+      "action": "reinforce",
       "pending_id": "l4p_...",
-      "target_id": "l4_...",
-      "key": "person.x.context",
-      "value": "The user mentioned a person named X; their relationship is unknown and should be clarified if relevant.",
-      "category": "other",
-      "confidence": 0.55
+      "target_id": "l4_..."
     }
   ]
 }

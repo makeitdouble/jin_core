@@ -66,10 +66,6 @@
       key,
       value: factValue,
       category: normalizeText(value.category || "other") || "other",
-      confidence: Math.max(
-        0,
-        Math.min(1, normalizeNumber(value.confidence, 1))
-      ),
       mention_count: Math.max(
         1,
         Math.floor(normalizeNumber(value.mention_count, 1))

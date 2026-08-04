@@ -96,7 +96,6 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
     def test_jin_color_invalid_payload_does_not_emit_action(self):
 
         for marker in (
-            "<JIN_COLOR:>",
             "<JIN_COLOR: #>",
             "<JIN_COLOR: #00f2ff00>",
             "<JIN_COLOR: blue>",
@@ -118,6 +117,65 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
                     result.actions,
                     (),
                 )
+
+    def test_jin_color_marker_without_payload_stays_text(self):
+
+        for marker in (
+            "<JIN_COLOR>",
+            "<JIN_COLOR />",
+            "<JIN_COLOR:>",
+            "<JIN_COLOR: />",
+        ):
+            with self.subTest(marker=marker):
+                result = extract_runtime_actions(
+                    f"before {marker} after",
+                    enabled_actions=(
+                        RUNTIME_ACTION_JIN_COLOR,
+                    ),
+                )
+
+                self.assertEqual(
+                    result.text,
+                    f"before {marker} after",
+                )
+                self.assertEqual(
+                    result.actions,
+                    (),
+                )
+                self.assertEqual(
+                    result.observed_actions,
+                    (),
+                )
+                self.assertEqual(
+                    result.removed_markers,
+                    (),
+                )
+
+    def test_jin_color_stream_filter_keeps_marker_without_payload(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=(
+                RUNTIME_ACTION_JIN_COLOR,
+            ),
+        )
+
+        result = stream_filter.filter(
+            "before <JIN_COLOR> after"
+        )
+        final = stream_filter.flush_result()
+
+        self.assertEqual(
+            result.text,
+            "before <JIN_COLOR> after",
+        )
+        self.assertEqual(
+            result.actions,
+            (),
+        )
+        self.assertEqual(
+            final.text,
+            "",
+        )
 
 
     def test_jin_color_multiple_markers_keep_order(self):

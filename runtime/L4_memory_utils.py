@@ -97,14 +97,6 @@ def normalize_l4_key(value) -> str:
     return key.strip("._-")
 
 
-def clamp_float(value, *, default: float = 0.0) -> float:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        number = default
-    return max(0.0, min(1.0, number))
-
-
 def normalize_l4_category(value) -> str:
     category = normalize_l4_key(value)
     return category if category in L4_ALLOWED_CATEGORIES else "other"
@@ -181,7 +173,6 @@ def normalize_l4_fact(
         "key": key,
         "value": fact_value,
         "category": normalize_l4_category(value.get("category")),
-        "confidence": clamp_float(value.get("confidence"), default=1.0),
         "mention_count": mention_count,
         "created_at": normalize_l4_text(value.get("created_at")) or current_time,
         "updated_at": normalize_l4_text(value.get("updated_at")) or current_time,
@@ -206,10 +197,6 @@ def normalize_l4_fact(
 
 def merge_same_l4_fact(existing: dict, incoming: dict, *, now: str) -> dict:
     result = dict(existing)
-    result["confidence"] = max(
-        clamp_float(existing.get("confidence"), default=1.0),
-        clamp_float(incoming.get("confidence"), default=1.0),
-    )
     result["mention_count"] = max(1, int(existing.get("mention_count") or 1)) + max(
         1,
         int(incoming.get("mention_count") or 1),
@@ -300,10 +287,6 @@ def merge_l4_snapshot_fact(
     merged = {
         **base,
         "id": existing_id or incoming_id,
-        "confidence": max(
-            clamp_float(existing_fact.get("confidence"), default=1.0),
-            clamp_float(incoming_fact.get("confidence"), default=1.0),
-        ),
         "mention_count": max(
             max(1, int(existing_fact.get("mention_count") or 1)),
             max(1, int(incoming_fact.get("mention_count") or 1)),
@@ -827,7 +810,7 @@ def normalize_l4_merge_operations(payload) -> list[dict]:
         if target_id:
             operation["target_id"] = target_id
 
-        for key in ("key", "value", "category", "confidence"):
+        for key in ("key", "value", "category"):
             if key in raw_operation:
                 operation[key] = raw_operation[key]
 
@@ -866,6 +849,9 @@ def validate_l4_merge_operations(store, operations: list[dict]) -> tuple[bool, s
 
 
 def merge_fact_sources(existing: dict, incoming: dict) -> dict:
+    existing_id = normalize_l4_text(existing.get("id"))
+    incoming_id = normalize_l4_text(incoming.get("id"))
+
     return {
         "source_session_ids": merge_l4_string_lists(
             existing.get("source_session_ids"),
@@ -879,7 +865,51 @@ def merge_fact_sources(existing: dict, incoming: dict) -> dict:
             existing.get("source_keys"),
             incoming.get("source_keys"),
         ),
+        "source_fact_ids": merge_l4_string_lists(
+            existing.get("source_fact_ids"),
+            incoming.get("source_fact_ids"),
+            [incoming_id] if incoming_id and incoming_id != existing_id else [],
+        ),
     }
+
+
+def build_l4_merge_detail_fact(fact: dict) -> dict:
+    return {
+        "id": normalize_l4_text(fact.get("id")),
+        "key": normalize_l4_text(fact.get("key")),
+        "value": normalize_l4_text(fact.get("value")),
+        "category": normalize_l4_text(fact.get("category")),
+        "mention_count": max(1, int(fact.get("mention_count") or 1)),
+    }
+
+
+def build_l4_merge_operation_detail(
+    *,
+    action: str,
+    pending: dict,
+    target_before: dict | None = None,
+    target_after: dict | None = None,
+    created_fact: dict | None = None,
+) -> dict:
+    detail = {
+        "action": action,
+        "pending_id": pending["id"],
+        "pending_fact": build_l4_merge_detail_fact(pending),
+    }
+
+    if target_before is not None:
+        detail["target_id"] = target_before["id"]
+        detail["target_before"] = build_l4_merge_detail_fact(target_before)
+
+    if target_after is not None:
+        detail["target_id"] = target_after["id"]
+        detail["target_after"] = build_l4_merge_detail_fact(target_after)
+
+    if created_fact is not None:
+        detail["created_id"] = created_fact["id"]
+        detail["created_fact"] = build_l4_merge_detail_fact(created_fact)
+
+    return detail
 
 
 def apply_l4_merge_operations(
@@ -905,6 +935,7 @@ def apply_l4_merge_operations(
     updated_ids = []
     reinforced_ids = []
     ignored_ids = []
+    operation_details = []
 
     for operation in operations:
         action = operation["action"]
@@ -912,33 +943,45 @@ def apply_l4_merge_operations(
 
         if action == "ignore":
             ignored_ids.append(pending["id"])
+            operation_details.append(
+                build_l4_merge_operation_detail(
+                    action=action,
+                    pending=pending,
+                )
+            )
             continue
 
         if action == "reinforce":
             index = facts_by_id[operation["target_id"]]
             target = facts[index]
+            target_before = dict(target)
             target.update(merge_fact_sources(target, pending))
-            target["confidence"] = max(
-                clamp_float(target.get("confidence"), default=1.0),
-                clamp_float(pending.get("confidence"), default=1.0),
-            )
             target["mention_count"] = max(1, int(target.get("mention_count") or 1)) + max(
                 1,
                 int(pending.get("mention_count") or 1),
             )
             target["updated_at"] = current_time
             reinforced_ids.append(target["id"])
+            operation_details.append(
+                build_l4_merge_operation_detail(
+                    action=action,
+                    pending=pending,
+                    target_before=target_before,
+                    target_after=target,
+                )
+            )
             continue
 
         if action == "update":
             index = facts_by_id[operation["target_id"]]
             target = facts[index]
+            target_before = dict(target)
             candidate = normalize_l4_fact(
                 {
                     **pending,
                     **{
                         key: operation[key]
-                        for key in ("key", "value", "category", "confidence")
+                        for key in ("key", "value", "category")
                         if key in operation
                     },
                     "id": target["id"],
@@ -958,6 +1001,14 @@ def apply_l4_merge_operations(
                 }
             facts[index] = candidate
             updated_ids.append(candidate["id"])
+            operation_details.append(
+                build_l4_merge_operation_detail(
+                    action=action,
+                    pending=pending,
+                    target_before=target_before,
+                    target_after=candidate,
+                )
+            )
             continue
 
         candidate = normalize_l4_fact(
@@ -965,7 +1016,7 @@ def apply_l4_merge_operations(
                 **pending,
                 **{
                     key: operation[key]
-                    for key in ("key", "value", "category", "confidence")
+                    for key in ("key", "value", "category")
                     if key in operation
                 },
                 "id": "",
@@ -991,6 +1042,13 @@ def apply_l4_merge_operations(
         facts_by_id[candidate["id"]] = len(facts)
         facts.append(candidate)
         added_ids.append(candidate["id"])
+        operation_details.append(
+            build_l4_merge_operation_detail(
+                action=action,
+                pending=pending,
+                created_fact=candidate,
+            )
+        )
 
     next_store = {
         **base_store,
@@ -1007,6 +1065,7 @@ def apply_l4_merge_operations(
         "reinforced_ids": reinforced_ids,
         "ignored_pending_ids": ignored_ids,
         "processed_pending_ids": sorted(pending_by_id),
+        "operation_details": operation_details,
         "total_facts": len(facts),
         "pending_count": 0,
         "changed": True,
@@ -1037,7 +1096,6 @@ def format_l4_fact_metadata_suffixes(fact: dict) -> list[str]:
     for key in (
         "id",
         "category",
-        "confidence",
         "mention_count",
         "source_session_ids",
         "source_runtime_snapshot_ids",
@@ -1069,6 +1127,85 @@ def format_l4_fact_line(fact: dict, *, include_metadata: bool = True) -> str:
         if suffixes:
             line = f"{line} {' '.join(suffixes)}"
     return line
+
+
+def format_l4_merge_detail_fact(fact: dict) -> str:
+    if not isinstance(fact, dict):
+        return ""
+
+    line = format_l4_fact_line(
+        fact,
+        include_metadata=False,
+    )
+    fact_id = normalize_l4_text(fact.get("id"))
+    if line and fact_id:
+        return f"{line} [ id: {fact_id} ]"
+    return line or fact_id
+
+
+def format_l4_merge_operation_details(change: dict) -> str:
+    operation_details = (
+        change.get("operation_details")
+        if isinstance(change, dict)
+        else None
+    )
+    if not isinstance(operation_details, list) or not operation_details:
+        return ""
+
+    lines = []
+    for index, detail in enumerate(operation_details, start=1):
+        if not isinstance(detail, dict):
+            continue
+
+        action = normalize_l4_key(detail.get("action"))
+        pending_id = normalize_l4_text(detail.get("pending_id"))
+        target_id = normalize_l4_text(detail.get("target_id"))
+        created_id = normalize_l4_text(detail.get("created_id"))
+        arrow_target = target_id or created_id
+        header = f"{index}. {action.upper()}"
+        if pending_id and arrow_target:
+            header = f"{header} {pending_id} -> {arrow_target}"
+        elif pending_id:
+            header = f"{header} {pending_id}"
+        lines.append(header)
+
+        pending = detail.get("pending_fact")
+        target_before = detail.get("target_before")
+        target_after = detail.get("target_after")
+        created_fact = detail.get("created_fact")
+
+        if action == "update":
+            lines.extend([
+                f"   incoming: {format_l4_merge_detail_fact(pending)}",
+                f"   before:   {format_l4_merge_detail_fact(target_before)}",
+                f"   after:    {format_l4_merge_detail_fact(target_after)}",
+            ])
+            continue
+
+        if action == "reinforce":
+            lines.extend([
+                f"   confirmation: {format_l4_merge_detail_fact(pending)}",
+                f"   existing:     {format_l4_merge_detail_fact(target_before)}",
+            ])
+            continue
+
+        if action == "create":
+            lines.extend([
+                f"   incoming: {format_l4_merge_detail_fact(pending)}",
+                f"   created:  {format_l4_merge_detail_fact(created_fact)}",
+            ])
+            continue
+
+        if action == "ignore":
+            lines.append(
+                f"   ignored: {format_l4_merge_detail_fact(pending)}"
+            )
+
+    return "\n".join(
+        line
+        for line in lines
+        if line.strip()
+    )
 
 
 def format_long_term_memory_context(facts: list[dict]) -> str:

@@ -2358,7 +2358,6 @@
     [
       "id",
       "category",
-      "confidence",
       "mention_count",
       "source_session_ids",
       "source_runtime_snapshot_ids",

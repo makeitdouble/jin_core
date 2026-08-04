@@ -1536,6 +1536,55 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "I am JIN.",
         )
 
+    async def test_regular_brain_run_stores_reasoning_for_next_chat_prompt(self):
+
+        async def fake_run_brain_stream(**kwargs):
+            context = kwargs["context"]
+            context.runtime_turn_reasoning_content = (
+                "reasoning from this ordinary chat"
+            )
+            return (
+                "I am JIN.",
+                "reasoning from this ordinary chat",
+            )
+
+        context = _context()
+        state = AgentState(
+            user_input="hello",
+        )
+        state.translated_input = state.user_input
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=_brain_runtime(),
+        ), patch(
+            "agent.nodes.brain.build_brain_context",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.build_brain_payload",
+            return_value="brain payload",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            context.runtime_previous_reasoning_content,
+            "reasoning from this ordinary chat",
+        )
+        self.assertEqual(
+            state.brain_response,
+            "I am JIN.",
+        )
+
     async def test_asset_operation_result_is_returned_to_model_before_final_answer(self):
 
         calls = []

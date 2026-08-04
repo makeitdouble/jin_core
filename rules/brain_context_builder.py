@@ -47,6 +47,10 @@ APPENDED_DELAYED_MEMORY_CONTEXT_FIELDS = (
     "body",
 )
 
+PREVIOUS_REASONING_EDGE_PERCENT = 25
+PREVIOUS_REASONING_MIN_CROP_CHARS = 1000
+PREVIOUS_REASONING_SEPARATOR = ",,,"
+
 
 def build_loop_rules(
     context=None,
@@ -639,6 +643,87 @@ def build_long_term_memory_context(
     )
 
 
+def crop_previous_reasoning_text(
+    reasoning: str,
+    edge_percent: float = PREVIOUS_REASONING_EDGE_PERCENT,
+    min_crop_chars: int = PREVIOUS_REASONING_MIN_CROP_CHARS,
+) -> str:
+
+    cleaned = str(
+        reasoning
+        or ""
+    ).strip()
+
+    if not cleaned:
+        return ""
+
+    if len(cleaned) <= min_crop_chars:
+        return cleaned
+
+    try:
+        percent = float(edge_percent)
+    except (
+        TypeError,
+        ValueError,
+    ):
+        percent = PREVIOUS_REASONING_EDGE_PERCENT
+
+    if percent <= 0:
+        return ""
+
+    edge_chars = int(
+        len(cleaned)
+        * percent
+        / 100
+    )
+
+    if edge_chars <= 0:
+        return ""
+
+    if len(cleaned) <= edge_chars * 2:
+        return cleaned
+
+    return (
+        cleaned[:edge_chars]
+        + "\n"
+        + PREVIOUS_REASONING_SEPARATOR
+        + "\n"
+        + cleaned[-edge_chars:]
+    )
+
+
+def build_previous_reasoning_context(
+    context=None,
+) -> str:
+
+    reasoning = crop_previous_reasoning_text(
+        (
+            getattr(
+                context,
+                "runtime_previous_reasoning_content",
+                "",
+            )
+            if context is not None
+            else ""
+        )
+    )
+
+    from utils.brain_client_utils import (
+        indent_xml,
+    )
+
+    return (
+        "<PREVIOUS_JIN_RESPONSE_REASONING>\n"
+        + indent_xml(
+            escape(
+                reasoning
+            ),
+            spaces=4,
+        )
+        + "\n</PREVIOUS_JIN_RESPONSE_REASONING>"
+    )
+
+
 # Runtime action rules are assembled from contracts/rules_assembler.py.
 
 # Brain context assembly
@@ -651,6 +736,7 @@ def build_brain_context(
     commit_active_memory_refresh: bool = False,
     include_runtime_action_instructions: bool = True,
     include_previous_chat_messages: bool = True,
+    include_previous_reasoning: bool = True,
 ) -> str:
 
     from utils.context.messages import (
@@ -813,6 +899,32 @@ def build_brain_context(
     if session_actions_history_context:
         prompt_parts.append(
             session_actions_history_context
+        )
+
+    # Previous reasoning block: carries a compact edge slice from the last
+    # ordinary chat turn, but stays out of follow-up ticks.
+    previous_reasoning_context = (
+        build_previous_reasoning_context(
+            context
+        )
+        if (
+            include_previous_reasoning
+            and not getattr(
+                context,
+                "runtime_followup_tick_active",
+                False,
+            )
+        )
+        else ""
+    )
+
+    if include_previous_reasoning and not getattr(
+        context,
+        "runtime_followup_tick_active",
+        False,
+    ):
+        prompt_parts.append(
+            previous_reasoning_context
         )
 
     # Runtime action instructions block: describes the private action protocol.

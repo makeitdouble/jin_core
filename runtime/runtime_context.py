@@ -313,6 +313,8 @@ class RuntimeContext:
 
     runtime_turn_reasoning_content: str = ""
 
+    runtime_previous_reasoning_content: str = ""
+
     runtime_turn_interrupted: bool = False
 
     runtime_turn_interruption_reason: str = ""

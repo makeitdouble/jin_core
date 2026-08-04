@@ -6,7 +6,10 @@ from unittest.mock import (
     patch,
 )
 from rules.brain_context_builder import (
+    PREVIOUS_REASONING_EDGE_PERCENT,
+    PREVIOUS_REASONING_MIN_CROP_CHARS,
     build_brain_context,
+    crop_previous_reasoning_text,
 )
 from utils.context.context_exports import (
     build_session_actions_history_context,
@@ -280,6 +283,169 @@ class BrainPromptMemoryTests(
             self.assertLess(
                 prompt.index("<SESSION_ACTIONS_HISTORY>"),
                 prompt.index("I identify myself as JIN"),
+            )
+
+    def test_previous_reasoning_is_inserted_after_session_actions_history(self):
+
+            context = SimpleNamespace(
+                runtime_memory="",
+                deep_thought_count=0,
+                runtime_search_result="",
+                runtime_search_result_id="",
+                runtime_session_action_history=[
+                    {
+                        "text": "CLEAN_TOOL_RESULTS",
+                    },
+                ],
+                runtime_previous_reasoning_content=(
+                    "first internal note <private>\n"
+                    "short conclusion"
+                ),
+            )
+
+            prompt = build_brain_context(
+                context=context,
+                runtime_actions={
+                    "CAN_WEB_SEARCH": False,
+                },
+                include_runtime_action_instructions=False,
+            )
+
+            self.assertIn(
+                "<PREVIOUS_JIN_RESPONSE_REASONING>",
+                prompt,
+            )
+            self.assertIn(
+                "first internal note &lt;private&gt;",
+                prompt,
+            )
+            self.assertLess(
+                prompt.index("</SESSION_ACTIONS_HISTORY>"),
+                prompt.index("<PREVIOUS_JIN_RESPONSE_REASONING>"),
+            )
+            self.assertLess(
+                prompt.index("</PREVIOUS_JIN_RESPONSE_REASONING>"),
+                prompt.index("I identify myself as JIN"),
+            )
+
+    def test_previous_reasoning_block_is_inserted_even_when_empty(self):
+
+            context = SimpleNamespace(
+                runtime_memory="",
+                deep_thought_count=0,
+                runtime_search_result="",
+                runtime_search_result_id="",
+                runtime_session_action_history=[],
+                runtime_previous_reasoning_content="",
+            )
+
+            prompt = build_brain_context(
+                context=context,
+                runtime_actions={
+                    "CAN_WEB_SEARCH": False,
+                },
+                include_runtime_action_instructions=False,
+            )
+
+            self.assertIn(
+                (
+                    "<PREVIOUS_JIN_RESPONSE_REASONING>\n"
+                    "\n"
+                    "</PREVIOUS_JIN_RESPONSE_REASONING>"
+                ),
+                prompt,
+            )
+            self.assertLess(
+                prompt.index("<PREVIOUS_JIN_RESPONSE_REASONING>"),
+                prompt.index("I identify myself as JIN"),
+            )
+
+    def test_previous_reasoning_crop_keeps_short_text_whole_and_percent_edges(self):
+
+            short_reasoning = (
+                "brief opening\n"
+                "brief conclusion"
+            )
+            self.assertEqual(
+                crop_previous_reasoning_text(
+                    short_reasoning
+                ),
+                short_reasoning,
+            )
+
+            threshold_reasoning = (
+                "x"
+                * PREVIOUS_REASONING_MIN_CROP_CHARS
+            )
+            self.assertEqual(
+                crop_previous_reasoning_text(
+                    threshold_reasoning
+                ),
+                threshold_reasoning,
+            )
+
+            prefix = "a" * 300
+            middle = "m" * 600
+            suffix = "z" * 300
+            long_reasoning = (
+                prefix
+                + middle
+                + suffix
+            )
+            edge_chars = int(
+                len(long_reasoning)
+                * PREVIOUS_REASONING_EDGE_PERCENT
+                / 100
+            )
+
+            self.assertEqual(
+                crop_previous_reasoning_text(
+                    long_reasoning
+                ),
+                prefix[:edge_chars]
+                + "\n,,,\n"
+                + suffix[-edge_chars:],
+            )
+
+    def test_previous_reasoning_can_be_excluded_for_followup_ticks(self):
+
+            context = SimpleNamespace(
+                runtime_memory="",
+                deep_thought_count=0,
+                runtime_search_result="",
+                runtime_search_result_id="",
+                runtime_session_action_history=[
+                    {
+                        "text": "CLEAN_TOOL_RESULTS",
+                    },
+                ],
+                runtime_previous_reasoning_content="previous reasoning",
+            )
+
+            prompt = build_brain_context(
+                context=context,
+                runtime_actions={
+                    "CAN_WEB_SEARCH": False,
+                },
+                include_previous_reasoning=False,
+            )
+
+            self.assertNotIn(
+                "<PREVIOUS_JIN_RESPONSE_REASONING>",
+                prompt,
+            )
+
+            context.runtime_followup_tick_active = True
+            guarded_prompt = build_brain_context(
+                context=context,
+                runtime_actions={
+                    "CAN_WEB_SEARCH": False,
+                },
+            )
+
+            self.assertNotIn(
+                "<PREVIOUS_JIN_RESPONSE_REASONING>",
+                guarded_prompt,
             )
 
     def test_current_action_age_starts_at_one_second(self):

@@ -44,6 +44,12 @@ MAX_REPEAT_WORD_SEQUENCE_SIZE = 6
 MAX_REPEAT_WORD_SEQUENCE_REPETITIONS = 6
 MAX_REPEAT_SENTENCES = 5
 MAX_SENTENCE_LOOP_SEQUENCE_SIZE = 16
+MAX_RECURRENT_SENTENCE_HISTORY_SIZE = (
+    MAX_SENTENCE_LOOP_SEQUENCE_SIZE
+    * MAX_REPEAT_SENTENCES
+)
+MIN_RECURRENT_SENTENCE_WORDS = 5
+MIN_RECURRENT_SENTENCE_ALNUM = 20
 SENTENCE_HISTORY_SIZE = (
     MAX_SENTENCE_LOOP_SEQUENCE_SIZE
     + 1
@@ -111,6 +117,7 @@ class StreamValidator:
 
         self.current_sentence_parts = []
         self.sentence_history = []
+        self.recurrent_sentence_history = []
         self.sentence_period_match_counts = [
             0
         ] * (
@@ -797,6 +804,104 @@ class StreamValidator:
             True,
         )
 
+    @staticmethod
+    def normalize_recurrent_sentence_key(
+        sentence: str,
+    ) -> str:
+
+        normalized = " ".join(
+            str(sentence or "")
+            .casefold()
+            .split()
+        ).strip(" *_~-\t")
+
+        if not normalized:
+            return ""
+
+        words = [
+            word.strip(
+                " \t\r\n`*_~\"'.,:;!?()[]{}<>"
+            )
+            for word in normalized.split()
+        ]
+        words = [
+            word
+            for word in words
+            if any(
+                char.isalpha()
+                for char in word
+            )
+        ]
+
+        if (
+            len(words)
+            < MIN_RECURRENT_SENTENCE_WORDS
+        ):
+            return ""
+
+        if (
+            sum(
+                char.isalnum()
+                for char in normalized
+            )
+            < MIN_RECURRENT_SENTENCE_ALNUM
+        ):
+            return ""
+
+        return normalized
+
+    def validate_recurrent_sentence_loop(
+        self,
+        sentence: str,
+    ) -> bool:
+
+        sentence_key = (
+            self.normalize_recurrent_sentence_key(
+                sentence
+            )
+        )
+
+        if not sentence_key:
+            return True
+
+        matching_sentences = [
+            history_sentence
+            for history_sentence in (
+                self.recurrent_sentence_history
+            )
+            if (
+                self.normalize_recurrent_sentence_key(
+                    history_sentence
+                )
+                == sentence_key
+            )
+        ]
+
+        if (
+            len(matching_sentences)
+            < MAX_REPEAT_SENTENCES
+        ):
+            return True
+
+        preview = "\n".join(
+            sentence.strip()
+            for sentence in matching_sentences[
+                -MAX_REPEAT_SENTENCES:
+            ]
+        )
+
+        self.last_failure_reason = (
+            "Repeated sentence loop detected."
+        )
+        self.last_failure_preview = build_preview(
+            preview
+        )
+        self.last_failure_loop_preview = build_preview(
+            sentence.strip()
+        )
+
+        return False
+
     # -----------------------------------------------------
     # VALIDATE SENTENCES
     # -----------------------------------------------------
@@ -809,12 +914,21 @@ class StreamValidator:
         self.sentence_history.append(
             sentence
         )
+        self.recurrent_sentence_history.append(
+            sentence
+        )
 
         if (
             len(self.sentence_history)
             > SENTENCE_HISTORY_SIZE
         ):
             del self.sentence_history[0]
+
+        if (
+            len(self.recurrent_sentence_history)
+            > MAX_RECURRENT_SENTENCE_HISTORY_SIZE
+        ):
+            del self.recurrent_sentence_history[0]
 
         max_sequence_size = min(
             MAX_SENTENCE_LOOP_SEQUENCE_SIZE,
@@ -897,6 +1011,11 @@ class StreamValidator:
                 self.last_failure_preview
             )
 
+            return False
+
+        if not self.validate_recurrent_sentence_loop(
+            sentence
+        ):
             return False
 
         return True

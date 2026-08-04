@@ -153,6 +153,23 @@ def _find_all_runtime_action_matches(
     )
 
 
+def _is_payloadless_jin_color_marker(
+    raw_marker: str,
+    payload: str,
+) -> bool:
+
+    if str(payload or "").strip():
+        return False
+
+    return bool(
+        re.fullmatch(
+            r"<\s*JIN_COLOR(?:\s*:\s*)?\s*/?>",
+            str(raw_marker or "").strip(),
+            re.IGNORECASE,
+        )
+    )
+
+
 @dataclass(frozen=True)
 class RuntimeActionCall:
     name: str
@@ -798,7 +815,13 @@ def extract_runtime_actions(
             # optional ``s``/``ms`` suffix is a runtime marker. The suffix is
             # ignored and the number always means seconds. Plain prose and
             # malformed candidates such as ``<IDLE: test>`` stay visible.
-            if normalized_action_name == RUNTIME_ACTION_IDLE:
+            if (
+                normalized_action_name == RUNTIME_ACTION_IDLE
+                or _is_payloadless_jin_color_marker(
+                    raw_marker,
+                    query,
+                )
+            ):
                 return raw_marker
 
             if not preserve_action_text:

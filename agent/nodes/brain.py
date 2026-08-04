@@ -1197,6 +1197,9 @@ class BrainNode(BaseNode):
             system_prompt=system_prompt,
             user_prompt=effective_brain_payload,
             runtime_actions=runtime_actions,
+            include_previous_reasoning=(
+                not is_followup_tick
+            ),
         )
 
         if preserve_runtime_action_markers:
@@ -1714,6 +1717,7 @@ class BrainNode(BaseNode):
                             runtime_actions=followup_runtime_actions,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
+                            include_previous_reasoning=False,
                         ),
                         sequence_user_request,
                         context=context,
@@ -1839,6 +1843,7 @@ class BrainNode(BaseNode):
                             runtime_actions=followup_runtime_actions,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
+                            include_previous_reasoning=False,
                         ),
                         sequence_user_request,
                         context=context,
@@ -1908,6 +1913,7 @@ class BrainNode(BaseNode):
                             runtime_actions=followup_runtime_actions,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
+                            include_previous_reasoning=False,
                         ),
                         sequence_user_request,
                         context=context,
@@ -1976,6 +1982,7 @@ class BrainNode(BaseNode):
                             runtime_actions=followup_runtime_actions,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
+                            include_previous_reasoning=False,
                         ),
                         sequence_user_request,
                         context=context,
@@ -2066,6 +2073,7 @@ class BrainNode(BaseNode):
                             runtime_actions=followup_runtime_actions,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
+                            include_previous_reasoning=False,
                         ),
                         sequence_user_request,
                         context=context,
@@ -2117,6 +2125,7 @@ class BrainNode(BaseNode):
                         runtime_actions=followup_runtime_actions,
                         commit_active_memory_refresh=True,
                         include_previous_chat_messages=False,
+                        include_previous_reasoning=False,
                     ),
                     sequence_user_request,
                     context=context,
@@ -2204,6 +2213,7 @@ class BrainNode(BaseNode):
                         runtime_actions=final_runtime_actions,
                         commit_active_memory_refresh=True,
                         include_previous_chat_messages=False,
+                        include_previous_reasoning=False,
                     ),
                     sequence_user_request,
                     context=context,
@@ -2232,6 +2242,15 @@ class BrainNode(BaseNode):
             )
 
         state.brain_response = text or ""
+        if context is not None and not idle_followup:
+            context.runtime_previous_reasoning_content = str(
+                getattr(
+                    context,
+                    "runtime_turn_reasoning_content",
+                    "",
+                )
+                or ""
+            ).strip()
 
 
 

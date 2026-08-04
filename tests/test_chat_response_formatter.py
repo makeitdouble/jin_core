@@ -90,11 +90,68 @@ for (const [input, expected] of cases) {
             completed.stderr or completed.stdout,
         )
 
+    @unittest.skipUnless(
+        shutil.which("node"),
+        "node is required for the browser-side response formatter test",
+    )
+    def test_underscores_inside_names_do_not_render_as_italic(self):
+        script = r'''
+const fs = require("fs");
+global.window = {};
+eval(fs.readFileSync(process.argv[1], "utf8"));
+
+const cases = [
+  [
+    "1put0q_СинтезИнтеллектикакконтролируемыйхаос_Эволюциячерез_ошибку",
+    "<p>1put0q_СинтезИнтеллектикакконтролируемыйхаос_Эволюциячерез_ошибку</p>",
+  ],
+  [
+    "abc_Project_context",
+    "<p>abc_Project_context</p>",
+  ],
+  [
+    "before _italic_ after",
+    "<p>before <em>italic</em> after</p>",
+  ],
+  [
+    "before ___both___ after",
+    "<p>before <strong><em>both</em></strong> after</p>",
+  ],
+];
+
+for (const [input, expected] of cases) {
+  const actual = window.JinResponseFormatter.render(input);
+
+  if (actual !== expected) {
+    throw new Error(
+      `unexpected underscore emphasis rendering for ${JSON.stringify(input)}: ${JSON.stringify(actual)}`
+    );
+  }
+}
+'''
+        completed = subprocess.run(
+            [
+                shutil.which("node"),
+                "-e",
+                script,
+                str(FORMATTER_JS),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(
+            completed.returncode,
+            0,
+            completed.stderr or completed.stdout,
+        )
+
     def test_formatter_script_cache_version_is_bumped(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            '/static/js/chat-response-formatter.js?v=response-format-4',
+            '/static/js/chat-response-formatter.js?v=response-format-5',
             source,
         )
 
