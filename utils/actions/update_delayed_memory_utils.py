@@ -13,12 +13,21 @@ UPDATE_DELAYED_MEMORY_FIELD_RE = re.compile(
 
 
 def _normalize_tags(value) -> list[str]:
-    source = value if isinstance(value, list) else str(value or "").split(",")
+    if isinstance(value, list):
+        source = value
+    else:
+        text = str(value or "").strip()
+
+        if text.startswith("[") and text.endswith("]"):
+            text = text[1:-1]
+
+        source = text.split(",")
+
     tags = []
     seen = set()
 
     for item in source:
-        tag = str(item or "").strip()
+        tag = str(item or "").strip().strip("\"'")
         normalized = tag.casefold()
 
         if not tag or normalized in seen:

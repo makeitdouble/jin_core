@@ -1719,6 +1719,63 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             tool_results,
         )
 
+    def test_stream_filter_buffers_update_delayed_memory_header_payload(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_SAVE_DELAYED_MEMORY",
+            ],
+        )
+
+        first = stream_filter.filter(
+            "<UPDATE_DELAYED_MEMORY: a1b2c3>\n"
+        )
+        second = stream_filter.filter(
+            (
+                "tags:\n"
+                "[social, context]\n"
+                "long_term_facts_ids:\n"
+                "l4_existing, l4_new\n"
+                "body:\n"
+                "Additional durable context.\n"
+            )
+        )
+        third = stream_filter.filter(
+            "</UPDATE_DELAYED_MEMORY>"
+        )
+
+        self.assertEqual(first.text, "")
+        self.assertEqual(
+            first.started_actions,
+            (
+                RuntimeActionCall(
+                    name="UPDATE_DELAYED_MEMORY",
+                    payload="",
+                ),
+            ),
+        )
+        self.assertEqual(second.text, "")
+        self.assertEqual(third.text, "")
+        self.assertEqual(third.count("UPDATE_DELAYED_MEMORY"), 1)
+        self.assertEqual(
+            parse_update_delayed_memory_payload(
+                third.actions[0].payload
+            ),
+            {
+                "id": "a1b2c3",
+                "tags": [
+                    "social",
+                    "context",
+                ],
+                "long_term_facts_ids": [
+                    "l4_existing",
+                    "l4_new",
+                ],
+                "body": "Additional durable context.",
+            },
+        )
+
+
     def test_extracts_update_delayed_memory_block_with_header_id(self):
 
         result = extract_runtime_actions(

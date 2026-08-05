@@ -231,7 +231,9 @@ def compile_runtime_action_tag_regexp(
     return re.compile(
         (
             r"<\s*(?P<slash>/)?\s*"
-            r"(?P<name>" + name + r")\s*>+"
+            r"(?P<name>" + name + r")"
+            r"(?:\s*:\s*(?P<attribute_payload>[^>]*?))?"
+            r"\s*>+"
         ),
         re.IGNORECASE,
     )

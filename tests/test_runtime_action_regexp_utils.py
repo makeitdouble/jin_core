@@ -113,6 +113,16 @@ class RuntimeActionRegexpUtilsTests(unittest.TestCase):
 
         self.assertIsNone(marker_start)
 
+    def test_close_tag_action_holds_opening_tag_with_header_payload(self):
+        marker_start = find_unclosed_runtime_action_start(
+            "<UPDATE_DELAYED_MEMORY: a1b2c3>\ntags: social",
+            "<UPDATE_DELAYED_MEMORY: id >",
+            "UPDATE_DELAYED_MEMORY",
+            close_tag=True,
+        )
+
+        self.assertEqual(marker_start, 0)
+
     def test_explicit_regexp_can_be_used_without_templates(self):
         regexp = re.compile(
             r"ACTION\[(?P<name>[A-Z_]+)\]:(?P<payload>[^\n]+)"

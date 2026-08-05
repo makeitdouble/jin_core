@@ -395,6 +395,9 @@ def normalize_runtime_action_names(
             normalized_names.append(
                 RUNTIME_ACTION_REMOVE_DELAYED_MEMORY
             )
+            normalized_names.append(
+                RUNTIME_ACTION_UPDATE_DELAYED_MEMORY
+            )
 
         if normalized_name == RUNTIME_ACTION_ASSET_ACTION:
             normalized_names.append(
