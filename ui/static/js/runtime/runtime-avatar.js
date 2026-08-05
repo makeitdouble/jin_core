@@ -22,8 +22,16 @@
   const STATIC_RADIAL_LINE_INNER_RADIUS = 38 * INNER_RING_SCALE;
   const STATIC_RADIAL_LINE_OUTER_RADIUS = 166 * INNER_RING_SCALE;
   const MEMORY_RING_LAYOUT = Object.freeze({
+    l4: Object.freeze({
+      radius: 156,
+      strokeWidth: 1.10,
+      minArcDegrees: 3.4,
+      maxArcDegrees: 9.4,
+      arcRatio: 0.45,
+      startAngle: -3,
+    }),
     delayed: Object.freeze({
-      radius: 158,
+      radius: 166,
       strokeWidth: 1.05,
       minArcDegrees: 3.2,
       maxArcDegrees: 8.8,
@@ -31,7 +39,7 @@
       startAngle: -6,
     }),
     active: Object.freeze({
-      radius: 169,
+      radius: 176,
       strokeWidth: 1.35,
       minArcDegrees: 3.8,
       maxArcDegrees: 10.8,
@@ -71,6 +79,7 @@
   const ACTIVE_MEMORY_RING_COLOR = "#d7fff9";
   const DELAYED_MEMORY_RING_COLOR = "#7ab8d8";
   const PINNED_DELAYED_MEMORY_RING_COLOR = "#efffff";
+  const L4_MEMORY_RING_COLOR = "#93c5fd";
 
   const avatarRoot = document.getElementById("jin-runtime-avatar");
   const factCheckTrigger = document.getElementById("fact-check-trigger");
@@ -639,6 +648,55 @@
       });
   }
 
+  function getL4MemoryAvatarRecords() {
+    const l4Memory =
+      window.JinRuntime && window.JinRuntime.l4Memory;
+    const facts =
+      l4Memory && typeof l4Memory.getFacts === "function"
+        ? l4Memory.getFacts()
+        : [];
+
+    return (Array.isArray(facts) ? facts : [])
+      .map((fact) => {
+        if (
+          !fact
+          || typeof fact !== "object"
+          || Array.isArray(fact)
+        ) {
+          return null;
+        }
+
+        const id = String(fact.id || "").trim();
+        const key = String(fact.key || "").trim();
+        const value = String(fact.value || fact.content || "").trim();
+        const lineText = `${key}: ${value}`.trim();
+
+        if (!id || !key || !value) {
+          return null;
+        }
+
+        return {
+          id,
+          key,
+          value,
+          text: lineText,
+          referenceAliases:
+            normalizeMemoryReferenceAliases([
+              id,
+              key,
+            ]),
+          citationText:
+            normalizeRuntimeCitationIdentity(lineText),
+        };
+      })
+      .filter(Boolean)
+      .sort((left, right) => {
+        return String(left.id || "").localeCompare(
+          String(right.id || "")
+        );
+      });
+  }
+
   function appendMemoryDashSegment(parent, layout, options) {
     const arcDegrees =
       clamp(
@@ -664,6 +722,7 @@
       "data-runtime-line-key": options.citationKey || null,
       "data-runtime-line-text": options.citationText || null,
       "data-delayed-memory-id": options.delayedMemoryId || null,
+      "data-l4-fact-id": options.l4FactId || null,
     });
 
     setAvatarMemoryReferenceAliases(
@@ -725,14 +784,12 @@
       .join("|");
     const random =
       createRandom(`memory-ring:${kind}:${seedText}`);
-    const baseDuration =
-      kind === "active"
-        ? 38
-        : 54;
-    const durationSpread =
-      kind === "active"
-        ? 72
-        : 112;
+    const animationProfile = {
+      active: [38, 72],
+      delayed: [54, 112],
+      l4: [46, 96],
+    }[kind] || [54, 112];
+    const [baseDuration, durationSpread] = animationProfile;
 
     return {
       duration: baseDuration + random() * durationSpread,
@@ -795,6 +852,35 @@
             citationText: record.citationText,
             referenceAliases: record.referenceAliases,
             title: `Active memory ${index + 1}: ${record.value || record.text}`,
+          }
+        );
+        return;
+      }
+
+      if (kind === "l4") {
+        const color =
+          mixColors(
+            L4_MEMORY_RING_COLOR,
+            overallColor,
+            0.08
+          );
+
+        appendMemoryDashSegment(
+          ring,
+          layout,
+          {
+            kind,
+            angle,
+            arcDegrees,
+            color,
+            glowColor: L4_MEMORY_RING_COLOR,
+            opacity: 0.52,
+            citationKey:
+              normalizeRuntimeCitationIdentity(record.key),
+            citationText: record.citationText,
+            l4FactId: record.id,
+            referenceAliases: record.referenceAliases,
+            title: `L4 ${record.id} · ${record.key}: ${record.value}`,
           }
         );
         return;
@@ -889,8 +975,16 @@
     svg,
     activeMemoryRecords,
     delayedMemoryRecords,
+    l4MemoryRecords,
     overallColor
   ) {
+    appendMemorySignalRing(
+      svg,
+      l4MemoryRecords,
+      MEMORY_RING_LAYOUT.l4,
+      "l4",
+      overallColor
+    );
     appendMemorySignalRing(
       svg,
       delayedMemoryRecords,
@@ -1459,7 +1553,8 @@
     snapshot,
     lines,
     activeMemoryRecords = [],
-    delayedMemoryRecords = []
+    delayedMemoryRecords = [],
+    l4MemoryRecords = []
   ) {
     return [
       snapshot && snapshot.runtime_memory_id,
@@ -1468,6 +1563,7 @@
       lines.map(line => [line.key, line.value, line.status, line.key_status, line.value_status].join("␟")).join("␞"),
       activeMemoryRecords.map(record => record.text).join("␞"),
       delayedMemoryRecords.map(record => [record.id, record.title, record.summary, record.pinned].join("␟")).join("␞"),
+      l4MemoryRecords.map(record => [record.id, record.key, record.value].join("␟")).join("␞"),
     ].join("␝");
   }
 
@@ -1488,6 +1584,7 @@
     const records = lines.length ? computeRingRecords(lines, seed || "jin-avatar") : [];
     const activeMemoryRecords = getActiveMemoryAvatarRecords();
     const delayedMemoryRecords = getDelayedMemoryAvatarRecords();
+    const l4MemoryRecords = getL4MemoryAvatarRecords();
     const overallColor = lines.length
       ? computeOverallColor(lines, records)
       : DEFAULT_RING_COLOR;
@@ -1499,7 +1596,8 @@
         snapshot,
         lines,
         activeMemoryRecords,
-        delayedMemoryRecords
+        delayedMemoryRecords,
+        l4MemoryRecords
       ) + `:${options.seedNonce || avatarRefreshNonce}`;
     const shouldAnimate = Boolean(lastRenderSignature) && signature !== lastRenderSignature;
 
@@ -1524,6 +1622,7 @@
       svg,
       activeMemoryRecords,
       delayedMemoryRecords,
+      l4MemoryRecords,
       overallColor
     );
 

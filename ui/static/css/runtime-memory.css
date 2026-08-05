@@ -246,6 +246,14 @@
     color: rgba(244, 244, 245, 0.88);
 }
 
+.jin-runtime-action-delayed-memory-pinned {
+    color: rgba(244, 244, 245, 0.92) !important;
+    text-shadow:
+            0 0 7px rgba(236, 253, 245, 0.28),
+            0 0 15px rgba(74, 222, 128, 0.18),
+            0 0 24px rgba(16, 185, 129, 0.12);
+}
+
 
 .runtime-memory-user-idle .runtime-memory-key {
     font-weight: 500!important;
@@ -293,9 +301,11 @@
 
 .runtime-memory-delayed-row-pinned .runtime-memory-key,
 .runtime-memory-delayed-row-pinned .runtime-memory-value {
-    color: rgba(244, 244, 245, 0.82);
+    color: rgba(244, 244, 245, 0.92);
     text-shadow:
-            0 0 8px rgba(244, 244, 245, 0.16);
+            0 0 7px rgba(236, 253, 245, 0.28),
+            0 0 15px rgba(74, 222, 128, 0.18),
+            0 0 24px rgba(16, 185, 129, 0.12);
 }
 
 .delayed-memory-modal-actions {
@@ -306,8 +316,8 @@
 
 .delayed-memory-modal-icon-button {
     display: inline-flex;
-    width: 28px;
-    height: 28px;
+    width: 31px;
+    height: 31px;
     align-items: center;
     justify-content: center;
     border: 1px solid transparent;
@@ -325,8 +335,8 @@
 }
 
 .delayed-memory-modal-pin svg {
-    width: 15px;
-    height: 15px;
+    width: 18px;
+    height: 18px;
     fill: currentColor;
     transition: filter 0.18s ease;
 }
@@ -337,12 +347,13 @@
 
 .delayed-memory-modal-pin-active svg {
     filter:
-            drop-shadow(0 0 5px rgba(240, 253, 250, 0.5))
-            drop-shadow(0 0 12px rgba(153, 246, 228, 0.24));
+            drop-shadow(0 0 7px rgba(240, 253, 250, 0.64))
+            drop-shadow(0 0 16px rgba(153, 246, 228, 0.34))
+            drop-shadow(0 0 24px rgba(45, 212, 191, 0.18));
 }
 
 .delayed-memory-modal-close {
-    font-size: 20px;
+    font-size: 23px;
     line-height: 1;
 }
 

@@ -230,6 +230,12 @@
         drop-shadow(0 0 11px var(--jin-avatar-memory-glow-mid, rgba(239, 255, 255, 0.54)));
 }
 
+.jin-avatar-memory-dash-l4 {
+    filter:
+        brightness(1.06)
+        drop-shadow(0 0 4px var(--jin-avatar-memory-glow-mid, rgba(147, 197, 253, 0.30)));
+}
+
 .jin-avatar-memory-dash.is-runtime-cited,
 .jin-avatar-memory-dash.is-memory-reference-hit {
     filter:

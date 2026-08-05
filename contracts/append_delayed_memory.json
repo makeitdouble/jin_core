@@ -10,10 +10,10 @@
       "emit_followup": false
     },
     "rules": [
-      "JIN can append saved reports to the context by using this marker.",
+      "Emit one marker per saved delayed memory. You may emit multiple markers to append multiple reports; already appended ids are ignored.",
+      "id - is a placeholder word; replace placeholder with the 6-character id prefix shown in <DELAYED_MEMORY>.",
       "Available for appending reports are listed in the <DELAYED_MEMORY> block.",
-      "Emit one <APPEND_DELAYED_MEMORY: id > marker per saved delayed memory. You may emit multiple markers to append multiple reports; already appended ids are ignored.",
-      "id - is a placeholder word; replace placeholder with the 6-character id prefix shown in <DELAYED_MEMORY>."
+      "If a report already appended, use content placed in <APPENDED_DELAYED_MEMORY> block ."
     ],
     "close_tag": false
   }

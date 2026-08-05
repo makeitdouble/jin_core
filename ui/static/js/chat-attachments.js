@@ -322,7 +322,7 @@ function ensureJinAttachmentModal() {
   closeButton.type =
     "button";
   closeButton.className =
-    "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded p-0 text-[18px] leading-none text-zinc-300 transition hover:text-red-200 focus:outline-none";
+    "delayed-memory-modal-icon-button delayed-memory-modal-close shrink-0";
   closeButton.setAttribute(
     "aria-label",
     "Close"
@@ -913,6 +913,81 @@ function getDelayedMemoryReportPreviewSource(
 
 }
 
+function applyDelayedMemoryReportPreviewState(
+  element,
+  report
+) {
+
+  if (!element) {
+    return;
+  }
+
+  const normalizedId =
+    report
+    && typeof report === "object"
+    && !Array.isArray(report)
+      ? String(
+          report._storage_key
+          || report.id
+          || ""
+        ).trim().toLowerCase()
+      : "";
+  const pinned =
+    Boolean(
+      report
+      && typeof report === "object"
+      && !Array.isArray(report)
+      && report.pinned
+    );
+
+  if (normalizedId) {
+    element.dataset.delayedMemoryReportId =
+      normalizedId;
+  } else {
+    delete element.dataset.delayedMemoryReportId;
+  }
+
+  element.classList.toggle(
+    "jin-runtime-action-delayed-memory-pinned",
+    pinned
+  );
+}
+
+function syncDelayedMemoryReportPreviewState(
+  reportId,
+  pinned
+) {
+
+  const normalizedId =
+    String(reportId || "").trim().toLowerCase();
+
+  if (!normalizedId) {
+    return;
+  }
+
+  document.querySelectorAll(
+    `[data-delayed-memory-report-id="${normalizedId}"]`
+  ).forEach((element) => {
+    if (!element || !element.classList) {
+      return;
+    }
+
+    element.classList.toggle(
+      "jin-runtime-action-delayed-memory-pinned",
+      Boolean(pinned)
+    );
+
+    if (element._jinDelayedMemoryReport
+      && typeof element._jinDelayedMemoryReport === "object"
+      && !Array.isArray(element._jinDelayedMemoryReport)) {
+      element._jinDelayedMemoryReport = {
+        ...element._jinDelayedMemoryReport,
+        pinned: Boolean(pinned),
+      };
+    }
+  });
+}
+
 function bindDelayedMemoryReportPreview(
   element,
   delayedMemoryReport,
@@ -934,6 +1009,10 @@ function bindDelayedMemoryReportPreview(
 
   element._jinDelayedMemoryReport =
     report;
+  applyDelayedMemoryReportPreviewState(
+    element,
+    report
+  );
 
   if (!report) {
     element.removeAttribute(
@@ -1025,3 +1104,5 @@ window.openJinAttachmentModal =
   openJinAttachmentModal;
 window.formatJinAttachmentChipLabel =
   formatAttachmentChipLabel;
+window.syncDelayedMemoryReportPreviewState =
+  syncDelayedMemoryReportPreviewState;

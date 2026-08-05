@@ -884,6 +884,13 @@ function setDelayedMemoryReportPinned(
     window.syncDelayedMemoryReportsToRuntime();
   }
 
+  if (typeof window.syncDelayedMemoryReportPreviewState === "function") {
+    window.syncDelayedMemoryReportPreviewState(
+      normalizedId,
+      pinned
+    );
+  }
+
   return true;
 
 }
