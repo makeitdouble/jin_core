@@ -26,6 +26,16 @@
   const DELAYED_MEMORY_ROW_HOVER_SOURCE_ID = "delayed-memory-row-hover";
   const normalizeRuntimeCitationIdentity =
       window.JinRuntime.normalizeCitationIdentity;
+  const MEMORY_REFERENCE_HIGHLIGHT_EVENT =
+      "jin:memory-reference-highlight";
+  const MEMORY_REFERENCE_ALIAS_DATASET_KEY =
+      "memoryReferenceAliases";
+  const memoryReferenceHighlightState = {
+    persistentText: "",
+    hoverText: "",
+  };
+  let memoryReferenceEventsBound = false;
+
 
   const pinnedRuntimeMemorySnapshotIndexes = new Set();
 
@@ -100,6 +110,258 @@
     if (typeof setDisplayMode === "function") {
       setDisplayMode(mode);
     }
+  }
+
+  function normalizeMemoryReferenceSearchText(value) {
+    const raw = String(value || "");
+
+    try {
+      return raw
+        .normalize("NFKC")
+        .toLocaleLowerCase();
+    } catch (error) {
+      return raw.toLocaleLowerCase();
+    }
+  }
+
+  function isMemoryReferenceTokenCharacter(character) {
+    const value = String(character || "");
+
+    if (!value) {
+      return false;
+    }
+
+    return (
+      /[0-9_.-]/.test(value)
+      || value.toLocaleLowerCase()
+        !== value.toLocaleUpperCase()
+    );
+  }
+
+  function containsMemoryReference(text, reference) {
+    const haystack =
+        normalizeMemoryReferenceSearchText(text);
+    const needle =
+        normalizeMemoryReferenceSearchText(reference).trim();
+
+    if (!haystack || !needle) {
+      return false;
+    }
+
+    let index = haystack.indexOf(needle);
+
+    while (index >= 0) {
+      const before =
+          index > 0
+            ? haystack[index - 1]
+            : "";
+      const afterIndex =
+          index + needle.length;
+      const after =
+          afterIndex < haystack.length
+            ? haystack[afterIndex]
+            : "";
+
+      if (
+          !isMemoryReferenceTokenCharacter(before)
+          && !isMemoryReferenceTokenCharacter(after)
+      ) {
+        return true;
+      }
+
+      index = haystack.indexOf(
+          needle,
+          index + 1
+      );
+    }
+
+    return false;
+  }
+
+  function normalizeMemoryReferenceAliases(aliases) {
+    const seen = new Set();
+
+    return (Array.isArray(aliases) ? aliases : [])
+      .map(alias => String(alias || "").trim())
+      .filter((alias) => {
+        if (!alias) {
+          return false;
+        }
+
+        const identity =
+            normalizeMemoryReferenceSearchText(alias);
+
+        if (!identity || seen.has(identity)) {
+          return false;
+        }
+
+        seen.add(identity);
+        return true;
+      });
+  }
+
+  function collectMemoryMetadataReferenceAliases(value) {
+    const aliases = [];
+    const text = String(value || "");
+    const pattern =
+        /\[\s*([a-z0-9_.-]*id)\s*:\s*([^\]]+?)\s*\]/gi;
+    let match = null;
+
+    while ((match = pattern.exec(text)) !== null) {
+      const field =
+          String(match[1] || "")
+            .trim()
+            .toLocaleLowerCase();
+
+      if (
+          field !== "id"
+          && !field.endsWith("_id")
+      ) {
+        continue;
+      }
+
+      String(match[2] || "")
+        .split(/\s*,\s*/)
+        .map(item => item.trim())
+        .filter(Boolean)
+        .forEach(item => aliases.push(item));
+    }
+
+    return aliases;
+  }
+
+  function collectMemoryRecordReferenceAliases(record) {
+    if (!record || typeof record !== "object") {
+      return [];
+    }
+
+    return normalizeMemoryReferenceAliases([
+      record.key,
+      record.id,
+      record.active_memory_id,
+      ...collectMemoryMetadataReferenceAliases(
+        record.value
+      ),
+    ]);
+  }
+
+  window.JinRuntime.memoryReferences = Object.freeze({
+    contains: containsMemoryReference,
+    normalizeAliases: normalizeMemoryReferenceAliases,
+    collectMetadataAliases: collectMemoryMetadataReferenceAliases,
+  });
+
+  function setMemoryReferenceAliases(row, aliases) {
+    if (!row) {
+      return;
+    }
+
+    const normalizedAliases =
+        normalizeMemoryReferenceAliases(aliases);
+
+    if (!normalizedAliases.length) {
+      delete row.dataset[
+        MEMORY_REFERENCE_ALIAS_DATASET_KEY
+      ];
+      return;
+    }
+
+    row.dataset[
+      MEMORY_REFERENCE_ALIAS_DATASET_KEY
+    ] = JSON.stringify(normalizedAliases);
+  }
+
+  function getMemoryReferenceAliases(row) {
+    if (!row || !row.dataset) {
+      return [];
+    }
+
+    const raw = row.dataset[
+      MEMORY_REFERENCE_ALIAS_DATASET_KEY
+    ];
+
+    if (!raw) {
+      return [];
+    }
+
+    try {
+      return normalizeMemoryReferenceAliases(
+        JSON.parse(raw)
+      );
+    } catch (error) {
+      return [];
+    }
+  }
+
+  function getActiveMemoryReferenceText() {
+    return (
+      memoryReferenceHighlightState.hoverText
+      || memoryReferenceHighlightState.persistentText
+      || ""
+    );
+  }
+
+  function applyMemoryReferenceHighlights() {
+    if (!runtimeMemoryText) {
+      return;
+    }
+
+    const sourceText =
+        getActiveMemoryReferenceText();
+
+    runtimeMemoryText
+      .querySelectorAll(
+        `[data-memory-reference-aliases]`
+      )
+      .forEach((row) => {
+        const matched = Boolean(
+          sourceText
+          && getMemoryReferenceAliases(row)
+            .some(alias => (
+              containsMemoryReference(
+                sourceText,
+                alias
+              )
+            ))
+        );
+
+        row.classList.toggle(
+          "runtime-memory-reference-hit",
+          matched
+        );
+      });
+  }
+
+  function handleMemoryReferenceHighlight(event) {
+    const detail = event && event.detail || {};
+    const source =
+        detail.source === "hover"
+          ? "hover"
+          : "persistent";
+    const stateKey =
+        source === "hover"
+          ? "hoverText"
+          : "persistentText";
+
+    memoryReferenceHighlightState[stateKey] =
+        detail.active === false
+          ? ""
+          : String(detail.text || "");
+
+    applyMemoryReferenceHighlights();
+  }
+
+  function bindMemoryReferenceHighlightEvents() {
+    if (memoryReferenceEventsBound) {
+      return;
+    }
+
+    window.addEventListener(
+      MEMORY_REFERENCE_HIGHLIGHT_EVENT,
+      handleMemoryReferenceHighlight
+    );
+
+    memoryReferenceEventsBound = true;
   }
 
   function getRuntimeMemorySnapshotDisplayIndex(snapshot) {
@@ -209,8 +471,16 @@
 
         const content =
             String(field.content || "").trim();
+        const l4Status =
+            String(field.l4_status || "pending")
+              .trim()
+              .toLocaleLowerCase();
 
-        if (!content) {
+
+        if (
+            !content
+            || l4Status === "analyzed"
+        ) {
           return null;
         }
 
@@ -760,21 +1030,25 @@
 
     if (getRuntimeMemoryDisplayMode() === "active") {
       renderActiveMemoryRecords();
+      applyMemoryReferenceHighlights();
       return;
     }
 
     if (getRuntimeMemoryDisplayMode() === "delayed") {
       renderDelayedMemoryReports();
+      applyMemoryReferenceHighlights();
       return;
     }
 
     if (getRuntimeMemoryDisplayMode() === "facts") {
       renderFactsMemoryFields();
+      applyMemoryReferenceHighlights();
       return;
     }
 
     if (getRuntimeMemoryDisplayMode() === "long_term") {
       renderLongTermMemoryFacts();
+      applyMemoryReferenceHighlights();
       return;
     }
 
@@ -798,6 +1072,7 @@
       updateRuntimeMemoryPinGlow();
       updateRuntimeMemoryTitleState();
       dispatchRuntimeAvatarSnapshot(null);
+      applyMemoryReferenceHighlights();
       return;
     }
 
@@ -839,6 +1114,7 @@
     updateRuntimeMemoryPinGlow();
     updateRuntimeMemoryTitleState();
     dispatchRuntimeAvatarSnapshot(sourceSnapshot);
+    applyMemoryReferenceHighlights();
   }
 
   function isLatestRuntimeMemorySnapshot() {
@@ -1171,6 +1447,10 @@
           normalizeRuntimeCitationIdentity(
             `${line.key || "note"}: ${line.value || ""}`
           );
+      setMemoryReferenceAliases(
+        row,
+        collectMemoryRecordReferenceAliases(line)
+      );
 
       row.addEventListener(
         "mouseenter",
@@ -1782,6 +2062,13 @@
             normalizeRuntimeCitationIdentity(
               report._storage_key
             );
+        setMemoryReferenceAliases(
+          row,
+          [
+            report._storage_key,
+            report.id,
+          ]
+        );
 
         row.appendChild(
             keySpan
@@ -1906,6 +2193,86 @@
         ).format(date);
 
     return `${year}-${month}-${day} ${hours}:${minutes}, ${weekday}`;
+  }
+
+  function normalizeDelayedMemoryReportId(value) {
+    return String(value || "").trim().toLowerCase();
+  }
+
+  function isDelayedMemoryReportId(value) {
+    return /^[a-z0-9]{6}$/.test(
+        normalizeDelayedMemoryReportId(value)
+    );
+  }
+
+  function getDelayedMemoryReportId(report) {
+    if (
+        !report
+        || typeof report !== "object"
+        || Array.isArray(report)
+    ) {
+      return "";
+    }
+
+    const candidates = [
+      report._storage_key,
+      report.id,
+    ];
+
+    for (const candidate of candidates) {
+      const reportId =
+          normalizeDelayedMemoryReportId(candidate);
+
+      if (isDelayedMemoryReportId(reportId)) {
+        return reportId;
+      }
+    }
+
+    return "";
+  }
+
+  function resolveDelayedMemoryReportForModal(report) {
+    if (
+        !report
+        || typeof report !== "object"
+        || Array.isArray(report)
+    ) {
+      return null;
+    }
+
+    const reportId =
+        getDelayedMemoryReportId(report);
+    const reports =
+        typeof getDelayedMemoryReports === "function"
+          ? getDelayedMemoryReports()
+          : null;
+    const storedReport =
+        reportId
+        && reports
+        && typeof reports === "object"
+        && !Array.isArray(reports)
+        && reports[reportId]
+        && typeof reports[reportId] === "object"
+        && !Array.isArray(reports[reportId])
+          ? reports[reportId]
+          : null;
+
+    if (storedReport) {
+      return {
+        ...storedReport,
+        _storage_key: reportId,
+      };
+    }
+
+    return {
+      ...report,
+      _storage_key:
+        reportId
+        || normalizeDelayedMemoryReportId(
+            report._storage_key
+            || report.id
+        ),
+    };
   }
 
   function updateDelayedMemoryModalPinState(report) {
@@ -2246,15 +2613,22 @@
 
   function openDelayedMemoryReportModal(report) {
     ensureDelayedMemoryModal();
+    const resolvedReport =
+        resolveDelayedMemoryReportForModal(report);
+
+    if (!resolvedReport) {
+      return;
+    }
+
     delayedMemoryModalReport = {
-      ...report,
+      ...resolvedReport,
     };
     updateDelayedMemoryModalPinState(
         delayedMemoryModalReport
     );
 
     delayedMemoryModalTitle.textContent =
-        normalizeDelayedMemoryDisplayText(report.title)
+        normalizeDelayedMemoryDisplayText(delayedMemoryModalReport.title)
         || "Delayed memory";
 
     delayedMemoryModalContent.innerHTML = "";
@@ -2268,44 +2642,44 @@
     appendDelayedMemoryModalField(
         fields,
         "Title",
-        report.title
+        delayedMemoryModalReport.title
     );
 
     appendDelayedMemoryModalField(
         fields,
         "Summary",
-        report.summary
+        delayedMemoryModalReport.summary
     );
 
     appendDelayedMemoryModalField(
         fields,
         "Time",
         formatDelayedMemoryTime(
-            report.created_time
+            delayedMemoryModalReport.created_time
         )
     );
 
     appendDelayedMemoryModalField(
         fields,
         "Tags",
-        report.tags
+        delayedMemoryModalReport.tags
     );
 
     appendDelayedMemoryModalField(
         fields,
         "ID",
-        report._storage_key
+        delayedMemoryModalReport._storage_key
     );
 
     appendDelayedMemoryModalField(
         fields,
         "Session",
-        report.created_session_id
+        delayedMemoryModalReport.created_session_id
     );
 
     appendDelayedMemoryModalExtraFields(
         fields,
-        report
+        delayedMemoryModalReport
     );
 
     delayedMemoryModalContent.appendChild(
@@ -2314,7 +2688,7 @@
 
     appendDelayedMemoryModalBody(
         delayedMemoryModalContent,
-        report.body
+        delayedMemoryModalReport.body
     );
 
     delayedMemoryModal.classList.remove(
@@ -2829,6 +3203,8 @@
         "JinRuntime.memoryView.init() requires memoryModel"
       );
     }
+
+    bindMemoryReferenceHighlightEvents();
 
     idle.configure({
       onIdleTextChanged(text) {

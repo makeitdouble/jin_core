@@ -1,3 +1,4 @@
+import asyncio
 import json
 import tempfile
 import unittest
@@ -5,8 +6,11 @@ import unittest
 from runtime.L4_memory import (
     apply_l4_memory_store_sync,
     build_runtime_l4_memory_context,
+    delete_l4_memory_fact,
     ensure_runtime_l4_state,
     maybe_update_runtime_l4_memory,
+    restore_l4_memory_fact,
+    runtime_l4_memory_update_running,
 )
 from runtime.L4_memory_utils import (
     add_l4_pending_candidates,
@@ -23,6 +27,7 @@ from runtime.L4_memory_utils import (
     normalize_l4_candidates,
     normalize_l4_merge_operations,
     normalize_l4_store,
+    restore_l4_fact_to_store,
 )
 from runtime.runtime_context import RuntimeContext
 from rules.brain_context_builder import build_brain_context
@@ -44,6 +49,28 @@ class FakeEmitter:
 
     async def emit(self, payload):
         self.events.append(payload)
+
+
+class CaptureMemoryLogger:
+
+    def __init__(self):
+        self.logs = []
+
+    async def log_memory(
+        self,
+        level,
+        message,
+        details=None,
+        event=None,
+        **extra,
+    ):
+        self.logs.append({
+            "level": level,
+            "message": message,
+            "details": details,
+            "event": event,
+            **extra,
+        })
 
 
 class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
@@ -211,6 +238,76 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(stored["facts"]), 1)
             self.assertEqual(stored["facts"][0]["key"], "user.identity")
 
+    async def test_deleted_fact_survives_server_restart_and_stale_profile_sync(self):
+        with tempfile.TemporaryDirectory() as directory:
+            stale_browser_store = normalize_l4_store({
+                "revision": 154,
+                "updated_at": "2026-08-05T11:48:48Z",
+                "facts": [
+                    {
+                        "id": "l4_secret",
+                        "key": "project.secret_number_73",
+                        "value": "The number 73 was established.",
+                    },
+                ],
+            })
+            persist_long_term_facts_store(
+                stale_browser_store,
+                root=directory,
+            )
+
+            context = RuntimeContext(
+                websocket=None,
+                emitter=FakeEmitter(),
+                logger=CaptureMemoryLogger(),
+                clients={},
+            )
+            context.runtime_l4_file_store_enabled = True
+            context.runtime_l4_file_store_root = directory
+            ensure_runtime_l4_state(context)
+
+            deleted = await delete_l4_memory_fact(
+                context,
+                "l4_secret",
+            )
+            self.assertTrue(deleted)
+
+            persisted_after_delete, warnings = load_long_term_facts_store(
+                root=directory,
+            )
+            self.assertEqual(warnings, [])
+            self.assertEqual(persisted_after_delete["facts"], [])
+            self.assertEqual(
+                persisted_after_delete["deleted_fact_ids"],
+                ["l4_secret"],
+            )
+
+            restarted_context = RuntimeContext(
+                websocket=None,
+                emitter=FakeEmitter(),
+                logger=CaptureMemoryLogger(),
+                clients={},
+            )
+            restarted_context.runtime_l4_file_store_enabled = True
+            restarted_context.runtime_l4_file_store_root = directory
+            ensure_runtime_l4_state(restarted_context)
+
+            changed = apply_l4_memory_store_sync(
+                restarted_context,
+                stale_browser_store,
+            )
+            persisted_after_sync, warnings = load_long_term_facts_store(
+                root=directory,
+            )
+
+            self.assertFalse(changed)
+            self.assertEqual(warnings, [])
+            self.assertEqual(persisted_after_sync["facts"], [])
+            self.assertEqual(
+                persisted_after_sync["deleted_fact_ids"],
+                ["l4_secret"],
+            )
+
     def test_store_snapshot_merge_keeps_one_fact_per_key_with_sources(self):
         merged, change = merge_l4_store_snapshots(
             {
@@ -254,6 +351,82 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             merged["facts"][0]["source_fact_ids"],
             ["l4_incoming"],
         )
+
+    def test_store_normalization_prunes_processed_pending_fact(self):
+        processed_pending_id = "l4p_fd9b07b15788"
+        waiting_pending_id = "l4p_waiting"
+
+        store = normalize_l4_store(
+            {
+                "facts": [
+                    {
+                        "id": "l4_32df84cf695d",
+                        "key": "jin_structural_awareness",
+                        "value": "JIN tracks structural awareness.",
+                        "category": "other",
+                        "source_fact_ids": [processed_pending_id],
+                    },
+                ],
+                "pending_facts": [
+                    {
+                        "id": processed_pending_id,
+                        "key": "system.identity_definition",
+                        "value": "JIN defines itself through structure.",
+                        "category": "other",
+                    },
+                    {
+                        "id": waiting_pending_id,
+                        "key": "project.next_step",
+                        "value": "Keep reviewing pending facts.",
+                        "category": "other",
+                    },
+                ],
+            },
+            now="2026-08-04T17:34:05Z",
+        )
+
+        self.assertEqual(
+            [fact["id"] for fact in store["pending_facts"]],
+            [waiting_pending_id],
+        )
+
+    def test_store_merge_does_not_resurrect_processed_pending_fact(self):
+        processed_pending_id = "l4p_fd9b07b15788"
+
+        merged, change = merge_l4_store_snapshots(
+            {
+                "revision": 94,
+                "updated_at": "2026-08-04T17:34:05Z",
+                "facts": [
+                    {
+                        "id": "l4_32df84cf695d",
+                        "key": "jin_structural_awareness",
+                        "value": "JIN tracks structural awareness.",
+                        "category": "other",
+                        "source_fact_ids": [processed_pending_id],
+                    },
+                ],
+                "pending_facts": [],
+            },
+            {
+                "revision": 94,
+                "updated_at": "2026-08-04T17:34:05Z",
+                "facts": [],
+                "pending_facts": [
+                    {
+                        "id": processed_pending_id,
+                        "key": "system.identity_definition",
+                        "value": "JIN defines itself through structure.",
+                        "category": "other",
+                    },
+                ],
+            },
+            now="2026-08-04T17:35:00Z",
+        )
+
+        self.assertFalse(change["changed"])
+        self.assertEqual(merged["revision"], 94)
+        self.assertEqual(merged["pending_facts"], [])
 
     def test_pending_candidates_accumulate_without_touching_final_memory(self):
         store = normalize_l4_store({
@@ -551,6 +724,86 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("REINFORCE", detail_text)
         self.assertIn("confirmation: user.preference.response_language", detail_text)
         self.assertIn("existing:     user.preference.response_language", detail_text)
+
+    async def test_merge_phase_logs_skip_reason(self):
+        store, _ = add_l4_pending_candidates(
+            normalize_l4_store({}),
+            [
+                {
+                    "key": "system.identity_definition",
+                    "value": (
+                        "JIN defines its existence through structural "
+                        "awareness."
+                    ),
+                    "category": "other",
+                },
+            ],
+            now="2026-08-02T12:00:00Z",
+        )
+        service_client = FakeServiceClient(
+            '{"operations": []}'
+        )
+        logger = FakeLogger()
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=logger,
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+
+        result = await maybe_update_runtime_l4_memory(
+            context=context,
+            user_idle_seconds=61,
+        )
+
+        self.assertEqual(result["phase"], "merge")
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["reason"], "operation_count_mismatch")
+        skip_logs = [
+            details
+            for message, details in logger.summarizer_logs
+            if message == "[MEMORY:L4] L4 merge skipped: operation_count_mismatch"
+        ]
+        self.assertEqual(len(skip_logs), 1)
+        skip_details = json.loads(skip_logs[0])
+        self.assertEqual(skip_details["phase"], "merge")
+        self.assertEqual(skip_details["reason"], "operation_count_mismatch")
+        self.assertEqual(skip_details["pending_count"], 1)
+        self.assertEqual(skip_details["operations_count"], 0)
+        self.assertEqual(
+            skip_details["pending_ids"],
+            [
+                store["pending_facts"][0]["id"],
+            ],
+        )
+
+    async def test_runtime_l4_memory_update_running_tracks_active_task(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+
+        self.assertFalse(
+            runtime_l4_memory_update_running(context)
+        )
+
+        task = asyncio.create_task(
+            asyncio.sleep(0)
+        )
+        context.runtime_l4_memory_update_task = task
+
+        self.assertTrue(
+            runtime_l4_memory_update_running(context)
+        )
+
+        await task
+
+        self.assertFalse(
+            runtime_l4_memory_update_running(context)
+        )
 
     def test_store_does_not_truncate_values_or_fact_count(self):
         long_value = "fact " * 1000
@@ -920,6 +1173,89 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(service_client.calls), 3)
         self.assertIn("cross-session long-term memory", service_client.calls[0]["system_prompt"])
         self.assertIn("consolidate pending candidates", service_client.calls[2]["system_prompt"].lower())
+
+    def test_restore_l4_fact_preserves_deleted_fact_object(self):
+        fact = normalize_l4_store({
+            "facts": [{
+                "id": "l4_restore_me",
+                "key": "project.restore.test",
+                "value": "Restore the complete fact.",
+                "category": "project",
+                "mention_count": 3,
+                "source_session_ids": ["session-a"],
+            }],
+        })["facts"][0]
+
+        restored_store, changed = restore_l4_fact_to_store(
+            {"facts": []},
+            fact,
+            now="2026-08-05T10:00:00Z",
+        )
+
+        self.assertTrue(changed)
+        self.assertEqual(restored_store["facts"], [fact])
+        self.assertEqual(restored_store["revision"], 1)
+
+    async def test_delete_logs_complete_fact_and_restore_adds_it_back(self):
+        logger = CaptureMemoryLogger()
+        emitter = FakeEmitter()
+        context = RuntimeContext(
+            websocket=None,
+            emitter=emitter,
+            logger=logger,
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_l4_store({
+            "facts": [{
+                "id": "l4_restore_me",
+                "key": "project.restore.test",
+                "value": "Restore the complete fact.",
+                "category": "project",
+                "mention_count": 3,
+                "source_session_ids": ["session-a"],
+            }],
+        })
+        deleted_fact = dict(
+            context.runtime_long_term_memory_store["facts"][0]
+        )
+
+        deleted = await delete_l4_memory_fact(
+            context,
+            deleted_fact["id"],
+        )
+
+        self.assertTrue(deleted)
+        self.assertEqual(context.runtime_long_term_memory_store["facts"], [])
+        self.assertEqual(
+            context.runtime_long_term_memory_store["deleted_fact_ids"],
+            [deleted_fact["id"]],
+        )
+        self.assertEqual(logger.logs[0]["event"], "fact_deleted")
+        self.assertEqual(logger.logs[0]["tag_suffix"], "DELETED")
+        self.assertEqual(logger.logs[0]["deleted_fact"], deleted_fact)
+        self.assertEqual(
+            json.loads(logger.logs[0]["details"])["fact"],
+            deleted_fact,
+        )
+
+        restored = await restore_l4_memory_fact(
+            context,
+            deleted_fact,
+        )
+
+        self.assertTrue(restored)
+        self.assertEqual(
+            context.runtime_long_term_memory_store["facts"],
+            [deleted_fact],
+        )
+        self.assertEqual(
+            context.runtime_long_term_memory_store["deleted_fact_ids"],
+            [],
+        )
+        self.assertEqual(
+            emitter.events[-1]["change"]["restored_ids"],
+            [deleted_fact["id"]],
+        )
 
 
 if __name__ == "__main__":

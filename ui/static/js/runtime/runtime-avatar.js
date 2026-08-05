@@ -6,6 +6,10 @@
   const SVG_NS = "http://www.w3.org/2000/svg";
   const AVATAR_EVENT = "jin:runtime-avatar-snapshot";
   const THINK_RUNTIME_CITATION_HOVER_EVENT = "jin:think-runtime-citation-hover";
+  const MEMORY_REFERENCE_HIGHLIGHT_EVENT =
+    "jin:memory-reference-highlight";
+  const MEMORY_REFERENCE_ALIAS_DATASET_KEY =
+    "memoryReferenceAliases";
 
   const CENTER = 180;
   const INNER_RING_SCALE = 0.90;
@@ -73,6 +77,20 @@
   const settingsPanel = document.getElementById("settings-panel");
   const normalizeRuntimeCitationIdentity =
     window.JinRuntime.normalizeCitationIdentity;
+  const memoryReferenceHelpers =
+    window.JinRuntime.memoryReferences || {};
+  const containsMemoryReference =
+    typeof memoryReferenceHelpers.contains === "function"
+      ? memoryReferenceHelpers.contains
+      : () => false;
+  const normalizeMemoryReferenceAliases =
+    typeof memoryReferenceHelpers.normalizeAliases === "function"
+      ? memoryReferenceHelpers.normalizeAliases
+      : aliases => (Array.isArray(aliases) ? aliases : []);
+  const collectMemoryMetadataReferenceAliases =
+    typeof memoryReferenceHelpers.collectMetadataAliases === "function"
+      ? memoryReferenceHelpers.collectMetadataAliases
+      : () => [];
 
   if (!avatarRoot) {
     return;
@@ -81,9 +99,48 @@
   let centerColor = DEFAULT_CENTER_COLOR;
   let centerColorTransitionQueue = [];
   let centerColorTransitionTimer = null;
+  const memoryReferenceHighlightState = {
+    persistentText: "",
+    hoverText: "",
+  };
 
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, Number(value) || 0));
+  }
+
+  function setAvatarMemoryReferenceAliases(node, aliases) {
+    if (!node) {
+      return;
+    }
+
+    const normalizedAliases =
+      normalizeMemoryReferenceAliases(aliases);
+
+    if (!normalizedAliases.length) {
+      delete node.dataset[MEMORY_REFERENCE_ALIAS_DATASET_KEY];
+      return;
+    }
+
+    node.dataset[MEMORY_REFERENCE_ALIAS_DATASET_KEY] =
+      JSON.stringify(normalizedAliases);
+  }
+
+  function getAvatarMemoryReferenceAliases(node) {
+    if (!node || !node.dataset) {
+      return [];
+    }
+
+    const raw = node.dataset[MEMORY_REFERENCE_ALIAS_DATASET_KEY];
+
+    if (!raw) {
+      return [];
+    }
+
+    try {
+      return normalizeMemoryReferenceAliases(JSON.parse(raw));
+    } catch (error) {
+      return [];
+    }
   }
 
   function hashString(value) {
@@ -291,6 +348,13 @@
           key,
           value,
           text,
+          referenceAliases:
+            normalizeMemoryReferenceAliases([
+              key,
+              line && line.id,
+              line && line.active_memory_id,
+              ...collectMemoryMetadataReferenceAliases(value),
+            ]),
           length: Array.from(text).length,
           changeRatio: Math.max(
             Number(line && line.key_change_ratio || 0),
@@ -507,6 +571,11 @@
           key,
           value,
           text: lineText,
+          referenceAliases:
+            normalizeMemoryReferenceAliases([
+              key,
+              ...collectMemoryMetadataReferenceAliases(value),
+            ]),
           citationText:
             normalizeRuntimeCitationIdentity(lineText),
         };
@@ -555,6 +624,11 @@
           title,
           summary,
           pinned: Boolean(report.pinned),
+          referenceAliases:
+            normalizeMemoryReferenceAliases([
+              id,
+              report.id,
+            ]),
         };
       })
       .filter(Boolean)
@@ -591,6 +665,11 @@
       "data-runtime-line-text": options.citationText || null,
       "data-delayed-memory-id": options.delayedMemoryId || null,
     });
+
+    setAvatarMemoryReferenceAliases(
+      dashGroup,
+      options.referenceAliases
+    );
 
     setMemoryDashGlowVariables(
       dashGroup,
@@ -711,7 +790,10 @@
             color,
             glowColor: ACTIVE_MEMORY_RING_COLOR,
             opacity: 0.76,
+            citationKey:
+              normalizeRuntimeCitationIdentity(record.key),
             citationText: record.citationText,
+            referenceAliases: record.referenceAliases,
             title: `Active memory ${index + 1}: ${record.value || record.text}`,
           }
         );
@@ -739,6 +821,7 @@
           citationKey:
             normalizeRuntimeCitationIdentity(record.id),
           delayedMemoryId: record.id,
+          referenceAliases: record.referenceAliases,
           title: `${record.title}${record.summary ? `: ${record.summary}` : ""}`,
         }
       );
@@ -1106,6 +1189,10 @@
       normalizeRuntimeCitationIdentity(record.key);
     orbitGroup.dataset.runtimeLineText =
       normalizeRuntimeCitationIdentity(record.text);
+    setAvatarMemoryReferenceAliases(
+      orbitGroup,
+      record.referenceAliases
+    );
 
     appendTitle(
       orbitGroup,
@@ -1319,6 +1406,55 @@
     });
   }
 
+  function getActiveMemoryReferenceText() {
+    return (
+      memoryReferenceHighlightState.hoverText
+      || memoryReferenceHighlightState.persistentText
+      || ""
+    );
+  }
+
+  function applyMemoryReferenceGlow() {
+    const svg = avatarRoot.querySelector("svg");
+
+    if (!svg) {
+      return;
+    }
+
+    const sourceText = getActiveMemoryReferenceText();
+
+    svg.querySelectorAll("[data-memory-reference-aliases]")
+      .forEach((recordNode) => {
+        const matched = Boolean(
+          sourceText
+          && getAvatarMemoryReferenceAliases(recordNode)
+            .some(alias => containsMemoryReference(sourceText, alias))
+        );
+
+        recordNode.classList.toggle(
+          "is-memory-reference-hit",
+          matched
+        );
+      });
+  }
+
+  function handleMemoryReferenceHighlight(event) {
+    const detail = event && event.detail || {};
+    const source = detail.source === "hover"
+      ? "hover"
+      : "persistent";
+    const stateKey = source === "hover"
+      ? "hoverText"
+      : "persistentText";
+
+    memoryReferenceHighlightState[stateKey] =
+      detail.active === false
+        ? ""
+        : String(detail.text || "");
+
+    applyMemoryReferenceGlow();
+  }
+
   function buildRenderSignature(
     snapshot,
     lines,
@@ -1406,6 +1542,7 @@
     avatarRoot.style.setProperty("--jin-avatar-overall-color", overallColor);
     avatarRoot.style.setProperty("--jin-avatar-center-color", centerColor);
     applyThinkRuntimeCitationGlow();
+    applyMemoryReferenceGlow();
     lastRenderSignature = signature;
   }
 
@@ -1662,6 +1799,11 @@
       : null;
     scheduleSnapshotRender(snapshot, snapshotIndex);
   });
+
+  window.addEventListener(
+    MEMORY_REFERENCE_HIGHLIGHT_EVENT,
+    handleMemoryReferenceHighlight
+  );
 
   window.addEventListener(THINK_RUNTIME_CITATION_HOVER_EVENT, (event) => {
     const detail = event && event.detail || {};

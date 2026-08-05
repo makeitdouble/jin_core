@@ -131,6 +131,14 @@ def merge_l4_string_lists(*values) -> list[str]:
     return result
 
 
+def normalize_l4_deleted_fact_ids(value) -> list[str]:
+    return [
+        fact_id
+        for fact_id in normalize_l4_string_list(value)
+        if fact_id.startswith(L4_FACT_ID_PREFIX)
+    ]
+
+
 def build_l4_content_hash(content: str) -> str:
     return hashlib.sha256(
         normalize_l4_text(content).encode("utf-8")
@@ -425,6 +433,38 @@ def merge_l4_snapshot_fact_lists(
     return facts, facts != original
 
 
+def collect_l4_processed_pending_fact_ids(facts) -> set[str]:
+    processed_ids = set()
+
+    for fact in facts if isinstance(facts, list) else []:
+        if not isinstance(fact, dict):
+            continue
+
+        for source_fact_id in normalize_l4_string_list(
+            fact.get("source_fact_ids")
+        ):
+            if source_fact_id.startswith(L4_PENDING_FACT_ID_PREFIX):
+                processed_ids.add(source_fact_id)
+
+    return processed_ids
+
+
+def prune_l4_processed_pending_facts(
+    *,
+    facts,
+    pending_facts,
+) -> list[dict]:
+    processed_ids = collect_l4_processed_pending_fact_ids(facts)
+    if not processed_ids:
+        return pending_facts
+
+    return [
+        fact
+        for fact in pending_facts
+        if normalize_l4_text(fact.get("id")) not in processed_ids
+    ]
+
+
 def merge_l4_store_snapshots(
     primary_store,
     incoming_store,
@@ -442,27 +482,47 @@ def merge_l4_store_snapshots(
         now=current_time,
     )
 
-    facts, facts_changed = merge_l4_snapshot_fact_lists(
-        primary.get("facts"),
-        incoming.get("facts"),
+    deleted_fact_ids = merge_l4_string_lists(
+        primary.get("deleted_fact_ids"),
+        incoming.get("deleted_fact_ids"),
+    )
+    deleted_fact_id_set = set(deleted_fact_ids)
+
+    facts, _facts_changed = merge_l4_snapshot_fact_lists(
+        [
+            fact
+            for fact in primary.get("facts") or []
+            if fact.get("id") not in deleted_fact_id_set
+        ],
+        [
+            fact
+            for fact in incoming.get("facts") or []
+            if fact.get("id") not in deleted_fact_id_set
+        ],
         pending=False,
         now=current_time,
     )
-    pending_facts, pending_changed = merge_l4_snapshot_fact_lists(
+    pending_facts, _pending_changed = merge_l4_snapshot_fact_lists(
         primary.get("pending_facts"),
         incoming.get("pending_facts"),
         pending=True,
         now=current_time,
     )
+    pending_facts = prune_l4_processed_pending_facts(
+        facts=facts,
+        pending_facts=pending_facts,
+    )
     changed = bool(
-        facts_changed
-        or pending_changed
+        facts != primary.get("facts")
+        or pending_facts != primary.get("pending_facts")
+        or deleted_fact_ids != primary.get("deleted_fact_ids")
     )
 
     merged = {
         **primary,
         "facts": facts,
         "pending_facts": pending_facts,
+        "deleted_fact_ids": deleted_fact_ids,
     }
 
     if changed:
@@ -476,6 +536,7 @@ def merge_l4_store_snapshots(
         "changed": changed,
         "facts_count": len(facts),
         "pending_count": len(pending_facts),
+        "deleted_count": len(deleted_fact_ids),
     }
 
 
@@ -486,6 +547,7 @@ def empty_l4_store(*, now: str | None = None) -> dict:
         "updated_at": now or "",
         "facts": [],
         "pending_facts": [],
+        "deleted_fact_ids": [],
     }
 
 
@@ -505,17 +567,36 @@ def normalize_l4_store(value, *, now: str | None = None) -> dict:
         if isinstance(value.get("pending_facts"), list)
         else []
     )
+    deleted_fact_ids = normalize_l4_deleted_fact_ids(
+        value.get("deleted_fact_ids")
+    )
+    deleted_fact_id_set = set(deleted_fact_ids)
+
+    facts = [
+        fact
+        for fact in deduplicate_l4_facts(
+            facts,
+            pending=False,
+            now=current_time,
+        )
+        if fact.get("id") not in deleted_fact_id_set
+    ]
+    pending_facts = prune_l4_processed_pending_facts(
+        facts=facts,
+        pending_facts=deduplicate_l4_facts(
+            pending,
+            pending=True,
+            now=current_time,
+        ),
+    )
 
     return {
         "version": L4_STORE_VERSION,
         "revision": revision,
         "updated_at": normalize_l4_text(value.get("updated_at")) or current_time,
-        "facts": deduplicate_l4_facts(facts, pending=False, now=current_time),
-        "pending_facts": deduplicate_l4_facts(
-            pending,
-            pending=True,
-            now=current_time,
-        ),
+        "facts": facts,
+        "pending_facts": pending_facts,
+        "deleted_fact_ids": deleted_fact_ids,
     }
 
 
@@ -1072,6 +1153,40 @@ def apply_l4_merge_operations(
     }
 
 
+def restore_l4_fact_to_store(
+    store,
+    fact,
+    *,
+    now: str | None = None,
+) -> tuple[dict, bool]:
+    current_time = now or utc_now_iso()
+    next_store = normalize_l4_store(store, now=current_time)
+    restored = normalize_l4_fact(
+        fact,
+        pending=False,
+        now=current_time,
+    )
+    if restored is None:
+        return next_store, False
+
+    if any(
+        existing.get("id") == restored["id"]
+        or existing.get("key") == restored["key"]
+        for existing in next_store["facts"]
+    ):
+        return next_store, False
+
+    next_store["deleted_fact_ids"] = [
+        deleted_id
+        for deleted_id in next_store.get("deleted_fact_ids") or []
+        if deleted_id != restored["id"]
+    ]
+    next_store["facts"].append(restored)
+    next_store["revision"] += 1
+    next_store["updated_at"] = current_time
+    return next_store, True
+
+
 def delete_l4_fact_from_store(
     store,
     fact_id: str,
@@ -1086,6 +1201,10 @@ def delete_l4_fact_from_store(
         return next_store, False
 
     next_store["facts"] = remaining
+    next_store["deleted_fact_ids"] = merge_l4_string_lists(
+        next_store.get("deleted_fact_ids"),
+        [target_id],
+    )
     next_store["revision"] += 1
     next_store["updated_at"] = current_time
     return next_store, True

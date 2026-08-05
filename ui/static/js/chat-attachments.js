@@ -813,7 +813,8 @@ function normalizeDelayedMemoryReportForModal(
   const requestedId =
     String(
       delayedMemoryReportId || ""
-    ).trim();
+    ).trim()
+    .toLowerCase();
 
   if (
     requestedId
@@ -877,7 +878,8 @@ function getDelayedMemoryReportPreviewSource(
   const requestedId =
     String(
       delayedMemoryReportId || ""
-    ).trim();
+    ).trim()
+    .toLowerCase();
 
   if (
     !requestedId
@@ -940,6 +942,9 @@ function bindDelayedMemoryReportPreview(
     element.removeAttribute(
       "tabindex"
     );
+    element.classList.remove(
+      "cursor-pointer"
+    );
     return;
   }
 
@@ -948,8 +953,11 @@ function bindDelayedMemoryReportPreview(
     "button"
   );
   element.tabIndex = 0;
-  element.classList.add(
+  element.classList.remove(
     "cursor-help"
+  );
+  element.classList.add(
+    "cursor-pointer"
   );
 
   element.title =

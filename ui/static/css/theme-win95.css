@@ -561,6 +561,17 @@ body.theme-win95 #summarizer-window-bar::after {
             );
 }
 
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit {
+    background: #d7f0ed;
+    box-shadow: inset 0 0 0 1px #6b9e99;
+}
+
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit .runtime-memory-key,
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit .runtime-memory-value {
+    color: #005650 !important;
+    text-shadow: none;
+}
+
 body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-key.flash-new,
 body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-value.flash-new {
     color: #007f48 !important;

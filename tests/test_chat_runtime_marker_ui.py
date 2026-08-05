@@ -79,7 +79,7 @@ for (const [input, expected] of cases) {
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            '/static/js/chat.js?v=chat-core-5',
+            '/static/js/chat.js?v=chat-core-6',
             source,
         )
 

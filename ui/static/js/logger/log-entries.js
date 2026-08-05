@@ -871,6 +871,548 @@ function refreshFactsMemoryAppendButtons() {
   );
 }
 
+const l4SummarizerCards = {
+  extraction: [],
+  merge: [],
+};
+
+const l4DeletedFactCards =
+  new Map();
+
+function parseL4JsonPayload(details) {
+  const text =
+    String(details || "").trim();
+
+  if (!text) {
+    return null;
+  }
+
+  const direct =
+    parseTraceJson(text);
+
+  if (direct) {
+    return direct;
+  }
+
+  const fenced =
+    text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+
+  if (fenced) {
+    const parsed =
+      parseTraceJson(fenced[1].trim());
+
+    if (parsed) {
+      return parsed;
+    }
+  }
+
+  const firstBrace =
+    text.indexOf("{");
+  const lastBrace =
+    text.lastIndexOf("}");
+
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return parseTraceJson(
+      text.slice(firstBrace, lastBrace + 1)
+    );
+  }
+
+  return null;
+}
+
+function createL4LoggerCard(tag) {
+  const logDiv =
+    document.createElement("div");
+
+  logDiv.className =
+    "mb-1 min-w-0 whitespace-pre-wrap break-words font-mono text-[12px] bg-blue-500/5 p-2 rounded border border-blue-500/10";
+
+  logDiv.style.overflowWrap =
+    "anywhere";
+
+  logDiv.dataset.logKind =
+    "memory";
+
+  const tagSpan =
+    document.createElement("span");
+
+  tagSpan.className =
+    "text-blue-300 font-bold logger-tag block";
+
+  tagSpan.textContent =
+    tag;
+
+  logDiv.appendChild(tagSpan);
+
+  consoleStream.appendChild(logDiv);
+  consoleStream.scrollTop =
+    consoleStream.scrollHeight;
+
+  return logDiv;
+}
+
+function createL4LoggerButton(
+  label,
+  tone = "blue",
+) {
+  const button =
+    document.createElement("button");
+
+  button.type =
+    "button";
+
+  button.textContent =
+    label;
+
+  setL4LoggerButtonTone(
+    button,
+    tone
+  );
+
+  return button;
+}
+
+function setL4LoggerButtonTone(
+  button,
+  tone,
+) {
+  button.className =
+    tone === "muted"
+      ? "inline-flex items-center rounded border border-zinc-600/40 px-2 py-1 text-[10px] uppercase tracking-wider text-zinc-400 hover:bg-zinc-700/30 transition"
+      : "inline-flex items-center rounded border border-blue-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-blue-300 hover:bg-blue-500/10 transition";
+}
+
+function resolveL4SummarizerPhase(
+  message,
+  meta,
+) {
+  if (String(meta && meta.memory_level || "").toUpperCase() !== "L4") {
+    return "";
+  }
+
+  const normalized =
+    String(message || "").toLowerCase();
+
+  if (normalized.startsWith("l4 extraction summarizer ")) {
+    return "extraction";
+  }
+
+  if (normalized.startsWith("l4 merge summarizer ")) {
+    return "merge";
+  }
+
+  return "";
+}
+
+function resolveL4SummarizerEvent(
+  message,
+  meta,
+) {
+  const event =
+    String(meta && meta.memory_event || "").toLowerCase();
+
+  if (event === "summarizer_request" || event === "summarizer_result") {
+    return event;
+  }
+
+  const normalized =
+    String(message || "").toLowerCase();
+
+  if (normalized.endsWith("summarizer request")) {
+    return "summarizer_request";
+  }
+
+  if (normalized.endsWith("summarizer result")) {
+    return "summarizer_result";
+  }
+
+  return "";
+}
+
+function l4ResponseHasChanges(
+  phase,
+  payload,
+) {
+  if (!payload || typeof payload !== "object") {
+    return true;
+  }
+
+  if (phase === "extraction" && Array.isArray(payload.facts)) {
+    return payload.facts.length > 0;
+  }
+
+  if (phase === "merge" && Array.isArray(payload.operations)) {
+    return payload.operations.length > 0;
+  }
+
+  return Object.keys(payload).length > 0;
+}
+
+function createL4SummarizerCard(
+  phase,
+  requestDetails = null,
+) {
+  const phaseLabel =
+    phase.toUpperCase();
+
+  const logDiv =
+    createL4LoggerCard(
+      `[MEMORY:L4:${phaseLabel}]`
+    );
+
+  const actions =
+    document.createElement("div");
+
+  actions.className =
+    "mt-2 flex flex-wrap items-center gap-2";
+
+  const requestButton =
+    createL4LoggerButton(
+      "request"
+    );
+
+  const responseButton =
+    createL4LoggerButton(
+      "response"
+    );
+
+  responseButton.hidden =
+    true;
+
+  const state = {
+    logDiv,
+    phase,
+    requestDetails,
+    responseReady: false,
+    responseDetails: null,
+    responsePayload: null,
+    responseHasChanges: false,
+    requestButton,
+    responseButton,
+  };
+
+  requestButton.hidden =
+    !requestDetails;
+
+  requestButton.addEventListener(
+    "click",
+    function () {
+      if (!state.requestDetails) {
+        return;
+      }
+
+      showTrace(
+        state.requestDetails,
+        `L4 ${phase} request`
+      );
+    }
+  );
+
+  responseButton.addEventListener(
+    "click",
+    function () {
+      if (!state.responseReady) {
+        return;
+      }
+
+      showTrace(
+        JSON.stringify({
+          kind: "l4_summarizer_response",
+          phase,
+          payload: state.responsePayload,
+          raw: state.responseDetails,
+          no_changes: !state.responseHasChanges,
+        }),
+        `L4 ${phase} response`
+      );
+    }
+  );
+
+  actions.appendChild(requestButton);
+  actions.appendChild(responseButton);
+  logDiv.appendChild(actions);
+
+  l4SummarizerCards[phase].push(state);
+
+  return state;
+}
+
+function handleL4SummarizerLog(
+  message,
+  details,
+  meta,
+) {
+  const phase =
+    resolveL4SummarizerPhase(
+      message,
+      meta
+    );
+
+  if (!phase) {
+    return null;
+  }
+
+  const event =
+    resolveL4SummarizerEvent(
+      message,
+      meta
+    );
+
+  if (event === "summarizer_request") {
+    return createL4SummarizerCard(
+      phase,
+      details
+    ).logDiv;
+  }
+
+  if (event !== "summarizer_result") {
+    return null;
+  }
+
+  let state =
+    [...l4SummarizerCards[phase]]
+      .reverse()
+      .find((candidate) => !candidate.responseReady);
+
+  if (!state) {
+    state =
+      createL4SummarizerCard(
+        phase
+      );
+  }
+
+  state.responseReady =
+    true;
+  state.responseDetails =
+    String(details ?? "");
+  state.responsePayload =
+    parseL4JsonPayload(
+      state.responseDetails
+    );
+  state.responseHasChanges =
+    Boolean(state.responseDetails.trim())
+    && l4ResponseHasChanges(
+      phase,
+      state.responsePayload
+    );
+
+  state.responseButton.hidden =
+    false;
+
+  setL4LoggerButtonTone(
+    state.responseButton,
+    state.responseHasChanges
+      ? "blue"
+      : "muted"
+  );
+
+  return state.logDiv;
+}
+
+function resolveDeletedL4Fact(
+  details,
+  meta,
+) {
+  if (
+      meta
+      && meta.deleted_fact
+      && typeof meta.deleted_fact === "object"
+  ) {
+    return meta.deleted_fact;
+  }
+
+  const payload =
+    parseL4JsonPayload(details);
+
+  if (
+      payload
+      && payload.fact
+      && typeof payload.fact === "object"
+  ) {
+    return payload.fact;
+  }
+
+  return null;
+}
+
+function handleL4DeletedFactLog(
+  tag,
+  details,
+  meta,
+) {
+  const isDeleted =
+    String(meta && meta.memory_event || "").toLowerCase() === "fact_deleted"
+    || String(tag || "").toUpperCase() === "[MEMORY:L4:DELETED]";
+
+  if (!isDeleted) {
+    return null;
+  }
+
+  const fact =
+    resolveDeletedL4Fact(
+      details,
+      meta
+    );
+
+  if (!fact) {
+    return null;
+  }
+
+  const logDiv =
+    createL4LoggerCard(
+      "[MEMORY:L4:DELETED]"
+    );
+
+  const key =
+    document.createElement("span");
+
+  key.className =
+    "block mt-2 text-zinc-200 font-semibold";
+
+  key.textContent =
+    String(fact.key || fact.id || "L4 fact");
+
+  const value =
+    document.createElement("span");
+
+  value.className =
+    "block mt-1 text-zinc-400";
+
+  value.textContent =
+    String(fact.value || "");
+
+  logDiv.appendChild(key);
+
+  if (value.textContent) {
+    logDiv.appendChild(value);
+  }
+
+  const actions =
+    document.createElement("div");
+
+  actions.className =
+    "mt-2 flex flex-wrap items-center gap-2";
+
+  const payloadButton =
+    createL4LoggerButton(
+      "payload"
+    );
+
+  const restoreButton =
+    createL4LoggerButton(
+      "restore"
+    );
+
+  payloadButton.addEventListener(
+    "click",
+    function () {
+      showTrace(
+        JSON.stringify({
+          kind: "l4_fact",
+          fact,
+        }),
+        "L4 fact deleted"
+      );
+    }
+  );
+
+  restoreButton.addEventListener(
+    "click",
+    function () {
+      const api =
+        window.JINRuntimeL4Memory;
+
+      if (!api || typeof api.requestFactRestore !== "function") {
+        return;
+      }
+
+      const sent =
+        api.requestFactRestore(
+          fact
+        );
+
+      if (!sent) {
+        restoreButton.textContent =
+          "offline";
+
+        window.setTimeout(
+          function () {
+            restoreButton.textContent =
+              "restore";
+          },
+          1200
+        );
+        return;
+      }
+
+      restoreButton.disabled =
+        true;
+      restoreButton.textContent =
+        "restoring";
+      restoreButton.classList.add(
+        "opacity-50"
+      );
+
+      l4DeletedFactCards.set(
+        String(fact.id || ""),
+        {
+          logDiv,
+          restoreButton,
+        }
+      );
+    }
+  );
+
+  actions.appendChild(payloadButton);
+  actions.appendChild(restoreButton);
+  logDiv.appendChild(actions);
+
+  return logDiv;
+}
+
+function handleL4MemoryRestoreResult(
+  data
+) {
+  const factId =
+    String(data && data.fact_id || "");
+
+  const state =
+    l4DeletedFactCards.get(
+      factId
+    );
+
+  if (!state) {
+    return;
+  }
+
+  l4DeletedFactCards.delete(
+    factId
+  );
+
+  if (data && data.restored) {
+    dismissLogAfterClear(
+      state.logDiv
+    );
+    return;
+  }
+
+  state.restoreButton.disabled =
+    false;
+  state.restoreButton.textContent =
+    "restore failed";
+  state.restoreButton.classList.remove(
+    "opacity-50"
+  );
+
+  window.setTimeout(
+    function () {
+      state.restoreButton.textContent =
+        "restore";
+    },
+    1400
+  );
+}
+
 function appendLog(
   tag,
   message,
@@ -886,6 +1428,28 @@ function appendLog(
       message,
       details,
     );
+
+  const l4SummarizerLog =
+    handleL4SummarizerLog(
+      normalized.message,
+      normalized.details,
+      meta
+    );
+
+  if (l4SummarizerLog) {
+    return l4SummarizerLog;
+  }
+
+  const l4DeletedFactLog =
+    handleL4DeletedFactLog(
+      tag,
+      normalized.details,
+      meta
+    );
+
+  if (l4DeletedFactLog) {
+    return l4DeletedFactLog;
+  }
 
   const flowId =
     meta?.flow_id;
@@ -1627,6 +2191,9 @@ function appendLog(
 
   return logDiv;
 }
+
+window.handleL4MemoryRestoreResult =
+  handleL4MemoryRestoreResult;
 
 window.refreshFactsMemoryAppendButtons =
   refreshFactsMemoryAppendButtons;

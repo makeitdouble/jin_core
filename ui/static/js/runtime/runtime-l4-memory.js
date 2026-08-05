@@ -266,6 +266,20 @@
     });
   }
 
+  function requestFactRestore(fact) {
+    const normalized = normalizeFact(
+      fact,
+      false
+    );
+    if (!normalized) {
+      return false;
+    }
+    return sendIfOpen({
+      type: "l4_memory_restore_fact",
+      fact: normalized,
+    });
+  }
+
   function maybeSendIdleTick() {
     if (
       typeof window.getJinUserIdleContext !== "function"
@@ -322,6 +336,7 @@
     applyFactsMemoryRecordsUpdate,
     applyServerUpdate,
     requestFactDelete,
+    requestFactRestore,
     maybeSendIdleTick,
     startIdleMonitor,
   };

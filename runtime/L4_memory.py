@@ -25,6 +25,7 @@ from runtime.L4_memory_utils import (
     normalize_l4_candidates,
     normalize_l4_merge_operations,
     normalize_l4_store,
+    restore_l4_fact_to_store,
 )
 from utils.actions.save_delayed_memory_utils import (
     collect_long_term_fact_ids_from_reports,
@@ -234,6 +235,11 @@ def apply_l4_memory_store_sync(context, raw_store) -> bool:
     return changed
 
 
+def runtime_l4_memory_update_running(context) -> bool:
+    task = getattr(context, "runtime_l4_memory_update_task", None)
+    return task is not None and not task.done()
+
+
 async def emit_facts_memory_store_update(context) -> None:
     emit = getattr(getattr(context, "emitter", None), "emit", None)
     await safe_call(
@@ -309,6 +315,39 @@ async def ask_l4_model(
     return response
 
 
+async def log_l4_skip_event(
+    context,
+    *,
+    phase: str,
+    message_phase: str,
+    reason: str,
+    details: dict | None = None,
+) -> dict:
+    result = {
+        "phase": phase,
+        "status": "skipped",
+        "reason": reason,
+    }
+
+    if details:
+        result.update(details)
+
+    await log_memory_event(
+        context,
+        level=L4_LOG_LEVEL,
+        message=f"L4 {message_phase} skipped: {reason}",
+        details=json.dumps(
+            result,
+            ensure_ascii=False,
+            indent=2,
+        ),
+        fallback_channel="summarizer",
+        event=f"{phase}_skipped",
+    )
+
+    return result
+
+
 async def run_l4_extraction_phase(
     *,
     context,
@@ -327,22 +366,56 @@ async def run_l4_extraction_phase(
     )
 
     if is_runtime_memory_response_truncated(response):
-        return {"phase": "extract", "status": "skipped", "reason": "response_truncated"}
+        return await log_l4_skip_event(
+            context,
+            phase="extract",
+            message_phase="extraction",
+            reason="response_truncated",
+            details={
+                "selected_fields_count": len(pending_fields),
+            },
+        )
 
     payload = extract_l4_json_payload(extract_runtime_memory_text(response))
     if payload is None:
-        return {"phase": "extract", "status": "skipped", "reason": "invalid_json"}
+        return await log_l4_skip_event(
+            context,
+            phase="extract",
+            message_phase="extraction",
+            reason="invalid_json",
+            details={
+                "selected_fields_count": len(pending_fields),
+            },
+        )
 
     raw_candidates = payload.get("facts")
     if not isinstance(raw_candidates, list):
-        return {"phase": "extract", "status": "skipped", "reason": "invalid_facts_payload"}
+        return await log_l4_skip_event(
+            context,
+            phase="extract",
+            message_phase="extraction",
+            reason="invalid_facts_payload",
+            details={
+                "selected_fields_count": len(pending_fields),
+            },
+        )
 
     candidates = normalize_l4_candidates(
         payload,
         source_fields=pending_fields,
     )
     if len(candidates) != len(raw_candidates):
-        return {"phase": "extract", "status": "skipped", "reason": "invalid_candidates"}
+        return await log_l4_skip_event(
+            context,
+            phase="extract",
+            message_phase="extraction",
+            reason="invalid_candidates",
+            details={
+                "selected_fields_count": len(pending_fields),
+                "raw_candidates_count": len(raw_candidates),
+                "valid_candidates_count": len(candidates),
+            },
+        )
     store, pending_change = add_l4_pending_candidates(
         ensure_runtime_l4_state(context),
         candidates,
@@ -394,24 +467,75 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
     )
 
     if is_runtime_memory_response_truncated(response):
-        return {"phase": "merge", "status": "skipped", "reason": "response_truncated"}
+        return await log_l4_skip_event(
+            context,
+            phase="merge",
+            message_phase="merge",
+            reason="response_truncated",
+            details={
+                "pending_count": len(pending_facts),
+                "pending_ids": [
+                    fact.get("id")
+                    for fact in pending_facts
+                    if fact.get("id")
+                ],
+            },
+        )
 
     payload = extract_l4_json_payload(extract_runtime_memory_text(response))
     if payload is None:
-        return {"phase": "merge", "status": "skipped", "reason": "invalid_json"}
+        return await log_l4_skip_event(
+            context,
+            phase="merge",
+            message_phase="merge",
+            reason="invalid_json",
+            details={
+                "pending_count": len(pending_facts),
+                "pending_ids": [
+                    fact.get("id")
+                    for fact in pending_facts
+                    if fact.get("id")
+                ],
+            },
+        )
 
     current_store = clone_l4_store(ensure_runtime_l4_state(context))
     if current_store != base_store:
-        return {"phase": "merge", "status": "skipped", "reason": "store_changed_during_merge"}
+        return await log_l4_skip_event(
+            context,
+            phase="merge",
+            message_phase="merge",
+            reason="store_changed_during_merge",
+            details={
+                "base_revision": base_store.get("revision"),
+                "current_revision": current_store.get("revision"),
+                "pending_count": len(pending_facts),
+                "pending_ids": [
+                    fact.get("id")
+                    for fact in pending_facts
+                    if fact.get("id")
+                ],
+            },
+        )
 
     operations = normalize_l4_merge_operations(payload)
     next_store, merge_change = apply_l4_merge_operations(base_store, operations)
     if not merge_change.get("valid"):
-        return {
-            "phase": "merge",
-            "status": "skipped",
-            "reason": merge_change.get("reason") or "invalid_operations",
-        }
+        return await log_l4_skip_event(
+            context,
+            phase="merge",
+            message_phase="merge",
+            reason=merge_change.get("reason") or "invalid_operations",
+            details={
+                "pending_count": len(pending_facts),
+                "operations_count": len(operations),
+                "pending_ids": [
+                    fact.get("id")
+                    for fact in pending_facts
+                    if fact.get("id")
+                ],
+            },
+        )
 
     context.runtime_long_term_memory_store = next_store
     persist_runtime_l4_file_store(
@@ -509,9 +633,8 @@ def schedule_l4_memory_idle_update(
     if not l4_memory_enabled():
         return None
 
-    previous_task = getattr(context, "runtime_l4_memory_update_task", None)
-    if previous_task is not None and not previous_task.done():
-        return previous_task
+    if runtime_l4_memory_update_running(context):
+        return getattr(context, "runtime_l4_memory_update_task", None)
 
     task = asyncio.create_task(
         maybe_update_runtime_l4_memory(
@@ -591,11 +714,21 @@ def build_runtime_l4_memory_context(*, context) -> str:
 
 
 async def delete_l4_memory_fact(context, fact_id: str) -> bool:
-    store, changed = delete_l4_fact_from_store(
-        ensure_runtime_l4_state(context),
-        fact_id,
+    current_store = ensure_runtime_l4_state(context)
+    target_id = str(fact_id or "").strip()
+    deleted_fact = next(
+        (
+            dict(fact)
+            for fact in current_store.get("facts") or []
+            if str(fact.get("id") or "").strip() == target_id
+        ),
+        None,
     )
-    if not changed:
+    store, changed = delete_l4_fact_from_store(
+        current_store,
+        target_id,
+    )
+    if not changed or deleted_fact is None:
         return False
 
     context.runtime_long_term_memory_store = store
@@ -609,16 +742,54 @@ async def delete_l4_memory_fact(context, fact_id: str) -> bool:
         message="L4 fact deleted",
         details=json.dumps(
             {
-                "fact_id": fact_id,
+                "fact": deleted_fact,
                 "revision": store.get("revision"),
                 "total_facts": len(store.get("facts") or []),
             },
             ensure_ascii=False,
             indent=2,
         ),
+        event="fact_deleted",
+        tag_suffix="DELETED",
+        deleted_fact=deleted_fact,
     )
     await emit_l4_memory_update(
         context,
-        change={"removed_ids": [fact_id], "changed": True},
+        change={"removed_ids": [target_id], "changed": True},
+    )
+    return True
+
+
+async def restore_l4_memory_fact(context, fact) -> bool:
+    store, changed = restore_l4_fact_to_store(
+        ensure_runtime_l4_state(context),
+        fact,
+    )
+    if not changed:
+        return False
+
+    restored_fact = next(
+        (
+            dict(item)
+            for item in store.get("facts") or []
+            if str(item.get("id") or "").strip()
+            == str((fact or {}).get("id") or "").strip()
+        ),
+        None,
+    )
+    if restored_fact is None:
+        return False
+
+    context.runtime_long_term_memory_store = store
+    persist_runtime_l4_file_store(
+        context,
+        store,
+    )
+    await emit_l4_memory_update(
+        context,
+        change={
+            "restored_ids": [restored_fact["id"]],
+            "changed": True,
+        },
     )
     return True

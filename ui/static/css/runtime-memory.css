@@ -19,6 +19,14 @@
     border-radius: 4px;
 }
 
+.runtime-memory-reference-hit .runtime-memory-key,
+.runtime-memory-reference-hit .runtime-memory-value {
+    color: rgba(222, 245, 241, 0.88);
+    text-shadow:
+            0 0 7px rgba(210, 246, 241, 0.34),
+            0 0 13px rgba(129, 216, 208, 0.22);
+}
+
 .runtime-memory-delayed-row {
     cursor: pointer;
     border-radius: 4px;
@@ -336,4 +344,19 @@
 .delayed-memory-modal-close {
     font-size: 20px;
     line-height: 1;
+}
+
+.delayed-memory-modal-section > .delayed-memory-modal-fields {
+    margin-top: 8px;
+}
+
+.l4-trace-no-changes {
+    display: flex;
+    min-height: 180px;
+    align-items: center;
+    justify-content: center;
+    color: rgba(161, 161, 170, 0.82);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
 }

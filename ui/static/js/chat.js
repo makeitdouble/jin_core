@@ -8,6 +8,9 @@ const streamMessages =
 
 const STREAM_FRAME_WARNING_MS = 12;
 const STREAM_NEAR_BOTTOM_PX = 72;
+const MEMORY_REFERENCE_HIGHLIGHT_EVENT =
+  "jin:memory-reference-highlight";
+
 
 function isChatRenderForeground() {
 
@@ -185,6 +188,93 @@ function renderChatTextHtml(text) {
 
 }
 
+function isJinMemoryReferenceRole(role) {
+  return (
+    role === "brain"
+    || role === "service"
+    || role === "translator"
+  );
+}
+
+function dispatchJinMemoryReferenceHighlight(
+  source,
+  text,
+  active = true
+) {
+  window.dispatchEvent(
+    new CustomEvent(
+      MEMORY_REFERENCE_HIGHLIGHT_EVENT,
+      {
+        detail: {
+          source,
+          text: String(text || ""),
+          active: Boolean(active),
+        },
+      }
+    )
+  );
+}
+
+function setLatestJinMemoryReferenceText(
+  role,
+  text
+) {
+  if (!isJinMemoryReferenceRole(role)) {
+    return;
+  }
+
+  dispatchJinMemoryReferenceHighlight(
+    "persistent",
+    text,
+    true
+  );
+}
+
+function clearJinMemoryReferenceHighlights() {
+  dispatchJinMemoryReferenceHighlight(
+    "persistent",
+    "",
+    false
+  );
+  dispatchJinMemoryReferenceHighlight(
+    "hover",
+    "",
+    false
+  );
+}
+
+function bindJinMemoryReferenceBubble(
+  bubble,
+  content,
+  role
+) {
+  if (
+      !bubble
+      || !content
+      || !isJinMemoryReferenceRole(role)
+  ) {
+    return;
+  }
+
+  bubble.addEventListener("mouseenter", () => {
+    dispatchJinMemoryReferenceHighlight(
+      "hover",
+      content.dataset.memoryReferenceText
+        || content.textContent
+        || "",
+      true
+    );
+  });
+
+  bubble.addEventListener("mouseleave", () => {
+    dispatchJinMemoryReferenceHighlight(
+      "hover",
+      "",
+      false
+    );
+  });
+}
+
 function shouldFormatChatRole(role) {
 
   return (
@@ -215,6 +305,8 @@ function renderChatTextElement(
     "jin-chat-markdown",
     format
   );
+  element.dataset.memoryReferenceText =
+    String(text || "");
 
   element.innerHTML =
     (
@@ -706,6 +798,11 @@ function createMessageElement(
     config.bubbleClass;
 
   bubble.appendChild(pre);
+  bindJinMemoryReferenceBubble(
+    bubble,
+    pre,
+    role
+  );
 
   msgDiv.appendChild(
     createAvatarElement(
@@ -819,6 +916,12 @@ function appendChatMessage(
     jinConversationTurnCounter += 1;
     window.jinConversationTurnCounter =
       jinConversationTurnCounter;
+    clearJinMemoryReferenceHighlights();
+  } else {
+    setLatestJinMemoryReferenceText(
+      role,
+      text
+    );
   }
 
   flushRuntimeActionsAfterResponse(
@@ -1009,6 +1112,11 @@ function createStreamGroup(
     config.bubbleClass;
 
   bubble.appendChild(pre);
+  bindJinMemoryReferenceBubble(
+    bubble,
+    pre,
+    role
+  );
 
   messageRow.appendChild(
     createAvatarElement(
@@ -1331,6 +1439,10 @@ function finishStreamMessage(
     }
 
     if (stream.answer.trim()) {
+      setLatestJinMemoryReferenceText(
+        stream.role,
+        stream.answer
+      );
       flushRuntimeActionsAfterResponse(
         stream.role
       );

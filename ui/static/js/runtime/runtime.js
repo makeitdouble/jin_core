@@ -866,7 +866,10 @@ function setDelayedMemoryReportPinned(
   writeDelayedMemoryReports(
     reports
   );
-  renderRuntimeMemorySnapshot();
+
+  if (runtimeMemoryDisplayMode === "delayed") {
+    renderRuntimeMemorySnapshot();
+  }
 
   if (
       !setDelayedMemoryPinnedOnAvatar(
@@ -1116,8 +1119,6 @@ function handleRuntimeMemoryMessage(data) {
   silenceActiveMemoryRuntimeActionsAfterL1(
     data
   );
-
-  runtimeMemoryDisplayMode = "runtime";
 
   if (window.stopMemoryGlow) {
     window.stopMemoryGlow();

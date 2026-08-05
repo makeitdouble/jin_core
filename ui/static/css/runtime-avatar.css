@@ -174,7 +174,9 @@
 }
 
 .jin-avatar-orbit.is-runtime-cited,
-.jin-avatar-counter-orbit.is-runtime-cited {
+.jin-avatar-counter-orbit.is-runtime-cited,
+.jin-avatar-orbit.is-memory-reference-hit,
+.jin-avatar-counter-orbit.is-memory-reference-hit {
     filter:
         brightness(1.48)
         saturate(1.72)
@@ -186,13 +188,19 @@
 .jin-avatar-orbit.is-runtime-cited circle,
 .jin-avatar-orbit.is-runtime-cited line,
 .jin-avatar-counter-orbit.is-runtime-cited circle,
-.jin-avatar-counter-orbit.is-runtime-cited line {
+.jin-avatar-counter-orbit.is-runtime-cited line,
+.jin-avatar-orbit.is-memory-reference-hit circle,
+.jin-avatar-orbit.is-memory-reference-hit line,
+.jin-avatar-counter-orbit.is-memory-reference-hit circle,
+.jin-avatar-counter-orbit.is-memory-reference-hit line {
     opacity: 1;
     stroke-opacity: 0.96 !important;
 }
 
 .jin-avatar-orbit.is-runtime-cited circle[fill]:not([fill="none"]),
-.jin-avatar-counter-orbit.is-runtime-cited circle[fill]:not([fill="none"]) {
+.jin-avatar-counter-orbit.is-runtime-cited circle[fill]:not([fill="none"]),
+.jin-avatar-orbit.is-memory-reference-hit circle[fill]:not([fill="none"]),
+.jin-avatar-counter-orbit.is-memory-reference-hit circle[fill]:not([fill="none"]) {
     fill-opacity: 1 !important;
 }
 
@@ -222,7 +230,8 @@
         drop-shadow(0 0 11px var(--jin-avatar-memory-glow-mid, rgba(239, 255, 255, 0.54)));
 }
 
-.jin-avatar-memory-dash.is-runtime-cited {
+.jin-avatar-memory-dash.is-runtime-cited,
+.jin-avatar-memory-dash.is-memory-reference-hit {
     filter:
         brightness(1.72)
         saturate(1.65)
@@ -232,7 +241,8 @@
         drop-shadow(0 0 38px var(--jin-avatar-memory-glow-far, rgba(34, 211, 238, 0.18)));
 }
 
-.jin-avatar-memory-dash.is-runtime-cited path {
+.jin-avatar-memory-dash.is-runtime-cited path,
+.jin-avatar-memory-dash.is-memory-reference-hit path {
     stroke-opacity: 1 !important;
     stroke-width: var(--jin-avatar-memory-hover-width, 2px);
 }

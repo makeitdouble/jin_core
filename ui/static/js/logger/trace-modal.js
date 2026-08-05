@@ -338,6 +338,219 @@ function appendTraceModalBody(
   );
 }
 
+function prettifyTraceFieldName(value) {
+  return String(value || "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, function (letter) {
+      return letter.toUpperCase();
+    });
+}
+
+function formatStructuredTraceValue(value) {
+  if (value === null || typeof value === "undefined") {
+    return "<empty>";
+  }
+
+  if (Array.isArray(value) || typeof value === "object") {
+    try {
+      return JSON.stringify(
+        value,
+        null,
+        2
+      );
+    } catch (_error) {
+      return String(value);
+    }
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+
+  const text = String(value);
+  return text || "<empty>";
+}
+
+function appendStructuredTraceFields(
+  parent,
+  data,
+  orderedKeys = [],
+) {
+  const source =
+    data && typeof data === "object" && !Array.isArray(data)
+      ? data
+      : {};
+
+  const fields =
+    document.createElement("section");
+
+  fields.className =
+    "delayed-memory-modal-fields";
+
+  const keys = [];
+  const seen = new Set();
+
+  orderedKeys.concat(Object.keys(source)).forEach((key) => {
+    if (seen.has(key) || !Object.prototype.hasOwnProperty.call(source, key)) {
+      return;
+    }
+    seen.add(key);
+    keys.push(key);
+  });
+
+  keys.forEach((key) => {
+    const row =
+      document.createElement("div");
+
+    row.className =
+      "delayed-memory-modal-field";
+
+    const label =
+      document.createElement("div");
+
+    label.className =
+      "delayed-memory-modal-label";
+
+    label.textContent =
+      prettifyTraceFieldName(key);
+
+    const value =
+      document.createElement("div");
+
+    value.className =
+      "delayed-memory-modal-value";
+
+    value.textContent =
+      formatStructuredTraceValue(source[key]);
+
+    row.appendChild(label);
+    row.appendChild(value);
+    fields.appendChild(row);
+  });
+
+  parent.appendChild(fields);
+}
+
+function renderL4FactTrace(parsed) {
+  const fact =
+    parsed && parsed.fact && typeof parsed.fact === "object"
+      ? parsed.fact
+      : {};
+
+  appendStructuredTraceFields(
+    traceModalContent,
+    fact,
+    [
+      "id",
+      "key",
+      "value",
+      "category",
+      "mention_count",
+      "created_at",
+      "updated_at",
+      "source_session_ids",
+      "source_runtime_snapshot_ids",
+      "source_keys",
+      "source_fact_ids",
+    ]
+  );
+}
+
+function appendL4ResponseGroup(
+  title,
+  value,
+) {
+  const section =
+    document.createElement("section");
+
+  section.className =
+    "delayed-memory-modal-section";
+
+  const heading =
+    document.createElement("div");
+
+  heading.className =
+    "delayed-memory-modal-section-title";
+
+  heading.textContent =
+    title;
+
+  section.appendChild(heading);
+  traceModalContent.appendChild(section);
+
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    appendStructuredTraceFields(
+      section,
+      value
+    );
+    return;
+  }
+
+  appendTraceModalBody(
+    section,
+    "Value",
+    value
+  );
+}
+
+function renderL4SummarizerResponseTrace(parsed) {
+  if (parsed.no_changes) {
+    const empty =
+      document.createElement("div");
+
+    empty.className =
+      "l4-trace-no-changes";
+
+    empty.textContent =
+      "No changes";
+
+    traceModalContent.appendChild(empty);
+    return;
+  }
+
+  const payload = parsed.payload;
+  const phase = String(parsed.phase || "").toLowerCase();
+
+  if (phase === "extraction" && payload && Array.isArray(payload.facts)) {
+    payload.facts.forEach((fact, index) => {
+      appendL4ResponseGroup(
+        `Fact ${index + 1}`,
+        fact
+      );
+    });
+    return;
+  }
+
+  if (phase === "merge" && payload && Array.isArray(payload.operations)) {
+    payload.operations.forEach((operation, index) => {
+      const action =
+        operation && operation.action
+          ? ` · ${String(operation.action).toUpperCase()}`
+          : "";
+
+      appendL4ResponseGroup(
+        `Operation ${index + 1}${action}`,
+        operation
+      );
+    });
+    return;
+  }
+
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+    appendStructuredTraceFields(
+      traceModalContent,
+      payload
+    );
+    return;
+  }
+
+  appendTraceModalBody(
+    traceModalContent,
+    "Response",
+    parsed.raw || payload || ""
+  );
+}
+
 function isSummarizerRequestPayload(parsed) {
   return Boolean(
     parsed
@@ -550,6 +763,28 @@ function renderTraceDetails(
 
   const parsed =
     parseTraceJson(details);
+
+  if (
+      parsed
+      && parsed.kind === "l4_fact"
+  ) {
+    renderL4FactTrace(
+      parsed
+    );
+
+    return;
+  }
+
+  if (
+      parsed
+      && parsed.kind === "l4_summarizer_response"
+  ) {
+    renderL4SummarizerResponseTrace(
+      parsed
+    );
+
+    return;
+  }
 
   if (
       parsed

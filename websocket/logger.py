@@ -124,10 +124,15 @@ class WebSocketLogger:
             message: str,
             details: str | None = None,
             event: str | None = None,
+            tag_suffix: str | None = None,
             **extra,
     ):
+        display_level = str(level)
+        if tag_suffix:
+            display_level += f":{str(tag_suffix).strip().upper()}"
+
         await self.log(
-            f"[MEMORY:{level}]",
+            f"[MEMORY:{display_level}]",
             message,
             details=details,
             channel="memory",

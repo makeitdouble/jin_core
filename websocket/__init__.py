@@ -20,7 +20,9 @@ from runtime.L4_memory import (
     apply_l4_memory_store_sync,
     delete_l4_memory_fact,
     emit_facts_memory_store_update,
+    restore_l4_memory_fact,
     emit_l4_memory_update,
+    runtime_l4_memory_update_running,
     schedule_l4_memory_idle_update,
 )
 from runtime.fact_check import run_fact_check_once
@@ -340,7 +342,12 @@ async def websocket_endpoint(
                         ),
                     )
 
-                if "store" in message_data:
+                if (
+                    "store" in message_data
+                    and not runtime_l4_memory_update_running(
+                        context
+                    )
+                ):
                     apply_l4_memory_store_sync(
                         context,
                         message_data.get(
@@ -368,6 +375,26 @@ async def websocket_endpoint(
                         or ""
                     ),
                 )
+                continue
+
+            if message_type == "l4_memory_restore_fact":
+                fact = message_data.get(
+                    "fact",
+                    {},
+                )
+                restored = await restore_l4_memory_fact(
+                    context,
+                    fact,
+                )
+                await websocket.send_json({
+                    "type": "l4_memory_restore_result",
+                    "fact_id": str(
+                        fact.get("id", "")
+                        if isinstance(fact, dict)
+                        else ""
+                    ),
+                    "restored": bool(restored),
+                })
                 continue
 
             if message_type == "session_bootstrap":

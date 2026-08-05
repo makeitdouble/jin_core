@@ -52,6 +52,18 @@ function handleL4MemoryUpdate(
 
 }
 
+function handleL4MemoryRestoreResult(
+  data
+) {
+
+  if (typeof window.handleL4MemoryRestoreResult === "function") {
+    window.handleL4MemoryRestoreResult(
+      data
+    );
+  }
+
+}
+
 function handleSocketError(
   data
 ) {
@@ -245,6 +257,11 @@ registerSocketMessageHandler(
 registerSocketMessageHandler(
   "l4_memory_update",
   handleL4MemoryUpdate
+);
+
+registerSocketMessageHandler(
+  "l4_memory_restore_result",
+  handleL4MemoryRestoreResult
 );
 
 [
