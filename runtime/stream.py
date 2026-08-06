@@ -43,6 +43,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
+    RUNTIME_ACTION_JIN_FOR_L4,
     RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     build_runtime_action_display_text,
@@ -153,6 +154,7 @@ class RuntimeStream:
         self.rejected_action_guard_names = set()
         self.action_guard_confirmation_ids = {}
         self.jin_color_action_id = ""
+        self.jin_for_l4_action_ids = {}
         self.last_jin_color_action_color = ""
         self.runtime_action_event_offset = 0
         self.session_action_history_start = 0
@@ -1136,6 +1138,28 @@ class RuntimeStream:
                 )
 
             return self.jin_color_action_id
+
+        if action.name == RUNTIME_ACTION_JIN_FOR_L4:
+            payload_key = str(action.payload or "").strip()
+            action_id = self.jin_for_l4_action_ids.get(payload_key, "")
+
+            if not action_id:
+                sequence = int(
+                    getattr(
+                        self.context,
+                        "runtime_jin_for_l4_action_sequence",
+                        0,
+                    )
+                    or 0
+                ) + 1
+                self.context.runtime_jin_for_l4_action_sequence = sequence
+                action_id = build_runtime_action_id(
+                    RUNTIME_ACTION_JIN_FOR_L4,
+                    sequence,
+                )
+                self.jin_for_l4_action_ids[payload_key] = action_id
+
+            return action_id
 
         if action.name in {
             RUNTIME_ACTION_APPEND_DELAYED_MEMORY,

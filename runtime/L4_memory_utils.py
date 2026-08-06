@@ -10,6 +10,7 @@ from xml.sax.saxutils import escape
 from runtime.L4_memory_rules import (
     L4_EXTRACTION_SYSTEM_PROMPT,
     L4_MERGE_SYSTEM_PROMPT,
+    L4_JIN_NOTE_SYSTEM_PROMPT,
 )
 
 
@@ -54,6 +55,41 @@ def build_l4_extraction_user_prompt(*, pending_fields: list[dict]) -> str:
 
 def build_l4_merge_system_prompt() -> str:
     return L4_MERGE_SYSTEM_PROMPT
+
+
+def build_l4_jin_note_system_prompt() -> str:
+    return L4_JIN_NOTE_SYSTEM_PROMPT
+
+
+def build_l4_jin_note_user_prompt(
+    *,
+    existing_facts: list[dict],
+    selected_fact_ids: list[str],
+    message: str,
+) -> str:
+    return (
+        "Resolve this focused conversational clarification against the current "
+        "L4 memory.\n\n"
+        + json.dumps(
+            {
+                "existing_facts": [
+                    {
+                        "id": normalize_l4_text(fact.get("id")),
+                        "key": normalize_l4_text(fact.get("key")),
+                        "value": normalize_l4_text(fact.get("value")),
+                        "category": normalize_l4_text(fact.get("category")),
+                    }
+                    for fact in existing_facts
+                    if isinstance(fact, dict)
+                ],
+                "selected_fact_ids": selected_fact_ids,
+                "message": normalize_l4_text(message),
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+    )
 
 
 def build_l4_merge_user_prompt(
@@ -1150,6 +1186,186 @@ def apply_l4_merge_operations(
         "total_facts": len(facts),
         "pending_count": 0,
         "changed": True,
+    }
+
+
+def normalize_l4_jin_note_result(payload) -> dict:
+    if not isinstance(payload, dict):
+        return {}
+
+    action = normalize_l4_key(payload.get("action"))
+    if action == "keep":
+        return {
+            "action": "keep",
+            "replacement_facts": [],
+        }
+
+    if action != "replace":
+        return {}
+
+    raw_replacements = payload.get("replacement_facts")
+    if not isinstance(raw_replacements, list):
+        return {}
+
+    replacements = []
+    for raw_fact in raw_replacements:
+        if not isinstance(raw_fact, dict):
+            return {}
+
+        key = normalize_l4_key(raw_fact.get("key"))
+        value = normalize_l4_text(raw_fact.get("value"))
+        if not key or not value:
+            return {}
+
+        replacements.append({
+            "key": key,
+            "value": value,
+            "category": normalize_l4_category(raw_fact.get("category")),
+        })
+
+    return {
+        "action": "replace",
+        "replacement_facts": replacements,
+    }
+
+
+def _l4_fact_semantic_signature(fact: dict) -> tuple[str, str, str]:
+    return (
+        normalize_l4_key(fact.get("key")),
+        normalize_l4_text(fact.get("value")),
+        normalize_l4_category(fact.get("category")),
+    )
+
+
+def apply_l4_jin_note_result(
+    store,
+    *,
+    selected_fact_ids: list[str],
+    result: dict,
+    now: str | None = None,
+) -> tuple[dict, dict]:
+    current_time = now or utc_now_iso()
+    base_store = normalize_l4_store(store, now=current_time)
+    selected_ids = normalize_l4_string_list(selected_fact_ids)
+    facts_by_id = {fact["id"]: fact for fact in base_store["facts"]}
+
+    if not selected_ids or any(fact_id not in facts_by_id for fact_id in selected_ids):
+        return base_store, {
+            "valid": False,
+            "reason": "unknown_selected_fact_id",
+            "changed": False,
+        }
+
+    normalized_result = normalize_l4_jin_note_result(result)
+    if not normalized_result:
+        return base_store, {
+            "valid": False,
+            "reason": "invalid_jin_note_result",
+            "changed": False,
+        }
+
+    selected_facts = [facts_by_id[fact_id] for fact_id in selected_ids]
+
+    if normalized_result["action"] == "keep":
+        return base_store, {
+            "valid": True,
+            "changed": False,
+            "action": "keep",
+            "selected_fact_ids": selected_ids,
+            "replacement_fact_ids": [],
+        }
+
+    unselected_facts = [
+        dict(fact)
+        for fact in base_store["facts"]
+        if fact["id"] not in set(selected_ids)
+    ]
+    unselected_keys = {fact["key"] for fact in unselected_facts}
+    unselected_ids = {fact["id"] for fact in unselected_facts}
+    replacement_facts = []
+    replacement_keys = set()
+
+    for raw_fact in normalized_result["replacement_facts"]:
+        replacement = normalize_l4_fact(
+            {
+                **raw_fact,
+                "id": "",
+                "created_at": current_time,
+                "updated_at": current_time,
+            },
+            pending=False,
+            now=current_time,
+        )
+        if replacement is None:
+            return base_store, {
+                "valid": False,
+                "reason": "invalid_replacement_fact",
+                "changed": False,
+            }
+        if replacement["key"] in unselected_keys:
+            return base_store, {
+                "valid": False,
+                "reason": "replacement_key_matches_unselected_fact",
+                "changed": False,
+            }
+        if replacement["id"] in unselected_ids:
+            return base_store, {
+                "valid": False,
+                "reason": "replacement_matches_unselected_fact",
+                "changed": False,
+            }
+        if replacement["key"] in replacement_keys:
+            return base_store, {
+                "valid": False,
+                "reason": "duplicate_replacement_key",
+                "changed": False,
+            }
+        replacement_keys.add(replacement["key"])
+        replacement_facts.append(replacement)
+
+    before_signatures = sorted(
+        _l4_fact_semantic_signature(fact)
+        for fact in selected_facts
+    )
+    after_signatures = sorted(
+        _l4_fact_semantic_signature(fact)
+        for fact in replacement_facts
+    )
+
+    if before_signatures == after_signatures:
+        return base_store, {
+            "valid": True,
+            "changed": False,
+            "action": "keep",
+            "selected_fact_ids": selected_ids,
+            "replacement_fact_ids": [],
+        }
+
+    replacement_ids = [fact["id"] for fact in replacement_facts]
+    next_store = {
+        **base_store,
+        "facts": [*unselected_facts, *replacement_facts],
+        "deleted_fact_ids": merge_l4_string_lists(
+            base_store.get("deleted_fact_ids"),
+            selected_ids,
+        ),
+        "revision": base_store["revision"] + 1,
+        "updated_at": current_time,
+    }
+
+    return next_store, {
+        "valid": True,
+        "changed": True,
+        "action": "replace",
+        "selected_fact_ids": selected_ids,
+        "removed_fact_ids": selected_ids,
+        "replacement_fact_ids": replacement_ids,
+        "selected_facts": [build_l4_merge_detail_fact(fact) for fact in selected_facts],
+        "replacement_facts": [
+            build_l4_merge_detail_fact(fact)
+            for fact in replacement_facts
+        ],
+        "total_facts": len(next_store["facts"]),
     }
 
 

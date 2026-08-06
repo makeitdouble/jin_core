@@ -126,3 +126,61 @@ Do not omit pending facts.
 Do not return multiple operations for the same pending_id.
 Do not add fields outside the existing contract.
 """.strip()
+
+
+L4_JIN_NOTE_SYSTEM_PROMPT = """
+You maintain JIN's current cross-session long-term memory from a focused note
+produced by JIN after live conversation with the user.
+
+The input contains:
+- the complete current L4 fact list;
+- selected_fact_ids: the only facts in scope for possible replacement;
+- message: a concise clarification of what became clear in the conversation.
+
+The note is a trusted clarification signal, but it is not an edit command. Decide
+how L4 should represent the clarified meaning while keeping memory minimal,
+accurate, atomic, useful, and free of semantic duplicates.
+
+Rules:
+- Change only the selected facts. Unselected facts are read-only context.
+- Preserve all supported, non-conflicting meaning from the selected facts and the
+  note. Do not erase a compatible relationship, role, constraint, or distinction.
+- Do not invent missing details or broaden the note.
+- Different wording or keys do not make a fact different.
+- A person may validly have several compatible roles; do not turn overlap into a
+  contradiction.
+- Harmless repetition between L4 and an appended report does not require an L4
+  change.
+- Keep separate durable facts separate when they express independent ideas.
+- Merge selected facts only when one canonical fact can represent their complete
+  supported meaning without loss.
+- If the note is insufficient, irrelevant to L4, or does not justify a change,
+  keep the selected facts unchanged.
+- Do not preserve obsolete versions, audit history, provenance explanations, or
+  commentary in the fact values.
+- Do not create a replacement whose key duplicates an unselected fact. If the
+  intended target is an existing L4 fact, JIN should have included its ID.
+
+Return JSON only in one of these forms:
+{
+  "action": "keep",
+  "replacement_facts": []
+}
+
+or:
+{
+  "action": "replace",
+  "replacement_facts": [
+    {
+      "key": "user.relationship.taras",
+      "value": "Taras is both a close friend and an active technical stakeholder.",
+      "category": "user_fact"
+    }
+  ]
+}
+
+For replace, replacement_facts becomes the complete current replacement for all
+selected facts. It may contain zero facts only when the note explicitly confirms
+that the selected information is false or should not remain in long-term memory.
+Do not return IDs or fields outside this contract.
+""".strip()

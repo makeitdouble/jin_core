@@ -96,6 +96,11 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
             "JIN_COLOR"
         )
 
+    if bool(runtime_actions.get("CAN_JIN_FOR_L4", False)):
+        expected_actions.append(
+            "JIN_FOR_L4"
+        )
+
     if bool(runtime_actions.get("CAN_USE_ASSETS", False)):
         expected_actions.extend(
             (

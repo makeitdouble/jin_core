@@ -8,9 +8,12 @@ from clients.service_client import ask_service_model
 from config_loader import config
 from runtime.L4_memory_utils import (
     add_l4_pending_candidates,
+    apply_l4_jin_note_result,
     apply_l4_merge_operations,
     build_l4_extraction_system_prompt,
     build_l4_extraction_user_prompt,
+    build_l4_jin_note_system_prompt,
+    build_l4_jin_note_user_prompt,
     build_l4_merge_system_prompt,
     build_l4_merge_user_prompt,
     clone_l4_store,
@@ -29,6 +32,7 @@ from runtime.L4_memory_utils import (
 )
 from utils.actions.save_delayed_memory_utils import (
     collect_long_term_fact_ids_from_reports,
+    normalize_long_term_fact_ids,
 )
 from utils.long_term_facts_file_store import (
     load_long_term_facts_store,
@@ -261,6 +265,98 @@ async def emit_l4_memory_update(context, *, change: dict | None = None) -> None:
             "type": "l4_memory_update",
             "store": clone_l4_store(ensure_runtime_l4_state(context)),
             "change": change or {},
+        },
+    )
+
+
+def remap_delayed_memory_l4_fact_ids(
+    context,
+    *,
+    removed_fact_ids: list[str],
+    replacement_fact_ids: list[str],
+) -> dict:
+    removed_ids = set(normalize_long_term_fact_ids(removed_fact_ids))
+    replacement_ids = normalize_long_term_fact_ids(replacement_fact_ids)
+
+    if not removed_ids:
+        return {
+            "changed": False,
+            "report_ids": [],
+            "file_errors": [],
+        }
+
+    reports = getattr(context, "delayed_memory_reports", None)
+    if not isinstance(reports, dict):
+        return {
+            "changed": False,
+            "report_ids": [],
+            "file_errors": [],
+        }
+
+    from utils.brain_client_utils import get_appended_delayed_memory_report
+
+    appended_reports = get_appended_delayed_memory_report(context)
+    changed_reports = {}
+
+    for report_id, report in list(reports.items()):
+        if not isinstance(report, dict):
+            continue
+
+        current_ids = normalize_long_term_fact_ids(
+            report.get("long_term_facts_ids", [])
+        )
+        if not any(fact_id in removed_ids for fact_id in current_ids):
+            continue
+
+        next_ids = normalize_long_term_fact_ids([
+            *(fact_id for fact_id in current_ids if fact_id not in removed_ids),
+            *replacement_ids,
+        ])
+        updated_report = {
+            **report,
+            "long_term_facts_ids": next_ids,
+        }
+        reports[report_id] = updated_report
+        changed_reports[report_id] = updated_report
+
+        if report_id in appended_reports:
+            appended_reports[report_id] = {
+                **updated_report,
+                "id": report_id,
+            }
+
+    file_errors = []
+    if changed_reports and bool(
+        getattr(context, "delayed_memory_file_store_enabled", False)
+    ):
+        from utils.delayed_memory_file_store import persist_delayed_memory_reports
+
+        file_errors = persist_delayed_memory_reports(changed_reports)
+
+    if changed_reports:
+        refresh_runtime_l4_archived_fact_ids(context)
+
+    return {
+        "changed": bool(changed_reports),
+        "report_ids": sorted(changed_reports),
+        "file_errors": file_errors,
+    }
+
+
+async def emit_delayed_memory_reference_update(context) -> None:
+    emit = getattr(getattr(context, "emitter", None), "emit", None)
+    if emit is None:
+        return
+
+    from utils.delayed_memory_file_store import normalize_delayed_memory_reports
+
+    await safe_call(
+        emit,
+        {
+            "type": "delayed_memory_store_snapshot",
+            "delayed_memory_reports": normalize_delayed_memory_reports(
+                getattr(context, "delayed_memory_reports", {})
+            ),
         },
     )
 
@@ -561,6 +657,178 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
         "status": "completed",
         "operations_count": len(operations),
         "merge_change": merge_change,
+    }
+
+
+async def run_l4_jin_note(
+    *,
+    context,
+    note: dict,
+) -> dict:
+    ensure_runtime_l4_state(context)
+
+    if not l4_memory_enabled():
+        return {
+            "phase": "jin_note",
+            "status": "skipped",
+            "reason": "l4_memory_disabled",
+        }
+
+    service_client = getattr(context, "clients", {}).get("service")
+    if service_client is None:
+        return {
+            "phase": "jin_note",
+            "status": "skipped",
+            "reason": "service_client_unavailable",
+        }
+
+    selected_fact_ids = normalize_long_term_fact_ids(
+        note.get("fact_ids", []) if isinstance(note, dict) else []
+    )
+    message = " ".join(
+        str(note.get("message", "") if isinstance(note, dict) else "").split()
+    ).strip()
+    base_store = clone_l4_store(ensure_runtime_l4_state(context))
+    existing_ids = {fact.get("id") for fact in base_store.get("facts", [])}
+
+    if (
+        not selected_fact_ids
+        or not message
+        or any(fact_id not in existing_ids for fact_id in selected_fact_ids)
+    ):
+        return await log_l4_skip_event(
+            context,
+            phase="jin_note",
+            message_phase="JIN note",
+            reason="invalid_or_stale_note",
+            details={
+                "selected_fact_ids": selected_fact_ids,
+            },
+        )
+
+    system_prompt = build_l4_jin_note_system_prompt()
+    user_prompt = build_l4_jin_note_user_prompt(
+        existing_facts=base_store.get("facts") or [],
+        selected_fact_ids=selected_fact_ids,
+        message=message,
+    )
+    response = await ask_l4_model(
+        context=context,
+        service_client=service_client,
+        label="L4 JIN note",
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        max_tokens=int(getattr(config, "SERVICE_MAX_TOKENS", 4096) or 4096),
+    )
+
+    if is_runtime_memory_response_truncated(response):
+        return await log_l4_skip_event(
+            context,
+            phase="jin_note",
+            message_phase="JIN note",
+            reason="response_truncated",
+            details={
+                "selected_fact_ids": selected_fact_ids,
+            },
+        )
+
+    payload = extract_l4_json_payload(extract_runtime_memory_text(response))
+    if payload is None:
+        return await log_l4_skip_event(
+            context,
+            phase="jin_note",
+            message_phase="JIN note",
+            reason="invalid_json",
+            details={
+                "selected_fact_ids": selected_fact_ids,
+            },
+        )
+
+    current_store = clone_l4_store(ensure_runtime_l4_state(context))
+    if current_store != base_store:
+        return await log_l4_skip_event(
+            context,
+            phase="jin_note",
+            message_phase="JIN note",
+            reason="store_changed_during_jin_note",
+            details={
+                "selected_fact_ids": selected_fact_ids,
+            },
+        )
+
+    next_store, change = apply_l4_jin_note_result(
+        base_store,
+        selected_fact_ids=selected_fact_ids,
+        result=payload,
+    )
+    if not change.get("valid"):
+        return await log_l4_skip_event(
+            context,
+            phase="jin_note",
+            message_phase="JIN note",
+            reason=change.get("reason") or "invalid_jin_note_result",
+            details={
+                "selected_fact_ids": selected_fact_ids,
+            },
+        )
+
+    if not change.get("changed"):
+        await log_memory_event(
+            context,
+            level=L4_LOG_LEVEL,
+            message="L4 JIN note required no change",
+            details=json.dumps(
+                {
+                    "selected_fact_ids": selected_fact_ids,
+                    "message": message,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            fallback_channel="summarizer",
+            event="jin_note_no_change",
+        )
+        return {
+            "phase": "jin_note",
+            "status": "completed",
+            "changed": False,
+            "change": change,
+        }
+
+    context.runtime_long_term_memory_store = next_store
+    persist_runtime_l4_file_store(context, next_store)
+    delayed_memory_change = remap_delayed_memory_l4_fact_ids(
+        context,
+        removed_fact_ids=change.get("removed_fact_ids", []),
+        replacement_fact_ids=change.get("replacement_fact_ids", []),
+    )
+
+    await log_memory_event(
+        context,
+        level=L4_LOG_LEVEL,
+        message="L4 JIN note applied",
+        details=json.dumps(
+            {
+                "message": message,
+                "change": change,
+                "delayed_memory_change": delayed_memory_change,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        fallback_channel="summarizer",
+        event="jin_note_applied",
+    )
+    await emit_l4_memory_update(context, change=change)
+    if delayed_memory_change.get("changed"):
+        await emit_delayed_memory_reference_update(context)
+
+    return {
+        "phase": "jin_note",
+        "status": "completed",
+        "changed": True,
+        "change": change,
+        "delayed_memory_change": delayed_memory_change,
     }
 
 

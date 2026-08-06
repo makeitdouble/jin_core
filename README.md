@@ -6,181 +6,206 @@
 ![OpenAI Compatible](https://img.shields.io/badge/API-OpenAI--compatible-111827.svg)
 ![Tests](https://github.com/makeitdouble/jin_core/actions/workflows/tests.yml/badge.svg)
 
-**JIN Core Engine** is a local AI runtime for OpenAI-compatible models with visible memory, visible reasoning traces, and inspectable session state.
-Without context, there is no **JIN**, only a generic response engine. **JIN Core Engine** is what makes this interaction **last**.
+> *Without context, there is no JIN, only a generic response engine. JIN Core Engine is what makes this interaction last.*
 
-### 3-Layer Memory + Runtime-Owned Channels
-JIN uses short-term continuity to dynamically guide conversation strategy:
+**JIN Core Engine** is an experimental cognitive runtime for OpenAI-compatible models. It is a focused environment built around a single philosophy: **visible, tactile, and continuous memory.**
 
-* **L1 (Live Facts):** Actionable session state kept in active process memory.
-* **L2 (Patterns):** Tracks interaction loops and repetition counters to adapt prompts on the fly.
-* **L3 (Digest):** Compressed session snapshots serialized to browser `localStorage` and replayed on reconnect.
-* **Active Memory:** Runtime-owned pending contracts for reminders, ask-later conditions, and recall games.
-* **Delayed Memory:** Structured reports saved separately and appended into a session only when requested.
-* **Facts Memory:** A session-scoped browser index of durable L1 fields that remains inspectable outside the live snapshot.
+The interface is intentionally not overloaded with familiar UX elements. Instead of relying on linear chat histories, the runtime maintains a dynamic, layered memory model. During everyday use the side panels can remain collapsed—the system continues to carry the current state. When needed, the memory, reasoning trace, telemetry, and action history remain available for inspection and correction.
 
-*Every memory update is captured as a versioned snapshot with diff highlights, fully inspectable in the right-side timeline panel.*
+## Interface
 
-## UI Preview
+![JIN Core Engine runtime workspace](ui/static/images/jin-core-default-theme.jpg)
 
-### Runtime Workspace
+The JIN interface combines the chat stream, collapsible panels with model telemetry and inspectable memory layers, runtime actions, and live avatar.
 
-![JIN Core Engine runtime UI dark theme](ui/static/images/jin-core-default-theme.jpg)
+<div style="display: flex; gap: 20px; align-items: start;">
+  <div style="flex: 1;">
 
-Main runtime view: chat, live avatar, telemetry, and inspectable memory panels in one browser workspace.
+### Live Avatar
 
-### Memory Timeline
+**Live Avatar** turns JIN's memory state into a moving map of cognitive density.<br/><br/> Each L1 field becomes its own inner orbit, with its position shaped by the amount of stored context and its rotation speed driven by interaction flow; the outer rings tracks L4 facts, Delayed Memory, and Active Memory into individual signals.<br/><br/> When JIN references a rule or memory item, the corresponding orbit lights up, revealing which part of the runtime is actively influencing the current thought.
+
+  </div>
+  <div style="flex: 1; text-align: center;">
+
+![Live Avatar memory rings](ui/static/images/live-avatar.jpg)
+
+  </div>
+</div>
+
+## Memory Architecture
+
+JIN separates memory by cognitive purpose instead of storing everything in one endlessly growing transcript.
+
+### The Four-Layer Memory Model
+
+* **L1 — Live Facts:** The current topic, request, task state, decisions, feedback, and unresolved points needed for the next turn.
+* **L2 — Patterns:** Repeated inputs, stalled loops, and short-term interaction patterns that may require a strategy change.
+* **L3 — Session Digest:** A compact session handoff containing essential state, completed work, open tasks, and the next step. It can be restored after a reload or reconnect.
+* **L4 — Long-Term Facts:** Stable facts, preferences, project decisions, constraints, and environment details that should remain available across sessions.
+
+Every accepted runtime-memory update is stored as a versioned snapshot. The timeline can be stepped through visually, with new and changed fields highlighted.
 
 ![Runtime memory snapshot timeline](ui/static/images/runtime-highlight.png)
 
-Runtime memory snapshots can be stepped through visually, with new or changed facts highlighted in the sidebar.
+### Delayed Memory
 
-### Reasoning Citations
+JIN uses **Delayed Memory** to preserve important context without relying on long conversation histories. Important thoughts, project specifications, or specific discussions are saved as compact, structured objects. The system can autonomously suggest relevant objects or append them directly to the current session. This allows multiple past contexts to be merged into the active thought process only when they are needed.
 
-![Think citation highlighting](ui/static/images/think-highlight.jpg)
+### Active Memory
 
-Think citation highlighting shows where reasoning quotes rules, runtime memory, or restored session context.
+**Active Memory** keeps unfinished intentions and pending commitments separate from the general conversation state. Reminders, ask-later conditions, recall rules, and other unresolved contracts remain active across turns and browser tabs until they are fulfilled, cancelled, or explicitly resolved. When a stored condition is met, JIN can bring the memory back into the current interaction without relying on the conversation transcript alone.
 
-## Capabilities
+### Facts Memory and L4 Consolidation
 
-### Conversation and Workspace
+**Facts Memory** is an inspectable per-session index of durable fields selected from L1. When the workspace is idle, JIN extracts long-term candidates, compares them with the existing L4 store, and merges duplicate or overlapping facts. Delayed Memory reports can absorb selected L4 facts so the same material is not injected twice.
 
-- Streams thinking and the final answer as separate blocks.
-- Shows model status, token usage, context pressure, runtime memory, and logs in the workspace.
-- Accepts text files and images by picker, drag and drop, or paste.
-- Stops an active generation from the input area without losing the whole session.
-- Highlights direct references to runtime rules, live memory, and restored session context inside completed thinking blocks.
+<!-- Add a screenshot showing Delayed, Active, or Long-Term Memory here.
+Suggested file path: ui/static/images/memory-channels.jpg
+Example:
+![JIN memory channels](ui/static/images/memory-channels.jpg)
+-->
 
-### Memory and Continuity
+## Core Capabilities
 
-- Keeps the current topic, task, decisions, feedback, and unresolved points in visible runtime memory.
-- Stores every accepted memory update as a snapshot that can be inspected in the sidebar.
-- Detects repeated inputs and interaction loops during the current session.
-- Saves a compact session digest and restores it after a reload or reconnect.
-- Keeps pending reminders and ask-later conditions separate from normal conversation memory.
-- Saves larger reports separately and appends them to the active context only when needed.
-- Builds a cross-session L4 store from durable facts, preferences, project decisions, and persistent constraints.
+* **Visible Reasoning:** Streams model thinking and the final answer as separate blocks.
+* **Reasoning Citations:** Highlights direct references to runtime rules, live memory, and restored session context.
+* **Continuous Context:** Keeps the current task, decisions, feedback, and unresolved points available across turns.
+* **Persistent Attachments:** Images and text files remain attached as visible chips until manually removed.
+* **Runtime Telemetry:** Shows model status, token usage, context pressure, memory updates, and runtime logs.
+* **Interruptible Generation:** Stops an active response without discarding the entire session.
+* **Action Engine:** Allows the model to request runtime operations during the same workflow.
+
+![Reasoning citation highlighting](ui/static/images/think-highlight.jpg)
 
 ### Runtime Actions
 
-JIN can request runtime actions while answering. The action is handled by the runtime, and any result needed for the answer is returned to the model in the same workflow.
+JIN can request an action while answering. The runtime validates and executes it, then returns any required result to the model before the workflow continues.
 
 Available actions include:
 
-- web search for current information;
-- session save and restore;
-- active-memory creation and resolution;
-- delayed-memory save, update, append, and removal from the current context;
-- runtime TODO lists for multi-step work;
-- skill discovery and temporary skill attachment;
-- asset operations for files, prompts, wildcards, templates, and local Python skills;
-- live avatar and workspace color changes.
+* web search for current information;
+* session save and restore;
+* Active Memory creation and resolution;
+* Delayed Memory save, update, append, and removal from the current context;
+* runtime TODO lists for multi-step work;
+* asset and skill discovery;
+* temporary attachment of local Python skills;
+* live avatar and workspace color changes.
 
 ## Architecture
 
-![schema](ui/static/images/schema.jpg)
+<!-- Place the architecture diagram directly below this heading.
+Expected file path: ui/static/images/schema.jpg
+-->
 
-## How JIN Works
+![JIN Core Engine architecture](ui/static/images/schema.jpg)
+
+### Runtime Flow
+
+The WebSocket layer creates a `RuntimeContext` for each connection. Every user message is then handled by `AgentRuntime`.
 
 A normal turn follows this path:
 
-1. The user sends a message and optional attachments.
-2. The brain model produces thinking and the visible answer.
-3. Runtime actions are executed when the model needs search, memory, skills, assets, or another internal step.
-4. The service model updates memory after the visible answer finishes.
-5. The next turn receives the current memory, selected reports, active contracts, attached skills, and long-term facts as context.
+1. The user sends a message with optional persistent attachments.
+2. The planner prepares the request and selects the runtime path.
+3. The brain model produces the reasoning stream and visible answer.
+4. The validator checks the completed output and runtime markers.
+5. Runtime Actions execute when the model needs search, memory, skills, assets, or another internal step.
+6. After the visible answer finishes, the service model updates L1 and L2 in the background.
+7. The next turn receives current memory, selected reports, active contracts, attached skills, and long-term facts.
 
-The default path is `planner -> brain -> validator`. When translation is enabled, the translator is inserted before the brain. Brain, service, and translator roles may use separate OpenAI-compatible endpoints, or one model can handle all roles.
+The default model path is:
 
-## Memory Model
+```text
+planner -> brain -> validator
+```
 
-JIN separates memory by purpose instead of keeping one growing transcript.
+When translation is enabled, Cyrillic input can be routed through:
 
-| Layer | Purpose | Lifetime |
-| --- | --- | --- |
-| **L1 — Live Facts** | Current topic, request, task state, decisions, feedback, and unresolved points needed for the next turn. | Current runtime session |
-| **L2 — Patterns** | Repeated inputs, stalled loops, and other short-term interaction patterns that may require a strategy change. | Current runtime session |
-| **L3 — Session Digest** | A compact handoff containing durable session state, completed work, open tasks, and the next step. | Saved across reloads and reconnects |
-| **L4 — Long-Term Facts** | Stable facts, preferences, project decisions, constraints, and environment details that should remain available across sessions. | Cross-session |
+```text
+planner -> translator -> brain -> validator
+```
 
-The current runtime also uses several separate memory channels:
+Translator output is logged for observability but is not rendered as a chat message. The brain streams the visible response from the configured brain runtime.
 
-| Channel | Use |
-| --- | --- |
-| **Active Memory** | Pending reminders, recall conditions, and rules that stay active until fulfilled or cancelled. |
-| **Delayed Memory** | Full reports and summaries stored outside the live prompt. A report is appended only when it is relevant. |
-| **Facts Memory** | Inspectable per-session fields selected from L1. These fields are the input for L4 consolidation. |
-| **Runtime TODO** | A visible step ledger for multi-step work. Items are checked and resolved as the task progresses. |
+### Model Roles
 
-### Current L4 Flow
+JIN is model-agnostic at the API layer. One OpenAI-compatible model can handle all roles, or the work can be split between separate endpoints:
 
-JIN waits until the workspace is idle, reads new Facts Memory fields, extracts durable candidates, and merges them into the long-term store. Duplicate or overlapping facts are consolidated. Long-term facts are then available to future brain calls and can be removed from the memory panel.
+* **Brain:** visible reasoning, responses, and runtime decisions;
+* **Service:** background memory updates and supporting work;
+* **Translator:** optional internal translation before the brain step.
 
-Delayed Memory can also absorb selected L4 facts into a larger report. Facts already archived by a report are not injected twice.
+A thinking-capable model is recommended for the Brain role. Reliable reasoning separation and Runtime Action use depend on the selected model.
 
-## Basic Use
+### Runtime Storage
 
-| What you do | What JIN does |
-| --- | --- |
-| Continue a normal conversation | Updates L1 and, when relevant, L2 after each completed turn. |
-| Say `save the session` or clearly end the session | Creates an L3 digest and restores it on the next connection. |
-| Ask JIN to remember, remind, or check something later | Creates an Active Memory record and keeps it outside L1 until resolved. |
-| Ask to save a report or summary | Creates a Delayed Memory report with a title, summary, tags, and body. |
-| Ask to use a saved report | Appends that report to the current context. |
-| Give JIN a multi-step task | Creates a runtime TODO list and works through its items. |
-| Ask for current information | Runs web search and answers from the returned evidence. |
-| Attach a file or image | Adds it to the current request; supported skills can process larger files in steps. |
+JIN does not require a server-side database.
 
-Memory is visible in the right panel. Use the panel arrows to move through runtime snapshots and switch between live memory, Facts Memory, Long-Term Memory, and Active Memory views.
+Persistent state is stored locally through:
+
+* browser `localStorage` for session-facing runtime state;
+* JSON files under `memory/` for persistent memory objects;
+* `saved_runtime.txt` for an optional static L3 session seed.
 
 ## Assets and Skills
 
 Reusable material lives under `assets/`:
 
-- `assets/skills/` — instructions and optional local Python tools;
-- `assets/prompts/` — reusable prompt lists;
-- `assets/templates/` — prompt templates;
-- `assets/wildcards/` — text values used by templates and generators;
-- `assets/outputs/` — generated files.
+```text
+assets/
+|-- skills/       # Instructions and optional local Python tools
+|-- prompts/      # Reusable prompt lists
+|-- templates/    # Prompt templates
+|-- wildcards/    # Text values used by templates and generators
+`-- outputs/      # Generated files
+```
 
-JIN can list available skills, attach the skill needed for the current task, run its allowed actions, and remove it afterward. Python skills are restricted to `.py` files inside the selected skill directory and run without a shell.
+JIN can inspect available skills, attach the one required for the current task, run its allowed actions, and remove it afterward. Python skills are restricted to `.py` files inside the selected skill directory and run without a shell.
 
 ## Project Layout
 
 ```text
 .
-|-- app.py                  # FastAPI app, routes, lifespan
-|-- websocket/              # WebSocket router, message handling, and UI console logging
-|-- contracts/              # Per-action markers, rules, guards, and follow-up effects
-|-- config.example.py       # Runtime configuration template
-|-- config_loader.py        # Local config module loader
-|-- app_settings.py         # Typed settings wrapper
-|-- launch_jin.bat          # Windows one-click launcher
-|-- launch_jin.ps1          # LM Studio readiness check and startup script
-|-- package.json            # Local command shortcuts
-|-- requirements.txt        # Pinned Python dependencies
-|-- saved_runtime.example.txt  # Template for persisted L3 session memory
-|-- .github/workflows/      # GitHub Actions CI
-|-- agent/                  # Agent runtime, state, router, and nodes
-|-- clients/                # Runtime client builders and provider helpers
-|-- memory/                 # Local delayed-memory reports and memory placeholders
-|-- runtime/                # Runtime context, memory layers, stream, telemetry, registry
-|-- rules/                  # Brain prompt rule blocks
-|-- ui/                     # HTML templates, browser JavaScript, and README assets
-|-- tests/                  # Unit, runtime-action, and optional model integration tests
-`-- utils/                  # Actions, assets, validation, storage, and shared helpers
+|-- app.py                     # FastAPI app, routes, and lifespan
+|-- websocket/                 # WebSocket routing, messages, and UI logging
+|-- contracts/                 # Action markers, rules, guards, and follow-ups
+|-- agent/                     # Agent runtime, state, router, and nodes
+|-- clients/                   # OpenAI-compatible client builders
+|-- runtime/                   # Context, memory, streams, telemetry, registry
+|-- memory/                    # Persistent memory files and placeholders
+|-- rules/                     # Brain and runtime rule blocks
+|-- utils/                     # Actions, assets, validation, and storage helpers
+|-- ui/                        # Browser interface and README images
+|-- tests/                     # Unit, action, and model-integration tests
+|-- config.example.py          # Configuration template
+|-- config_loader.py           # Local configuration loader
+|-- app_settings.py            # Typed settings wrapper
+|-- launch_jin.bat             # Windows one-click launcher
+|-- launch_jin.ps1             # LM Studio readiness and startup script
+|-- requirements.txt           # Python dependencies
+|-- package.json               # Test and probe commands
+`-- saved_runtime.example.txt  # Optional L3 memory seed
 ```
 
-## Requirements
+## Setup and Quick Start
 
-- Python 3.10+
-- One or more OpenAI-compatible model servers
-- Node.js 20+ only for npm test and behavior-probe shortcuts
-- A Serper API key only when the built-in web-search action is enabled
+### Requirements
 
-The model server must provide `/v1/chat/completions` and `/v1/models`. LM Studio can also provide `/api/v0/models` so JIN can read the loaded context length.
+* Python 3.10+
+* One or more OpenAI-compatible model servers
+* Node.js 20+ only for local tests and behavior probes
+* A Serper API key only when built-in web search is enabled
 
-## Quick Start
+The model server must expose:
+
+```text
+/v1/chat/completions
+/v1/models
+```
+
+LM Studio may also expose `/api/v0/models`, allowing JIN to read the loaded context length.
 
 ### Windows + LM Studio
 
@@ -188,7 +213,7 @@ The model server must provide `/v1/chat/completions` and `/v1/models`. LM Studio
 2. Start the LM Studio Local Server.
 3. Run:
 
-```text
+```cmd
 launch_jin.bat
 ```
 
@@ -198,12 +223,12 @@ The launcher checks the local model server, creates `config.py` from the templat
 http://127.0.0.1:8000
 ```
 
-It does not download models automatically and does not replace model IDs or provider URLs that you already configured.
+It does not download models automatically or replace provider URLs and model IDs that are already configured.
 
 ### Manual Start
 
 ```bash
-git clone https://github.com
+git clone https://github.com/makeitdouble/jin_core.git
 cd jin_core
 python -m venv .venv
 ```
@@ -229,44 +254,29 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Then open `http://127.0.0.1:8000`.
+Then open:
 
-## Model Setup
-
-JIN is model-agnostic at the API layer. A simple setup uses one model for both brain and service roles. A split setup can use:
-
-- a stronger thinking model for the visible answer and runtime decisions;
-- a smaller service model for memory updates and supporting work;
-- an optional translator model for internal translation.
-
-A thinking-capable model is recommended for the brain role. Reliable reasoning separation and runtime-action use depend on the selected model.
+```text
+http://127.0.0.1:8000
+```
 
 ## Configuration
 
-Copy `config.example.py` to `config.py` and set the provider URLs and model IDs. `config.py` is ignored by Git.
+Copy `config.example.py` to `config.py`, then set the provider URLs and model IDs. `config.py` is ignored by Git.
 
-Main options:
+| Option | Purpose |
+| --- | --- |
+| `USE_SERVICE_AS_BRAIN` | Use the service model for visible brain responses. |
+| `BRAIN_API_BASE`, `BRAIN_MODEL_UID` | Configure the Brain provider and model. |
+| `SERVICE_API_BASE`, `SERVICE_MODEL_UID` | Configure the Service provider and model. |
+| `TRANSLATION_ENABLED` | Enable the Translator path. |
+| `BRAIN_CONTEXT_WINDOW`, `BRAIN_MAX_TOKENS` | Set local context and output fallbacks. |
+| `BRAIN_IMAGE_INPUT_ENABLED` | Send image attachments to compatible models. |
+| `L4_MEMORY_ENABLED`, `L4_IDLE_SECONDS` | Enable L4 consolidation and set its idle delay. |
+| `SEARCH_SERPER_API_KEY`, `SEARCH_MAX_RESULTS` | Configure built-in web search. |
+| `BRAIN_MAX_FOLLOWUPS` | Limit internal action and follow-up steps per user turn. |
 
-| Option                                                     | Purpose                                                                     |
-|------------------------------------------------------------|-----------------------------------------------------------------------------|
-| `USE_SERVICE_AS_BRAIN`                                     | Use the service model for visible brain responses.                          |
-| `BRAIN_API_BASE`, `BRAIN_MODEL_UID`                        | Brain provider and model.                                                   |
-| `SERVICE_API_BASE`, `SERVICE_MODEL_UID`                    | Service provider and model.                                                 |
-| `TRANSLATION_ENABLED`                                      | Enable the translator path.                                                 |
-| `BRAIN_CONTEXT_WINDOW`, `BRAIN_MAX_TOKENS`                 | Local fallbacks for context and output limits.                              |
-| `BRAIN_IMAGE_INPUT_ENABLED`                                | Send image attachments to roles that support OpenAI-compatible image input. |
-| `L4_MEMORY_ENABLED`, `L4_IDLE_SECONDS`                     | Enable long-term memory consolidation and set the idle delay.               |
-| `SEARCH_SERPER_API_KEY`, `SEARCH_MAX_RESULTS`              | Configure built-in web search.                                              |
-| `BRAIN_MAX_FOLLOWUPS`                                      | Limit internal action and follow-up steps for one user turn.                |
-
-Every uppercase option can also be set through environment variables. Plain names and `JIN_`-prefixed names are supported; plain names take priority.
-
-## Local Storage
-
-- JIN keeps its persistent runtime state locally in browser `localStorage` and written as JSON files under `memory/`;
-- `saved_runtime.example.txt` can be copied to `saved_runtime.txt` to provide a static session-memory seed.
-
-No server-side database is required.
+Every uppercase option can also be supplied through environment variables. Plain names and `JIN_`-prefixed names are supported; plain names take priority.
 
 ## Tests
 
@@ -282,7 +292,7 @@ Run the translator smoke test against the configured local model:
 npm run translation_tests
 ```
 
-Run an optional behavior probe:
+Run optional behavior probes:
 
 ```bash
 npm run probe ascii

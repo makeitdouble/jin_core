@@ -8,6 +8,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
+    RUNTIME_ACTION_JIN_FOR_L4,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
     RUNTIME_ACTION_UPDATE_DELAYED_MEMORY,
@@ -58,6 +59,7 @@ from utils.actions.delayed_memory_actions import (
     apply_save_delayed_memory_actions,
     emit_delayed_memory_results,
 )
+from utils.actions.jin_for_l4_actions import schedule_jin_for_l4_actions
 from utils.actions.jin_color_actions import (
     apply_idle_actions,
     emit_jin_color_actions,
@@ -241,6 +243,7 @@ async def apply_runtime_action_calls(
         RUNTIME_ACTION_IDLE,
         RUNTIME_ACTION_WEB_SEARCH,
         RUNTIME_ACTION_JIN_COLOR,
+    RUNTIME_ACTION_JIN_FOR_L4,
     }
     todo_action_names = {
         RUNTIME_ACTION_CREATE_TODO_LIST,
@@ -1269,6 +1272,12 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_UPDATE_DELAYED_MEMORY
     ]
 
+    jin_for_l4_actions = [
+        action
+        for action in filtered_actions
+        if action.name == RUNTIME_ACTION_JIN_FOR_L4
+    ]
+
     list_skill_actions = [
         action
         for action in filtered_actions
@@ -1464,6 +1473,14 @@ async def apply_runtime_action_calls(
         with_action_context=with_action_context,
     )
 
+    schedule_jin_for_l4_actions(
+        context,
+        jin_for_l4_actions,
+        action_display_ids=action_display_ids,
+        log_runtime=log_runtime,
+        with_action_context=with_action_context,
+    )
+
     await emit_saved_asset_results(
         context,
         saved_asset_results,
@@ -1573,6 +1590,9 @@ async def apply_runtime_action_calls(
         + len(
             jin_color_actions
         )
+        + len(
+            jin_for_l4_actions
+        )
         + min(
             save_session_count,
             1,
@@ -1595,6 +1615,7 @@ async def apply_runtime_action_calls(
         keep_actions={
             RUNTIME_ACTION_WEB_SEARCH,
             RUNTIME_ACTION_SAVE_SESSION,
+            RUNTIME_ACTION_JIN_FOR_L4,
         },
     )
 
