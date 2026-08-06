@@ -18,20 +18,19 @@ The interface is intentionally not overloaded with familiar UX elements. Instead
 
 The JIN interface combines the chat stream, collapsible panels with model telemetry and inspectable memory layers, runtime actions, and live avatar.
 
-<div style="display: flex; gap: 20px; align-items: start;">
-  <div style="flex: 1;">
-
 ### Live Avatar
-
-**Live Avatar** turns JIN's memory state into a moving map of cognitive density.<br/><br/> Each L1 field becomes its own inner orbit, with its position shaped by the amount of stored context and its rotation speed driven by interaction flow; the outer rings tracks L4 facts, Delayed Memory, and Active Memory into individual signals.<br/><br/> When JIN references a rule or memory item, the corresponding orbit lights up, revealing which part of the runtime is actively influencing the current thought.
-
-  </div>
-  <div style="flex: 1; text-align: center;">
-
-![Live Avatar memory rings](ui/static/images/live-avatar.jpg)
-
-  </div>
-</div>
+<table>
+<tr>
+<td width="66%" valign="top">
+<p>Live Avatar turns JIN's memory state into a moving map of cognitive density.</p>
+<p>Each L1 field becomes its own inner orbit, with its position shaped by the amount of stored context and its rotation speed driven by interaction flow. The outer rings track L4 facts, Delayed Memory, and Active Memory as individual signals.</p>
+<p>When JIN references a rule or memory item, the corresponding orbit lights up, revealing which part of the runtime is actively influencing the current thought.</p>
+</td>
+<td width="34%" align="center" valign="middle">
+<img src="ui/static/images/live-avatar.jpg" alt="Live Avatar memory rings" width="260" />
+</td>
+</tr>
+</table>
 
 ## Memory Architecture
 
@@ -59,12 +58,6 @@ JIN uses **Delayed Memory** to preserve important context without relying on lon
 ### Facts Memory and L4 Consolidation
 
 **Facts Memory** is an inspectable per-session index of durable fields selected from L1. When the workspace is idle, JIN extracts long-term candidates, compares them with the existing L4 store, and merges duplicate or overlapping facts. Delayed Memory reports can absorb selected L4 facts so the same material is not injected twice.
-
-<!-- Add a screenshot showing Delayed, Active, or Long-Term Memory here.
-Suggested file path: ui/static/images/memory-channels.jpg
-Example:
-![JIN memory channels](ui/static/images/memory-channels.jpg)
--->
 
 ## Core Capabilities
 
@@ -94,10 +87,6 @@ Available actions include:
 * live avatar and workspace color changes.
 
 ## Architecture
-
-<!-- Place the architecture diagram directly below this heading.
-Expected file path: ui/static/images/schema.jpg
--->
 
 ![JIN Core Engine architecture](ui/static/images/schema.jpg)
 
@@ -147,7 +136,7 @@ Persistent state is stored locally through:
 
 * browser `localStorage` for session-facing runtime state;
 * JSON files under `memory/` for persistent memory objects;
-* `saved_runtime.txt` for an optional static L3 session seed.
+* `saved_runtime.txt` for an optional static L1 session seed.
 
 ## Assets and Skills
 
