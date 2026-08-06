@@ -931,6 +931,24 @@ function appendChatMessage(
 }
 // CREATE STREAM GROUP
 
+function scrollCollapsedThinkToLatest(
+  thinkContent
+) {
+
+  if (
+    !thinkContent
+    || !thinkContent.classList.contains(
+      "is-collapsed"
+    )
+  ) {
+    return;
+  }
+
+  thinkContent.scrollTop =
+    thinkContent.scrollHeight;
+
+}
+
 function updateThinkExpandedHeight(
   thinkContent
 ) {
@@ -944,7 +962,14 @@ function updateThinkExpandedHeight(
     `${thinkContent.scrollHeight}px`
   );
 
+  scrollCollapsedThinkToLatest(
+    thinkContent
+  );
+
 }
+
+window.updateThinkExpandedHeight =
+  updateThinkExpandedHeight;
 
 let thinkResizeFrame = null;
 
@@ -1001,7 +1026,7 @@ function createStreamGroup(
     document.createElement("div");
 
   thinkContent.className =
-    "jin-think-content";
+    "jin-think-content is-collapsed";
 
   thinkContent.setAttribute(
     "role",
@@ -1015,7 +1040,7 @@ function createStreamGroup(
 
   thinkContent.setAttribute(
     "aria-expanded",
-    "true"
+    "false"
   );
 
   thinkContent.setAttribute(
@@ -1023,7 +1048,7 @@ function createStreamGroup(
     "Toggle thinking block"
   );
 
-  let collapsed = false;
+  let collapsed = true;
 
   const setCollapsed = (nextCollapsed) => {
 
@@ -1041,6 +1066,16 @@ function createStreamGroup(
         ? "false"
         : "true"
     );
+
+    if (collapsed) {
+      requestAnimationFrame(
+        () => {
+          scrollCollapsedThinkToLatest(
+            thinkContent
+          );
+        }
+      );
+    }
 
   };
 

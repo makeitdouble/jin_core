@@ -778,6 +778,129 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
+    async def test_truncated_merge_logs_diagnostics_without_reasoning_response(self):
+        class TruncatedReasoningServiceClient:
+
+            model_uid = "google/gemma-4-e4b"
+            configured_context_window = 4096
+
+            def __init__(self):
+                self.calls = []
+
+            async def resolve_request_context_window(self):
+                return 4096
+
+            async def resolve_safe_max_tokens(
+                self,
+                *,
+                system_prompt,
+                user_prompt,
+                requested_max_tokens,
+            ):
+                return 3288
+
+            async def ask(
+                self,
+                *,
+                system_prompt,
+                user_prompt,
+                temperature,
+                max_tokens,
+                timeout=None,
+            ):
+                self.calls.append({
+                    "system_prompt": system_prompt,
+                    "user_prompt": user_prompt,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "timeout": timeout,
+                })
+                return {
+                    "model": self.model_uid,
+                    "choices": [
+                        {
+                            "finish_reason": "length",
+                            "message": {
+                                "content": "",
+                                "reasoning_content": (
+                                    "Internal analysis that must not be exposed "
+                                    "as the L4 response."
+                                ),
+                            },
+                        },
+                    ],
+                    "usage": {
+                        "prompt_tokens": 808,
+                        "completion_tokens": 3288,
+                        "total_tokens": 4096,
+                    },
+                }
+
+        store, _ = add_l4_pending_candidates(
+            normalize_l4_store({}),
+            [
+                {
+                    "key": "user.profile",
+                    "value": "The user works on JIN Core.",
+                    "category": "user_fact",
+                },
+            ],
+            now="2026-08-06T12:00:00Z",
+        )
+        logger = FakeLogger()
+        service_client = TruncatedReasoningServiceClient()
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=logger,
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+
+        result = await maybe_update_runtime_l4_memory(
+            context=context,
+            user_idle_seconds=61,
+        )
+
+        self.assertEqual(result["phase"], "merge")
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["reason"], "response_truncated")
+        self.assertEqual(result["assistant_content"], "empty")
+        self.assertTrue(result["reasoning_generated"])
+        self.assertEqual(result["effective_max_output_tokens"], 3288)
+        self.assertEqual(result["context_window_tokens"], 4096)
+        self.assertIn("kept the pending facts unchanged", result["summary"])
+
+        self.assertEqual(service_client.calls[0]["max_tokens"], 3288)
+
+        result_logs = [
+            details
+            for message, details in logger.summarizer_logs
+            if message == "[MEMORY:L4] L4 merge summarizer result"
+        ]
+        self.assertEqual(result_logs, [])
+
+        request_logs = [
+            json.loads(details)
+            for message, details in logger.summarizer_logs
+            if message == "[MEMORY:L4] L4 merge summarizer request"
+        ]
+        self.assertEqual(request_logs[0]["max_tokens"], 3288)
+
+        skip_logs = [
+            json.loads(details)
+            for message, details in logger.summarizer_logs
+            if message == (
+                "[MEMORY:L4] L4 merge skipped: "
+                "output truncated before final response"
+            )
+        ]
+        self.assertEqual(len(skip_logs), 1)
+        self.assertEqual(skip_logs[0]["kind"], "l4_skip")
+        self.assertEqual(skip_logs[0]["finish_reason"], "length")
+        self.assertNotIn("reasoning_content", skip_logs[0])
+        self.assertNotIn("Internal analysis", json.dumps(skip_logs[0]))
+
     async def test_runtime_l4_memory_update_running_tracks_active_task(self):
         context = RuntimeContext(
             websocket=None,

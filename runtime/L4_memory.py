@@ -4,6 +4,7 @@ import asyncio
 import json
 import traceback
 
+from clients.response_extractor import ResponseExtractor
 from clients.service_client import ask_service_model
 from config_loader import config
 from runtime.L4_memory_utils import (
@@ -53,6 +54,221 @@ from runtime.memory_common import (
 
 L4_LOG_LEVEL = "L4"
 L4_DEFAULT_IDLE_SECONDS = 60
+
+
+def _positive_int(value) -> int:
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return normalized if normalized > 0 else 0
+
+
+async def resolve_l4_request_limits(
+    *,
+    service_client,
+    system_prompt: str,
+    user_prompt: str,
+    requested_max_tokens: int,
+) -> dict:
+    context_window = 0
+    context_window_resolver = getattr(
+        service_client,
+        "resolve_request_context_window",
+        None,
+    )
+
+    if context_window_resolver is not None:
+        try:
+            context_window = _positive_int(
+                await context_window_resolver()
+            )
+        except Exception:
+            context_window = 0
+
+    if not context_window:
+        context_window = _positive_int(
+            getattr(
+                service_client,
+                "configured_context_window",
+                None,
+            )
+            or getattr(
+                service_client,
+                "context_window",
+                None,
+            )
+            or getattr(config, "SERVICE_CONTEXT_WINDOW", 0)
+        )
+
+    effective_max_tokens = _positive_int(
+        requested_max_tokens
+    )
+    safe_max_tokens_resolver = getattr(
+        service_client,
+        "resolve_safe_max_tokens",
+        None,
+    )
+
+    if safe_max_tokens_resolver is not None:
+        try:
+            effective_max_tokens = _positive_int(
+                await safe_max_tokens_resolver(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    requested_max_tokens=requested_max_tokens,
+                )
+            ) or effective_max_tokens
+        except Exception:
+            pass
+
+    return {
+        "requested_max_tokens": _positive_int(
+            requested_max_tokens
+        ),
+        "effective_max_tokens": effective_max_tokens,
+        "context_window_tokens": context_window,
+    }
+
+
+def build_l4_truncation_details(
+    response: dict,
+    *,
+    phase: str,
+    pending_count: int | None = None,
+    pending_ids: list[str] | None = None,
+    selected_fields_count: int | None = None,
+) -> dict:
+    response = response if isinstance(response, dict) else {}
+    request_meta = response.get("_jin_l4_request_meta", {})
+    if not isinstance(request_meta, dict):
+        request_meta = {}
+
+    usage = response.get("usage", {})
+    if not isinstance(usage, dict):
+        usage = {}
+
+    prompt_tokens = _positive_int(usage.get("prompt_tokens"))
+    completion_tokens = _positive_int(usage.get("completion_tokens"))
+    total_tokens = _positive_int(usage.get("total_tokens"))
+    if not total_tokens and (prompt_tokens or completion_tokens):
+        total_tokens = prompt_tokens + completion_tokens
+
+    requested_max_tokens = _positive_int(
+        request_meta.get("requested_max_tokens")
+    )
+    effective_max_tokens = _positive_int(
+        request_meta.get("effective_max_tokens")
+    )
+    context_window_tokens = _positive_int(
+        request_meta.get("context_window_tokens")
+    )
+
+    content = ResponseExtractor.extract_content_text(response).strip()
+    reasoning = ResponseExtractor.extract_reasoning_text(response).strip()
+    finish_reason = ResponseExtractor.extract_finish_reason(response).lower()
+    model = (
+        ResponseExtractor.extract_model(response)
+        or str(request_meta.get("model") or "").strip()
+    )
+
+    hit_effective_output_limit = bool(
+        effective_max_tokens
+        and completion_tokens
+        and completion_tokens >= effective_max_tokens
+    )
+    filled_context_window = bool(
+        context_window_tokens
+        and total_tokens
+        and total_tokens >= context_window_tokens
+    )
+    effective_limit_reduced = bool(
+        requested_max_tokens
+        and effective_max_tokens
+        and effective_max_tokens < requested_max_tokens
+    )
+
+    if filled_context_window:
+        limit_type = "context_window"
+        limit_label = "service context window"
+    elif hit_effective_output_limit:
+        limit_type = "effective_output_limit"
+        limit_label = "effective output limit"
+    else:
+        limit_type = "provider_length_limit"
+        limit_label = "provider generation limit"
+
+    if reasoning and not content:
+        output_state = (
+            "The model generated reasoning, but emitted no final assistant "
+            "content or JSON response."
+        )
+    elif content:
+        output_state = (
+            "The model started a final assistant response, but the provider "
+            "stopped it before completion."
+        )
+    else:
+        output_state = (
+            "The provider stopped generation before any assistant response "
+            "was emitted."
+        )
+
+    if effective_limit_reduced and context_window_tokens:
+        budget_note = (
+            f"The runtime reduced max_tokens from {requested_max_tokens} to "
+            f"{effective_max_tokens} so the request could fit the "
+            f"{context_window_tokens}-token service context window."
+        )
+    elif effective_max_tokens:
+        budget_note = (
+            f"The effective output budget was {effective_max_tokens} tokens."
+        )
+    else:
+        budget_note = "The provider did not report the exact output budget."
+
+    summary = (
+        f"Generation stopped at the {limit_label} "
+        f"(finish_reason={finish_reason or 'length'}). "
+        f"{budget_note} {output_state} JIN discarded the incomplete L4 "
+        "result and kept the pending facts unchanged."
+    )
+
+    retry_note = (
+        "Because the pending facts were kept, a later idle tick can start "
+        "another L4 request for the same batch."
+    )
+
+    details = {
+        "kind": "l4_skip",
+        "phase": phase,
+        "status": "skipped",
+        "reason": "response_truncated",
+        "summary": summary,
+        "retry_behavior": retry_note,
+        "finish_reason": finish_reason or "length",
+        "limit_type": limit_type,
+        "model": model,
+        "context_window_tokens": context_window_tokens,
+        "requested_max_output_tokens": requested_max_tokens,
+        "effective_max_output_tokens": effective_max_tokens,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "assistant_content": "present" if content else "empty",
+        "assistant_content_chars": len(content),
+        "reasoning_generated": bool(reasoning),
+        "reasoning_chars": len(reasoning),
+    }
+
+    if pending_count is not None:
+        details["pending_count"] = int(pending_count)
+    if pending_ids:
+        details["pending_ids"] = list(pending_ids)
+    if selected_fields_count is not None:
+        details["selected_fields_count"] = int(selected_fields_count)
+
+    return details
 
 
 def l4_memory_enabled() -> bool:
@@ -370,6 +586,17 @@ async def ask_l4_model(
     user_prompt: str,
     max_tokens: int,
 ) -> dict:
+    request_limits = await resolve_l4_request_limits(
+        service_client=service_client,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        requested_max_tokens=max_tokens,
+    )
+    effective_max_tokens = (
+        request_limits.get("effective_max_tokens")
+        or max_tokens
+    )
+
     await refresh_runtime_memory_summarizer_usage(
         context,
         system_prompt=system_prompt,
@@ -383,7 +610,7 @@ async def ask_l4_model(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=getattr(config, "SERVICE_TEMPERATURE", 0.1),
-            max_tokens=max_tokens,
+            max_tokens=effective_max_tokens,
         ),
     )
 
@@ -392,16 +619,30 @@ async def ask_l4_model(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         temperature=getattr(config, "SERVICE_TEMPERATURE", 0.1),
-        max_tokens=max_tokens,
+        max_tokens=effective_max_tokens,
         timeout=getattr(config, "SERVICE_REQUEST_TIMEOUT", 1000.0),
     )
-    response_text = extract_runtime_memory_text(response)
+    if isinstance(response, dict):
+        response["_jin_l4_request_meta"] = {
+            **request_limits,
+            "model": getattr(
+                service_client,
+                "model_uid",
+                "",
+            ),
+        }
 
-    await log_runtime_summarizer_result(
-        context,
-        label=label,
-        result=response_text,
+    response_text = extract_runtime_memory_text(
+        response,
+        allow_reasoning_fallback=False,
     )
+
+    if response_text:
+        await log_runtime_summarizer_result(
+            context,
+            label=label,
+            result=response_text,
+        )
     await refresh_runtime_memory_summarizer_usage(
         context,
         system_prompt=system_prompt,
@@ -428,10 +669,16 @@ async def log_l4_skip_event(
     if details:
         result.update(details)
 
+    display_reason = (
+        "output truncated before final response"
+        if reason == "response_truncated"
+        else reason
+    )
+
     await log_memory_event(
         context,
         level=L4_LOG_LEVEL,
-        message=f"L4 {message_phase} skipped: {reason}",
+        message=f"L4 {message_phase} skipped: {display_reason}",
         details=json.dumps(
             result,
             ensure_ascii=False,
@@ -439,6 +686,7 @@ async def log_l4_skip_event(
         ),
         fallback_channel="summarizer",
         event=f"{phase}_skipped",
+        trace_reason=result.get("summary"),
     )
 
     return result
@@ -467,12 +715,19 @@ async def run_l4_extraction_phase(
             phase="extract",
             message_phase="extraction",
             reason="response_truncated",
-            details={
-                "selected_fields_count": len(pending_fields),
-            },
+            details=build_l4_truncation_details(
+                response,
+                phase="extract",
+                selected_fields_count=len(pending_fields),
+            ),
         )
 
-    payload = extract_l4_json_payload(extract_runtime_memory_text(response))
+    payload = extract_l4_json_payload(
+        extract_runtime_memory_text(
+            response,
+            allow_reasoning_fallback=False,
+        )
+    )
     if payload is None:
         return await log_l4_skip_event(
             context,
@@ -563,22 +818,30 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
     )
 
     if is_runtime_memory_response_truncated(response):
+        pending_ids = [
+            fact.get("id")
+            for fact in pending_facts
+            if fact.get("id")
+        ]
         return await log_l4_skip_event(
             context,
             phase="merge",
             message_phase="merge",
             reason="response_truncated",
-            details={
-                "pending_count": len(pending_facts),
-                "pending_ids": [
-                    fact.get("id")
-                    for fact in pending_facts
-                    if fact.get("id")
-                ],
-            },
+            details=build_l4_truncation_details(
+                response,
+                phase="merge",
+                pending_count=len(pending_facts),
+                pending_ids=pending_ids,
+            ),
         )
 
-    payload = extract_l4_json_payload(extract_runtime_memory_text(response))
+    payload = extract_l4_json_payload(
+        extract_runtime_memory_text(
+            response,
+            allow_reasoning_fallback=False,
+        )
+    )
     if payload is None:
         return await log_l4_skip_event(
             context,
@@ -728,11 +991,20 @@ async def run_l4_jin_note(
             message_phase="JIN note",
             reason="response_truncated",
             details={
+                **build_l4_truncation_details(
+                    response,
+                    phase="jin_note",
+                ),
                 "selected_fact_ids": selected_fact_ids,
             },
         )
 
-    payload = extract_l4_json_payload(extract_runtime_memory_text(response))
+    payload = extract_l4_json_payload(
+        extract_runtime_memory_text(
+            response,
+            allow_reasoning_fallback=False,
+        )
+    )
     if payload is None:
         return await log_l4_skip_event(
             context,

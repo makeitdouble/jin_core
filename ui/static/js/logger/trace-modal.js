@@ -551,6 +551,142 @@ function renderL4SummarizerResponseTrace(parsed) {
   );
 }
 
+function renderL4SkipTrace(parsed) {
+  appendTraceModalBody(
+    traceModalContent,
+    "What happened",
+    parsed.summary || "The L4 model response was not usable."
+  );
+
+  const fields =
+    document.createElement("section");
+
+  fields.className =
+    "delayed-memory-modal-fields";
+
+  appendTraceModalField(
+    fields,
+    "Phase",
+    parsed.phase
+  );
+
+  appendTraceModalField(
+    fields,
+    "Finish reason",
+    parsed.finish_reason
+  );
+
+  appendTraceModalField(
+    fields,
+    "Limit reached",
+    parsed.limit_type
+  );
+
+  appendTraceModalField(
+    fields,
+    "Model",
+    parsed.model
+  );
+
+  appendTraceModalField(
+    fields,
+    "Context window",
+    parsed.context_window_tokens
+      ? `${parsed.context_window_tokens} tokens`
+      : ""
+  );
+
+  appendTraceModalField(
+    fields,
+    "Requested max output",
+    parsed.requested_max_output_tokens
+      ? `${parsed.requested_max_output_tokens} tokens`
+      : ""
+  );
+
+  appendTraceModalField(
+    fields,
+    "Effective max output",
+    parsed.effective_max_output_tokens
+      ? `${parsed.effective_max_output_tokens} tokens`
+      : ""
+  );
+
+  appendTraceModalField(
+    fields,
+    "Prompt tokens",
+    parsed.prompt_tokens
+  );
+
+  appendTraceModalField(
+    fields,
+    "Generated tokens",
+    parsed.completion_tokens
+  );
+
+  appendTraceModalField(
+    fields,
+    "Total tokens",
+    parsed.total_tokens
+  );
+
+  appendTraceModalField(
+    fields,
+    "Assistant response",
+    parsed.assistant_content
+  );
+
+  appendTraceModalField(
+    fields,
+    "Reasoning generated",
+    parsed.reasoning_generated
+  );
+
+  if (fields.childElementCount) {
+    traceModalContent.appendChild(
+      fields
+    );
+  }
+
+  appendTraceModalBody(
+    traceModalContent,
+    "What JIN did",
+    "The incomplete response was discarded. No L4 facts were merged or removed."
+  );
+
+  appendTraceModalBody(
+    traceModalContent,
+    "Retry behavior",
+    parsed.retry_behavior
+  );
+
+  const pendingCount =
+    Number(
+      parsed.pending_count
+      || parsed.selected_fields_count
+      || 0
+    );
+
+  if (pendingCount) {
+    appendTraceModalBody(
+      traceModalContent,
+      "Pending batch kept",
+      `${pendingCount} item${pendingCount === 1 ? "" : "s"} remain pending.`
+    );
+  }
+
+  if (
+      Array.isArray(parsed.pending_ids)
+      && parsed.pending_ids.length
+  ) {
+    appendTraceModalBody(
+      traceModalContent,
+      "Pending IDs",
+      parsed.pending_ids.join("\n")
+    );
+  }
+}
+
 function isSummarizerRequestPayload(parsed) {
   return Boolean(
     parsed
@@ -780,6 +916,17 @@ function renderTraceDetails(
       && parsed.kind === "l4_summarizer_response"
   ) {
     renderL4SummarizerResponseTrace(
+      parsed
+    );
+
+    return;
+  }
+
+  if (
+      parsed
+      && parsed.kind === "l4_skip"
+  ) {
+    renderL4SkipTrace(
       parsed
     );
 

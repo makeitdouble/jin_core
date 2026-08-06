@@ -982,6 +982,17 @@ function setL4LoggerButtonTone(
       : "inline-flex items-center rounded border border-blue-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-blue-300 hover:bg-blue-500/10 transition";
 }
 
+function setL4LoggerButtonVisible(
+  button,
+  visible,
+) {
+  button.hidden = !visible;
+  button.classList.toggle(
+    "hidden",
+    !visible
+  );
+}
+
 function resolveL4SummarizerPhase(
   message,
   meta,
@@ -1076,13 +1087,16 @@ function createL4SummarizerCard(
       "response"
     );
 
-  responseButton.hidden =
-    true;
+  setL4LoggerButtonVisible(
+    responseButton,
+    false
+  );
 
   const state = {
     logDiv,
     phase,
     requestDetails,
+    responseSettled: false,
     responseReady: false,
     responseDetails: null,
     responsePayload: null,
@@ -1091,8 +1105,10 @@ function createL4SummarizerCard(
     responseButton,
   };
 
-  requestButton.hidden =
-    !requestDetails;
+  setL4LoggerButtonVisible(
+    requestButton,
+    Boolean(requestDetails)
+  );
 
   requestButton.addEventListener(
     "click",
@@ -1172,7 +1188,7 @@ function handleL4SummarizerLog(
   let state =
     [...l4SummarizerCards[phase]]
       .reverse()
-      .find((candidate) => !candidate.responseReady);
+      .find((candidate) => !candidate.responseSettled);
 
   if (!state) {
     state =
@@ -1181,10 +1197,34 @@ function handleL4SummarizerLog(
       );
   }
 
-  state.responseReady =
+  state.responseSettled =
     true;
   state.responseDetails =
     String(details ?? "");
+
+  const responseText =
+    state.responseDetails.trim();
+
+  state.responseReady =
+    Boolean(
+      responseText
+      && responseText !== "<empty>"
+    );
+
+  if (!state.responseReady) {
+    state.responsePayload =
+      null;
+    state.responseHasChanges =
+      false;
+
+    setL4LoggerButtonVisible(
+      state.responseButton,
+      false
+    );
+
+    return state.logDiv;
+  }
+
   state.responsePayload =
     parseL4JsonPayload(
       state.responseDetails
@@ -1196,8 +1236,10 @@ function handleL4SummarizerLog(
       state.responsePayload
     );
 
-  state.responseButton.hidden =
-    false;
+  setL4LoggerButtonVisible(
+    state.responseButton,
+    true
+  );
 
   setL4LoggerButtonTone(
     state.responseButton,
@@ -1207,6 +1249,57 @@ function handleL4SummarizerLog(
   );
 
   return state.logDiv;
+}
+
+function settleL4SummarizerCardForTerminalEvent(
+  message,
+  meta,
+) {
+  const event =
+    String(meta && meta.memory_event || "").toLowerCase();
+
+  if (!event.endsWith("_skipped") && !event.endsWith("_failed")) {
+    return;
+  }
+
+  const phase =
+    event.startsWith("extract_")
+      ? "extraction"
+      : event.startsWith("merge_")
+      ? "merge"
+      : resolveL4SummarizerPhase(
+          message,
+          meta
+        );
+
+  if (!phase || !l4SummarizerCards[phase]) {
+    return;
+  }
+
+  const state =
+    [...l4SummarizerCards[phase]]
+      .reverse()
+      .find((candidate) => !candidate.responseSettled);
+
+  if (!state) {
+    return;
+  }
+
+  state.responseSettled =
+    true;
+  state.responseReady =
+    false;
+  state.responseDetails =
+    null;
+  state.responsePayload =
+    null;
+  state.responseHasChanges =
+    false;
+
+  setL4LoggerButtonVisible(
+    state.responseButton,
+    false
+  );
 }
 
 function resolveDeletedL4Fact(
@@ -1428,6 +1521,11 @@ function appendLog(
       message,
       details,
     );
+
+  settleL4SummarizerCardForTerminalEvent(
+    normalized.message,
+    meta
+  );
 
   const l4SummarizerLog =
     handleL4SummarizerLog(
@@ -1903,9 +2001,15 @@ function appendLog(
 
     const reason =
       shouldShowReason
-        ? extractTraceReason(
-            normalized.message,
-            normalized.details
+        ? (
+            String(
+              meta?.trace_reason
+              || ""
+            ).trim()
+            || extractTraceReason(
+                normalized.message,
+                normalized.details
+              )
           )
         : "";
 

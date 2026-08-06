@@ -50,7 +50,7 @@ class DelayedMemoryPinnedGlowClientContractTests(unittest.TestCase):
         self.assertIn("/static/css/runtime-memory.css?v=l4-logger-cards-2", source)
         self.assertIn("/static/js/runtime/runtime.js?v=runtime-facade-17", source)
         self.assertIn("/static/js/chat-attachments.js?v=chat-attachments-4", source)
-        self.assertIn("/static/js/logger/trace-modal.js?v=l4-structured-trace-2", source)
+        self.assertIn("/static/js/logger/trace-modal.js?v=l4-truncate-diagnostics-1", source)
         self.assertIn("/static/js/logger/session-actions.js?v=logger-session-actions-6", source)
 
 

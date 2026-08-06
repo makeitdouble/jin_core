@@ -45,6 +45,26 @@ function extractTraceReason(
     return "";
   }
 
+  const parsed =
+    parseTraceJson(text);
+
+  if (
+      parsed
+      && typeof parsed === "object"
+  ) {
+    const structuredReason =
+      String(
+        parsed.summary
+        || parsed.explanation
+        || parsed.trace_reason
+        || ""
+      ).trim();
+
+    if (structuredReason) {
+      return structuredReason;
+    }
+  }
+
   const likelyReasonMatch =
     text.match(
       /^Likely reason:\s*(.+)$/m

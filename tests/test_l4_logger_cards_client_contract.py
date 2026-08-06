@@ -32,9 +32,12 @@ class L4LoggerCardsClientContractTests(unittest.TestCase):
         self.assertIn('"response"', source)
         self.assertIn('tone === "muted"', source)
         self.assertIn('kind: "l4_summarizer_response"', source)
+        self.assertIn('responseSettled: false', source)
         self.assertIn('responseReady: false', source)
         self.assertIn('if (!state.responseReady)', source)
-        self.assertIn('.find((candidate) => !candidate.responseReady)', source)
+        self.assertIn('.find((candidate) => !candidate.responseSettled)', source)
+        self.assertIn('setL4LoggerButtonVisible(', source)
+        self.assertIn('settleL4SummarizerCardForTerminalEvent(', source)
         self.assertNotIn('.find((candidate) => !candidate.responseDetails)', source)
 
     def test_l4_response_modal_uses_structured_layout_and_no_changes_state(self):
@@ -42,7 +45,11 @@ class L4LoggerCardsClientContractTests(unittest.TestCase):
 
         self.assertIn('parsed.kind === "l4_fact"', source)
         self.assertIn('parsed.kind === "l4_summarizer_response"', source)
+        self.assertIn('parsed.kind === "l4_skip"', source)
         self.assertIn('"No changes"', source)
+        self.assertIn('"What happened"', source)
+        self.assertIn('"Retry behavior"', source)
+        self.assertIn('parsed.reasoning_generated', source)
         self.assertIn('Array.isArray(payload.facts)', source)
         self.assertIn('Array.isArray(payload.operations)', source)
 
@@ -57,10 +64,11 @@ class L4LoggerCardsClientContractTests(unittest.TestCase):
     def test_cache_versions_are_bumped(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertIn('/static/css/runtime-memory.css?v=l4-logger-cards-1', source)
+        self.assertIn('/static/css/runtime-memory.css?v=l4-logger-cards-2', source)
         self.assertIn('/static/js/runtime/runtime-l4-memory.js?v=l4-restore-1', source)
-        self.assertIn('/static/js/logger/trace-modal.js?v=l4-structured-trace-1', source)
-        self.assertIn('/static/js/logger/log-entries.js?v=l4-logger-cards-2', source)
+        self.assertIn('/static/js/logger/logger.js?v=l4-truncate-reason-1', source)
+        self.assertIn('/static/js/logger/trace-modal.js?v=l4-truncate-diagnostics-1', source)
+        self.assertIn('/static/js/logger/log-entries.js?v=l4-response-visibility-1', source)
         self.assertIn('/static/js/socket/event-handlers.js?v=l4-restore-1', source)
 
 
