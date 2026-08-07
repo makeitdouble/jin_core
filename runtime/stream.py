@@ -48,7 +48,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
-    RUNTIME_ACTION_JIN_FOR_L4,
+    RUNTIME_ACTION_UPDATE_L4_FACTS,
     RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     build_runtime_action_display_text,
@@ -155,11 +155,12 @@ class RuntimeStream:
         self.action_guard_rejected_aborted = False
         self.context_limit_recovery_armed = False
         self.started_delayed_memory_action_ids = []
+        self.started_update_l4_facts_action_ids = []
         self.confirmed_action_guard_names = set()
         self.rejected_action_guard_names = set()
         self.action_guard_confirmation_ids = {}
         self.jin_color_action_id = ""
-        self.jin_for_l4_action_ids = {}
+        self.update_l4_facts_action_ids = {}
         self.last_jin_color_action_color = ""
         self.runtime_action_event_offset = 0
         self.session_action_history_start = 0
@@ -1073,6 +1074,18 @@ class RuntimeStream:
                 )
 
                 if actions_to_apply:
+                    action_display_ids = {
+                        id(action): self.get_runtime_action_display_id(
+                            action
+                        )
+                        for action in actions_to_apply
+                    }
+
+                    await self.emit_completed_update_l4_facts_actions(
+                        actions_to_apply,
+                        action_display_ids,
+                    )
+
                     await apply_runtime_action_calls(
                         self.context,
                         actions_to_apply,
@@ -1082,12 +1095,7 @@ class RuntimeStream:
                         guard_confirmation_ids=(
                             self.action_guard_confirmation_ids
                         ),
-                        action_display_ids={
-                            id(action): self.get_runtime_action_display_id(
-                                action
-                            )
-                            for action in actions_to_apply
-                        },
+                        action_display_ids=action_display_ids,
                         runtime_message_id=(
                             self.stream.message_id
                         ),
@@ -1121,6 +1129,74 @@ class RuntimeStream:
 
         return result.text
 
+    async def emit_completed_update_l4_facts_actions(
+        self,
+        actions,
+        action_display_ids,
+    ) -> None:
+
+        emitter = getattr(
+            self.context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is None:
+            return
+
+        action_context_snapshot = (
+            dict(self.context_snapshot)
+            if isinstance(
+                self.context_snapshot,
+                dict,
+            )
+            else None
+        )
+
+        for action in actions:
+            if action.name != RUNTIME_ACTION_UPDATE_L4_FACTS:
+                continue
+
+            action_id = str(
+                action_display_ids.get(
+                    id(action),
+                    "",
+                )
+                or ""
+            ).strip()
+
+            if not action_id:
+                continue
+
+            payload = {
+                "type": "runtime_action",
+                "runtime_message_id": self.stream.message_id,
+                "action": "update_l4_facts",
+                "id": action_id,
+                "status": "completed",
+                "display_name": get_runtime_action_display_name(
+                    RUNTIME_ACTION_UPDATE_L4_FACTS
+                ),
+                "text": build_runtime_action_display_text(
+                    RUNTIME_ACTION_UPDATE_L4_FACTS
+                ),
+                "close_tag": runtime_action_has_close_tag(
+                    RUNTIME_ACTION_UPDATE_L4_FACTS
+                ),
+            }
+
+            if action_context_snapshot:
+                payload["context"] = action_context_snapshot
+
+            await emit(
+                payload
+            )
+
     def get_runtime_action_display_id(
         self,
         action,
@@ -1144,25 +1220,39 @@ class RuntimeStream:
 
             return self.jin_color_action_id
 
-        if action.name == RUNTIME_ACTION_JIN_FOR_L4:
+        if action.name == RUNTIME_ACTION_UPDATE_L4_FACTS:
             payload_key = str(action.payload or "").strip()
-            action_id = self.jin_for_l4_action_ids.get(payload_key, "")
+            action_id = (
+                self.update_l4_facts_action_ids.get(payload_key, "")
+                if payload_key
+                else ""
+            )
 
             if not action_id:
-                sequence = int(
-                    getattr(
-                        self.context,
-                        "runtime_jin_for_l4_action_sequence",
-                        0,
+                if payload_key and self.started_update_l4_facts_action_ids:
+                    action_id = self.started_update_l4_facts_action_ids.pop(0)
+                else:
+                    sequence = int(
+                        getattr(
+                            self.context,
+                            "runtime_update_l4_facts_action_sequence",
+                            0,
+                        )
+                        or 0
+                    ) + 1
+                    self.context.runtime_update_l4_facts_action_sequence = sequence
+                    action_id = build_runtime_action_id(
+                        RUNTIME_ACTION_UPDATE_L4_FACTS,
+                        sequence,
                     )
-                    or 0
-                ) + 1
-                self.context.runtime_jin_for_l4_action_sequence = sequence
-                action_id = build_runtime_action_id(
-                    RUNTIME_ACTION_JIN_FOR_L4,
-                    sequence,
-                )
-                self.jin_for_l4_action_ids[payload_key] = action_id
+
+                    if not payload_key:
+                        self.started_update_l4_facts_action_ids.append(
+                            action_id
+                        )
+
+                if payload_key:
+                    self.update_l4_facts_action_ids[payload_key] = action_id
 
             return action_id
 

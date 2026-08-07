@@ -38,7 +38,7 @@ from .delayed_memory_utils import (
     slugify_delayed_memory_title,
 )
 from .idle_utils import parse_idle_seconds
-from .jin_for_l4_utils import parse_jin_for_l4_payload
+from .update_l4_facts_utils import parse_update_l4_facts_payload
 from .jin_color_utils import (
     get_applied_jin_color,
     is_noop_jin_color_action,
@@ -93,7 +93,7 @@ __all__ = [
     "match_regexp_templates",
     "normalize_active_memory_marker_field",
     "normalize_jin_color_payload",
-    "parse_jin_for_l4_payload",
+    "parse_update_l4_facts_payload",
     "normalize_runtime_action_name",
     "normalize_runtime_action_names",
     "collect_long_term_fact_ids_from_reports",

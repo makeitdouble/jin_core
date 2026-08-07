@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from utils.context.context_exports import (
     build_runtime_xml,
@@ -96,9 +97,9 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
             "JIN_COLOR"
         )
 
-    if bool(runtime_actions.get("CAN_JIN_FOR_L4", False)):
+    if bool(runtime_actions.get("CAN_UPDATE_L4_FACTS", False)):
         expected_actions.append(
-            "JIN_FOR_L4"
+            "UPDATE_L4_FACTS"
         )
 
     if bool(runtime_actions.get("CAN_USE_ASSETS", False)):
@@ -141,6 +142,109 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
 
 
 class BrainRuntimeActionTests(unittest.TestCase):
+
+    def test_stream_update_l4_facts_bubble_tracks_marker_write_lifecycle(self):
+
+        class FakeEmitter:
+
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, payload):
+                self.events.append(dict(payload))
+
+        class FakeBrainClient:
+
+            async def stream(self, **_kwargs):
+                yield {
+                    "type": "content",
+                    "content": "Reply.\n<UPDATE_L4_FACTS>",
+                }
+                yield {
+                    "type": "content",
+                    "content": (
+                        '\n{"fact_ids":["l4_a"],'
+                        '"message":"The relation is clarified."}\n'
+                    ),
+                }
+                yield {
+                    "type": "content",
+                    "content": "</UPDATE_L4_FACTS>",
+                }
+
+        async def fake_apply_runtime_action_calls(
+            _context,
+            actions,
+            **kwargs,
+        ):
+            applied.append((tuple(actions), dict(kwargs)))
+            return len(tuple(actions))
+
+        async def collect(context):
+            return [
+                chunk
+                async for chunk in ask_brain_stream(
+                    client=FakeBrainClient(),
+                    text="clarify memory",
+                    context=context,
+                    runtime_actions={
+                        "CAN_UPDATE_L4_FACTS": True,
+                    },
+                )
+            ]
+
+        emitter = FakeEmitter()
+        context = SimpleNamespace(
+            emitter=emitter,
+        )
+        applied = []
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            with patch(
+                "clients.brain_client.apply_runtime_action_calls",
+                new=fake_apply_runtime_action_calls,
+            ):
+                chunks = asyncio.run(
+                    collect(context)
+                )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        lifecycle = [
+            event
+            for event in emitter.events
+            if event.get("action") == "update_l4_facts"
+            and event.get("id")
+            and event.get("status") in {
+                "started",
+                "completed",
+            }
+        ]
+
+        self.assertGreaterEqual(len(lifecycle), 2)
+        self.assertEqual(lifecycle[0]["status"], "started")
+        self.assertEqual(lifecycle[1]["status"], "completed")
+        self.assertEqual(lifecycle[0]["id"], lifecycle[1]["id"])
+        self.assertEqual(lifecycle[0]["text"], "UPDATE_L4_FACTS")
+        self.assertEqual(lifecycle[1]["text"], "UPDATE_L4_FACTS")
+
+        self.assertEqual(len(applied), 1)
+        actions, kwargs = applied[0]
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0].name, "UPDATE_L4_FACTS")
+        self.assertEqual(
+            kwargs["action_display_ids"][id(actions[0])],
+            lifecycle[0]["id"],
+        )
+        self.assertTrue(
+            any(
+                chunk.get("type") == "content"
+                and chunk.get("content") == "Reply."
+                for chunk in chunks
+            )
+        )
 
     def test_image_attachments_do_not_enter_model_payload_by_default(self):
 

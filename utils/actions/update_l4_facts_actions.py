@@ -3,16 +3,16 @@ from __future__ import annotations
 import asyncio
 
 from contracts.rules_assembler import (
-    RUNTIME_ACTION_JIN_FOR_L4,
+    RUNTIME_ACTION_UPDATE_L4_FACTS,
     get_runtime_action_display_name,
     runtime_action_has_close_tag,
 )
 from runtime.L4_memory import run_l4_jin_note
-from utils.actions.jin_for_l4_utils import parse_jin_for_l4_payload
+from utils.actions.update_l4_facts_utils import parse_update_l4_facts_payload
 from utils.runtime_action_abort import mark_runtime_action_completed
 
 
-async def _emit_jin_for_l4_result(
+async def _emit_update_l4_facts_result(
     context,
     *,
     action_id: str,
@@ -39,14 +39,14 @@ async def _emit_jin_for_l4_result(
 
     await emit(with_action_context({
         "type": "runtime_action",
-        "action": "jin_for_l4",
+        "action": "update_l4_facts",
         "id": action_id,
         "status": "completed" if completed else "failed",
         "display_name": get_runtime_action_display_name(
-            RUNTIME_ACTION_JIN_FOR_L4
+            RUNTIME_ACTION_UPDATE_L4_FACTS
         ),
         "close_tag": runtime_action_has_close_tag(
-            RUNTIME_ACTION_JIN_FOR_L4
+            RUNTIME_ACTION_UPDATE_L4_FACTS
         ),
         "payload": payload,
         "detail": detail,
@@ -54,7 +54,7 @@ async def _emit_jin_for_l4_result(
     }))
 
 
-async def _run_jin_for_l4_action(
+async def _run_update_l4_facts_action(
     context,
     *,
     action_id: str,
@@ -88,7 +88,7 @@ async def _run_jin_for_l4_action(
 
         if log_runtime is not None:
             await log_runtime(
-                "[RUNTIME ACTION] jin_for_l4 "
+                "[RUNTIME ACTION] update_l4_facts "
                 + (
                     "applied"
                     if result.get("changed")
@@ -96,7 +96,7 @@ async def _run_jin_for_l4_action(
                 )
             )
 
-        await _emit_jin_for_l4_result(
+        await _emit_update_l4_facts_result(
             context,
             action_id=action_id,
             payload=payload,
@@ -113,10 +113,10 @@ async def _run_jin_for_l4_action(
         }
         if log_runtime is not None:
             await log_runtime(
-                "[RUNTIME ACTION] jin_for_l4 failed: "
+                "[RUNTIME ACTION] update_l4_facts failed: "
                 f"{type(error).__name__}"
             )
-        await _emit_jin_for_l4_result(
+        await _emit_update_l4_facts_result(
             context,
             action_id=action_id,
             payload=payload,
@@ -126,14 +126,14 @@ async def _run_jin_for_l4_action(
     finally:
         mark_runtime_action_completed(
             context,
-            action="jin_for_l4",
+            action="update_l4_facts",
             action_id=action_id,
         )
         if getattr(context, "runtime_l4_memory_update_task", None) is current_task:
             context.runtime_l4_memory_update_task = None
 
 
-def schedule_jin_for_l4_actions(
+def schedule_update_l4_facts_actions(
     context,
     actions,
     *,
@@ -144,7 +144,7 @@ def schedule_jin_for_l4_actions(
     tasks = []
 
     for action in actions:
-        note = parse_jin_for_l4_payload(action.payload)
+        note = parse_update_l4_facts_payload(action.payload)
         if not note:
             continue
 
@@ -157,7 +157,7 @@ def schedule_jin_for_l4_actions(
             None,
         )
         task = asyncio.create_task(
-            _run_jin_for_l4_action(
+            _run_update_l4_facts_action(
                 context,
                 action_id=action_id,
                 payload=action.payload,

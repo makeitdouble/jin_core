@@ -13,6 +13,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
+    RUNTIME_ACTION_UPDATE_L4_FACTS,
     RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
@@ -670,6 +671,7 @@ async def ask_brain_stream(
     )
     stop_for_runtime_action = False
     delayed_memory_bubble_started = False
+    update_l4_facts_pending_bubble_ids = []
     asset_action_bubble_started = False
     asset_action_bubble_id = ""
     asset_action_bubble_text = ""
@@ -1141,6 +1143,141 @@ async def ask_brain_stream(
             payload
         )
 
+    async def emit_update_l4_facts_bubble_started(
+        result,
+    ):
+
+        started_actions = tuple(
+            getattr(
+                result,
+                "started_actions",
+                (),
+            )
+            or ()
+        )
+
+        started_count = sum(
+            1
+            for action in started_actions
+            if action.name == RUNTIME_ACTION_UPDATE_L4_FACTS
+        )
+
+        if not started_count:
+            return
+
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is None:
+            return
+
+        for _ in range(started_count):
+            sequence = int(
+                getattr(
+                    context,
+                    "runtime_update_l4_facts_action_sequence",
+                    0,
+                )
+                or 0
+            ) + 1
+            context.runtime_update_l4_facts_action_sequence = sequence
+
+            action_id = build_runtime_action_id(
+                RUNTIME_ACTION_UPDATE_L4_FACTS,
+                sequence,
+            )
+            update_l4_facts_pending_bubble_ids.append(
+                action_id
+            )
+
+            payload = {
+                "type": "runtime_action",
+                "action": "update_l4_facts",
+                "id": action_id,
+                "status": "started",
+                "runtime_message_id": runtime_message_id,
+                "display_name": get_runtime_action_display_name(
+                    RUNTIME_ACTION_UPDATE_L4_FACTS
+                ),
+                "text": build_runtime_action_display_text(
+                    RUNTIME_ACTION_UPDATE_L4_FACTS
+                ),
+                "close_tag": runtime_action_has_close_tag(
+                    RUNTIME_ACTION_UPDATE_L4_FACTS
+                ),
+            }
+
+            if action_context_snapshot:
+                payload["context"] = action_context_snapshot
+
+            await emit(
+                payload
+            )
+
+    async def complete_update_l4_facts_bubbles(
+        actions,
+        action_display_ids,
+    ):
+
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        for action in actions:
+            if action.name != RUNTIME_ACTION_UPDATE_L4_FACTS:
+                continue
+
+            action_id = (
+                update_l4_facts_pending_bubble_ids.pop(0)
+                if update_l4_facts_pending_bubble_ids
+                else ""
+            )
+
+            if action_id:
+                action_display_ids[id(action)] = action_id
+
+            if emit is None or not action_id:
+                continue
+
+            payload = {
+                "type": "runtime_action",
+                "action": "update_l4_facts",
+                "id": action_id,
+                "status": "completed",
+                "runtime_message_id": runtime_message_id,
+                "display_name": get_runtime_action_display_name(
+                    RUNTIME_ACTION_UPDATE_L4_FACTS
+                ),
+                "text": build_runtime_action_display_text(
+                    RUNTIME_ACTION_UPDATE_L4_FACTS
+                ),
+                "close_tag": runtime_action_has_close_tag(
+                    RUNTIME_ACTION_UPDATE_L4_FACTS
+                ),
+            }
+
+            if action_context_snapshot:
+                payload["context"] = action_context_snapshot
+
+            await emit(
+                payload
+            )
+
     async def emit_asset_action_bubble_started(
         result=None,
     ):
@@ -1343,6 +1480,9 @@ async def ask_brain_stream(
         )
 
         await emit_delayed_memory_bubble_started()
+        await emit_update_l4_facts_bubble_started(
+            result
+        )
         await emit_asset_action_bubble_started(
             result
         )
@@ -1500,6 +1640,11 @@ async def ask_brain_stream(
                 confirmed_guard_names=confirmed_action_guard_names,
                 rejected_guard_names=rejected_action_guard_names,
                 display_state=action_guard_display_state,
+            )
+
+            await complete_update_l4_facts_bubbles(
+                immediate_action_calls,
+                action_display_ids,
             )
 
             await apply_runtime_action_calls(

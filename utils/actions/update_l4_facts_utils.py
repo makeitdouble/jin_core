@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 
 
-MAX_JIN_FOR_L4_MESSAGE_CHARS = 1200
+MAX_UPDATE_L4_FACTS_MESSAGE_CHARS = 1200
 
 
-def parse_jin_for_l4_payload(payload: str) -> dict:
+def parse_update_l4_facts_payload(payload: str) -> dict:
     text = str(payload or "").strip()
 
     if not text:
@@ -45,7 +45,7 @@ def parse_jin_for_l4_payload(payload: str) -> dict:
     if not fact_ids or not message:
         return {}
 
-    if len(message) > MAX_JIN_FOR_L4_MESSAGE_CHARS:
+    if len(message) > MAX_UPDATE_L4_FACTS_MESSAGE_CHARS:
         return {}
 
     return {
@@ -54,13 +54,13 @@ def parse_jin_for_l4_payload(payload: str) -> dict:
     }
 
 
-def build_jin_for_l4_payload(
+def build_update_l4_facts_payload(
     query: str,
     placeholder_payloads=(),
 ) -> str | None:
     del placeholder_payloads
 
-    parsed = parse_jin_for_l4_payload(query)
+    parsed = parse_update_l4_facts_payload(query)
 
     if not parsed:
         return None

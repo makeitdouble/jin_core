@@ -1,9 +1,9 @@
 {
-  "jin_for_l4": {
+  "update_l4_facts": {
     "version": 1,
     "description": "Lets JIN pass a focused conversational clarification to the L4 maintainer without directly editing long-term memory.",
-    "runtime_action": "JIN_FOR_L4",
-    "private_marker": "<JIN_FOR_L4>",
+    "runtime_action": "UPDATE_L4_FACTS",
+    "private_marker": "<UPDATE_L4_FACTS>",
     "triggers": [],
     "blockers": [],
     "effects": {
@@ -17,12 +17,12 @@
       "Never emit the marker while ambiguity remains or on the same turn in which you ask for clarification. Emit it after the user resolves the issue, or immediately when the user's current message itself is an explicit correction.",
       "Keep the visible reply natural and unobtrusive, then append the fulfilled marker after the user-facing text.",
       "Emit the fulfilled form:",
-      "<JIN_FOR_L4>",
+      "<UPDATE_L4_FACTS>",
       "{",
       "  \"fact_ids\": [\"l4_...\"],",
       "  \"message\": \"Concise statement of the resolved meaning.\"",
       "}",
-      "</JIN_FOR_L4>",
+      "</UPDATE_L4_FACTS>",
       "Use only exact fact IDs shown inside <LONG_TERM_MEMORY>. Include every L4 fact directly involved in the issue and no unrelated facts.",
       "The message should state what became clear in the conversation, not prescribe merge/update/delete operations. L4 decides how to maintain its own facts.",
       "Do not emit any extra hidden instructions inside the marker and do not repeat the same note after it has been sent."

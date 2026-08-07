@@ -3,7 +3,7 @@ import json
 import unittest
 
 from contracts.rules_assembler import (
-    RUNTIME_ACTION_JIN_FOR_L4,
+    RUNTIME_ACTION_UPDATE_L4_FACTS,
     build_runtime_action_contract_instructions,
     runtime_action_emits_followup,
 )
@@ -23,23 +23,23 @@ class FakeEmitter:
         self.events.append(payload)
 
 
-class RuntimeJinForL4Tests(unittest.IsolatedAsyncioTestCase):
+class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
 
     def test_marker_parses_focused_note_and_has_no_followup(self):
         result = extract_runtime_actions(
             (
                 "Memory clarified.\n"
-                "<JIN_FOR_L4>\n"
+                "<UPDATE_L4_FACTS>\n"
                 '{"fact_ids":["l4_a","l4_b"],'
                 '"message":"Both facts describe the same residence."}\n'
-                "</JIN_FOR_L4>"
+                "</UPDATE_L4_FACTS>"
             ),
-            enabled_actions=(RUNTIME_ACTION_JIN_FOR_L4,),
+            enabled_actions=(RUNTIME_ACTION_UPDATE_L4_FACTS,),
         )
 
         self.assertEqual(result.text, "Memory clarified.")
         self.assertEqual(len(result.actions), 1)
-        self.assertEqual(result.actions[0].name, RUNTIME_ACTION_JIN_FOR_L4)
+        self.assertEqual(result.actions[0].name, RUNTIME_ACTION_UPDATE_L4_FACTS)
         self.assertEqual(
             json.loads(result.actions[0].payload),
             {
@@ -48,11 +48,11 @@ class RuntimeJinForL4Tests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertFalse(
-            runtime_action_emits_followup(RUNTIME_ACTION_JIN_FOR_L4)
+            runtime_action_emits_followup(RUNTIME_ACTION_UPDATE_L4_FACTS)
         )
 
         instructions = build_runtime_action_contract_instructions(
-            RUNTIME_ACTION_JIN_FOR_L4
+            RUNTIME_ACTION_UPDATE_L4_FACTS
         )
         self.assertIn("ask one brief natural question", instructions)
         self.assertIn("harmless repetition", instructions)
@@ -62,12 +62,12 @@ class RuntimeJinForL4Tests(unittest.IsolatedAsyncioTestCase):
         result = extract_runtime_actions(
             (
                 "before\n"
-                "<JIN_FOR_L4>\n"
+                "<UPDATE_L4_FACTS>\n"
                 '{"fact_ids":[],"message":"missing scope"}\n'
-                "</JIN_FOR_L4>\n"
+                "</UPDATE_L4_FACTS>\n"
                 "after"
             ),
-            enabled_actions=(RUNTIME_ACTION_JIN_FOR_L4,),
+            enabled_actions=(RUNTIME_ACTION_UPDATE_L4_FACTS,),
         )
 
         self.assertEqual(result.text, "before\nafter")
@@ -123,7 +123,7 @@ class RuntimeJinForL4Tests(unittest.IsolatedAsyncioTestCase):
             },
         }
         action = RuntimeActionCall(
-            name=RUNTIME_ACTION_JIN_FOR_L4,
+            name=RUNTIME_ACTION_UPDATE_L4_FACTS,
             payload=json.dumps({
                 "fact_ids": ["l4_social", "l4_stakeholder"],
                 "message": (
@@ -136,7 +136,7 @@ class RuntimeJinForL4Tests(unittest.IsolatedAsyncioTestCase):
         applied = await apply_runtime_action_calls(
             context,
             (action,),
-            action_display_ids={id(action): "jin_for_l4_001"},
+            action_display_ids={id(action): "update_l4_facts_001"},
         )
 
         self.assertEqual(applied, 1)
@@ -161,7 +161,7 @@ class RuntimeJinForL4Tests(unittest.IsolatedAsyncioTestCase):
             event
             for event in emitter.events
             if event.get("type") == "runtime_action"
-            and event.get("action") == "jin_for_l4"
+            and event.get("action") == "update_l4_facts"
         ]
         self.assertTrue(any(event.get("status") == "completed" for event in lifecycle))
         self.assertFalse(

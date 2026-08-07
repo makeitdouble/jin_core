@@ -14,7 +14,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
-    RUNTIME_ACTION_JIN_FOR_L4,
+    RUNTIME_ACTION_UPDATE_L4_FACTS,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_REMOVE_SKILL,
     RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
@@ -46,7 +46,7 @@ from .save_active_memory_utils import build_save_active_memory_payload
 from .create_todo_list_utils import build_create_todo_list_payload
 from .idle_utils import build_idle_payload
 from .jin_color_utils import build_jin_color_payload
-from .jin_for_l4_utils import build_jin_for_l4_payload
+from .update_l4_facts_utils import build_update_l4_facts_payload
 from .resolve_action_utils import build_resolve_action_payload
 from .regexp_utils import (
     RuntimeActionRegexpMatch,
@@ -102,7 +102,7 @@ CLOSE_TAG_RUNTIME_ACTIONS = frozenset(
 REPEATABLE_RUNTIME_ACTIONS = frozenset({
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
-    RUNTIME_ACTION_JIN_FOR_L4,
+    RUNTIME_ACTION_UPDATE_L4_FACTS,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
 })
 
@@ -344,7 +344,7 @@ def normalize_runtime_action_name(
         "RESOLVE_TODO": RUNTIME_ACTION_RESOLVE_TODO,
         "CHECK_TODO": RUNTIME_ACTION_CHECK_TODO,
         "IDLE": RUNTIME_ACTION_IDLE,
-        "JIN_FOR_L4": RUNTIME_ACTION_JIN_FOR_L4,
+        "UPDATE_L4_FACTS": RUNTIME_ACTION_UPDATE_L4_FACTS,
     }
 
     return aliases.get(
@@ -434,7 +434,7 @@ def normalize_runtime_action_names(
 _ACTION_PAYLOAD_BUILDERS = {
     RUNTIME_ACTION_IDLE: build_idle_payload,
     RUNTIME_ACTION_JIN_COLOR: build_jin_color_payload,
-    RUNTIME_ACTION_JIN_FOR_L4: build_jin_for_l4_payload,
+    RUNTIME_ACTION_UPDATE_L4_FACTS: build_update_l4_facts_payload,
     RUNTIME_ACTION_WEB_SEARCH: build_web_search_payload,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY: build_save_active_memory_payload,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY: build_resolve_action_payload,
