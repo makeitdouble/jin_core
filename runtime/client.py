@@ -20,6 +20,168 @@ from clients.response_extractor import (
 logger = logging.getLogger(__name__)
 
 
+class LMStudioAPIError(RuntimeError):
+
+    def __init__(
+            self,
+            summary: str,
+            *,
+            details: str,
+    ):
+
+        super().__init__(summary)
+        self.summary = str(summary or "LM Studio request failed.")
+        self.details = str(details or "")
+
+
+def _extract_lm_studio_error_payload(value):
+
+    if not isinstance(value, dict):
+        return None
+
+    error_value = value.get("error")
+    if error_value not in (None, "", {}, []):
+        return error_value
+
+    event_type = str(
+        value.get("type", "")
+        or value.get("object", "")
+        or ""
+    ).strip().casefold()
+
+    if event_type in {
+        "error",
+        "response.error",
+    }:
+        return value
+
+    return None
+
+
+def _lm_studio_error_message(value) -> str:
+
+    if isinstance(value, dict):
+        for key in (
+            "message",
+            "detail",
+            "error",
+            "code",
+        ):
+            candidate = value.get(key)
+            if candidate not in (None, "", {}, []):
+                if isinstance(candidate, (dict, list)):
+                    return _preview_runtime_payload(
+                        candidate,
+                        limit=1200,
+                    )
+                return str(candidate).strip()
+
+        return _preview_runtime_payload(
+            value,
+            limit=1200,
+        ).strip()
+
+    if isinstance(value, list):
+        return _preview_runtime_payload(
+            value,
+            limit=1200,
+        ).strip()
+
+    return str(value or "").strip()
+
+
+def _build_lm_studio_error(
+        *,
+        endpoint: str,
+        payload: dict,
+        error_payload=None,
+        response=None,
+        error: Exception | None = None,
+) -> LMStudioAPIError:
+
+    status_code = getattr(
+        response,
+        "status_code",
+        None,
+    )
+    response_json = None
+    response_text = ""
+
+    if response is not None:
+        try:
+            response_json = response.json()
+        except Exception:
+            response_json = None
+
+        try:
+            response_text = str(
+                response.text
+                or ""
+            ).strip()
+        except Exception:
+            response_text = ""
+
+    if error_payload is None:
+        error_payload = _extract_lm_studio_error_payload(
+            response_json
+        )
+
+    provider_message = _lm_studio_error_message(
+        error_payload
+    )
+
+    if not provider_message and response_text:
+        provider_message = response_text[:1200]
+
+    if not provider_message and error is not None:
+        provider_message = str(error).strip()
+
+    if status_code:
+        summary = f"HTTP {status_code}"
+        if provider_message:
+            summary += f": {provider_message}"
+    else:
+        summary = (
+            provider_message
+            or "LM Studio request failed."
+        )
+
+    details = {
+        "provider": "LM Studio",
+        "summary": summary,
+        "endpoint": endpoint,
+        "status": status_code,
+        "model": payload.get("model"),
+        "request": {
+            "stream": payload.get("stream"),
+            "max_tokens": payload.get("max_tokens"),
+            "temperature": payload.get("temperature"),
+        },
+        "lm_studio_error": error_payload,
+        "response_json": response_json,
+        "response_body": (
+            response_text[:8000]
+            if response_text
+            else ""
+        ),
+        "client_exception": (
+            repr(error)
+            if error is not None
+            else ""
+        ),
+    }
+
+    return LMStudioAPIError(
+        summary,
+        details=json.dumps(
+            details,
+            ensure_ascii=False,
+            indent=2,
+            default=str,
+        ),
+    )
+
+
 def _preview_runtime_payload(
         value,
         *,
@@ -805,22 +967,58 @@ class RuntimeClient:
             stream=False,
         )
 
-        response = await self.client.post(
-            join_url(
-                self.api_base,
-                settings.CHAT_ENDPOINT,
-            ),
-            json=payload,
-            timeout=(
-                self.timeout
-                if timeout is None
-                else timeout
-            ),
+        endpoint = join_url(
+            self.api_base,
+            settings.CHAT_ENDPOINT,
         )
 
-        response.raise_for_status()
+        try:
+            response = await self.client.post(
+                endpoint,
+                json=payload,
+                timeout=(
+                    self.timeout
+                    if timeout is None
+                    else timeout
+                ),
+            )
 
-        return response.json()
+            response.raise_for_status()
+
+        except httpx.HTTPError as error:
+            raise _build_lm_studio_error(
+                endpoint=endpoint,
+                payload=payload,
+                response=getattr(
+                    error,
+                    "response",
+                    None,
+                ),
+                error=error,
+            ) from error
+
+        try:
+            result = response.json()
+        except Exception as error:
+            raise _build_lm_studio_error(
+                endpoint=endpoint,
+                payload=payload,
+                response=response,
+                error=error,
+            ) from error
+
+        provider_error = _extract_lm_studio_error_payload(
+            result
+        )
+        if provider_error is not None:
+            raise _build_lm_studio_error(
+                endpoint=endpoint,
+                payload=payload,
+                error_payload=provider_error,
+                response=response,
+            )
+
+        return result
 
     # ---------------------------------------------------------
     # STREAM REQUEST
@@ -852,20 +1050,40 @@ class RuntimeClient:
         stream_id = None
         valid_json_chunks = 0
         invalid_json_samples: list[str] = []
+        endpoint = join_url(
+            self.api_base,
+            settings.CHAT_ENDPOINT,
+        )
 
         try:
 
             async with self.client.stream(
                     "POST",
-                    join_url(
-                        self.api_base,
-                        settings.CHAT_ENDPOINT,
-                    ),
+                    endpoint,
                     json=payload,
                     timeout=None,
             ) as response:
 
-                response.raise_for_status()
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as error:
+                    read_response = getattr(
+                        response,
+                        "aread",
+                        None,
+                    )
+                    if read_response is not None:
+                        try:
+                            await read_response()
+                        except Exception:
+                            pass
+
+                    raise _build_lm_studio_error(
+                        endpoint=endpoint,
+                        payload=payload,
+                        response=response,
+                        error=error,
+                    ) from error
 
                 stream_id = id(response)
 
@@ -994,6 +1212,19 @@ class RuntimeClient:
 
                     valid_json_chunks += 1
 
+                    provider_error = (
+                        _extract_lm_studio_error_payload(
+                            chunk
+                        )
+                    )
+                    if provider_error is not None:
+                        raise _build_lm_studio_error(
+                            endpoint=endpoint,
+                            payload=payload,
+                            error_payload=provider_error,
+                            response=response,
+                        )
+
                     # -------------------------------------------------
                     # USAGE
                     # -------------------------------------------------
@@ -1097,6 +1328,23 @@ class RuntimeClient:
         # ---------------------------------------------------------
         # FATAL ERROR
         # ---------------------------------------------------------
+
+        except LMStudioAPIError:
+
+            raise
+
+        except httpx.HTTPError as e:
+
+            raise _build_lm_studio_error(
+                endpoint=endpoint,
+                payload=payload,
+                response=getattr(
+                    e,
+                    "response",
+                    None,
+                ),
+                error=e,
+            ) from e
 
         except Exception as e:
 

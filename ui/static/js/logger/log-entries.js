@@ -1981,6 +1981,15 @@ function appendLog(
         "[JSON PARSE ERROR]"
       );
 
+    const isLmStudioError =
+      tag.includes("ERROR")
+      && (
+        String(meta?.provider || "").toLowerCase()
+          === "lm_studio"
+        || String(normalized.message || "")
+          .includes("[LM STUDIO ERROR]")
+      );
+
     const isPatternResult =
       isSummarizer
       && String(
@@ -2049,6 +2058,8 @@ function appendLog(
         ? "payload"
         : isUser
         ? "payload"
+        : isLmStudioError
+        ? "payload"
         : isJsonParseError
         ? "payload"
         : "trace";
@@ -2083,6 +2094,8 @@ function appendLog(
               ? "Service as brain output"
               : isSummarizer
               ? normalized.message || "Summarizer payload"
+              : isLmStudioError
+              ? "LM Studio error payload"
               : isJsonParseError
               ? "Runtime stream payload"
               : "Trace"

@@ -60,6 +60,11 @@ from clients.response_extractor import (
     ResponseExtractor,
 )
 
+from runtime.client import (
+    LMStudioAPIError,
+)
+
+
 from utils.actions import (
     build_runtime_action_id,
     emit_runtime_action_counter_updates,
@@ -410,6 +415,10 @@ async def ask_brain(
 
             return content_actions.text
 
+        except LMStudioAPIError:
+
+            raise
+
         except Exception as error:
 
             formatted_error = (
@@ -534,6 +543,10 @@ async def ask_brain(
         )
 
         return reasoning_actions.text
+
+    except LMStudioAPIError:
+
+        raise
 
     except Exception as error:
 
@@ -1634,6 +1647,10 @@ async def ask_brain_stream(
             await finalize_session_action_history()
             raise
 
+        except LMStudioAPIError:
+            await finalize_session_action_history()
+            raise
+
         except Exception as error:
 
             await finalize_session_action_history()
@@ -1736,6 +1753,10 @@ async def ask_brain_stream(
         yield build_raw_model_output_chunk()
 
     except asyncio.CancelledError:
+        await finalize_session_action_history()
+        raise
+
+    except LMStudioAPIError:
         await finalize_session_action_history()
         raise
 

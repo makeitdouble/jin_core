@@ -9,6 +9,11 @@ from runtime.state_sync import (
     refresh_runtime_state,
 )
 
+from runtime.client import (
+    LMStudioAPIError,
+)
+
+
 from utils.stream_handler import (
     StreamHandler,
 )
@@ -2509,8 +2514,61 @@ class RuntimeStream:
             public_error = (
                 "Runtime stream failed."
             )
+            log_message = (
+                f"[RUNTIME STREAM CRASH] {public_error}"
+            )
+            error_details = tb
+            error_meta = {}
 
             if isinstance(
+                    e,
+                    LMStudioAPIError,
+            ):
+
+                public_error = (
+                    "LM Studio request failed."
+                )
+                provider_summary = str(
+                    getattr(
+                        e,
+                        "summary",
+                        "",
+                    )
+                    or str(e)
+                    or public_error
+                ).strip()
+                visible_summary = (
+                    provider_summary[:260]
+                    + (
+                        "..."
+                        if len(provider_summary) > 260
+                        else ""
+                    )
+                )
+                log_message = (
+                    f"[LM STUDIO ERROR] {visible_summary}"
+                )
+                error_details = str(
+                    getattr(
+                        e,
+                        "details",
+                        "",
+                    )
+                    or tb
+                )
+                error_meta = {
+                    "provider": "lm_studio",
+                    "error_kind": "provider",
+                }
+
+                self.context.runtime_turn_interrupted = True
+                self.context.runtime_turn_interruption_reason = (
+                    provider_summary
+                )
+                self.context.runtime_turn_interruption_quote = ""
+                self.capture_runtime_turn_response()
+
+            elif isinstance(
                     e,
                     httpx.ConnectError,
             ):
@@ -2518,6 +2576,9 @@ class RuntimeStream:
                 public_error = (
                     "Model server offline "
                     "or unreachable."
+                )
+                log_message = (
+                    f"[RUNTIME STREAM CRASH] {public_error}"
                 )
 
             elif isinstance(
@@ -2528,6 +2589,9 @@ class RuntimeStream:
                 public_error = (
                     "Model request timeout."
                 )
+                log_message = (
+                    f"[RUNTIME STREAM CRASH] {public_error}"
+                )
 
             elif isinstance(
                     e,
@@ -2537,14 +2601,18 @@ class RuntimeStream:
                 public_error = (
                     "Model server returned HTTP error."
                 )
+                log_message = (
+                    f"[RUNTIME STREAM CRASH] {public_error}"
+                )
 
             # -----------------------------------------------------
-            # LOG FULL TRACEBACK
+            # LOG PROVIDER PAYLOAD / FULL TRACEBACK
             # -----------------------------------------------------
 
             await self.logger.log_error(
-                f"[RUNTIME STREAM CRASH] {public_error}",
-                details=tb,
+                log_message,
+                details=error_details,
+                **error_meta,
             )
 
             # -----------------------------------------------------

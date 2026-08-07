@@ -1,6 +1,10 @@
+import json
 import unittest
 
-from runtime.client import RuntimeClient
+from runtime.client import (
+    LMStudioAPIError,
+    RuntimeClient,
+)
 
 
 class FakeResponse:
@@ -644,6 +648,73 @@ class RuntimeClientTests(
         self.assertEqual(
             context.logger.errors,
             [],
+        )
+
+
+    async def test_stream_treats_lm_studio_error_chunk_as_provider_failure(self):
+
+        provider_message = (
+            "The selected model was loaded with a context length "
+            "too small for this request."
+        )
+        http_client = FakeHttpClient(
+            models_payload={
+                "data": [
+                    {
+                        "id": "test-model",
+                        "context_length": 8192,
+                    }
+                ]
+            },
+            stream_lines=[
+                'data: {"error": {"message": "'
+                + provider_message
+                + '", "type": "invalid_request_error"}}',
+                "data: [DONE]",
+            ],
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            configured_context_window=4096,
+            client=http_client,
+        )
+        context = FakeStreamContextObject()
+
+        with self.assertRaises(
+            LMStudioAPIError,
+        ) as raised:
+            [
+                event
+                async for event in client.stream(
+                    context=context,
+                    system_prompt="system",
+                    user_prompt="user",
+                    temperature=0.1,
+                    max_tokens=100,
+                )
+            ]
+
+        details = json.loads(
+            raised.exception.details
+        )
+
+        self.assertIn(
+            provider_message,
+            raised.exception.summary,
+        )
+        self.assertEqual(
+            details["provider"],
+            "LM Studio",
+        )
+        self.assertEqual(
+            details["lm_studio_error"]["message"],
+            provider_message,
+        )
+        self.assertEqual(
+            details["request"]["stream"],
+            True,
         )
 
     async def test_stream_reports_when_all_sse_frames_are_invalid_json(self):

@@ -168,11 +168,13 @@ class WebSocketLogger:
             self,
             message: str,
             details: str | None = None,
+            **extra,
     ):
         await self.log(
             "[ERROR]",
             message,
             details=details,
+            **extra,
         )
 
     async def log_translation(self, message: str):

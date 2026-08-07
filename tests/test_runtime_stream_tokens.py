@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from runtime.stream import RuntimeStream
+from runtime.client import LMStudioAPIError
 from runtime.registry import runtime_state
 from utils.stream_validator import (
     MAX_REPEAT_SENTENCES,
@@ -166,6 +167,24 @@ async def fake_cancelled_generator():
     }
 
     raise asyncio.CancelledError()
+
+
+async def fake_lm_studio_error_generator():
+
+    raise LMStudioAPIError(
+        "HTTP 400: context length too small",
+        details=json.dumps({
+            "provider": "LM Studio",
+            "summary": "HTTP 400: context length too small",
+            "status": 400,
+            "lm_studio_error": {
+                "message": "context length too small",
+            },
+        }),
+    )
+
+    if False:
+        yield {}
 
 
 async def fake_sentence_loop_generator():
@@ -371,6 +390,65 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             runtime_context_limit_finish_reason="",
             runtime_current_turn_id="turn-limit",
             runtime_session_action_history=[],
+        )
+
+    async def test_lm_studio_provider_error_logs_payload_and_marks_turn_interrupted(self):
+
+        context = self.build_limit_context()
+        runtime_id = settings.SERVICE_MODEL_UID
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=runtime_id,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            context_snapshot={
+                "context_role": "brain",
+                "system_prompt": "system prompt",
+                "user_prompt": "user payload",
+            },
+        )
+
+        result = await stream.run(
+            fake_lm_studio_error_generator()
+        )
+
+        self.assertIsNone(result)
+        self.assertTrue(
+            context.runtime_turn_interrupted
+        )
+        self.assertEqual(
+            context.runtime_turn_interruption_reason,
+            "HTTP 400: context length too small",
+        )
+
+        error_logs = [
+            message
+            for message in context.logger.messages
+            if message[0] == "error"
+        ]
+        self.assertEqual(
+            len(error_logs),
+            1,
+        )
+        self.assertIn(
+            "[LM STUDIO ERROR]",
+            error_logs[0][1],
+        )
+        self.assertEqual(
+            error_logs[0][2]["provider"],
+            "lm_studio",
+        )
+        self.assertIn(
+            "context length too small",
+            error_logs[0][2]["details"],
+        )
+        self.assertTrue(
+            any(
+                message.get("type") == "message_error"
+                and message.get("text") == "LM Studio request failed."
+                for message in context.websocket.messages
+            )
         )
 
     async def test_reasoning_limit_arms_immediate_followup(self):
