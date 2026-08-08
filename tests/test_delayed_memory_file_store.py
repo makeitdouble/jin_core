@@ -32,8 +32,8 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
             "body": body,
             "pinned": True,
             "long_term_facts_ids": [
-                "l4_abc123",
-                "l4_def456",
+                "F1",
+                "F2",
             ],
             "created_session_id": "session-a",
             "created_time": "2026-07-19T16:14:14.628194",
@@ -83,8 +83,8 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
             self.assertEqual(
                 payload["long_term_facts_ids"],
                 [
-                    "l4_abc123",
-                    "l4_def456",
+                    "F1",
+                    "F2",
                 ],
             )
 
@@ -113,8 +113,8 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
             self.assertEqual(
                 reports["48ggds"]["long_term_facts_ids"],
                 [
-                    "l4_abc123",
-                    "l4_def456",
+                    "F1",
+                    "F2",
                 ],
             )
 
@@ -236,8 +236,8 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
         self.assertEqual(
             merged["48ggds"]["long_term_facts_ids"],
             [
-                "l4_abc123",
-                "l4_def456",
+                "F1",
+                "F2",
             ],
         )
 

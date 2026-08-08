@@ -226,7 +226,7 @@ async def ask_l1_summarizer(
         system_prompt: str,
         user_prompt: str,
         temperature: float,
-        max_tokens: int,
+        max_tokens: int | None,
 ) -> dict:
 
     stream_enabled = callable(
@@ -479,9 +479,7 @@ async def ask_runtime_memory_model(
     temperature = (
         config.SERVICE_TEMPERATURE
     )
-    max_tokens = (
-        config.SERVICE_MAX_TOKENS
-    )
+    max_tokens = None
 
     response = await ask_l1_summarizer(
         context=context,
@@ -546,9 +544,7 @@ async def ask_runtime_memory_batch_model(
     temperature = (
         config.SERVICE_TEMPERATURE
     )
-    max_tokens = (
-        config.SERVICE_MAX_TOKENS
-    )
+    max_tokens = None
     log_label = (
         "L1 batch"
         if len(turns) > 1

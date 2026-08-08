@@ -30,7 +30,7 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
             (
                 "Memory clarified.\n"
                 "<UPDATE_L4_FACTS>\n"
-                '{"fact_ids":["l4_a","l4_b"],'
+                '{"fact_ids":["F1","F2"],'
                 '"message":"Both facts describe the same residence."}\n'
                 "</UPDATE_L4_FACTS>"
             ),
@@ -43,7 +43,7 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             json.loads(result.actions[0].payload),
             {
-                "fact_ids": ["l4_a", "l4_b"],
+                "fact_ids": ["F1", "F2"],
                 "message": "Both facts describe the same residence.",
             },
         )
@@ -100,13 +100,13 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
         context.runtime_long_term_memory_store = normalize_l4_store({
             "facts": [
                 {
-                    "id": "l4_social",
+                    "id": "F1",
                     "key": "user.social_connections",
                     "value": "Taras is a close friend.",
                     "category": "user_fact",
                 },
                 {
-                    "id": "l4_stakeholder",
+                    "id": "F2",
                     "key": "user.stakeholder_profile",
                     "value": "Taras is a key technical stakeholder.",
                     "category": "project_fact",
@@ -117,15 +117,15 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
             "abc123": {
                 "title": "Social and project context",
                 "long_term_facts_ids": [
-                    "l4_social",
-                    "l4_stakeholder",
+                    "F1",
+                    "F2",
                 ],
             },
         }
         action = RuntimeActionCall(
             name=RUNTIME_ACTION_UPDATE_L4_FACTS,
             payload=json.dumps({
-                "fact_ids": ["l4_social", "l4_stakeholder"],
+                "fact_ids": ["F1", "F2"],
                 "message": (
                     "Taras is both a close friend and an active technical "
                     "stakeholder."
@@ -148,8 +148,8 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(facts), 1)
         self.assertEqual(facts[0]["key"], "user.relationship.taras")
         self.assertIn("close friend", facts[0]["value"])
-        self.assertNotIn("l4_social", [fact["id"] for fact in facts])
-        self.assertNotIn("l4_stakeholder", [fact["id"] for fact in facts])
+        self.assertNotIn("F1", [fact["id"] for fact in facts])
+        self.assertNotIn("F2", [fact["id"] for fact in facts])
 
         replacement_id = facts[0]["id"]
         self.assertEqual(

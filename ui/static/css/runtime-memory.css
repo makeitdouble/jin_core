@@ -20,11 +20,14 @@
 }
 
 .runtime-memory-reference-hit .runtime-memory-key,
-.runtime-memory-reference-hit .runtime-memory-value {
-    color: rgba(222, 245, 241, 0.88);
+.runtime-memory-reference-hit .runtime-memory-value,
+.runtime-memory-citation-hit .runtime-memory-key,
+.runtime-memory-citation-hit .runtime-memory-value {
+    color: rgba(244, 244, 245, 0.92);
     text-shadow:
-            0 0 7px rgba(210, 246, 241, 0.34),
-            0 0 13px rgba(129, 216, 208, 0.22);
+            0 0 7px rgba(248, 250, 252, 0.30),
+            0 0 15px rgba(226, 232, 240, 0.20),
+            0 0 24px rgba(203, 213, 225, 0.12);
 }
 
 .runtime-memory-delayed-row {
@@ -41,10 +44,10 @@
     outline: none;
 }
 
-.runtime-memory-delayed-row:hover .runtime-memory-key,
-.runtime-memory-delayed-row:hover .runtime-memory-value,
-.runtime-memory-delayed-row:focus-visible .runtime-memory-key,
-.runtime-memory-delayed-row:focus-visible .runtime-memory-value {
+.runtime-memory-line:not(.runtime-memory-user-idle):hover .runtime-memory-key,
+.runtime-memory-line:not(.runtime-memory-user-idle):hover .runtime-memory-value,
+.runtime-memory-line:not(.runtime-memory-user-idle):focus-visible .runtime-memory-key,
+.runtime-memory-line:not(.runtime-memory-user-idle):focus-visible .runtime-memory-value {
     color: rgba(244, 244, 245, 0.86);
 }
 
@@ -56,9 +59,9 @@
 .runtime-memory-value {
     color: rgba(244,244,245,0.62);
     transition:
-            color 1.3s ease,
-            font-weight 1.3s ease,
-            text-shadow 1.3s ease;
+            color 0.62s cubic-bezier(0.22, 0.61, 0.36, 1),
+            font-weight 0.62s cubic-bezier(0.22, 0.61, 0.36, 1),
+            text-shadow 0.62s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 .runtime-memory-value {
@@ -297,6 +300,42 @@
                     94,
                     var(--memory-change-glow, 0.22)
             );
+}
+
+.runtime-memory-reference-hit .runtime-memory-key.flash-new,
+.runtime-memory-reference-hit .runtime-memory-value.flash-new,
+.runtime-memory-citation-hit .runtime-memory-key.flash-new,
+.runtime-memory-citation-hit .runtime-memory-value.flash-new {
+    color: rgba(134,239,172,0.96);
+    text-shadow:
+            0 0 10px rgba(34,197,94,0.35),
+            0 0 18px rgba(248,250,252,0.20);
+}
+
+.runtime-memory-reference-hit .runtime-memory-key.flash-changed,
+.runtime-memory-citation-hit .runtime-memory-key.flash-changed {
+    color: rgba(216,180,254,0.96);
+    text-shadow:
+            0 0 10px rgba(168,85,247,0.35),
+            0 0 18px rgba(248,250,252,0.20);
+}
+
+.runtime-memory-reference-hit .runtime-memory-value.flash-changed,
+.runtime-memory-citation-hit .runtime-memory-value.flash-changed {
+    color: rgba(
+            134,
+            239,
+            172,
+            var(--memory-change-alpha, 0.80)
+    );
+    text-shadow:
+            0 0 10px rgba(
+                    34,
+                    197,
+                    94,
+                    var(--memory-change-glow, 0.22)
+            ),
+            0 0 18px rgba(248,250,252,0.20);
 }
 
 .runtime-memory-delayed-row-pinned .runtime-memory-key,

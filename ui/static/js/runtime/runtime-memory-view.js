@@ -21,19 +21,26 @@
 
   const ACTIVE_MEMORY_PAUSE_HOLD_MS = 500;
   const MEMORY_DELETE_HOLD_MS = 1500;
-  const THINK_RUNTIME_CITATION_HOVER_EVENT = "jin:think-runtime-citation-hover";
-  const RUNTIME_MEMORY_LINE_HOVER_SOURCE_ID = "runtime-memory-line-hover";
-  const DELAYED_MEMORY_ROW_HOVER_SOURCE_ID = "delayed-memory-row-hover";
+  const THINK_RUNTIME_CITATION_HIGHLIGHT_EVENT = "jin:think-runtime-citation-highlight";
+  const MEMORY_ROW_AVATAR_HOVER_EVENT = "jin:memory-row-avatar-hover";
   const normalizeRuntimeCitationIdentity =
       window.JinRuntime.normalizeCitationIdentity;
+  const buildCitationRecordIdentity =
+      typeof window.JinRuntime.buildCitationRecordIdentity === "function"
+        ? window.JinRuntime.buildCitationRecordIdentity
+        : () => "";
+  const buildAvatarMemoryHoverId =
+      typeof window.JinRuntime.buildAvatarMemoryHoverId === "function"
+        ? window.JinRuntime.buildAvatarMemoryHoverId
+        : () => "";
   const MEMORY_REFERENCE_HIGHLIGHT_EVENT =
       "jin:memory-reference-highlight";
   const MEMORY_REFERENCE_ALIAS_DATASET_KEY =
       "memoryReferenceAliases";
   const memoryReferenceHighlightState = {
     persistentText: "",
-    hoverText: "",
   };
+  const activeThinkMemoryCitationSources = new Map();
   let memoryReferenceEventsBound = false;
 
 
@@ -230,14 +237,40 @@
     return aliases;
   }
 
+  function extractActiveMemoryId(value) {
+    const match =
+        String(value || "")
+          .match(
+            /\[\s*active_memory_id\s*:\s*([a-z0-9]{6})\s*\]/i
+          );
+
+    return match
+      ? String(match[1] || "").trim().toLowerCase()
+      : "";
+  }
+
   function collectMemoryRecordReferenceAliases(record) {
     if (!record || typeof record !== "object") {
       return [];
     }
 
+    const key =
+      String(record.key || "").trim();
+    const displayKey =
+      key
+      && memoryModel
+      && memoryModel.runtimeMemoryDisplay
+      && typeof memoryModel.runtimeMemoryDisplay.convertKeyToName === "function"
+        ? memoryModel.runtimeMemoryDisplay.convertKeyToName(key)
+        : "";
+
     return normalizeMemoryReferenceAliases([
-      record.key,
+      key,
+      displayKey,
+      record.title,
+      record.name,
       record.id,
+      record._storage_key,
       record.active_memory_id,
       ...collectMemoryMetadataReferenceAliases(
         record.value
@@ -294,11 +327,29 @@
   }
 
   function getActiveMemoryReferenceText() {
-    return (
-      memoryReferenceHighlightState.hoverText
-      || memoryReferenceHighlightState.persistentText
-      || ""
-    );
+    return memoryReferenceHighlightState.persistentText || "";
+  }
+
+  function buildMemoryReferenceAliasUsage(rows) {
+    const usage = new Map();
+
+    rows.forEach((row) => {
+      getMemoryReferenceAliases(row).forEach((alias) => {
+        const identity =
+            normalizeMemoryReferenceSearchText(alias).trim();
+
+        if (!identity) {
+          return;
+        }
+
+        usage.set(
+          identity,
+          Number(usage.get(identity) || 0) + 1
+        );
+      });
+    });
+
+    return usage;
   }
 
   function applyMemoryReferenceHighlights() {
@@ -308,16 +359,25 @@
 
     const sourceText =
         getActiveMemoryReferenceText();
-
-    runtimeMemoryText
-      .querySelectorAll(
+    const rows = Array.from(
+      runtimeMemoryText.querySelectorAll(
         `[data-memory-reference-aliases]`
       )
-      .forEach((row) => {
+    );
+    const aliasUsage =
+        buildMemoryReferenceAliasUsage(rows);
+
+    rows.forEach((row) => {
         const matched = Boolean(
           sourceText
           && getMemoryReferenceAliases(row)
             .some(alias => (
+              Number(
+                aliasUsage.get(
+                  normalizeMemoryReferenceSearchText(alias).trim()
+                ) || 0
+              ) === 1
+              &&
               containsMemoryReference(
                 sourceText,
                 alias
@@ -330,27 +390,193 @@
           matched
         );
       });
+
+    applyThinkMemoryCitationHighlights();
+  }
+
+  function sortHighlightedMemoryRows() {
+    if (!runtimeMemoryText) {
+      return;
+    }
+
+    const rows = Array.from(
+      runtimeMemoryText.querySelectorAll(
+        ".runtime-memory-line:not(.runtime-memory-user-idle)"
+      )
+    );
+
+    if (rows.length < 2) {
+      return;
+    }
+
+    rows.forEach((row, index) => {
+      if (row.dataset.memoryHighlightSortIndex === undefined) {
+        row.dataset.memoryHighlightSortIndex = String(index);
+      }
+    });
+
+    const sortedRows = rows
+      .slice()
+      .sort((left, right) => {
+        const leftHighlighted =
+          left.classList.contains("runtime-memory-reference-hit")
+          || left.classList.contains("runtime-memory-citation-hit");
+        const rightHighlighted =
+          right.classList.contains("runtime-memory-reference-hit")
+          || right.classList.contains("runtime-memory-citation-hit");
+
+        if (leftHighlighted !== rightHighlighted) {
+          return leftHighlighted ? -1 : 1;
+        }
+
+        return (
+          Number(left.dataset.memoryHighlightSortIndex || 0)
+          - Number(right.dataset.memoryHighlightSortIndex || 0)
+        );
+      });
+
+    const orderChanged = sortedRows.some(
+      (row, index) => row !== rows[index]
+    );
+
+    if (!orderChanged) {
+      return;
+    }
+
+    sortedRows.forEach(
+      row => runtimeMemoryText.appendChild(row)
+    );
+
+    const userIdleRow =
+      runtimeMemoryText.querySelector(".runtime-memory-user-idle");
+
+    if (userIdleRow) {
+      runtimeMemoryText.appendChild(userIdleRow);
+    }
+  }
+
+  function getActiveThinkMemoryCitationIdentitySets() {
+    const lineIdentities = new Set();
+    const lineKeys = new Set();
+    const lineTexts = new Set();
+
+    activeThinkMemoryCitationSources.forEach((state) => {
+      state.lineIdentities.forEach(identity => lineIdentities.add(identity));
+      state.lineKeys.forEach(key => lineKeys.add(key));
+      state.lineTexts.forEach(text => lineTexts.add(text));
+    });
+
+    return {
+      lineIdentities,
+      lineKeys,
+      lineTexts,
+    };
+  }
+
+  function applyThinkMemoryCitationHighlights() {
+    if (!runtimeMemoryText) {
+      return;
+    }
+
+    const activeIdentities =
+      getActiveThinkMemoryCitationIdentitySets();
+
+    runtimeMemoryText
+      .querySelectorAll(
+        "[data-runtime-memory-line-key]"
+      )
+      .forEach((row) => {
+        const lineIdentity =
+          normalizeRuntimeCitationIdentity(
+            row.dataset.runtimeMemoryLineIdentity
+          );
+        const lineKey =
+          normalizeRuntimeCitationIdentity(
+            row.dataset.runtimeMemoryLineKey
+          );
+        const lineText =
+          normalizeRuntimeCitationIdentity(
+            row.dataset.runtimeMemoryLineText
+          );
+        const matched =
+          lineIdentity
+            ? activeIdentities.lineIdentities.has(lineIdentity)
+            : (
+              (lineKey && activeIdentities.lineKeys.has(lineKey))
+              || (lineText && activeIdentities.lineTexts.has(lineText))
+            );
+
+        row.classList.toggle(
+          "runtime-memory-citation-hit",
+          Boolean(matched)
+        );
+      });
+
+    sortHighlightedMemoryRows();
+  }
+
+  function handleThinkMemoryCitationHighlight(event) {
+    const detail = event && event.detail || {};
+    const sourceId =
+      String(detail.sourceId || "unknown-memory-citation");
+
+    if (detail.active !== true) {
+      activeThinkMemoryCitationSources.delete(sourceId);
+      applyThinkMemoryCitationHighlights();
+      return;
+    }
+
+    const lineIdentities = new Set(
+      (Array.isArray(detail.lineIdentities) ? detail.lineIdentities : [])
+        .map(normalizeRuntimeCitationIdentity)
+        .filter(Boolean)
+    );
+    const lineKeys = new Set(
+      (Array.isArray(detail.lineKeys) ? detail.lineKeys : [])
+        .map(normalizeRuntimeCitationIdentity)
+        .filter(Boolean)
+    );
+    const lineTexts = new Set(
+      (Array.isArray(detail.lineTexts) ? detail.lineTexts : [])
+        .map(normalizeRuntimeCitationIdentity)
+        .filter(Boolean)
+    );
+
+    if (
+      !lineIdentities.size
+      && !lineKeys.size
+      && !lineTexts.size
+    ) {
+      activeThinkMemoryCitationSources.delete(sourceId);
+    } else {
+      activeThinkMemoryCitationSources.set(
+        sourceId,
+        { lineIdentities, lineKeys, lineTexts }
+      );
+    }
+
+    applyThinkMemoryCitationHighlights();
   }
 
   function handleMemoryReferenceHighlight(event) {
     const detail = event && event.detail || {};
-    const source =
-        detail.source === "hover"
-          ? "hover"
-          : "persistent";
-    const stateKey =
-        source === "hover"
-          ? "hoverText"
-          : "persistentText";
 
-    memoryReferenceHighlightState[stateKey] =
+    if (detail.source !== "persistent") {
+      return;
+    }
+
+    memoryReferenceHighlightState.persistentText =
         detail.active === false
           ? ""
           : String(detail.text || "");
 
+    // A new JIN response owns the citation state for the turn.
+    // Drop structured hits from the previous response before the new
+    // reasoning analysis publishes its own exact runtime-line matches.
+    activeThinkMemoryCitationSources.clear();
+
     applyMemoryReferenceHighlights();
   }
-
   function bindMemoryReferenceHighlightEvents() {
     if (memoryReferenceEventsBound) {
       return;
@@ -359,6 +585,10 @@
     window.addEventListener(
       MEMORY_REFERENCE_HIGHLIGHT_EVENT,
       handleMemoryReferenceHighlight
+    );
+    window.addEventListener(
+      THINK_RUNTIME_CITATION_HIGHLIGHT_EVENT,
+      handleThinkMemoryCitationHighlight
     );
 
     memoryReferenceEventsBound = true;
@@ -1005,7 +1235,48 @@
         runtimeMemoryHistory.snapshots.length - 1;
   }
 
+  let lastRuntimeAvatarSnapshotDispatchSignature = null;
+
+  function buildRuntimeAvatarSnapshotDispatchSignature(snapshot) {
+    if (!snapshot || typeof snapshot !== "object") {
+      return "empty";
+    }
+
+    const lines = Array.isArray(snapshot.lines)
+      ? snapshot.lines
+      : [];
+
+    return JSON.stringify({
+      runtime_memory_id: snapshot.runtime_memory_id || null,
+      index: runtimeMemoryHistory
+        ? runtimeMemoryHistory.index
+        : -1,
+      total_diff: snapshot.total_diff || 0,
+      raw_memory: String(snapshot.raw_memory || ""),
+      lines: lines.map(line => ({
+        id: line && line.id || "",
+        active_memory_id: line && line.active_memory_id || "",
+        key: line && line.key || "",
+        value: line && line.value || "",
+        status: line && line.status || "",
+        key_status: line && line.key_status || "",
+        value_status: line && line.value_status || "",
+        key_change_ratio: Number(line && line.key_change_ratio || 0),
+        value_change_ratio: Number(line && line.value_change_ratio || 0),
+      })),
+    });
+  }
+
   function dispatchRuntimeAvatarSnapshot(snapshot) {
+    const signature =
+        buildRuntimeAvatarSnapshotDispatchSignature(snapshot);
+
+    if (signature === lastRuntimeAvatarSnapshotDispatchSignature) {
+      return;
+    }
+
+    lastRuntimeAvatarSnapshotDispatchSignature = signature;
+
     window.dispatchEvent(
       new CustomEvent("jin:runtime-avatar-snapshot", {
         detail: {
@@ -1024,6 +1295,7 @@
   function renderRuntimeMemorySnapshot(options = {}) {
     requireRuntimeMemoryHistory();
     clearRuntimeMemoryLineAvatarHover();
+    clearDelayedMemoryAvatarHover();
     clampRuntimeMemoryHistoryIndex();
     ensureRuntimeMemoryDisplayModeAvailable();
     updateRuntimeMemoryTitleState();
@@ -1278,42 +1550,37 @@
     return true;
   }
 
+  function dispatchMemoryRowAvatarHover(detail) {
+    window.dispatchEvent(
+      new CustomEvent(
+        MEMORY_ROW_AVATAR_HOVER_EVENT,
+        {
+          detail: detail || {
+            active: false,
+          },
+        }
+      )
+    );
+  }
+
   function dispatchRuntimeMemoryLineAvatarHover(
       row,
       active
   ) {
-    const lineKey =
+    const avatarMemoryHoverId =
         row
-          ? normalizeRuntimeCitationIdentity(
-              row.dataset.runtimeMemoryLineKey
-            )
-          : "";
-    const lineText =
-        row
-          ? normalizeRuntimeCitationIdentity(
-              row.dataset.runtimeMemoryLineText
-            )
+          ? String(row.dataset.avatarMemoryHoverId || "").trim()
           : "";
 
-    window.dispatchEvent(
-      new CustomEvent(
-        THINK_RUNTIME_CITATION_HOVER_EVENT,
-        {
-          detail: active && (lineKey || lineText)
-            ? {
-              active: true,
-              sourceId: RUNTIME_MEMORY_LINE_HOVER_SOURCE_ID,
-              lineKeys: lineKey ? [lineKey] : [],
-              lineTexts: lineText ? [lineText] : [],
-            }
-            : {
-              active: false,
-              sourceId: RUNTIME_MEMORY_LINE_HOVER_SOURCE_ID,
-              lineKeys: [],
-              lineTexts: [],
-            },
+    dispatchMemoryRowAvatarHover(
+      active && avatarMemoryHoverId
+        ? {
+          active: true,
+          avatarMemoryHoverId,
         }
-      )
+        : {
+          active: false,
+        }
     );
   }
 
@@ -1328,31 +1595,28 @@
       report,
       active
   ) {
-    const memoryId =
-        normalizeRuntimeCitationIdentity(
+    const avatarMemoryHoverId =
+        buildAvatarMemoryHoverId(
+          "delayed",
           report && report._storage_key
         );
 
-    window.dispatchEvent(
-      new CustomEvent(
-        THINK_RUNTIME_CITATION_HOVER_EVENT,
-        {
-          detail: active && memoryId
-            ? {
-              active: true,
-              sourceId: `${DELAYED_MEMORY_ROW_HOVER_SOURCE_ID}:${memoryId}`,
-              lineKeys: [memoryId],
-              lineTexts: [],
-            }
-            : {
-              active: false,
-              sourceId: `${DELAYED_MEMORY_ROW_HOVER_SOURCE_ID}:${memoryId || "none"}`,
-              lineKeys: [],
-              lineTexts: [],
-            },
+    dispatchMemoryRowAvatarHover(
+      active && avatarMemoryHoverId
+        ? {
+          active: true,
+          avatarMemoryHoverId,
         }
-      )
+        : {
+          active: false,
+        }
     );
+  }
+
+  function clearDelayedMemoryAvatarHover() {
+    dispatchMemoryRowAvatarHover({
+      active: false,
+    });
   }
 
   function renderRuntimeMemoryLines(
@@ -1376,11 +1640,21 @@
     const showLiveUserIdle =
         isLatestRuntimeMemorySnapshot();
 
+    const sourceLines =
+        (snapshot.lines || [])
+          .map((line, sourceIndex) => ({
+            ...line,
+            avatar_memory_hover_id:
+              buildAvatarMemoryHoverId(
+                "runtime",
+                line && line.id || `line-${sourceIndex}`
+              ),
+          }));
     const lines =
         showLiveUserIdle
-          ? (snapshot.lines || [])
+          ? sourceLines
             .filter(line => !memoryModel.isUserIdleRuntimeMemoryLine(line))
-          : snapshot.lines || [];
+          : sourceLines;
 
     if (!lines.length) {
       const rawMemory =
@@ -1439,6 +1713,26 @@
 
       row.dataset.runtimeMemoryLineIndex =
           String(index);
+      row.dataset.memoryHighlightSortIndex =
+          String(index);
+      const avatarMemoryHoverId =
+          String(
+            line && line.avatar_memory_hover_id || ""
+          ).trim();
+
+      if (avatarMemoryHoverId) {
+        row.dataset.avatarMemoryHoverId =
+            avatarMemoryHoverId;
+      }
+      const lineIdentity =
+          normalizeRuntimeCitationIdentity(
+            line.citation_identity
+          );
+
+      if (lineIdentity) {
+        row.dataset.runtimeMemoryLineIdentity =
+            lineIdentity;
+      }
       row.dataset.runtimeMemoryLineKey =
           normalizeRuntimeCitationIdentity(
             line.key || "note"
@@ -2007,7 +2301,7 @@
           "title"
       );
 
-      reports.forEach((report) => {
+      reports.forEach((report, index) => {
         const title =
             String(report.title || "").trim();
 
@@ -2019,6 +2313,8 @@
 
         row.className =
             "runtime-memory-line runtime-memory-delayed-row";
+        row.dataset.memoryHighlightSortIndex =
+            String(index);
 
         if (Boolean(report.pinned)) {
           row.classList.add(
@@ -2062,12 +2358,16 @@
             normalizeRuntimeCitationIdentity(
               report._storage_key
             );
+        row.dataset.avatarMemoryHoverId =
+            buildAvatarMemoryHoverId(
+              "delayed",
+              report._storage_key
+            );
         setMemoryReferenceAliases(
           row,
-          [
-            report._storage_key,
-            report.id,
-          ]
+          collectMemoryRecordReferenceAliases(
+            report
+          )
         );
 
         row.appendChild(
@@ -2828,18 +3128,31 @@
     fact
   ) {
 
+    const id =
+      String(fact.id || "").trim();
     const key =
       String(fact.key || "").trim();
     const value =
       String(fact.value || "").trim();
 
     return {
-      id: String(fact.id || "").trim(),
+      id,
       key,
       value: memoryModel.appendProperties(
           value,
           formatLongTermFactMetadata(fact)
       ),
+      avatar_memory_hover_id:
+        buildAvatarMemoryHoverId(
+          "l4",
+          id
+        ),
+      citation_identity:
+        buildCitationRecordIdentity(
+          id,
+          key,
+          value
+        ),
       status: "same",
       key_status: "same",
       value_status: "same",
@@ -2917,7 +3230,15 @@
       );
 
       appendRuntimeMemoryLineRows(
-          records.map(memoryModel.parseRuntimeMemoryLine),
+          records.map((record, index) => ({
+            ...memoryModel.parseRuntimeMemoryLine(record),
+            avatar_memory_hover_id:
+              buildAvatarMemoryHoverId(
+                "active",
+                extractActiveMemoryId(record)
+                  || `record-${index}`
+              ),
+          })),
           false,
           {
             interactiveActiveMemory: true,

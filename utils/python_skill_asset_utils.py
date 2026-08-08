@@ -384,32 +384,11 @@ async def _resolve_reader_output_limit(
     context_window: int,
 ) -> int:
 
-    configured = getattr(
-        client,
-        "configured_max_tokens",
-        None,
-    )
     detected = getattr(
         client,
         "detected_max_tokens",
         None,
     )
-    prefer_server_limit = bool(
-        getattr(
-            config,
-            "RUNTIME_MAX_TOKENS_FALLBACK_TO_SERVER",
-            False,
-        )
-    )
-
-    if configured and not prefer_server_limit:
-        return max(
-            128,
-            min(
-                int(configured),
-                int(context_window),
-            ),
-        )
 
     if detected:
         return max(
@@ -441,28 +420,12 @@ async def _resolve_reader_output_limit(
                 ),
             )
 
-    if configured:
-        return max(
-            128,
-            min(
-                int(configured),
-                int(context_window),
-            ),
-        )
-
+    # LM Studio usually exposes the loaded context_length rather than a
+    # separate completion cap. In that case the live context itself is the
+    # upper generation ceiling; prompt budgeting applies the real safe limit.
     return max(
         128,
-        min(
-            int(context_window),
-            int(
-                getattr(
-                    config,
-                    "SERVICE_MAX_TOKENS",
-                    4096,
-                )
-                or 4096
-            ),
-        ),
+        int(context_window),
     )
 
 
@@ -1655,40 +1618,33 @@ def _resolve_reader_budgets(
     )
 
     if fits:
-        # `max_tokens` includes hidden/model reasoning on several local
-        # reasoning-capable models. Keep the visible accumulated result compact,
-        # but reserve up to one extra result-sized allowance so the very first
-        # request can actually reach its answer instead of hitting `length` and
-        # entering a retry/split loop.
-        reasoning_allowance = max(
-            256,
-            result_cap,
+        # `max_tokens` is one shared generation cap for hidden reasoning + the
+        # visible answer. Do not split that budget into fixed reasoning/answer
+        # shares. Reserve enough room for the expected result, give the reader
+        # its useful chunk ceiling, then let generation use every token left.
+        generation_limit = max(
+            hard_minimum_output_tokens,
+            int(output_token_limit or context_window),
         )
-        desired_generation_budget = min(
+        minimum_generation_budget = min(
+            generation_limit,
             max(
                 hard_minimum_output_tokens,
-                int(output_token_limit or 0),
-            ),
-            result_cap + reasoning_allowance,
-        )
-        balanced_generation_budget = max(
-            result_cap,
-            int(available_tokens * 0.55),
-        )
-        output_budget = max(
-            hard_minimum_output_tokens,
-            min(
-                desired_generation_budget,
-                balanced_generation_budget,
-                available_tokens - minimum_chunk_tokens,
+                result_cap,
             ),
         )
-        chunk_room = available_tokens - output_budget
         chunk_tokens = min(
             maximum_chunk_tokens,
             max(
                 hard_minimum_chunk_tokens,
-                chunk_room,
+                available_tokens - minimum_generation_budget,
+            ),
+        )
+        output_budget = max(
+            hard_minimum_output_tokens,
+            min(
+                generation_limit,
+                available_tokens - chunk_tokens,
             ),
         )
         chunk_words = max(
@@ -1698,6 +1654,7 @@ def _resolve_reader_budgets(
                 * 0.65
             ),
         )
+        reasoning_allowance = 0
     else:
         reasoning_allowance = 0
         output_budget = max(

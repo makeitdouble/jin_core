@@ -45,9 +45,6 @@ def build_clients(
             configured_context_window=(
                 settings.SERVICE_CONTEXT_WINDOW
             ),
-            configured_max_tokens=(
-                settings.SERVICE_MAX_TOKENS
-            ),
             client=http_client,
         ),
     }
@@ -71,9 +68,6 @@ def build_clients(
             ),
             configured_context_window=(
                 settings.BRAIN_CONTEXT_WINDOW
-            ),
-            configured_max_tokens=(
-                settings.BRAIN_MAX_TOKENS
             ),
             client=http_client,
         )

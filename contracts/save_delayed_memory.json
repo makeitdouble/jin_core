@@ -26,7 +26,7 @@
       "long_term_facts_ids:",
       "</SAVE_DELAYED_MEMORY_CONTENT>",
       "You must fulfill title, summary, tags, and body so the report is valid for runtime processing.",
-      "When the report consolidates facts from <LONG_TERM_MEMORY>, fill long_term_facts_ids with the raw ids copied from the [ id: ... ] suffixes of every fact absorbed by the report, separated by commas.",
+      "When the report consolidates facts from <LONG_TERM_MEMORY>, fill long_term_facts_ids with the exact F<number> ids copied from the [ id: ... ] suffixes of every fact absorbed by the report, separated by commas.",
       "Do not list unrelated ids. Leave long_term_facts_ids empty when the report does not consolidate L4 facts.",
       "DO NOT add any other text while making a report. Do not notify or acknowledge saving; immediately emit only the marker."
     ],

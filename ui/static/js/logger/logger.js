@@ -57,6 +57,7 @@ function extractTraceReason(
         parsed.summary
         || parsed.explanation
         || parsed.trace_reason
+        || parsed.reason
         || ""
       ).trim();
 
@@ -462,15 +463,10 @@ const consolePanel = document.getElementById("console-panel");
             "panel-collapsed"
         );
 
-        if (panel.dataset.expandedHeight) {
-            panel.style.height =
-                panel.dataset.expandedHeight;
-            delete panel.dataset.expandedHeight;
-        } else {
-            panel.style.removeProperty(
-                "height"
-            );
-        }
+        panel.style.removeProperty(
+            "height"
+        );
+        delete panel.dataset.expandedHeight;
 
         restorePanelDimension(
             panel,

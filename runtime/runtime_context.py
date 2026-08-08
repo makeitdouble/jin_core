@@ -229,10 +229,6 @@ class RuntimeContext:
         default_factory=list
     )
 
-    runtime_l2_pending_patches: list[dict] = field(
-        default_factory=list
-    )
-
     runtime_l2_last_turn: int = 0
 
     runtime_zero_diff_alert: dict | None = None

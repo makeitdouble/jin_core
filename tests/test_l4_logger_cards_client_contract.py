@@ -66,7 +66,7 @@ class L4LoggerCardsClientContractTests(unittest.TestCase):
 
         self.assertIn('/static/css/runtime-memory.css?v=l4-logger-cards-2', source)
         self.assertIn('/static/js/runtime/runtime-l4-memory.js?v=l4-restore-1', source)
-        self.assertIn('/static/js/logger/logger.js?v=l4-truncate-reason-1', source)
+        self.assertIn('/static/js/logger/logger.js?v=l4-trace-reason-2', source)
         self.assertIn('/static/js/logger/trace-modal.js?v=l4-truncate-diagnostics-1', source)
         self.assertIn('/static/js/logger/log-entries.js?v=l4-response-visibility-1', source)
         self.assertIn('/static/js/socket/event-handlers.js?v=l4-restore-1', source)

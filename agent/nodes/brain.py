@@ -1,4 +1,5 @@
 from copy import deepcopy
+import time
 from xml.sax.saxutils import escape
 
 from agent.nodes.base import BaseNode
@@ -456,8 +457,54 @@ def format_followup_actions_from_events(
     )
 
 
+def format_previous_runtime_memory_tag(
+        *,
+        sequence_started_at=None,
+        now: float | None = None,
+) -> str:
+
+    if not isinstance(
+        sequence_started_at,
+        (int, float),
+    ) or sequence_started_at <= 0:
+        return "<PREVIOUS_RUNTIME_MEMORY>"
+
+    if now is None:
+        now = time.time()
+
+    try:
+        elapsed_seconds = max(
+            0,
+            float(now) - float(sequence_started_at),
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return "<PREVIOUS_RUNTIME_MEMORY>"
+
+    from runtime.L1_memory_utils import (
+        format_user_idle_seconds,
+    )
+
+    elapsed_text = format_user_idle_seconds(
+        elapsed_seconds
+    )
+
+    if not elapsed_text:
+        return "<PREVIOUS_RUNTIME_MEMORY>"
+
+    return (
+        "<PREVIOUS_RUNTIME_MEMORY "
+        f"( {elapsed_text} ago ) >"
+    )
+
+
 def rename_runtime_memory_for_followup(
         system_prompt: str,
+        *,
+        sequence_started_at=None,
+        now: float | None = None,
 ) -> str:
 
     prompt = str(
@@ -481,9 +528,14 @@ def rename_runtime_memory_for_followup(
     if closing_index < 0:
         return prompt
 
+    previous_opening_tag = format_previous_runtime_memory_tag(
+        sequence_started_at=sequence_started_at,
+        now=now,
+    )
+
     return (
         prompt[:opening_index]
-        + "<PREVIOUS_RUNTIME_MEMORY>"
+        + previous_opening_tag
         + prompt[opening_index + len(opening_tag):closing_index]
         + "</PREVIOUS_RUNTIME_MEMORY>"
         + prompt[closing_index + len(closing_tag):]
@@ -566,7 +618,10 @@ def build_idle_followup_system_prompt(
     if frozen_system_prompt:
         sections.append(
             rename_runtime_memory_for_followup(
-                frozen_system_prompt
+                frozen_system_prompt,
+                sequence_started_at=idle_followup.get(
+                    "sequence_started_at"
+                ),
             )
         )
 
@@ -831,7 +886,8 @@ class BrainNode(BaseNode):
             rename_runtime_memory_for_followup(
                 strip_actions_history_context(
                     system_prompt
-                )
+                ),
+                sequence_started_at=sequence_started_at,
             )
         )
 

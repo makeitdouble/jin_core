@@ -7,7 +7,7 @@ async def ask_service_model(
     user_prompt,
     system_prompt: str = "",
     temperature: float,
-    max_tokens: int,
+    max_tokens: int | None,
     timeout: float | None = None,
 ):
 
@@ -33,7 +33,7 @@ async def ask_service_model_stream(
     user_prompt,
     system_prompt: str = "",
     temperature: float,
-    max_tokens: int,
+    max_tokens: int | None,
 ):
 
     try:

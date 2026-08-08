@@ -4,10 +4,7 @@ import re
 from .delayed_memory_utils import generate_delayed_memory_report_id
 
 
-LONG_TERM_FACT_ID_RE = re.compile(
-    r"^l4_[a-z0-9_-]+$",
-    re.IGNORECASE,
-)
+LONG_TERM_FACT_ID_RE = re.compile(r"^F[1-9]\d*$", re.IGNORECASE)
 
 DELAYED_MEMORY_FIELD_RE = re.compile(
     r"(?im)^[^\S\r\n]*(title|summary|tags|body|long_term_facts_ids)"
@@ -35,7 +32,7 @@ def normalize_long_term_fact_ids(value) -> list[str]:
         fact_id = str(
             candidate
             or ""
-        ).strip().casefold()
+        ).strip().upper()
 
         if (
             not fact_id

@@ -211,7 +211,42 @@ async function updateRuntime(options = {}) {
 }
 
 
+function runtimeStatusIsHealthy() {
+
+    const runtimeConfig =
+        window.jinRuntimeConfig;
+
+    if (
+        !runtimeConfig
+        || !runtimeConfig.runtimeStatus
+    ) {
+        return false;
+    }
+
+    const status =
+        runtimeConfig.runtimeStatus;
+
+    return Boolean(
+        status.service
+        && (
+            runtimeConfig.useServiceAsBrain
+            || status.brain
+        )
+    );
+
+}
+
 function refreshRuntimeStatus() {
+
+    // Focus/visibility changes are not a polling loop. If the WebSocket is
+    // already connected and the latest model status is healthy, there is
+    // nothing to probe and /api/status would only hit LM Studio again.
+    if (
+        window.jinWebSocketConnected === true
+        && runtimeStatusIsHealthy()
+    ) {
+        return;
+    }
 
     if (
         Date.now() - lastRuntimeStatusStartedAt

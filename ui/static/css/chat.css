@@ -501,58 +501,79 @@
             text-shadow 1s ease;
 }
 
-.jin-think-content.is-rule-highlight-revealing .think-citation-rule.exact,
-.jin-think-content.has-rule-highlights:hover .think-citation-rule.exact {
+.jin-think-content.has-rule-highlights .think-citation-rule.exact {
     color: #fff7df;
     text-shadow:
             0 0 8px rgba(255, 245, 220, 0.55),
             0 0 18px rgba(255, 200, 130, 0.28);
 }
 
-.jin-think-content.is-rule-highlight-revealing .think-citation-rule.near,
-.jin-think-content.has-rule-highlights:hover .think-citation-rule.near {
+.jin-think-content.has-rule-highlights .think-citation-rule.near {
     color: #efe2c8;
     text-shadow: 0 0 8px rgba(255, 235, 200, 0.28);
 }
 
-.jin-think-content.is-rule-highlight-revealing .think-citation-rule.compressed,
-.jin-think-content.has-rule-highlights:hover .think-citation-rule.compressed {
+.jin-think-content.has-rule-highlights .think-citation-rule.compressed {
     color: #d8cdb9;
     text-shadow: 0 0 6px rgba(255, 235, 200, 0.16);
 }
 
-.jin-think-content.is-rule-highlight-revealing .think-citation-runtime.exact,
-.jin-think-content.has-rule-highlights:hover .think-citation-runtime.exact {
+.jin-think-content.has-rule-highlights .think-citation-runtime.exact {
     color: rgba(134,239,172,0.96);
     text-shadow: 0 0 10px rgba(34,197,94,0.35);
 }
 
-.jin-think-content.is-rule-highlight-revealing .think-citation-runtime.near,
-.jin-think-content.has-rule-highlights:hover .think-citation-runtime.near {
+.jin-think-content.has-rule-highlights .think-citation-runtime.near {
     color: rgba(134,239,172,0.86);
     text-shadow: 0 0 8px rgba(34,197,94,0.26);
 }
 
-.jin-think-content.is-rule-highlight-revealing .think-citation-runtime.compressed,
-.jin-think-content.has-rule-highlights:hover .think-citation-runtime.compressed {
+.jin-think-content.has-rule-highlights .think-citation-runtime.compressed {
     color: rgba(134,239,172,0.76);
     text-shadow: 0 0 6px rgba(34,197,94,0.18);
 }
 
-.jin-think-content.is-rule-highlight-revealing .think-citation-session.exact,
-.jin-think-content.has-rule-highlights:hover .think-citation-session.exact {
+.jin-think-content.has-rule-highlights .think-citation-active.exact {
+    color: rgba(251, 191, 106, 0.96);
+    text-shadow: 0 0 10px rgba(249, 115, 22, 0.34);
+}
+
+.jin-think-content.has-rule-highlights .think-citation-active.near {
+    color: rgba(251, 191, 106, 0.86);
+    text-shadow: 0 0 8px rgba(249, 115, 22, 0.25);
+}
+
+.jin-think-content.has-rule-highlights .think-citation-active.compressed {
+    color: rgba(251, 191, 106, 0.76);
+    text-shadow: 0 0 6px rgba(249, 115, 22, 0.17);
+}
+
+.jin-think-content.has-rule-highlights .think-citation-l4.exact {
+    color: rgba(129, 230, 217, 0.98);
+    text-shadow: 0 0 10px rgba(45, 212, 191, 0.38);
+}
+
+.jin-think-content.has-rule-highlights .think-citation-l4.near {
+    color: rgba(129, 230, 217, 0.88);
+    text-shadow: 0 0 8px rgba(45, 212, 191, 0.28);
+}
+
+.jin-think-content.has-rule-highlights .think-citation-l4.compressed {
+    color: rgba(129, 230, 217, 0.78);
+    text-shadow: 0 0 6px rgba(45, 212, 191, 0.19);
+}
+
+.jin-think-content.has-rule-highlights .think-citation-session.exact {
     color: rgba(216,180,254,0.94);
     text-shadow: 0 0 10px rgba(168,85,247,0.32);
 }
 
-.jin-think-content.is-rule-highlight-revealing .think-citation-session.near,
-.jin-think-content.has-rule-highlights:hover .think-citation-session.near {
+.jin-think-content.has-rule-highlights .think-citation-session.near {
     color: rgba(216,180,254,0.84);
     text-shadow: 0 0 8px rgba(168,85,247,0.24);
 }
 
-.jin-think-content.is-rule-highlight-revealing .think-citation-session.compressed,
-.jin-think-content.has-rule-highlights:hover .think-citation-session.compressed {
+.jin-think-content.has-rule-highlights .think-citation-session.compressed {
     color: rgba(216,180,254,0.74);
     text-shadow: 0 0 6px rgba(168,85,247,0.16);
 }

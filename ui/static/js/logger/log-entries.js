@@ -1251,6 +1251,172 @@ function handleL4SummarizerLog(
   return state.logDiv;
 }
 
+
+const l2SummarizerCards = [];
+
+function resolveL2SummarizerEvent(
+  message,
+  meta,
+) {
+  if (String(meta && meta.memory_level || "").toUpperCase() !== "L2") {
+    return "";
+  }
+
+  const event =
+    String(meta && meta.memory_event || "").toLowerCase();
+
+  if (event === "summarizer_request" || event === "summarizer_result") {
+    return event;
+  }
+
+  const normalized =
+    String(message || "").toLowerCase();
+
+  if (normalized.endsWith("summarizer request")) {
+    return "summarizer_request";
+  }
+
+  if (normalized.endsWith("summarizer result")) {
+    return "summarizer_result";
+  }
+
+  return "";
+}
+
+function createL2SummarizerCard(
+  requestDetails = null,
+) {
+  const logDiv =
+    createL4LoggerCard(
+      "[MEMORY:L2]"
+    );
+
+  const actions =
+    document.createElement("div");
+
+  actions.className =
+    "mt-2 flex flex-wrap items-center gap-2";
+
+  const payloadButton =
+    createL4LoggerButton(
+      "payload"
+    );
+  const responseButton =
+    createL4LoggerButton(
+      "response"
+    );
+
+  setL4LoggerButtonVisible(
+    payloadButton,
+    Boolean(requestDetails)
+  );
+  setL4LoggerButtonVisible(
+    responseButton,
+    false
+  );
+
+  const state = {
+    logDiv,
+    requestDetails,
+    responseDetails: null,
+    responseSettled: false,
+    payloadButton,
+    responseButton,
+  };
+
+  payloadButton.addEventListener(
+    "click",
+    function () {
+      if (!state.requestDetails) {
+        return;
+      }
+
+      showTrace(
+        prettifyTraceDetails(
+          state.requestDetails
+        ),
+        "L2 pattern memory payload"
+      );
+    }
+  );
+
+  responseButton.addEventListener(
+    "click",
+    function () {
+      if (!state.responseSettled) {
+        return;
+      }
+
+      const responseText =
+        String(state.responseDetails || "").trim();
+
+      showTrace(
+        responseText && responseText !== "<empty>"
+          ? responseText
+          : "No patterns",
+        "L2 pattern memory response"
+      );
+    }
+  );
+
+  actions.appendChild(payloadButton);
+  actions.appendChild(responseButton);
+  logDiv.appendChild(actions);
+
+  l2SummarizerCards.push(state);
+
+  return state;
+}
+
+function handleL2SummarizerLog(
+  message,
+  details,
+  meta,
+) {
+  const event =
+    resolveL2SummarizerEvent(
+      message,
+      meta
+    );
+
+  if (!event) {
+    return null;
+  }
+
+  if (event === "summarizer_request") {
+    return createL2SummarizerCard(
+      details
+    ).logDiv;
+  }
+
+  let state =
+    [...l2SummarizerCards]
+      .reverse()
+      .find((candidate) => !candidate.responseSettled);
+
+  if (!state) {
+    state =
+      createL2SummarizerCard();
+  }
+
+  state.responseSettled = true;
+  state.responseDetails =
+    String(details ?? "");
+
+  setL4LoggerButtonVisible(
+    state.responseButton,
+    true
+  );
+  setL4LoggerButtonTone(
+    state.responseButton,
+    meta && meta.memory_changed === false
+      ? "muted"
+      : "blue"
+  );
+
+  return state.logDiv;
+}
+
 function settleL4SummarizerCardForTerminalEvent(
   message,
   meta,
@@ -1521,6 +1687,17 @@ function appendLog(
       message,
       details,
     );
+
+  const l2SummarizerLog =
+    handleL2SummarizerLog(
+      normalized.message,
+      normalized.details,
+      meta
+    );
+
+  if (l2SummarizerLog) {
+    return l2SummarizerLog;
+  }
 
   settleL4SummarizerCardForTerminalEvent(
     normalized.message,

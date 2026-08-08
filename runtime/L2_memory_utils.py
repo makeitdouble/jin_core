@@ -7,18 +7,15 @@ from runtime.L2_memory_rules import (
     L2_EVIDENCE_OCCURRENCES_PATTERN,
     L2_EVIDENCE_QUOTE_META_PATTERN,
     L2_EVIDENCE_QUOTE_PATTERN,
+    L2_MAX_EVIDENCE_PATCHES,
     L2_OCCURRENCE_PATTERN_KEYS,
-    L2_PATCH_WINDOW,
     L2_PATTERN_EVIDENCE_EXAMPLE_LIMIT,
     L2_PATTERN_EVIDENCE_KEY_PATTERN,
-    L2_REPEATED_KEY_THRESHOLD,
+    L2_TRIGGER_IGNORED_KEYS,
     L2_USER_MESSAGE_EVIDENCE_LIMIT,
     L2_USER_MESSAGE_QUOTED_VALUE_PATTERN,
-    MIN_L2_TURNS,
-    RUNTIME_L2_CHANGED_TRACE_SUFFIX_TEMPLATE,
     RUNTIME_L2_MEMORY_SYSTEM_PROMPT,
     RUNTIME_L2_REPEATED_SUFFIX_PATTERN,
-    RUNTIME_L2_TRACE_SUFFIX_TEMPLATE,
 )
 
 
@@ -529,7 +526,7 @@ def build_runtime_l2_repeated_user_message_evidence_memory(
         ):
             snapshot_index = 0
 
-        if snapshot_index <= 0:
+        if snapshot_index < 0:
             continue
 
         for message in extract_l2_patch_user_messages(
@@ -624,7 +621,7 @@ def build_runtime_l2_repeated_user_message_evidence_memory(
 
         output_lines.append(
             "L2_pattern_evidence_1: "
-            "user repeatedly sending one message in a row "
+            "user repeatedly sending the same message "
             f"[ quote: \"{escape_l2_pattern_evidence_quote(observation.get('quote', ''))}\" ] "
             f"[ first_seen_turn_snapshot: {first_seen} ] "
             f"[ last_seen_turn_snapshot: {last_seen} ]"
@@ -847,12 +844,6 @@ def ensure_runtime_l2_state(
 
     if not hasattr(
         context,
-        "runtime_l2_pending_patches",
-    ):
-        context.runtime_l2_pending_patches = []
-
-    if not hasattr(
-        context,
         "runtime_l2_last_turn",
     ):
         context.runtime_l2_last_turn = 0
@@ -1014,35 +1005,6 @@ def runtime_l1_patch_total_diff(
     return total_diff
 
 
-def get_recent_l2_patches(
-        context,
-) -> list[dict]:
-
-    return list(
-        getattr(
-            context,
-            "runtime_l2_pending_patches",
-            [],
-        )
-        or []
-    )[-L2_PATCH_WINDOW:]
-
-
-def get_recent_l2_diff_values(
-        context,
-) -> list[float]:
-
-    return [
-        patch.get(
-            "total_diff",
-            0,
-        )
-        for patch in get_recent_l2_patches(
-            context
-        )
-    ]
-
-
 def average_diff(
         diffs: list[float],
 ) -> float:
@@ -1071,22 +1033,6 @@ def format_diff_value(
     )
 
 
-def format_diff_values(
-        values: list[float],
-) -> str:
-
-    return (
-        "["
-        + ", ".join(
-            format_diff_value(
-                value
-            )
-            for value in values
-        )
-        + "]"
-    )
-
-
 def diff_value_range(
         diffs: list[float],
 ) -> float:
@@ -1100,74 +1046,82 @@ def diff_value_range(
     )
 
 
-def extract_l2_patch_keys(
+def normalize_l2_signal_key(
+        key: str,
+) -> str:
+
+    return re.sub(
+        r"[\s-]+",
+        "_",
+        normalize_memory_key(
+            key
+        ),
+    ).strip("_")
+
+
+def is_runtime_l2_trigger_key(
+        key: str,
+) -> bool:
+
+    normalized = normalize_l2_signal_key(
+        key
+    )
+
+    return bool(
+        normalized
+        and normalized not in L2_TRIGGER_IGNORED_KEYS
+        and not normalized.startswith(
+            "l2_pattern_evidence_"
+        )
+    )
+
+
+def extract_l2_patch_signal_keys(
         patch: dict,
 ) -> set[str]:
 
     changes = patch.get(
         "changes",
         {},
-    )
-
+    ) or {}
     keys = set()
 
-    for entry in (
-            changes.get(
-                "added",
-                [],
-            )
-            or []
-    ):
-        key = normalize_memory_key(
+    for entry in changes.get(
+            "added",
+            [],
+    ) or []:
+        key = normalize_l2_signal_key(
             entry.get(
                 "key",
                 "",
             )
         )
 
-        if key:
+        if is_runtime_l2_trigger_key(
+                key
+        ):
             keys.add(
                 key
             )
 
-    for entry in (
-            changes.get(
-                "changed",
-                [],
-            )
-            or []
-    ):
-        for key_name in (
-                "current_key",
-                "previous_key",
-        ):
-            key = normalize_memory_key(
-                entry.get(
-                    key_name,
-                    "",
-                )
-            )
-
-            if key:
-                keys.add(
-                    key
-                )
-
-    for entry in (
-            changes.get(
-                "removed",
-                [],
-            )
-            or []
-    ):
-        key = normalize_memory_key(
+    for entry in changes.get(
+            "changed",
+            [],
+    ) or []:
+        key = normalize_l2_signal_key(
             entry.get(
-                "key",
+                "current_key",
+                "",
+            )
+            or entry.get(
+                "previous_key",
                 "",
             )
         )
 
-        if key:
+        if is_runtime_l2_trigger_key(
+                key
+        ):
             keys.add(
                 key
             )
@@ -1175,172 +1129,401 @@ def extract_l2_patch_keys(
     return keys
 
 
-def count_l2_patch_keys(
-        patches: list[dict],
-) -> dict[str, int]:
+def build_l2_occurrence_episodes(
+        positions: list[int],
+        history: list[dict],
+) -> list[dict]:
 
-    counts = {}
+    episodes = []
 
-    for patch in patches:
-        for key in extract_l2_patch_keys(
-                patch
-        ):
-            counts[key] = (
-                counts.get(
-                    key,
-                    0,
-                )
-                + 1
+    for position in sorted(
+            set(
+                positions
             )
-
-    return counts
-
-
-def get_repeated_l2_patch_keys(
-        context,
-) -> dict[str, int]:
-
-    counts = count_l2_patch_keys(
-        get_recent_l2_patches(
-            context
+    ):
+        patch = history[position]
+        turn_number = int(
+            patch.get(
+                "turn_number",
+                0,
+            )
+            or 0
         )
+
+        if (
+                episodes
+                and position == episodes[-1]["end_position"] + 1
+        ):
+            episodes[-1]["end_position"] = position
+            episodes[-1]["end_turn"] = turn_number
+            episodes[-1]["count"] += 1
+            continue
+
+        episodes.append({
+            "start_position": position,
+            "end_position": position,
+            "start_turn": turn_number,
+            "end_turn": turn_number,
+            "count": 1,
+        })
+
+    return episodes
+
+
+def compact_runtime_l2_signal_value(
+        value,
+        *,
+        limit: int = 260,
+) -> str:
+
+    text = " ".join(
+        str(
+            value
+            or ""
+        ).split()
     )
 
+    if len(text) <= limit:
+        return text
+
+    return text[:limit].rstrip() + "…"
+
+
+def clean_runtime_l2_evidence_patch(
+        patch: dict,
+        *,
+        candidate_keys: set[str],
+        candidate_messages: set[str],
+) -> dict:
+
+    changes = patch.get(
+        "changes",
+        {},
+    ) or {}
+    cleaned_changes = {
+        "added": [],
+        "changed": [],
+    }
+
+    for entry in changes.get(
+            "added",
+            [],
+    ) or []:
+        key = normalize_l2_signal_key(
+            entry.get(
+                "key",
+                "",
+            )
+        )
+
+        if key not in candidate_keys:
+            continue
+
+        cleaned_changes["added"].append({
+            "key": key,
+            "value": compact_runtime_l2_signal_value(
+                entry.get(
+                    "value",
+                    "",
+                )
+            ),
+        })
+
+    for entry in changes.get(
+            "changed",
+            [],
+    ) or []:
+        key = normalize_l2_signal_key(
+            entry.get(
+                "current_key",
+                "",
+            )
+            or entry.get(
+                "previous_key",
+                "",
+            )
+        )
+
+        if key not in candidate_keys:
+            continue
+
+        cleaned_changes["changed"].append({
+            "key": key,
+            "value": compact_runtime_l2_signal_value(
+                entry.get(
+                    "current_value",
+                    "",
+                )
+            ),
+        })
+
+    user_messages = []
+    has_signal_changes = bool(
+        cleaned_changes["added"]
+        or cleaned_changes["changed"]
+    )
+
+    for message in extract_l2_patch_user_messages(
+            patch
+    ):
+        compact = compact_runtime_l2_user_message_evidence(
+            message
+        )
+        normalized = normalize_l2_pattern_evidence_example(
+            compact
+        )
+
+        if (
+                normalized in candidate_messages
+                or has_signal_changes
+        ):
+            user_messages.append(
+                compact
+            )
+
+    user_messages = list(
+        dict.fromkeys(
+            user_messages
+        )
+    )[-3:]
+
     return {
-        key: count
-        for key, count in counts.items()
-        if count >= L2_REPEATED_KEY_THRESHOLD
+        "turn_number": int(
+            patch.get(
+                "turn_number",
+                0,
+            )
+            or 0
+        ),
+        "snapshot_index": int(
+            patch.get(
+                "snapshot_index",
+                0,
+            )
+            or 0
+        ),
+        "user_messages": user_messages,
+        "changes": cleaned_changes,
     }
 
 
-def should_run_runtime_l2_memory(
+def build_runtime_l2_recurrence_evidence(
         context,
-) -> bool:
+) -> dict:
 
     ensure_runtime_l2_state(
         context
     )
 
-    user_turn_count = get_runtime_l2_user_turn_count(
-        context
+    history = list(
+        getattr(
+            context,
+            "runtime_l1_diff_history",
+            [],
+        )
+        or []
     )
-    turns_since_l2 = (
-        user_turn_count
-        - getattr(
+
+    if not history:
+        return {
+            "keys": [],
+            "messages": [],
+            "patches": [],
+        }
+
+    last_l2_turn = int(
+        getattr(
             context,
             "runtime_l2_last_turn",
             0,
         )
+        or 0
     )
+    key_positions: dict[str, list[int]] = {}
+    message_positions: dict[str, list[int]] = {}
+    message_examples: dict[str, str] = {}
 
-    recent_patches = get_recent_l2_patches(
-        context
-    )
-    repeated_keys = count_l2_patch_keys(
-        recent_patches
-    )
+    for position, patch in enumerate(
+            history
+    ):
+        for key in extract_l2_patch_signal_keys(
+                patch
+        ):
+            key_positions.setdefault(
+                key,
+                [],
+            ).append(
+                position
+            )
 
-    return (
-        turns_since_l2 >= MIN_L2_TURNS
-        and len(recent_patches) >= L2_PATCH_WINDOW
-        and any(
-            count >= L2_REPEATED_KEY_THRESHOLD
-            for count in repeated_keys.values()
+        for message in extract_l2_patch_user_messages(
+                patch
+        ):
+            compact = compact_runtime_l2_user_message_evidence(
+                message
+            )
+            normalized = normalize_l2_pattern_evidence_example(
+                compact
+            )
+
+            if not normalized:
+                continue
+
+            message_positions.setdefault(
+                normalized,
+                [],
+            ).append(
+                position
+            )
+            message_examples[normalized] = compact
+
+    candidate_keys = set()
+    relevant_positions = set()
+
+    for key, positions in key_positions.items():
+        episodes = build_l2_occurrence_episodes(
+            positions,
+            history,
         )
+
+        if len(episodes) < 2:
+            continue
+
+        latest_episode = episodes[-1]
+
+        if latest_episode["start_turn"] <= last_l2_turn:
+            continue
+
+        candidate_keys.add(
+            key
+        )
+        relevant_positions.update(
+            positions
+        )
+
+    candidate_messages = set()
+
+    for normalized, positions in message_positions.items():
+        episodes = build_l2_occurrence_episodes(
+            positions,
+            history,
+        )
+        if len(episodes) < 2:
+            continue
+
+        latest_episode = episodes[-1]
+
+        if latest_episode["start_turn"] <= last_l2_turn:
+            continue
+
+        candidate_messages.add(
+            normalized
+        )
+        relevant_positions.update(
+            positions
+        )
+
+    if not candidate_keys and not candidate_messages:
+        return {
+            "keys": [],
+            "messages": [],
+            "patches": [],
+        }
+
+    ordered_positions = sorted(
+        relevant_positions
     )
 
+    if len(ordered_positions) > L2_MAX_EVIDENCE_PATCHES:
+        ordered_positions = [
+            ordered_positions[0],
+            *ordered_positions[-(
+                L2_MAX_EVIDENCE_PATCHES - 1
+            ):],
+        ]
+        ordered_positions = list(
+            dict.fromkeys(
+                ordered_positions
+            )
+        )
+
+    patches = [
+        clean_runtime_l2_evidence_patch(
+            history[position],
+            candidate_keys=candidate_keys,
+            candidate_messages=candidate_messages,
+        )
+        for position in ordered_positions
+    ]
+    patches = [
+        patch
+        for patch in patches
+        if (
+            patch.get("user_messages")
+            or patch.get("changes", {}).get("added")
+            or patch.get("changes", {}).get("changed")
+        )
+    ]
+
+    return {
+        "keys": sorted(
+            candidate_keys
+        ),
+        "messages": [
+            message_examples[normalized]
+            for normalized in sorted(
+                candidate_messages
+            )
+            if normalized in message_examples
+        ],
+        "patches": patches,
+    }
 
 
 def build_runtime_l2_memory_system_prompt() -> str:
 
     return RUNTIME_L2_MEMORY_SYSTEM_PROMPT
 
+
 def build_runtime_l2_memory_user_prompt(
         *,
         current_l2_memory: str,
         patches: list[dict],
+        recurring_keys: list[str] | None = None,
+        recurring_messages: list[str] | None = None,
 ) -> str:
 
-    def format_l2_strength_suffix(
-            entry: dict,
-            *,
-            changed: bool = False,
-    ) -> str:
-        def quote_count_suffix(
-                item: dict,
-                *,
-                prefix: str = "",
-        ) -> str:
-
-            total = item.get(
-                f"{prefix}total_quotes_count",
-            )
-            messages = item.get(
-                f"{prefix}messages_quote_count",
-            )
-
-            if (
-                    total is None
-                    and messages is None
-            ):
-                return ""
-
-            return (
-                f" [ total_quotes_count: {int(total or 0)} ]"
-                f" [ messages_quote_count: {int(messages or 0)} ]"
-            )
-
-        if changed:
-            previous_strength = entry.get(
-                "previous_strength",
-            )
-            current_strength = entry.get(
-                "current_strength",
-            )
-
-            if (
-                    previous_strength is None
-                    and current_strength is None
-            ):
-                return ""
-
-            return (
-                RUNTIME_L2_CHANGED_TRACE_SUFFIX_TEMPLATE.format(
-                    previous_strength=(
-                        previous_strength
-                        if previous_strength is not None
-                        else "?"
-                    ),
-                    current_strength=(
-                        current_strength
-                        if current_strength is not None
-                        else "?"
-                    ),
-                )
-                + quote_count_suffix(
-                    entry,
-                    prefix="current_",
-                )
-            )
-
-        strength = entry.get(
-            "strength",
-        )
-
-        if strength is None:
-            return ""
-
-        return RUNTIME_L2_TRACE_SUFFIX_TEMPLATE.format(
-            strength=strength,
-        ) + quote_count_suffix(
-            entry
-        )
+    recurring_keys = list(
+        recurring_keys
+        or []
+    )
+    recurring_messages = list(
+        recurring_messages
+        or []
+    )
 
     lines = [
         "Current L2 pattern memory:",
         current_l2_memory.strip() or "<empty>",
         "",
-        "Recent L1 patches since the last L2 update:",
+        "Recurrence gate:",
+        "signals: " + (
+            ", ".join(
+                recurring_keys
+            )
+            if recurring_keys
+            else "<none>"
+        ),
+        "repeated user messages: " + (
+            " | ".join(
+                f'"{message}"'
+                for message in recurring_messages
+            )
+            if recurring_messages
+            else "<none>"
+        ),
+        "",
+        "Selected L1 recurrence evidence:",
     ]
 
     for index, patch in enumerate(
@@ -1349,79 +1532,46 @@ def build_runtime_l2_memory_user_prompt(
     ):
         lines.extend([
             "",
-            "Patch {index}".format(
-                index=index,
-            ),
+            f"Evidence {index}",
             f"turn: {patch.get('turn_number', 0)}",
             f"snapshot: {patch.get('snapshot_index', 0)}",
-            f"total_diff: {patch.get('total_diff', 0)}",
         ])
 
-        user_messages = [
-            str(message or "").replace("\n", " ").strip()
-            for message in (patch.get("user_messages", []) or [])
-            if str(message or "").strip()
-        ]
-
-        if user_messages:
+        for message in patch.get(
+                "user_messages",
+                [],
+        ) or []:
             lines.append(
-                "user_messages:"
+                f'user_message: "{message}"'
             )
-
-            for message in user_messages:
-                lines.append(
-                    f'- "{message}"'
-                )
 
         changes = patch.get(
             "changes",
             {},
-        )
+        ) or {}
 
-        for section in (
+        for entry in changes.get(
                 "added",
-                "changed",
-                "removed",
-        ):
-            entries = (
-                changes.get(
-                    section,
-                    [],
-                )
-                or []
-            )
-
-            if not entries:
-                continue
-
+                [],
+        ) or []:
             lines.append(
-                f"{section}:"
+                "signal added: "
+                f"{entry.get('key', '')}: {entry.get('value', '')}"
             )
 
-            for entry in entries:
-                if section == "changed":
-                    lines.append(
-                        "- "
-                        f"{entry.get('previous_key', '')}: {entry.get('previous_value', '')} "
-                        "=> "
-                        f"{entry.get('current_key', '')}: {entry.get('current_value', '')}"
-                        + format_l2_strength_suffix(
-                            entry,
-                            changed=True,
-                        )
-                    )
-                else:
-                    lines.append(
-                        "- "
-                        f"{entry.get('key', '')}: {entry.get('value', '')}"
-                        + format_l2_strength_suffix(
-                            entry,
-                        )
-                    )
+        for entry in changes.get(
+                "changed",
+                [],
+        ) or []:
+            lines.append(
+                "signal changed: "
+                f"{entry.get('key', '')}: {entry.get('value', '')}"
+            )
 
     lines.extend([
         "",
-        "Rewrite the L2 pattern memory now.",
+        "Use only this evidence. Ignore ordinary live-state churn. ",
+        "Update L2 only if the recurrence is genuinely useful for future adaptation.",
     ])
 
     return "\n".join(

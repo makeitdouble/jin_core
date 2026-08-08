@@ -65,7 +65,7 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            "/static/js/runtime/runtime-avatar.js?v=memory-rings-5",
+            "/static/js/runtime/runtime-avatar.js?v=memory-rings-6",
             source,
         )
 

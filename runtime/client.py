@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 
 import httpx
 
@@ -18,6 +19,9 @@ from clients.response_extractor import (
 )
 
 logger = logging.getLogger(__name__)
+
+MODEL_LIMITS_CACHE_TTL_SECONDS = 2.0
+LEGACY_NATIVE_MODELS_ENDPOINT = "/api/v0/models"
 
 
 class LMStudioAPIError(RuntimeError):
@@ -343,6 +347,7 @@ class RuntimeClient:
         self.detected_context_window = None
         self.detected_max_tokens = None
         self.model_limits_detection_attempted = False
+        self.model_limits_detected_at = 0.0
 
     # ---------------------------------------------------------
     # MODEL LIMIT DETECTION
@@ -586,6 +591,9 @@ class RuntimeClient:
                     "id"
                 )
                 or model.get(
+                    "key"
+                )
+                or model.get(
                     "model"
                 )
                 or model.get(
@@ -613,21 +621,64 @@ class RuntimeClient:
 
     def model_limits_detection_endpoints(self) -> list[str]:
 
-        endpoints = [
-            settings.MODELS_ENDPOINT,
-        ]
+        endpoints = []
         native_endpoint = getattr(
             settings,
             "NATIVE_MODELS_ENDPOINT",
             "",
         )
 
-        if native_endpoint and native_endpoint not in endpoints:
-            endpoints.append(
-                native_endpoint
-            )
+        # LM Studio's native v1 metadata exposes the context_length of the
+        # actually loaded instance. Prefer it over OpenAI-compatible metadata.
+        for endpoint in (
+            native_endpoint,
+            settings.MODELS_ENDPOINT,
+            LEGACY_NATIVE_MODELS_ENDPOINT,
+        ):
+            endpoint = str(endpoint or "").strip()
+            if endpoint and endpoint not in endpoints:
+                endpoints.append(endpoint)
 
         return endpoints
+
+    def select_loaded_model_metadata(
+            self,
+            model: dict,
+    ) -> dict | None:
+
+        loaded_instances = model.get(
+            "loaded_instances"
+        )
+
+        if not isinstance(loaded_instances, list):
+            return model
+
+        instances = [
+            instance
+            for instance in loaded_instances
+            if isinstance(instance, dict)
+        ]
+        if not instances:
+            # Native v1 can list an available but unloaded model together with
+            # its theoretical max_context_length. Never use that as the live
+            # request budget.
+            return None
+
+        for instance in instances:
+            instance_id = str(
+                instance.get("id")
+                or instance.get("key")
+                or instance.get("model")
+                or ""
+            )
+            if (
+                instance_id == self.model_uid
+                or self.model_uid in instance_id
+                or instance_id in self.model_uid
+            ):
+                return instance
+
+        return instances[0]
 
     async def detect_model_limits(
             self,
@@ -635,18 +686,32 @@ class RuntimeClient:
             force_refresh: bool = False,
     ) -> tuple[int | None, int | None]:
 
+        now = time.monotonic()
+        cache_is_fresh = (
+            self.model_limits_detection_attempted
+            and self.model_limits_detected_at > 0
+            and (
+                now - self.model_limits_detected_at
+                < MODEL_LIMITS_CACHE_TTL_SECONDS
+            )
+        )
+
         if force_refresh:
+            cache_is_fresh = False
             self.model_limits_detection_attempted = False
             self.detected_context_window = None
             self.detected_max_tokens = None
 
-        if self.model_limits_detection_attempted:
+        if cache_is_fresh:
             return (
                 self.detected_context_window,
                 self.detected_max_tokens,
             )
 
         self.model_limits_detection_attempted = True
+        self.model_limits_detected_at = now
+        self.detected_context_window = None
+        self.detected_max_tokens = None
 
         for endpoint in self.model_limits_detection_endpoints():
 
@@ -673,15 +738,21 @@ class RuntimeClient:
                 if model is None:
                     continue
 
+                live_model = self.select_loaded_model_metadata(
+                    model
+                )
+                if live_model is None:
+                    continue
+
                 context_window = (
                     self.extract_context_window_from_model(
-                        model
+                        live_model
                     )
                 )
 
                 max_tokens = (
                     self.extract_max_tokens_from_model(
-                        model
+                        live_model
                     )
                 )
 
@@ -700,8 +771,6 @@ class RuntimeClient:
             except Exception:
                 continue
 
-        self.detected_context_window = None
-        self.detected_max_tokens = None
         return (
             self.detected_context_window,
             self.detected_max_tokens,
@@ -729,13 +798,13 @@ class RuntimeClient:
             force_refresh: bool = False,
     ) -> int | None:
 
-        if not settings.RUNTIME_CONTEXT_WINDOW_FALLBACK_TO_SERVER:
-            return self.configured_context_window
-
         detected_context_window = await self.detect_context_window(
             force_refresh=force_refresh,
         )
 
+        # *_CONTEXT_WINDOW is intentionally only the UI/reference denominator.
+        # It is used for requests only as an emergency fallback when LM Studio
+        # metadata cannot be read at all.
         return (
             detected_context_window
             or self.configured_context_window
@@ -743,45 +812,62 @@ class RuntimeClient:
 
     async def resolve_request_max_tokens(
             self,
-            requested_max_tokens: int,
+            requested_max_tokens: int | None,
+            *,
+            force_refresh: bool = False,
     ) -> int:
 
-        if not settings.RUNTIME_MAX_TOKENS_FALLBACK_TO_SERVER:
-            return requested_max_tokens
+        try:
+            explicit_limit = int(requested_max_tokens)
+        except (TypeError, ValueError):
+            explicit_limit = 0
 
-        if (
-            self.configured_max_tokens is not None
-            and requested_max_tokens != self.configured_max_tokens
-        ):
-            return requested_max_tokens
+        detected_context_window, detected_max_tokens = (
+            await self.detect_model_limits(
+                force_refresh=force_refresh,
+            )
+        )
 
-        detected_max_tokens = await self.detect_max_tokens()
+        if explicit_limit > 0:
+            # Specialized calls (translation, L3, document result caps, etc.)
+            # keep their smaller cap, while an explicit provider output ceiling
+            # still wins if LM Studio reports one.
+            if detected_max_tokens:
+                return min(
+                    explicit_limit,
+                    int(detected_max_tokens),
+                )
+            return explicit_limit
 
-        if detected_max_tokens:
-            return detected_max_tokens
-
-        if (
-            self.detected_context_window
-            and self.configured_max_tokens is not None
-            and requested_max_tokens == self.configured_max_tokens
-        ):
-            return self.detected_context_window
-
-        return requested_max_tokens
+        return max(
+            1,
+            int(
+                detected_max_tokens
+                or detected_context_window
+                or self.configured_context_window
+                or 1
+            ),
+        )
 
     async def resolve_safe_max_tokens(
             self,
             *,
             system_prompt: str,
             user_prompt,
-            requested_max_tokens: int,
+            requested_max_tokens: int | None,
+            force_refresh: bool = False,
     ) -> int:
 
         request_context_window = (
-            await self.resolve_request_context_window()
+            await self.resolve_request_context_window(
+                force_refresh=force_refresh,
+            )
         )
+        # resolve_request_context_window() already refreshed the shared model
+        # metadata above, so reuse that same snapshot for the output ceiling.
         request_max_tokens = await self.resolve_request_max_tokens(
-            requested_max_tokens
+            requested_max_tokens,
+            force_refresh=False,
         )
 
         if not request_context_window:
@@ -799,6 +885,8 @@ class RuntimeClient:
             - settings.RUNTIME_OUTPUT_TOKEN_RESERVE
         )
 
+        # One generation budget covers reasoning + visible answer together.
+        # There is deliberately no fixed reasoning/answer split.
         return max(
             1,
             min(
@@ -927,14 +1015,16 @@ class RuntimeClient:
             system_prompt: str,
             user_prompt,
             temperature: float,
-            max_tokens: int,
+            max_tokens: int | None,
             stream: bool = False,
+            force_refresh_limits: bool = False,
     ) -> dict[str, object]:
 
         safe_max_tokens = await self.resolve_safe_max_tokens(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             requested_max_tokens=max_tokens,
+            force_refresh=force_refresh_limits,
         )
 
         return self.build_payload(
@@ -955,7 +1045,7 @@ class RuntimeClient:
             system_prompt: str,
             user_prompt,
             temperature: float,
-            max_tokens: int,
+            max_tokens: int | None,
             timeout: float | None = None,
     ):
 
@@ -965,6 +1055,7 @@ class RuntimeClient:
             temperature=temperature,
             max_tokens=max_tokens,
             stream=False,
+            force_refresh_limits=True,
         )
 
         endpoint = join_url(
@@ -1031,7 +1122,7 @@ class RuntimeClient:
             system_prompt: str,
             user_prompt,
             temperature: float,
-            max_tokens: int,
+            max_tokens: int | None,
     ):
 
         provider_user_prompt = self.provider_user_prompt(
@@ -1045,6 +1136,7 @@ class RuntimeClient:
             temperature=temperature,
             max_tokens=max_tokens,
             stream=True,
+            force_refresh_limits=True,
         )
 
         stream_id = None

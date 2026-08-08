@@ -44,7 +44,25 @@
     return Number.isFinite(number) ? number : fallback;
   }
 
-  function normalizeFact(value, pending) {
+  function normalizeFactId(value, pending) {
+    const text = normalizeText(value).toUpperCase();
+    const pattern = pending ? /^PF([1-9]\d*)$/ : /^F([1-9]\d*)$/;
+    const match = text.match(pattern);
+    if (!match) {
+      return "";
+    }
+    return `${pending ? "PF" : "F"}${Number(match[1])}`;
+  }
+
+  function factIdNumber(value, pending) {
+    const id = normalizeFactId(value, pending);
+    if (!id) {
+      return 0;
+    }
+    return Number(id.slice(pending ? 2 : 1)) || 0;
+  }
+
+  function normalizeFact(value, pending, assignedId) {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return null;
     }
@@ -55,14 +73,13 @@
       return null;
     }
 
-    const idPrefix = pending ? "l4p_" : "l4_";
-    const rawId = normalizeText(value.id);
-    const generatedId = storage.buildFactsMemoryContentHash(
-      `${key}\n${factValue}`
-    ).replace(/^h/, "");
+    const id = normalizeFactId(assignedId || value.id, pending);
+    if (!id) {
+      return null;
+    }
 
     return {
-      id: rawId.startsWith(idPrefix) ? rawId : `${idPrefix}${generatedId}`,
+      id,
       key,
       value: factValue,
       category: normalizeText(value.category || "other") || "other",
@@ -85,43 +102,159 @@
     };
   }
 
-  function normalizeFacts(values, pending) {
-    const result = [];
-    const seen = new Set();
+  function migrateStoreIds(value) {
+    const source = value && typeof value === "object" && !Array.isArray(value)
+      ? value
+      : {};
+    const rawFacts = Array.isArray(source.facts) ? source.facts : [];
+    const rawPending = Array.isArray(source.pending_facts)
+      ? source.pending_facts
+      : [];
+    const rawDeleted = Array.isArray(source.deleted_fact_ids)
+      ? source.deleted_fact_ids
+      : [];
 
-    (Array.isArray(values) ? values : []).forEach((value) => {
-      const fact = normalizeFact(value, pending);
-      if (!fact || seen.has(fact.id)) {
-        return;
-      }
-      seen.add(fact.id);
-      result.push(fact);
+    const usedFacts = new Set();
+    const usedPending = new Set();
+    rawFacts.forEach((fact) => {
+      const number = factIdNumber(fact && fact.id, false);
+      if (number) usedFacts.add(number);
+    });
+    rawPending.forEach((fact) => {
+      const number = factIdNumber(fact && fact.id, true);
+      if (number) usedPending.add(number);
     });
 
-    return result;
+    let nextFact = Math.max(
+      1,
+      Math.floor(normalizeNumber(source.next_fact_id, 1)),
+      Math.max(0, ...usedFacts) + 1
+    );
+    let nextPending = Math.max(
+      1,
+      Math.floor(normalizeNumber(source.next_pending_fact_id, 1)),
+      Math.max(0, ...usedPending) + 1
+    );
+    const idMap = new Map();
+    let migrated = Number(source.version || 0) < 2;
+
+    function allocate(rawId, pending) {
+      const text = normalizeText(rawId);
+      const current = normalizeFactId(text, pending);
+      if (current) {
+        return current;
+      }
+      if (text && idMap.has(text)) {
+        return idMap.get(text);
+      }
+
+      const legacy = pending
+        ? /^l4p_[a-z0-9_-]+$/i.test(text)
+        : /^l4_[a-z0-9_-]+$/i.test(text);
+      if (text && !legacy) {
+        return "";
+      }
+
+      const used = pending ? usedPending : usedFacts;
+      let number = pending ? nextPending : nextFact;
+      while (used.has(number)) number += 1;
+      used.add(number);
+      const id = `${pending ? "PF" : "F"}${number}`;
+      if (pending) nextPending = number + 1;
+      else nextFact = number + 1;
+      if (text) idMap.set(text, id);
+      migrated = true;
+      return id;
+    }
+
+    const facts = [];
+    rawFacts.forEach((rawFact) => {
+      if (!rawFact || typeof rawFact !== "object" || Array.isArray(rawFact)) {
+        return;
+      }
+      const oldId = normalizeText(rawFact.id);
+      const id = allocate(oldId, false) || allocate("", false);
+      if (oldId && oldId !== id) idMap.set(oldId, id);
+      const fact = normalizeFact(rawFact, false, id);
+      if (fact) facts.push(fact);
+    });
+
+    const pendingFacts = [];
+    rawPending.forEach((rawFact) => {
+      if (!rawFact || typeof rawFact !== "object" || Array.isArray(rawFact)) {
+        return;
+      }
+      const oldId = normalizeText(rawFact.id);
+      const id = allocate(oldId, true) || allocate("", true);
+      if (oldId && oldId !== id) idMap.set(oldId, id);
+      const fact = normalizeFact(rawFact, true, id);
+      if (fact) pendingFacts.push(fact);
+    });
+
+    const deletedFactIds = [];
+    rawDeleted.forEach((rawId) => {
+      const text = normalizeText(rawId);
+      const id = normalizeFactId(text, false)
+        || idMap.get(text)
+        || (/^l4_[a-z0-9_-]+$/i.test(text) ? allocate(text, false) : "");
+      if (id && !deletedFactIds.includes(id)) deletedFactIds.push(id);
+    });
+
+    function remapSourceIds(fact) {
+      fact.source_fact_ids = normalizeList(fact.source_fact_ids)
+        .map((rawId) => {
+          return normalizeFactId(rawId, true)
+            || normalizeFactId(rawId, false)
+            || idMap.get(rawId)
+            || (/^l4p_[a-z0-9_-]+$/i.test(rawId) ? allocate(rawId, true) : "")
+            || (/^l4_[a-z0-9_-]+$/i.test(rawId) ? allocate(rawId, false) : "");
+        })
+        .filter(Boolean);
+    }
+    facts.forEach(remapSourceIds);
+    pendingFacts.forEach(remapSourceIds);
+
+    return {
+      version: 2,
+      revision: Math.max(
+        0,
+        Math.floor(normalizeNumber(source.revision, 0))
+      ) + (migrated ? 1 : 0),
+      updated_at: normalizeText(source.updated_at),
+      facts,
+      pending_facts: pendingFacts,
+      deleted_fact_ids: deletedFactIds,
+      next_fact_id: nextFact,
+      next_pending_fact_id: nextPending,
+    };
   }
 
   function normalizeStore(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      return {
-        version: 1,
-        revision: 0,
-        updated_at: "",
-        facts: [],
-        pending_facts: [],
-      };
-    }
+    const migrated = migrateStoreIds(value);
+    const seenFacts = new Set();
+    const seenPending = new Set();
 
-    return {
-      version: 1,
-      revision: Math.max(
-        0,
-        Math.floor(normalizeNumber(value.revision, 0))
-      ),
-      updated_at: normalizeText(value.updated_at),
-      facts: normalizeFacts(value.facts, false),
-      pending_facts: normalizeFacts(value.pending_facts, true),
-    };
+    migrated.facts = migrated.facts.filter((fact) => {
+      if (seenFacts.has(fact.id)) return false;
+      seenFacts.add(fact.id);
+      return !migrated.deleted_fact_ids.includes(fact.id);
+    });
+    const processedPendingIds = new Set();
+    migrated.facts.forEach((fact) => {
+      normalizeList(fact.source_fact_ids).forEach((sourceId) => {
+        const pendingId = normalizeFactId(sourceId, true);
+        if (pendingId) processedPendingIds.add(pendingId);
+      });
+    });
+    migrated.pending_facts = migrated.pending_facts.filter((fact) => {
+      if (seenPending.has(fact.id) || processedPendingIds.has(fact.id)) {
+        return false;
+      }
+      seenPending.add(fact.id);
+      return true;
+    });
+
+    return migrated;
   }
 
   function readStore() {

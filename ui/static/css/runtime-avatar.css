@@ -253,6 +253,22 @@
     stroke-width: var(--jin-avatar-memory-hover-width, 2px);
 }
 
+.jin-avatar-orbit.is-memory-hover-hit,
+.jin-avatar-counter-orbit.is-memory-hover-hit,
+.jin-avatar-memory-dash.is-memory-hover-hit {
+    filter:
+        brightness(1.95)
+        saturate(1.78)
+        drop-shadow(0 0 5px var(--jin-avatar-memory-glow-near, rgba(210, 255, 255, 0.98)))
+        drop-shadow(0 0 14px var(--jin-avatar-memory-glow-mid, rgba(90, 235, 245, 0.68)))
+        drop-shadow(0 0 28px var(--jin-avatar-memory-glow-far, rgba(52, 211, 222, 0.30)));
+}
+
+.jin-avatar-memory-dash.is-memory-hover-hit path {
+    stroke-opacity: 1 !important;
+    stroke-width: calc(var(--jin-avatar-memory-hover-width, 2px) + 0.45px);
+}
+
 .jin-avatar-center-glow-fill,
 .jin-avatar-center-soft,
 .jin-avatar-center-core,

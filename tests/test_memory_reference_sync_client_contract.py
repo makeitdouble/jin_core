@@ -39,7 +39,7 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
             handler,
         )
 
-    def test_chat_dispatches_persistent_and_hover_reference_sources(self):
+    def test_chat_reference_highlight_is_persistent_per_jin_turn(self):
         source = CHAT_JS.read_text(encoding="utf-8")
 
         self.assertIn(
@@ -47,18 +47,21 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            'function bindJinMemoryReferenceBubble(',
-            source,
-        )
-        self.assertIn(
             'setLatestJinMemoryReferenceText(',
             source,
         )
-        self.assertIn(
+        self.assertNotIn(
+            'function bindJinMemoryReferenceBubble(',
+            source,
+        )
+        self.assertNotIn(
             'clearJinMemoryReferenceHighlights();',
             source,
         )
-
+        self.assertNotIn(
+            'dispatchJinMemoryReferenceHighlight(\n      "hover"',
+            source,
+        )
     def test_memory_rows_expose_keys_and_ids_for_reference_matching(self):
         source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
 
@@ -140,19 +143,19 @@ for (const [text, reference, expected] of cases) {
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            '/static/css/runtime-memory.css?v=l4-logger-cards-1',
+            '/static/css/runtime-memory.css?v=memory-reference-sync-1',
             source,
         )
         self.assertIn(
-            '/static/js/runtime/runtime-memory-view.js?v=runtime-memory-view-12',
+            '/static/js/runtime/runtime-memory-view.js?v=runtime-memory-view-14',
             source,
         )
         self.assertIn(
-            '/static/js/runtime/runtime.js?v=runtime-facade-16',
+            '/static/js/runtime/runtime.js?v=runtime-facade-17',
             source,
         )
         self.assertIn(
-            '/static/js/chat.js?v=chat-core-6',
+            '/static/js/chat.js?v=memory-reference-sync-2',
             source,
         )
 

@@ -46,9 +46,24 @@ def load_long_term_facts_store(
             f"cannot load {path.name}: {error}",
         ]
 
-    return normalize_l4_store(
+    normalized = normalize_l4_store(
         raw_value,
-    ), []
+    )
+
+    # Persist one-way ID/schema migrations immediately so the file store never
+    # oscillates between legacy hash IDs and compact F/PF IDs across restarts.
+    if normalized != raw_value:
+        try:
+            persist_long_term_facts_store(
+                normalized,
+                root=root,
+            )
+        except OSError as error:
+            return normalized, [
+                f"cannot persist migrated {path.name}: {error}",
+            ]
+
+    return normalized, []
 
 
 def persist_long_term_facts_store(

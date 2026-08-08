@@ -1472,10 +1472,10 @@ class L1MemoryTests(
                 telemetry_events[-1]["runtime"][
                     RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID
                 ]["max_tokens"],
-                8192,
+                config.SERVICE_CONTEXT_WINDOW,
             )
 
-    async def test_summarizer_uses_service_max_tokens(self):
+    async def test_summarizer_uses_auto_runtime_output_budget(self):
 
             service_client = FakeServiceClient(
                 "- Active topic: available functions\n"
@@ -1519,9 +1519,8 @@ class L1MemoryTests(
                 ),
                 1,
             )
-            self.assertEqual(
+            self.assertIsNone(
                 service_client.calls[0]["max_tokens"],
-                config.SERVICE_MAX_TOKENS,
             )
             self.assertEqual(
                 service_client.calls[0]["timeout"],

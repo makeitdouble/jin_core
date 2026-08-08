@@ -25,11 +25,13 @@ const websocketClientId =
 
 const websocketReconnectBaseDelay = 700;
 const websocketReconnectMaxDelay = 5000;
+const websocketReconnectMaxAttempts = 3;
 
 let websocketHasOpened = false;
 let ws = null;
 let websocketReconnectTimer = null;
 let websocketReconnectAttempts = 0;
+let websocketReconnectAwaitingFocus = false;
 let websocketDisconnectedLogged = false;
 let persistedSessionBootstrapSent = false;
 let generationRunning = false;
@@ -190,7 +192,22 @@ function clearWebSocketReconnectTimer() {
 
 function scheduleWebSocketReconnect() {
 
-  if (websocketReconnectTimer) {
+  if (
+      websocketReconnectTimer
+      || isWebSocketOpen()
+      || (
+          ws
+          && ws.readyState === WebSocket.CONNECTING
+      )
+  ) {
+    return;
+  }
+
+  if (
+      websocketReconnectAttempts
+      >= websocketReconnectMaxAttempts
+  ) {
+    websocketReconnectAwaitingFocus = true;
     return;
   }
 
@@ -206,6 +223,17 @@ function scheduleWebSocketReconnect() {
   websocketReconnectTimer = setTimeout(
     function () {
       websocketReconnectTimer = null;
+
+      if (
+          isWebSocketOpen()
+          || (
+              ws
+              && ws.readyState === WebSocket.CONNECTING
+          )
+      ) {
+        return;
+      }
+
       connectWebSocket();
     },
     delay
@@ -439,6 +467,7 @@ async function handleSocketOpen() {
   clearWebSocketReconnectTimer();
 
   websocketReconnectAttempts = 0;
+  websocketReconnectAwaitingFocus = false;
   websocketDisconnectedLogged = false;
 
   const isSoftReconnect =
@@ -620,34 +649,86 @@ function connectWebSocket() {
           || ws.readyState === WebSocket.CONNECTING
       )
   ) {
-    return;
+    return false;
   }
 
-  ws =
+  const socket =
     new WebSocket(
       buildWebSocketUrl()
     );
 
-  ws.onmessage =
+  ws = socket;
+
+  socket.onmessage =
     handleSocketMessage;
 
-  ws.onopen =
-    handleSocketOpen;
+  socket.onopen = function () {
+    if (ws !== socket) {
+      return;
+    }
 
-  ws.onclose =
-    handleSocketClose;
+    void handleSocketOpen();
+  };
 
-  ws.onerror = function () {
+  socket.onclose = function () {
+    if (ws !== socket) {
+      return;
+    }
+
+    ws = null;
+    handleSocketClose();
+  };
+
+  socket.onerror = function () {
     clearInterruptedRuntimeGlow();
 
-    if (ws) {
-      ws.close();
+    if (ws === socket) {
+      socket.close();
     }
   };
+
+  return true;
 
 }
 
 window.connectWebSocket = connectWebSocket;
+
+function retryWebSocketOnFocus() {
+
+  if (
+      isWebSocketOpen()
+      || (
+          ws
+          && ws.readyState === WebSocket.CONNECTING
+      )
+  ) {
+    return;
+  }
+
+  if (!websocketReconnectAwaitingFocus) {
+    return;
+  }
+
+  clearWebSocketReconnectTimer();
+  websocketReconnectAttempts = 0;
+  websocketReconnectAwaitingFocus = false;
+  connectWebSocket();
+
+}
+
+window.addEventListener(
+  "focus",
+  retryWebSocketOnFocus
+);
+
+document.addEventListener(
+  "visibilitychange",
+  function () {
+    if (!document.hidden) {
+      retryWebSocketOnFocus();
+    }
+  }
+);
 
 function initializeSocketClient() {
 

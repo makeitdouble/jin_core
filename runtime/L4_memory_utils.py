@@ -12,11 +12,19 @@ from runtime.L4_memory_rules import (
     L4_MERGE_SYSTEM_PROMPT,
     L4_JIN_NOTE_SYSTEM_PROMPT,
 )
+from utils.tokens import (
+    estimate_runtime_tokens,
+    estimate_tokens,
+)
 
 
-L4_STORE_VERSION = 1
-L4_FACT_ID_PREFIX = "l4_"
-L4_PENDING_FACT_ID_PREFIX = "l4p_"
+L4_STORE_VERSION = 2
+L4_FACT_ID_PREFIX = "F"
+L4_PENDING_FACT_ID_PREFIX = "PF"
+L4_FACT_ID_RE = re.compile(r"^F([1-9]\d*)$", re.IGNORECASE)
+L4_PENDING_FACT_ID_RE = re.compile(r"^PF([1-9]\d*)$", re.IGNORECASE)
+L4_LEGACY_FACT_ID_RE = re.compile(r"^l4_[a-z0-9_-]+$", re.IGNORECASE)
+L4_LEGACY_PENDING_FACT_ID_RE = re.compile(r"^l4p_[a-z0-9_-]+$", re.IGNORECASE)
 L4_FIELD_STATUS_PENDING = "pending"
 L4_FIELD_STATUS_ANALYZED = "analyzed"
 L4_ALLOWED_CATEGORIES = {
@@ -97,19 +105,217 @@ def build_l4_merge_user_prompt(
     existing_facts: list[dict],
     pending_facts: list[dict],
 ) -> str:
+    model_existing_facts = [
+        build_l4_merge_model_fact(fact)
+        for fact in existing_facts
+        if isinstance(fact, dict)
+    ]
+    model_pending_facts = [
+        build_l4_merge_model_fact(fact)
+        for fact in pending_facts
+        if isinstance(fact, dict)
+    ]
+
     return (
-        "Consolidate the entire pending batch into the current long-term "
-        "memory. Return exactly one operation for every pending_id.\n\n"
+        "Consolidate this pending batch into the current long-term memory. "
+        "Return exactly one operation for every pending_id in this request.\n\n"
         + json.dumps(
             {
-                "existing_facts": existing_facts,
-                "pending_facts": pending_facts,
+                "existing_facts": model_existing_facts,
+                "pending_facts": model_pending_facts,
             },
             ensure_ascii=False,
-            indent=2,
+            separators=(",", ":"),
             sort_keys=True,
         )
     )
+
+
+def build_l4_merge_model_fact(fact: dict) -> dict:
+    return {
+        "id": normalize_l4_text(fact.get("id")),
+        "key": normalize_l4_text(fact.get("key")),
+        "value": normalize_l4_text(fact.get("value")),
+        "category": normalize_l4_text(fact.get("category")),
+    }
+
+
+def estimate_l4_merge_response_tokens(
+    pending_facts: list[dict],
+) -> int:
+    """Estimate a conservative full operation payload for a merge batch."""
+
+    operations = []
+    for fact in pending_facts:
+        if not isinstance(fact, dict):
+            continue
+
+        model_fact = build_l4_merge_model_fact(fact)
+        operations.append({
+            "action": "update",
+            "pending_id": model_fact["id"],
+            "target_id": "F1",
+            "key": model_fact["key"],
+            "value": model_fact["value"],
+            "category": model_fact["category"],
+        })
+
+    return estimate_tokens(
+        json.dumps(
+            {"operations": operations},
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    )
+
+
+def build_l4_merge_batch_plan(
+    *,
+    existing_facts: list[dict],
+    pending_facts: list[dict],
+    system_prompt: str,
+    runtime_context_window: int,
+    requested_max_tokens: int | None,
+    runtime_output_reserve: int = 256,
+) -> dict:
+    """Select the largest FIFO pending slice that fits the live LM Studio budget.
+
+    The configured SERVICE_CONTEXT_WINDOW is intentionally not a request limit;
+    it remains a UI/reference denominator. L4 batching uses the context_length
+    of the model instance actually loaded in LM Studio.
+    """
+
+    try:
+        context_window = max(1, int(runtime_context_window))
+    except (TypeError, ValueError):
+        context_window = 1
+
+    try:
+        max_requested_output = max(1, int(requested_max_tokens))
+    except (TypeError, ValueError):
+        max_requested_output = context_window
+
+    try:
+        provider_reserve = max(0, int(runtime_output_reserve))
+    except (TypeError, ValueError):
+        provider_reserve = 0
+
+    # Leave a small model-side cushion for reasoning / JSON variation in
+    # addition to the generic provider reserve. Scale it with the live window
+    # so batching remains proportional to the actual LM Studio context.
+    response_headroom = max(
+        128,
+        min(
+            1024,
+            context_window // 16,
+        ),
+    )
+
+    queue = [
+        fact
+        for fact in pending_facts
+        if isinstance(fact, dict)
+    ]
+    selected = []
+    selected_prompt = ""
+    selected_prompt_tokens = 0
+    selected_response_tokens = 0
+    estimated_total_tokens = 0
+
+    for fact in queue:
+        candidate_batch = [*selected, fact]
+        candidate_prompt = build_l4_merge_user_prompt(
+            existing_facts=existing_facts,
+            pending_facts=candidate_batch,
+        )
+        prompt_tokens = estimate_runtime_tokens(
+            system_prompt=system_prompt,
+            user_input=candidate_prompt,
+        )
+        response_tokens = estimate_l4_merge_response_tokens(
+            candidate_batch
+        )
+        total_tokens = (
+            prompt_tokens
+            + response_tokens
+            + provider_reserve
+            + response_headroom
+        )
+
+        if total_tokens > context_window:
+            break
+
+        selected = candidate_batch
+        selected_prompt = candidate_prompt
+        selected_prompt_tokens = prompt_tokens
+        selected_response_tokens = response_tokens
+        estimated_total_tokens = total_tokens
+
+    pending_ids = [
+        normalize_l4_text(fact.get("id"))
+        for fact in selected
+        if normalize_l4_text(fact.get("id"))
+    ]
+
+    if selected:
+        configured_output_room = max(
+            1,
+            context_window
+            - selected_prompt_tokens
+            - provider_reserve,
+        )
+    else:
+        # Calculate diagnostics for the first FIFO item so a failed budget is
+        # explainable instead of silently retrying the same oversized payload.
+        first_prompt = ""
+        first_prompt_tokens = 0
+        first_response_tokens = 0
+        first_total_tokens = 0
+        if queue:
+            first_prompt = build_l4_merge_user_prompt(
+                existing_facts=existing_facts,
+                pending_facts=[queue[0]],
+            )
+            first_prompt_tokens = estimate_runtime_tokens(
+                system_prompt=system_prompt,
+                user_input=first_prompt,
+            )
+            first_response_tokens = estimate_l4_merge_response_tokens(
+                [queue[0]]
+            )
+            first_total_tokens = (
+                first_prompt_tokens
+                + first_response_tokens
+                + provider_reserve
+                + response_headroom
+            )
+
+        selected_prompt = first_prompt
+        selected_prompt_tokens = first_prompt_tokens
+        selected_response_tokens = first_response_tokens
+        estimated_total_tokens = first_total_tokens
+        configured_output_room = 0
+
+    return {
+        "pending_facts": selected,
+        "pending_ids": pending_ids,
+        "batch_count": len(selected),
+        "total_pending_count": len(queue),
+        "remaining_pending_count": max(0, len(queue) - len(selected)),
+        "user_prompt": selected_prompt,
+        "runtime_context_window_tokens": context_window,
+        # Kept as a diagnostics compatibility alias for older log viewers.
+        "configured_context_window_tokens": context_window,
+        "estimated_prompt_tokens": selected_prompt_tokens,
+        "estimated_response_tokens": selected_response_tokens,
+        "runtime_output_reserve_tokens": provider_reserve,
+        "response_headroom_tokens": response_headroom,
+        "estimated_total_tokens": estimated_total_tokens,
+        "configured_output_room_tokens": configured_output_room,
+        "requested_max_output_tokens": max_requested_output,
+        "fits": bool(selected),
+    }
 
 
 def utc_now_iso() -> str:
@@ -167,12 +373,44 @@ def merge_l4_string_lists(*values) -> list[str]:
     return result
 
 
+def normalize_l4_id(value, *, pending: bool = False) -> str:
+    text = normalize_l4_text(value).upper()
+    matcher = L4_PENDING_FACT_ID_RE if pending else L4_FACT_ID_RE
+    match = matcher.fullmatch(text)
+    if not match:
+        return ""
+    return f"{L4_PENDING_FACT_ID_PREFIX if pending else L4_FACT_ID_PREFIX}{int(match.group(1))}"
+
+
+def is_l4_fact_id(value) -> bool:
+    return bool(normalize_l4_id(value, pending=False))
+
+
+def is_l4_pending_fact_id(value) -> bool:
+    return bool(normalize_l4_id(value, pending=True))
+
+
+def _l4_id_number(value, *, pending: bool = False) -> int:
+    normalized = normalize_l4_id(value, pending=pending)
+    if not normalized:
+        return 0
+    prefix = L4_PENDING_FACT_ID_PREFIX if pending else L4_FACT_ID_PREFIX
+    try:
+        return int(normalized[len(prefix):])
+    except (TypeError, ValueError):
+        return 0
+
+
 def normalize_l4_deleted_fact_ids(value) -> list[str]:
-    return [
-        fact_id
-        for fact_id in normalize_l4_string_list(value)
-        if fact_id.startswith(L4_FACT_ID_PREFIX)
-    ]
+    result = []
+    seen = set()
+    for candidate in normalize_l4_string_list(value):
+        fact_id = normalize_l4_id(candidate, pending=False)
+        if not fact_id or fact_id in seen:
+            continue
+        seen.add(fact_id)
+        result.append(fact_id)
+    return result
 
 
 def build_l4_content_hash(content: str) -> str:
@@ -181,10 +419,49 @@ def build_l4_content_hash(content: str) -> str:
     ).hexdigest()[:16]
 
 
-def build_l4_fact_id(*, key: str, value: str, pending: bool = False) -> str:
+def build_l4_fact_id(*, sequence: int, pending: bool = False, **_ignored) -> str:
+    try:
+        number = int(sequence)
+    except (TypeError, ValueError) as error:
+        raise ValueError("L4 fact sequence must be a positive integer") from error
+    if number <= 0:
+        raise ValueError("L4 fact sequence must be a positive integer")
     prefix = L4_PENDING_FACT_ID_PREFIX if pending else L4_FACT_ID_PREFIX
-    digest = hashlib.sha256(f"{key}\0{value}".encode("utf-8")).hexdigest()[:12]
-    return f"{prefix}{digest}"
+    return f"{prefix}{number}"
+
+
+def _next_l4_sequence(store: dict, *, pending: bool = False) -> int:
+    counter_key = "next_pending_fact_id" if pending else "next_fact_id"
+    try:
+        configured = max(1, int(store.get(counter_key) or 1))
+    except (TypeError, ValueError):
+        configured = 1
+
+    ids = []
+    if pending:
+        ids.extend(fact.get("id") for fact in store.get("pending_facts", []) if isinstance(fact, dict))
+        for fact in store.get("facts", []):
+            if isinstance(fact, dict):
+                ids.extend(fact.get("source_fact_ids") or [])
+    else:
+        ids.extend(fact.get("id") for fact in store.get("facts", []) if isinstance(fact, dict))
+        ids.extend(store.get("deleted_fact_ids") or [])
+        for fact in store.get("facts", []):
+            if isinstance(fact, dict):
+                ids.extend(fact.get("source_fact_ids") or [])
+
+    highest = max(
+        (_l4_id_number(value, pending=pending) for value in ids),
+        default=0,
+    )
+    return max(configured, highest + 1)
+
+
+def allocate_l4_fact_id(store: dict, *, pending: bool = False) -> str:
+    sequence = _next_l4_sequence(store, pending=pending)
+    counter_key = "next_pending_fact_id" if pending else "next_fact_id"
+    store[counter_key] = sequence + 1
+    return build_l4_fact_id(sequence=sequence, pending=pending)
 
 
 def normalize_l4_fact(
@@ -202,10 +479,7 @@ def normalize_l4_fact(
         return None
 
     current_time = now or utc_now_iso()
-    expected_prefix = L4_PENDING_FACT_ID_PREFIX if pending else L4_FACT_ID_PREFIX
-    fact_id = normalize_l4_text(value.get("id"))
-    if not fact_id.startswith(expected_prefix):
-        fact_id = build_l4_fact_id(key=key, value=fact_value, pending=pending)
+    fact_id = normalize_l4_id(value.get("id"), pending=pending)
 
     try:
         mention_count = max(1, int(value.get("mention_count") or 1))
@@ -267,16 +541,22 @@ def merge_same_l4_fact(existing: dict, incoming: dict, *, now: str) -> dict:
 
 def deduplicate_l4_facts(facts: list[dict], *, pending: bool, now: str) -> list[dict]:
     result = []
-    by_id = {}
+    by_identity = {}
 
     for raw_fact in facts:
         fact = normalize_l4_fact(raw_fact, pending=pending, now=now)
         if fact is None:
             continue
 
-        existing_index = by_id.get(fact["id"])
+        identity = fact.get("id") or (
+            "semantic",
+            fact.get("key"),
+            fact.get("value"),
+            fact.get("category"),
+        )
+        existing_index = by_identity.get(identity)
         if existing_index is None:
-            by_id[fact["id"]] = len(result)
+            by_identity[identity] = len(result)
             result.append(fact)
             continue
 
@@ -479,8 +759,9 @@ def collect_l4_processed_pending_fact_ids(facts) -> set[str]:
         for source_fact_id in normalize_l4_string_list(
             fact.get("source_fact_ids")
         ):
-            if source_fact_id.startswith(L4_PENDING_FACT_ID_PREFIX):
-                processed_ids.add(source_fact_id)
+            pending_id = normalize_l4_id(source_fact_id, pending=True)
+            if pending_id:
+                processed_ids.add(pending_id)
 
     return processed_ids
 
@@ -548,10 +829,20 @@ def merge_l4_store_snapshots(
         facts=facts,
         pending_facts=pending_facts,
     )
+    next_fact_id = max(
+        int(primary.get("next_fact_id") or 1),
+        int(incoming.get("next_fact_id") or 1),
+    )
+    next_pending_fact_id = max(
+        int(primary.get("next_pending_fact_id") or 1),
+        int(incoming.get("next_pending_fact_id") or 1),
+    )
     changed = bool(
         facts != primary.get("facts")
         or pending_facts != primary.get("pending_facts")
         or deleted_fact_ids != primary.get("deleted_fact_ids")
+        or next_fact_id != int(primary.get("next_fact_id") or 1)
+        or next_pending_fact_id != int(primary.get("next_pending_fact_id") or 1)
     )
 
     merged = {
@@ -559,6 +850,8 @@ def merge_l4_store_snapshots(
         "facts": facts,
         "pending_facts": pending_facts,
         "deleted_fact_ids": deleted_fact_ids,
+        "next_fact_id": next_fact_id,
+        "next_pending_fact_id": next_pending_fact_id,
     }
 
     if changed:
@@ -576,6 +869,177 @@ def merge_l4_store_snapshots(
     }
 
 
+def migrate_l4_store_ids(
+    value,
+    *,
+    now: str | None = None,
+) -> tuple[dict, dict[str, str]]:
+    """Upgrade legacy hash-like L4 ids to compact sequential F/PF ids.
+
+    Existing F/PF ids are preserved. Legacy ids are remapped deterministically
+    in store order so browser and backend snapshots converge on the same ids.
+    """
+
+    current_time = now or utc_now_iso()
+    if not isinstance(value, dict):
+        return empty_l4_store(now=current_time), {}
+
+    migrated = deepcopy(value)
+    facts = migrated.get("facts") if isinstance(migrated.get("facts"), list) else []
+    pending = (
+        migrated.get("pending_facts")
+        if isinstance(migrated.get("pending_facts"), list)
+        else []
+    )
+    deleted = (
+        migrated.get("deleted_fact_ids")
+        if isinstance(migrated.get("deleted_fact_ids"), list)
+        else []
+    )
+
+    used_fact_numbers = {
+        _l4_id_number(fact.get("id"), pending=False)
+        for fact in facts
+        if isinstance(fact, dict) and is_l4_fact_id(fact.get("id"))
+    }
+    used_pending_numbers = {
+        _l4_id_number(fact.get("id"), pending=True)
+        for fact in pending
+        if isinstance(fact, dict) and is_l4_pending_fact_id(fact.get("id"))
+    }
+    used_fact_numbers.discard(0)
+    used_pending_numbers.discard(0)
+
+    try:
+        next_fact = max(1, int(migrated.get("next_fact_id") or 1))
+    except (TypeError, ValueError):
+        next_fact = 1
+    try:
+        next_pending = max(1, int(migrated.get("next_pending_fact_id") or 1))
+    except (TypeError, ValueError):
+        next_pending = 1
+
+    next_fact = max(next_fact, max(used_fact_numbers, default=0) + 1)
+    next_pending = max(next_pending, max(used_pending_numbers, default=0) + 1)
+    id_map: dict[str, str] = {}
+
+    def allocate(raw_id, *, is_pending: bool) -> str:
+        nonlocal next_fact, next_pending
+        text = normalize_l4_text(raw_id)
+        normalized = normalize_l4_id(text, pending=is_pending)
+        if normalized:
+            return normalized
+        if text and text in id_map:
+            return id_map[text]
+
+        legacy_match = (
+            L4_LEGACY_PENDING_FACT_ID_RE.fullmatch(text)
+            if is_pending
+            else L4_LEGACY_FACT_ID_RE.fullmatch(text)
+        )
+        if text and not legacy_match:
+            return ""
+
+        if is_pending:
+            while next_pending in used_pending_numbers:
+                next_pending += 1
+            assigned = build_l4_fact_id(sequence=next_pending, pending=True)
+            used_pending_numbers.add(next_pending)
+            next_pending += 1
+        else:
+            while next_fact in used_fact_numbers:
+                next_fact += 1
+            assigned = build_l4_fact_id(sequence=next_fact, pending=False)
+            used_fact_numbers.add(next_fact)
+            next_fact += 1
+
+        if text:
+            id_map[text] = assigned
+        return assigned
+
+    # Assign actual records first. This makes the migration deterministic and
+    # ensures references to those records reuse the same new id.
+    for fact in facts:
+        if not isinstance(fact, dict):
+            continue
+        old_id = normalize_l4_text(fact.get("id"))
+        new_id = allocate(old_id, is_pending=False)
+        if not new_id:
+            new_id = allocate("", is_pending=False)
+        if old_id and old_id != new_id:
+            id_map[old_id] = new_id
+        fact["id"] = new_id
+
+    for fact in pending:
+        if not isinstance(fact, dict):
+            continue
+        old_id = normalize_l4_text(fact.get("id"))
+        new_id = allocate(old_id, is_pending=True)
+        if not new_id:
+            new_id = allocate("", is_pending=True)
+        if old_id and old_id != new_id:
+            id_map[old_id] = new_id
+        fact["id"] = new_id
+
+    migrated_deleted = []
+    for raw_id in deleted:
+        old_id = normalize_l4_text(raw_id)
+        new_id = normalize_l4_id(old_id, pending=False) or id_map.get(old_id, "")
+        if not new_id and L4_LEGACY_FACT_ID_RE.fullmatch(old_id):
+            new_id = allocate(old_id, is_pending=False)
+        if new_id and new_id not in migrated_deleted:
+            migrated_deleted.append(new_id)
+
+    for fact in [*facts, *pending]:
+        if not isinstance(fact, dict):
+            continue
+        remapped_sources = []
+        for raw_id in normalize_l4_string_list(fact.get("source_fact_ids")):
+            new_id = normalize_l4_id(raw_id, pending=True)
+            if not new_id:
+                new_id = normalize_l4_id(raw_id, pending=False)
+            if not new_id:
+                new_id = id_map.get(raw_id, "")
+            if not new_id and L4_LEGACY_PENDING_FACT_ID_RE.fullmatch(raw_id):
+                new_id = allocate(raw_id, is_pending=True)
+            if not new_id and L4_LEGACY_FACT_ID_RE.fullmatch(raw_id):
+                new_id = allocate(raw_id, is_pending=False)
+            if new_id and new_id not in remapped_sources:
+                remapped_sources.append(new_id)
+        fact["source_fact_ids"] = remapped_sources
+
+    try:
+        previous_version = int(value.get("version") or 0)
+    except (TypeError, ValueError):
+        previous_version = 0
+
+    should_bump_revision = bool(
+        id_map
+        or migrated_deleted != deleted
+        or (
+            previous_version not in {0, L4_STORE_VERSION}
+            and bool(facts or pending or deleted)
+        )
+    )
+
+    migrated.update({
+        "version": L4_STORE_VERSION,
+        "facts": facts,
+        "pending_facts": pending,
+        "deleted_fact_ids": migrated_deleted,
+        "next_fact_id": next_fact,
+        "next_pending_fact_id": next_pending,
+    })
+    if should_bump_revision:
+        try:
+            migrated["revision"] = max(0, int(value.get("revision") or 0)) + 1
+        except (TypeError, ValueError):
+            migrated["revision"] = 1
+        migrated["updated_at"] = current_time
+
+    return migrated, id_map
+
+
 def empty_l4_store(*, now: str | None = None) -> dict:
     return {
         "version": L4_STORE_VERSION,
@@ -584,13 +1048,17 @@ def empty_l4_store(*, now: str | None = None) -> dict:
         "facts": [],
         "pending_facts": [],
         "deleted_fact_ids": [],
+        "next_fact_id": 1,
+        "next_pending_fact_id": 1,
     }
 
 
 def normalize_l4_store(value, *, now: str | None = None) -> dict:
     current_time = now or utc_now_iso()
     if not isinstance(value, dict):
-        return empty_l4_store()
+        return empty_l4_store(now=current_time)
+
+    value, _id_map = migrate_l4_store_ids(value, now=current_time)
 
     try:
         revision = max(0, int(value.get("revision") or 0))
@@ -626,6 +1094,25 @@ def normalize_l4_store(value, *, now: str | None = None) -> dict:
         ),
     )
 
+    next_fact_id = max(
+        _next_l4_sequence({
+            **value,
+            "facts": facts,
+            "pending_facts": pending_facts,
+            "deleted_fact_ids": deleted_fact_ids,
+        }, pending=False),
+        1,
+    )
+    next_pending_fact_id = max(
+        _next_l4_sequence({
+            **value,
+            "facts": facts,
+            "pending_facts": pending_facts,
+            "deleted_fact_ids": deleted_fact_ids,
+        }, pending=True),
+        1,
+    )
+
     return {
         "version": L4_STORE_VERSION,
         "revision": revision,
@@ -633,6 +1120,8 @@ def normalize_l4_store(value, *, now: str | None = None) -> dict:
         "facts": facts,
         "pending_facts": pending_facts,
         "deleted_fact_ids": deleted_fact_ids,
+        "next_fact_id": next_fact_id,
+        "next_pending_fact_id": next_pending_fact_id,
     }
 
 
@@ -870,6 +1359,10 @@ def add_l4_pending_candidates(
     next_store = normalize_l4_store(store, now=current_time)
     pending = list(next_store["pending_facts"])
     by_id = {fact["id"]: index for index, fact in enumerate(pending)}
+    by_semantic = {
+        (fact.get("key"), fact.get("value"), fact.get("category")): index
+        for index, fact in enumerate(pending)
+    }
     added_ids = []
     reinforced_ids = []
 
@@ -878,12 +1371,19 @@ def add_l4_pending_candidates(
         if candidate is None:
             continue
 
-        index = by_id.get(candidate["id"])
+        identity = (candidate.get("key"), candidate.get("value"), candidate.get("category"))
+        index = by_id.get(candidate.get("id")) if candidate.get("id") else None
         if index is None:
+            index = by_semantic.get(identity)
+
+        if index is None:
+            candidate["id"] = allocate_l4_fact_id(next_store, pending=True)
             by_id[candidate["id"]] = len(pending)
+            by_semantic[identity] = len(pending)
             pending.append(candidate)
             added_ids.append(candidate["id"])
         else:
+            candidate["id"] = pending[index]["id"]
             pending[index] = merge_same_l4_fact(
                 pending[index],
                 candidate,
@@ -915,7 +1415,7 @@ def normalize_l4_merge_operations(payload) -> list[dict]:
             continue
 
         action = normalize_l4_key(raw_operation.get("action"))
-        pending_id = normalize_l4_text(raw_operation.get("pending_id"))
+        pending_id = normalize_l4_id(raw_operation.get("pending_id"), pending=True)
         if action not in L4_ALLOWED_MERGE_ACTIONS or not pending_id:
             continue
 
@@ -923,7 +1423,7 @@ def normalize_l4_merge_operations(payload) -> list[dict]:
             "action": action,
             "pending_id": pending_id,
         }
-        target_id = normalize_l4_text(raw_operation.get("target_id"))
+        target_id = normalize_l4_id(raw_operation.get("target_id"), pending=False)
         if target_id:
             operation["target_id"] = target_id
 
@@ -936,19 +1436,35 @@ def normalize_l4_merge_operations(payload) -> list[dict]:
     return operations
 
 
-def validate_l4_merge_operations(store, operations: list[dict]) -> tuple[bool, str]:
+def validate_l4_merge_operations(
+    store,
+    operations: list[dict],
+    *,
+    pending_ids: list[str] | None = None,
+) -> tuple[bool, str]:
     normalized_store = normalize_l4_store(store)
     pending = normalized_store["pending_facts"]
-    pending_ids = {fact["id"] for fact in pending}
+    all_pending_ids = {fact["id"] for fact in pending}
     fact_ids = {fact["id"] for fact in normalized_store["facts"]}
 
-    if len(operations) != len(pending):
+    if pending_ids is None:
+        expected_pending_ids = all_pending_ids
+    else:
+        expected_pending_ids = {
+            normalize_l4_id(pending_id, pending=True)
+            for pending_id in pending_ids
+            if normalize_l4_id(pending_id, pending=True)
+        }
+        if not expected_pending_ids.issubset(all_pending_ids):
+            return False, "unknown_pending_batch_id"
+
+    if len(operations) != len(expected_pending_ids):
         return False, "operation_count_mismatch"
 
     seen = set()
     for operation in operations:
         pending_id = operation.get("pending_id")
-        if pending_id not in pending_ids:
+        if pending_id not in expected_pending_ids:
             return False, "unknown_pending_id"
         if pending_id in seen:
             return False, "duplicate_pending_operation"
@@ -959,7 +1475,7 @@ def validate_l4_merge_operations(store, operations: list[dict]) -> tuple[bool, s
             if operation.get("target_id") not in fact_ids:
                 return False, "unknown_target_id"
 
-    if seen != pending_ids:
+    if seen != expected_pending_ids:
         return False, "missing_pending_operation"
 
     return True, ""
@@ -1033,11 +1549,16 @@ def apply_l4_merge_operations(
     store,
     operations: list[dict],
     *,
+    pending_ids: list[str] | None = None,
     now: str | None = None,
 ) -> tuple[dict, dict]:
     current_time = now or utc_now_iso()
     base_store = normalize_l4_store(store, now=current_time)
-    valid, reason = validate_l4_merge_operations(base_store, operations)
+    valid, reason = validate_l4_merge_operations(
+        base_store,
+        operations,
+        pending_ids=pending_ids,
+    )
     if not valid:
         return base_store, {
             "valid": False,
@@ -1047,7 +1568,23 @@ def apply_l4_merge_operations(
 
     facts = [dict(fact) for fact in base_store["facts"]]
     facts_by_id = {fact["id"]: index for index, fact in enumerate(facts)}
-    pending_by_id = {fact["id"]: fact for fact in base_store["pending_facts"]}
+    all_pending_by_id = {
+        fact["id"]: fact
+        for fact in base_store["pending_facts"]
+    }
+    processed_pending_ids = (
+        {
+            normalize_l4_id(pending_id, pending=True)
+            for pending_id in pending_ids
+            if normalize_l4_id(pending_id, pending=True)
+        }
+        if pending_ids is not None
+        else set(all_pending_by_id)
+    )
+    pending_by_id = {
+        pending_id: all_pending_by_id[pending_id]
+        for pending_id in processed_pending_ids
+    }
     added_ids = []
     updated_ids = []
     reinforced_ids = []
@@ -1128,6 +1665,7 @@ def apply_l4_merge_operations(
             )
             continue
 
+        new_fact_id = allocate_l4_fact_id(base_store, pending=False)
         candidate = normalize_l4_fact(
             {
                 **pending,
@@ -1136,9 +1674,13 @@ def apply_l4_merge_operations(
                     for key in ("key", "value", "category")
                     if key in operation
                 },
-                "id": "",
+                "id": new_fact_id,
                 "created_at": current_time,
                 "updated_at": current_time,
+                "source_fact_ids": merge_l4_string_lists(
+                    pending.get("source_fact_ids"),
+                    [pending.get("id")],
+                ),
             },
             now=current_time,
         )
@@ -1170,7 +1712,11 @@ def apply_l4_merge_operations(
     next_store = {
         **base_store,
         "facts": facts,
-        "pending_facts": [],
+        "pending_facts": [
+            fact
+            for fact in base_store["pending_facts"]
+            if fact["id"] not in processed_pending_ids
+        ],
         "revision": base_store["revision"] + 1,
         "updated_at": current_time,
     }
@@ -1181,10 +1727,10 @@ def apply_l4_merge_operations(
         "updated_ids": updated_ids,
         "reinforced_ids": reinforced_ids,
         "ignored_pending_ids": ignored_ids,
-        "processed_pending_ids": sorted(pending_by_id),
+        "processed_pending_ids": sorted(processed_pending_ids),
         "operation_details": operation_details,
         "total_facts": len(facts),
-        "pending_count": 0,
+        "pending_count": len(next_store["pending_facts"]),
         "changed": True,
     }
 
@@ -1285,11 +1831,12 @@ def apply_l4_jin_note_result(
     replacement_facts = []
     replacement_keys = set()
 
+    allocation_store = {**base_store, "facts": [*unselected_facts]}
     for raw_fact in normalized_result["replacement_facts"]:
         replacement = normalize_l4_fact(
             {
                 **raw_fact,
-                "id": "",
+                "id": allocate_l4_fact_id(allocation_store, pending=False),
                 "created_at": current_time,
                 "updated_at": current_time,
             },
@@ -1345,6 +1892,7 @@ def apply_l4_jin_note_result(
     next_store = {
         **base_store,
         "facts": [*unselected_facts, *replacement_facts],
+        "next_fact_id": allocation_store.get("next_fact_id", base_store.get("next_fact_id", 1)),
         "deleted_fact_ids": merge_l4_string_lists(
             base_store.get("deleted_fact_ids"),
             selected_ids,
@@ -1411,7 +1959,9 @@ def delete_l4_fact_from_store(
 ) -> tuple[dict, bool]:
     current_time = now or utc_now_iso()
     next_store = normalize_l4_store(store, now=current_time)
-    target_id = normalize_l4_text(fact_id)
+    target_id = normalize_l4_id(fact_id, pending=False)
+    if not target_id:
+        return next_store, False
     remaining = [fact for fact in next_store["facts"] if fact.get("id") != target_id]
     if len(remaining) == len(next_store["facts"]):
         return next_store, False

@@ -12,22 +12,18 @@ def estimate_tokens(
     word_estimate = len(
         text.split()
     )
-    char_estimate = ceil(
-        len(text) / 4
+    byte_estimate = ceil(
+        len(
+            text.encode(
+                "utf-8"
+            )
+        ) / 4
     )
-
-    if word_estimate <= 1:
-        return max(
-            1,
-            char_estimate,
-        )
 
     return max(
         1,
-        min(
-            word_estimate,
-            char_estimate,
-        ),
+        word_estimate,
+        byte_estimate,
     )
 
 

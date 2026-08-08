@@ -4,9 +4,14 @@
   const THINK_RULE_CITATIONS_ENDPOINT =
     "/api/debug/rule-citations";
   const THINK_RULE_WORKER_URL =
-    "/static/js/think-rule-worker.js?v=rule-citations-4";
-  const THINK_RUNTIME_CITATION_HOVER_EVENT =
-    "jin:think-runtime-citation-hover";
+    "/static/js/think-rule-worker.js?v=rule-citations-6";
+  const THINK_RUNTIME_CITATION_HIGHLIGHT_EVENT =
+    "jin:think-runtime-citation-highlight";
+  const buildCitationRecordIdentity =
+    window.JinRuntime
+    && typeof window.JinRuntime.buildCitationRecordIdentity === "function"
+      ? window.JinRuntime.buildCitationRecordIdentity
+      : () => "";
 
   let thinkRuleCitationWorker = null;
   let thinkRuleCitationRegistryPromise = null;
@@ -127,12 +132,26 @@
       match
       && match.sourceType === "rule"
     ) {
-      return 2;
+      return 4;
     }
 
     if (
       match
       && match.sourceType === "runtime"
+    ) {
+      return 3;
+    }
+
+    if (
+      match
+      && match.sourceType === "active"
+    ) {
+      return 2;
+    }
+
+    if (
+      match
+      && match.sourceType === "l4"
     ) {
       return 1;
     }
@@ -249,9 +268,13 @@
     const label =
       match.sourceType === "runtime"
         ? "RUNTIME"
-        : match.sourceType === "session"
-          ? "SESSION"
-          : "RULE";
+        : match.sourceType === "active"
+          ? "ACTIVE"
+          : match.sourceType === "l4"
+            ? "L4"
+            : match.sourceType === "session"
+              ? "SESSION"
+              : "RULE";
 
     return [
       `${label} - ${match.constantName || "unknown"} - ${match.level || "match"} - ${score}%`,
@@ -268,9 +291,13 @@
     const sourceClass =
       match.sourceType === "runtime"
         ? "runtime"
-        : match.sourceType === "session"
-          ? "session"
-          : "rule";
+        : match.sourceType === "active"
+          ? "active"
+          : match.sourceType === "l4"
+            ? "l4"
+            : match.sourceType === "session"
+              ? "session"
+              : "rule";
 
     return [
       "think-rule-hit",
@@ -327,6 +354,7 @@
       idPrefix,
       defaultConstantName,
       sourceSnapshotIndex = null,
+      sourceLineIdentity = "",
     } = options;
 
     const fragments = [];
@@ -389,6 +417,7 @@
             sourceSnapshotIndex,
             sourceLineKey: key || defaultConstantName,
             sourceLineText: line,
+            sourceLineIdentity,
             minScore: 0.72,
           }
         );
@@ -497,6 +526,111 @@
 
   }
 
+  function buildActiveMemoryCitationFragments() {
+
+    const runtimeApi =
+      window.JinRuntime
+      && window.JinRuntime.runtime;
+
+    if (
+      !runtimeApi
+      || typeof runtimeApi.getActiveMemoryRecords !== "function"
+    ) {
+      return [];
+    }
+
+    const records =
+      runtimeApi.getActiveMemoryRecords();
+
+    if (!Array.isArray(records)) {
+      return [];
+    }
+
+    return records.flatMap((record, index) => {
+      const memoryText =
+        String(record || "").trim();
+
+      if (!memoryText) {
+        return [];
+      }
+
+      return buildMemoryCitationFragments(
+        memoryText,
+        {
+          source: `activeMemory[${index}]`,
+          sourceType: "active",
+          citationType: "active_memory_citation",
+          layer: "active",
+          idPrefix: `active:${index}`,
+          defaultConstantName: `active_memory_${index + 1}`,
+        }
+      );
+    });
+
+  }
+
+  function buildL4CitationFragments() {
+
+    const l4Memory =
+      window.JinRuntime
+      && window.JinRuntime.l4Memory;
+
+    if (
+      !l4Memory
+      || typeof l4Memory.getFacts !== "function"
+    ) {
+      return [];
+    }
+
+    const facts =
+      l4Memory.getFacts();
+
+    if (!Array.isArray(facts)) {
+      return [];
+    }
+
+    return facts.flatMap((fact, index) => {
+      if (
+        !fact
+        || typeof fact !== "object"
+        || Array.isArray(fact)
+      ) {
+        return [];
+      }
+
+      const id =
+        String(fact.id || "").trim();
+      const key =
+        String(fact.key || "").trim();
+      const value =
+        String(fact.value || fact.content || "").trim();
+      const sourceLineIdentity =
+        buildCitationRecordIdentity(
+          id,
+          key,
+          value
+        );
+
+      if (!key || !value) {
+        return [];
+      }
+
+      return buildMemoryCitationFragments(
+        `${key}: ${value}`,
+        {
+          source: `l4Fact[${id || index}]`,
+          sourceType: "l4",
+          citationType: "l4_citation",
+          layer: "l4",
+          idPrefix: `l4:${id || index}`,
+          defaultConstantName: key,
+          sourceLineIdentity,
+        }
+      );
+    });
+
+  }
+
   function buildSessionCitationFragments() {
 
     const storage =
@@ -557,11 +691,16 @@
 
   }
 
-  function buildThinkRuntimeCitationHoverState(matches) {
+  function buildThinkRuntimeCitationHighlightState(matches) {
 
     const runtimeMatches =
       (Array.isArray(matches) ? matches : [])
-        .filter(match => match && match.sourceType === "runtime");
+        .filter(match => (
+          match
+          && ["runtime", "active", "l4"].includes(
+            match.sourceType
+          )
+        ));
 
     const lineKeys =
       Array.from(new Set(
@@ -569,6 +708,15 @@
           .map(match => normalizeThinkRuntimeCitationIdentity(
             match.sourceLineKey
             || match.constantName
+          ))
+          .filter(Boolean)
+      ));
+
+    const lineIdentities =
+      Array.from(new Set(
+        runtimeMatches
+          .map(match => normalizeThinkRuntimeCitationIdentity(
+            match.sourceLineIdentity
           ))
           .filter(Boolean)
       ));
@@ -584,18 +732,23 @@
           .filter(Boolean)
       ));
 
-    if (!lineKeys.length && !lineTexts.length) {
+    if (
+      !lineIdentities.length
+      && !lineKeys.length
+      && !lineTexts.length
+    ) {
       return null;
     }
 
     return {
+      lineIdentities,
       lineKeys,
       lineTexts,
     };
 
   }
 
-  function dispatchThinkRuntimeCitationHover(
+  function dispatchThinkRuntimeCitationHighlight(
     thinkContent,
     active
   ) {
@@ -606,25 +759,27 @@
 
     const state =
       active
-        ? thinkContent.__jinRuntimeCitationHoverState
+        ? thinkContent.__jinRuntimeCitationHighlightState
         : null;
     const sourceId =
       String(thinkContent.dataset.thinkId || "unknown-think");
 
     window.dispatchEvent(
       new CustomEvent(
-        THINK_RUNTIME_CITATION_HOVER_EVENT,
+        THINK_RUNTIME_CITATION_HIGHLIGHT_EVENT,
         {
           detail: state
             ? {
               active: true,
               sourceId,
+              lineIdentities: [...state.lineIdentities],
               lineKeys: [...state.lineKeys],
               lineTexts: [...state.lineTexts],
             }
             : {
               active: false,
               sourceId,
+              lineIdentities: [],
               lineKeys: [],
               lineTexts: [],
             },
@@ -636,28 +791,33 @@
 
   function shouldRevealThinkRuntimeCitations(thinkContent) {
 
-    if (
-      !thinkContent
-      || !thinkContent.__jinRuntimeCitationHoverState
-    ) {
-      return false;
-    }
-
-    const hovered =
-      typeof thinkContent.matches === "function"
-      && thinkContent.matches(":hover");
-    const autoRevealing =
-      thinkContent.classList.contains(
-        "is-rule-highlight-revealing"
-      );
-
-    return hovered || autoRevealing;
+    return Boolean(
+      thinkContent
+      && thinkContent.__jinRuntimeCitationHighlightState
+    );
 
   }
+  function resetThinkCitationHighlightTurn() {
 
+    document
+      .querySelectorAll(
+        ".jin-think-content.has-rule-highlights"
+      )
+      .forEach((thinkContent) => {
+        thinkContent.classList.remove(
+          "has-rule-highlights"
+        );
+
+        dispatchThinkRuntimeCitationHighlight(
+          thinkContent,
+          false
+        );
+      });
+
+  }
   function syncThinkRuntimeCitationHighlight(thinkContent) {
 
-    dispatchThinkRuntimeCitationHover(
+    dispatchThinkRuntimeCitationHighlight(
       thinkContent,
       shouldRevealThinkRuntimeCitations(
         thinkContent
@@ -790,8 +950,8 @@
     job.matches =
       matches;
 
-    element.__jinRuntimeCitationHoverState =
-      buildThinkRuntimeCitationHoverState(
+    element.__jinRuntimeCitationHighlightState =
+      buildThinkRuntimeCitationHighlightState(
         matches
       );
 
@@ -800,54 +960,6 @@
     );
 
     return true;
-
-  }
-
-  function pulseThinkRuleHighlights(job) {
-
-    const element =
-      job.element;
-
-    if (
-      !element
-      || element.dataset.thinkId !== job.thinkId
-    ) {
-      return;
-    }
-
-    if (element.__jinThinkRulePulseTimer) {
-      clearTimeout(
-        element.__jinThinkRulePulseTimer
-      );
-    }
-
-    element.classList.remove(
-      "is-rule-highlight-revealing"
-    );
-
-    void element.offsetWidth;
-
-    element.classList.add(
-      "is-rule-highlight-revealing"
-    );
-
-    syncThinkRuntimeCitationHighlight(
-      element
-    );
-
-    element.__jinThinkRulePulseTimer = setTimeout(
-      () => {
-        element.classList.remove(
-          "is-rule-highlight-revealing"
-        );
-        element.__jinThinkRulePulseTimer = null;
-
-        syncThinkRuntimeCitationHighlight(
-          element
-        );
-      },
-        5000
-      );
 
   }
 
@@ -887,17 +999,9 @@
       data.type === "ruleMatchesDone"
     ) {
       job.done = true;
-      if (
-        renderThinkRuleHighlights(
-          job
-        )
-      ) {
-        requestAnimationFrame(
-          () => pulseThinkRuleHighlights(
-            job
-          )
-        );
-      }
+      renderThinkRuleHighlights(
+        job
+      );
       activeThinkRuleCitationJobs.delete(
         thinkId
       );
@@ -985,6 +1089,8 @@
           ...buildRuntimeCitationFragments(
             currentJob.runtimeCitationIndex
           ),
+          ...buildActiveMemoryCitationFragments(),
+          ...buildL4CitationFragments(),
           ...buildSessionCitationFragments(),
         ];
 
@@ -1018,6 +1124,7 @@
   }
 
   window.JinThinkCitations = {
+    resetThinkCitationHighlightTurn,
     startThinkRuleCitationAnalysis,
     syncThinkRuntimeCitationHighlight,
   };

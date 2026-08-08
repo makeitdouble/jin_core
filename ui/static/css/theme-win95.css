@@ -561,13 +561,16 @@ body.theme-win95 #summarizer-window-bar::after {
             );
 }
 
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit {
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit,
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-citation-hit {
     background: #d7f0ed;
     box-shadow: inset 0 0 0 1px #6b9e99;
 }
 
 body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit .runtime-memory-key,
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit .runtime-memory-value {
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit .runtime-memory-value,
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-citation-hit .runtime-memory-key,
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-citation-hit .runtime-memory-value {
     color: #005650 !important;
     text-shadow: none;
 }
@@ -922,38 +925,30 @@ body.theme-win95 .jin-think-content.is-collapsed {
     box-shadow: none;
 }
 
-body.theme-win95 .jin-think-content .think-rule-hit,
-body.theme-win95 .jin-think-content.is-rule-highlight-revealing .think-rule-hit,
-body.theme-win95 .jin-think-content.has-rule-highlights:hover .think-rule-hit {
+body.theme-win95 .jin-think-content .think-rule-hit {
     text-shadow: none;
 }
 
-body.theme-win95 .jin-think-content.is-rule-highlight-revealing .think-citation-runtime.exact,
-body.theme-win95 .jin-think-content.has-rule-highlights:hover .think-citation-runtime.exact {
+body.theme-win95 .jin-think-content.has-rule-highlights .think-citation-runtime.exact {
     color: #006f2f;
 }
 
-body.theme-win95 .jin-think-content.is-rule-highlight-revealing .think-citation-runtime.near,
-body.theme-win95 .jin-think-content.has-rule-highlights:hover .think-citation-runtime.near {
+body.theme-win95 .jin-think-content.has-rule-highlights .think-citation-runtime.near {
     color: #007a35;
 }
 
-body.theme-win95 .jin-think-content.is-rule-highlight-revealing .think-citation-runtime.compressed,
-body.theme-win95 .jin-think-content.has-rule-highlights:hover .think-citation-runtime.compressed {
+body.theme-win95 .jin-think-content.has-rule-highlights .think-citation-runtime.compressed {
     color: #168041;
 }
 
-body.theme-win95 .jin-think-content.is-rule-highlight-revealing .think-citation-session.exact,
-body.theme-win95 .jin-think-content.has-rule-highlights:hover .think-citation-session.exact {
+body.theme-win95 .jin-think-content.has-rule-highlights .think-citation-session.exact {
     color: #5f22b3;
 }
 
-body.theme-win95 .jin-think-content.is-rule-highlight-revealing .think-citation-session.near,
-body.theme-win95 .jin-think-content.has-rule-highlights:hover .think-citation-session.near {
+body.theme-win95 .jin-think-content.has-rule-highlights .think-citation-session.near {
     color: #6f35bd;
 }
 
-body.theme-win95 .jin-think-content.is-rule-highlight-revealing .think-citation-session.compressed,
-body.theme-win95 .jin-think-content.has-rule-highlights:hover .think-citation-session.compressed {
+body.theme-win95 .jin-think-content.has-rule-highlights .think-citation-session.compressed {
     color: #7950b8;
 }

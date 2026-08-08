@@ -9,7 +9,6 @@ from config_loader import (
 )
 from runtime.L2_memory_rules import (
     DEFAULT_RUNTIME_L2_MEMORY,
-    L2_PATCH_WINDOW,
 )
 from runtime.fact_check import (
     ensure_confirmable_memory_markers,
@@ -18,6 +17,7 @@ from runtime.L2_memory_utils import (
     average_diff,
     build_runtime_l2_memory_system_prompt,
     build_runtime_l2_memory_user_prompt,
+    build_runtime_l2_recurrence_evidence,
     build_runtime_l2_repeated_user_message_evidence_memory,
     compact_runtime_l2_user_message_evidence,
     diff_value_range,
@@ -25,15 +25,10 @@ from runtime.L2_memory_utils import (
     extract_runtime_l2_pattern_evidence_lines,
     filter_runtime_l2_context_lines_from_patch,
     format_diff_value,
-    format_diff_values,
-    get_recent_l2_diff_values,
-    get_recent_l2_patches,
-    get_repeated_l2_patch_keys,
     get_runtime_l2_user_turn_count,
     merge_runtime_l2_pattern_evidence_memory,
     remove_runtime_l2_occurrence_pattern_lines,
     runtime_l1_patch_total_diff,
-    should_run_runtime_l2_memory,
 )
 from runtime.memory_common import (
     build_memory_failure_details,
@@ -60,6 +55,8 @@ async def ask_runtime_l2_memory_model(
         service_client,
         current_l2_memory: str,
         patches: list[dict],
+        recurring_keys: list[str] | None = None,
+        recurring_messages: list[str] | None = None,
 ) -> dict:
 
     system_prompt = (
@@ -69,6 +66,8 @@ async def ask_runtime_l2_memory_model(
         build_runtime_l2_memory_user_prompt(
             current_l2_memory=current_l2_memory,
             patches=patches,
+            recurring_keys=recurring_keys,
+            recurring_messages=recurring_messages,
         )
     )
 
@@ -81,9 +80,7 @@ async def ask_runtime_l2_memory_model(
     temperature = (
         config.SERVICE_TEMPERATURE
     )
-    max_tokens = (
-        config.SERVICE_MAX_TOKENS
-    )
+    max_tokens = None
 
     await log_runtime_summarizer_payload(
         context,
@@ -186,10 +183,6 @@ async def record_runtime_l1_diff(
         "user_messages": observed_user_messages[-3:],
     }
 
-    context.runtime_l2_pending_patches.append(
-        diff_entry
-    )
-
     if not hasattr(
         context,
         "runtime_l1_diff_history",
@@ -203,38 +196,6 @@ async def record_runtime_l1_diff(
                 context.runtime_l1_diff_history
             ),
         }
-    )
-
-    turns_since_l2 = (
-        user_turn_count
-        - getattr(
-            context,
-            "runtime_l2_last_turn",
-            0,
-        )
-    )
-
-    recent_diffs = get_recent_l2_diff_values(
-        context
-    )
-    diff_average = average_diff(
-        recent_diffs
-    )
-    diff_range = diff_value_range(
-        recent_diffs
-    )
-    repeated_keys = get_repeated_l2_patch_keys(
-        context
-    )
-    l2_last_turn = getattr(
-        context,
-        "runtime_l2_last_turn",
-        0,
-    )
-    l2_turn_label = (
-        f"turns since L2 {turns_since_l2}"
-        if l2_last_turn
-        else f"L2 not run yet; observed turns {user_turn_count}"
     )
 
     if total_diff == 0:
@@ -263,13 +224,7 @@ async def record_runtime_l1_diff(
         level="L1",
         message=(
             "L1 diff "
-            f"+{format_diff_value(total_diff)}; "
-            f"recent diffs {format_diff_values(recent_diffs)}; "
-            f"avg {format_diff_value(diff_average)}; "
-            f"range {format_diff_value(diff_range)}; "
-            f"patch window {len(recent_diffs)}/{L2_PATCH_WINDOW}; "
-            f"repeated keys {repeated_keys}; "
-            f"{l2_turn_label}"
+            f"+{format_diff_value(total_diff)}"
         ),
         details=getattr(
             context,
@@ -295,17 +250,12 @@ async def maybe_summarize_runtime_l2_memory(
         context
     )
 
-    if not should_run_runtime_l2_memory(
+    recurrence_evidence = build_runtime_l2_recurrence_evidence(
         context
-    ):
-        return getattr(
-            context,
-            "runtime_l2_memory",
-            DEFAULT_RUNTIME_L2_MEMORY,
-        )
-
-    patches = get_recent_l2_patches(
-        context
+    )
+    patches = recurrence_evidence.get(
+        "patches",
+        [],
     )
 
     if not patches:
@@ -345,6 +295,14 @@ async def maybe_summarize_runtime_l2_memory(
             service_client=service_client,
             current_l2_memory=current_l2_memory,
             patches=patches,
+            recurring_keys=recurrence_evidence.get(
+                "keys",
+                [],
+            ),
+            recurring_messages=recurrence_evidence.get(
+                "messages",
+                [],
+            ),
         )
 
         updated_l2_memory = extract_runtime_memory_text(
@@ -420,12 +378,14 @@ async def maybe_summarize_runtime_l2_memory(
         context.runtime_l2_last_turn = get_runtime_l2_user_turn_count(
             context
         )
-        context.runtime_l2_pending_patches = []
-
         await log_runtime_summarizer_result(
             context,
             label="L2 pattern memory",
             result=updated_l2_memory,
+            memory_changed=(
+                updated_l2_memory.strip()
+                != current_l2_memory.strip()
+            ),
         )
 
         await emit_runtime_memory_snapshot_refresh(

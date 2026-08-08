@@ -16,14 +16,14 @@ from utils.tokens import (
 
 class TokenUsageTests(unittest.TestCase):
 
-    def test_stream_estimate_uses_conservative_context_size(self):
+    def test_general_estimate_uses_conservative_context_size(self):
 
         prompt = (
             "active_runtime_memory_entry "
             * 200
         )
 
-        self.assertLess(
+        self.assertEqual(
             estimate_tokens(
                 prompt
             ),
@@ -31,6 +31,12 @@ class TokenUsageTests(unittest.TestCase):
                 None,
                 prompt_text=prompt,
             ),
+        )
+        self.assertEqual(
+            estimate_tokens(
+                prompt
+            ),
+            1400,
         )
         self.assertEqual(
             estimate_stream_input_tokens(

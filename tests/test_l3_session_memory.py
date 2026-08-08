@@ -609,9 +609,13 @@ class L3SessionMemoryTests(
                 service_client.calls[0]["timeout"],
                 config.SERVICE_REQUEST_TIMEOUT,
             )
-            self.assertLess(
+            self.assertGreater(
                 service_client.calls[0]["max_tokens"],
-                config.SERVICE_MAX_TOKENS,
+                0,
+            )
+            self.assertLessEqual(
+                service_client.calls[0]["max_tokens"],
+                2048,
             )
             self.assertGreaterEqual(
                 service_client.calls[0]["max_tokens"],

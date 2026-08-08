@@ -163,7 +163,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 yield {
                     "type": "content",
                     "content": (
-                        '\n{"fact_ids":["l4_a"],'
+                        '\n{"fact_ids":["F1"],'
                         '"message":"The relation is clarified."}\n'
                     ),
                 }

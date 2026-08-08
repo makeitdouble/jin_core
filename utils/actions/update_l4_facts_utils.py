@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import re
 
 
 MAX_UPDATE_L4_FACTS_MESSAGE_CHARS = 1200
+L4_FACT_ID_RE = re.compile(r"^F[1-9]\d*$", re.IGNORECASE)
 
 
 def parse_update_l4_facts_payload(payload: str) -> dict:
@@ -28,9 +30,9 @@ def parse_update_l4_facts_payload(payload: str) -> dict:
     seen = set()
 
     for raw_fact_id in raw_fact_ids:
-        fact_id = str(raw_fact_id or "").strip()
+        fact_id = str(raw_fact_id or "").strip().upper()
 
-        if not fact_id.startswith("l4_"):
+        if not L4_FACT_ID_RE.fullmatch(fact_id):
             return {}
         if fact_id in seen:
             continue

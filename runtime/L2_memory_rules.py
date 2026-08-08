@@ -1,14 +1,49 @@
 # Provides the initial L2 memory text before any L2 summary exists.
 DEFAULT_RUNTIME_L2_MEMORY = ""
 
-# Sets the minimum number of turns before L2 summarization can run.
-MIN_L2_TURNS = 3
+# Caps the evidence actually sent to the L2 model.
+L2_MAX_EVIDENCE_PATCHES = 6
 
-# Sets how many recent L1 diffs are considered for L2 patching.
-L2_PATCH_WINDOW = 5
-
-# Sets how often a key must repeat before L2 treats it as recurring evidence.
-L2_REPEATED_KEY_THRESHOLD = 3
+# Keys that are structural/live bookkeeping rather than useful pattern triggers.
+L2_TRIGGER_IGNORED_KEYS = {
+    "user_message",
+    "user_idle",
+    "topic",
+    "focus",
+    "next_step",
+    "next_steps",
+    "last_jin_response",
+    "jin_last_response_user_feedback",
+    "user_request",
+    "active_topic",
+    "active_topics",
+    "current_topic",
+    "current_topics",
+    "open_reference",
+    "open_references",
+    "open_question",
+    "pending_choice",
+    "pending_choices",
+    "pending_action",
+    "pending_actions",
+    "offered_choice",
+    "offered_choices",
+    "offered_option",
+    "offered_options",
+    "suggested_choice",
+    "suggested_choices",
+    "suggested_option",
+    "suggested_options",
+    "session_status",
+    "session_state",
+    "current_concern",
+    "current_concerns",
+    "current_task",
+    "current_tasks",
+    "current_context",
+    "current_request",
+    "current_requests",
+}
 
 # Limits how many L2 memory lines are included for session context.
 MAX_SESSION_L2_LINES = 3
@@ -50,11 +85,6 @@ RUNTIME_L2_REPEATED_SUFFIX_PATTERN = r"\s*\[\s*repeated\s*:\s*\d+\s*\]\s*$"
 # Matches a quoted user_message value with an optional repeated suffix.
 L2_USER_MESSAGE_QUOTED_VALUE_PATTERN = r'^\s*\"(?P<quote>.*)\"\s*(?:\[\s*repeated\s*:\s*\d+\s*\])?\s*$'
 
-# Trace suffix templates used in L2 user-prompt patch entries.
-RUNTIME_L2_TRACE_SUFFIX_TEMPLATE = " [trace: {strength}]"
-RUNTIME_L2_CHANGED_TRACE_SUFFIX_TEMPLATE = " [trace: {previous_strength} -> {current_strength}]"
-
-
 # -----------------------------------------------------------------------------
 # ROLE
 # L2 хранит только повторяющиеся гипотезы поверх L1, а не текущий live-state.
@@ -63,7 +93,7 @@ ROLE = (
     "You are JIN's L2 pattern memory summarizer.\n"
     "L1 already stores current facts, tasks, topics, and live interaction signals.\n"
     "L2 stores only recurring cross-patch hypotheses that help future adaptation.\n"
-    "Work only from the supplied L1 patch window and existing L2 memory.\n"
+    "Work only from the supplied recurrence evidence and existing L2 memory.\n"
     "Return only updated L2 memory as plain text, without explanations.\n"
 )
 
@@ -103,7 +133,7 @@ SPAN_METADATA = (
 # OCCURRENCE COUNTING
 # -----------------------------------------------------------------------------
 OCCURRENCE_COUNTING = (
-    "Count evidence by unique L1 patch snapshots, not duplicate rows inside one patch.\n"
+    "Count evidence by unique L1 snapshots, not duplicate rows inside one evidence patch.\n"
     "The same user_message in user_messages and changes counts once.\n"
     "Runtime [ repeated: N ] is the exact-repeat count; do not copy occurrence counters "
     "into L2_pattern_evidence_N lines.\n"
@@ -155,7 +185,7 @@ PATTERN_FAMILY_DEDUPLICATION = (
 # -----------------------------------------------------------------------------
 SELF_LEARNING_GUARD = (
     "Existing L2 summaries are context, never evidence.\n"
-    "Create and count patterns only from actual supplied L1 patches.\n"
+    "Create and count patterns only from the supplied recurrence evidence.\n"
 )
 
 # -----------------------------------------------------------------------------

@@ -68,10 +68,7 @@ def build_l3_session_memory_max_tokens(
 
     return max(
         128,
-        min(
-            config.SERVICE_MAX_TOKENS,
-            response_budget,
-        ),
+        response_budget,
     )
 
 

@@ -619,10 +619,10 @@ async def refresh_runtime_memory_summarizer_usage(
             total_tokens
             or context_tokens
         ),
-        max_tokens=(
-            context_window
-            or config.SERVICE_CONTEXT_WINDOW
-        ),
+        # Deliberately keep the configured service context as the UI
+        # denominator. The live LM Studio context is used for request
+        # budgeting elsewhere, so usage may legitimately exceed 100% here.
+        max_tokens=config.SERVICE_CONTEXT_WINDOW,
         last_error=None,
         status="online",
     )
@@ -703,23 +703,10 @@ def latest_turn_context_is_overloaded(
             explicit_value
         )
 
-    runtime_id = (
-        config.SERVICE_MODEL_UID
-        if config.USE_SERVICE_AS_BRAIN
-        else config.BRAIN_MODEL_UID
-    )
-
-    runtime = (
-        runtime_state
-        .get_all_runtime_states()
-        .get(
-            runtime_id
-        )
-    )
-
-    return runtime_usage_is_context_overloaded(
-        runtime
-    )
+    # Runtime-state max_tokens is the manually configured UI denominator, not
+    # the provider request limit. Never let a >100% display value change memory
+    # behavior; actual prompt overload checks use the live LM Studio context.
+    return False
 
 
 def runtime_prompt_is_context_overloaded(
@@ -750,7 +737,7 @@ def build_runtime_summarizer_payload(
         system_prompt: str,
         user_prompt: str,
         temperature: float,
-        max_tokens: int,
+        max_tokens: int | None,
         stream: bool = False,
 ) -> dict:
 
@@ -835,6 +822,7 @@ async def log_runtime_summarizer_result(
         *,
         label: str,
         result: str,
+        **extra,
 ) -> None:
 
     await log_memory_event(
@@ -849,6 +837,7 @@ async def log_runtime_summarizer_result(
         ),
         fallback_channel="summarizer",
         event="summarizer_result",
+        **extra,
     )
 
 def build_runtime_summarizer_response_details(

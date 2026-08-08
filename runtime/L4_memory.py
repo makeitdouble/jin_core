@@ -11,12 +11,12 @@ from runtime.L4_memory_utils import (
     add_l4_pending_candidates,
     apply_l4_jin_note_result,
     apply_l4_merge_operations,
+    build_l4_merge_batch_plan,
     build_l4_extraction_system_prompt,
     build_l4_extraction_user_prompt,
     build_l4_jin_note_system_prompt,
     build_l4_jin_note_user_prompt,
     build_l4_merge_system_prompt,
-    build_l4_merge_user_prompt,
     clone_l4_store,
     collect_pending_facts_memory_fields,
     delete_l4_fact_from_store,
@@ -69,7 +69,7 @@ async def resolve_l4_request_limits(
     service_client,
     system_prompt: str,
     user_prompt: str,
-    requested_max_tokens: int,
+    requested_max_tokens: int | None,
 ) -> dict:
     context_window = 0
     context_window_resolver = getattr(
@@ -101,9 +101,10 @@ async def resolve_l4_request_limits(
             or getattr(config, "SERVICE_CONTEXT_WINDOW", 0)
         )
 
-    effective_max_tokens = _positive_int(
+    requested_limit = _positive_int(
         requested_max_tokens
     )
+    effective_max_tokens = requested_limit
     safe_max_tokens_resolver = getattr(
         service_client,
         "resolve_safe_max_tokens",
@@ -112,20 +113,27 @@ async def resolve_l4_request_limits(
 
     if safe_max_tokens_resolver is not None:
         try:
-            effective_max_tokens = _positive_int(
+            resolved_safe_max_tokens = _positive_int(
                 await safe_max_tokens_resolver(
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     requested_max_tokens=requested_max_tokens,
                 )
-            ) or effective_max_tokens
+            )
+            if resolved_safe_max_tokens:
+                effective_max_tokens = (
+                    min(
+                        requested_limit,
+                        resolved_safe_max_tokens,
+                    )
+                    if requested_limit
+                    else resolved_safe_max_tokens
+                )
         except Exception:
             pass
 
     return {
-        "requested_max_tokens": _positive_int(
-            requested_max_tokens
-        ),
+        "requested_max_tokens": requested_limit,
         "effective_max_tokens": effective_max_tokens,
         "context_window_tokens": context_window,
     }
@@ -584,7 +592,7 @@ async def ask_l4_model(
     label: str,
     system_prompt: str,
     user_prompt: str,
-    max_tokens: int,
+    max_tokens: int | None,
 ) -> dict:
     request_limits = await resolve_l4_request_limits(
         service_client=service_client,
@@ -594,13 +602,14 @@ async def ask_l4_model(
     )
     effective_max_tokens = (
         request_limits.get("effective_max_tokens")
-        or max_tokens
+        or 1
     )
 
     await refresh_runtime_memory_summarizer_usage(
         context,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
+        context_window=request_limits.get("context_window_tokens") or None,
     )
     await log_runtime_summarizer_payload(
         context,
@@ -648,6 +657,7 @@ async def ask_l4_model(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         response=response,
+        context_window=request_limits.get("context_window_tokens") or None,
     )
     return response
 
@@ -706,7 +716,7 @@ async def run_l4_extraction_phase(
         label="L4 extraction",
         system_prompt=system_prompt,
         user_prompt=user_prompt,
-        max_tokens=int(getattr(config, "SERVICE_MAX_TOKENS", 4096) or 4096),
+        max_tokens=None,
     )
 
     if is_runtime_memory_response_truncated(response):
@@ -799,30 +809,99 @@ async def run_l4_extraction_phase(
 
 async def run_l4_merge_phase(*, context, service_client) -> dict:
     base_store = clone_l4_store(ensure_runtime_l4_state(context))
-    pending_facts = list(base_store.get("pending_facts") or [])
-    if not pending_facts:
+    pending_queue = list(base_store.get("pending_facts") or [])
+    if not pending_queue:
         return {"phase": "merge", "status": "skipped", "reason": "no_pending_long_term_facts"}
 
     system_prompt = build_l4_merge_system_prompt()
-    user_prompt = build_l4_merge_user_prompt(
-        existing_facts=base_store.get("facts") or [],
-        pending_facts=pending_facts,
+    runtime_context_window = 0
+    context_window_resolver = getattr(
+        service_client,
+        "resolve_request_context_window",
+        None,
     )
+    if context_window_resolver is not None:
+        try:
+            runtime_context_window = _positive_int(
+                await context_window_resolver(
+                    force_refresh=True,
+                )
+            )
+        except TypeError:
+            # Compatibility with lightweight test doubles / older clients.
+            runtime_context_window = _positive_int(
+                await context_window_resolver()
+            )
+        except Exception:
+            runtime_context_window = 0
+
+    if not runtime_context_window:
+        runtime_context_window = _positive_int(
+            getattr(service_client, "configured_context_window", 0)
+        ) or _positive_int(
+            getattr(config, "SERVICE_CONTEXT_WINDOW", 0)
+        ) or 4096
+
+    runtime_output_reserve = _positive_int(
+        getattr(config, "RUNTIME_OUTPUT_TOKEN_RESERVE", 256)
+    )
+
+    batch_plan = build_l4_merge_batch_plan(
+        existing_facts=base_store.get("facts") or [],
+        pending_facts=pending_queue,
+        system_prompt=system_prompt,
+        runtime_context_window=runtime_context_window,
+        requested_max_tokens=None,
+        runtime_output_reserve=runtime_output_reserve,
+    )
+    pending_facts = batch_plan["pending_facts"]
+    if not pending_facts:
+        first_pending_id = ""
+        if pending_queue:
+            first_pending_id = str(
+                pending_queue[0].get("id") or ""
+            ).strip()
+        return await log_l4_skip_event(
+            context,
+            phase="merge",
+            message_phase="merge",
+            reason="runtime_context_budget_exhausted",
+            details={
+                "pending_count": len(pending_queue),
+                "first_pending_id": first_pending_id,
+                "runtime_context_window_tokens": batch_plan[
+                    "runtime_context_window_tokens"
+                ],
+                "estimated_prompt_tokens": batch_plan[
+                    "estimated_prompt_tokens"
+                ],
+                "estimated_response_tokens": batch_plan[
+                    "estimated_response_tokens"
+                ],
+                "runtime_output_reserve_tokens": batch_plan[
+                    "runtime_output_reserve_tokens"
+                ],
+                "response_headroom_tokens": batch_plan[
+                    "response_headroom_tokens"
+                ],
+                "estimated_total_tokens": batch_plan[
+                    "estimated_total_tokens"
+                ],
+            },
+        )
+
+    user_prompt = batch_plan["user_prompt"]
+    pending_ids = batch_plan["pending_ids"]
     response = await ask_l4_model(
         context=context,
         service_client=service_client,
         label="L4 merge",
         system_prompt=system_prompt,
         user_prompt=user_prompt,
-        max_tokens=int(getattr(config, "SERVICE_MAX_TOKENS", 4096) or 4096),
+        max_tokens=batch_plan["requested_max_output_tokens"],
     )
 
     if is_runtime_memory_response_truncated(response):
-        pending_ids = [
-            fact.get("id")
-            for fact in pending_facts
-            if fact.get("id")
-        ]
         return await log_l4_skip_event(
             context,
             phase="merge",
@@ -850,10 +929,9 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
             reason="invalid_json",
             details={
                 "pending_count": len(pending_facts),
-                "pending_ids": [
-                    fact.get("id")
-                    for fact in pending_facts
-                    if fact.get("id")
+                "pending_ids": pending_ids,
+                "remaining_pending_count": batch_plan[
+                    "remaining_pending_count"
                 ],
             },
         )
@@ -869,16 +947,16 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
                 "base_revision": base_store.get("revision"),
                 "current_revision": current_store.get("revision"),
                 "pending_count": len(pending_facts),
-                "pending_ids": [
-                    fact.get("id")
-                    for fact in pending_facts
-                    if fact.get("id")
-                ],
+                "pending_ids": pending_ids,
             },
         )
 
     operations = normalize_l4_merge_operations(payload)
-    next_store, merge_change = apply_l4_merge_operations(base_store, operations)
+    next_store, merge_change = apply_l4_merge_operations(
+        base_store,
+        operations,
+        pending_ids=pending_ids,
+    )
     if not merge_change.get("valid"):
         return await log_l4_skip_event(
             context,
@@ -888,10 +966,9 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
             details={
                 "pending_count": len(pending_facts),
                 "operations_count": len(operations),
-                "pending_ids": [
-                    fact.get("id")
-                    for fact in pending_facts
-                    if fact.get("id")
+                "pending_ids": pending_ids,
+                "remaining_pending_count": batch_plan[
+                    "remaining_pending_count"
                 ],
             },
         )
@@ -919,6 +996,8 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
         "phase": "merge",
         "status": "completed",
         "operations_count": len(operations),
+        "batch_count": len(pending_facts),
+        "remaining_pending_count": merge_change.get("pending_count", 0),
         "merge_change": merge_change,
     }
 
@@ -981,7 +1060,7 @@ async def run_l4_jin_note(
         label="L4 JIN note",
         system_prompt=system_prompt,
         user_prompt=user_prompt,
-        max_tokens=int(getattr(config, "SERVICE_MAX_TOKENS", 4096) or 4096),
+        max_tokens=None,
     )
 
     if is_runtime_memory_response_truncated(response):
@@ -1226,7 +1305,7 @@ def l4_fact_matches_archived_ids(
         str(
             candidate_id
             or ""
-        ).strip().casefold()
+        ).strip().upper()
         in archived_fact_ids
         for candidate_id in candidate_ids
     )

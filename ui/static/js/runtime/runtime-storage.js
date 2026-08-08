@@ -1123,10 +1123,10 @@
         .split(/[\s,;]+/)
         .forEach(function (candidate) {
           const factId =
-            String(candidate || "").trim().toLowerCase();
+            String(candidate || "").trim().toUpperCase();
 
           if (
-              !/^l4_[a-z0-9_-]+$/.test(factId)
+              !/^F[1-9]\d*$/.test(factId)
               || seen.has(factId)
           ) {
             return;

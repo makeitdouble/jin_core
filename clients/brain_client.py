@@ -353,9 +353,7 @@ async def ask_brain(
                 temperature=(
                     config.BRAIN_TEMPERATURE
                 ),
-                max_tokens=(
-                    config.BRAIN_MAX_TOKENS
-                ),
+                max_tokens=None,
             )
 
             reasoning = (
@@ -448,10 +446,7 @@ async def ask_brain(
                 config
                 .BRAIN_TEMPERATURE
             ),
-            max_tokens=(
-                config
-                .BRAIN_MAX_TOKENS
-            ),
+            max_tokens=None,
         )
 
         returned_model = (
@@ -1723,10 +1718,7 @@ async def ask_brain_stream(
                         config
                         .BRAIN_TEMPERATURE
                     ),
-                    max_tokens=(
-                        config
-                        .BRAIN_MAX_TOKENS
-                    ),
+                    max_tokens=None,
                 )
             ):
 
@@ -1830,10 +1822,7 @@ async def ask_brain_stream(
                     config
                     .BRAIN_TEMPERATURE
                 ),
-                max_tokens=(
-                    config
-                    .BRAIN_MAX_TOKENS
-                ),
+                max_tokens=None,
             )
         ):
 

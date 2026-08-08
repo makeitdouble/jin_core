@@ -16,6 +16,7 @@ from agent.nodes.brain import (
     build_reasoning_recovery_context,
     format_followup_action_from_event,
     format_followup_actions_from_events,
+    format_previous_runtime_memory_tag,
     prepare_asset_results_for_turn,
 )
 from rules.brain_context_builder import (
@@ -548,6 +549,52 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 },
             ]),
             "RESOLVE_ACTIVE_MEMORY (count: 2), SAVE_SESSION",
+        )
+
+    async def test_previous_runtime_memory_tag_tracks_elapsed_sequence_time(self):
+
+        self.assertEqual(
+            format_previous_runtime_memory_tag(
+                sequence_started_at=1000.0,
+                now=1150.0,
+            ),
+            "<PREVIOUS_RUNTIME_MEMORY ( 2m 30s ago ) >",
+        )
+        self.assertEqual(
+            format_previous_runtime_memory_tag(
+                sequence_started_at=1000.0,
+                now=1185.0,
+            ),
+            "<PREVIOUS_RUNTIME_MEMORY ( 3m 5s ago ) >",
+        )
+
+    async def test_followup_runtime_memory_tag_uses_sequence_started_at(self):
+
+        context = _context()
+        context.runtime_current_sequence_started_at = 1000.0
+        context.runtime_turn_started_at = 1000.0
+        context.runtime_current_sequence_turn_id = "turn_000001"
+        context.runtime_current_turn_id = "turn_000001"
+        context.runtime_action_sequence_turn_ids = []
+        context.runtime_session_action_history = []
+        context.runtime_appended_delayed_memory = {}
+
+        with patch(
+            "agent.nodes.brain.time.time",
+            return_value=1150.0,
+        ):
+            prompt = BrainNode.build_followup_system_prompt(
+                "<RUNTIME_MEMORY>state</RUNTIME_MEMORY>",
+                "continue",
+                context=context,
+            )
+
+        self.assertIn(
+            (
+                "<PREVIOUS_RUNTIME_MEMORY ( 2m 30s ago ) >"
+                "state</PREVIOUS_RUNTIME_MEMORY>"
+            ),
+            prompt,
         )
 
     async def test_followup_renames_runtime_memory_block(self):
@@ -2695,17 +2742,22 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_idle_followup_prompt_contains_tool_result_and_frozen_context(self):
 
-        prompt = build_idle_followup_system_prompt({
-            "id": "idle_1",
-            "seconds": 5,
-            "origin_user_request": "original request",
-            "source_message": "reason <IDLE: 5s />",
-            "context_snapshot": {
-                "system_prompt": (
-                    "<RUNTIME_MEMORY>frozen state</RUNTIME_MEMORY>"
-                ),
-            },
-        })
+        with patch(
+            "agent.nodes.brain.time.time",
+            return_value=1150.0,
+        ):
+            prompt = build_idle_followup_system_prompt({
+                "id": "idle_1",
+                "seconds": 5,
+                "origin_user_request": "original request",
+                "source_message": "reason <IDLE: 5s />",
+                "sequence_started_at": 1000.0,
+                "context_snapshot": {
+                    "system_prompt": (
+                        "<RUNTIME_MEMORY>frozen state</RUNTIME_MEMORY>"
+                    ),
+                },
+            })
 
         self.assertIn(
             '<TOOL_RESULTS type="idle">',
@@ -2732,7 +2784,10 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             1,
         )
         self.assertIn(
-            "<PREVIOUS_RUNTIME_MEMORY>frozen state</PREVIOUS_RUNTIME_MEMORY>",
+            (
+                "<PREVIOUS_RUNTIME_MEMORY ( 2m 30s ago ) >"
+                "frozen state</PREVIOUS_RUNTIME_MEMORY>"
+            ),
             prompt,
         )
 

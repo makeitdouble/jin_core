@@ -17,7 +17,7 @@ MODELS_ENDPOINT = "/v1/models"
 # Optional provider-native model metadata endpoint. LM Studio exposes the
 # currently loaded context length here, unlike some OpenAI-compatible
 # /v1/models responses. Leave empty to disable native metadata probing.
-NATIVE_MODELS_ENDPOINT = "/api/v0/models"
+NATIVE_MODELS_ENDPOINT = "/api/v1/models"
 
 # Large document attachments are transported through the existing WebSocket.
 # Base64 adds overhead, so 64 MiB allows roughly 45 MiB source files.
@@ -31,17 +31,10 @@ WEBSOCKET_MAX_MESSAGE_BYTES = 64 * 1024 * 1024
 # This prevents the request from filling the whole context window exactly.
 RUNTIME_OUTPUT_TOKEN_RESERVE = 256
 
-# When True, JIN prefers the loaded model limits reported by the runtime
-# server (/v1/models or provider-native metadata) over local config values.
-# When False, JIN uses *_CONTEXT_WINDOW from config.py only.
-RUNTIME_CONTEXT_WINDOW_FALLBACK_TO_SERVER = True
-
-# When True, JIN prefers server-reported max output tokens for normal
-# model calls. If the server exposes no explicit output limit, JIN uses
-# the detected loaded context window as the upper output cap and still
-# applies the dynamic prompt + reserve budget. Per-call smaller caps are
-# preserved. When False, JIN uses *_MAX_TOKENS from config.py only.
-RUNTIME_MAX_TOKENS_FALLBACK_TO_SERVER = False
+# SERVICE_CONTEXT_WINDOW / BRAIN_CONTEXT_WINDOW are display/reference values only.
+# Runtime request budgeting is resolved from the context window of the model that is
+# actually loaded in LM Studio. The configured values remain the denominator for the
+# UI percentage and may therefore legitimately display values above 100%.
 
 # ---------------------------------------------------------
 # DOCUMENT / PYTHON SKILLS
@@ -85,7 +78,6 @@ NIGHT_BRAIN_CONTEXT_WINDOW = 16384
 
 BRAIN_TEMPERATURE = 0.7
 
-BRAIN_MAX_TOKENS = 8192
 
 BRAIN_MAX_FOLLOWUPS = 50
 
@@ -107,7 +99,6 @@ SERVICE_CONTEXT_WINDOW = 4096
 
 SERVICE_TEMPERATURE = 0.1
 
-SERVICE_MAX_TOKENS = 4096
 
 # Enable only when the selected runtime/model accepts OpenAI-compatible
 # multimodal chat content with {"type": "image_url"} user message parts.

@@ -321,6 +321,7 @@ function buildMatch(
     sourceSnapshotIndex: fragment.sourceSnapshotIndex,
     sourceLineKey: fragment.sourceLineKey,
     sourceLineText: fragment.sourceLineText,
+    sourceLineIdentity: fragment.sourceLineIdentity,
   };
 }
 
@@ -331,12 +332,26 @@ function sourcePriority(
     match
     && match.sourceType === "rule"
   ) {
-    return 2;
+    return 4;
   }
 
   if (
     match
     && match.sourceType === "runtime"
+  ) {
+    return 3;
+  }
+
+  if (
+    match
+    && match.sourceType === "active"
+  ) {
+    return 2;
+  }
+
+  if (
+    match
+    && match.sourceType === "l4"
   ) {
     return 1;
   }

@@ -5,7 +5,8 @@
 
   const SVG_NS = "http://www.w3.org/2000/svg";
   const AVATAR_EVENT = "jin:runtime-avatar-snapshot";
-  const THINK_RUNTIME_CITATION_HOVER_EVENT = "jin:think-runtime-citation-hover";
+  const THINK_RUNTIME_CITATION_HIGHLIGHT_EVENT = "jin:think-runtime-citation-highlight";
+  const MEMORY_ROW_AVATAR_HOVER_EVENT = "jin:memory-row-avatar-hover";
   const MEMORY_REFERENCE_HIGHLIGHT_EVENT =
     "jin:memory-reference-highlight";
   const MEMORY_REFERENCE_ALIAS_DATASET_KEY =
@@ -86,6 +87,14 @@
   const settingsPanel = document.getElementById("settings-panel");
   const normalizeRuntimeCitationIdentity =
     window.JinRuntime.normalizeCitationIdentity;
+  const buildCitationRecordIdentity =
+    typeof window.JinRuntime.buildCitationRecordIdentity === "function"
+      ? window.JinRuntime.buildCitationRecordIdentity
+      : () => "";
+  const buildAvatarMemoryHoverId =
+    typeof window.JinRuntime.buildAvatarMemoryHoverId === "function"
+      ? window.JinRuntime.buildAvatarMemoryHoverId
+      : () => "";
   const memoryReferenceHelpers =
     window.JinRuntime.memoryReferences || {};
   const containsMemoryReference =
@@ -110,7 +119,6 @@
   let centerColorTransitionTimer = null;
   const memoryReferenceHighlightState = {
     persistentText: "",
-    hoverText: "",
   };
 
   function clamp(value, min, max) {
@@ -150,6 +158,24 @@
     } catch (error) {
       return [];
     }
+  }
+
+  function getAvatarMemoryReferenceDisplayKey(value) {
+    const key = String(value || "").trim();
+    const runtimeModel =
+      window.JinRuntime
+      && window.JinRuntime.memoryModel;
+
+    if (
+      !key
+      || !runtimeModel
+      || !runtimeModel.runtimeMemoryDisplay
+      || typeof runtimeModel.runtimeMemoryDisplay.convertKeyToName !== "function"
+    ) {
+      return "";
+    }
+
+    return runtimeModel.runtimeMemoryDisplay.convertKeyToName(key);
   }
 
   function hashString(value) {
@@ -342,6 +368,18 @@
       });
   }
 
+  function extractActiveMemoryId(value) {
+    const match =
+      String(value || "")
+        .match(
+          /\[\s*active_memory_id\s*:\s*([a-z0-9]{6})\s*\]/i
+        );
+
+    return match
+      ? String(match[1] || "").trim().toLowerCase()
+      : "";
+  }
+
   function getSnapshotLines(snapshot) {
     const sourceLines = snapshot && Array.isArray(snapshot.lines)
       ? snapshot.lines
@@ -357,9 +395,15 @@
           key,
           value,
           text,
+          avatarMemoryHoverId:
+            buildAvatarMemoryHoverId(
+              "runtime",
+              line && line.id || `line-${index}`
+            ),
           referenceAliases:
             normalizeMemoryReferenceAliases([
               key,
+              getAvatarMemoryReferenceDisplayKey(key),
               line && line.id,
               line && line.active_memory_id,
               ...collectMemoryMetadataReferenceAliases(value),
@@ -580,9 +624,16 @@
           key,
           value,
           text: lineText,
+          avatarMemoryHoverId:
+            buildAvatarMemoryHoverId(
+              "active",
+              extractActiveMemoryId(text)
+                || `record-${index}`
+            ),
           referenceAliases:
             normalizeMemoryReferenceAliases([
               key,
+              getAvatarMemoryReferenceDisplayKey(key),
               ...collectMemoryMetadataReferenceAliases(value),
             ]),
           citationText:
@@ -633,10 +684,16 @@
           title,
           summary,
           pinned: Boolean(report.pinned),
+          avatarMemoryHoverId:
+            buildAvatarMemoryHoverId(
+              "delayed",
+              id
+            ),
           referenceAliases:
             normalizeMemoryReferenceAliases([
               id,
               report.id,
+              title,
             ]),
         };
       })
@@ -680,10 +737,22 @@
           key,
           value,
           text: lineText,
+          avatarMemoryHoverId:
+            buildAvatarMemoryHoverId(
+              "l4",
+              id
+            ),
+          citationIdentity:
+            buildCitationRecordIdentity(
+              id,
+              key,
+              value
+            ),
           referenceAliases:
             normalizeMemoryReferenceAliases([
               id,
               key,
+              getAvatarMemoryReferenceDisplayKey(key),
             ]),
           citationText:
             normalizeRuntimeCitationIdentity(lineText),
@@ -719,8 +788,10 @@
 
     const dashGroup = createSvgElement("g", {
       class: classNames.join(" "),
+      "data-avatar-memory-hover-id": options.avatarMemoryHoverId || null,
       "data-runtime-line-key": options.citationKey || null,
       "data-runtime-line-text": options.citationText || null,
+      "data-runtime-line-identity": options.citationIdentity || null,
       "data-delayed-memory-id": options.delayedMemoryId || null,
       "data-l4-fact-id": options.l4FactId || null,
     });
@@ -847,6 +918,7 @@
             color,
             glowColor: ACTIVE_MEMORY_RING_COLOR,
             opacity: 0.76,
+            avatarMemoryHoverId: record.avatarMemoryHoverId,
             citationKey:
               normalizeRuntimeCitationIdentity(record.key),
             citationText: record.citationText,
@@ -875,9 +947,11 @@
             color,
             glowColor: L4_MEMORY_RING_COLOR,
             opacity: 0.52,
+            avatarMemoryHoverId: record.avatarMemoryHoverId,
             citationKey:
               normalizeRuntimeCitationIdentity(record.key),
             citationText: record.citationText,
+            citationIdentity: record.citationIdentity,
             l4FactId: record.id,
             referenceAliases: record.referenceAliases,
             title: `L4 ${record.id} · ${record.key}: ${record.value}`,
@@ -904,6 +978,7 @@
             : color,
           opacity: pinned ? 0.82 : 0.36,
           pinned,
+          avatarMemoryHoverId: record.avatarMemoryHoverId,
           citationKey:
             normalizeRuntimeCitationIdentity(record.id),
           delayedMemoryId: record.id,
@@ -1279,6 +1354,10 @@
     });
 
     orbitGroup.dataset.runtimeLineIndex = String(record.index);
+    if (record.avatarMemoryHoverId) {
+      orbitGroup.dataset.avatarMemoryHoverId =
+        record.avatarMemoryHoverId;
+    }
     orbitGroup.dataset.runtimeLineKey =
       normalizeRuntimeCitationIdentity(record.key);
     orbitGroup.dataset.runtimeLineText =
@@ -1419,14 +1498,57 @@
 
   let currentRenderedSnapshotIndex = null;
   const activeThinkRuntimeCitationSources = new Map();
+  let memoryRowAvatarHoverState = null;
 
-  function normalizeThinkRuntimeCitationHoverDetail(detail) {
+  function normalizeMemoryRowAvatarHoverDetail(detail) {
+    if (!detail || detail.active !== true) {
+      return null;
+    }
+
+    const avatarMemoryHoverId =
+      String(detail.avatarMemoryHoverId || "").trim();
+
+    return avatarMemoryHoverId
+      ? { avatarMemoryHoverId }
+      : null;
+  }
+
+  function applyMemoryRowAvatarHoverGlow() {
+    const svg = avatarRoot.querySelector("svg");
+
+    if (!svg) {
+      return;
+    }
+
+    svg.querySelectorAll(
+      ".jin-avatar-orbit, .jin-avatar-counter-orbit, .jin-avatar-memory-dash"
+    ).forEach((node) => {
+      const matched = Boolean(
+        memoryRowAvatarHoverState
+        && node.dataset.avatarMemoryHoverId
+        === memoryRowAvatarHoverState.avatarMemoryHoverId
+      );
+
+      node.classList.toggle(
+        "is-memory-hover-hit",
+        matched
+      );
+    });
+  }
+
+  function normalizeThinkRuntimeCitationHighlightDetail(detail) {
     if (!detail || detail.active !== true) {
       return null;
     }
 
     const sourceId =
       String(detail.sourceId || "unknown-think");
+    const lineIdentities =
+      new Set(
+        (Array.isArray(detail.lineIdentities) ? detail.lineIdentities : [])
+          .map(normalizeRuntimeCitationIdentity)
+          .filter(Boolean)
+      );
     const lineKeys =
       new Set(
         (Array.isArray(detail.lineKeys) ? detail.lineKeys : [])
@@ -1440,27 +1562,35 @@
           .filter(Boolean)
       );
 
-    if (!lineKeys.size && !lineTexts.size) {
+    if (
+      !lineIdentities.size
+      && !lineKeys.size
+      && !lineTexts.size
+    ) {
       return null;
     }
 
     return {
       sourceId,
+      lineIdentities,
       lineKeys,
       lineTexts,
     };
   }
 
   function getActiveThinkRuntimeCitationIdentitySets() {
+    const lineIdentities = new Set();
     const lineKeys = new Set();
     const lineTexts = new Set();
 
     activeThinkRuntimeCitationSources.forEach((state) => {
+      state.lineIdentities.forEach(identity => lineIdentities.add(identity));
       state.lineKeys.forEach(key => lineKeys.add(key));
       state.lineTexts.forEach(line => lineTexts.add(line));
     });
 
     return {
+      lineIdentities,
       lineKeys,
       lineTexts,
     };
@@ -1481,6 +1611,10 @@
         ".jin-avatar-orbit[data-runtime-line-key], .jin-avatar-counter-orbit[data-runtime-line-key], .jin-avatar-memory-dash"
       )
     ).forEach((orbitGroup) => {
+      const lineIdentity =
+        normalizeRuntimeCitationIdentity(
+          orbitGroup.dataset.runtimeLineIdentity
+        );
       const lineKey =
         normalizeRuntimeCitationIdentity(
           orbitGroup.dataset.runtimeLineKey
@@ -1490,8 +1624,12 @@
           orbitGroup.dataset.runtimeLineText
         );
       const cited =
-        (lineKey && activeIdentities.lineKeys.has(lineKey))
-        || (lineText && activeIdentities.lineTexts.has(lineText));
+        lineIdentity
+          ? activeIdentities.lineIdentities.has(lineIdentity)
+          : (
+            (lineKey && activeIdentities.lineKeys.has(lineKey))
+            || (lineText && activeIdentities.lineTexts.has(lineText))
+          );
 
       orbitGroup.classList.toggle(
         "is-runtime-cited",
@@ -1501,11 +1639,29 @@
   }
 
   function getActiveMemoryReferenceText() {
-    return (
-      memoryReferenceHighlightState.hoverText
-      || memoryReferenceHighlightState.persistentText
-      || ""
-    );
+    return memoryReferenceHighlightState.persistentText || "";
+  }
+
+  function buildAvatarMemoryReferenceAliasUsage(nodes) {
+    const usage = new Map();
+
+    nodes.forEach((node) => {
+      getAvatarMemoryReferenceAliases(node).forEach((alias) => {
+        const identity =
+          normalizeRuntimeCitationIdentity(alias);
+
+        if (!identity) {
+          return;
+        }
+
+        usage.set(
+          identity,
+          Number(usage.get(identity) || 0) + 1
+        );
+      });
+    });
+
+    return usage;
   }
 
   function applyMemoryReferenceGlow() {
@@ -1516,13 +1672,24 @@
     }
 
     const sourceText = getActiveMemoryReferenceText();
+    const recordNodes = Array.from(
+      svg.querySelectorAll("[data-memory-reference-aliases]")
+    );
+    const aliasUsage =
+      buildAvatarMemoryReferenceAliasUsage(recordNodes);
 
-    svg.querySelectorAll("[data-memory-reference-aliases]")
-      .forEach((recordNode) => {
+    recordNodes.forEach((recordNode) => {
         const matched = Boolean(
           sourceText
           && getAvatarMemoryReferenceAliases(recordNode)
-            .some(alias => containsMemoryReference(sourceText, alias))
+            .some(alias => (
+              Number(
+                aliasUsage.get(
+                  normalizeRuntimeCitationIdentity(alias)
+                ) || 0
+              ) === 1
+              && containsMemoryReference(sourceText, alias)
+            ))
         );
 
         recordNode.classList.toggle(
@@ -1534,21 +1701,22 @@
 
   function handleMemoryReferenceHighlight(event) {
     const detail = event && event.detail || {};
-    const source = detail.source === "hover"
-      ? "hover"
-      : "persistent";
-    const stateKey = source === "hover"
-      ? "hoverText"
-      : "persistentText";
 
-    memoryReferenceHighlightState[stateKey] =
+    if (detail.source !== "persistent") {
+      return;
+    }
+
+    memoryReferenceHighlightState.persistentText =
       detail.active === false
         ? ""
         : String(detail.text || "");
 
-    applyMemoryReferenceGlow();
-  }
+    // The newest JIN response replaces the previous turn's citation glow.
+    activeThinkRuntimeCitationSources.clear();
 
+    applyMemoryReferenceGlow();
+    applyThinkRuntimeCitationGlow();
+  }
   function buildRenderSignature(
     snapshot,
     lines,
@@ -1642,6 +1810,7 @@
     avatarRoot.style.setProperty("--jin-avatar-center-color", centerColor);
     applyThinkRuntimeCitationGlow();
     applyMemoryReferenceGlow();
+    applyMemoryRowAvatarHoverGlow();
     lastRenderSignature = signature;
   }
 
@@ -1904,12 +2073,21 @@
     handleMemoryReferenceHighlight
   );
 
-  window.addEventListener(THINK_RUNTIME_CITATION_HOVER_EVENT, (event) => {
+  window.addEventListener(MEMORY_ROW_AVATAR_HOVER_EVENT, (event) => {
+    memoryRowAvatarHoverState =
+      normalizeMemoryRowAvatarHoverDetail(
+        event && event.detail || {}
+      );
+
+    applyMemoryRowAvatarHoverGlow();
+  });
+
+  window.addEventListener(THINK_RUNTIME_CITATION_HIGHLIGHT_EVENT, (event) => {
     const detail = event && event.detail || {};
     const sourceId =
       String(detail.sourceId || "unknown-think");
     const state =
-      normalizeThinkRuntimeCitationHoverDetail(detail);
+      normalizeThinkRuntimeCitationHighlightDetail(detail);
 
     if (state) {
       activeThinkRuntimeCitationSources.set(

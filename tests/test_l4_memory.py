@@ -16,6 +16,9 @@ from runtime.L4_memory_utils import (
     add_l4_pending_candidates,
     apply_l4_merge_operations,
     build_l4_fact_id,
+    build_l4_merge_batch_plan,
+    build_l4_merge_system_prompt,
+    build_l4_merge_user_prompt,
     collect_pending_facts_memory_fields,
     extract_l4_json_payload,
     format_l4_fact_line,
@@ -170,7 +173,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         store = normalize_l4_store({
             "facts": [
                 {
-                    "id": "l4_gpu",
+                    "id": "F1",
                     "key": "user.hardware.main_gpu",
                     "value": "User's main GPU is RTX 4090.",
                     "category": "environment",
@@ -189,13 +192,54 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(legacy_field, store["facts"][0])
         self.assertNotIn(legacy_field, store["pending_facts"][0])
 
+    def test_legacy_hash_ids_migrate_once_to_compact_f_and_pf_ids(self):
+        legacy = {
+            "version": 1,
+            "revision": 7,
+            "facts": [
+                {
+                    "id": "l4_alpha123",
+                    "key": "user.hardware.main_gpu",
+                    "value": "User's main GPU is RTX 3080 Ti.",
+                    "category": "environment",
+                    "source_fact_ids": ["l4p_processed123"],
+                },
+            ],
+            "pending_facts": [
+                {
+                    "id": "l4p_waiting123",
+                    "key": "user.preference.response_language",
+                    "value": "User prefers Russian replies.",
+                    "category": "user_preference",
+                },
+            ],
+            "deleted_fact_ids": ["l4_deleted123"],
+        }
+
+        migrated = normalize_l4_store(legacy, now="2026-08-08T17:00:00Z")
+
+        self.assertEqual(migrated["version"], 2)
+        self.assertEqual(migrated["revision"], 8)
+        self.assertEqual(migrated["facts"][0]["id"], "F1")
+        self.assertEqual(migrated["pending_facts"][0]["id"], "PF1")
+        self.assertEqual(migrated["deleted_fact_ids"], ["F2"])
+        self.assertEqual(migrated["facts"][0]["source_fact_ids"], ["PF2"])
+        self.assertEqual(migrated["next_fact_id"], 3)
+        self.assertEqual(migrated["next_pending_fact_id"], 3)
+
+        normalized_again = normalize_l4_store(
+            migrated,
+            now="2026-08-08T17:01:00Z",
+        )
+        self.assertEqual(normalized_again, migrated)
+
     def test_file_store_fallback_survives_empty_browser_sync(self):
         with tempfile.TemporaryDirectory() as directory:
             persisted_store = normalize_l4_store({
                 "revision": 4,
                 "facts": [
                     {
-                        "id": "l4_saved",
+                        "id": "F1",
                         "key": "user.identity",
                         "value": "Sergey",
                         "source_session_ids": ["session-normal"],
@@ -245,7 +289,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 "updated_at": "2026-08-05T11:48:48Z",
                 "facts": [
                     {
-                        "id": "l4_secret",
+                        "id": "F1",
                         "key": "project.secret_number_73",
                         "value": "The number 73 was established.",
                     },
@@ -268,7 +312,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
 
             deleted = await delete_l4_memory_fact(
                 context,
-                "l4_secret",
+                "F1",
             )
             self.assertTrue(deleted)
 
@@ -279,7 +323,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(persisted_after_delete["facts"], [])
             self.assertEqual(
                 persisted_after_delete["deleted_fact_ids"],
-                ["l4_secret"],
+                ["F1"],
             )
 
             restarted_context = RuntimeContext(
@@ -305,7 +349,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(persisted_after_sync["facts"], [])
             self.assertEqual(
                 persisted_after_sync["deleted_fact_ids"],
-                ["l4_secret"],
+                ["F1"],
             )
 
     def test_store_snapshot_merge_keeps_one_fact_per_key_with_sources(self):
@@ -314,7 +358,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 "revision": 4,
                 "facts": [
                     {
-                        "id": "l4_existing",
+                        "id": "F1",
                         "key": "relationship.association",
                         "value": "Anya is associated with known cohabitation data.",
                         "updated_at": "2026-08-03T18:15:34Z",
@@ -326,7 +370,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 "revision": 4,
                 "facts": [
                     {
-                        "id": "l4_incoming",
+                        "id": "F2",
                         "key": "relationship.association",
                         "value": "Anya is associated with newer relationship context.",
                         "updated_at": "2026-08-03T18:20:00Z",
@@ -349,18 +393,18 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             merged["facts"][0]["source_fact_ids"],
-            ["l4_incoming"],
+            ["F2"],
         )
 
     def test_store_normalization_prunes_processed_pending_fact(self):
-        processed_pending_id = "l4p_fd9b07b15788"
-        waiting_pending_id = "l4p_waiting"
+        processed_pending_id = "PF1"
+        waiting_pending_id = "PF2"
 
         store = normalize_l4_store(
             {
                 "facts": [
                     {
-                        "id": "l4_32df84cf695d",
+                        "id": "F1",
                         "key": "jin_structural_awareness",
                         "value": "JIN tracks structural awareness.",
                         "category": "other",
@@ -391,7 +435,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_store_merge_does_not_resurrect_processed_pending_fact(self):
-        processed_pending_id = "l4p_fd9b07b15788"
+        processed_pending_id = "PF1"
 
         merged, change = merge_l4_store_snapshots(
             {
@@ -399,7 +443,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 "updated_at": "2026-08-04T17:34:05Z",
                 "facts": [
                     {
-                        "id": "l4_32df84cf695d",
+                        "id": "F1",
                         "key": "jin_structural_awareness",
                         "value": "JIN tracks structural awareness.",
                         "category": "other",
@@ -488,11 +532,137 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(after["facts"], before["facts"])
         self.assertEqual(after["pending_facts"], before["pending_facts"])
 
+    def test_merge_prompt_uses_slim_model_view_without_provenance_metadata(self):
+        prompt = build_l4_merge_user_prompt(
+            existing_facts=[
+                {
+                    "id": "F2",
+                    "key": "user.preference.response_language",
+                    "value": "The user prefers Russian replies.",
+                    "category": "user_preference",
+                    "source_session_ids": ["session-a"],
+                    "source_runtime_snapshot_ids": ["runtime-1"],
+                    "source_keys": ["language"],
+                    "source_fact_ids": ["F8"],
+                    "created_at": "2026-08-01T00:00:00Z",
+                    "updated_at": "2026-08-02T00:00:00Z",
+                    "mention_count": 9,
+                },
+            ],
+            pending_facts=[
+                {
+                    "id": "PF1",
+                    "key": "user.preference.response_language",
+                    "value": "The user prefers Russian replies.",
+                    "category": "user_preference",
+                    "source_session_ids": ["session-b"],
+                },
+            ],
+        )
+
+        self.assertIn('"id":"F2"', prompt)
+        self.assertIn('"id":"PF1"', prompt)
+        self.assertNotIn("source_session_ids", prompt)
+        self.assertNotIn("source_runtime_snapshot_ids", prompt)
+        self.assertNotIn("source_fact_ids", prompt)
+        self.assertNotIn("mention_count", prompt)
+        self.assertNotIn("created_at", prompt)
+        self.assertNotIn("updated_at", prompt)
+
+    def test_merge_batch_plan_is_bounded_by_runtime_context_window(self):
+        existing_facts = normalize_l4_store({
+            "facts": [
+                {
+                    "id": f"F{index + 1}",
+                    "key": f"project.fact_{index}",
+                    "value": "Durable project fact " + ("detail " * 8),
+                    "category": "project_fact",
+                }
+                for index in range(20)
+            ],
+        })["facts"]
+        store, _ = add_l4_pending_candidates(
+            normalize_l4_store({"facts": existing_facts}),
+            [
+                {
+                    "key": f"project.pending_{index}",
+                    "value": "Pending durable fact " + ("detail " * 10),
+                    "category": "project_fact",
+                }
+                for index in range(30)
+            ],
+            now="2026-08-02T12:00:00Z",
+        )
+
+        plan_4k = build_l4_merge_batch_plan(
+            existing_facts=store["facts"],
+            pending_facts=store["pending_facts"],
+            system_prompt=build_l4_merge_system_prompt(),
+            runtime_context_window=4096,
+            requested_max_tokens=32768,
+            runtime_output_reserve=256,
+        )
+        plan_8k = build_l4_merge_batch_plan(
+            existing_facts=store["facts"],
+            pending_facts=store["pending_facts"],
+            system_prompt=build_l4_merge_system_prompt(),
+            runtime_context_window=8192,
+            requested_max_tokens=32768,
+            runtime_output_reserve=256,
+        )
+
+        self.assertTrue(plan_4k["fits"])
+        self.assertLess(plan_4k["batch_count"], 30)
+        self.assertLessEqual(plan_4k["estimated_total_tokens"], 4096)
+        self.assertGreater(plan_8k["batch_count"], plan_4k["batch_count"])
+        self.assertEqual(plan_4k["requested_max_output_tokens"], 32768)
+
+    def test_merge_can_apply_one_batch_and_leave_rest_of_pending_queue(self):
+        store, _ = add_l4_pending_candidates(
+            normalize_l4_store({}),
+            [
+                {
+                    "key": f"project.fact_{index}",
+                    "value": f"Durable project fact {index}.",
+                    "category": "project_fact",
+                }
+                for index in range(3)
+            ],
+            now="2026-08-02T12:00:00Z",
+        )
+        first_two = store["pending_facts"][:2]
+        operations = [
+            {
+                "action": "create",
+                "pending_id": fact["id"],
+                "key": fact["key"],
+                "value": fact["value"],
+                "category": fact["category"],
+            }
+            for fact in first_two
+        ]
+
+        merged, change = apply_l4_merge_operations(
+            store,
+            operations,
+            pending_ids=[fact["id"] for fact in first_two],
+            now="2026-08-02T12:01:00Z",
+        )
+
+        self.assertTrue(change["valid"])
+        self.assertEqual(len(merged["facts"]), 2)
+        self.assertEqual(len(merged["pending_facts"]), 1)
+        self.assertEqual(
+            merged["pending_facts"][0]["id"],
+            store["pending_facts"][2]["id"],
+        )
+        self.assertEqual(change["pending_count"], 1)
+
     def test_merge_applies_complete_batch_atomically(self):
         existing = normalize_l4_store({
             "facts": [
                 {
-                    "id": "l4_gpu",
+                    "id": "F1",
                     "key": "user.hardware.main_gpu",
                     "value": "User's main GPU is RTX 3080 Ti.",
                     "category": "environment",
@@ -522,7 +692,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 {
                     "action": "update",
                     "pending_id": gpu_pending["id"],
-                    "target_id": "l4_gpu",
+                    "target_id": "F1",
                     "key": "user.hardware.main_gpu",
                     "value": "User's main GPU is RTX 4090.",
                     "category": "environment",
@@ -543,7 +713,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(change["valid"])
         self.assertEqual(merged["pending_facts"], [])
         self.assertEqual(len(merged["facts"]), 1)
-        self.assertEqual(merged["facts"][0]["id"], "l4_gpu")
+        self.assertEqual(merged["facts"][0]["id"], "F1")
         self.assertIn("RTX 4090", merged["facts"][0]["value"])
         self.assertEqual(
             merged["facts"][0]["source_fact_ids"],
@@ -555,7 +725,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         update_detail = change["operation_details"][0]
         self.assertEqual(update_detail["action"], "update")
         self.assertEqual(update_detail["pending_id"], gpu_pending["id"])
-        self.assertEqual(update_detail["target_id"], "l4_gpu")
+        self.assertEqual(update_detail["target_id"], "F1")
         self.assertIn("RTX 4090", update_detail["pending_fact"]["value"])
         self.assertIn("RTX 3080 Ti", update_detail["target_before"]["value"])
         self.assertIn("RTX 4090", update_detail["target_after"]["value"])
@@ -575,11 +745,11 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         existing = normalize_l4_store({
             "facts": [
                 {
-                    "id": "l4_language",
+                    "id": "F2",
                     "key": "user.preference.response_language",
                     "value": "The user prefers Russian replies.",
                     "category": "user_preference",
-                    "source_fact_ids": ["l4_legacy_source"],
+                    "source_fact_ids": ["F9"],
                 },
             ],
         })
@@ -590,7 +760,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                     "key": "user.preference.response_language",
                     "value": "The user prefers Russian replies.",
                     "category": "user_preference",
-                    "source_fact_ids": ["l4_imported_source"],
+                    "source_fact_ids": ["F10"],
                 },
             ],
             now="2026-08-02T12:00:00Z",
@@ -601,7 +771,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 {
                     "action": "reinforce",
                     "pending_id": pending["id"],
-                    "target_id": "l4_language",
+                    "target_id": "F2",
                 },
             ],
         })
@@ -613,12 +783,12 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertTrue(change["valid"])
-        self.assertEqual(change["reinforced_ids"], ["l4_language"])
+        self.assertEqual(change["reinforced_ids"], ["F2"])
         self.assertEqual(len(change["operation_details"]), 1)
         reinforce_detail = change["operation_details"][0]
         self.assertEqual(reinforce_detail["action"], "reinforce")
         self.assertEqual(reinforce_detail["pending_id"], pending["id"])
-        self.assertEqual(reinforce_detail["target_id"], "l4_language")
+        self.assertEqual(reinforce_detail["target_id"], "F2")
         self.assertEqual(
             reinforce_detail["pending_fact"]["value"],
             "The user prefers Russian replies.",
@@ -638,8 +808,8 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             merged["facts"][0]["source_fact_ids"],
             [
-                "l4_legacy_source",
-                "l4_imported_source",
+                "F9",
+                "F10",
                 pending["id"],
             ],
         )
@@ -648,13 +818,13 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         existing = normalize_l4_store({
             "facts": [
                 {
-                    "id": "l4_gpu",
+                    "id": "F1",
                     "key": "user.hardware.main_gpu",
                     "value": "User's main GPU is RTX 3080 Ti.",
                     "category": "environment",
                 },
                 {
-                    "id": "l4_language",
+                    "id": "F2",
                     "key": "user.preference.response_language",
                     "value": "The user prefers Russian replies.",
                     "category": "user_preference",
@@ -683,7 +853,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             {{
               "action": "update",
               "pending_id": "{gpu_pending["id"]}",
-              "target_id": "l4_gpu",
+              "target_id": "F1",
               "key": "user.hardware.main_gpu",
               "value": "User's main GPU is RTX 4090.",
               "category": "environment"
@@ -691,7 +861,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             {{
               "action": "reinforce",
               "pending_id": "{language_pending["id"]}",
-              "target_id": "l4_language"
+              "target_id": "F2"
             }}
           ]
         }}''')
@@ -947,14 +1117,14 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         store = normalize_l4_store({
             "facts": [
                 {
-                    "id": "l4_gpu",
+                    "id": "F1",
                     "key": "user.hardware.main_gpu",
                     "value": "User's main GPU is RTX 4090.",
                     "category": "environment",
                     "source_session_ids": ["session-a"],
                 },
                 {
-                    "id": "l4_style",
+                    "id": "F2",
                     "key": "user.preference.response_style",
                     "value": "User prefers direct technical analysis.",
                 },
@@ -966,8 +1136,8 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("user.hardware.main_gpu:", context_block)
         self.assertIn("user.preference.response_style:", context_block)
-        self.assertIn("[ id: l4_gpu ]", context_block)
-        self.assertIn("[ id: l4_style ]", context_block)
+        self.assertIn("[ id: F1 ]", context_block)
+        self.assertIn("[ id: F2 ]", context_block)
         self.assertNotIn("source_session_ids", context_block)
         self.assertIn("[source_session_ids: session-a]", ui_line)
 
@@ -981,12 +1151,12 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         context.runtime_long_term_memory_store = normalize_l4_store({
             "facts": [
                 {
-                    "id": "l4_archived",
+                    "id": "F1",
                     "key": "project.topic.details",
                     "value": "Detailed topic facts moved into a report.",
                 },
                 {
-                    "id": "l4_active",
+                    "id": "F2",
                     "key": "user.name",
                     "value": "Sergey",
                 },
@@ -996,7 +1166,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             "abc123": {
                 "title": "Topic report",
                 "long_term_facts_ids": [
-                    "l4_archived",
+                    "F1",
                 ],
             },
         }
@@ -1010,13 +1180,13 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             context_block,
         )
         self.assertIn(
-            "user.name: Sergey [ id: l4_active ]",
+            "user.name: Sergey [ id: F2 ]",
             context_block,
         )
         self.assertEqual(
             context.runtime_l4_archived_fact_ids,
             {
-                "l4_archived",
+                "F1",
             },
         )
         self.assertEqual(
@@ -1038,11 +1208,11 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         context.runtime_long_term_memory_store = normalize_l4_store({
             "facts": [
                 {
-                    "id": "l4_current",
+                    "id": "F1",
                     "key": "relationship.association",
                     "value": "Anya is associated with known cohabitation data.",
                     "source_fact_ids": [
-                        "l4_archived_source",
+                        "F9",
                     ],
                 },
             ],
@@ -1051,7 +1221,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             "abc123": {
                 "title": "Social context",
                 "long_term_facts_ids": [
-                    "l4_archived_source",
+                    "F9",
                 ],
             },
         }
@@ -1076,7 +1246,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             ][0][
                 "id"
             ],
-            "l4_current",
+            "F1",
         )
 
 
@@ -1090,7 +1260,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         context.runtime_long_term_memory_store = normalize_l4_store({
             "facts": [
                 {
-                    "id": "l4_project_details",
+                    "id": "F1",
                     "key": "project.topic.details",
                     "value": "Detailed project context.",
                 },
@@ -1105,7 +1275,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 ],
                 "body": "Reusable project report.",
                 "long_term_facts_ids": [
-                    "l4_project_details",
+                    "F1",
                 ],
             },
         })
@@ -1129,13 +1299,13 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 "long_term_facts_ids"
             ],
             [
-                "l4_project_details",
+                "F1",
             ],
         )
         self.assertEqual(
             context.runtime_l4_archived_fact_ids,
             {
-                "l4_project_details",
+                "F1",
             },
         )
         self.assertEqual(
@@ -1189,16 +1359,8 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
     async def test_idle_ticks_extract_until_facts_memory_is_drained_then_merge_once(self):
         gpu_value = "User's main GPU is RTX 4090."
         language_value = "User prefers Russian replies."
-        gpu_pending_id = build_l4_fact_id(
-            key="user.hardware.main_gpu",
-            value=gpu_value,
-            pending=True,
-        )
-        language_pending_id = build_l4_fact_id(
-            key="user.preference.response_language",
-            value=language_value,
-            pending=True,
-        )
+        gpu_pending_id = build_l4_fact_id(sequence=1, pending=True)
+        language_pending_id = build_l4_fact_id(sequence=2, pending=True)
         service_client = FakeServiceClient([
             f'''{{
               "facts": [{{
@@ -1300,7 +1462,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
     def test_restore_l4_fact_preserves_deleted_fact_object(self):
         fact = normalize_l4_store({
             "facts": [{
-                "id": "l4_restore_me",
+                "id": "F1",
                 "key": "project.restore.test",
                 "value": "Restore the complete fact.",
                 "category": "project",
@@ -1330,7 +1492,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
         context.runtime_long_term_memory_store = normalize_l4_store({
             "facts": [{
-                "id": "l4_restore_me",
+                "id": "F1",
                 "key": "project.restore.test",
                 "value": "Restore the complete fact.",
                 "category": "project",

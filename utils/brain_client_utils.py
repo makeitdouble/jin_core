@@ -243,7 +243,7 @@ def get_runtime_l4_fact_ids(
                 "",
             )
             or ""
-        ).strip().casefold()
+        ).strip().upper()
 
         if fact_id:
             fact_ids.add(fact_id)
@@ -2859,7 +2859,7 @@ def get_conversation_activity_diff(
     patch_sources = (
         getattr(
             context,
-            "runtime_l2_pending_patches",
+            "runtime_l1_diff_history",
             None,
         )
         or getattr(

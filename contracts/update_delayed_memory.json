@@ -19,7 +19,7 @@
       "body:",
       "</UPDATE_DELAYED_MEMORY>",
       "Replace id with the 6-character report id shown in <DELAYED_MEMORY>.",
-      "List only new tags, new body content, and the raw L4 ids actually absorbed by this update.",
+      "List only new tags, new body content, and exact F<number> L4 ids actually absorbed by this update. F means a committed fact; never use PF pending ids here.",
       "At least one of tags, long_term_facts_ids, or body must be non-empty.",
       "Do not add any other text while updating a report. Immediately emit only the marker."
     ],

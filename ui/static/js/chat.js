@@ -223,56 +223,17 @@ function setLatestJinMemoryReferenceText(
     return;
   }
 
+  if (
+    window.JinThinkCitations
+    && typeof window.JinThinkCitations.resetThinkCitationHighlightTurn === "function"
+  ) {
+    window.JinThinkCitations.resetThinkCitationHighlightTurn();
+  }
   dispatchJinMemoryReferenceHighlight(
     "persistent",
     text,
     true
   );
-}
-
-function clearJinMemoryReferenceHighlights() {
-  dispatchJinMemoryReferenceHighlight(
-    "persistent",
-    "",
-    false
-  );
-  dispatchJinMemoryReferenceHighlight(
-    "hover",
-    "",
-    false
-  );
-}
-
-function bindJinMemoryReferenceBubble(
-  bubble,
-  content,
-  role
-) {
-  if (
-      !bubble
-      || !content
-      || !isJinMemoryReferenceRole(role)
-  ) {
-    return;
-  }
-
-  bubble.addEventListener("mouseenter", () => {
-    dispatchJinMemoryReferenceHighlight(
-      "hover",
-      content.dataset.memoryReferenceText
-        || content.textContent
-        || "",
-      true
-    );
-  });
-
-  bubble.addEventListener("mouseleave", () => {
-    dispatchJinMemoryReferenceHighlight(
-      "hover",
-      "",
-      false
-    );
-  });
 }
 
 function shouldFormatChatRole(role) {
@@ -798,11 +759,6 @@ function createMessageElement(
     config.bubbleClass;
 
   bubble.appendChild(pre);
-  bindJinMemoryReferenceBubble(
-    bubble,
-    pre,
-    role
-  );
 
   msgDiv.appendChild(
     createAvatarElement(
@@ -916,7 +872,6 @@ function appendChatMessage(
     jinConversationTurnCounter += 1;
     window.jinConversationTurnCounter =
       jinConversationTurnCounter;
-    clearJinMemoryReferenceHighlights();
   } else {
     setLatestJinMemoryReferenceText(
       role,
@@ -944,8 +899,10 @@ function scrollCollapsedThinkToLatest(
     return;
   }
 
-  thinkContent.scrollTop =
-    thinkContent.scrollHeight;
+  thinkContent.scrollTo({
+    top: thinkContent.scrollHeight,
+    behavior: "smooth",
+  });
 
 }
 
@@ -1108,20 +1065,6 @@ function createStreamGroup(
     }
   );
 
-  [
-    "mouseenter",
-    "mouseleave",
-  ].forEach((eventName) => {
-    thinkContent.addEventListener(
-      eventName,
-      () => {
-        window.JinThinkCitations.syncThinkRuntimeCitationHighlight(
-          thinkContent
-        );
-      }
-    );
-  });
-
   thinkWrapper.appendChild(
     thinkContent
   );
@@ -1147,11 +1090,6 @@ function createStreamGroup(
     config.bubbleClass;
 
   bubble.appendChild(pre);
-  bindJinMemoryReferenceBubble(
-    bubble,
-    pre,
-    role
-  );
 
   messageRow.appendChild(
     createAvatarElement(
@@ -1473,11 +1411,23 @@ function finishStreamMessage(
       stream.group.wrapper.remove();
     }
 
-    if (stream.answer.trim()) {
+    const memoryReferenceText =
+      [
+        stream.thinking,
+        stream.answer,
+      ]
+        .map(value => String(value || "").trim())
+        .filter(Boolean)
+        .join("\n");
+
+    if (memoryReferenceText) {
       setLatestJinMemoryReferenceText(
         stream.role,
-        stream.answer
+        memoryReferenceText
       );
+    }
+
+    if (stream.answer.trim()) {
       flushRuntimeActionsAfterResponse(
         stream.role
       );

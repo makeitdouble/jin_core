@@ -154,7 +154,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 "body:\n"
                 "Reusable project summary.\n"
                 "long_term_facts_ids: "
-                "l4_abc123, l4_def456, invalid, l4_abc123"
+                "F1, F2, invalid, F1"
             )
         )
 
@@ -165,8 +165,8 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         self.assertEqual(
             report_value["long_term_facts_ids"],
             [
-                "l4_abc123",
-                "l4_def456",
+                "F1",
+                "F2",
             ],
         )
 
@@ -179,7 +179,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             runtime_long_term_memory_store={
                 "facts": [
                     {
-                        "id": "l4_existing",
+                        "id": "F1",
                         "key": "project.fact",
                         "value": "Existing fact",
                     },
@@ -195,8 +195,8 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                     "tags": ["project"],
                     "body": "Body",
                     "long_term_facts_ids": [
-                        "l4_existing",
-                        "l4_missing",
+                        "F1",
+                        "F99",
                     ],
                 },
             }),
@@ -207,7 +207,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         self.assertEqual(
             report_value["long_term_facts_ids"],
             [
-                "l4_existing",
+                "F1",
             ],
         )
 
@@ -1735,7 +1735,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 "tags:\n"
                 "[social, context]\n"
                 "long_term_facts_ids:\n"
-                "l4_existing, l4_new\n"
+                "F1, F2\n"
                 "body:\n"
                 "Additional durable context.\n"
             )
@@ -1768,8 +1768,8 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                     "context",
                 ],
                 "long_term_facts_ids": [
-                    "l4_existing",
-                    "l4_new",
+                    "F1",
+                    "F2",
                 ],
                 "body": "Additional durable context.",
             },
@@ -1782,7 +1782,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             (
                 "<UPDATE_DELAYED_MEMORY: a1b2c3>\n"
                 "tags: social, context\n"
-                "long_term_facts_ids: l4_existing, l4_missing\n"
+                "long_term_facts_ids: F1, F99\n"
                 "body:\n"
                 "Additional durable context.\n"
                 "</UPDATE_DELAYED_MEMORY>"
@@ -1815,8 +1815,8 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                     "context",
                 ],
                 "long_term_facts_ids": [
-                    "l4_existing",
-                    "l4_missing",
+                    "F1",
+                    "F99",
                 ],
                 "body": "Additional durable context.",
             },
@@ -1841,7 +1841,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 ],
                 "body": "Original body.",
                 "long_term_facts_ids": [
-                    "l4_existing",
+                    "F1",
                 ],
                 "pinned": False,
             },
@@ -1849,12 +1849,12 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         context.runtime_long_term_memory_store = {
             "facts": [
                 {
-                    "id": "l4_existing",
+                    "id": "F1",
                     "key": "user.name",
                     "value": "Sergey",
                 },
                 {
-                    "id": "l4_new",
+                    "id": "F2",
                     "key": "user.role",
                     "value": "Developer",
                 },
@@ -1870,7 +1870,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                         payload=(
                             "a1b2c3\n"
                             "tags: context, social\n"
-                            "long_term_facts_ids: l4_new, l4_missing\n"
+                            "long_term_facts_ids: F2, F99\n"
                             "body:\n"
                             "Additional body."
                         ),
@@ -1891,8 +1891,8 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         self.assertEqual(
             report["long_term_facts_ids"],
             [
-                "l4_existing",
-                "l4_new",
+                "F1",
+                "F2",
             ],
         )
         self.assertEqual(

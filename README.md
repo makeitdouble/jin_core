@@ -8,7 +8,7 @@
 
 > *Without context, there is no JIN, only a generic response engine. JIN Core Engine is what makes this interaction last.*
 
-**JIN Core Engine** is an experimental cognitive runtime for OpenAI-compatible models. It is a focused environment built around a single philosophy: **visible, tactile, and continuous memory.**
+**JIN Core Engine** is an experimental cognitive runtime built around an idea of **visible, tactile, and continuous memory.**
 
 The interface is intentionally not overloaded with familiar UX elements. Instead of relying on linear chat histories, the runtime maintains a dynamic, layered memory model. During everyday use the side panels can remain collapsed—the system continues to carry the current state. When needed, the memory, reasoning trace, telemetry, and action history remain available for inspection and correction.
 
@@ -120,13 +120,16 @@ Translator output is logged for observability but is not rendered as a chat mess
 
 ### Model Roles
 
-JIN is model-agnostic at the API layer. One OpenAI-compatible model can handle all roles, or the work can be split between separate endpoints:
+JIN talks to models through an OpenAI-compatible API.
+
+The runtime separates model work into roles:
 
 * **Brain:** visible reasoning, responses, and runtime decisions;
 * **Service:** background memory updates and supporting work;
 * **Translator:** optional internal translation before the brain step.
 
-A thinking-capable model is recommended for the Brain role. Reliable reasoning separation and Runtime Action use depend on the selected model.
+The default local configuration is **Gemma 4 26B A4B QAT for Brain** and **Gemma 4 E4B for Service**. The 26B model is the preferred reasoning core, while E4B handles fast background memory work and can also be reused as **BRAIN**.
+Other local models may introduce less stable behavior.
 
 ### Runtime Storage
 
@@ -198,7 +201,7 @@ LM Studio may also expose `/api/v0/models`, allowing JIN to read the loaded cont
 
 ### Windows + LM Studio
 
-1. Install LM Studio and load an OpenAI-compatible chat model.
+1. Install LM Studio and load the configured Brain and Service models. For the reference setup, use Gemma 4 26B A4B QAT as Brain and Gemma 4 E4B as Service.
 2. Start the LM Studio Local Server.
 3. Run:
 
@@ -259,7 +262,7 @@ Copy `config.example.py` to `config.py`, then set the provider URLs and model ID
 | `BRAIN_API_BASE`, `BRAIN_MODEL_UID` | Configure the Brain provider and model. |
 | `SERVICE_API_BASE`, `SERVICE_MODEL_UID` | Configure the Service provider and model. |
 | `TRANSLATION_ENABLED` | Enable the Translator path. |
-| `BRAIN_CONTEXT_WINDOW`, `BRAIN_MAX_TOKENS` | Set local context and output fallbacks. |
+| `BRAIN_CONTEXT_WINDOW`, `SERVICE_CONTEXT_WINDOW` | Set the UI/reference context denominators; live request budgets come from the model context loaded in LM Studio. |
 | `BRAIN_IMAGE_INPUT_ENABLED` | Send image attachments to compatible models. |
 | `L4_MEMORY_ENABLED`, `L4_IDLE_SECONDS` | Enable L4 consolidation and set its idle delay. |
 | `SEARCH_SERPER_API_KEY`, `SEARCH_MAX_RESULTS` | Configure built-in web search. |

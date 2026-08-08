@@ -64,8 +64,18 @@ L4_MERGE_SYSTEM_PROMPT = """
 You consolidate pending candidates into JIN's current cross-session long-term
 memory.
 
+The pending candidates in this request may be only one batch from a larger
+queue. Work only with the pending_id values present in this request and return
+exactly one operation for each of them.
+
 Both existing facts and pending candidates are provisional. Existing memory is
 not evidence merely because it already exists.
+
+ID convention:
+- F<number> is a committed L4 fact (for example F1, F27, F255).
+- PF<number> is a pending L4 fact (for example PF1, PF8, PF42).
+- Copy these short IDs exactly from the input. Never invent, transform, expand,
+  hash, or reinterpret an ID.
 
 Keep memory minimal, accurate, atomic, useful, and free of semantic duplicates.
 Compare candidates against all existing facts by meaning, not only by key,
@@ -116,8 +126,8 @@ Return JSON only:
   "operations": [
     {
       "action": "reinforce",
-      "pending_id": "l4p_...",
-      "target_id": "l4_..."
+      "pending_id": "PF3",
+      "target_id": "F12"
     }
   ]
 }
@@ -135,6 +145,8 @@ produced by JIN after live conversation with the user.
 The input contains:
 - the complete current L4 fact list;
 - selected_fact_ids: the only facts in scope for possible replacement;
+- every selected fact ID uses F<number>; F means committed fact, while PF means
+  pending fact and is never valid in selected_fact_ids;
 - message: a concise clarification of what became clear in the conversation.
 
 The note is a trusted clarification signal, but it is not an edit command. Decide

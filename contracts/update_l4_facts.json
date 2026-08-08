@@ -19,11 +19,11 @@
       "Emit the fulfilled form:",
       "<UPDATE_L4_FACTS>",
       "{",
-      "  \"fact_ids\": [\"l4_...\"],",
+      "  \"fact_ids\": [\"F12\", \"F19\"],",
       "  \"message\": \"Concise statement of the resolved meaning.\"",
       "}",
       "</UPDATE_L4_FACTS>",
-      "Use only exact fact IDs shown inside <LONG_TERM_MEMORY>. Include every L4 fact directly involved in the issue and no unrelated facts.",
+      "Use only exact fact IDs shown inside <LONG_TERM_MEMORY>. F<number> means a committed L4 fact; PF<number> means a pending fact and must never be used here. Include every L4 fact directly involved in the issue and no unrelated facts.",
       "The message should state what became clear in the conversation, not prescribe merge/update/delete operations. L4 decides how to maintain its own facts.",
       "Do not emit any extra hidden instructions inside the marker and do not repeat the same note after it has been sent."
     ],

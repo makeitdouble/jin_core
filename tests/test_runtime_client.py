@@ -262,7 +262,7 @@ class RuntimeClientTests(
 
         self.assertEqual(
             http_client.post_calls[0]["json"]["max_tokens"],
-            1840,
+            839,
         )
         self.assertIsNone(
             client.detected_context_window,
@@ -296,33 +296,30 @@ class RuntimeClientTests(
             max_tokens=8192,
         )
 
+        self.assertEqual(
+            client.detected_context_window,
+            8192,
+        )
         self.assertGreater(
             http_client.post_calls[0]["json"]["max_tokens"],
-            3000,
+            1,
         )
 
     async def test_uses_lmstudio_native_loaded_context_when_openai_models_has_no_context(self):
 
         http_client = FakeHttpClient(
             models_payloads_by_url={
-                "http://runtime.test/v1/models": {
-                    "data": [
+                "http://runtime.test/api/v1/models": {
+                    "models": [
                         {
-                            "id": "test-model",
-                        }
-                    ]
-                },
-                "http://runtime.test/api/v0/models": {
-                    "data": [
-                        {
-                            "id": "test-model",
+                            "key": "test-model",
                             "max_context_length": 131072,
-                            "loaded_context_length": 8192,
                             "loaded_instances": [
                                 {
+                                    "id": "test-model",
                                     "config": {
                                         "context_length": 8192,
-                                    }
+                                    },
                                 }
                             ],
                         }
@@ -355,7 +352,7 @@ class RuntimeClientTests(
         )
         self.assertEqual(
             len(http_client.get_calls),
-            2,
+            1,
         )
 
     async def test_prefers_loaded_context_over_theoretical_max_context(self):
@@ -371,7 +368,7 @@ class RuntimeClientTests(
             8192,
         )
 
-    async def test_context_window_detection_is_cached(self):
+    async def test_each_model_request_refreshes_live_context_metadata(self):
 
         http_client = FakeHttpClient(
             models_payload={
@@ -408,7 +405,7 @@ class RuntimeClientTests(
 
         self.assertEqual(
             len(http_client.get_calls),
-            1,
+            2,
         )
 
     async def test_context_window_detection_skips_model_without_id(self):
@@ -444,6 +441,42 @@ class RuntimeClientTests(
         self.assertEqual(
             client.detected_context_window,
             8192,
+        )
+
+    async def test_auto_max_tokens_uses_live_context_not_configured_indicator(self):
+
+        http_client = FakeHttpClient(
+            models_payload={
+                "data": [
+                    {
+                        "id": "test-model",
+                        "context_length": 8192,
+                    }
+                ]
+            }
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            configured_context_window=4096,
+            client=http_client,
+        )
+
+        await client.ask(
+            system_prompt="system",
+            user_prompt="user",
+            temperature=0.1,
+            max_tokens=None,
+        )
+
+        self.assertEqual(
+            client.detected_context_window,
+            8192,
+        )
+        self.assertGreater(
+            http_client.post_calls[0]["json"]["max_tokens"],
+            4096,
         )
 
     async def test_preserves_configured_max_tokens_when_context_window_is_detected(self):
