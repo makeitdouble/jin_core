@@ -317,13 +317,10 @@ async def websocket_endpoint(
                         {},
                     ),
                 )
-                await logger.log_system(
-                    (
-                        "[WS] L4 memory store synced"
-                        if applied
-                        else "[WS] L4 memory store sync ignored"
+                if applied:
+                    await logger.log_system(
+                        "[WS] L4 memory store updated from browser profile"
                     )
-                )
                 await emit_l4_memory_update(
                     context,
                     change={
