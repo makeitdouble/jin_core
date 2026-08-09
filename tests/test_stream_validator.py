@@ -244,6 +244,48 @@ def test_stream_validator_allows_repeated_numeric_stream_fragments():
     assert validator.last_failure_loop_preview == ""
 
 
+def test_stream_validator_does_not_split_fact_ids_at_provider_chunk_edges():
+    validator = StreamValidator()
+
+    chunks = ["Cluster B contains: "]
+    for fact_id in range(5, 13):
+        chunks.extend(["F", f"{fact_id}, "])
+
+    for chunk in chunks:
+        clean, is_valid = validator.filter_chunk(chunk)
+
+        assert clean == chunk
+        assert is_valid
+
+    assert validator.last_failure_reason is None
+    assert validator.last_failure_preview == ""
+    assert validator.last_failure_loop_preview == ""
+
+
+def test_stream_validator_still_catches_words_split_from_whitespace_chunks():
+    validator = StreamValidator()
+
+    for repeat_index in range(8):
+        clean, is_valid = validator.filter_chunk("wait")
+        assert clean == "wait"
+        assert is_valid
+
+        clean, is_valid = validator.filter_chunk(" ")
+
+        if repeat_index < 7:
+            assert clean == " "
+            assert is_valid
+            continue
+
+        assert clean == ""
+        assert not is_valid
+
+    assert validator.last_failure_reason == (
+        "Repeated word loop detected."
+    )
+    assert validator.last_failure_loop_preview == "wait"
+
+
 def test_stream_validator_allows_short_repeated_sentences():
     validator = StreamValidator()
 

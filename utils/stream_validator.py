@@ -128,6 +128,11 @@ class StreamValidator:
         self.history_paragraphs = set()
 
         self.recent_words = []
+        # A provider chunk boundary is not a word boundary. Keep the
+        # unfinished trailing token so streamed identifiers such as
+        # ``F`` + ``5,`` are validated as ``F5`` instead of eight fake
+        # repeated ``F`` words.
+        self.word_fragment = ""
         self.validation_marker_buffer = ""
 
         self.last_failure_reason: str | None = None
@@ -536,7 +541,20 @@ class StreamValidator:
         self,
         chunk: str,
     ):
-        words = chunk.split(" ")
+        text = self.word_fragment + chunk
+        words = text.split()
+
+        # Streaming providers may split one lexical token across chunks
+        # (for example: ``" F"`` then ``"5,"``). Do not treat the chunk
+        # edge as whitespace. Hold the trailing token until a real
+        # whitespace boundary arrives.
+        if text and not text[-1].isspace():
+            if words:
+                self.word_fragment = words.pop()
+            else:
+                self.word_fragment = text
+        else:
+            self.word_fragment = ""
 
         for word in words:
 
