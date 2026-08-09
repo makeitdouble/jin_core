@@ -61,11 +61,11 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            "/static/css/runtime-avatar.css?v=memory-rings-3",
+            "/static/css/runtime-avatar.css?v=memory-rings-4",
             source,
         )
         self.assertIn(
-            "/static/js/runtime/runtime-avatar.js?v=memory-rings-6",
+            "/static/js/runtime/runtime-avatar.js?v=memory-rings-11",
             source,
         )
 

@@ -1121,11 +1121,7 @@ class BrainPromptMemoryTests(
                 runtime_l2_memory=(
                     "possible pattern: repeated greeting loop; Occurrences: 3"
                 ),
-                runtime_l2_pending_patches=[
-                    {
-                        "total_diff": 29.85,
-                    },
-                ],
+                runtime_conversation_activity_diff=29.85,
                 runtime_zero_diff_alert=None,
                 deep_thought_count=0,
                 runtime_search_result="",
@@ -1187,11 +1183,7 @@ class BrainPromptMemoryTests(
                 runtime_l2_memory=(
                     "possible pattern: repeated greeting loop; Occurrences: 4"
                 ),
-                runtime_l2_pending_patches=[
-                    {
-                        "total_diff": 9.85,
-                    },
-                ],
+                runtime_conversation_activity_diff=9.85,
                 runtime_zero_diff_alert=None,
                 deep_thought_count=0,
                 runtime_search_result="",
@@ -1235,11 +1227,7 @@ class BrainPromptMemoryTests(
             context = SimpleNamespace(
                 runtime_memory="topic: active loop diagnostics",
                 runtime_l2_memory="",
-                runtime_l2_pending_patches=[
-                    {
-                        "total_diff": 19,
-                    },
-                ],
+                runtime_conversation_activity_diff=19,
                 runtime_zero_diff_alert=None,
                 deep_thought_count=0,
                 runtime_search_result="",
@@ -1271,11 +1259,7 @@ class BrainPromptMemoryTests(
             context = SimpleNamespace(
                 runtime_memory="topic: active exchange",
                 runtime_l2_memory="",
-                runtime_l2_pending_patches=[
-                    {
-                        "total_diff": 142,
-                    },
-                ],
+                runtime_conversation_activity_diff=142,
                 runtime_zero_diff_alert=None,
                 deep_thought_count=0,
                 runtime_search_result="",

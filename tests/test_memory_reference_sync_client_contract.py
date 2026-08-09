@@ -143,11 +143,11 @@ for (const [text, reference, expected] of cases) {
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            '/static/css/runtime-memory.css?v=memory-reference-sync-1',
+            '/static/css/runtime-memory.css?v=memory-hover-sync-2',
             source,
         )
         self.assertIn(
-            '/static/js/runtime/runtime-memory-view.js?v=runtime-memory-view-14',
+            '/static/js/runtime/runtime-memory-view.js?v=runtime-memory-view-18',
             source,
         )
         self.assertIn(

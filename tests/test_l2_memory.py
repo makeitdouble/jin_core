@@ -6,7 +6,6 @@ from runtime.L2_memory_rules import (
     BEHAVIOR_VS_INTENT,
     CONFIRMABLE_KEYS,
     EVIDENCE_LINE_LIFECYCLE,
-    L2_PATCH_WINDOW,
     OCCURRENCE_COUNTING,
     OUTPUT_FORMAT,
     PATTERN_EVIDENCE_LINES,
@@ -208,9 +207,7 @@ class L2MemoryTests(
                 1,
             )
             self.assertIn(
-                "[MEMORY:L1] L1 diff +167.3; "
-                "recent diffs [4.65, 296.85, 167.3]; "
-                "avg 156.27; range 292.2;",
+                "[MEMORY:L1] L1 diff +167.3",
                 logger.service_logs[0],
             )
             self.assertNotIn(
@@ -230,7 +227,7 @@ class L2MemoryTests(
                 },
                 logger=logger,
                 runtime_l2_memory="",
-                runtime_l2_pending_patches=[
+                runtime_l1_diff_history=[
                     {
                         "turn_number": 1,
                         "snapshot_index": 1,
@@ -298,7 +295,7 @@ class L2MemoryTests(
                     },
                 ],
                 runtime_l2_last_turn=0,
-                user_message_count=L2_PATCH_WINDOW,
+                user_message_count=5,
             )
 
             updated_memory = await maybe_summarize_runtime_l2_memory(
@@ -337,47 +334,51 @@ class L2MemoryTests(
                 runtime_memory_snapshots=[],
                 runtime_memory_snapshot_index=0,
                 runtime_l2_memory="",
-                runtime_l2_pending_patches=[
+                runtime_l1_diff_history=[
                     {
-                        "turn_number": index + 1,
-                        "snapshot_index": index + 1,
+                        "turn_number": 1,
+                        "snapshot_index": 1,
                         "total_diff": 120,
                         "changes": {
                             "added": [
                                 {
-                                    "key": "topic",
-                                    "value": f"value {index}",
+                                    "key": "diagnostic_signal",
+                                    "value": "first repeated key episode",
                                 },
                             ],
                         },
-                    }
-                    for index in range(L2_PATCH_WINDOW - 1)
-                ] + [
+                    },
                     {
-                        "turn_number": 10,
-                        "snapshot_index": 10,
-                        "total_diff": 140,
-                        "user_message": "ping",
-                        "user_messages": [
-                            "ping",
-                        ],
+                        "turn_number": 2,
+                        "snapshot_index": 2,
+                        "total_diff": 80,
                         "changes": {
                             "added": [
                                 {
-                                    "key": "topic",
-                                    "value": "value final",
+                                    "key": "status",
+                                    "value": "separator episode",
                                 },
+                            ],
+                        },
+                    },
+                    {
+                        "turn_number": 3,
+                        "snapshot_index": 3,
+                        "total_diff": 140,
+                        "changes": {
+                            "changed": [
                                 {
-                                    "key": "user_message",
-                                    "value": "ping",
+                                    "previous_key": "diagnostic_signal",
+                                    "previous_value": "first repeated key episode",
+                                    "current_key": "diagnostic_signal",
+                                    "current_value": "second repeated key episode",
                                 },
                             ],
                         },
                     },
                 ],
-                runtime_l1_diff_history=[],
                 runtime_l2_last_turn=0,
-                user_message_count=L2_PATCH_WINDOW,
+                user_message_count=3,
             )
 
             updated_memory = await maybe_summarize_runtime_l2_memory(
@@ -425,7 +426,7 @@ class L2MemoryTests(
                 runtime_memory_snapshots=[],
                 runtime_memory_snapshot_index=0,
                 runtime_l2_memory="",
-                runtime_l2_pending_patches=[
+                runtime_l1_diff_history=[
                     {
                         "turn_number": 1,
                         "snapshot_index": 1,
@@ -433,7 +434,7 @@ class L2MemoryTests(
                         "changes": {
                             "added": [
                                 {
-                                    "key": "topic",
+                                    "key": "diagnostic_signal",
                                     "value": "early broad update",
                                 },
                             ],
@@ -461,9 +462,9 @@ class L2MemoryTests(
                         "changes": {
                             "changed": [
                                 {
-                                    "previous_key": "topic",
+                                    "previous_key": "diagnostic_signal",
                                     "previous_value": "large rewrite",
-                                    "current_key": "topic",
+                                    "current_key": "diagnostic_signal",
                                     "current_value": "memory mechanics",
                                 },
                             ],
@@ -476,9 +477,9 @@ class L2MemoryTests(
                         "changes": {
                             "changed": [
                                 {
-                                    "previous_key": "topic",
+                                    "previous_key": "diagnostic_signal",
                                     "previous_value": "memory mechanics",
-                                    "current_key": "topic",
+                                    "current_key": "diagnostic_signal",
                                     "current_value": "pattern trigger",
                                 },
                             ],
@@ -491,9 +492,9 @@ class L2MemoryTests(
                         "changes": {
                             "changed": [
                                 {
-                                    "previous_key": "topic",
+                                    "previous_key": "diagnostic_signal",
                                     "previous_value": "pattern trigger",
-                                    "current_key": "topic",
+                                    "current_key": "diagnostic_signal",
                                     "current_value": "L2 window",
                                 },
                             ],
@@ -521,23 +522,13 @@ class L2MemoryTests(
                         "changes": {
                             "changed": [
                                 {
-                                    "previous_key": "topic",
+                                    "previous_key": "diagnostic_signal",
                                     "previous_value": "L2 window",
-                                    "current_key": "topic",
+                                    "current_key": "diagnostic_signal",
                                     "current_value": "repeated keys",
                                 },
                             ],
                         },
-                    },
-                ],
-                runtime_l1_diff_history=[
-                    {
-                        "snapshot_index": 1,
-                        "total_diff": 110,
-                    },
-                    {
-                        "snapshot_index": 7,
-                        "total_diff": 104.69,
                     },
                 ],
                 runtime_l2_last_turn=0,
@@ -577,27 +568,27 @@ class L2MemoryTests(
                 7,
             )
             self.assertEqual(
-                context.runtime_l2_pending_patches,
-                [],
-            )
-            self.assertEqual(
                 len(context.runtime_l1_diff_history),
-                2,
+                7,
             )
             self.assertIn(
-                "Recent L1 patches",
+                "Selected L1 recurrence evidence",
                 service_client.calls[0]["user_prompt"],
             )
             self.assertIn(
-                "total_diff: 199.05",
+                "signal added: diagnostic_signal: early broad update",
+                service_client.calls[0]["user_prompt"],
+            )
+            self.assertIn(
+                "signal changed: diagnostic_signal: memory mechanics",
                 service_client.calls[0]["user_prompt"],
             )
             self.assertNotIn(
-                "total_diff: 110",
+                "large rewrite",
                 service_client.calls[0]["user_prompt"],
             )
             self.assertNotIn(
-                "total_diff: 254",
+                "adjust trigger",
                 service_client.calls[0]["user_prompt"],
             )
             self.assertEqual(
@@ -609,7 +600,7 @@ class L2MemoryTests(
                 logger.summarizer_logs[0][1],
             )
             self.assertIn(
-                "total_diff: 199.05",
+                "signal added: diagnostic_signal: early broad update",
                 logger.summarizer_logs[0][1],
             )
             self.assertEqual(
