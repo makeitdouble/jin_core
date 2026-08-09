@@ -376,7 +376,7 @@ for (const [text, reference, expected] of cases) {
             source,
         )
         self.assertIn(
-            '/static/js/runtime/runtime.js?v=runtime-facade-20',
+            '/static/js/runtime/runtime.js?v=runtime-facade-22',
             source,
         )
         self.assertIn(

@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 AVATAR_JS = (
     ROOT / "ui" / "static" / "js" / "runtime" / "runtime-avatar.js"
 )
+RUNTIME_JS = ROOT / "ui" / "static" / "js" / "runtime" / "runtime.js"
 AVATAR_CSS = ROOT / "ui" / "static" / "css" / "runtime-avatar.css"
 INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
@@ -49,6 +50,17 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn('"data-l4-fact-ids":', source)
+        self.assertIn('"data-avatar-memory-angle": options.angle', source)
+        self.assertIn('class: "jin-avatar-center"', source)
+        self.assertIn("function syncMemorySignalLayer(kind", source)
+        self.assertIn("function syncL4MemoryArchiveState()", source)
+        self.assertIn("function syncDelayedMemoryState()", source)
+        self.assertIn("function syncActiveMemoryState()", source)
+        self.assertIn("function syncL4MemoryState()", source)
+        self.assertIn("setL4MemoryDashArchivedState(", source)
+        self.assertIn("syncActiveMemoryState,", source)
+        self.assertIn("syncDelayedMemoryState,", source)
+        self.assertIn("syncL4MemoryState,", source)
         self.assertIn("applyDelayedMemoryFactLinkGlow()", source)
         self.assertIn("is-delayed-memory-linked-hit", source)
 
@@ -71,6 +83,34 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
 
         self.assertLess(l4_index, delayed_index)
         self.assertLess(delayed_index, active_index)
+
+    def test_memory_ring_changes_can_sync_without_avatar_refresh(self):
+        source = RUNTIME_JS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "function syncDelayedMemoryStateToAvatar()",
+            source,
+        )
+        self.assertIn(
+            "function syncActiveMemoryStateToAvatar()",
+            source,
+        )
+        self.assertIn(
+            "if (!syncActiveMemoryStateToAvatar()) {\n    refreshRuntimeAvatar();",
+            source,
+        )
+        self.assertIn(
+            "if (!syncDelayedMemoryStateToAvatar()) {\n    refreshRuntimeAvatar();",
+            source,
+        )
+        self.assertNotIn(
+            "function buildDelayedMemoryAvatarLayoutSignature(",
+            source,
+        )
+        self.assertNotIn(
+            "function syncDelayedMemoryPinsToAvatar(",
+            source,
+        )
 
     def test_open_delayed_report_keeps_avatar_fact_links_highlighted(self):
         source = AVATAR_JS.read_text(encoding="utf-8")
@@ -108,7 +148,7 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            "/static/js/runtime/runtime-avatar.js?v=memory-rings-15",
+            "/static/js/runtime/runtime-avatar.js?v=memory-rings-17",
             source,
         )
 

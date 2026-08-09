@@ -50,6 +50,8 @@
       startAngle: -9,
     }),
   });
+  const MEMORY_SIGNAL_KIND_ORDER =
+    Object.freeze(["l4", "delayed", "active"]);
   const SNAPSHOT_GLOW_CLEAR_DELAY_MS = 360;
   const CENTER_COLOR_STEP_MS = 120;
 
@@ -929,6 +931,7 @@
         serializeL4FactIds(options.delayedMemoryAnchorFactIds),
       "data-l4-fact-id": options.l4FactId || null,
       "data-l4-fact-ids": serializeL4FactIds(options.l4FactIds),
+      "data-avatar-memory-angle": options.angle,
     });
 
     setAvatarMemoryReferenceAliases(
@@ -1012,7 +1015,15 @@
         "--jin-avatar-memory-hover-dot-radius",
         `${Number(dotRadius + 0.85).toFixed(2)}px`
       );
+      return;
     }
+
+    dashGroup.style.removeProperty(
+      "--jin-avatar-memory-dot-radius"
+    );
+    dashGroup.style.removeProperty(
+      "--jin-avatar-memory-hover-dot-radius"
+    );
   }
 
   function getMemoryRingAnimation(records, kind) {
@@ -1166,6 +1177,108 @@
     svg.appendChild(ring);
   }
 
+  function getMemorySignalRecords(kind) {
+    if (kind === "active") {
+      return getActiveMemoryAvatarRecords();
+    }
+
+    if (kind === "delayed") {
+      return getDelayedMemoryAvatarRecords();
+    }
+
+    if (kind === "l4") {
+      return getL4MemoryAvatarRecords();
+    }
+
+    return null;
+  }
+
+  function getMemorySignalInsertionReference(svg, kind) {
+    const kindIndex =
+      MEMORY_SIGNAL_KIND_ORDER.indexOf(kind);
+
+    if (kindIndex < 0) {
+      return null;
+    }
+
+    for (
+      let index = kindIndex + 1;
+      index < MEMORY_SIGNAL_KIND_ORDER.length;
+      index += 1
+    ) {
+      const nextRing =
+        svg.querySelector(
+          `.jin-avatar-memory-ring-${MEMORY_SIGNAL_KIND_ORDER[index]}`
+        );
+
+      if (nextRing) {
+        return nextRing;
+      }
+    }
+
+    return svg.querySelector(".jin-avatar-center");
+  }
+
+  function applyAvatarReactiveGlows() {
+    applyThinkRuntimeCitationGlow();
+    applyMemoryReferenceGlow();
+    applyMemoryRowAvatarHoverGlow();
+  }
+
+  function syncMemorySignalLayer(kind, options = {}) {
+    const svg =
+      avatarRoot.querySelector("svg");
+    const layout =
+      MEMORY_RING_LAYOUT[kind];
+    const records =
+      getMemorySignalRecords(kind);
+
+    if (
+      !svg
+      || !layout
+      || !Array.isArray(records)
+    ) {
+      return false;
+    }
+
+    svg.querySelectorAll(
+      `.jin-avatar-memory-ring-${kind}`
+    ).forEach(ring => ring.remove());
+
+    if (records.length) {
+      const temporaryParent =
+        createSvgElement("g");
+
+      appendMemorySignalRing(
+        temporaryParent,
+        records,
+        layout,
+        kind,
+        avatarRoot.style
+          .getPropertyValue("--jin-avatar-overall-color")
+          .trim() || DEFAULT_RING_COLOR
+      );
+
+      const nextRing =
+        temporaryParent.firstElementChild;
+
+      if (!nextRing) {
+        return false;
+      }
+
+      svg.insertBefore(
+        nextRing,
+        getMemorySignalInsertionReference(svg, kind)
+      );
+    }
+
+    if (options.applyGlows !== false) {
+      applyAvatarReactiveGlows();
+    }
+
+    return true;
+  }
+
   function setDelayedMemoryDashPinned(reportId, pinned) {
     const delayedMemoryId =
       String(reportId || "").trim().toLowerCase();
@@ -1221,6 +1334,280 @@
     applyDelayedMemoryFactLinkGlow();
 
     return true;
+  }
+
+  function getMemoryDashNodesByDataset(svg, selector, datasetKey) {
+    const nodesById = new Map();
+    const nodes =
+      Array.from(svg.querySelectorAll(selector));
+
+    for (const node of nodes) {
+      const id =
+        String(
+          node && node.dataset
+            ? node.dataset[datasetKey]
+            : ""
+        ).trim();
+
+      if (!id || nodesById.has(id)) {
+        return null;
+      }
+
+      nodesById.set(id, node);
+    }
+
+    return {
+      nodes,
+      nodesById,
+    };
+  }
+
+  function setL4MemoryDashArchivedState(dashGroup, archived) {
+    if (!dashGroup) {
+      return false;
+    }
+
+    const path =
+      dashGroup.querySelector("path");
+
+    if (!path) {
+      return false;
+    }
+
+    const nextArchived =
+      Boolean(archived);
+    const nextOpacity =
+      nextArchived ? 0.26 : 0.52;
+    const overallColor =
+      avatarRoot.style.getPropertyValue("--jin-avatar-overall-color").trim()
+      || DEFAULT_RING_COLOR;
+    const nextColor =
+      mixColors(
+        L4_MEMORY_RING_COLOR,
+        overallColor,
+        0.08
+      );
+    const dotRadius =
+      Math.max(
+        MEMORY_RING_LAYOUT.l4.strokeWidth * 1.45,
+        1.35
+      );
+    const angle =
+      Number(dashGroup.dataset.avatarMemoryAngle);
+
+    if (nextArchived && !Number.isFinite(angle)) {
+      return false;
+    }
+
+    dashGroup.classList.toggle(
+      "is-memory-archived",
+      nextArchived
+    );
+    dashGroup.classList.toggle(
+      "is-memory-dot",
+      nextArchived
+    );
+
+    setMemoryDashGlowVariables(
+      dashGroup,
+      L4_MEMORY_RING_COLOR,
+      MEMORY_RING_LAYOUT.l4.strokeWidth + 0.75,
+      nextArchived ? dotRadius : 0
+    );
+
+    path.classList.toggle(
+      "jin-avatar-memory-dash-arc",
+      nextArchived
+    );
+    path.setAttribute(
+      "stroke",
+      nextColor
+    );
+    path.setAttribute(
+      "stroke-opacity",
+      nextOpacity.toFixed(2)
+    );
+
+    if (!nextArchived) {
+      dashGroup.querySelectorAll(".jin-avatar-memory-dot")
+        .forEach(dot => dot.remove());
+      dashGroup.style.removeProperty(
+        "--jin-avatar-memory-dot-opacity"
+      );
+      return true;
+    }
+
+    const dotPoint =
+      polarPoint(
+        MEMORY_RING_LAYOUT.l4.radius,
+        angle
+      );
+    let dot =
+      dashGroup.querySelector(".jin-avatar-memory-dot");
+
+    if (!dot) {
+      dot = createSvgElement("circle", {
+        class: "jin-avatar-memory-dot",
+      });
+      dashGroup.appendChild(dot);
+    }
+
+    dashGroup.style.setProperty(
+      "--jin-avatar-memory-dot-opacity",
+      nextOpacity.toFixed(2)
+    );
+    dot.setAttribute("cx", dotPoint.x.toFixed(3));
+    dot.setAttribute("cy", dotPoint.y.toFixed(3));
+    dot.setAttribute("r", dotRadius.toFixed(2));
+    dot.setAttribute("fill", nextColor);
+    dot.setAttribute("fill-opacity", nextOpacity.toFixed(2));
+
+    return true;
+  }
+
+  function syncDelayedMemoryDashState() {
+    const svg =
+      avatarRoot.querySelector("svg");
+
+    if (!svg) {
+      return false;
+    }
+
+    const delayedMemoryRecords =
+      getDelayedMemoryAvatarRecords();
+    const nodeLookup =
+      getMemoryDashNodesByDataset(
+        svg,
+        ".jin-avatar-memory-dash-delayed",
+        "delayedMemoryId"
+      );
+
+    if (
+      !nodeLookup
+      || nodeLookup.nodes.length !== delayedMemoryRecords.length
+    ) {
+      return false;
+    }
+
+    let synced = true;
+
+    delayedMemoryRecords.forEach((record) => {
+      const dashGroup =
+        nodeLookup.nodesById.get(record.id);
+
+      if (!dashGroup) {
+        synced = false;
+        return;
+      }
+
+      dashGroup.dataset.delayedMemoryFactIds =
+        serializeL4FactIds(record.factIds) || "";
+      dashGroup.dataset.delayedMemoryAnchorFactIds =
+        serializeL4FactIds(record.anchorFactIds) || "";
+
+      if (
+        !setDelayedMemoryDashPinned(
+          record.id,
+          Boolean(record.pinned)
+        )
+      ) {
+        synced = false;
+      }
+    });
+
+    return synced;
+  }
+
+  function syncL4MemoryArchiveState() {
+    const svg =
+      avatarRoot.querySelector("svg");
+
+    if (!svg) {
+      return false;
+    }
+
+    const l4MemoryRecords =
+      getL4MemoryAvatarRecords();
+    const nodeLookup =
+      getMemoryDashNodesByDataset(
+        svg,
+        ".jin-avatar-memory-dash-l4",
+        "l4FactId"
+      );
+
+    if (
+      !nodeLookup
+      || nodeLookup.nodes.length !== l4MemoryRecords.length
+    ) {
+      return false;
+    }
+
+    let synced = true;
+
+    l4MemoryRecords.forEach((record) => {
+      const dashGroup =
+        nodeLookup.nodesById.get(record.id);
+
+      if (!dashGroup) {
+        synced = false;
+        return;
+      }
+
+      dashGroup.dataset.l4FactIds =
+        serializeL4FactIds(record.l4FactIds) || "";
+      dashGroup.dataset.runtimeLineKey =
+        normalizeRuntimeCitationIdentity(record.key);
+      dashGroup.dataset.runtimeLineText =
+        record.citationText || "";
+      dashGroup.dataset.runtimeLineIdentity =
+        record.citationIdentity || "";
+      setAvatarMemoryReferenceAliases(
+        dashGroup,
+        record.referenceAliases
+      );
+
+      if (
+        !setL4MemoryDashArchivedState(
+          dashGroup,
+          record.archived
+        )
+      ) {
+        synced = false;
+      }
+    });
+
+    return synced;
+  }
+
+  function syncDelayedMemoryState() {
+    const delayedSynced =
+      syncDelayedMemoryDashState()
+      || syncMemorySignalLayer(
+        "delayed",
+        { applyGlows: false }
+      );
+    const l4Synced =
+      syncL4MemoryArchiveState()
+      || syncMemorySignalLayer(
+        "l4",
+        { applyGlows: false }
+      );
+
+    if (!delayedSynced || !l4Synced) {
+      return false;
+    }
+
+    applyAvatarReactiveGlows();
+
+    return true;
+  }
+
+  function syncActiveMemoryState() {
+    return syncMemorySignalLayer("active");
+  }
+
+  function syncL4MemoryState() {
+    return syncMemorySignalLayer("l4");
   }
 
   function appendMemorySignalRings(
@@ -1619,6 +2006,7 @@
 
   function appendCenter(svg, overallColor, currentCenterColor) {
     const center = createSvgElement("g", {
+      class: "jin-avatar-center",
       "pointer-events": "none",
     });
 
@@ -2464,6 +2852,9 @@
     refresh: reinitializeAvatar,
     setCenterColor,
     setDelayedMemoryPinned: setDelayedMemoryDashPinned,
+    syncActiveMemoryState,
+    syncDelayedMemoryState,
+    syncL4MemoryState,
     get aggressivePalette() {
       return AGGRESSIVE_PALETTE;
     },

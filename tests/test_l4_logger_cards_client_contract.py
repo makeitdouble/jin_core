@@ -77,7 +77,7 @@ class L4LoggerCardsClientContractTests(unittest.TestCase):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn('/static/css/runtime-memory.css?v=memory-hover-sync-9', source)
-        self.assertIn('/static/js/runtime/runtime-l4-memory.js?v=l4-delete-local-1', source)
+        self.assertIn('/static/js/runtime/runtime-l4-memory.js?v=l4-delete-local-2', source)
         self.assertIn('/static/js/logger/logger.js?v=l4-trace-reason-2', source)
         self.assertIn('/static/js/logger/trace-modal.js?v=l4-truncate-diagnostics-1', source)
         self.assertIn('/static/js/logger/log-entries.js?v=l4-restore-meta-1', source)

@@ -280,6 +280,25 @@
     return normalized;
   }
 
+  function syncL4MemoryStateToAvatar() {
+    if (
+      window.JinRuntime.avatar
+      && typeof window.JinRuntime.avatar.syncL4MemoryState === "function"
+    ) {
+      return window.JinRuntime.avatar.syncL4MemoryState();
+    }
+
+    if (
+      window.JinRuntime.avatar
+      && typeof window.JinRuntime.avatar.refresh === "function"
+    ) {
+      window.JinRuntime.avatar.refresh();
+      return true;
+    }
+
+    return false;
+  }
+
   function getFacts() {
     return readStore().facts;
   }
@@ -483,12 +502,7 @@
     ) {
       window.JinRuntime.runtime.renderRuntimeMemorySnapshot();
     }
-    if (
-      window.JinRuntime.avatar
-      && typeof window.JinRuntime.avatar.refresh === "function"
-    ) {
-      window.JinRuntime.avatar.refresh();
-    }
+    syncL4MemoryStateToAvatar();
 
     return true;
   }
@@ -559,12 +573,7 @@
     ) {
       window.JinRuntime.runtime.renderRuntimeMemorySnapshot();
     }
-    if (
-      window.JinRuntime.avatar
-      && typeof window.JinRuntime.avatar.refresh === "function"
-    ) {
-      window.JinRuntime.avatar.refresh();
-    }
+    syncL4MemoryStateToAvatar();
     return store;
   }
 
