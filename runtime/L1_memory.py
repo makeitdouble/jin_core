@@ -661,7 +661,6 @@ async def summarize_runtime_memory(
 
         updated_memory = extract_runtime_memory_text(
             response,
-            allow_reasoning_fallback=False,
         )
         updated_memory = normalize_compound_runtime_memory_lines(
             updated_memory
@@ -670,7 +669,6 @@ async def summarize_runtime_memory(
             build_runtime_summarizer_response_details(
                 response,
                 extracted_memory=updated_memory,
-                allow_reasoning_fallback=False,
             )
         )
         updated_memory = remove_runtime_response_feedback_text(
@@ -875,7 +873,6 @@ async def summarize_runtime_memory_pending_turns(
 
         updated_memory = extract_runtime_memory_text(
             response,
-            allow_reasoning_fallback=False,
         )
         updated_memory = normalize_compound_runtime_memory_lines(
             updated_memory
@@ -884,7 +881,6 @@ async def summarize_runtime_memory_pending_turns(
             build_runtime_summarizer_response_details(
                 response,
                 extracted_memory=updated_memory,
-                allow_reasoning_fallback=False,
             )
         )
         updated_memory = remove_runtime_response_feedback_text(

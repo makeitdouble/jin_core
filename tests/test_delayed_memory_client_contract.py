@@ -85,6 +85,94 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             runtime_actions_source,
         )
 
+    def test_delayed_memory_delete_sync_and_loaded_state_are_registered(self):
+
+        runtime_source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "runtime"
+            / "runtime.js"
+        ).read_text(
+            encoding="utf-8"
+        )
+        l4_source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "runtime"
+            / "runtime-l4-memory.js"
+        ).read_text(
+            encoding="utf-8"
+        )
+        socket_delayed_source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "socket"
+            / "delayed-memory.js"
+        ).read_text(
+            encoding="utf-8"
+        )
+        runtime_actions_source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "socket"
+            / "runtime-actions.js"
+        ).read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            "loadedDelayedMemoryReportIds",
+            runtime_source,
+        )
+        self.assertIn(
+            "isDelayedMemoryReportLoaded",
+            runtime_source,
+        )
+        self.assertIn(
+            "markDelayedMemoryReportLoaded",
+            runtime_source,
+        )
+        self.assertIn(
+            "deleteDelayedMemoryReport: deleteDelayedMemoryReportAndRender",
+            runtime_source,
+        )
+        self.assertIn(
+            "restoreDelayedMemoryReport: restoreDelayedMemoryReportAndRender",
+            runtime_source,
+        )
+        self.assertIn(
+            "isDelayedMemoryReportLoaded(reportId, report)",
+            l4_source,
+        )
+        self.assertIn(
+            "loadedIds.forEach((factId) => {",
+            l4_source,
+        )
+        self.assertIn(
+            "deleted_delayed_memory_report_ids: deletedReportIds",
+            socket_delayed_source,
+        )
+        self.assertIn(
+            'action === "append_delayed_memory"',
+            runtime_actions_source,
+        )
+        self.assertIn(
+            'action === "remove_delayed_memory"',
+            runtime_actions_source,
+        )
+        self.assertIn(
+            "markDelayedMemoryReportLoaded(",
+            runtime_actions_source,
+        )
+
     def test_appended_delayed_memory_bubbles_open_their_own_reports(self):
 
         runtime_actions_source = (

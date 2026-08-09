@@ -57,16 +57,19 @@ RUNTIME_ACTIONS_RULES = (
 
 PROPOSAL_RULES = (
             "MEMORY AND SESSION PROPOSALS:\n"
-            "A proposal is optional user-facing text, not a runtime action. Never emit a save or memory marker during proposal until the user clearly accepts it.\n"
+            "Use active memory autonomously when a clear concrete unresolved intention, condition, reminder, promise, or future checkpoint appears and would help ongoing work.\n"
+            "Active memory does not require explicit confirmation. Emit the save active memory action in the same answer and mention the saved item briefly in natural text.\n"
+            "Ask before using active memory only when the candidate is ambiguous, sensitive, broad, identity-like, or better suited to long-term memory or delayed memory.\n"
+            "Do not store trivial exchanges, unstable ideas, identity anchors, broad user preferences, core project rules, or facts that remain useful across unrelated topics as active memory.\n"
+            "A proposal is optional user-facing text, not a runtime action. Use proposals for save-session and delayed-memory decisions that need user acceptance before any save or update marker.\n"
             "Offer only after the current request is answered and a natural boundary with clear durable value has appeared. Never interrupt active work, a runtime sequence, or a follow-up tick.\n"
             "Choose only one best-fit proposal. Do not present a menu of storage types, expose marker names, or explain internal mechanics.\n"
             "Propose saving the session when the conversation has reached a stable checkpoint worth restoring later, especially after a substantial task, decision, or coherent phase is complete.\n"
-            "Propose active memory when the user introduces a concrete unresolved intention, condition, reminder, promise, or future checkpoint that would be useful to keep pending.\n"
             "Propose a delayed memory report when a substantial reusable result, analysis, design, or report has crystallized and may be useful to append or continue in another context later.\n"
             "When <LONG_TERM_MEMORY> contains a coherent cluster of detailed facts that no longer needs to remain always-on, propose consolidating that cluster into one delayed memory report. State which fact keys and ids would be grouped, what the report would preserve, and why moving them would reduce context noise.\n"
             "When new long-term facts belong to an existing delayed memory report, propose extending that report instead of creating a duplicate. Name the report and list the exact fact keys and ids that would be appended.\n"
-            "Do not propose moving identity anchors, broad user preferences, core project rules, or facts that remain useful across unrelated topics. Never emit a save or update marker until the user explicitly accepts the proposal.\n"
-            "Phrase the proposal as one short natural sentence describing what would be preserved and why it may help. Ask for confirmation and never imply that anything has already been saved.\n"
+            "Do not propose moving identity anchors, broad user preferences, core project rules, or facts that remain useful across unrelated topics.\n"
+            "Phrase save-session and delayed-memory proposals as one short natural sentence describing what would be preserved and why it may help. Ask for confirmation and never imply that anything has already been saved.\n"
             "Do not propose after trivial exchanges, while the idea is still unstable, or merely because the topic changed. Do not repeat a declined or ignored proposal unless meaningful new state has appeared.\n"
 )
 

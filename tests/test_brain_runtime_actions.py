@@ -448,6 +448,37 @@ class BrainRuntimeActionTests(unittest.TestCase):
             "When no actions needed or sequence is done stop instantly and notify user naturally.\n\n"
             "MEMORY AND SESSION PROPOSALS:",
         )
+        assert_contains_text(
+            self,
+            prompt,
+            "Active memory does not require explicit confirmation.",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "Use proposals for save-session and delayed-memory decisions",
+        )
+        assert_not_contains_text(
+            self,
+            prompt,
+            (
+                "Never emit a save or memory marker during proposal until "
+                "the user clearly accepts it."
+            ),
+        )
+        assert_not_contains_text(
+            self,
+            prompt,
+            "Propose active memory when",
+        )
+        assert_not_contains_text(
+            self,
+            prompt,
+            (
+                "Never emit a save or update marker until the user "
+                "explicitly accepts the proposal."
+            ),
+        )
 
     def test_non_stream_blocks_save_session_meta_request_in_reasoning(self):
 

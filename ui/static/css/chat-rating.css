@@ -310,7 +310,7 @@
     cursor: pointer;
 }
 
-.jin-chat-bubble-rateable.jin-rating-selected-minus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked) {
+.jin-chat-bubble-rateable.jin-rating-selected-minus {
     box-shadow:
             0 14px 42px rgba(0, 0, 0, 0.25),
             0 0 28px rgba(248, 113, 113, var(--jin-rating-glow-alpha, 0.085)),
@@ -323,15 +323,15 @@
             brightness(var(--jin-rating-brightness, 1.01));
 }
 
-.jin-chat-bubble-rateable.jin-rating-selected-minus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked)::before {
+.jin-chat-bubble-rateable.jin-rating-selected-minus::before {
     opacity: var(--jin-rating-edge-opacity, 0.42);
 }
 
-.jin-chat-bubble-rateable.jin-rating-selected-minus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked) .jin-chat-pre {
+.jin-chat-bubble-rateable.jin-rating-selected-minus .jin-chat-pre {
     transform: translateX(-2px) skewY(-0.18deg);
 }
 
-.jin-chat-bubble-rateable.jin-rating-selected-neutral:not(.jin-rating-committed):not(.jin-rating-interaction-blocked) {
+.jin-chat-bubble-rateable.jin-rating-selected-neutral {
     box-shadow:
             0 14px 42px rgba(0, 0, 0, 0.24),
             0 0 34px rgba(226, 232, 240, var(--jin-rating-glow-alpha, 0.095)),
@@ -344,14 +344,14 @@
             brightness(var(--jin-rating-brightness, 1.04));
 }
 
-.jin-chat-bubble-rateable.jin-rating-selected-neutral:not(.jin-rating-committed):not(.jin-rating-interaction-blocked) .jin-chat-pre {
+.jin-chat-bubble-rateable.jin-rating-selected-neutral .jin-chat-pre {
     transform: none;
     text-shadow:
             0 0 10px rgba(226, 232, 240, var(--jin-rating-text-alpha, 0.070)),
             0 0 14px rgba(103, 232, 249, 0.018);
 }
 
-.jin-chat-bubble-rateable.jin-rating-selected-plus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked) {
+.jin-chat-bubble-rateable.jin-rating-selected-plus {
     box-shadow:
             0 14px 42px rgba(0, 0, 0, 0.25),
             0 0 28px rgba(74, 222, 128, var(--jin-rating-glow-alpha, 0.092)),
@@ -364,10 +364,10 @@
             brightness(var(--jin-rating-brightness, 1.01));
 }
 
-.jin-chat-bubble-rateable.jin-rating-selected-plus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked)::after {
+.jin-chat-bubble-rateable.jin-rating-selected-plus::after {
     opacity: var(--jin-rating-edge-opacity, 0.42);
 }
 
-.jin-chat-bubble-rateable.jin-rating-selected-plus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked) .jin-chat-pre {
+.jin-chat-bubble-rateable.jin-rating-selected-plus .jin-chat-pre {
     transform: translateX(2px) skewY(0.18deg);
 }

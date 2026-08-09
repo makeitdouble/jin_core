@@ -62,6 +62,7 @@ from .tasks import (
 )
 
 from utils.delayed_memory_file_store import (
+    delete_delayed_memory_report_files,
     persist_delayed_memory_reports,
 )
 
@@ -267,10 +268,19 @@ async def websocket_endpoint(
                 continue
 
             if message_type == "delayed_memory_store_sync":
-                apply_delayed_memory_reports(
+                deleted_report_ids = apply_delayed_memory_reports(
                     context,
                     message_data,
                 )
+                for report_id in deleted_report_ids:
+                    delete_errors = delete_delayed_memory_report_files(
+                        report_id
+                    )
+                    for delete_error in delete_errors:
+                        await logger.log_system(
+                            "[DELAYED MEMORY] local file delete failed: "
+                            + delete_error
+                        )
                 reports = getattr(
                     context,
                     "delayed_memory_reports",

@@ -309,6 +309,9 @@ async def maybe_summarize_runtime_l2_memory(
             response
         )
 
+        if not updated_l2_memory.strip():
+            updated_l2_memory = current_l2_memory
+
         skip_reason = None
 
         if is_runtime_memory_response_truncated(response):

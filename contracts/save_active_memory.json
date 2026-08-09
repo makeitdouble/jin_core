@@ -1,7 +1,7 @@
 {
   "save_active_memory": {
     "version": 1,
-    "description": "Allows the model to save active memory.",
+    "description": "Allows the model to autonomously save active memory.",
     "runtime_action": "SAVE_ACTIVE_MEMORY",
     "private_marker": "<SAVE_ACTIVE_MEMORY: CONDITIONS >",
     "triggers": [],
@@ -10,9 +10,12 @@
       "emit_followup": false
     },
     "rules": [
-      "Use SAVE_ACTIVE_MEMORY action marker when user asks to remember, remind, track, or keep a pending live-session condition.",
-      "CONDITIONS is a placeholder word; replace placeholder with description, value, or conditions.",
-      "When JIN explicitly derives a live rule from the current context and needs to remember it, fulfill the conditions and emit a marker."
+      "Use SAVE_ACTIVE_MEMORY when a clear, concrete unresolved intention, promise, condition, reminder, live rule, or future checkpoint appears and keeping it pending would help the current or near-future conversation.",
+      "Do not wait for explicit confirmation when the save candidate is clear; active memory is an autonomous runtime action.",
+      "Ask before saving only when the candidate is ambiguous, sensitive, broad, identity-like, or better suited to long-term memory or delayed memory.",
+      "CONDITIONS is a placeholder word; replace it with the concrete pending item to preserve.",
+      "After emitting the marker, briefly notify the user in natural text that the active memory was saved; never expose marker syntax in visible text.",
+      "Do not save trivial exchanges, unstable ideas, identity anchors, broad user preferences, core project rules, or facts that should remain useful across unrelated topics as active memory."
     ],
     "close_tag": false
   }

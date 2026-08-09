@@ -423,7 +423,34 @@ function clearDelayedMemoryContentFilter(
 
 }
 
-function syncDelayedMemoryReportsToRuntime() {
+function normalizeDelayedMemoryReportIds(value) {
+  const source =
+    Array.isArray(value)
+      ? value
+      : [value];
+  const reportIds = [];
+  const seen = new Set();
+
+  source.forEach((item) => {
+    const reportId =
+      String(item || "").trim().toLowerCase();
+
+    if (
+        !/^[a-z0-9]{6}$/.test(reportId)
+        || seen.has(reportId)
+    ) {
+      return;
+    }
+
+    seen.add(reportId);
+    reportIds.push(reportId);
+  });
+
+  return reportIds;
+}
+
+
+function syncDelayedMemoryReportsToRuntime(options = {}) {
   if (
       !ws
       || ws.readyState !== WebSocket.OPEN
@@ -436,19 +463,29 @@ function syncDelayedMemoryReportsToRuntime() {
 
   const delayedMemoryReports =
     window.JinRuntime.runtime.getDelayedMemoryReports();
+  const deletedReportIds =
+    normalizeDelayedMemoryReportIds(
+      options.deletedReportIds
+      || options.deleted_delayed_memory_report_ids
+      || []
+    );
 
   if (
       !delayedMemoryReports
       || typeof delayedMemoryReports !== "object"
       || Array.isArray(delayedMemoryReports)
-      || !Object.keys(delayedMemoryReports).length
+      || (
+        !Object.keys(delayedMemoryReports).length
+        && !deletedReportIds.length
+      )
   ) {
-    return;
+    return false;
   }
 
-  sendSocketMessage({
+  return sendSocketMessage({
     type: "delayed_memory_store_sync",
     delayed_memory_reports: delayedMemoryReports,
+    deleted_delayed_memory_report_ids: deletedReportIds,
   });
 }
 

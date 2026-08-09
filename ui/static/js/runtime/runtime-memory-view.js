@@ -13,6 +13,7 @@
   let getDelayedMemoryReports = null;
   let setDelayedMemoryReportPinned = null;
   let setDelayedMemoryReportAnchorFactIds = null;
+  let deleteDelayedMemoryReport = null;
   let getFactsMemoryFields = null;
   let deleteFactsMemoryField = null;
   let getLongTermMemoryFacts = null;
@@ -57,6 +58,7 @@
   let delayedMemoryModalTitle = null;
   let delayedMemoryModalContent = null;
   let delayedMemoryModalPinButton = null;
+  let delayedMemoryModalDeleteButton = null;
   let delayedMemoryModalReport = null;
   let activeDelayedMemoryReportId = "";
 
@@ -2924,6 +2926,29 @@
         pinned ? "Unpin delayed memory" : "Pin delayed memory";
   }
 
+  function deleteDelayedMemoryModalReport() {
+    if (
+        !delayedMemoryModalReport
+        || typeof deleteDelayedMemoryReport !== "function"
+    ) {
+      return;
+    }
+
+    const reportId =
+        getDelayedMemoryReportId(
+            delayedMemoryModalReport
+        );
+
+    const deleted =
+        deleteDelayedMemoryReport(
+            reportId
+        );
+
+    if (deleted !== false) {
+      closeDelayedMemoryReportModal();
+    }
+  }
+
   function setActiveDelayedMemoryReportRow(
     reportId
   ) {
@@ -3037,6 +3062,26 @@
     delayedMemoryModalPinButton.innerHTML =
         '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 3.3 20.7 9.3 18.6 11.4 16.9 9.7 13.7 12.9 14.4 15.7 12.9 17.2 9.4 13.7 5.3 17.8 4.2 16.7 8.3 12.6 4.8 9.1 6.3 7.6 9.1 8.3 12.3 5.1 10.6 3.4 12.7 1.3Z"/></svg>';
 
+    delayedMemoryModalDeleteButton =
+        document.createElement("button");
+
+    delayedMemoryModalDeleteButton.type =
+        "button";
+
+    delayedMemoryModalDeleteButton.className =
+        "delayed-memory-modal-icon-button delayed-memory-modal-delete";
+
+    delayedMemoryModalDeleteButton.setAttribute(
+        "aria-label",
+        "Delete delayed memory"
+    );
+
+    delayedMemoryModalDeleteButton.title =
+        "Hold to delete delayed memory";
+
+    delayedMemoryModalDeleteButton.innerHTML =
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 6h2v9h-2V9Zm4 0h2v9h-2V9ZM7 9h2l.7 10h4.6L15 9h2l-.8 11.1A2 2 0 0 1 14.2 22H9.8a2 2 0 0 1-2-1.9L7 9Z"/></svg>';
+
     const closeButton =
         document.createElement("button");
 
@@ -3066,6 +3111,10 @@
 
     headerActions.appendChild(
         delayedMemoryModalPinButton
+    );
+
+    headerActions.appendChild(
+        delayedMemoryModalDeleteButton
     );
 
     headerActions.appendChild(
@@ -3122,6 +3171,19 @@
               delayedMemoryModalReport
           );
         }
+    );
+
+    delayedMemoryModalDeleteButton.addEventListener(
+        "click",
+        (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+    );
+
+    configureRuntimeMemoryDeleteHold(
+        delayedMemoryModalDeleteButton,
+        deleteDelayedMemoryModalReport
     );
 
     closeButton.addEventListener(
@@ -4056,6 +4118,8 @@
     setDelayedMemoryReportPinned = options.setDelayedMemoryReportPinned || null;
     setDelayedMemoryReportAnchorFactIds =
         options.setDelayedMemoryReportAnchorFactIds || null;
+    deleteDelayedMemoryReport =
+        options.deleteDelayedMemoryReport || null;
     getFactsMemoryFields = options.getFactsMemoryFields || null;
     deleteFactsMemoryField = options.deleteFactsMemoryField || null;
     getLongTermMemoryFacts = options.getLongTermMemoryFacts || null;

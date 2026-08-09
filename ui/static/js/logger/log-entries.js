@@ -879,6 +879,9 @@ const l4SummarizerCards = {
 const l4DeletedFactCards =
   new Map();
 
+const delayedDeletedReportCards =
+  new Map();
+
 function parseL4JsonPayload(details) {
   const text =
     String(details || "").trim();
@@ -1672,6 +1675,193 @@ function handleL4MemoryRestoreResult(
   );
 }
 
+function resolveDeletedDelayedMemoryReport(
+  details,
+  meta,
+) {
+  if (
+      meta
+      && meta.deleted_delayed_memory_report
+      && typeof meta.deleted_delayed_memory_report === "object"
+  ) {
+    return meta.deleted_delayed_memory_report;
+  }
+
+  const payload =
+    parseL4JsonPayload(details);
+
+  if (
+      payload
+      && payload.report
+      && typeof payload.report === "object"
+  ) {
+    return payload.report;
+  }
+
+  return null;
+}
+
+function getDelayedMemoryReportCardId(report) {
+  return String(
+    report
+    && (
+      report.id
+      || report._storage_key
+    )
+    || ""
+  ).trim().toLowerCase();
+}
+
+function handleDelayedMemoryDeletedReportLog(
+  tag,
+  details,
+  meta,
+) {
+  const isDeleted =
+    String(meta && meta.memory_event || "").toLowerCase()
+      === "delayed_memory_deleted"
+    || String(tag || "").toUpperCase()
+      === "[MEMORY:DELAYED:DELETED]";
+
+  if (!isDeleted) {
+    return null;
+  }
+
+  const report =
+    resolveDeletedDelayedMemoryReport(
+      details,
+      meta
+    );
+  const reportId =
+    getDelayedMemoryReportCardId(
+      report
+    );
+
+  if (!report || !reportId) {
+    return null;
+  }
+
+  const logDiv =
+    createL4LoggerCard(
+      "[MEMORY:DELAYED:DELETED]"
+    );
+
+  const title =
+    document.createElement("span");
+
+  title.className =
+    "block mt-2 text-zinc-200 font-semibold";
+
+  title.textContent =
+    String(report.title || reportId || "Delayed memory");
+
+  const summary =
+    document.createElement("span");
+
+  summary.className =
+    "block mt-1 text-zinc-400";
+
+  summary.textContent =
+    String(report.summary || "");
+
+  logDiv.appendChild(title);
+
+  if (summary.textContent) {
+    logDiv.appendChild(summary);
+  }
+
+  const actions =
+    document.createElement("div");
+
+  actions.className =
+    "mt-2 flex flex-wrap items-center gap-2";
+
+  const payloadButton =
+    createL4LoggerButton(
+      "payload"
+    );
+
+  const restoreButton =
+    createL4LoggerButton(
+      "restore"
+    );
+
+  payloadButton.addEventListener(
+    "click",
+    function () {
+      showTrace(
+        JSON.stringify({
+          kind: "delayed_memory_report",
+          report,
+        }),
+        "Delayed memory deleted"
+      );
+    }
+  );
+
+  restoreButton.addEventListener(
+    "click",
+    function () {
+      const api =
+        window.JinRuntime
+        && window.JinRuntime.runtime;
+
+      if (!api || typeof api.restoreDelayedMemoryReport !== "function") {
+        return;
+      }
+
+      const restored =
+        api.restoreDelayedMemoryReport(
+          reportId,
+          report
+        );
+
+      if (!restored) {
+        restoreButton.textContent =
+          "restore failed";
+
+        window.setTimeout(
+          function () {
+            restoreButton.textContent =
+              "restore";
+          },
+          1400
+        );
+        return;
+      }
+
+      restoreButton.disabled =
+        true;
+      restoreButton.textContent =
+        "restored";
+      restoreButton.classList.add(
+        "opacity-50"
+      );
+
+      delayedDeletedReportCards.delete(
+        reportId
+      );
+      dismissLogAfterClear(
+        logDiv
+      );
+    }
+  );
+
+  delayedDeletedReportCards.set(
+    reportId,
+    {
+      logDiv,
+      restoreButton,
+    }
+  );
+
+  actions.appendChild(payloadButton);
+  actions.appendChild(restoreButton);
+  logDiv.appendChild(actions);
+
+  return logDiv;
+}
+
 function appendLog(
   tag,
   message,
@@ -1724,6 +1914,17 @@ function appendLog(
 
   if (l4DeletedFactLog) {
     return l4DeletedFactLog;
+  }
+
+  const delayedMemoryDeletedLog =
+    handleDelayedMemoryDeletedReportLog(
+      tag,
+      normalized.details,
+      meta
+    );
+
+  if (delayedMemoryDeletedLog) {
+    return delayedMemoryDeletedLog;
   }
 
   const flowId =

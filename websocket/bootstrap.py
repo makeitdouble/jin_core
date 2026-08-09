@@ -22,6 +22,7 @@ from runtime.L3_memory_utils import parse_l3_session_snapshot_metadata
 from runtime.telemetry import send_telemetry
 from utils.actions import (
     is_active_memory_key,
+    is_delayed_memory_report_id,
     refresh_active_memory_runtime_metadata,
     remove_active_memory_entries,
 )
@@ -109,13 +110,54 @@ def clean_delayed_memory_reports(value) -> dict:
     )
 
 
+def clean_deleted_delayed_memory_report_ids(value) -> list[str]:
+
+    source = value if isinstance(value, list) else [value]
+    report_ids = []
+    seen = set()
+
+    for item in source:
+        report_id = str(
+            item
+            or ""
+        ).strip().casefold()
+
+        if (
+            not report_id
+            or report_id in seen
+            or not is_delayed_memory_report_id(
+                report_id
+            )
+        ):
+            continue
+
+        seen.add(
+            report_id
+        )
+        report_ids.append(
+            report_id
+        )
+
+    return report_ids
+
+
 def apply_delayed_memory_reports(
     context,
     message_data: dict,
-) -> None:
+) -> list[str]:
 
-    if "delayed_memory_reports" not in message_data:
-        return
+    deleted_report_ids = clean_deleted_delayed_memory_report_ids(
+        message_data.get(
+            "deleted_delayed_memory_report_ids",
+            [],
+        )
+    )
+
+    if (
+        "delayed_memory_reports" not in message_data
+        and not deleted_report_ids
+    ):
+        return []
 
     incoming_reports = clean_delayed_memory_reports(
         message_data.get(
@@ -131,10 +173,52 @@ def apply_delayed_memory_reports(
         )
     )
 
+    for report_id in deleted_report_ids:
+        existing_reports.pop(
+            report_id,
+            None,
+        )
+
     context.delayed_memory_reports = {
         **existing_reports,
         **incoming_reports,
     }
+
+    appended_reports = getattr(
+        context,
+        "runtime_appended_delayed_memory",
+        None,
+    )
+
+    if isinstance(
+        appended_reports,
+        dict,
+    ):
+        for report_id in deleted_report_ids:
+            appended_reports.pop(
+                report_id,
+                None,
+            )
+
+    appended_ids = getattr(
+        context,
+        "runtime_appended_delayed_memory_ids",
+        None,
+    )
+
+    if isinstance(
+        appended_ids,
+        list,
+    ):
+        deleted_report_id_set = set(
+            deleted_report_ids
+        )
+        appended_ids[:] = [
+            report_id
+            for report_id in appended_ids
+            if str(report_id or "").strip().casefold()
+            not in deleted_report_id_set
+        ]
 
     from runtime.L4_memory import (
         refresh_runtime_l4_archived_fact_ids,
@@ -143,6 +227,8 @@ def apply_delayed_memory_reports(
     refresh_runtime_l4_archived_fact_ids(
         context
     )
+
+    return deleted_report_ids
 
 
 def hydrate_delayed_memory_reports_from_files(

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from utils.delayed_memory_file_store import (
     build_delayed_memory_file_payload,
+    delete_delayed_memory_report_files,
     load_delayed_memory_reports_from_files,
     merge_delayed_memory_reports,
     persist_delayed_memory_report,
@@ -169,6 +170,38 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
                 [
                     "48ggds_New_title.json",
                 ],
+            )
+
+    def test_delete_removes_current_and_legacy_report_files(self):
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+
+            persist_delayed_memory_report(
+                "48ggds",
+                self.build_report(
+                    title="Current title",
+                ),
+                root=root,
+            )
+            legacy_path = root / "48ggds.json"
+            legacy_path.write_text(
+                "{}",
+                encoding="utf-8",
+            )
+
+            errors = delete_delayed_memory_report_files(
+                "48ggds",
+                root=root,
+            )
+
+            self.assertEqual(
+                errors,
+                [],
+            )
+            self.assertEqual(
+                list(root.glob("48ggds*.json")),
+                [],
             )
 
     def test_invalid_files_are_skipped_without_crashing(self):
@@ -351,6 +384,66 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
         self.assertEqual(
             context.delayed_memory_reports["a1b2c3"]["title"],
             "File only",
+        )
+
+    def test_websocket_sync_deletes_report_by_id(self):
+
+        context = SimpleNamespace(
+            delayed_memory_reports={
+                "48ggds": self.build_report(
+                    title="Deleted report",
+                ),
+                "a1b2c3": self.build_report(
+                    title="Kept report",
+                ),
+            },
+            runtime_appended_delayed_memory={
+                "48ggds": {
+                    **self.build_report(
+                        title="Deleted report",
+                    ),
+                    "id": "48ggds",
+                },
+            },
+            runtime_appended_delayed_memory_ids=[
+                "48ggds",
+                "a1b2c3",
+            ],
+        )
+
+        deleted_ids = apply_delayed_memory_reports(
+            context,
+            {
+                "delayed_memory_reports": {
+                    "a1b2c3": self.build_report(
+                        title="Kept report",
+                    ),
+                },
+                "deleted_delayed_memory_report_ids": [
+                    "48ggds",
+                ],
+            },
+        )
+
+        self.assertEqual(
+            deleted_ids,
+            [
+                "48ggds",
+            ],
+        )
+        self.assertNotIn(
+            "48ggds",
+            context.delayed_memory_reports,
+        )
+        self.assertNotIn(
+            "48ggds",
+            context.runtime_appended_delayed_memory,
+        )
+        self.assertEqual(
+            context.runtime_appended_delayed_memory_ids,
+            [
+                "a1b2c3",
+            ],
         )
 
     def test_file_payload_accepts_example_aliases(self):

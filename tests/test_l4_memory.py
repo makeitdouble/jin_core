@@ -1184,6 +1184,64 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             {"F2"},
         )
 
+    def test_loaded_delayed_report_fact_ids_are_visible_with_report_suffix(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=None,
+            logger=None,
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_l4_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "user.name",
+                    "value": "Sergey",
+                },
+                {
+                    "id": "F2",
+                    "key": "social.friend",
+                    "value": "Taras is a personal friend.",
+                },
+            ],
+        })
+        context.delayed_memory_reports = {
+            "abc123": {
+                "title": "Social context",
+                "anchor_fact_ids": [
+                    "F1",
+                ],
+                "facts_ids": [
+                    "F1",
+                    "F2",
+                ],
+            },
+        }
+        context.runtime_appended_delayed_memory = {
+            "abc123": {
+                **context.delayed_memory_reports["abc123"],
+                "id": "abc123",
+            },
+        }
+
+        context_block = build_runtime_l4_memory_context(
+            context=context
+        )
+
+        self.assertIn(
+            "user.name: Sergey [ id: F1 ] [ delayed_memory_id: abc123 ]",
+            context_block,
+        )
+        self.assertIn(
+            "social.friend: Taras is a personal friend. [ id: F2 ] "
+            "[ delayed_memory_id: abc123 ]",
+            context_block,
+        )
+        self.assertEqual(
+            context.runtime_l4_archived_fact_ids,
+            set(),
+        )
+
     def test_anchor_visibility_wins_over_absorbed_reference_in_other_report(self):
         context = RuntimeContext(
             websocket=None,

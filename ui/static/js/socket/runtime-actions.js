@@ -1174,6 +1174,33 @@ function handleRuntimeAction(
   }
 
   if (
+    (
+      status === "completed"
+      || status === "complete"
+      || status === "done"
+    )
+    && delayedMemoryPreview.reportId
+    && window.JinRuntime
+    && window.JinRuntime.runtime
+    && typeof window.JinRuntime.runtime.markDelayedMemoryReportLoaded
+      === "function"
+  ) {
+    if (action === "append_delayed_memory") {
+      window.JinRuntime.runtime.markDelayedMemoryReportLoaded(
+        delayedMemoryPreview.reportId,
+        true
+      );
+    }
+
+    if (action === "remove_delayed_memory") {
+      window.JinRuntime.runtime.markDelayedMemoryReportLoaded(
+        delayedMemoryPreview.reportId,
+        false
+      );
+    }
+  }
+
+  if (
     status === "completed"
     || status === "complete"
     || status === "done"

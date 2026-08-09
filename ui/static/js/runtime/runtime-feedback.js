@@ -25,11 +25,7 @@
     ".jin-chat-bubble-rateable[data-rating-gate-generation], "
     + ".jin-chat-bubble-service[data-rating-gate-generation], "
     + ".jin-chat-bubble-brain[data-rating-gate-generation]";
-  const ratingLockedVisualClasses = [
-    "jin-rating-selected-active",
-    "jin-rating-selected-minus",
-    "jin-rating-selected-neutral",
-    "jin-rating-selected-plus",
+  const ratingLockedTransientClasses = [
     "jin-rating-press-minus",
     "jin-rating-press-neutral",
     "jin-rating-press-plus",
@@ -233,33 +229,12 @@
           );
           if (bubbleGen < jinAnswerRatingL1Gate.lockedBelowGeneration) {
             bubble.classList.remove(
-              ...ratingLockedVisualClasses
+              ...ratingLockedTransientClasses
             );
             bubble.classList.add("jin-rating-committed");
             bubble.dataset.ratingCommitted = "true";
             bubble.dataset.ratingPastTurn = "true";
             bubble.dataset.ratingPending = "false";
-            delete bubble.dataset.ratingSelected;
-            delete bubble.dataset.ratingClickAlt;
-            bubble.removeAttribute("alt");
-            bubble.removeAttribute("aria-label");
-            bubble.removeAttribute("title");
-
-            [
-              "--jin-rating-glow-alpha",
-              "--jin-rating-inner-alpha",
-              "--jin-rating-text-alpha",
-              "--jin-rating-edge-strong-alpha",
-              "--jin-rating-edge-mid-alpha",
-              "--jin-rating-edge-soft-alpha",
-              "--jin-rating-edge-opacity",
-              "--jin-rating-edge-flash-opacity",
-              "--jin-rating-edge-mid-opacity",
-              "--jin-rating-saturation",
-              "--jin-rating-brightness",
-            ].forEach((property) => {
-              bubble.style.removeProperty(property);
-            });
 
             const zones = bubble.querySelector(
               ":scope > .jin-rating-hover-zones"

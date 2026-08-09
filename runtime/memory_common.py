@@ -458,21 +458,11 @@ async def log_active_memory_event(
 
 def extract_runtime_memory_text(
         response: dict,
-        *,
-        allow_reasoning_fallback: bool = True,
 ) -> str:
 
     text = ResponseExtractor.extract_content_text(
         response
     )
-
-    if (
-            not text
-            and allow_reasoning_fallback
-    ):
-        text = ResponseExtractor.extract_reasoning_text(
-            response
-        )
 
     return text.strip()
 
@@ -844,7 +834,6 @@ def build_runtime_summarizer_response_details(
         response: dict,
         *,
         extracted_memory: str = "",
-        allow_reasoning_fallback: bool = False,
 ) -> str:
 
     content = ResponseExtractor.extract_content_text(
@@ -870,6 +859,17 @@ def build_runtime_summarizer_response_details(
     ):
         usage = {}
 
+    reasoning_fields = {
+        "reasoning_content",
+        "reasoning",
+        "thinking",
+    }
+    visible_message = {
+        key: value
+        for key, value in message.items()
+        if key not in reasoning_fields
+    }
+
     payload = {
         "kind": "summarizer_response",
         "model": ResponseExtractor.extract_model(
@@ -879,16 +879,11 @@ def build_runtime_summarizer_response_details(
             response
         ),
         "content": content,
-        "reasoning_content": reasoning,
+        "reasoning_generated": bool(reasoning),
+        "reasoning_length": len(reasoning),
         "extracted_memory": extracted_memory,
-        "allow_reasoning_fallback": allow_reasoning_fallback,
-        "used_reasoning_fallback": (
-            bool(reasoning)
-            and not bool(content)
-            and allow_reasoning_fallback
-        ),
         "usage": usage,
-        "message": message,
+        "message": visible_message,
         "choice_index": choice.get(
             "index",
             0,

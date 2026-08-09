@@ -37,9 +37,9 @@
     --scene-jin-tint-alpha: 0.048;
 
     --scene-layer-base: 0;
-    --scene-layer-tint: 1;
-    --scene-layer-context: 2;
-    --scene-layer-search: 3;
+    --scene-layer-context: 1;
+    --scene-layer-search: 2;
+    --scene-layer-tint: 3;
     --scene-layer-shade: 4;
 
     /* Вертикальный ритм чата: добавляет немного воздуха между ходами. */

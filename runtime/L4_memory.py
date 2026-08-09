@@ -401,6 +401,157 @@ def set_runtime_l4_state(context, store) -> dict:
     return merged
 
 
+def get_loaded_delayed_memory_reports(
+    context,
+) -> dict:
+
+    from utils.brain_client_utils import (
+        get_appended_delayed_memory_report,
+    )
+
+    return get_appended_delayed_memory_report(
+        context
+    )
+
+
+def collect_loaded_delayed_memory_fact_ids(
+    context,
+) -> set[str]:
+
+    return collect_long_term_fact_ids_from_reports(
+        get_loaded_delayed_memory_reports(
+            context
+        )
+    )
+
+
+def collect_loaded_delayed_memory_fact_report_ids(
+    context,
+) -> dict[str, list[str]]:
+
+    reports = get_loaded_delayed_memory_reports(
+        context
+    )
+
+    if not isinstance(
+        reports,
+        dict,
+    ):
+        return {}
+
+    report_ids_by_fact: dict[str, list[str]] = {}
+
+    for report_id, report in reports.items():
+        if not isinstance(
+            report,
+            dict,
+        ):
+            continue
+
+        normalized_report_id = str(
+            report_id
+            or report.get(
+                "id",
+                "",
+            )
+            or ""
+        ).strip().casefold()
+
+        if not normalized_report_id:
+            continue
+
+        _anchor_ids, fact_ids = normalize_delayed_memory_fact_ids(
+            report.get(
+                "anchor_fact_ids",
+                [],
+            ),
+            report.get(
+                "facts_ids",
+                [],
+            ),
+            legacy_absorbed_fact_ids=report.get(
+                "absorbed_fact_ids",
+                [],
+            ),
+            legacy_long_term_fact_ids=report.get(
+                "long_term_facts_ids",
+                [],
+            ),
+        )
+
+        for fact_id in fact_ids:
+            report_ids_by_fact.setdefault(
+                fact_id,
+                [],
+            )
+            if normalized_report_id not in report_ids_by_fact[fact_id]:
+                report_ids_by_fact[fact_id].append(
+                    normalized_report_id
+                )
+
+    return report_ids_by_fact
+
+
+def merge_l4_fact_report_id_maps(
+    *maps,
+) -> dict[str, list[str]]:
+
+    merged: dict[str, list[str]] = {}
+
+    for mapping in maps:
+        if not isinstance(
+            mapping,
+            dict,
+        ):
+            continue
+
+        for fact_id, report_ids in mapping.items():
+            normalized_fact_id = str(
+                fact_id
+                or ""
+            ).strip().upper()
+
+            if not normalized_fact_id:
+                continue
+
+            if isinstance(
+                report_ids,
+                str,
+            ):
+                candidates = [
+                    report_ids,
+                ]
+            elif isinstance(
+                report_ids,
+                list,
+            ):
+                candidates = report_ids
+            else:
+                candidates = []
+
+            merged.setdefault(
+                normalized_fact_id,
+                [],
+            )
+
+            for report_id in candidates:
+                normalized_report_id = str(
+                    report_id
+                    or ""
+                ).strip().casefold()
+
+                if (
+                    normalized_report_id
+                    and normalized_report_id
+                    not in merged[normalized_fact_id]
+                ):
+                    merged[normalized_fact_id].append(
+                        normalized_report_id
+                    )
+
+    return merged
+
+
 def refresh_runtime_l4_archived_fact_ids(
     context,
 ) -> set[str]:
@@ -421,6 +572,14 @@ def refresh_runtime_l4_archived_fact_ids(
         )
     )
     fact_ids.difference_update(anchor_fact_ids)
+    # A loaded delayed-memory report is in the prompt as an active context
+    # attachment, so every L4 fact represented by that report becomes visible
+    # again for the duration of the load.
+    fact_ids.difference_update(
+        collect_loaded_delayed_memory_fact_ids(
+            context
+        )
+    )
     context.runtime_l4_archived_fact_ids = set(
         fact_ids
     )
@@ -893,7 +1052,6 @@ async def ask_l4_model(
 
     response_text = extract_runtime_memory_text(
         response,
-        allow_reasoning_fallback=False,
     )
 
     if response_text:
@@ -985,7 +1143,6 @@ async def run_l4_extraction_phase(
     payload = extract_l4_json_payload(
         extract_runtime_memory_text(
             response,
-            allow_reasoning_fallback=False,
         )
     )
     if payload is None:
@@ -1168,7 +1325,6 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
     payload = extract_l4_json_payload(
         extract_runtime_memory_text(
             response,
-            allow_reasoning_fallback=False,
         )
     )
     if payload is None:
@@ -1331,7 +1487,6 @@ async def run_l4_jin_note(
     payload = extract_l4_json_payload(
         extract_runtime_memory_text(
             response,
-            allow_reasoning_fallback=False,
         )
     )
     if payload is None:
@@ -1596,6 +1751,15 @@ def build_runtime_l4_memory_context(*, context) -> str:
     anchor_report_ids_by_fact_id = collect_anchor_fact_report_ids(
         reports
     )
+    loaded_report_ids_by_fact_id = (
+        collect_loaded_delayed_memory_fact_report_ids(
+            context
+        )
+    )
+    report_ids_by_fact_id = merge_l4_fact_report_id_maps(
+        anchor_report_ids_by_fact_id,
+        loaded_report_ids_by_fact_id,
+    )
     active_facts = [
         fact
         for fact in store.get("facts") or []
@@ -1612,7 +1776,7 @@ def build_runtime_l4_memory_context(*, context) -> str:
             continue
         report_ids = _get_l4_fact_anchor_report_ids(
             fact,
-            anchor_report_ids_by_fact_id,
+            report_ids_by_fact_id,
         )
         if report_ids:
             delayed_memory_ids_by_fact_id[fact_id] = report_ids

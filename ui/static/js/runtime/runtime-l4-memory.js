@@ -303,6 +303,22 @@
     return readStore().facts;
   }
 
+  function isDelayedMemoryReportLoaded(reportId, report) {
+    if (report && Boolean(report.pinned)) {
+      return true;
+    }
+
+    const runtime =
+      window.JinRuntime
+      && window.JinRuntime.runtime;
+
+    return Boolean(
+      runtime
+      && typeof runtime.isDelayedMemoryReportLoaded === "function"
+      && runtime.isDelayedMemoryReportLoaded(reportId)
+    );
+  }
+
   function getArchivedFactIdSet() {
     const reports =
       storage && typeof storage.readDelayedMemoryReports === "function"
@@ -319,8 +335,9 @@
 
     const archivedIds = new Set();
     const anchorIds = new Set();
+    const loadedIds = new Set();
 
-    Object.values(reports).forEach((report) => {
+    Object.entries(reports).forEach(([reportId, report]) => {
       if (
         !report
         || typeof report !== "object"
@@ -348,9 +365,21 @@
           }
         });
       });
+
+      if (isDelayedMemoryReportLoaded(reportId, report)) {
+        normalizeList(report.facts_ids).forEach((rawId) => {
+          const factId = normalizeFactId(rawId, false);
+          if (factId) {
+            loadedIds.add(factId);
+          }
+        });
+      }
     });
 
     anchorIds.forEach((factId) => {
+      archivedIds.delete(factId);
+    });
+    loadedIds.forEach((factId) => {
       archivedIds.delete(factId);
     });
 

@@ -151,6 +151,7 @@ const runtimeMemoryHistory = {
 
 let runtimeMemoryDisplayMode = "runtime";
 let restoredSessionMemorySnapshot = null;
+const loadedDelayedMemoryReportIds = new Set();
 
 feedback.init({
   memoryModel,
@@ -569,6 +570,7 @@ memoryView.init({
   getDelayedMemoryReports: readDelayedMemoryReports,
   setDelayedMemoryReportPinned,
   setDelayedMemoryReportAnchorFactIds,
+  deleteDelayedMemoryReport: deleteDelayedMemoryReportAndRender,
   removeLongTermFactIdFromDelayedMemoryReports,
   getFactsMemoryFields,
   deleteFactsMemoryField: deleteFactsMemoryFieldAndRender,
@@ -644,6 +646,140 @@ function syncDelayedMemoryStateToAvatar() {
   }
 
   return false;
+}
+
+function normalizeRuntimeDelayedMemoryReportId(value) {
+  const reportId =
+      String(value || "").trim().toLowerCase();
+
+  return /^[a-z0-9]{6}$/.test(reportId)
+    ? reportId
+    : "";
+}
+
+function syncDelayedMemoryReportsToServer(
+  options = {}
+) {
+  if (typeof window.syncDelayedMemoryReportsToRuntime !== "function") {
+    return false;
+  }
+
+  return window.syncDelayedMemoryReportsToRuntime(
+    options
+  );
+}
+
+function isDelayedMemoryReportLoaded(reportId) {
+  const normalizedId =
+      normalizeRuntimeDelayedMemoryReportId(reportId);
+
+  return Boolean(
+    normalizedId
+    && loadedDelayedMemoryReportIds.has(normalizedId)
+  );
+}
+
+function markDelayedMemoryReportLoaded(
+  reportId,
+  loaded = true
+) {
+  const normalizedId =
+      normalizeRuntimeDelayedMemoryReportId(reportId);
+
+  if (!normalizedId) {
+    return false;
+  }
+
+  const wasLoaded =
+      loadedDelayedMemoryReportIds.has(normalizedId);
+
+  if (loaded) {
+    loadedDelayedMemoryReportIds.add(
+      normalizedId
+    );
+  } else {
+    loadedDelayedMemoryReportIds.delete(
+      normalizedId
+    );
+  }
+
+  if (
+      wasLoaded
+      === loadedDelayedMemoryReportIds.has(normalizedId)
+  ) {
+    return true;
+  }
+
+  renderRuntimeMemorySnapshot();
+
+  if (!syncDelayedMemoryStateToAvatar()) {
+    refreshRuntimeAvatar();
+  }
+
+  return true;
+}
+
+function buildDeletedDelayedMemoryReportPayload(
+  reportId,
+  report
+) {
+  const normalizedId =
+      normalizeRuntimeDelayedMemoryReportId(reportId);
+
+  if (
+      !normalizedId
+      || !report
+      || typeof report !== "object"
+      || Array.isArray(report)
+  ) {
+    return null;
+  }
+
+  return {
+    ...report,
+    id: normalizedId,
+    _storage_key: normalizedId,
+    _restore_meta: {
+      was_loaded:
+        isDelayedMemoryReportLoaded(normalizedId)
+        || Boolean(report.pinned),
+    },
+  };
+}
+
+function logDeletedDelayedMemoryReport(
+  reportId,
+  report
+) {
+  const deletedReport =
+      buildDeletedDelayedMemoryReportPayload(
+        reportId,
+        report
+      );
+
+  if (
+      !deletedReport
+      || typeof window.appendLog !== "function"
+  ) {
+    return;
+  }
+
+  window.appendLog(
+    "[MEMORY:DELAYED:DELETED]",
+    "Delayed memory deleted",
+    JSON.stringify(
+      {
+        kind: "delayed_memory_report",
+        report: deletedReport,
+      },
+      null,
+      2
+    ),
+    {
+      memory_event: "delayed_memory_deleted",
+      deleted_delayed_memory_report: deletedReport,
+    }
+  );
 }
 
 function syncActiveMemoryStateToAvatar() {
@@ -1000,6 +1136,137 @@ function setDelayedMemoryReportAnchorFactIds(
       _storage_key: normalizedId,
     }
     : false;
+
+}
+
+function deleteDelayedMemoryReportAndRender(
+  reportId
+) {
+
+  const normalizedId =
+    normalizeRuntimeDelayedMemoryReportId(
+      reportId
+    );
+  const reports =
+    readDelayedMemoryReports();
+  const report =
+    reports[normalizedId];
+
+  if (
+      !normalizedId
+      || !report
+      || typeof report !== "object"
+      || Array.isArray(report)
+  ) {
+    return false;
+  }
+
+  const deletedReport =
+    buildDeletedDelayedMemoryReportPayload(
+      normalizedId,
+      report
+    );
+
+  delete reports[normalizedId];
+
+  writeDelayedMemoryReports(
+    reports
+  );
+
+  loadedDelayedMemoryReportIds.delete(
+    normalizedId
+  );
+
+  renderRuntimeMemorySnapshot();
+
+  if (!syncDelayedMemoryStateToAvatar()) {
+    refreshRuntimeAvatar();
+  }
+
+  syncDelayedMemoryReportsToServer({
+    deletedReportIds: [
+      normalizedId,
+    ],
+  });
+
+  logDeletedDelayedMemoryReport(
+    normalizedId,
+    report
+  );
+
+  return {
+    id: normalizedId,
+    report: deletedReport,
+  };
+
+}
+
+function restoreDelayedMemoryReportAndRender(
+  reportId,
+  report
+) {
+
+  const normalizedId =
+    normalizeRuntimeDelayedMemoryReportId(
+      reportId
+      || (
+        report
+        && typeof report === "object"
+        && !Array.isArray(report)
+          ? report.id || report._storage_key
+          : ""
+      )
+    );
+
+  if (
+      !normalizedId
+      || !report
+      || typeof report !== "object"
+      || Array.isArray(report)
+  ) {
+    return false;
+  }
+
+  const restoreMeta =
+    report._restore_meta
+    && typeof report._restore_meta === "object"
+    && !Array.isArray(report._restore_meta)
+      ? report._restore_meta
+      : {};
+  const cleanReport = {
+    ...report,
+  };
+
+  delete cleanReport.id;
+  delete cleanReport._storage_key;
+  delete cleanReport._restore_meta;
+
+  writeDelayedMemoryReports({
+    ...readDelayedMemoryReports(),
+    [normalizedId]: cleanReport,
+  });
+
+  if (
+      restoreMeta.was_loaded
+      || Boolean(cleanReport.pinned)
+  ) {
+    loadedDelayedMemoryReportIds.add(
+      normalizedId
+    );
+  }
+
+  renderRuntimeMemorySnapshot();
+
+  if (!syncDelayedMemoryStateToAvatar()) {
+    refreshRuntimeAvatar();
+  }
+
+  syncDelayedMemoryReportsToServer();
+
+  return {
+    id: normalizedId,
+    report: readDelayedMemoryReports()[normalizedId],
+  };
 
 }
 
@@ -1428,8 +1695,12 @@ window.JinRuntime.runtime = {
   appendActiveMemoryRecords: appendActiveMemoryRecordsAndRender,
   removeActiveMemoryRecordById: removeActiveMemoryRecordByIdAndRender,
   getDelayedMemoryReports: readDelayedMemoryReports,
+  isDelayedMemoryReportLoaded,
+  markDelayedMemoryReportLoaded,
   setDelayedMemoryReportPinned,
   setDelayedMemoryReportAnchorFactIds,
+  deleteDelayedMemoryReport: deleteDelayedMemoryReportAndRender,
+  restoreDelayedMemoryReport: restoreDelayedMemoryReportAndRender,
   getFactsMemoryFields,
   deleteFactsMemoryField: deleteFactsMemoryFieldAndRender,
   getLongTermMemoryFacts() {

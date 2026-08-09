@@ -449,6 +449,62 @@ def persist_delayed_memory_reports(
     return errors
 
 
+def delete_delayed_memory_report_files(
+    report_id: str,
+    *,
+    root: Path | str = DELAYED_MEMORY_ROOT,
+) -> list[str]:
+
+    normalized_id = str(
+        report_id
+        or ""
+    ).strip().casefold()
+
+    if not is_delayed_memory_report_id(normalized_id):
+        return [
+            f"{normalized_id or report_id}: invalid delayed memory id"
+        ]
+
+    root_path = Path(root)
+
+    if not root_path.exists():
+        return []
+
+    candidates = [
+        *root_path.glob(
+            f"{normalized_id}_*.json"
+        ),
+        root_path / f"{normalized_id}.json",
+    ]
+    errors = []
+    seen = set()
+
+    for candidate in candidates:
+        try:
+            resolved_candidate = candidate.resolve()
+        except OSError:
+            resolved_candidate = candidate
+
+        if resolved_candidate in seen:
+            continue
+
+        seen.add(
+            resolved_candidate
+        )
+
+        if not candidate.exists():
+            continue
+
+        try:
+            candidate.unlink()
+        except OSError as error:
+            errors.append(
+                f"{normalized_id}: {error}"
+            )
+
+    return errors
+
+
 def load_delayed_memory_reports_from_files(
     *,
     root: Path | str = DELAYED_MEMORY_ROOT,

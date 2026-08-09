@@ -312,6 +312,48 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
             css_source,
         )
 
+    def test_delayed_memory_modal_delete_uses_hold_and_runtime_restore_payload(self):
+        source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
+        runtime_source = RUNTIME_JS.read_text(encoding="utf-8")
+        css_source = RUNTIME_MEMORY_CSS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "delayedMemoryModalDeleteButton",
+            source,
+        )
+        self.assertIn(
+            '"delayed-memory-modal-icon-button delayed-memory-modal-delete"',
+            source,
+        )
+        self.assertIn(
+            "deleteDelayedMemoryModalReport",
+            source,
+        )
+        self.assertIn(
+            "configureRuntimeMemoryDeleteHold(\n        delayedMemoryModalDeleteButton",
+            source,
+        )
+        self.assertIn(
+            "deleteDelayedMemoryReport =\n        options.deleteDelayedMemoryReport",
+            source,
+        )
+        self.assertIn(
+            "function deleteDelayedMemoryReportAndRender(",
+            runtime_source,
+        )
+        self.assertIn(
+            "function restoreDelayedMemoryReportAndRender(",
+            runtime_source,
+        )
+        self.assertIn(
+            "deletedReportIds",
+            runtime_source,
+        )
+        self.assertIn(
+            ".delayed-memory-modal-delete svg",
+            css_source,
+        )
+
     @unittest.skipUnless(
         shutil.which("node"),
         "node is required for the browser-side reference matcher test",
@@ -368,19 +410,19 @@ for (const [text, reference, expected] of cases) {
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            '/static/css/runtime-memory.css?v=memory-hover-sync-9',
+            '/static/css/runtime-memory.css?v=delayed-delete-1',
             source,
         )
         self.assertIn(
-            '/static/js/runtime/runtime-memory-view.js?v=runtime-memory-view-26',
+            '/static/js/runtime/runtime-memory-view.js?v=delayed-delete-1',
             source,
         )
         self.assertIn(
-            '/static/js/runtime/runtime.js?v=runtime-facade-22',
+            '/static/js/runtime/runtime.js?v=delayed-delete-1',
             source,
         )
         self.assertIn(
-            '/static/js/chat.js?v=memory-reference-sync-2',
+            '/static/js/chat.js?v=reasoning-gap-1',
             source,
         )
 

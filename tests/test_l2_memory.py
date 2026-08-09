@@ -29,6 +29,10 @@ from runtime.L2_memory import (
     maybe_summarize_runtime_l2_memory,
     record_runtime_l1_diff,
 )
+from runtime.memory_common import (
+    build_runtime_summarizer_response_details,
+    extract_runtime_memory_text,
+)
 from config_loader import (
     config,
 )
@@ -40,6 +44,53 @@ from tests.helpers.memory import (
 class L2MemoryTests(
     unittest.IsolatedAsyncioTestCase
 ):
+
+    def test_runtime_memory_extractor_does_not_fallback_to_reasoning(self):
+
+            response = {
+                "model": "fake-service",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "content": "",
+                            "reasoning_content": (
+                                "PRIVATE SUMMARIZER REASONING"
+                            ),
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+            }
+
+            self.assertEqual(
+                extract_runtime_memory_text(
+                    response
+                ),
+                "",
+            )
+
+            details = build_runtime_summarizer_response_details(
+                response,
+                extracted_memory="",
+            )
+
+            self.assertIn(
+                '"reasoning_generated": true',
+                details,
+            )
+            self.assertIn(
+                '"reasoning_length": 28',
+                details,
+            )
+            self.assertNotIn(
+                "PRIVATE SUMMARIZER REASONING",
+                details,
+            )
+            self.assertNotIn(
+                "reasoning_content",
+                details,
+            )
 
     def test_runtime_l2_memory_prompt_defines_pattern_layer(self):
 
@@ -626,3 +677,204 @@ class L2MemoryTests(
                 0,
             )
 
+    async def test_l2_memory_ignores_reasoning_only_summarizer_response(self):
+
+            private_reasoning = (
+                "Analysis of Evidence:\n"
+                "PRIVATE L2 CHAIN OF THOUGHT"
+            )
+
+            class ReasoningOnlyServiceClient:
+                model_uid = "fake-service"
+
+                def __init__(self):
+                    self.calls = []
+
+                async def ask(
+                        self,
+                        *,
+                        system_prompt: str,
+                        user_prompt: str,
+                        temperature: float,
+                        max_tokens: int,
+                        timeout: float | None = None,
+                ):
+
+                    self.calls.append({
+                        "system_prompt": system_prompt,
+                        "user_prompt": user_prompt,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens,
+                        "timeout": timeout,
+                    })
+
+                    return {
+                        "model": self.model_uid,
+                        "choices": [
+                            {
+                                "message": {
+                                    "content": "",
+                                    "reasoning": private_reasoning,
+                                },
+                                "finish_reason": "stop",
+                            }
+                        ],
+                    }
+
+            service_client = ReasoningOnlyServiceClient()
+            logger = FakeLogger()
+            context = SimpleNamespace(
+                clients={
+                    "service": service_client,
+                },
+                emitter=SimpleNamespace(
+                    events=[],
+                    emit=None,
+                ),
+                logger=logger,
+                runtime_memory="",
+                runtime_memory_snapshots=[],
+                runtime_memory_snapshot_index=0,
+                runtime_l2_memory=(
+                    "possible pattern: previous safe memory"
+                ),
+                runtime_l1_diff_history=[
+                    {
+                        "turn_number": 1,
+                        "snapshot_index": 1,
+                        "total_diff": 110,
+                        "changes": {
+                            "added": [
+                                {
+                                    "key": "diagnostic_signal",
+                                    "value": "early broad update",
+                                },
+                            ],
+                        },
+                    },
+                    {
+                        "turn_number": 2,
+                        "snapshot_index": 2,
+                        "total_diff": 254,
+                        "changes": {
+                            "changed": [
+                                {
+                                    "previous_key": "topic",
+                                    "previous_value": "early broad update",
+                                    "current_key": "topic",
+                                    "current_value": "large rewrite",
+                                },
+                            ],
+                        },
+                    },
+                    {
+                        "turn_number": 3,
+                        "snapshot_index": 3,
+                        "total_diff": 199.05,
+                        "changes": {
+                            "changed": [
+                                {
+                                    "previous_key": "diagnostic_signal",
+                                    "previous_value": "large rewrite",
+                                    "current_key": "diagnostic_signal",
+                                    "current_value": "memory mechanics",
+                                },
+                            ],
+                        },
+                    },
+                    {
+                        "turn_number": 4,
+                        "snapshot_index": 4,
+                        "total_diff": 151,
+                        "changes": {
+                            "changed": [
+                                {
+                                    "previous_key": "diagnostic_signal",
+                                    "previous_value": "memory mechanics",
+                                    "current_key": "diagnostic_signal",
+                                    "current_value": "pattern trigger",
+                                },
+                            ],
+                        },
+                    },
+                    {
+                        "turn_number": 5,
+                        "snapshot_index": 5,
+                        "total_diff": 144.9,
+                        "changes": {
+                            "changed": [
+                                {
+                                    "previous_key": "diagnostic_signal",
+                                    "previous_value": "pattern trigger",
+                                    "current_key": "diagnostic_signal",
+                                    "current_value": "L2 window",
+                                },
+                            ],
+                        },
+                    },
+                    {
+                        "turn_number": 6,
+                        "snapshot_index": 6,
+                        "total_diff": 77.6,
+                        "changes": {
+                            "changed": [
+                                {
+                                    "previous_key": "intent",
+                                    "previous_value": "inspect diff",
+                                    "current_key": "intent",
+                                    "current_value": "adjust trigger",
+                                },
+                            ],
+                        },
+                    },
+                    {
+                        "turn_number": 7,
+                        "snapshot_index": 7,
+                        "total_diff": 104.69,
+                        "changes": {
+                            "changed": [
+                                {
+                                    "previous_key": "diagnostic_signal",
+                                    "previous_value": "L2 window",
+                                    "current_key": "diagnostic_signal",
+                                    "current_value": "repeated keys",
+                                },
+                            ],
+                        },
+                    },
+                ],
+                runtime_l2_last_turn=0,
+                user_message_count=7,
+                session_id="test-session",
+            )
+
+            updated_memory = await maybe_summarize_runtime_l2_memory(
+                context=context,
+            )
+
+            self.assertEqual(
+                len(service_client.calls),
+                1,
+            )
+            self.assertEqual(
+                updated_memory,
+                "possible pattern: previous safe memory",
+            )
+            self.assertEqual(
+                context.runtime_l2_memory,
+                "possible pattern: previous safe memory",
+            )
+
+            log_text = "\n".join(
+                str(item)
+                for item in logger.summarizer_logs
+            )
+
+            self.assertNotIn(
+                "PRIVATE L2 CHAIN OF THOUGHT",
+                log_text,
+            )
+            self.assertNotIn(
+                "Analysis of Evidence",
+                context.runtime_l2_memory,
+            )

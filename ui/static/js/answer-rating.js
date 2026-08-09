@@ -9,6 +9,11 @@
         "jin-rating-press-neutral",
         "jin-rating-press-plus",
     ];
+    const ratingPressClasses = [
+        "jin-rating-press-minus",
+        "jin-rating-press-neutral",
+        "jin-rating-press-plus",
+    ];
     const ratingVisualClasses = ratingSelectionClasses.filter(
         (className) => className !== "jin-rating-committed"
     );
@@ -131,17 +136,20 @@
             });
         }
 
-        bubble.classList.remove(...ratingVisualClasses);
+        bubble.classList.remove(...ratingPressClasses);
         bubble.classList.add("jin-rating-committed");
         bubble.dataset.ratingPending = "false";
         bubble.dataset.ratingCommitted = "true";
         bubble.dataset.ratingPastTurn = "true";
-        delete bubble.dataset.ratingSelected;
-        clearBubbleRatingIntensity(bubble);
-        setBubbleRatingClickAlt(bubble, 0);
+
+        if (!previousRating) {
+            bubble.classList.remove(...ratingVisualClasses);
+            clearBubbleRatingIntensity(bubble);
+            setBubbleRatingClickAlt(bubble, 0);
+        }
 
         const zones = bubble.querySelector(":scope > .jin-rating-hover-zones");
-        if (zones) {
+        if (zones && !previousRating) {
             zones.title = "";
         }
     }
@@ -208,15 +216,17 @@
 
         const blocked = isRatingInteractionBlocked();
         const pastTurn = bubble.dataset.ratingPastTurn === "true";
-        const ready = !blocked && !pastTurn && isBubbleRatingL1Ready(bubble);
+        const l1Ready = isBubbleRatingL1Ready(bubble);
+        const ready = !blocked && !pastTurn && l1Ready;
+        const waitingForL1 = !blocked && !pastTurn && !l1Ready;
         bubble.dataset.ratingL1Ready = ready ? "true" : "false";
-        bubble.classList.toggle("jin-rating-l1-waiting", !ready);
+        bubble.classList.toggle("jin-rating-l1-waiting", waitingForL1);
         bubble.classList.toggle("jin-rating-interaction-blocked", blocked);
 
         const zones = bubble.querySelector(":scope > .jin-rating-hover-zones");
         if (zones && blocked) {
             zones.title = "rating is locked while JIN is generating";
-        } else if (zones && !ready && !bubble.dataset.ratingSelected) {
+        } else if (zones && waitingForL1 && !bubble.dataset.ratingSelected) {
             zones.title = "waiting for L1 snapshot before rating";
         } else if (zones && !bubble.dataset.ratingSelected) {
             zones.title = "";
@@ -489,16 +499,20 @@
                     const committedClickCount =
                         Number(bubble.dataset.ratingClickCount || 0);
 
-                    bubble.classList.remove(...ratingVisualClasses);
+                    bubble.classList.remove(...ratingPressClasses);
                     bubble.classList.add("jin-rating-committed");
                     bubble.dataset.ratingPending = "false";
                     bubble.dataset.ratingCommitted = "true";
-                    delete bubble.dataset.ratingSelected;
-                    clearBubbleRatingIntensity(bubble);
-                    setBubbleRatingClickAlt(bubble, 0);
+                    bubble.dataset.ratingPastTurn = "true";
 
                     const zones = bubble.querySelector(":scope > .jin-rating-hover-zones");
-                    if (zones) {
+                    if (!committedRating) {
+                        bubble.classList.remove(...ratingVisualClasses);
+                        clearBubbleRatingIntensity(bubble);
+                        setBubbleRatingClickAlt(bubble, 0);
+                    }
+
+                    if (zones && !committedRating) {
                         zones.title = "";
                     }
 

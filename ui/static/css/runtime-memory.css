@@ -439,6 +439,17 @@
     transition: filter 0.18s ease;
 }
 
+.delayed-memory-modal-delete svg {
+    width: 17px;
+    height: 17px;
+    fill: currentColor;
+}
+
+.delayed-memory-modal-delete:hover,
+.delayed-memory-modal-delete:focus-visible {
+    color: rgba(248, 113, 113, 0.98);
+}
+
 .delayed-memory-modal-pin-active {
     color: rgba(240, 253, 250, 0.98);
 }

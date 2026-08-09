@@ -805,9 +805,9 @@ body.theme-win95 .jin-chat-bubble-rateable:not(.jin-rating-selected-active):not(
 body.theme-win95 .jin-chat-bubble-rateable.jin-rating-press-minus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked),
 body.theme-win95 .jin-chat-bubble-rateable.jin-rating-press-neutral:not(.jin-rating-committed):not(.jin-rating-interaction-blocked),
 body.theme-win95 .jin-chat-bubble-rateable.jin-rating-press-plus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked),
-body.theme-win95 .jin-chat-bubble-rateable.jin-rating-selected-minus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked),
-body.theme-win95 .jin-chat-bubble-rateable.jin-rating-selected-neutral:not(.jin-rating-committed):not(.jin-rating-interaction-blocked),
-body.theme-win95 .jin-chat-bubble-rateable.jin-rating-selected-plus:not(.jin-rating-committed):not(.jin-rating-interaction-blocked) {
+body.theme-win95 .jin-chat-bubble-rateable.jin-rating-selected-minus,
+body.theme-win95 .jin-chat-bubble-rateable.jin-rating-selected-neutral,
+body.theme-win95 .jin-chat-bubble-rateable.jin-rating-selected-plus {
     box-shadow: none;
 }
 

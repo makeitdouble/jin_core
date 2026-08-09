@@ -255,6 +255,31 @@ class BehaviorContractTests(unittest.TestCase):
             )
         )
 
+    def test_save_active_memory_contract_is_autonomous(self):
+
+        instructions = build_runtime_action_contract_instructions(
+            "SAVE_ACTIVE_MEMORY"
+        )
+
+        self.assertEqual(
+            get_action_guard_triggers("save_active_memory"),
+            (),
+        )
+        self.assertFalse(
+            should_pause_action_guard_for_confirmation(
+                "save_active_memory",
+                "normal message",
+            )
+        )
+        self.assertIn(
+            "active memory is an autonomous runtime action",
+            instructions,
+        )
+        self.assertIn(
+            "briefly notify the user in natural text",
+            instructions,
+        )
+
     def test_runtime_action_instructions_include_marker_and_followup(self):
 
         instructions = build_runtime_action_contract_instructions(
