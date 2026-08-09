@@ -138,7 +138,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 ),
                 "pinned": False,
                 "anchor_fact_ids": [],
-                "absorbed_fact_ids": [],
+                "facts_ids": [],
                 "created_session_id": "session-1",
                 "created_time": "2026-06-29T12:00:00",
             },
@@ -164,7 +164,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
 
         self.assertEqual(
-            report_value["absorbed_fact_ids"],
+            report_value["facts_ids"],
             [
                 "F1",
                 "F2",
@@ -173,7 +173,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         self.assertNotIn("long_term_facts_ids", report_value)
 
 
-    def test_parses_anchor_and_absorbed_fact_ids_for_delayed_memory_report(self):
+    def test_parses_anchor_and_facts_ids_for_delayed_memory_report(self):
 
         report = parse_delayed_memory_content_payload(
             (
@@ -182,15 +182,38 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 "tags: social\n"
                 "body: Reusable summary.\n"
                 "anchor_fact_ids: F1, F1\n"
-                "absorbed_fact_ids: F2, F3, F1"
+                "facts_ids: F1, F2, F3"
             )
         )
         report_value = next(iter(report.values()))
 
         self.assertEqual(report_value["anchor_fact_ids"], ["F1"])
         self.assertEqual(
-            report_value["absorbed_fact_ids"],
-            ["F2", "F3"],
+            report_value["facts_ids"],
+            ["F1", "F2", "F3"],
+        )
+
+    def test_parses_json_array_fact_ids_for_delayed_memory_report(self):
+
+        report = parse_delayed_memory_content_payload(
+            (
+                "title: Architecture context\n"
+                "summary: Consolidated architecture details.\n"
+                "tags: architecture, protocol\n"
+                "body: Reusable summary.\n"
+                'anchor_fact_ids: ["F1", "F5", "F13"]\n'
+                'facts_ids: ["F1", "F5", "F13", "F25", "F26"]'
+            )
+        )
+        report_value = next(iter(report.values()))
+
+        self.assertEqual(
+            report_value["anchor_fact_ids"],
+            ["F1", "F5", "F13"],
+        )
+        self.assertEqual(
+            report_value["facts_ids"],
+            ["F1", "F5", "F13", "F25", "F26"],
         )
 
     def test_update_delayed_memory_json_accepts_single_non_empty_field(self):
@@ -245,11 +268,12 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         report_value = report["abc123"]
 
         self.assertEqual(
-            report_value["absorbed_fact_ids"],
+            report_value["facts_ids"],
             [
                 "F1",
             ],
         )
+        self.assertNotIn("absorbed_fact_ids", report_value)
         self.assertNotIn("long_term_facts_ids", report_value)
 
 
@@ -1775,7 +1799,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             (
                 '{"tags":["social","context"],'
                 '"anchor_fact_ids":["F1"],'
-                '"absorbed_fact_ids":["F2"],'
+                '"facts_ids":["F1","F2"],'
                 '"body":"Additional durable context."}\n'
             )
         )
@@ -1809,7 +1833,8 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 "anchor_fact_ids": [
                     "F1",
                 ],
-                "absorbed_fact_ids": [
+                "facts_ids": [
+                    "F1",
                     "F2",
                 ],
                 "body": "Additional durable context.",
@@ -1824,7 +1849,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 "<UPDATE_DELAYED_MEMORY: a1b2c3>\n"
                 '{"tags":["social","context"],'
                 '"anchor_fact_ids":["F1"],'
-                '"absorbed_fact_ids":["F99"],'
+                '"facts_ids":["F1","F99"],'
                 '"body":"Additional durable context."}\n'
                 "</UPDATE_DELAYED_MEMORY>"
             ),
@@ -1858,7 +1883,8 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 "anchor_fact_ids": [
                     "F1",
                 ],
-                "absorbed_fact_ids": [
+                "facts_ids": [
+                    "F1",
                     "F99",
                 ],
                 "body": "Additional durable context.",
@@ -1886,7 +1912,9 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 "anchor_fact_ids": [
                     "F1",
                 ],
-                "absorbed_fact_ids": [],
+                "facts_ids": [
+                    "F1",
+                ],
                 "pinned": False,
             },
         }
@@ -1915,7 +1943,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                             "a1b2c3\n"
                             + json.dumps({
                                 "tags": ["context", "social"],
-                                "absorbed_fact_ids": ["F2", "F99"],
+                                "facts_ids": ["F2", "F99"],
                                 "body": "Additional body.",
                             })
                         ),
@@ -1940,8 +1968,9 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             ],
         )
         self.assertEqual(
-            report["absorbed_fact_ids"],
+            report["facts_ids"],
             [
+                "F1",
                 "F2",
             ],
         )

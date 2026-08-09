@@ -1058,27 +1058,39 @@ class BrainRuntimeActionTests(unittest.TestCase):
             "list_skills",
         )
         self.assertEqual(
-            context.runtime_session_action_history[-1]["text"],
-            (
-                "WEB_SEARCH - Latest astronomical news 2026, "
-                "SAVE_ACTIVE_MEMORY - astronomical news tracker, "
-                "LIST_SKILLS"
-            ),
+            [
+                item["text"]
+                for item in context.runtime_session_action_history
+            ],
+            [
+                "WEB_SEARCH - Latest astronomical news 2026",
+                "SAVE_ACTIVE_MEMORY - astronomical news tracker",
+                "LIST_SKILLS",
+            ],
         )
         self.assertEqual(
-            context.runtime_session_action_history[-1]["parts"],
             [
-                {
-                    "text": "WEB_SEARCH",
-                    "detail": "Latest astronomical news 2026",
-                },
-                {
-                    "text": "SAVE_ACTIVE_MEMORY",
-                    "detail": "astronomical news tracker",
-                },
-                {
-                    "text": "LIST_SKILLS",
-                },
+                item["parts"]
+                for item in context.runtime_session_action_history
+            ],
+            [
+                [
+                    {
+                        "text": "WEB_SEARCH",
+                        "detail": "Latest astronomical news 2026",
+                    },
+                ],
+                [
+                    {
+                        "text": "SAVE_ACTIVE_MEMORY",
+                        "detail": "astronomical news tracker",
+                    },
+                ],
+                [
+                    {
+                        "text": "LIST_SKILLS",
+                    },
+                ],
             ],
         )
 
@@ -1533,26 +1545,35 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            context.runtime_session_action_history[0]["parts"],
             [
-                {
-                    "text": "WEB_SEARCH",
-                    "detail": "latest news",
-                },
-                {
-                    "text": "SAVE_ACTIVE_MEMORY",
-                    "detail": "remember coffee",
-                },
-                {
-                    "text": "IDLE",
-                    "detail": "5s",
-                },
-                {
-                    "text": "APPEND_SKILL: wildcards",
-                },
-                {
-                    "text": "APPEND_SKILL: file_manager",
-                },
+                item["parts"]
+                for item in context.runtime_session_action_history
+            ],
+            [
+                [
+                    {
+                        "text": "WEB_SEARCH",
+                        "detail": "latest news",
+                    },
+                ],
+                [
+                    {
+                        "text": "SAVE_ACTIVE_MEMORY",
+                        "detail": "remember coffee",
+                    },
+                ],
+                [
+                    {
+                        "text": "IDLE",
+                        "detail": "5s",
+                    },
+                    {
+                        "text": "APPEND_SKILL: wildcards",
+                    },
+                    {
+                        "text": "APPEND_SKILL: file_manager",
+                    },
+                ],
             ],
         )
 
@@ -1666,7 +1687,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            context.runtime_session_action_history[0]["parts"],
+            [
+                item["parts"][0]
+                for item in context.runtime_session_action_history
+            ],
             [
                 {
                     "text": "SAVE_ACTIVE_MEMORY",

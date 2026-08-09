@@ -20,6 +20,7 @@ class L4LoggerCardsClientContractTests(unittest.TestCase):
         self.assertIn('"payload"', source)
         self.assertIn('"restore"', source)
         self.assertIn('api.requestFactRestore(', source)
+        self.assertIn('window.handleL4LoggerMemoryRestoreResult', source)
         self.assertIn('window.handleL4MemoryRestoreResult', source)
 
     def test_extraction_and_merge_request_response_cards_are_paired(self):
@@ -58,18 +59,29 @@ class L4LoggerCardsClientContractTests(unittest.TestCase):
         socket_source = SOCKET_EVENTS_JS.read_text(encoding="utf-8")
 
         self.assertIn('type: "l4_memory_restore_fact"', runtime_source)
+        self.assertIn('_restore_meta: restoreMeta', runtime_source)
         self.assertIn('requestFactRestore,', runtime_source)
         self.assertIn('"l4_memory_restore_result"', socket_source)
+        self.assertIn('handleSocketL4MemoryRestoreResult', socket_source)
+        self.assertIn('window.handleL4LoggerMemoryRestoreResult', socket_source)
+
+    def test_delete_marks_local_l4_store_deleted_before_sync(self):
+        runtime_source = RUNTIME_L4_JS.read_text(encoding="utf-8")
+
+        self.assertIn("function deleteFactLocally(", runtime_source)
+        self.assertIn("deleted_fact_ids: deletedFactIds", runtime_source)
+        self.assertIn("deleteFactLocally(id)", runtime_source)
+        self.assertIn("syncLongTermMemoryToRuntime();", runtime_source)
 
     def test_cache_versions_are_bumped(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertIn('/static/css/runtime-memory.css?v=memory-hover-sync-2', source)
-        self.assertIn('/static/js/runtime/runtime-l4-memory.js?v=l4-restore-1', source)
+        self.assertIn('/static/css/runtime-memory.css?v=memory-hover-sync-9', source)
+        self.assertIn('/static/js/runtime/runtime-l4-memory.js?v=l4-delete-local-1', source)
         self.assertIn('/static/js/logger/logger.js?v=l4-trace-reason-2', source)
         self.assertIn('/static/js/logger/trace-modal.js?v=l4-truncate-diagnostics-1', source)
-        self.assertIn('/static/js/logger/log-entries.js?v=l4-response-visibility-1', source)
-        self.assertIn('/static/js/socket/event-handlers.js?v=l4-restore-1', source)
+        self.assertIn('/static/js/logger/log-entries.js?v=l4-restore-meta-1', source)
+        self.assertIn('/static/js/socket/event-handlers.js?v=l4-restore-2', source)
 
 
 if __name__ == "__main__":

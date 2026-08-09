@@ -1086,6 +1086,10 @@ PAYLOAD_DISTINCT_SESSION_ACTIONS = {
     "UPDATE_DELAYED_MEMORY",
 }
 
+SEPARATE_SESSION_ACTION_MARKER_ITEMS = {
+    "SAVE_ACTIVE_MEMORY",
+}
+
 
 def _unique_session_action_values(
     values,
@@ -1587,6 +1591,107 @@ def format_session_action_marker_names(
     )
 
 
+def _build_session_action_marker_history_items(
+    formatted_marker_parts,
+    *,
+    created_at,
+    runtime_turn_id: str = "",
+    jin_message_content: str = "",
+) -> list[dict]:
+
+    normalized_parts = _normalize_session_action_display_parts(
+        formatted_marker_parts
+    )
+    items = []
+    grouped_parts = []
+
+    def append_item(
+        parts,
+        *,
+        preserve_separate: bool = False,
+    ) -> None:
+
+        normalized_item_parts = (
+            _normalize_session_action_display_parts(
+                parts
+            )
+        )
+        text = ", ".join(
+            formatted_part
+            for formatted_part in (
+                _format_session_action_display_part(
+                    part
+                )
+                for part in normalized_item_parts
+            )
+            if formatted_part
+        )
+
+        if not text:
+            return
+
+        item = {
+            "text": text,
+            "created_at": created_at,
+            "parts": normalized_item_parts,
+            "runtime_session_action_marker_item": True,
+        }
+
+        if preserve_separate:
+            item["runtime_session_action_preserve_separate"] = True
+
+        if runtime_turn_id:
+            item["runtime_turn_id"] = runtime_turn_id
+
+        normalized_jin_message_content = _normalize_jin_message_content(
+            jin_message_content
+        )
+
+        if normalized_jin_message_content:
+            item["jin_message_content"] = normalized_jin_message_content
+
+        items.append(
+            item
+        )
+
+    def flush_grouped_parts() -> None:
+
+        if not grouped_parts:
+            return
+
+        append_item(
+            grouped_parts
+        )
+        grouped_parts.clear()
+
+    for part in normalized_parts:
+        action_name = str(
+            part.get(
+                "text",
+                "",
+            )
+            or ""
+        ).strip().upper()
+
+        if action_name in SEPARATE_SESSION_ACTION_MARKER_ITEMS:
+            flush_grouped_parts()
+            append_item(
+                [
+                    part,
+                ],
+                preserve_separate=True,
+            )
+            continue
+
+        grouped_parts.append(
+            part
+        )
+
+    flush_grouped_parts()
+
+    return items
+
+
 def _normalize_jin_message_content(
     value,
 ) -> str:
@@ -1725,10 +1830,20 @@ def replace_session_action_history_since(
 
     del history[safe_start_index:]
 
-    record_session_action_history(
-        context,
-        formatted_marker_names,
-        display_parts=formatted_marker_parts,
+    runtime_turn_id = get_current_action_sequence_turn_id(
+        context
+    )
+    marker_items = _build_session_action_marker_history_items(
+        formatted_marker_parts,
+        created_at=time.time(),
+        runtime_turn_id=runtime_turn_id,
+    )
+
+    if not marker_items:
+        return
+
+    history.extend(
+        marker_items
     )
 
 
@@ -1821,14 +1936,6 @@ def upsert_session_action_marker_history_since(
         dict,
     ) else time.time()
 
-    item = {
-        "text": formatted_marker_names,
-        "created_at": created_at,
-        "parts": _normalize_session_action_display_parts(
-            formatted_marker_parts
-        ),
-        "runtime_session_action_marker_item": True,
-    }
     previous_jin_message_content = _normalize_jin_message_content(
         previous_item.get(
             "jin_message_content",
@@ -1841,22 +1948,52 @@ def upsert_session_action_marker_history_since(
         else ""
     )
 
-    if previous_jin_message_content:
-        item["jin_message_content"] = previous_jin_message_content
-
     runtime_turn_id = get_current_action_sequence_turn_id(
         context
     )
+    marker_items = _build_session_action_marker_history_items(
+        formatted_marker_parts,
+        created_at=created_at,
+        runtime_turn_id=runtime_turn_id,
+        jin_message_content=previous_jin_message_content,
+    )
 
-    if runtime_turn_id:
-        item["runtime_turn_id"] = runtime_turn_id
+    if not marker_items:
+        return False
 
     if marker_index is None:
-        history.append(
-            item
+        history.extend(
+            marker_items
         )
     else:
-        history[marker_index] = item
+        marker_indexes = [
+            index
+            for index in range(
+                safe_start_index,
+                len(history),
+            )
+            if isinstance(
+                history[index],
+                dict,
+            )
+            and history[index].get(
+                "runtime_session_action_marker_item"
+            ) is True
+        ]
+        insert_index = marker_indexes[0]
+
+        for index in reversed(
+            marker_indexes
+        ):
+            del history[index]
+
+        for item in reversed(
+            marker_items
+        ):
+            history.insert(
+                insert_index,
+                item,
+            )
 
     if len(history) > MAX_SESSION_ACTION_HISTORY_ITEMS:
         del history[:-MAX_SESSION_ACTION_HISTORY_ITEMS]

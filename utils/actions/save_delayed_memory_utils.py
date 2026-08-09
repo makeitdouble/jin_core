@@ -8,7 +8,7 @@ LONG_TERM_FACT_ID_RE = re.compile(r"^F[1-9]\d*$", re.IGNORECASE)
 
 DELAYED_MEMORY_FIELD_RE = re.compile(
     r"(?im)^[^\S\r\n]*(title|summary|tags|body|anchor_fact_ids|"
-    r"absorbed_fact_ids|long_term_facts_ids)"
+    r"facts_ids|absorbed_fact_ids|long_term_facts_ids)"
     r"[^\S\r\n]*:[^\S\r\n]*(.*)$",
 )
 
@@ -19,10 +19,30 @@ def normalize_long_term_fact_ids(value) -> list[str]:
     candidates = []
 
     for item in source:
+        if isinstance(item, list):
+            candidates.extend(
+                normalize_long_term_fact_ids(item)
+            )
+            continue
+
+        text = str(item or "").strip()
+
+        if text.startswith("[") and text.endswith("]"):
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                parsed = None
+
+            if isinstance(parsed, list):
+                candidates.extend(
+                    normalize_long_term_fact_ids(parsed)
+                )
+                continue
+
         candidates.extend(
             re.split(
                 r"[,;\s]+",
-                str(item or ""),
+                text,
             )
         )
 
@@ -33,7 +53,9 @@ def normalize_long_term_fact_ids(value) -> list[str]:
         fact_id = str(
             candidate
             or ""
-        ).strip().upper()
+        ).strip().strip(
+            "\"'[]"
+        ).upper()
 
         if (
             not fact_id
@@ -50,33 +72,56 @@ def normalize_long_term_fact_ids(value) -> list[str]:
     return fact_ids
 
 
-def normalize_delayed_memory_fact_roles(
+def normalize_delayed_memory_fact_ids(
     anchor_fact_ids=None,
-    absorbed_fact_ids=None,
+    facts_ids=None,
+    legacy_absorbed_fact_ids=None,
     legacy_long_term_fact_ids=None,
 ) -> tuple[list[str], list[str]]:
     """Normalize delayed-memory L4 references.
 
-    Legacy ``long_term_facts_ids`` are treated as absorbed references.  A fact
-    can only have one role inside a report; anchor wins when an id appears in
-    both lists so an important fact can never be hidden by the same report.
+    ``facts_ids`` is the full set of L4 facts represented by the report.
+    ``anchor_fact_ids`` is a visible, important subset and is always folded
+    into ``facts_ids``.  Legacy absorbed/long-term fields are treated as
+    non-anchor report facts for compatibility with older reports.
     """
 
     anchor_ids = normalize_long_term_fact_ids(
         anchor_fact_ids or []
     )
-    absorbed_ids = normalize_long_term_fact_ids([
+    fact_ids = normalize_long_term_fact_ids([
+        *anchor_ids,
         *normalize_long_term_fact_ids(
-            absorbed_fact_ids or []
+            facts_ids or []
+        ),
+        *normalize_long_term_fact_ids(
+            legacy_absorbed_fact_ids or []
         ),
         *normalize_long_term_fact_ids(
             legacy_long_term_fact_ids or []
         ),
     ])
+
+    return anchor_ids, fact_ids
+
+
+def normalize_delayed_memory_fact_roles(
+    anchor_fact_ids=None,
+    absorbed_fact_ids=None,
+    legacy_long_term_fact_ids=None,
+) -> tuple[list[str], list[str]]:
+    """Compatibility wrapper returning legacy non-anchor absorbed facts."""
+
+    anchor_ids, fact_ids = normalize_delayed_memory_fact_ids(
+        anchor_fact_ids,
+        facts_ids=None,
+        legacy_absorbed_fact_ids=absorbed_fact_ids,
+        legacy_long_term_fact_ids=legacy_long_term_fact_ids,
+    )
     anchor_set = set(anchor_ids)
     absorbed_ids = [
         fact_id
-        for fact_id in absorbed_ids
+        for fact_id in fact_ids
         if fact_id not in anchor_set
     ]
 
@@ -86,7 +131,7 @@ def normalize_delayed_memory_fact_roles(
 def collect_long_term_fact_ids_from_reports(
     reports,
 ) -> set[str]:
-    """Compatibility name: return only facts absorbed by delayed memory."""
+    """Compatibility name: return facts represented by delayed memory."""
 
     if not isinstance(reports, dict):
         return set()
@@ -97,12 +142,13 @@ def collect_long_term_fact_ids_from_reports(
         if not isinstance(report, dict):
             continue
 
-        _anchor_ids, absorbed_ids = normalize_delayed_memory_fact_roles(
+        _anchor_ids, report_fact_ids = normalize_delayed_memory_fact_ids(
             report.get("anchor_fact_ids", []),
-            report.get("absorbed_fact_ids", []),
-            report.get("long_term_facts_ids", []),
+            report.get("facts_ids", []),
+            legacy_absorbed_fact_ids=report.get("absorbed_fact_ids", []),
+            legacy_long_term_fact_ids=report.get("long_term_facts_ids", []),
         )
-        fact_ids.update(absorbed_ids)
+        fact_ids.update(report_fact_ids)
 
     return fact_ids
 
@@ -125,10 +171,11 @@ def collect_anchor_fact_report_ids(
         if not normalized_report_id:
             continue
 
-        anchor_ids, _absorbed_ids = normalize_delayed_memory_fact_roles(
+        anchor_ids, _fact_ids = normalize_delayed_memory_fact_ids(
             report.get("anchor_fact_ids", []),
-            report.get("absorbed_fact_ids", []),
-            report.get("long_term_facts_ids", []),
+            report.get("facts_ids", []),
+            legacy_absorbed_fact_ids=report.get("absorbed_fact_ids", []),
+            legacy_long_term_fact_ids=report.get("long_term_facts_ids", []),
         )
 
         for fact_id in anchor_ids:
@@ -202,6 +249,7 @@ def parse_delayed_memory_content_payload(
             ).strip()
         elif field_name in {
             "anchor_fact_ids",
+            "facts_ids",
             "absorbed_fact_ids",
             "long_term_facts_ids",
         }:
@@ -243,10 +291,11 @@ def parse_delayed_memory_content_payload(
         if tag.strip()
     ]
 
-    anchor_fact_ids, absorbed_fact_ids = normalize_delayed_memory_fact_roles(
+    anchor_fact_ids, fact_ids = normalize_delayed_memory_fact_ids(
         fields.get("anchor_fact_ids", []),
-        fields.get("absorbed_fact_ids", []),
-        fields.get("long_term_facts_ids", []),
+        fields.get("facts_ids", []),
+        legacy_absorbed_fact_ids=fields.get("absorbed_fact_ids", []),
+        legacy_long_term_fact_ids=fields.get("long_term_facts_ids", []),
     )
 
     report_id = generate_delayed_memory_report_id(
@@ -273,7 +322,7 @@ def parse_delayed_memory_content_payload(
             ).strip(),
             "pinned": False,
             "anchor_fact_ids": anchor_fact_ids,
-            "absorbed_fact_ids": absorbed_fact_ids,
+            "facts_ids": fact_ids,
             "created_session_id": str(
                 created_session_id
                 or ""

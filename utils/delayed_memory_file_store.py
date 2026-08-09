@@ -10,7 +10,7 @@ from utils.actions.delayed_memory_utils import (
     is_delayed_memory_report_id,
 )
 from utils.actions.save_delayed_memory_utils import (
-    normalize_delayed_memory_fact_roles,
+    normalize_delayed_memory_fact_ids,
 )
 
 
@@ -138,10 +138,11 @@ def normalize_delayed_memory_report(
         or created_time,
         limit=MAX_DELAYED_MEMORY_TIME_CHARS,
     )
-    anchor_fact_ids, absorbed_fact_ids = normalize_delayed_memory_fact_roles(
+    anchor_fact_ids, facts_ids = normalize_delayed_memory_fact_ids(
         report.get("anchor_fact_ids", []),
-        report.get("absorbed_fact_ids", []),
-        report.get("long_term_facts_ids", []),
+        report.get("facts_ids", []),
+        legacy_absorbed_fact_ids=report.get("absorbed_fact_ids", []),
+        legacy_long_term_fact_ids=report.get("long_term_facts_ids", []),
     )
 
     return normalized_id, {
@@ -159,7 +160,7 @@ def normalize_delayed_memory_report(
         ),
         "pinned": bool(report.get("pinned", False)),
         "anchor_fact_ids": anchor_fact_ids,
-        "absorbed_fact_ids": absorbed_fact_ids,
+        "facts_ids": facts_ids,
         "created_session_id": _clean_text(
             report.get("created_session_id", "")
             or report.get("session", ""),
@@ -250,18 +251,23 @@ def merge_delayed_memory_reports(
     ).intersection(
         primary_reports
     ):
-        anchor_fact_ids, absorbed_fact_ids = normalize_delayed_memory_fact_roles(
+        anchor_fact_ids, facts_ids = normalize_delayed_memory_fact_ids(
             [
                 *fallback_reports[report_id].get("anchor_fact_ids", []),
                 *primary_reports[report_id].get("anchor_fact_ids", []),
             ],
             [
+                *fallback_reports[report_id].get("facts_ids", []),
+                *primary_reports[report_id].get("facts_ids", []),
+            ],
+            legacy_absorbed_fact_ids=[
                 *fallback_reports[report_id].get("absorbed_fact_ids", []),
                 *primary_reports[report_id].get("absorbed_fact_ids", []),
             ],
         )
         reports[report_id]["anchor_fact_ids"] = anchor_fact_ids
-        reports[report_id]["absorbed_fact_ids"] = absorbed_fact_ids
+        reports[report_id]["facts_ids"] = facts_ids
+        reports[report_id].pop("absorbed_fact_ids", None)
         reports[report_id].pop("long_term_facts_ids", None)
 
     return reports
@@ -325,8 +331,8 @@ def build_delayed_memory_file_payload(
         "anchor_fact_ids": clean_report[
             "anchor_fact_ids"
         ],
-        "absorbed_fact_ids": clean_report[
-            "absorbed_fact_ids"
+        "facts_ids": clean_report[
+            "facts_ids"
         ],
         "appended_times": clean_report["appended_times"],
         "append_streak": clean_report["append_streak"],

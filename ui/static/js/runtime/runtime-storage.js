@@ -1119,11 +1119,45 @@
     const factIds = [];
 
     source.forEach(function (item) {
-      String(item || "")
+      if (Array.isArray(item)) {
+        normalizeLongTermFactIds(item).forEach(function (factId) {
+          if (!seen.has(factId)) {
+            seen.add(factId);
+            factIds.push(factId);
+          }
+        });
+        return;
+      }
+
+      const text =
+        String(item || "").trim();
+
+      if (text.startsWith("[") && text.endsWith("]")) {
+        try {
+          const parsed = JSON.parse(text);
+
+          if (Array.isArray(parsed)) {
+            normalizeLongTermFactIds(parsed).forEach(function (factId) {
+              if (!seen.has(factId)) {
+                seen.add(factId);
+                factIds.push(factId);
+              }
+            });
+            return;
+          }
+        } catch (_error) {
+          // Fall through to token parsing.
+        }
+      }
+
+      text
         .split(/[\s,;]+/)
         .forEach(function (candidate) {
           const factId =
-            String(candidate || "").trim().toUpperCase();
+            String(candidate || "")
+              .trim()
+              .replace(/^["'\[]+|["'\]]+$/g, "")
+              .toUpperCase();
 
           if (
               !/^F[1-9]\d*$/.test(factId)
@@ -1221,20 +1255,14 @@
             normalizeLongTermFactIds(
               report.anchor_fact_ids
             ),
-          absorbed_fact_ids:
+          facts_ids:
             normalizeLongTermFactIds(
               [
-                ...(Array.isArray(report.absorbed_fact_ids)
-                  ? report.absorbed_fact_ids
-                  : []),
-                ...(Array.isArray(report.long_term_facts_ids)
-                  ? report.long_term_facts_ids
-                  : []),
+                report.anchor_fact_ids,
+                report.facts_ids,
+                report.absorbed_fact_ids,
+                report.long_term_facts_ids,
               ]
-            ).filter(
-              factId => !normalizeLongTermFactIds(
-                report.anchor_fact_ids
-              ).includes(factId)
             ),
           created_session_id:
             String(report.created_session_id || "").trim(),

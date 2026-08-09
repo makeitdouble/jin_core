@@ -989,6 +989,27 @@ async def apply_runtime_action_calls(
             )
             or ""
         ).strip()
+        if (
+            not action_display_id
+            and action.name == RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
+        ):
+            active_memory_action_sequence = int(
+                getattr(
+                    context,
+                    "runtime_active_memory_action_sequence",
+                    0,
+                )
+                or 0
+            ) + 1
+            context.runtime_active_memory_action_sequence = (
+                active_memory_action_sequence
+            )
+            action_display_id = build_runtime_action_id(
+                RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
+                active_memory_action_sequence,
+            )
+            action_display_ids[id(action)] = action_display_id
+
         if action_display_id:
             action_event["id"] = action_display_id
         runtime_turn_id = str(
@@ -1552,6 +1573,7 @@ async def apply_runtime_action_calls(
         save_active_memory_actions,
         log_runtime=log_runtime,
         with_action_context=with_action_context,
+        action_display_ids=action_display_ids,
     )
 
     saved_delayed_memory_reports = await apply_save_delayed_memory_actions(

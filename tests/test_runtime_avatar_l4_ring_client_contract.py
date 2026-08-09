@@ -39,9 +39,24 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
         self.assertIn('kind === "l4"', source)
         self.assertIn("id,\n              key,", source)
         self.assertIn("referenceAliases: record.referenceAliases", source)
+        self.assertIn("dot: record.archived", source)
+        self.assertIn(
+            '"data-delayed-memory-fact-ids":',
+            source,
+        )
+        self.assertIn(
+            '"data-delayed-memory-anchor-fact-ids":',
+            source,
+        )
+        self.assertIn('"data-l4-fact-ids":', source)
+        self.assertIn("applyDelayedMemoryFactLinkGlow()", source)
+        self.assertIn("is-delayed-memory-linked-hit", source)
 
         css_source = AVATAR_CSS.read_text(encoding="utf-8")
         self.assertIn(".jin-avatar-memory-dash-l4", css_source)
+        self.assertIn(".jin-avatar-memory-dash.is-memory-dot", css_source)
+        self.assertIn(".is-delayed-memory-linked-hit", css_source)
+        self.assertIn("@keyframes jin-avatar-memory-absorb-dot", css_source)
         self.assertIn("rgba(147, 197, 253, 0.30)", css_source)
 
     def test_l4_ring_is_appended_inside_delayed_and_active_rings(self):
@@ -57,15 +72,43 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
         self.assertLess(l4_index, delayed_index)
         self.assertLess(delayed_index, active_index)
 
+    def test_open_delayed_report_keeps_avatar_fact_links_highlighted(self):
+        source = AVATAR_JS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            '"jin:delayed-memory-report-active"',
+            source,
+        )
+        self.assertIn(
+            "let delayedMemoryReportActiveState = null;",
+            source,
+        )
+        self.assertIn(
+            "function getActiveAvatarMemoryHoverIds()",
+            source,
+        )
+        self.assertIn(
+            "window.addEventListener(DELAYED_MEMORY_REPORT_ACTIVE_EVENT",
+            source,
+        )
+        self.assertIn(
+            "getFocusedMemoryDashNodes(svg)",
+            source,
+        )
+        self.assertIn(
+            "is-delayed-memory-linked-hit",
+            source,
+        )
+
     def test_avatar_cache_versions_are_bumped(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            "/static/css/runtime-avatar.css?v=memory-rings-4",
+            "/static/css/runtime-avatar.css?v=memory-rings-6",
             source,
         )
         self.assertIn(
-            "/static/js/runtime/runtime-avatar.js?v=memory-rings-11",
+            "/static/js/runtime/runtime-avatar.js?v=memory-rings-15",
             source,
         )
 

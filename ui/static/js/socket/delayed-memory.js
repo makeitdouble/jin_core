@@ -109,11 +109,43 @@ function normalizeDelayedMemoryFactIds(
   const source =
     Array.isArray(value)
       ? value
-      : String(value || "").split(/[;,\s]+/);
+      : [value];
   const seen = new Set();
+  const candidates = [];
 
-  return source
-    .map(item => String(item || "").trim().toUpperCase())
+  source.forEach(function (item) {
+    if (Array.isArray(item)) {
+      normalizeDelayedMemoryFactIds(item).forEach(
+        factId => candidates.push(factId)
+      );
+      return;
+    }
+
+    const text =
+      String(item || "").trim();
+
+    if (text.startsWith("[") && text.endsWith("]")) {
+      try {
+        const parsed = JSON.parse(text);
+
+        if (Array.isArray(parsed)) {
+          normalizeDelayedMemoryFactIds(parsed).forEach(
+            factId => candidates.push(factId)
+          );
+          return;
+        }
+      } catch (_error) {
+        // Fall through to token parsing.
+      }
+    }
+
+    text.split(/[;,\s]+/).forEach(
+      candidate => candidates.push(candidate)
+    );
+  });
+
+  return candidates
+    .map(item => String(item || "").trim().replace(/^["'\[]+|["'\]]+$/g, "").toUpperCase())
     .filter(
       factId => {
         if (!/^F[1-9]\d*$/.test(factId) || seen.has(factId)) {
@@ -140,7 +172,7 @@ function parseDelayedMemoryReportPayload(
   }
 
   const fieldPattern =
-    /^[^\S\r\n]*(title|summary|tags|body|anchor_fact_ids|absorbed_fact_ids|long_term_facts_ids)[^\S\r\n]*:[^\S\r\n]*(.*)$/gim;
+    /^[^\S\r\n]*(title|summary|tags|body|anchor_fact_ids|facts_ids|absorbed_fact_ids|long_term_facts_ids)[^\S\r\n]*:[^\S\r\n]*(.*)$/gim;
 
   const matches = [];
   let match = fieldPattern.exec(text);
@@ -186,6 +218,7 @@ function parseDelayedMemoryReportPayload(
               .trim()
           : [
               "anchor_fact_ids",
+              "facts_ids",
               "absorbed_fact_ids",
               "long_term_facts_ids",
             ].includes(field.name)
@@ -219,13 +252,13 @@ function parseDelayedMemoryReportPayload(
     normalizeDelayedMemoryFactIds(
       fields.anchor_fact_ids
     );
-  const anchorFactIdSet =
-    new Set(anchorFactIds);
-  const absorbedFactIds =
+  const factsIds =
     normalizeDelayedMemoryFactIds([
+      ...anchorFactIds,
+      ...normalizeDelayedMemoryFactIds(fields.facts_ids),
       ...normalizeDelayedMemoryFactIds(fields.absorbed_fact_ids),
       ...normalizeDelayedMemoryFactIds(fields.long_term_facts_ids),
-    ]).filter(factId => !anchorFactIdSet.has(factId));
+    ]);
 
   return {
     [key]: {
@@ -240,7 +273,7 @@ function parseDelayedMemoryReportPayload(
       body:
         String(fields.body || "").trim(),
       anchor_fact_ids: anchorFactIds,
-      absorbed_fact_ids: absorbedFactIds,
+      facts_ids: factsIds,
       created_session_id:
         String(window.jinRuntimeSessionId || websocketClientId || "").trim(),
       created_time:

@@ -284,6 +284,125 @@
     return readStore().facts;
   }
 
+  function getArchivedFactIdSet() {
+    const reports =
+      storage && typeof storage.readDelayedMemoryReports === "function"
+        ? storage.readDelayedMemoryReports()
+        : {};
+
+    if (
+      !reports
+      || typeof reports !== "object"
+      || Array.isArray(reports)
+    ) {
+      return new Set();
+    }
+
+    const archivedIds = new Set();
+    const anchorIds = new Set();
+
+    Object.values(reports).forEach((report) => {
+      if (
+        !report
+        || typeof report !== "object"
+        || Array.isArray(report)
+      ) {
+        return;
+      }
+
+      normalizeList(report.anchor_fact_ids).forEach((rawId) => {
+        const factId = normalizeFactId(rawId, false);
+        if (factId) {
+          anchorIds.add(factId);
+        }
+      });
+
+      [
+        report.facts_ids,
+        report.absorbed_fact_ids,
+        report.long_term_facts_ids,
+      ].forEach((rawIds) => {
+        normalizeList(rawIds).forEach((rawId) => {
+          const factId = normalizeFactId(rawId, false);
+          if (factId) {
+            archivedIds.add(factId);
+          }
+        });
+      });
+    });
+
+    anchorIds.forEach((factId) => {
+      archivedIds.delete(factId);
+    });
+
+    return archivedIds;
+  }
+
+  function getArchivedFactIds() {
+    return Array.from(getArchivedFactIdSet())
+      .sort((left, right) => String(left).localeCompare(String(right)));
+  }
+
+  function isArchivedFact(factId) {
+    const normalizedId =
+      normalizeFactId(factId, false);
+
+    return Boolean(
+      normalizedId
+      && getArchivedFactIdSet().has(normalizedId)
+    );
+  }
+
+  function factMatchesArchivedIds(fact, archivedIds) {
+    if (
+      !fact
+      || typeof fact !== "object"
+      || Array.isArray(fact)
+      || !archivedIds
+      || archivedIds.size < 1
+    ) {
+      return false;
+    }
+
+    return [
+      fact.id,
+      ...normalizeList(fact.source_fact_ids),
+    ].some((rawId) => {
+      const factId =
+        normalizeFactId(rawId, false);
+
+      return Boolean(
+        factId
+        && archivedIds.has(factId)
+      );
+    });
+  }
+
+  function getVisibleFacts() {
+    const archivedIds =
+      getArchivedFactIdSet();
+
+    return getFacts().filter((fact) => (
+      !factMatchesArchivedIds(fact, archivedIds)
+    ));
+  }
+
+  function getFactsWithArchiveState() {
+    const archivedIds =
+      getArchivedFactIdSet();
+
+    return getFacts().map((fact) => {
+      const archived =
+        factMatchesArchivedIds(fact, archivedIds);
+
+      return {
+        ...fact,
+        archived,
+        hidden_from_context: archived,
+      };
+    });
+  }
+
   function getPendingFacts() {
     return readStore().pending_facts;
   }
@@ -317,6 +436,61 @@
 
   function syncLongTermMemoryToRuntime() {
     return sendIfOpen(buildStoreSyncPayload());
+  }
+
+  function deleteFactLocally(factId) {
+    const id =
+      normalizeFactId(factId, false);
+
+    if (!id) {
+      return false;
+    }
+
+    const store =
+      readStore();
+    const facts =
+      (Array.isArray(store.facts) ? store.facts : [])
+        .filter(fact => fact && fact.id !== id);
+    const deletedFactIds =
+      normalizeList(store.deleted_fact_ids)
+        .map(rawId => normalizeFactId(rawId, false))
+        .filter(Boolean);
+    const removedFact =
+      facts.length !== (Array.isArray(store.facts) ? store.facts.length : 0);
+
+    if (!deletedFactIds.includes(id)) {
+      deletedFactIds.push(id);
+    }
+
+    if (!removedFact && store.deleted_fact_ids.includes(id)) {
+      return false;
+    }
+
+    writeStore({
+      ...store,
+      facts,
+      deleted_fact_ids: deletedFactIds,
+      revision: Math.max(
+        0,
+        Math.floor(normalizeNumber(store.revision, 0))
+      ) + 1,
+      updated_at: new Date().toISOString(),
+    });
+
+    if (
+      window.JinRuntime.runtime
+      && window.JinRuntime.runtime.renderRuntimeMemorySnapshot
+    ) {
+      window.JinRuntime.runtime.renderRuntimeMemorySnapshot();
+    }
+    if (
+      window.JinRuntime.avatar
+      && typeof window.JinRuntime.avatar.refresh === "function"
+    ) {
+      window.JinRuntime.avatar.refresh();
+    }
+
+    return true;
   }
 
   function applyFactsMemoryRecordsUpdate(payload) {
@@ -385,6 +559,12 @@
     ) {
       window.JinRuntime.runtime.renderRuntimeMemorySnapshot();
     }
+    if (
+      window.JinRuntime.avatar
+      && typeof window.JinRuntime.avatar.refresh === "function"
+    ) {
+      window.JinRuntime.avatar.refresh();
+    }
     return store;
   }
 
@@ -393,10 +573,14 @@
     if (!id) {
       return false;
     }
-    return sendIfOpen({
+    const sent = sendIfOpen({
       type: "l4_memory_delete_fact",
       fact_id: id,
     });
+    if (sent && deleteFactLocally(id)) {
+      syncLongTermMemoryToRuntime();
+    }
+    return sent;
   }
 
   function requestFactRestore(fact) {
@@ -407,9 +591,23 @@
     if (!normalized) {
       return false;
     }
+    const restoreMeta =
+      fact
+      && typeof fact === "object"
+      && !Array.isArray(fact)
+      && fact._restore_meta
+      && typeof fact._restore_meta === "object"
+        ? fact._restore_meta
+        : null;
+
     return sendIfOpen({
       type: "l4_memory_restore_fact",
-      fact: normalized,
+      fact: restoreMeta
+        ? {
+            ...normalized,
+            _restore_meta: restoreMeta,
+          }
+        : normalized,
     });
   }
 
@@ -461,6 +659,10 @@
     writeStore,
     normalizeStore,
     getFacts,
+    getArchivedFactIds,
+    isArchivedFact,
+    getVisibleFacts,
+    getFactsWithArchiveState,
     getPendingFacts,
     buildFactsMemorySyncPayload,
     buildStoreSyncPayload,
@@ -468,6 +670,7 @@
     syncLongTermMemoryToRuntime,
     applyFactsMemoryRecordsUpdate,
     applyServerUpdate,
+    deleteFactLocally,
     requestFactDelete,
     requestFactRestore,
     maybeSendIdleTick,

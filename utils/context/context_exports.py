@@ -20,6 +20,7 @@ from .skills import (
 from .session_actions import (
     _is_current_sequence_action,
     _normalize_session_action_history_item,
+    build_current_runtime_context,
     build_session_actions_history_context,
     format_session_action_age,
     strip_actions_history_context,
@@ -52,6 +53,7 @@ __all__ = [
     "build_previous_chat_messages_context",
     "build_previous_chat_messages_context_text",
     "build_runtime_xml",
+    "build_current_runtime_context",
     "build_session_actions_history_context",
     "build_tool_results_context",
     "crop_recent_message_text",

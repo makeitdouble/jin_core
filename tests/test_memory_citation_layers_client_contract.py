@@ -111,11 +111,11 @@ class MemoryCitationLayersClientContractTests(unittest.TestCase):
     def test_cache_versions_are_bumped_for_citation_sync_assets(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertIn("/static/css/runtime-memory.css?v=memory-hover-sync-2", source)
+        self.assertIn("/static/css/runtime-memory.css?v=memory-hover-sync-9", source)
         self.assertIn("/static/css/theme-win95.css?v=memory-citations-2", source)
-        self.assertIn("/static/js/runtime/runtime-memory-view.js?v=runtime-memory-view-18", source)
-        self.assertIn("/static/js/runtime/runtime-avatar.js?v=memory-rings-11", source)
-        self.assertIn("/static/js/think-citations.js?v=think-citations-4", source)
+        self.assertIn("/static/js/runtime/runtime-memory-view.js?v=runtime-memory-view-26", source)
+        self.assertIn("/static/js/runtime/runtime-avatar.js?v=memory-rings-15", source)
+        self.assertIn("/static/js/think-citations.js?v=think-citations-5", source)
         self.assertIn("/static/js/chat.js?v=memory-reference-sync-2", source)
 
 

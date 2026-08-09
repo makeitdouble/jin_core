@@ -34,7 +34,8 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
             "anchor_fact_ids": [
                 "F1",
             ],
-            "absorbed_fact_ids": [
+            "facts_ids": [
+                "F1",
                 "F2",
             ],
             "created_session_id": "session-a",
@@ -89,10 +90,15 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
                 ],
             )
             self.assertEqual(
-                payload["absorbed_fact_ids"],
+                payload["facts_ids"],
                 [
+                    "F1",
                     "F2",
                 ],
+            )
+            self.assertNotIn(
+                "absorbed_fact_ids",
+                payload,
             )
 
             reports, warnings = (
@@ -124,8 +130,9 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
                 ],
             )
             self.assertEqual(
-                reports["48ggds"]["absorbed_fact_ids"],
+                reports["48ggds"]["facts_ids"],
                 [
+                    "F1",
                     "F2",
                 ],
             )
@@ -227,7 +234,9 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
         browser_report = self.build_report(
             title="Browser title",
         )
-        browser_report["absorbed_fact_ids"] = []
+        browser_report["facts_ids"] = [
+            "F1",
+        ]
         browser_reports = {
             "48ggds": browser_report,
         }
@@ -252,8 +261,9 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
             ],
         )
         self.assertEqual(
-            merged["48ggds"]["absorbed_fact_ids"],
+            merged["48ggds"]["facts_ids"],
             [
+                "F1",
                 "F2",
             ],
         )
@@ -285,6 +295,58 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
         self.assertEqual(
             context.delayed_memory_reports["48ggds"]["title"],
             "Browser title",
+        )
+        self.assertEqual(
+            context.delayed_memory_reports["a1b2c3"]["title"],
+            "File only",
+        )
+
+    def test_websocket_sync_treats_incoming_report_refs_as_authoritative(self):
+
+        existing_report = self.build_report(
+            title="File title",
+        )
+        existing_report["anchor_fact_ids"] = [
+            "F1",
+        ]
+        existing_report["facts_ids"] = [
+            "F1",
+            "F2",
+        ]
+        incoming_report = self.build_report(
+            title="Browser title",
+        )
+        incoming_report["anchor_fact_ids"] = []
+        incoming_report["facts_ids"] = [
+            "F2",
+        ]
+        context = SimpleNamespace(
+            delayed_memory_reports={
+                "48ggds": existing_report,
+                "a1b2c3": self.build_report(
+                    title="File only",
+                ),
+            },
+        )
+
+        apply_delayed_memory_reports(
+            context,
+            {
+                "delayed_memory_reports": {
+                    "48ggds": incoming_report,
+                },
+            },
+        )
+
+        self.assertEqual(
+            context.delayed_memory_reports["48ggds"]["anchor_fact_ids"],
+            [],
+        )
+        self.assertEqual(
+            context.delayed_memory_reports["48ggds"]["facts_ids"],
+            [
+                "F2",
+            ],
         )
         self.assertEqual(
             context.delayed_memory_reports["a1b2c3"]["title"],

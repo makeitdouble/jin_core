@@ -464,6 +464,39 @@ def build_session_actions_history_context(
     )
 
 
+def build_current_runtime_context(
+    *,
+    user_message: str = "",
+    sequence_started_at=None,
+) -> str:
+
+    message_text = str(
+        user_message
+        or ""
+    ).strip()
+
+    if not message_text:
+        return ""
+
+    elapsed_suffix = ""
+
+    if isinstance(
+        sequence_started_at,
+        (int, float),
+    ) and sequence_started_at > 0:
+        elapsed_suffix = (
+            " ( "
+            f"{format_session_action_age(time.time() - float(sequence_started_at))}"
+            " ago )"
+        )
+
+    return (
+        f"<CURRENT_RUNTIME{elapsed_suffix}>\n"
+        f"user_message: {escape(message_text)}\n"
+        "</CURRENT_RUNTIME>"
+    )
+
+
 def strip_actions_history_context(
     system_prompt: str,
 ) -> str:
@@ -475,6 +508,7 @@ def strip_actions_history_context(
 
     for tag_name in (
         "SESSION_ACTIONS_HISTORY",
+        "CURRENT_RUNTIME",
         "CURRENT_SEQUENCE",
         "CURRENT_ACTIONS_HISTORY",
         "SEQUENCE_ORIGIN_REQUEST",

@@ -48,6 +48,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
+    RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_UPDATE_L4_FACTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
@@ -154,6 +155,7 @@ class RuntimeStream:
         self.marker_repetition_aborted = False
         self.action_guard_rejected_aborted = False
         self.context_limit_recovery_armed = False
+        self.started_active_memory_action_ids = []
         self.started_delayed_memory_action_ids = []
         self.started_update_l4_facts_action_ids = []
         self.confirmed_action_guard_names = set()
@@ -1256,6 +1258,25 @@ class RuntimeStream:
 
             return action_id
 
+        if action.name == RUNTIME_ACTION_SAVE_ACTIVE_MEMORY:
+            if self.started_active_memory_action_ids:
+                return self.started_active_memory_action_ids.pop(0)
+
+            sequence = int(
+                getattr(
+                    self.context,
+                    "runtime_active_memory_action_sequence",
+                    0,
+                )
+                or 0
+            ) + 1
+            self.context.runtime_active_memory_action_sequence = sequence
+
+            return build_runtime_action_id(
+                RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
+                sequence,
+            )
+
         if action.name in {
             RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
             RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
@@ -1827,6 +1848,40 @@ class RuntimeStream:
                     "text": display_text,
                     "close_tag": has_close_tag,
                 }
+            elif action.name == RUNTIME_ACTION_SAVE_ACTIVE_MEMORY:
+                current_sequence = int(
+                    getattr(
+                        self.context,
+                        "runtime_active_memory_action_sequence",
+                        0,
+                    )
+                    or 0
+                )
+                next_sequence = current_sequence + 1
+                self.context.runtime_active_memory_action_sequence = (
+                    next_sequence
+                )
+                action_id = build_runtime_action_id(
+                    RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
+                    next_sequence,
+                )
+                self.started_active_memory_action_ids.append(
+                    action_id
+                )
+
+                payload = {
+                    "type": "runtime_action",
+                    "runtime_message_id": self.stream.message_id,
+                    "action": "save_active_memory",
+                    "id": action_id,
+                    "status": "started",
+                    "display_name": display_name,
+                    "text": display_text,
+                    "close_tag": has_close_tag,
+                }
+
+                if action.payload and not has_close_tag:
+                    payload["payload"] = action.payload
             elif action.name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT:
                 pending_ids = getattr(
                     self.context,

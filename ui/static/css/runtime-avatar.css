@@ -216,6 +216,53 @@
         stroke-width 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
+.jin-avatar-memory-dash circle {
+    transition:
+        fill-opacity 0.28s cubic-bezier(0.22, 0.61, 0.36, 1),
+        r 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.jin-avatar-memory-dash.is-memory-dot .jin-avatar-memory-dash-arc {
+    animation: jin-avatar-memory-absorb-dash 0.58s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+}
+
+.jin-avatar-memory-dash.is-memory-dot .jin-avatar-memory-dot {
+    animation: jin-avatar-memory-absorb-dot 0.58s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+    fill-opacity: var(--jin-avatar-memory-dot-opacity, 0.26);
+    r: var(--jin-avatar-memory-dot-radius, 1.6px);
+}
+
+@keyframes jin-avatar-memory-absorb-dash {
+    0% {
+        stroke-opacity: var(--jin-avatar-memory-dot-opacity, 0.26);
+    }
+
+    42% {
+        stroke-opacity: 0.14;
+    }
+
+    100% {
+        stroke-opacity: 0;
+    }
+}
+
+@keyframes jin-avatar-memory-absorb-dot {
+    0% {
+        fill-opacity: 0;
+        r: 0.35px;
+    }
+
+    56% {
+        fill-opacity: var(--jin-avatar-memory-dot-opacity, 0.26);
+        r: 1.1px;
+    }
+
+    100% {
+        fill-opacity: var(--jin-avatar-memory-dot-opacity, 0.26);
+        r: var(--jin-avatar-memory-dot-radius, 1.6px);
+    }
+}
+
 .jin-avatar-memory-dash-active {
     filter:
         brightness(1.16)
@@ -237,7 +284,8 @@
 }
 
 .jin-avatar-memory-dash.is-runtime-cited,
-.jin-avatar-memory-dash.is-memory-reference-hit {
+.jin-avatar-memory-dash.is-memory-reference-hit,
+.jin-avatar-memory-dash.is-delayed-memory-linked-hit {
     filter:
         brightness(1.72)
         saturate(1.65)
@@ -247,10 +295,18 @@
         drop-shadow(0 0 38px var(--jin-avatar-memory-glow-far, rgba(34, 211, 238, 0.18)));
 }
 
-.jin-avatar-memory-dash.is-runtime-cited path,
-.jin-avatar-memory-dash.is-memory-reference-hit path {
+.jin-avatar-memory-dash:not(.is-memory-dot).is-runtime-cited path,
+.jin-avatar-memory-dash:not(.is-memory-dot).is-memory-reference-hit path,
+.jin-avatar-memory-dash:not(.is-memory-dot).is-delayed-memory-linked-hit path {
     stroke-opacity: 1 !important;
     stroke-width: var(--jin-avatar-memory-hover-width, 2px);
+}
+
+.jin-avatar-memory-dash.is-memory-dot.is-runtime-cited circle,
+.jin-avatar-memory-dash.is-memory-dot.is-memory-reference-hit circle,
+.jin-avatar-memory-dash.is-memory-dot.is-delayed-memory-linked-hit circle {
+    fill-opacity: 1 !important;
+    r: var(--jin-avatar-memory-hover-dot-radius, 2.45px);
 }
 
 .jin-avatar-orbit.is-memory-hover-hit,
@@ -264,9 +320,14 @@
         drop-shadow(0 0 28px var(--jin-avatar-memory-glow-far, rgba(52, 211, 222, 0.30)));
 }
 
-.jin-avatar-memory-dash.is-memory-hover-hit path {
+.jin-avatar-memory-dash:not(.is-memory-dot).is-memory-hover-hit path {
     stroke-opacity: 1 !important;
     stroke-width: calc(var(--jin-avatar-memory-hover-width, 2px) + 0.45px);
+}
+
+.jin-avatar-memory-dash.is-memory-dot.is-memory-hover-hit circle {
+    fill-opacity: 1 !important;
+    r: var(--jin-avatar-memory-hover-dot-radius, 2.45px);
 }
 
 .jin-avatar-center-glow-fill,

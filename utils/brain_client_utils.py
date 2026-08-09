@@ -113,7 +113,7 @@ from utils.actions import (
     parse_delayed_memory_content_payload,
     parse_idle_seconds,
     normalize_jin_color_payload,
-    normalize_delayed_memory_fact_roles,
+    normalize_delayed_memory_fact_ids,
     normalize_long_term_fact_ids,
     refresh_active_memory_runtime_metadata,
     strip_active_memory_runtime_metadata,
@@ -331,11 +331,12 @@ def build_delayed_memory_report(
             report_id
         )
 
-        requested_anchor_fact_ids, requested_absorbed_fact_ids = (
-            normalize_delayed_memory_fact_roles(
+        requested_anchor_fact_ids, requested_facts_ids = (
+            normalize_delayed_memory_fact_ids(
                 value.get("anchor_fact_ids", []),
-                value.get("absorbed_fact_ids", []),
-                value.get("long_term_facts_ids", []),
+                value.get("facts_ids", []),
+                legacy_absorbed_fact_ids=value.get("absorbed_fact_ids", []),
+                legacy_long_term_fact_ids=value.get("long_term_facts_ids", []),
             )
         )
         available_l4_fact_ids = get_runtime_l4_fact_ids(
@@ -346,20 +347,20 @@ def build_delayed_memory_report(
             for fact_id in requested_anchor_fact_ids
             if fact_id in available_l4_fact_ids
         ]
-        absorbed_fact_ids = [
+        facts_ids = [
             fact_id
-            for fact_id in requested_absorbed_fact_ids
+            for fact_id in requested_facts_ids
             if fact_id in available_l4_fact_ids
         ]
-        anchor_fact_ids, absorbed_fact_ids = normalize_delayed_memory_fact_roles(
+        anchor_fact_ids, facts_ids = normalize_delayed_memory_fact_ids(
             anchor_fact_ids,
-            absorbed_fact_ids,
+            facts_ids,
         )
 
         enriched_report[report_id] = {
             **value,
             "anchor_fact_ids": anchor_fact_ids,
-            "absorbed_fact_ids": absorbed_fact_ids,
+            "facts_ids": facts_ids,
             "pinned": bool(value.get("pinned", False)),
             "created_session_id": (
                 str(
@@ -434,6 +435,7 @@ def build_delayed_memory_report(
                 )
             ),
         }
+        enriched_report[report_id].pop("absorbed_fact_ids", None)
         enriched_report[report_id].pop("long_term_facts_ids", None)
 
     return enriched_report
@@ -2061,36 +2063,41 @@ def update_delayed_memory_report(
     requested_anchor_fact_ids = normalize_long_term_fact_ids(
         update.get("anchor_fact_ids", [])
     )
-    requested_absorbed_fact_ids = normalize_long_term_fact_ids(
-        update.get("absorbed_fact_ids", [])
+    requested_facts_ids = normalize_long_term_fact_ids(
+        [
+            *normalize_long_term_fact_ids(update.get("facts_ids", [])),
+            *normalize_long_term_fact_ids(update.get("absorbed_fact_ids", [])),
+        ]
     )
     accepted_anchor_fact_ids = [
         fact_id
         for fact_id in requested_anchor_fact_ids
         if fact_id in available_l4_fact_ids
     ]
-    accepted_absorbed_fact_ids = [
+    accepted_facts_ids = [
         fact_id
-        for fact_id in requested_absorbed_fact_ids
+        for fact_id in requested_facts_ids
         if fact_id in available_l4_fact_ids
     ]
 
-    current_anchor_fact_ids, current_absorbed_fact_ids = (
-        normalize_delayed_memory_fact_roles(
+    current_anchor_fact_ids, current_facts_ids = (
+        normalize_delayed_memory_fact_ids(
             report.get("anchor_fact_ids", []),
-            report.get("absorbed_fact_ids", []),
-            report.get("long_term_facts_ids", []),
+            report.get("facts_ids", []),
+            legacy_absorbed_fact_ids=report.get("absorbed_fact_ids", []),
+            legacy_long_term_fact_ids=report.get("long_term_facts_ids", []),
         )
     )
-    next_anchor_fact_ids, next_absorbed_fact_ids = (
-        normalize_delayed_memory_fact_roles(
+    next_anchor_fact_ids, next_facts_ids = (
+        normalize_delayed_memory_fact_ids(
             [
                 *current_anchor_fact_ids,
                 *accepted_anchor_fact_ids,
             ],
             [
-                *current_absorbed_fact_ids,
-                *accepted_absorbed_fact_ids,
+                *current_facts_ids,
+                *accepted_facts_ids,
+                *accepted_anchor_fact_ids,
             ],
         )
     )
@@ -2113,7 +2120,7 @@ def update_delayed_memory_report(
     if (
         next_tags == list(report.get("tags", []) or [])
         and next_anchor_fact_ids == current_anchor_fact_ids
-        and next_absorbed_fact_ids == current_absorbed_fact_ids
+        and next_facts_ids == current_facts_ids
         and next_body == current_body
     ):
         return build_delayed_memory_failure_result(
@@ -2126,9 +2133,10 @@ def update_delayed_memory_report(
         **report,
         "tags": next_tags,
         "anchor_fact_ids": next_anchor_fact_ids,
-        "absorbed_fact_ids": next_absorbed_fact_ids,
+        "facts_ids": next_facts_ids,
         "body": next_body,
     }
+    updated_report.pop("absorbed_fact_ids", None)
     updated_report.pop("long_term_facts_ids", None)
     reports[report_id] = updated_report
 
@@ -2967,5 +2975,4 @@ def has_zero_diff_stall_alert(
             None,
         )
     )
-
 

@@ -577,13 +577,18 @@
 
     if (
       !l4Memory
-      || typeof l4Memory.getFacts !== "function"
+      || (
+        typeof l4Memory.getFacts !== "function"
+        && typeof l4Memory.getVisibleFacts !== "function"
+      )
     ) {
       return [];
     }
 
     const facts =
-      l4Memory.getFacts();
+      typeof l4Memory.getVisibleFacts === "function"
+        ? l4Memory.getVisibleFacts()
+        : l4Memory.getFacts();
 
     if (!Array.isArray(facts)) {
       return [];

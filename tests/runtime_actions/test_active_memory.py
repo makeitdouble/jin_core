@@ -388,6 +388,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.runtime_action_events,
             [
                 {
+                    "id": "save_active_memory_001",
                     "name": "save_active_memory",
                     "payload": "remind later",
                 }
@@ -469,13 +470,25 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.active_memory_records[0],
         )
         self.assertEqual(
+            context.emitter.events[0]["id"],
+            "save_active_memory_001",
+        )
+        self.assertRegex(
+            context.emitter.events[0]["active_memory_id"],
+            r"^[a-z0-9]{6}$",
+        )
+        self.assertEqual(
             context.emitter.events[1],
             {
                 "type": "runtime_action",
                 "action": "save_active_memory",
+                "id": "save_active_memory_001",
                 "status": "completed",
                 "display_name": "SAVE_ACTIVE_MEMORY",
                 "close_tag": False,
+                "active_memory_id": (
+                    context.emitter.events[0]["active_memory_id"]
+                ),
             },
         )
 
@@ -497,6 +510,84 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         self.assertIn(
             "active_memory_1:",
             tool_results,
+        )
+
+    def test_apply_runtime_action_calls_emits_one_bubble_per_saved_active_memory(self):
+
+        Emitter = FakeEmitter
+
+        Context = FakeContext
+
+        context = Context()
+        context.emitter = Emitter()
+        context.timestamp = "2026-06-20T10:00:00"
+        context.session_id = "test-session"
+        context.turn_number = 3
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload="first reminder",
+                    ),
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload="second reminder",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            2,
+        )
+        self.assertEqual(
+            len(context.active_memory_records),
+            2,
+        )
+        self.assertEqual(
+            [
+                event.get("id")
+                for event in context.emitter.events
+            ],
+            [
+                "save_active_memory_001",
+                "save_active_memory_001",
+                "save_active_memory_002",
+                "save_active_memory_002",
+            ],
+        )
+        self.assertEqual(
+            [
+                event.get("text")
+                for event in context.emitter.events
+                if not event.get("status")
+            ],
+            [
+                "SAVE_ACTIVE_MEMORY: first reminder",
+                "SAVE_ACTIVE_MEMORY: second reminder",
+            ],
+        )
+        self.assertEqual(
+            len({
+                event["active_memory_id"]
+                for event in context.emitter.events
+                if event.get("active_memory_id")
+            }),
+            2,
+        )
+        self.assertEqual(
+            [
+                event.get("id")
+                for event in context.runtime_action_events
+            ],
+            [
+                "save_active_memory_001",
+                "save_active_memory_002",
+            ],
         )
 
 
@@ -709,6 +800,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.runtime_action_events,
             [
                 {
+                    "id": "save_active_memory_001",
                     "name": "save_active_memory",
                     "payload": "remember cuckoo",
                 },
@@ -720,6 +812,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 {
                     "type": "runtime_action",
                     "action": "save_active_memory",
+                    "id": "save_active_memory_001",
                     "display_name": "SAVE_ACTIVE_MEMORY",
                     "text": "SAVE_ACTIVE_MEMORY: remember cuckoo",
                     "payload": "remember cuckoo",
@@ -728,6 +821,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 {
                     "type": "runtime_action",
                     "action": "save_active_memory",
+                    "id": "save_active_memory_001",
                     "status": "completed",
                     "display_name": "SAVE_ACTIVE_MEMORY",
                     "close_tag": False,
@@ -780,6 +874,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.runtime_action_events,
             [
                 {
+                    "id": "save_active_memory_001",
                     "name": "save_active_memory",
                     "payload": "remember cuckoo",
                 },
@@ -791,6 +886,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 {
                     "type": "runtime_action",
                     "action": "save_active_memory",
+                    "id": "save_active_memory_001",
                     "display_name": "SAVE_ACTIVE_MEMORY",
                     "text": "SAVE_ACTIVE_MEMORY: remember cuckoo",
                     "payload": "remember cuckoo",
@@ -799,6 +895,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 {
                     "type": "runtime_action",
                     "action": "save_active_memory",
+                    "id": "save_active_memory_001",
                     "status": "completed",
                     "display_name": "SAVE_ACTIVE_MEMORY",
                     "close_tag": False,

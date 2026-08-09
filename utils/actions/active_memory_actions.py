@@ -5,6 +5,9 @@ from contracts.rules_assembler import (
     get_runtime_action_display_name,
     runtime_action_has_close_tag,
 )
+from .active_memory_utils import (
+    collect_active_memory_slot_ids,
+)
 from utils.tool_results import (
     TOOL_RESULT_KIND_ACTIVE_MEMORY,
     record_runtime_tool_result,
@@ -67,6 +70,7 @@ async def apply_save_active_memory_actions(
     *,
     log_runtime,
     with_action_context,
+    action_display_ids=None,
 ):
     from utils.brain_client_utils import (
         save_active_memory_runtime_record,
@@ -75,6 +79,14 @@ async def apply_save_active_memory_actions(
 
     saved_active_memory_texts = []
     save_active_memory_results = []
+    resolved_action_display_ids = (
+        action_display_ids
+        if isinstance(
+            action_display_ids,
+            dict,
+        )
+        else {}
+    )
 
     if not save_active_memory_actions:
         return saved_active_memory_texts
@@ -84,15 +96,23 @@ async def apply_save_active_memory_actions(
             "[RUNTIME ACTION] save_active_memory requested"
         )
 
-    for active_memory_text in (
-        normalize_active_memory_runtime_payload(
+    for action in save_active_memory_actions:
+        if not action.payload:
+            continue
+
+        active_memory_text = normalize_active_memory_runtime_payload(
             action.payload
         )
-        for action in save_active_memory_actions
-        if action.payload
-    ):
         if not active_memory_text:
             continue
+
+        action_display_id = str(
+            resolved_action_display_ids.get(
+                id(action),
+                "",
+            )
+            or ""
+        ).strip()
 
         records_before = list(
             getattr(
@@ -129,6 +149,7 @@ async def apply_save_active_memory_actions(
             (
                 active_memory_text,
                 active_memory_line,
+                action_display_id,
             )
         )
 
@@ -177,9 +198,21 @@ async def apply_save_active_memory_actions(
     )
 
     if emit is not None:
-        for active_memory_text, active_memory_line in save_active_memory_results:
+        for (
+            active_memory_text,
+            active_memory_line,
+            action_display_id,
+        ) in save_active_memory_results:
             display_name = get_runtime_action_display_name(
                 RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
+            )
+            active_memory_ids = collect_active_memory_slot_ids(
+                active_memory_line
+            )
+            active_memory_id = (
+                sorted(active_memory_ids)[0]
+                if active_memory_ids
+                else ""
             )
             event = {
                 "type": "runtime_action",
@@ -195,13 +228,19 @@ async def apply_save_active_memory_actions(
                 ),
             }
 
+            if action_display_id:
+                event["id"] = action_display_id
+
+            if active_memory_id:
+                event["active_memory_id"] = active_memory_id
+
             if active_memory_line:
                 event["active_memory"] = active_memory_line
 
             await emit(with_action_context(
                 event
             ))
-            await emit(with_action_context({
+            completed_event = {
                 "type": "runtime_action",
                 "action": "save_active_memory",
                 "status": "completed",
@@ -209,7 +248,17 @@ async def apply_save_active_memory_actions(
                 "close_tag": runtime_action_has_close_tag(
                     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
                 ),
-            }))
+            }
+
+            if action_display_id:
+                completed_event["id"] = action_display_id
+
+            if active_memory_id:
+                completed_event["active_memory_id"] = active_memory_id
+
+            await emit(with_action_context(
+                completed_event
+            ))
 
     return saved_active_memory_texts
 

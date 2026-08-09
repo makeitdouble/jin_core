@@ -568,18 +568,12 @@ memoryView.init({
   deleteRuntimeMemoryLine: deleteRuntimeMemoryLineAndRender,
   getDelayedMemoryReports: readDelayedMemoryReports,
   setDelayedMemoryReportPinned,
+  setDelayedMemoryReportAnchorFactIds,
+  removeLongTermFactIdFromDelayedMemoryReports,
   getFactsMemoryFields,
   deleteFactsMemoryField: deleteFactsMemoryFieldAndRender,
-  getLongTermMemoryFacts: () => (
-    l4Memory && l4Memory.getFacts
-      ? l4Memory.getFacts()
-      : []
-  ),
-  deleteLongTermMemoryFact: (factId) => (
-    l4Memory && l4Memory.requestFactDelete
-      ? l4Memory.requestFactDelete(factId)
-      : false
-  ),
+  getLongTermMemoryFacts: getVisibleLongTermMemoryFacts,
+  deleteLongTermMemoryFact: deleteLongTermMemoryFactAndRender,
   getDisplayMode: () => runtimeMemoryDisplayMode,
   setDisplayMode: (value) => {
     runtimeMemoryDisplayMode = value;
@@ -601,6 +595,19 @@ function refreshRuntimeAvatar() {
   ) {
     avatar.refresh();
   }
+}
+
+function getVisibleLongTermMemoryFacts() {
+  if (
+      l4Memory
+      && typeof l4Memory.getVisibleFacts === "function"
+  ) {
+    return l4Memory.getVisibleFacts();
+  }
+
+  return l4Memory && typeof l4Memory.getFacts === "function"
+    ? l4Memory.getFacts()
+    : [];
 }
 
 function setDelayedMemoryPinnedOnAvatar(
@@ -896,6 +903,193 @@ function setDelayedMemoryReportPinned(
 }
 
 
+function setDelayedMemoryReportAnchorFactIds(
+  reportId,
+  anchorFactIds
+) {
+
+  const normalizedId =
+    String(reportId || "").trim().toLowerCase();
+  const reports =
+    readDelayedMemoryReports();
+  const report =
+    reports[normalizedId];
+
+  if (
+      !/^[a-z0-9]{6}$/.test(normalizedId)
+      || !report
+      || typeof report !== "object"
+      || Array.isArray(report)
+  ) {
+    return false;
+  }
+
+  reports[normalizedId] = {
+    ...report,
+    anchor_fact_ids:
+      Array.isArray(anchorFactIds)
+        ? anchorFactIds
+        : [],
+  };
+
+  writeDelayedMemoryReports(
+    reports
+  );
+
+  const updatedReports =
+    readDelayedMemoryReports();
+  const updatedReport =
+    updatedReports[normalizedId];
+
+  renderRuntimeMemorySnapshot();
+  refreshRuntimeAvatar();
+
+  if (typeof window.syncDelayedMemoryReportsToRuntime === "function") {
+    window.syncDelayedMemoryReportsToRuntime();
+  }
+
+  return updatedReport
+    ? {
+      ...updatedReport,
+      _storage_key: normalizedId,
+    }
+    : false;
+
+}
+
+
+function normalizeLongTermFactId(
+  value
+) {
+
+  const match =
+    String(value || "").trim().match(/^F([1-9]\d*)$/i);
+
+  return match
+    ? `F${Number(match[1])}`
+    : "";
+
+}
+
+
+function withoutLongTermFactId(
+  values,
+  factId
+) {
+
+  const source =
+    Array.isArray(values)
+      ? values
+      : [];
+
+  return source.filter((value) => (
+    normalizeLongTermFactId(value) !== factId
+  ));
+
+}
+
+
+function removeLongTermFactIdFromDelayedMemoryReports(
+  factId
+) {
+
+  const normalizedFactId =
+    normalizeLongTermFactId(factId);
+
+  if (!normalizedFactId) {
+    return false;
+  }
+
+  const reports =
+    readDelayedMemoryReports();
+  let changed = false;
+
+  Object.entries(reports).forEach(([reportId, report]) => {
+    if (
+        !report
+        || typeof report !== "object"
+        || Array.isArray(report)
+    ) {
+      return;
+    }
+
+    const nextAnchorFactIds =
+      withoutLongTermFactId(
+        report.anchor_fact_ids,
+        normalizedFactId
+      );
+    const nextFactIds =
+      withoutLongTermFactId(
+        report.facts_ids,
+        normalizedFactId
+      );
+
+    if (
+        nextAnchorFactIds.length === (report.anchor_fact_ids || []).length
+        && nextFactIds.length === (report.facts_ids || []).length
+        && !report.absorbed_fact_ids
+        && !report.long_term_facts_ids
+    ) {
+      return;
+    }
+
+    const updatedReport = {
+      ...report,
+      anchor_fact_ids: nextAnchorFactIds,
+      facts_ids: nextFactIds,
+    };
+    updatedReport.pop(
+      "absorbed_fact_ids"
+    );
+    updatedReport.pop(
+      "long_term_facts_ids"
+    );
+    reports[reportId] = updatedReport;
+    changed = true;
+  });
+
+  if (!changed) {
+    return false;
+  }
+
+  writeDelayedMemoryReports(
+    reports
+  );
+
+  if (runtimeMemoryDisplayMode === "delayed") {
+    renderRuntimeMemorySnapshot();
+  }
+  refreshRuntimeAvatar();
+
+  if (typeof window.syncDelayedMemoryReportsToRuntime === "function") {
+    window.syncDelayedMemoryReportsToRuntime();
+  }
+
+  return true;
+
+}
+
+
+function deleteLongTermMemoryFactAndRender(
+  factId
+) {
+
+  const deleted =
+    l4Memory && l4Memory.requestFactDelete
+      ? l4Memory.requestFactDelete(factId)
+      : false;
+
+  if (deleted !== false) {
+    removeLongTermFactIdFromDelayedMemoryReports(
+      factId
+    );
+  }
+
+  return deleted;
+
+}
+
+
 function appendDelayedMemoryReports(
   reports
 ) {
@@ -955,6 +1149,8 @@ function buildDelayedMemoryAvatarLayoutSignature(
             reportId,
             report.title,
             report.summary,
+            (report.anchor_fact_ids || []).join(","),
+            (report.facts_ids || []).join(","),
           ];
         }
       )
@@ -1250,17 +1446,14 @@ window.JinRuntime.runtime = {
   removeActiveMemoryRecordById: removeActiveMemoryRecordByIdAndRender,
   getDelayedMemoryReports: readDelayedMemoryReports,
   setDelayedMemoryReportPinned,
+  setDelayedMemoryReportAnchorFactIds,
   getFactsMemoryFields,
   deleteFactsMemoryField: deleteFactsMemoryFieldAndRender,
   getLongTermMemoryFacts() {
-    return l4Memory && l4Memory.getFacts
-      ? l4Memory.getFacts()
-      : [];
+    return getVisibleLongTermMemoryFacts();
   },
   deleteLongTermMemoryFact(factId) {
-    return l4Memory && l4Memory.requestFactDelete
-      ? l4Memory.requestFactDelete(factId)
-      : false;
+    return deleteLongTermMemoryFactAndRender(factId);
   },
   replaceDelayedMemoryReports: replaceDelayedMemoryReportsAndRender,
   appendDelayedMemoryReports,

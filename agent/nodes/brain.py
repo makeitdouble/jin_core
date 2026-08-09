@@ -467,7 +467,7 @@ def format_previous_runtime_memory_tag(
         sequence_started_at,
         (int, float),
     ) or sequence_started_at <= 0:
-        return "<PREVIOUS_RUNTIME_MEMORY>"
+        return "<PREVIOUS_RUNTIME>"
 
     if now is None:
         now = time.time()
@@ -481,7 +481,7 @@ def format_previous_runtime_memory_tag(
         TypeError,
         ValueError,
     ):
-        return "<PREVIOUS_RUNTIME_MEMORY>"
+        return "<PREVIOUS_RUNTIME>"
 
     from runtime.L1_memory_utils import (
         format_user_idle_seconds,
@@ -492,10 +492,10 @@ def format_previous_runtime_memory_tag(
     )
 
     if not elapsed_text:
-        return "<PREVIOUS_RUNTIME_MEMORY>"
+        return "<PREVIOUS_RUNTIME>"
 
     return (
-        "<PREVIOUS_RUNTIME_MEMORY "
+        "<PREVIOUS_RUNTIME "
         f"( {elapsed_text} ago ) >"
     )
 
@@ -537,7 +537,7 @@ def rename_runtime_memory_for_followup(
         prompt[:opening_index]
         + previous_opening_tag
         + prompt[opening_index + len(opening_tag):closing_index]
-        + "</PREVIOUS_RUNTIME_MEMORY>"
+        + "</PREVIOUS_RUNTIME>"
         + prompt[closing_index + len(closing_tag):]
     )
 
@@ -736,6 +736,7 @@ class BrainNode(BaseNode):
     ) -> str:
 
         from utils.context.context_exports import (
+            build_current_runtime_context,
             build_session_actions_history_context,
             strip_actions_history_context,
         )
@@ -843,6 +844,16 @@ class BrainNode(BaseNode):
             context.runtime_turn_interrupted = False
             context.runtime_turn_interruption_reason = ""
             context.runtime_turn_interruption_quote = ""
+
+        current_runtime_context = build_current_runtime_context(
+            user_message=initial_user_request,
+            sequence_started_at=sequence_started_at,
+        )
+
+        if current_runtime_context:
+            sections.append(
+                current_runtime_context
+            )
 
         if current_actions_history_context:
             sections.append(

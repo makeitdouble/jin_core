@@ -131,10 +131,10 @@ def apply_delayed_memory_reports(
         )
     )
 
-    context.delayed_memory_reports = merge_delayed_memory_reports(
-        incoming_reports,
-        existing_reports,
-    )
+    context.delayed_memory_reports = {
+        **existing_reports,
+        **incoming_reports,
+    }
 
     from runtime.L4_memory import (
         refresh_runtime_l4_archived_fact_ids,

@@ -24,6 +24,7 @@ The JIN interface combines the chat stream, collapsible panels with model teleme
 <td width="66%" valign="top">
 <p>Live Avatar turns JIN's memory state into a moving map of cognitive density.</p>
 <p>Each L1 field becomes its own inner orbit, with its position shaped by the amount of stored context and its rotation speed driven by interaction flow. The outer rings track L4 facts, Delayed Memory, and Active Memory as individual signals.</p>
+<p>Hovering an L4 fact also highlights its linked Delayed Memory report when one exists; hovering that Delayed Memory report highlights the related L4 points and dashes.</p>
 <p>When JIN references a rule or memory item, the corresponding orbit lights up, revealing which part of the runtime is actively influencing the current thought.</p>
 </td>
 <td width="34%" align="center" valign="middle">

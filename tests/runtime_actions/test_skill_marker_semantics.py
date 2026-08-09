@@ -18,6 +18,7 @@ from utils.actions import (
 from utils.session_actions_history import (
     compact_session_action_history_since,
     format_session_action_marker_names,
+    upsert_session_action_marker_history_since,
 )
 
 
@@ -206,6 +207,52 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
                 "WEB_SEARCH - alpha (count: 2), "
                 "WEB_SEARCH - beta"
             ),
+        )
+
+    def test_active_memory_marker_history_keeps_payloads_separate(self):
+        counter = RuntimeActionCounter()
+        counter.record([
+            RuntimeActionCall(
+                name="SAVE_ACTIVE_MEMORY",
+                payload="remember tea",
+            ),
+            RuntimeActionCall(
+                name="SAVE_ACTIVE_MEMORY",
+                payload="remember coffee",
+            ),
+        ])
+
+        context = FakeContext()
+        context.runtime_current_turn_id = "turn-1"
+
+        self.assertTrue(
+            upsert_session_action_marker_history_since(
+                context,
+                0,
+                counter.marker_actions(),
+            )
+        )
+        self.assertEqual(
+            [
+                item["text"]
+                for item in context.runtime_session_action_history
+            ],
+            [
+                "SAVE_ACTIVE_MEMORY - remember tea",
+                "SAVE_ACTIVE_MEMORY - remember coffee",
+            ],
+        )
+        self.assertTrue(
+            all(
+                item.get("runtime_session_action_preserve_separate")
+                for item in context.runtime_session_action_history
+            )
+        )
+        self.assertFalse(
+            compact_session_action_history_since(
+                context,
+                0,
+            )
         )
 
     def test_skill_marker_ui_contract_keeps_rows_separate_and_uncounted(self):

@@ -4,7 +4,7 @@ import json
 
 from .delayed_memory_utils import is_delayed_memory_report_id
 from .save_delayed_memory_utils import (
-    normalize_delayed_memory_fact_roles,
+    normalize_delayed_memory_fact_ids,
     normalize_long_term_fact_ids,
 )
 
@@ -13,6 +13,7 @@ UPDATE_DELAYED_MEMORY_FIELDS = frozenset({
     "tags",
     "body",
     "anchor_fact_ids",
+    "facts_ids",
     "absorbed_fact_ids",
 })
 
@@ -80,21 +81,23 @@ def parse_update_delayed_memory_payload(payload: str) -> dict:
         if "anchor_fact_ids" in raw_update
         else []
     )
-    requested_absorbed_ids = (
-        normalize_long_term_fact_ids(raw_update.get("absorbed_fact_ids", []))
-        if "absorbed_fact_ids" in raw_update
-        else []
-    )
-    anchor_ids, absorbed_ids = normalize_delayed_memory_fact_roles(
+    requested_facts_ids = normalize_long_term_fact_ids([
+        *normalize_long_term_fact_ids(raw_update.get("facts_ids", [])),
+        *normalize_long_term_fact_ids(raw_update.get("absorbed_fact_ids", [])),
+    ])
+    anchor_ids, facts_ids = normalize_delayed_memory_fact_ids(
         requested_anchor_ids,
-        requested_absorbed_ids,
+        requested_facts_ids,
     )
 
     if "anchor_fact_ids" in raw_update and anchor_ids:
         update["anchor_fact_ids"] = anchor_ids
 
-    if "absorbed_fact_ids" in raw_update and absorbed_ids:
-        update["absorbed_fact_ids"] = absorbed_ids
+    if (
+        ("facts_ids" in raw_update or "absorbed_fact_ids" in raw_update)
+        and facts_ids
+    ):
+        update["facts_ids"] = facts_ids
 
     if len(update) == 1:
         return {}

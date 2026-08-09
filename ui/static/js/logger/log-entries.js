@@ -2486,6 +2486,9 @@ function appendLog(
   return logDiv;
 }
 
+window.handleL4LoggerMemoryRestoreResult =
+  handleL4MemoryRestoreResult;
+
 window.handleL4MemoryRestoreResult =
   handleL4MemoryRestoreResult;
 

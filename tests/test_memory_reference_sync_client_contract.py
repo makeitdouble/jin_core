@@ -87,6 +87,231 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
             css_source,
         )
 
+    def test_open_delayed_report_dispatches_avatar_active_state(self):
+        source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
+        css_source = RUNTIME_MEMORY_CSS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            '"jin:delayed-memory-report-active"',
+            source,
+        )
+        self.assertIn(
+            "function dispatchDelayedMemoryReportAvatarHighlight(",
+            source,
+        )
+        self.assertIn(
+            "dispatchDelayedMemoryReportAvatarHighlight(\n        delayedMemoryModalReport,\n        true",
+            source,
+        )
+        self.assertIn(
+            "dispatchDelayedMemoryReportAvatarHighlight(\n        delayedMemoryModalReport,\n        false",
+            source,
+        )
+        self.assertIn(
+            "let activeDelayedMemoryReportId = \"\";",
+            source,
+        )
+        self.assertIn(
+            "function setActiveDelayedMemoryReportRow(",
+            source,
+        )
+        self.assertIn(
+            '"runtime-memory-delayed-row-active"',
+            source,
+        )
+        self.assertIn(
+            ".runtime-memory-delayed-row-active",
+            css_source,
+        )
+        self.assertIn(
+            "pointer-events: none;",
+            css_source,
+        )
+        active_rule_start = css_source.index(
+            ".runtime-memory-delayed-row-active {"
+        )
+        active_rule_end = css_source.index(
+            "}",
+            active_rule_start,
+        )
+        active_rule = css_source[
+            active_rule_start:active_rule_end
+        ]
+        self.assertNotIn(
+            "background",
+            active_rule,
+        )
+        self.assertNotIn(
+            "box-shadow",
+            active_rule,
+        )
+
+    def test_modal_l4_delete_cleans_local_report_refs_before_sync(self):
+        source = RUNTIME_JS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "function removeLongTermFactIdFromDelayedMemoryReports(",
+            source,
+        )
+        self.assertIn(
+            "anchor_fact_ids: nextAnchorFactIds",
+            source,
+        )
+        self.assertIn(
+            "facts_ids: nextFactIds",
+            source,
+        )
+        self.assertIn(
+            "removeLongTermFactIdFromDelayedMemoryReports(\n      factId",
+            source,
+        )
+        self.assertIn(
+            "deleteLongTermMemoryFact: deleteLongTermMemoryFactAndRender",
+            source,
+        )
+
+    def test_delayed_report_fact_chip_hover_targets_avatar_l4_dash(self):
+        source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "function dispatchLongTermFactAvatarHover(",
+            source,
+        )
+        self.assertIn(
+            'buildAvatarMemoryHoverId(\n          "l4",',
+            source,
+        )
+        self.assertIn(
+            'item.addEventListener("mouseenter"',
+            source,
+        )
+        self.assertIn(
+            'item.addEventListener("mouseleave"',
+            source,
+        )
+        self.assertIn(
+            'item.addEventListener("focus"',
+            source,
+        )
+        self.assertIn(
+            'item.addEventListener("blur"',
+            source,
+        )
+
+    def test_delayed_memory_fact_ids_render_inline_with_fact_titles(self):
+        source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
+        runtime_source = RUNTIME_JS.read_text(encoding="utf-8")
+        css_source = RUNTIME_MEMORY_CSS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'function appendDelayedMemoryFactIdField(',
+            source,
+        )
+        self.assertIn(
+            'function setDelayedMemoryModalAnchorFactId(',
+            source,
+        )
+        self.assertIn(
+            '"delayed-memory-modal-value delayed-memory-modal-fact-ids"',
+            source,
+        )
+        self.assertIn(
+            'item.title =',
+            source,
+        )
+        self.assertIn(
+            'function sortDelayedMemoryFactIdsByNumber(',
+            source,
+        )
+        self.assertIn(
+            'fieldName === "facts_ids"',
+            source,
+        )
+        self.assertIn(
+            '"delayed-memory-modal-fact-id-anchor"',
+            source,
+        )
+        self.assertIn(
+            'configureRuntimeMemoryDeleteHold(',
+            source,
+        )
+        self.assertIn(
+            'deleteLongTermMemoryFact(',
+            source,
+        )
+        self.assertIn(
+            'removeDelayedMemoryFactIdFromModal(',
+            source,
+        )
+        self.assertIn(
+            'item.addEventListener("dblclick"',
+            source,
+        )
+        self.assertIn(
+            ': !isAnchorFactId',
+            source,
+        )
+        self.assertIn(
+            'return `${key}: ${value}`;',
+            source,
+        )
+        self.assertIn(
+            'l4Memory.getFacts()',
+            source,
+        )
+        self.assertIn(
+            'function setDelayedMemoryReportAnchorFactIds(',
+            runtime_source,
+        )
+        self.assertIn(
+            'anchor_fact_ids:',
+            runtime_source,
+        )
+        self.assertIn(
+            'setDelayedMemoryReportAnchorFactIds,',
+            runtime_source,
+        )
+        self.assertIn(
+            '.delayed-memory-modal-fact-ids',
+            css_source,
+        )
+        self.assertIn(
+            'flex-wrap: wrap;',
+            css_source,
+        )
+        self.assertIn(
+            'cursor: pointer;',
+            css_source,
+        )
+        self.assertIn(
+            'color: rgba(244, 244, 245, 0.46);',
+            css_source,
+        )
+        self.assertIn(
+            'text-decoration: none;',
+            css_source,
+        )
+        self.assertIn(
+            '.delayed-memory-modal-fact-id-anchor',
+            css_source,
+        )
+        self.assertIn(
+            'color: rgba(255, 255, 255, 0.86);',
+            css_source,
+        )
+        self.assertIn(
+            '0 0 2px rgba(255, 255, 255, 0.64)',
+            css_source,
+        )
+        self.assertNotIn(
+            'text-decoration: underline',
+            css_source,
+        )
+        self.assertNotIn(
+            'inset 0 0 0 1px rgba(244, 244, 245',
+            css_source,
+        )
+
     @unittest.skipUnless(
         shutil.which("node"),
         "node is required for the browser-side reference matcher test",
@@ -143,15 +368,15 @@ for (const [text, reference, expected] of cases) {
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            '/static/css/runtime-memory.css?v=memory-hover-sync-2',
+            '/static/css/runtime-memory.css?v=memory-hover-sync-9',
             source,
         )
         self.assertIn(
-            '/static/js/runtime/runtime-memory-view.js?v=runtime-memory-view-18',
+            '/static/js/runtime/runtime-memory-view.js?v=runtime-memory-view-26',
             source,
         )
         self.assertIn(
-            '/static/js/runtime/runtime.js?v=runtime-facade-17',
+            '/static/js/runtime/runtime.js?v=runtime-facade-20',
             source,
         )
         self.assertIn(

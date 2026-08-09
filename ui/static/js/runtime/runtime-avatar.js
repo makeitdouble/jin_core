@@ -7,6 +7,8 @@
   const AVATAR_EVENT = "jin:runtime-avatar-snapshot";
   const THINK_RUNTIME_CITATION_HIGHLIGHT_EVENT = "jin:think-runtime-citation-highlight";
   const MEMORY_ROW_AVATAR_HOVER_EVENT = "jin:memory-row-avatar-hover";
+  const DELAYED_MEMORY_REPORT_ACTIVE_EVENT =
+    "jin:delayed-memory-report-active";
   const MEMORY_REFERENCE_HIGHLIGHT_EVENT =
     "jin:memory-reference-highlight";
   const MEMORY_REFERENCE_ALIAS_DATASET_KEY =
@@ -219,6 +221,102 @@
     const title = createSvgElement("title");
     title.textContent = String(text || "");
     node.appendChild(title);
+  }
+
+  function normalizeL4FactIds(value) {
+    const source =
+      Array.isArray(value)
+        ? value
+        : [value];
+    const factIds = [];
+    const seen = new Set();
+
+    source.forEach((item) => {
+      if (Array.isArray(item)) {
+        normalizeL4FactIds(item).forEach((factId) => {
+          if (seen.has(factId)) {
+            return;
+          }
+
+          seen.add(factId);
+          factIds.push(factId);
+        });
+        return;
+      }
+
+      const text =
+        String(item || "").trim();
+
+      if (text.startsWith("[") && text.endsWith("]")) {
+        try {
+          const parsed = JSON.parse(text);
+
+          if (Array.isArray(parsed)) {
+            normalizeL4FactIds(parsed).forEach((factId) => {
+              if (seen.has(factId)) {
+                return;
+              }
+
+              seen.add(factId);
+              factIds.push(factId);
+            });
+            return;
+          }
+        } catch (_error) {
+          // Fall through to token parsing.
+        }
+      }
+
+      text
+        .split(/[\s,;]+/)
+        .map(candidate => (
+          String(candidate || "")
+            .trim()
+            .replace(/^["'\[]+|["'\]]+$/g, "")
+            .toUpperCase()
+        ))
+        .forEach((candidate) => {
+          if (
+            !/^F[1-9]\d*$/.test(candidate)
+            || seen.has(candidate)
+          ) {
+            return;
+          }
+
+          seen.add(candidate);
+          factIds.push(candidate);
+        });
+    });
+
+    return factIds;
+  }
+
+  function serializeL4FactIds(value) {
+    const factIds =
+      normalizeL4FactIds(value);
+
+    return factIds.length
+      ? factIds.join(",")
+      : null;
+  }
+
+  function addL4FactIds(target, value) {
+    normalizeL4FactIds(value)
+      .forEach(factId => target.add(factId));
+  }
+
+  function l4FactIdSetsIntersect(left, right) {
+    if (!left || !right || !left.size || !right.size) {
+      return false;
+    }
+
+    for (const factId of left) {
+      if (right.has(factId)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   function countOccurrences(text, words) {
@@ -674,6 +772,10 @@
           String(report.title || "").trim();
         const summary =
           String(report.summary || "").trim();
+        const anchorFactIds =
+          normalizeL4FactIds(report.anchor_fact_ids);
+        const factIds =
+          normalizeL4FactIds(report.facts_ids);
 
         if (!id || !title) {
           return null;
@@ -684,6 +786,8 @@
           title,
           summary,
           pinned: Boolean(report.pinned),
+          anchorFactIds,
+          factIds,
           avatarMemoryHoverId:
             buildAvatarMemoryHoverId(
               "delayed",
@@ -709,7 +813,9 @@
     const l4Memory =
       window.JinRuntime && window.JinRuntime.l4Memory;
     const facts =
-      l4Memory && typeof l4Memory.getFacts === "function"
+      l4Memory && typeof l4Memory.getFactsWithArchiveState === "function"
+        ? l4Memory.getFactsWithArchiveState()
+        : l4Memory && typeof l4Memory.getFacts === "function"
         ? l4Memory.getFacts()
         : [];
 
@@ -727,6 +833,11 @@
         const key = String(fact.key || "").trim();
         const value = String(fact.value || fact.content || "").trim();
         const lineText = `${key}: ${value}`.trim();
+        const l4FactIds =
+          normalizeL4FactIds([
+            id,
+            fact.source_fact_ids,
+          ]);
 
         if (!id || !key || !value) {
           return null;
@@ -737,6 +848,12 @@
           key,
           value,
           text: lineText,
+          l4FactIds,
+          archived:
+            Boolean(
+              fact.archived
+              || fact.hidden_from_context
+            ),
           avatarMemoryHoverId:
             buildAvatarMemoryHoverId(
               "l4",
@@ -777,6 +894,11 @@
     const endAngle = options.angle + arcDegrees / 2;
     const color = options.color;
     const glowColor = options.glowColor || color;
+    const isDot = Boolean(options.dot);
+    const dotRadius =
+      isDot
+        ? Math.max(layout.strokeWidth * 1.45, 1.35)
+        : 0;
     const classNames = [
       "jin-avatar-memory-dash",
       `jin-avatar-memory-dash-${options.kind}`,
@@ -786,6 +908,14 @@
       classNames.push("is-memory-pinned");
     }
 
+    if (options.archived) {
+      classNames.push("is-memory-archived");
+    }
+
+    if (isDot) {
+      classNames.push("is-memory-dot");
+    }
+
     const dashGroup = createSvgElement("g", {
       class: classNames.join(" "),
       "data-avatar-memory-hover-id": options.avatarMemoryHoverId || null,
@@ -793,7 +923,12 @@
       "data-runtime-line-text": options.citationText || null,
       "data-runtime-line-identity": options.citationIdentity || null,
       "data-delayed-memory-id": options.delayedMemoryId || null,
+      "data-delayed-memory-fact-ids":
+        serializeL4FactIds(options.delayedMemoryFactIds),
+      "data-delayed-memory-anchor-fact-ids":
+        serializeL4FactIds(options.delayedMemoryAnchorFactIds),
       "data-l4-fact-id": options.l4FactId || null,
+      "data-l4-fact-ids": serializeL4FactIds(options.l4FactIds),
     });
 
     setAvatarMemoryReferenceAliases(
@@ -804,7 +939,8 @@
     setMemoryDashGlowVariables(
       dashGroup,
       glowColor,
-      layout.strokeWidth + 0.75
+      layout.strokeWidth + 0.75,
+      dotRadius
     );
 
     appendTitle(
@@ -813,6 +949,7 @@
     );
 
     dashGroup.appendChild(createSvgElement("path", {
+      class: isDot ? "jin-avatar-memory-dash-arc" : null,
       d: describeArcPath(layout.radius, startAngle, endAngle),
       fill: "none",
       stroke: color,
@@ -821,10 +958,32 @@
       "stroke-linecap": "round",
     }));
 
+    if (isDot) {
+      const dotPoint = polarPoint(layout.radius, options.angle);
+
+      dashGroup.style.setProperty(
+        "--jin-avatar-memory-dot-opacity",
+        Number(options.opacity || 0.28).toFixed(2)
+      );
+      dashGroup.appendChild(createSvgElement("circle", {
+        class: "jin-avatar-memory-dot",
+        cx: dotPoint.x.toFixed(3),
+        cy: dotPoint.y.toFixed(3),
+        r: dotRadius.toFixed(2),
+        fill: color,
+        "fill-opacity": options.opacity,
+      }));
+    }
+
     parent.appendChild(dashGroup);
   }
 
-  function setMemoryDashGlowVariables(dashGroup, glowColor, hoverWidth) {
+  function setMemoryDashGlowVariables(
+    dashGroup,
+    glowColor,
+    hoverWidth,
+    dotRadius
+  ) {
     const glowRgb = hexToRgb(glowColor);
 
     dashGroup.style.setProperty(
@@ -843,6 +1002,17 @@
       "--jin-avatar-memory-hover-width",
       `${Number(hoverWidth || 2).toFixed(2)}px`
     );
+
+    if (dotRadius) {
+      dashGroup.style.setProperty(
+        "--jin-avatar-memory-dot-radius",
+        `${Number(dotRadius).toFixed(2)}px`
+      );
+      dashGroup.style.setProperty(
+        "--jin-avatar-memory-hover-dot-radius",
+        `${Number(dotRadius + 0.85).toFixed(2)}px`
+      );
+    }
   }
 
   function getMemoryRingAnimation(records, kind) {
@@ -946,13 +1116,16 @@
             arcDegrees,
             color,
             glowColor: L4_MEMORY_RING_COLOR,
-            opacity: 0.52,
+            opacity: record.archived ? 0.26 : 0.52,
+            archived: record.archived,
+            dot: record.archived,
             avatarMemoryHoverId: record.avatarMemoryHoverId,
             citationKey:
               normalizeRuntimeCitationIdentity(record.key),
             citationText: record.citationText,
             citationIdentity: record.citationIdentity,
             l4FactId: record.id,
+            l4FactIds: record.l4FactIds,
             referenceAliases: record.referenceAliases,
             title: `L4 ${record.id} · ${record.key}: ${record.value}`,
           }
@@ -982,6 +1155,8 @@
           citationKey:
             normalizeRuntimeCitationIdentity(record.id),
           delayedMemoryId: record.id,
+          delayedMemoryFactIds: record.factIds,
+          delayedMemoryAnchorFactIds: record.anchorFactIds,
           referenceAliases: record.referenceAliases,
           title: `${record.title}${record.summary ? `: ${record.summary}` : ""}`,
         }
@@ -1042,6 +1217,8 @@
         nextPinned ? "0.82" : "0.36"
       );
     }
+
+    applyDelayedMemoryFactLinkGlow();
 
     return true;
   }
@@ -1499,8 +1676,9 @@
   let currentRenderedSnapshotIndex = null;
   const activeThinkRuntimeCitationSources = new Map();
   let memoryRowAvatarHoverState = null;
+  let delayedMemoryReportActiveState = null;
 
-  function normalizeMemoryRowAvatarHoverDetail(detail) {
+  function normalizeAvatarMemoryFocusDetail(detail) {
     if (!detail || detail.active !== true) {
       return null;
     }
@@ -1513,6 +1691,135 @@
       : null;
   }
 
+  function normalizeMemoryRowAvatarHoverDetail(detail) {
+    return normalizeAvatarMemoryFocusDetail(detail);
+  }
+
+  function getActiveAvatarMemoryHoverIds() {
+    return new Set([
+      memoryRowAvatarHoverState
+        ? memoryRowAvatarHoverState.avatarMemoryHoverId
+        : "",
+      delayedMemoryReportActiveState
+        ? delayedMemoryReportActiveState.avatarMemoryHoverId
+        : "",
+    ].filter(Boolean));
+  }
+
+  function getAvatarDashFactIdSet(node, datasetKey) {
+    return new Set(
+      normalizeL4FactIds(
+        node && node.dataset
+          ? node.dataset[datasetKey]
+          : ""
+      )
+    );
+  }
+
+  function getFocusedMemoryDashNodes(svg) {
+    const hoverIds =
+      getActiveAvatarMemoryHoverIds();
+
+    if (!hoverIds.size) {
+      return [];
+    }
+
+    return Array.from(
+      svg.querySelectorAll(".jin-avatar-memory-dash")
+    ).filter((node) => (
+      hoverIds.has(node.dataset.avatarMemoryHoverId)
+    ));
+  }
+
+  function collectDelayedMemoryLinkedL4FactIds(svg) {
+    const factIds = new Set();
+
+    Array.from(
+      svg.querySelectorAll(
+        ".jin-avatar-memory-dash-delayed.is-memory-pinned"
+      )
+    ).forEach((node) => {
+      addL4FactIds(
+        factIds,
+        node.dataset.delayedMemoryFactIds
+      );
+    });
+
+    getFocusedMemoryDashNodes(svg)
+      .filter(node => (
+        node.classList.contains(
+          "jin-avatar-memory-dash-delayed"
+        )
+      ))
+      .forEach((node) => {
+        addL4FactIds(
+          factIds,
+          node.dataset.delayedMemoryFactIds
+        );
+      });
+
+    return factIds;
+  }
+
+  function collectHoveredL4FactIds(svg) {
+    const factIds = new Set();
+
+    getFocusedMemoryDashNodes(svg)
+      .filter(node => (
+        node.classList.contains(
+          "jin-avatar-memory-dash-l4"
+        )
+      ))
+      .forEach((node) => {
+        addL4FactIds(
+          factIds,
+          node.dataset.l4FactIds
+        );
+      });
+
+    return factIds;
+  }
+
+  function applyDelayedMemoryFactLinkGlow() {
+    const svg = avatarRoot.querySelector("svg");
+
+    if (!svg) {
+      return;
+    }
+
+    const delayedLinkedFactIds =
+      collectDelayedMemoryLinkedL4FactIds(svg);
+    const hoveredL4FactIds =
+      collectHoveredL4FactIds(svg);
+
+    Array.from(
+      svg.querySelectorAll(".jin-avatar-memory-dash-l4")
+    ).forEach((node) => {
+      node.classList.toggle(
+        "is-delayed-memory-linked-hit",
+        l4FactIdSetsIntersect(
+          getAvatarDashFactIdSet(node, "l4FactIds"),
+          delayedLinkedFactIds
+        )
+      );
+    });
+
+    Array.from(
+      svg.querySelectorAll(".jin-avatar-memory-dash-delayed")
+    ).forEach((node) => {
+      node.classList.toggle(
+        "is-delayed-memory-linked-hit",
+        l4FactIdSetsIntersect(
+          getAvatarDashFactIdSet(
+            node,
+            "delayedMemoryAnchorFactIds"
+          ),
+          hoveredL4FactIds
+        )
+      );
+    });
+  }
+
   function applyMemoryRowAvatarHoverGlow() {
     const svg = avatarRoot.querySelector("svg");
 
@@ -1520,13 +1827,17 @@
       return;
     }
 
+    const activeHoverIds =
+      getActiveAvatarMemoryHoverIds();
+
     svg.querySelectorAll(
       ".jin-avatar-orbit, .jin-avatar-counter-orbit, .jin-avatar-memory-dash"
     ).forEach((node) => {
       const matched = Boolean(
-        memoryRowAvatarHoverState
-        && node.dataset.avatarMemoryHoverId
-        === memoryRowAvatarHoverState.avatarMemoryHoverId
+        node.dataset.avatarMemoryHoverId
+        && activeHoverIds.has(
+          node.dataset.avatarMemoryHoverId
+        )
       );
 
       node.classList.toggle(
@@ -1534,6 +1845,8 @@
         matched
       );
     });
+
+    applyDelayedMemoryFactLinkGlow();
   }
 
   function normalizeThinkRuntimeCitationHighlightDetail(detail) {
@@ -1730,8 +2043,21 @@
       snapshot && snapshot.total_diff,
       lines.map(line => [line.key, line.value, line.status, line.key_status, line.value_status].join("␟")).join("␞"),
       activeMemoryRecords.map(record => record.text).join("␞"),
-      delayedMemoryRecords.map(record => [record.id, record.title, record.summary, record.pinned].join("␟")).join("␞"),
-      l4MemoryRecords.map(record => [record.id, record.key, record.value].join("␟")).join("␞"),
+      delayedMemoryRecords.map(record => [
+        record.id,
+        record.title,
+        record.summary,
+        record.pinned,
+        record.anchorFactIds.join(","),
+        record.factIds.join(","),
+      ].join("␟")).join("␞"),
+      l4MemoryRecords.map(record => [
+        record.id,
+        record.key,
+        record.value,
+        record.archived ? "archived" : "visible",
+        record.l4FactIds.join(","),
+      ].join("␟")).join("␞"),
     ].join("␝");
   }
 
@@ -2076,6 +2402,15 @@
   window.addEventListener(MEMORY_ROW_AVATAR_HOVER_EVENT, (event) => {
     memoryRowAvatarHoverState =
       normalizeMemoryRowAvatarHoverDetail(
+        event && event.detail || {}
+      );
+
+    applyMemoryRowAvatarHoverGlow();
+  });
+
+  window.addEventListener(DELAYED_MEMORY_REPORT_ACTIVE_EVENT, (event) => {
+    delayedMemoryReportActiveState =
+      normalizeAvatarMemoryFocusDetail(
         event && event.detail || {}
       );
 
