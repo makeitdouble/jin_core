@@ -1,0 +1,20 @@
+{
+  "load_delayed_memory": {
+    "version": 2,
+    "description": "Allows the model to load a delayed memory report into the session context.",
+    "runtime_action": "LOAD_DELAYED_MEMORY",
+    "private_marker": "<LOAD_DELAYED_MEMORY: id >",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": false
+    },
+    "rules": [
+      "Emit one marker per saved delayed memory. You may emit multiple markers to load multiple reports; already loaded ids are ignored.",
+      "id - is a placeholder word; replace placeholder with the 6-character id prefix shown in <DELAYED_MEMORY>.",
+      "Available reports are listed in the <DELAYED_MEMORY> block.",
+      "If a report is already loaded, use the content placed in <APPENDED_DELAYED_MEMORY>."
+    ],
+    "close_tag": false
+  }
+}

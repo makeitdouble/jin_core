@@ -153,8 +153,12 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
 
         replacement_id = facts[0]["id"]
         self.assertEqual(
-            context.delayed_memory_reports["abc123"]["long_term_facts_ids"],
+            context.delayed_memory_reports["abc123"]["absorbed_fact_ids"],
             [replacement_id],
+        )
+        self.assertNotIn(
+            "long_term_facts_ids",
+            context.delayed_memory_reports["abc123"],
         )
 
         lifecycle = [

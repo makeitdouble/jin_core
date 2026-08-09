@@ -1,7 +1,7 @@
 {
   "update_delayed_memory": {
-    "version": 1,
-    "description": "Allows the model to append selected fields to an existing delayed memory report.",
+    "version": 2,
+    "description": "Allows the model to append selected data to an existing delayed memory report without rewriting its existing content.",
     "runtime_action": "UPDATE_DELAYED_MEMORY",
     "private_marker": "<UPDATE_DELAYED_MEMORY: id >",
     "triggers": [],
@@ -11,16 +11,17 @@
     },
     "rules": [
       "Use this marker only after the user explicitly asks to update an existing delayed memory report or explicitly accepts a proposal to extend one.",
-      "The marker appends only tags, body, and long_term_facts_ids to an existing report. It never replaces title, summary, or existing content.",
-      "Emit the fulfilled form:",
+      "The update is additive. It may append new tags, new body text, new anchor_fact_ids, and/or new absorbed_fact_ids. It never replaces title, summary, or existing body content.",
+      "Emit the fulfilled marker with one JSON object inside it:",
       "<UPDATE_DELAYED_MEMORY: id >",
-      "tags:",
-      "long_term_facts_ids:",
-      "body:",
+      "{\"tags\":[\"tag\"],\"body\":\"new text\",\"anchor_fact_ids\":[\"F1\"],\"absorbed_fact_ids\":[\"F2\"]}",
       "</UPDATE_DELAYED_MEMORY>",
       "Replace id with the 6-character report id shown in <DELAYED_MEMORY>.",
-      "List only new tags, new body content, and exact F<number> L4 ids actually absorbed by this update. F means a committed fact; never use PF pending ids here.",
-      "At least one of tags, long_term_facts_ids, or body must be non-empty.",
+      "The JSON object may contain any subset of tags, body, anchor_fact_ids, absorbed_fact_ids; at least one field must be present and non-empty.",
+      "Use exact F<number> ids copied from <LONG_TERM_MEMORY>. F means a committed fact; never use PF pending ids here.",
+      "anchor_fact_ids remain visible in <LONG_TERM_MEMORY> and receive a [ delayed_memory_id: ... ] suffix while the report exists.",
+      "absorbed_fact_ids are represented by the report and are hidden from <LONG_TERM_MEMORY> while the report exists.",
+      "A fact id must not be placed in both arrays. If a fact is important enough to remain directly visible, classify it as an anchor.",
       "Do not add any other text while updating a report. Immediately emit only the marker."
     ],
     "close_tag": true

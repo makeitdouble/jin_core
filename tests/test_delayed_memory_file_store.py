@@ -31,8 +31,10 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
             ],
             "body": body,
             "pinned": True,
-            "long_term_facts_ids": [
+            "anchor_fact_ids": [
                 "F1",
+            ],
+            "absorbed_fact_ids": [
                 "F2",
             ],
             "created_session_id": "session-a",
@@ -81,9 +83,14 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
                 True,
             )
             self.assertEqual(
-                payload["long_term_facts_ids"],
+                payload["anchor_fact_ids"],
                 [
                     "F1",
+                ],
+            )
+            self.assertEqual(
+                payload["absorbed_fact_ids"],
+                [
                     "F2",
                 ],
             )
@@ -111,9 +118,14 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
                 True,
             )
             self.assertEqual(
-                reports["48ggds"]["long_term_facts_ids"],
+                reports["48ggds"]["anchor_fact_ids"],
                 [
                     "F1",
+                ],
+            )
+            self.assertEqual(
+                reports["48ggds"]["absorbed_fact_ids"],
+                [
                     "F2",
                 ],
             )
@@ -215,7 +227,7 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
         browser_report = self.build_report(
             title="Browser title",
         )
-        browser_report["long_term_facts_ids"] = []
+        browser_report["absorbed_fact_ids"] = []
         browser_reports = {
             "48ggds": browser_report,
         }
@@ -234,9 +246,14 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
             "File only",
         )
         self.assertEqual(
-            merged["48ggds"]["long_term_facts_ids"],
+            merged["48ggds"]["anchor_fact_ids"],
             [
                 "F1",
+            ],
+        )
+        self.assertEqual(
+            merged["48ggds"]["absorbed_fact_ids"],
+            [
                 "F2",
             ],
         )

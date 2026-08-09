@@ -2093,8 +2093,17 @@ def format_l4_merge_operation_details(change: dict) -> str:
     )
 
 
-def format_long_term_memory_context(facts: list[dict]) -> str:
+def format_long_term_memory_context(
+    facts: list[dict],
+    *,
+    delayed_memory_ids_by_fact_id=None,
+) -> str:
     lines = []
+    delayed_memory_ids_by_fact_id = (
+        delayed_memory_ids_by_fact_id
+        if isinstance(delayed_memory_ids_by_fact_id, dict)
+        else {}
+    )
 
     for fact in facts:
         line = format_l4_fact_line(
@@ -2111,8 +2120,32 @@ def format_long_term_memory_context(facts: list[dict]) -> str:
         if not line or not fact_id:
             continue
 
+        suffix = f" [ id: {fact_id} ]"
+        delayed_memory_ids = delayed_memory_ids_by_fact_id.get(
+            fact_id.upper(),
+            [],
+        )
+        if isinstance(delayed_memory_ids, str):
+            delayed_memory_ids = [delayed_memory_ids]
+
+        seen_delayed_memory_ids = set()
+        for delayed_memory_id in delayed_memory_ids or []:
+            normalized_delayed_memory_id = str(
+                delayed_memory_id or ""
+            ).strip().casefold()
+            if (
+                not normalized_delayed_memory_id
+                or normalized_delayed_memory_id in seen_delayed_memory_ids
+            ):
+                continue
+            seen_delayed_memory_ids.add(normalized_delayed_memory_id)
+            suffix += (
+                " [ delayed_memory_id: "
+                f"{normalized_delayed_memory_id} ]"
+            )
+
         lines.append(
-            f"{line} [ id: {fact_id} ]"
+            f"{line}{suffix}"
         )
 
     if not lines:
@@ -2123,7 +2156,6 @@ def format_long_term_memory_context(facts: list[dict]) -> str:
         for line in lines
     )
     return f"<LONG_TERM_MEMORY>\n{body}\n</LONG_TERM_MEMORY>"
-
 
 def clone_l4_store(store) -> dict:
     return deepcopy(normalize_l4_store(store))

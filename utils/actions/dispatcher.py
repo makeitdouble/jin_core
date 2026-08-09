@@ -1,5 +1,5 @@
 from contracts.rules_assembler import (
-    RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
+    RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_APPEND_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_CHECK_TODO,
@@ -10,7 +10,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_UPDATE_L4_FACTS,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-    RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
+    RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_UPDATE_DELAYED_MEMORY,
     RUNTIME_ACTION_REMOVE_SKILL,
     RUNTIME_ACTION_RESOLVE_TODO,
@@ -720,7 +720,7 @@ async def apply_runtime_action_calls(
             )
             continue
 
-        if action.name == RUNTIME_ACTION_APPEND_DELAYED_MEMORY:
+        if action.name == RUNTIME_ACTION_LOAD_DELAYED_MEMORY:
             if not accept_runtime_action_once_per_message(
                 action
             ):
@@ -734,7 +734,7 @@ async def apply_runtime_action_calls(
             )
             continue
 
-        if action.name == RUNTIME_ACTION_REMOVE_DELAYED_MEMORY:
+        if action.name == RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY:
             if not accept_runtime_action_once_per_message(
                 action
             ):
@@ -1257,13 +1257,13 @@ async def apply_runtime_action_calls(
     append_delayed_memory_actions = [
         action
         for action in filtered_actions
-        if action.name == RUNTIME_ACTION_APPEND_DELAYED_MEMORY
+        if action.name == RUNTIME_ACTION_LOAD_DELAYED_MEMORY
     ]
 
     remove_delayed_memory_actions = [
         action
         for action in filtered_actions
-        if action.name == RUNTIME_ACTION_REMOVE_DELAYED_MEMORY
+        if action.name == RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY
     ]
 
     update_delayed_memory_actions = [

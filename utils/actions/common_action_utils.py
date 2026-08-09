@@ -5,7 +5,7 @@ from functools import lru_cache
 
 from contracts.rules_assembler import (
     RUNTIME_ACTION_APPEND_SKILL,
-    RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
+    RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_ASSET_ACTION,
@@ -17,7 +17,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_UPDATE_L4_FACTS,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_REMOVE_SKILL,
-    RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
+    RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_UPDATE_DELAYED_MEMORY,
     RUNTIME_ACTION_RESOLVE_TODO,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
@@ -34,7 +34,7 @@ from .action_payload_utils import (
     _clean_internal_action_query,
     _get_internal_action_placeholder_payloads,
 )
-from .append_delayed_memory_utils import build_append_delayed_memory_payload
+from .load_delayed_memory_utils import build_load_delayed_memory_payload
 from .append_skill_utils import (
     build_append_skill_payload,
     plural_skill_marker_action_name as _plural_skill_marker_action_name,
@@ -326,8 +326,6 @@ def normalize_runtime_action_name(
         "SAVE_SESSION": RUNTIME_ACTION_SAVE_SESSION,
         "SAVE_DELAYED_MEMORY": RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
         "SAVE_DELAYED_MEMORY_CONTENT": RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
-        "APPEND_DELAYED_MEMORY": RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
-        "REMOVE_DELAYED_MEMORY": RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
         "UPDATE_DELAYED_MEMORY": RUNTIME_ACTION_UPDATE_DELAYED_MEMORY,
         "SAVE_ACTIVE_MEMORY": RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
         "RESOLVE_ACTIVE_MEMORY": RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
@@ -394,10 +392,10 @@ def normalize_runtime_action_names(
 
         if normalized_name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT:
             normalized_names.append(
-                RUNTIME_ACTION_APPEND_DELAYED_MEMORY
+                RUNTIME_ACTION_LOAD_DELAYED_MEMORY
             )
             normalized_names.append(
-                RUNTIME_ACTION_REMOVE_DELAYED_MEMORY
+                RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY
             )
             normalized_names.append(
                 RUNTIME_ACTION_UPDATE_DELAYED_MEMORY
@@ -442,8 +440,8 @@ _ACTION_PAYLOAD_BUILDERS = {
     RUNTIME_ACTION_RESOLVE_TODO: build_resolve_action_payload,
     RUNTIME_ACTION_CHECK_TODO: build_check_todo_payload,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT: build_save_delayed_memory_payload,
-    RUNTIME_ACTION_APPEND_DELAYED_MEMORY: build_append_delayed_memory_payload,
-    RUNTIME_ACTION_REMOVE_DELAYED_MEMORY: build_resolve_action_payload,
+    RUNTIME_ACTION_LOAD_DELAYED_MEMORY: build_load_delayed_memory_payload,
+    RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY: build_resolve_action_payload,
     RUNTIME_ACTION_UPDATE_DELAYED_MEMORY: build_update_delayed_memory_payload,
     RUNTIME_ACTION_APPEND_SKILL: build_append_skill_payload,
     RUNTIME_ACTION_REMOVE_SKILL: build_resolve_action_payload,

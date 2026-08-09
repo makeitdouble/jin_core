@@ -1141,6 +1141,140 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("source_session_ids", context_block)
         self.assertIn("[source_session_ids: session-a]", ui_line)
 
+    def test_delayed_report_anchor_stays_visible_with_report_suffix(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=None,
+            logger=None,
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_l4_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "user.name",
+                    "value": "Sergey",
+                },
+                {
+                    "id": "F2",
+                    "key": "social.friend",
+                    "value": "Taras is a personal friend.",
+                },
+            ],
+        })
+        context.delayed_memory_reports = {
+            "abc123": {
+                "title": "Social context",
+                "anchor_fact_ids": ["F1"],
+                "absorbed_fact_ids": ["F2"],
+            },
+        }
+
+        context_block = build_runtime_l4_memory_context(
+            context=context
+        )
+
+        self.assertIn(
+            "user.name: Sergey [ id: F1 ] [ delayed_memory_id: abc123 ]",
+            context_block,
+        )
+        self.assertNotIn("social.friend", context_block)
+        self.assertEqual(
+            context.runtime_l4_archived_fact_ids,
+            {"F2"},
+        )
+
+    def test_anchor_visibility_wins_over_absorbed_reference_in_other_report(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=None,
+            logger=None,
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_l4_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "user.name",
+                    "value": "Sergey",
+                },
+            ],
+        })
+        context.delayed_memory_reports = {
+            "abc123": {
+                "title": "Identity",
+                "anchor_fact_ids": ["F1"],
+            },
+            "def456": {
+                "title": "Social",
+                "absorbed_fact_ids": ["F1"],
+            },
+        }
+
+        context_block = build_runtime_l4_memory_context(context=context)
+
+        self.assertIn("user.name: Sergey [ id: F1 ]", context_block)
+        self.assertIn("[ delayed_memory_id: abc123 ]", context_block)
+        self.assertEqual(context.runtime_l4_archived_fact_ids, set())
+
+    async def test_delete_l4_fact_cleans_delayed_memory_fact_arrays(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=None,
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_l4_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "user.name",
+                    "value": "Sergey",
+                },
+                {
+                    "id": "F2",
+                    "key": "social.friend",
+                    "value": "Taras",
+                },
+            ],
+        })
+        context.delayed_memory_reports = {
+            "abc123": {
+                "title": "Social context",
+                "anchor_fact_ids": ["F1"],
+                "absorbed_fact_ids": ["F2"],
+            },
+        }
+        context.delayed_memory_file_store_enabled = False
+
+        self.assertTrue(await delete_l4_memory_fact(context, "F1"))
+        self.assertEqual(
+            context.delayed_memory_reports["abc123"]["anchor_fact_ids"],
+            [],
+        )
+        self.assertEqual(
+            context.delayed_memory_reports["abc123"]["absorbed_fact_ids"],
+            ["F2"],
+        )
+
+        self.assertTrue(await delete_l4_memory_fact(context, "F2"))
+        self.assertEqual(
+            context.delayed_memory_reports["abc123"]["absorbed_fact_ids"],
+            [],
+        )
+        self.assertNotIn(
+            "long_term_facts_ids",
+            context.delayed_memory_reports["abc123"],
+        )
+        self.assertGreaterEqual(
+            sum(
+                1
+                for event in context.emitter.events
+                if event.get("type") == "delayed_memory_store_snapshot"
+            ),
+            2,
+        )
+
     def test_delayed_report_fact_ids_hide_only_from_brain_context(self):
         context = RuntimeContext(
             websocket=None,
@@ -1296,11 +1430,15 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             context.delayed_memory_reports[
                 "abc123"
             ][
-                "long_term_facts_ids"
+                "absorbed_fact_ids"
             ],
             [
                 "F1",
             ],
+        )
+        self.assertNotIn(
+            "long_term_facts_ids",
+            context.delayed_memory_reports["abc123"],
         )
         self.assertEqual(
             context.runtime_l4_archived_fact_ids,

@@ -94,7 +94,7 @@ def format_delayed_memory_result_sections(
             if result.get("ok") is False:
                 sections.append(
                     (
-                        "APPEND_DELAYED_MEMORY",
+                        "LOAD_DELAYED_MEMORY",
                         format_delayed_memory_failure_result(
                             result
                         ),
@@ -105,7 +105,7 @@ def format_delayed_memory_result_sections(
         if action == "remove_delayed_memory":
             sections.append(
                 (
-                    "REMOVE_DELAYED_MEMORY",
+                    "UNLOAD_DELAYED_MEMORY",
                     (
                         format_delayed_memory_failure_result
                         if result.get("ok") is False

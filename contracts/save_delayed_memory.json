@@ -1,6 +1,6 @@
 {
   "save_delayed_memory": {
-    "version": 1,
+    "version": 2,
     "description": "Allows the model to save a delayed memory report.",
     "runtime_action": "SAVE_DELAYED_MEMORY_CONTENT",
     "private_marker": "<SAVE_DELAYED_MEMORY_CONTENT>",
@@ -16,18 +16,22 @@
     },
     "rules": [
       "Use this marker only after the user explicitly asks to create/save a delayed memory report or explicitly accepts a proposal to consolidate L4 facts into delayed memory.",
-      "Skip save_delayed_memory when the user request is to save session or append an already existing delayed memory report.",
+      "Skip save_delayed_memory when the user request is to save session or load an already existing delayed memory report.",
       "Emit the fulfilled form inside the marker:",
       "<SAVE_DELAYED_MEMORY_CONTENT>",
       "title:",
       "summary:",
       "tags:",
       "body:",
-      "long_term_facts_ids:",
+      "anchor_fact_ids:",
+      "absorbed_fact_ids:",
       "</SAVE_DELAYED_MEMORY_CONTENT>",
       "You must fulfill title, summary, tags, and body so the report is valid for runtime processing.",
-      "When the report consolidates facts from <LONG_TERM_MEMORY>, fill long_term_facts_ids with the exact F<number> ids copied from the [ id: ... ] suffixes of every fact absorbed by the report, separated by commas.",
-      "Do not list unrelated ids. Leave long_term_facts_ids empty when the report does not consolidate L4 facts.",
+      "When the report consolidates facts from <LONG_TERM_MEMORY>, classify each referenced F<number> id as either anchor or absorbed.",
+      "anchor_fact_ids are important atomic facts that must remain directly visible in <LONG_TERM_MEMORY>; while the report exists they receive a [ delayed_memory_id: ... ] suffix.",
+      "absorbed_fact_ids are details represented by the report and are hidden from <LONG_TERM_MEMORY> while the report exists.",
+      "Use exact ids copied from the [ id: ... ] suffixes. Do not list unrelated ids and never use PF pending ids.",
+      "A fact id must not be present in both arrays. Leave both arrays empty when the report does not consolidate L4 facts.",
       "DO NOT add any other text while making a report. Do not notify or acknowledge saving; immediately emit only the marker."
     ],
     "close_tag": true

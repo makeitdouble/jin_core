@@ -53,7 +53,9 @@ from .regexp_utils import (
     match_regexp_templates,
 )
 from .save_delayed_memory_utils import (
+    collect_anchor_fact_report_ids,
     collect_long_term_fact_ids_from_reports,
+    normalize_delayed_memory_fact_roles,
     normalize_long_term_fact_ids,
     parse_delayed_memory_content_payload,
 )
@@ -96,7 +98,9 @@ __all__ = [
     "parse_update_l4_facts_payload",
     "normalize_runtime_action_name",
     "normalize_runtime_action_names",
+    "collect_anchor_fact_report_ids",
     "collect_long_term_fact_ids_from_reports",
+    "normalize_delayed_memory_fact_roles",
     "normalize_long_term_fact_ids",
     "parse_delayed_memory_content_payload",
     "parse_idle_seconds",

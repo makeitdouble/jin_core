@@ -123,7 +123,7 @@ def get_current_action_sequence_started_at(
 
 ACTION_DISPLAY_ALIASES = {
     "append_asset_file": "Appended asset file",
-    "append_delayed_memory": "Appended delayed memory",
+    "append_delayed_memory": "Loaded delayed memory",
     "append_skill": "Appended skill",
     "append_wildcard_file": "Appended wildcard file",
     "asset_action": "Asset action",
@@ -136,11 +136,13 @@ ACTION_DISPLAY_ALIASES = {
     "generate_prompt_batch": "Generated prompt batch",
     "list_skills": "Listed skills",
     "list_wildcards": "Listed wildcards",
+    "load_delayed_memory": "Loaded delayed memory",
     "preview_file": "Previewed file",
     "read_asset_file": "Read asset file",
     "read_asset_text": "Read asset text",
-    "remove_delayed_memory": "Removed delayed memory",
+    "remove_delayed_memory": "Unloaded delayed memory",
     "remove_skill": "Removed skill",
+    "unload_delayed_memory": "Unloaded delayed memory",
     "resolve_active_memory": "Resolved active memory",
     "run_document_reader": "Read document iteratively",
     "run_python_skill": "Ran Python skill",
@@ -160,6 +162,7 @@ ACTION_PAST_TENSE_VERBS = {
     "generate": "Generated",
     "hide": "Hidden",
     "list": "Listed",
+    "load": "Loaded",
     "preview": "Previewed",
     "read": "Read",
     "remove": "Removed",
@@ -167,6 +170,7 @@ ACTION_PAST_TENSE_VERBS = {
     "run": "Ran",
     "sample": "Sampled",
     "save": "Saved",
+    "unload": "Unloaded",
     "update": "Updated",
     "write": "Wrote",
 }
@@ -1045,8 +1049,8 @@ def _build_session_action_marker_detail(
         "SAVE_ACTIVE_MEMORY",
         "RESOLVE_ACTIVE_MEMORY",
         "IDLE",
-        "APPEND_DELAYED_MEMORY",
-        "REMOVE_DELAYED_MEMORY",
+        "LOAD_DELAYED_MEMORY",
+        "UNLOAD_DELAYED_MEMORY",
     }:
         return normalized_payload
 
@@ -1077,8 +1081,8 @@ PAYLOAD_DISTINCT_SESSION_ACTIONS = {
     "SAVE_ACTIVE_MEMORY",
     "RESOLVE_ACTIVE_MEMORY",
     "SAVE_DELAYED_MEMORY_CONTENT",
-    "APPEND_DELAYED_MEMORY",
-    "REMOVE_DELAYED_MEMORY",
+    "LOAD_DELAYED_MEMORY",
+    "UNLOAD_DELAYED_MEMORY",
     "UPDATE_DELAYED_MEMORY",
 }
 
@@ -1210,8 +1214,8 @@ def _build_payload_distinct_session_action_parts(
 
         if (
             action_name in {
-                "APPEND_DELAYED_MEMORY",
-                "REMOVE_DELAYED_MEMORY",
+                "LOAD_DELAYED_MEMORY",
+                "UNLOAD_DELAYED_MEMORY",
                 "UPDATE_DELAYED_MEMORY",
             }
             and payload_key

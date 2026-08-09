@@ -43,13 +43,13 @@ from runtime.behavior_contract import (
     should_pause_action_guard_for_confirmation,
 )
 from contracts.rules_assembler import (
-    RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
+    RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_APPEND_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_UPDATE_L4_FACTS,
-    RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
+    RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     build_runtime_action_display_text,
     get_runtime_action_display_name,
@@ -1257,8 +1257,8 @@ class RuntimeStream:
             return action_id
 
         if action.name in {
-            RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
-            RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
+            RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
+            RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
         }:
             report_id, _report = (
                 self.get_delayed_memory_runtime_action_report(
@@ -1282,8 +1282,8 @@ class RuntimeStream:
     ):
 
         if action.name not in {
-            RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
-            RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
+            RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
+            RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
         }:
             return "", None
 

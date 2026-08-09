@@ -1,27 +1,27 @@
 from __future__ import annotations
 
-import re
+import json
 
 from .delayed_memory_utils import is_delayed_memory_report_id
-from .save_delayed_memory_utils import normalize_long_term_fact_ids
-
-
-UPDATE_DELAYED_MEMORY_FIELD_RE = re.compile(
-    r"(?im)^[^\S\r\n]*(tags|body|long_term_facts_ids)"
-    r"[^\S\r\n]*:[^\S\r\n]*(.*)$",
+from .save_delayed_memory_utils import (
+    normalize_delayed_memory_fact_roles,
+    normalize_long_term_fact_ids,
 )
+
+
+UPDATE_DELAYED_MEMORY_FIELDS = frozenset({
+    "tags",
+    "body",
+    "anchor_fact_ids",
+    "absorbed_fact_ids",
+})
 
 
 def _normalize_tags(value) -> list[str]:
     if isinstance(value, list):
         source = value
     else:
-        text = str(value or "").strip()
-
-        if text.startswith("[") and text.endswith("]"):
-            text = text[1:-1]
-
-        source = text.split(",")
+        source = str(value or "").split(",")
 
     tags = []
     seen = set()
@@ -48,52 +48,58 @@ def parse_update_delayed_memory_payload(payload: str) -> dict:
     first_line, separator, remainder = text.partition("\n")
     report_id = first_line.strip().casefold()
 
-    if not is_delayed_memory_report_id(report_id):
+    if not is_delayed_memory_report_id(report_id) or not separator:
         return {}
 
-    body_text = remainder if separator else ""
-    field_matches = list(UPDATE_DELAYED_MEMORY_FIELD_RE.finditer(body_text))
-
-    if not field_matches:
+    try:
+        raw_update = json.loads(remainder.strip())
+    except (json.JSONDecodeError, TypeError, ValueError):
         return {}
 
-    fields = {}
-
-    for index, match in enumerate(field_matches):
-        field_name = str(match.group(1) or "").casefold()
-        inline_value = str(match.group(2) or "").strip()
-        next_start = (
-            field_matches[index + 1].start()
-            if index + 1 < len(field_matches)
-            else len(body_text)
-        )
-        block_value = body_text[match.end():next_start].strip("\n")
-        combined = "\n".join(
-            part
-            for part in (inline_value, block_value)
-            if part
-        ).strip()
-
-        if field_name == "tags":
-            fields[field_name] = _normalize_tags(combined)
-        elif field_name == "long_term_facts_ids":
-            fields[field_name] = normalize_long_term_fact_ids(combined)
-        else:
-            fields[field_name] = combined
-
-    tags = fields.get("tags", [])
-    fact_ids = fields.get("long_term_facts_ids", [])
-    body = str(fields.get("body", "") or "").strip()
-
-    if not tags and not fact_ids and not body:
+    if not isinstance(raw_update, dict) or not raw_update:
         return {}
 
-    return {
-        "id": report_id,
-        "tags": tags,
-        "long_term_facts_ids": fact_ids,
-        "body": body,
-    }
+    unknown_fields = set(raw_update) - UPDATE_DELAYED_MEMORY_FIELDS
+    if unknown_fields:
+        return {}
+
+    update = {"id": report_id}
+
+    if "tags" in raw_update:
+        tags = _normalize_tags(raw_update.get("tags"))
+        if tags:
+            update["tags"] = tags
+
+    if "body" in raw_update:
+        body = str(raw_update.get("body", "") or "").strip()
+        if body:
+            update["body"] = body
+
+    requested_anchor_ids = (
+        normalize_long_term_fact_ids(raw_update.get("anchor_fact_ids", []))
+        if "anchor_fact_ids" in raw_update
+        else []
+    )
+    requested_absorbed_ids = (
+        normalize_long_term_fact_ids(raw_update.get("absorbed_fact_ids", []))
+        if "absorbed_fact_ids" in raw_update
+        else []
+    )
+    anchor_ids, absorbed_ids = normalize_delayed_memory_fact_roles(
+        requested_anchor_ids,
+        requested_absorbed_ids,
+    )
+
+    if "anchor_fact_ids" in raw_update and anchor_ids:
+        update["anchor_fact_ids"] = anchor_ids
+
+    if "absorbed_fact_ids" in raw_update and absorbed_ids:
+        update["absorbed_fact_ids"] = absorbed_ids
+
+    if len(update) == 1:
+        return {}
+
+    return update
 
 
 def build_update_delayed_memory_payload(

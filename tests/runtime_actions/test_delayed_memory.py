@@ -137,7 +137,8 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                     "A complete, self-sufficient summary..."
                 ),
                 "pinned": False,
-                "long_term_facts_ids": [],
+                "anchor_fact_ids": [],
+                "absorbed_fact_ids": [],
                 "created_session_id": "session-1",
                 "created_time": "2026-06-29T12:00:00",
             },
@@ -163,13 +164,52 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
 
         self.assertEqual(
-            report_value["long_term_facts_ids"],
+            report_value["absorbed_fact_ids"],
             [
                 "F1",
                 "F2",
             ],
         )
+        self.assertNotIn("long_term_facts_ids", report_value)
 
+
+    def test_parses_anchor_and_absorbed_fact_ids_for_delayed_memory_report(self):
+
+        report = parse_delayed_memory_content_payload(
+            (
+                "title: Social context\n"
+                "summary: Consolidated social details.\n"
+                "tags: social\n"
+                "body: Reusable summary.\n"
+                "anchor_fact_ids: F1, F1\n"
+                "absorbed_fact_ids: F2, F3, F1"
+            )
+        )
+        report_value = next(iter(report.values()))
+
+        self.assertEqual(report_value["anchor_fact_ids"], ["F1"])
+        self.assertEqual(
+            report_value["absorbed_fact_ids"],
+            ["F2", "F3"],
+        )
+
+    def test_update_delayed_memory_json_accepts_single_non_empty_field(self):
+
+        self.assertEqual(
+            parse_update_delayed_memory_payload(
+                'abc123\n{"anchor_fact_ids":["F8"]}'
+            ),
+            {
+                "id": "abc123",
+                "anchor_fact_ids": ["F8"],
+            },
+        )
+        self.assertEqual(
+            parse_update_delayed_memory_payload(
+                'abc123\n{"body":""}'
+            ),
+            {},
+        )
 
     def test_build_report_keeps_only_existing_l4_fact_ids(self):
 
@@ -205,11 +245,12 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         report_value = report["abc123"]
 
         self.assertEqual(
-            report_value["long_term_facts_ids"],
+            report_value["absorbed_fact_ids"],
             [
                 "F1",
             ],
         )
+        self.assertNotIn("long_term_facts_ids", report_value)
 
 
     def test_extracts_delayed_memory_content_block(self):
@@ -344,8 +385,8 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         result = extract_runtime_actions(
             (
                 "<LIST_DELAYED_MEMORY>\n"
-                "<APPEND_DELAYED_MEMORY: a1b2c3>\n"
-                "<REMOVE_DELAYED_MEMORY: d4e5f6>\n"
+                "<LOAD_DELAYED_MEMORY: a1b2c3>\n"
+                "<UNLOAD_DELAYED_MEMORY: d4e5f6>\n"
             ),
             enabled_actions=[
                 "CAN_SAVE_DELAYED_MEMORY",
@@ -360,11 +401,11 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             result.actions,
             (
                 RuntimeActionCall(
-                    name="APPEND_DELAYED_MEMORY",
+                    name="LOAD_DELAYED_MEMORY",
                     payload="a1b2c3",
                 ),
                 RuntimeActionCall(
-                    name="REMOVE_DELAYED_MEMORY",
+                    name="UNLOAD_DELAYED_MEMORY",
                     payload="d4e5f6",
                 ),
             ),
@@ -380,7 +421,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
 
         first = stream_filter.filter(
-            "<APPEND_DELAYED_MEMORY: h"
+            "<LOAD_DELAYED_MEMORY: h"
         )
         second = stream_filter.filter(
             "0qa49>"
@@ -402,7 +443,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             second.actions,
             (
                 RuntimeActionCall(
-                    name="APPEND_DELAYED_MEMORY",
+                    name="LOAD_DELAYED_MEMORY",
                     payload="h0qa49",
                 ),
             ),
@@ -418,7 +459,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
 
         first = stream_filter.filter(
-            "<REMOVE_DELAYED_MEMORY: k"
+            "<UNLOAD_DELAYED_MEMORY: k"
         )
         second = stream_filter.filter(
             "dhpjo>\nRemoved it from the session."
@@ -440,7 +481,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             second.actions,
             (
                 RuntimeActionCall(
-                    name="REMOVE_DELAYED_MEMORY",
+                    name="UNLOAD_DELAYED_MEMORY",
                     payload="kdhpjo",
                 ),
             ),
@@ -912,7 +953,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="APPEND_DELAYED_MEMORY",
+                        name="LOAD_DELAYED_MEMORY",
                         payload="a1b2c3",
                     ),
                 ),
@@ -967,7 +1008,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         self.assertEqual(
             context.emitter.events[0]["text"],
             (
-                "Appending: "
+                "Loading: "
                 + context.delayed_memory_reports[
                     "a1b2c3"
                 ]["title"]
@@ -980,7 +1021,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         self.assertEqual(
             context.runtime_session_action_history[0]["text"],
             (
-                "Delayed memory appended: "
+                "Delayed memory loaded: "
                 + context.delayed_memory_reports[
                     "a1b2c3"
                 ]["title"]
@@ -1021,11 +1062,11 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         asyncio.run(
             runtime_stream.emit_started_runtime_actions((
                 RuntimeActionCall(
-                    name="APPEND_DELAYED_MEMORY",
+                    name="LOAD_DELAYED_MEMORY",
                     payload="a1b2c3",
                 ),
                 RuntimeActionCall(
-                    name="APPEND_DELAYED_MEMORY",
+                    name="LOAD_DELAYED_MEMORY",
                     payload="b2c3d4",
                 ),
             ))
@@ -1044,13 +1085,13 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             [
                 (
                     "a1b2c3",
-                    "APPEND_DELAYED_MEMORY: First report",
+                    "LOAD_DELAYED_MEMORY: First report",
                     "a1b2c3",
                     "First report",
                 ),
                 (
                     "b2c3d4",
-                    "APPEND_DELAYED_MEMORY: Second report",
+                    "LOAD_DELAYED_MEMORY: Second report",
                     "b2c3d4",
                     "Second report",
                 ),
@@ -1094,15 +1135,15 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="APPEND_DELAYED_MEMORY",
+                        name="LOAD_DELAYED_MEMORY",
                         payload="a1b2c3",
                     ),
                     RuntimeActionCall(
-                        name="APPEND_DELAYED_MEMORY",
+                        name="LOAD_DELAYED_MEMORY",
                         payload="a1b2c3",
                     ),
                     RuntimeActionCall(
-                        name="APPEND_DELAYED_MEMORY",
+                        name="LOAD_DELAYED_MEMORY",
                         payload="b2c3d4",
                     ),
                 ),
@@ -1158,8 +1199,8 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 for item in context.runtime_session_action_history
             ],
             [
-                "Delayed memory appended: First report",
-                "Delayed memory appended: Second report",
+                "Delayed memory loaded: First report",
+                "Delayed memory loaded: Second report",
             ],
         )
         self.assertEqual(
@@ -1175,13 +1216,13 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             [
                 (
                     "a1b2c3",
-                    "Appending: First report",
+                    "Loading: First report",
                     "a1b2c3",
                     "First report",
                 ),
                 (
                     "b2c3d4",
-                    "Appending: Second report",
+                    "Loading: Second report",
                     "b2c3d4",
                     "Second report",
                 ),
@@ -1218,7 +1259,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="APPEND_DELAYED_MEMORY",
+                        name="LOAD_DELAYED_MEMORY",
                         payload="c7dtso",
                     ),
                 ),
@@ -1253,7 +1294,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             tool_results,
         )
         self.assertIn(
-            '<TOOL_RESULT name="APPEND_DELAYED_MEMORY">',
+            '<TOOL_RESULT name="LOAD_DELAYED_MEMORY">',
             tool_results,
         )
         self.assertIn(
@@ -1293,11 +1334,11 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="APPEND_DELAYED_MEMORY",
+                        name="LOAD_DELAYED_MEMORY",
                         payload="a1b2c3",
                     ),
                     RuntimeActionCall(
-                        name="APPEND_DELAYED_MEMORY",
+                        name="LOAD_DELAYED_MEMORY",
                         payload="a1b2c3",
                     ),
                 ),
@@ -1359,7 +1400,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 next_context,
                 (
                     RuntimeActionCall(
-                        name="APPEND_DELAYED_MEMORY",
+                        name="LOAD_DELAYED_MEMORY",
                         payload="a1b2c3",
                     ),
                 ),
@@ -1421,7 +1462,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="REMOVE_DELAYED_MEMORY",
+                        name="UNLOAD_DELAYED_MEMORY",
                         payload="a1b2c3",
                     ),
                 ),
@@ -1455,11 +1496,11 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             context.emitter.events[0]["text"],
-            "Removing: Pinned report",
+            "Unloading: Pinned report",
         )
         self.assertEqual(
             context.runtime_session_action_history[0]["text"],
-            "Delayed memory removed from context: Pinned report",
+            "Delayed memory unloaded from context: Pinned report",
         )
 
 
@@ -1511,11 +1552,11 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="REMOVE_DELAYED_MEMORY",
+                        name="UNLOAD_DELAYED_MEMORY",
                         payload="a1b2c3",
                     ),
                     RuntimeActionCall(
-                        name="REMOVE_DELAYED_MEMORY",
+                        name="UNLOAD_DELAYED_MEMORY",
                         payload="b2c3d4",
                     ),
                 ),
@@ -1556,8 +1597,8 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 for event in context.emitter.events
             ],
             [
-                "Removing: First report",
-                "Removing: Second report",
+                "Unloading: First report",
+                "Unloading: Second report",
             ],
         )
 
@@ -1588,9 +1629,9 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         }
 
         extracted = extract_runtime_actions(
-            "<REMOVE_DELAYED_MEMORY: Test report (summary check)>",
+            "<UNLOAD_DELAYED_MEMORY: Test report (summary check)>",
             enabled_actions=(
-                "REMOVE_DELAYED_MEMORY",
+                "UNLOAD_DELAYED_MEMORY",
             ),
         )
 
@@ -1598,7 +1639,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             extracted.actions,
             (
                 RuntimeActionCall(
-                    name="REMOVE_DELAYED_MEMORY",
+                    name="UNLOAD_DELAYED_MEMORY",
                     payload="Test report (summary check)",
                 ),
             ),
@@ -1628,7 +1669,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             "invalid_delayed_memory_id",
         )
         self.assertIn(
-            '<TOOL_RESULT name="REMOVE_DELAYED_MEMORY">',
+            '<TOOL_RESULT name="UNLOAD_DELAYED_MEMORY">',
             build_tool_results_context(
                 context
             ),
@@ -1676,7 +1717,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="REMOVE_DELAYED_MEMORY",
+                        name="UNLOAD_DELAYED_MEMORY",
                         payload="c7dtso",
                     ),
                 ),
@@ -1711,7 +1752,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             tool_results,
         )
         self.assertIn(
-            '<TOOL_RESULT name="REMOVE_DELAYED_MEMORY">',
+            '<TOOL_RESULT name="UNLOAD_DELAYED_MEMORY">',
             tool_results,
         )
         self.assertIn(
@@ -1732,12 +1773,10 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
         second = stream_filter.filter(
             (
-                "tags:\n"
-                "[social, context]\n"
-                "long_term_facts_ids:\n"
-                "F1, F2\n"
-                "body:\n"
-                "Additional durable context.\n"
+                '{"tags":["social","context"],'
+                '"anchor_fact_ids":["F1"],'
+                '"absorbed_fact_ids":["F2"],'
+                '"body":"Additional durable context."}\n'
             )
         )
         third = stream_filter.filter(
@@ -1767,8 +1806,10 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                     "social",
                     "context",
                 ],
-                "long_term_facts_ids": [
+                "anchor_fact_ids": [
                     "F1",
+                ],
+                "absorbed_fact_ids": [
                     "F2",
                 ],
                 "body": "Additional durable context.",
@@ -1781,10 +1822,10 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         result = extract_runtime_actions(
             (
                 "<UPDATE_DELAYED_MEMORY: a1b2c3>\n"
-                "tags: social, context\n"
-                "long_term_facts_ids: F1, F99\n"
-                "body:\n"
-                "Additional durable context.\n"
+                '{"tags":["social","context"],'
+                '"anchor_fact_ids":["F1"],'
+                '"absorbed_fact_ids":["F99"],'
+                '"body":"Additional durable context."}\n'
                 "</UPDATE_DELAYED_MEMORY>"
             ),
             enabled_actions=(
@@ -1814,8 +1855,10 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                     "social",
                     "context",
                 ],
-                "long_term_facts_ids": [
+                "anchor_fact_ids": [
                     "F1",
+                ],
+                "absorbed_fact_ids": [
                     "F99",
                 ],
                 "body": "Additional durable context.",
@@ -1840,9 +1883,10 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                     "social",
                 ],
                 "body": "Original body.",
-                "long_term_facts_ids": [
+                "anchor_fact_ids": [
                     "F1",
                 ],
+                "absorbed_fact_ids": [],
                 "pinned": False,
             },
         }
@@ -1869,10 +1913,11 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                         name="UPDATE_DELAYED_MEMORY",
                         payload=(
                             "a1b2c3\n"
-                            "tags: context, social\n"
-                            "long_term_facts_ids: F2, F99\n"
-                            "body:\n"
-                            "Additional body."
+                            + json.dumps({
+                                "tags": ["context", "social"],
+                                "absorbed_fact_ids": ["F2", "F99"],
+                                "body": "Additional body.",
+                            })
                         ),
                     ),
                 ),
@@ -1889,9 +1934,14 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             ],
         )
         self.assertEqual(
-            report["long_term_facts_ids"],
+            report["anchor_fact_ids"],
             [
                 "F1",
+            ],
+        )
+        self.assertEqual(
+            report["absorbed_fact_ids"],
+            [
                 "F2",
             ],
         )
@@ -1984,7 +2034,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="REMOVE_DELAYED_MEMORY",
+                        name="UNLOAD_DELAYED_MEMORY",
                         payload="a1b2c3",
                     ),
                 ),

@@ -32,7 +32,9 @@ from runtime.L4_memory_utils import (
     restore_l4_fact_to_store,
 )
 from utils.actions.save_delayed_memory_utils import (
+    collect_anchor_fact_report_ids,
     collect_long_term_fact_ids_from_reports,
+    normalize_delayed_memory_fact_roles,
     normalize_long_term_fact_ids,
 )
 from utils.long_term_facts_file_store import (
@@ -403,18 +405,26 @@ def refresh_runtime_l4_archived_fact_ids(
     context,
 ) -> set[str]:
 
+    reports = getattr(
+        context,
+        "delayed_memory_reports",
+        {},
+    )
     fact_ids = collect_long_term_fact_ids_from_reports(
-        getattr(
-            context,
-            "delayed_memory_reports",
-            {},
+        reports
+    )
+    # Anchor is a global visibility guarantee: if any delayed report keeps a
+    # fact as an anchor, another report cannot accidentally hide it.
+    anchor_fact_ids = set(
+        collect_anchor_fact_report_ids(
+            reports
         )
     )
+    fact_ids.difference_update(anchor_fact_ids)
     context.runtime_l4_archived_fact_ids = set(
         fact_ids
     )
     return context.runtime_l4_archived_fact_ids
-
 
 def ensure_runtime_l4_state(context) -> dict:
     context.runtime_facts_memory_records = normalize_facts_memory_records(
@@ -526,20 +536,53 @@ def remap_delayed_memory_l4_fact_ids(
         if not isinstance(report, dict):
             continue
 
-        current_ids = normalize_long_term_fact_ids(
-            report.get("long_term_facts_ids", [])
+        current_anchor_ids, current_absorbed_ids = (
+            normalize_delayed_memory_fact_roles(
+                report.get("anchor_fact_ids", []),
+                report.get("absorbed_fact_ids", []),
+                report.get("long_term_facts_ids", []),
+            )
         )
-        if not any(fact_id in removed_ids for fact_id in current_ids):
+        removed_anchor = any(
+            fact_id in removed_ids
+            for fact_id in current_anchor_ids
+        )
+        removed_absorbed = any(
+            fact_id in removed_ids
+            for fact_id in current_absorbed_ids
+        )
+
+        if not removed_anchor and not removed_absorbed:
             continue
 
-        next_ids = normalize_long_term_fact_ids([
-            *(fact_id for fact_id in current_ids if fact_id not in removed_ids),
-            *replacement_ids,
-        ])
+        next_anchor_ids = [
+            fact_id
+            for fact_id in current_anchor_ids
+            if fact_id not in removed_ids
+        ]
+        next_absorbed_ids = [
+            fact_id
+            for fact_id in current_absorbed_ids
+            if fact_id not in removed_ids
+        ]
+
+        if removed_anchor:
+            next_anchor_ids.extend(replacement_ids)
+        if removed_absorbed:
+            next_absorbed_ids.extend(replacement_ids)
+
+        next_anchor_ids, next_absorbed_ids = (
+            normalize_delayed_memory_fact_roles(
+                next_anchor_ids,
+                next_absorbed_ids,
+            )
+        )
         updated_report = {
             **report,
-            "long_term_facts_ids": next_ids,
+            "anchor_fact_ids": next_anchor_ids,
+            "absorbed_fact_ids": next_absorbed_ids,
         }
+        updated_report.pop("long_term_facts_ids", None)
         reports[report_id] = updated_report
         changed_reports[report_id] = updated_report
 
@@ -1311,6 +1354,29 @@ def l4_fact_matches_archived_ids(
     )
 
 
+def _get_l4_fact_anchor_report_ids(
+    fact: dict,
+    anchor_report_ids_by_fact_id: dict[str, list[str]],
+) -> list[str]:
+    candidate_ids = [
+        fact.get("id", ""),
+        *(
+            fact.get("source_fact_ids", [])
+            if isinstance(fact.get("source_fact_ids", []), list)
+            else []
+        ),
+    ]
+    report_ids = []
+
+    for candidate_id in candidate_ids:
+        fact_id = str(candidate_id or "").strip().upper()
+        for report_id in anchor_report_ids_by_fact_id.get(fact_id, []):
+            if report_id not in report_ids:
+                report_ids.append(report_id)
+
+    return report_ids
+
+
 def build_runtime_l4_memory_context(*, context) -> str:
     if not l4_memory_enabled():
         return ""
@@ -1318,6 +1384,10 @@ def build_runtime_l4_memory_context(*, context) -> str:
     store = ensure_runtime_l4_state(context)
     archived_fact_ids = refresh_runtime_l4_archived_fact_ids(
         context
+    )
+    reports = getattr(context, "delayed_memory_reports", {})
+    anchor_report_ids_by_fact_id = collect_anchor_fact_report_ids(
+        reports
     )
     active_facts = [
         fact
@@ -1327,8 +1397,22 @@ def build_runtime_l4_memory_context(*, context) -> str:
             archived_fact_ids,
         )
     ]
+    delayed_memory_ids_by_fact_id = {}
+
+    for fact in active_facts:
+        fact_id = str(fact.get("id", "") or "").strip().upper()
+        if not fact_id:
+            continue
+        report_ids = _get_l4_fact_anchor_report_ids(
+            fact,
+            anchor_report_ids_by_fact_id,
+        )
+        if report_ids:
+            delayed_memory_ids_by_fact_id[fact_id] = report_ids
+
     return format_long_term_memory_context(
-        active_facts
+        active_facts,
+        delayed_memory_ids_by_fact_id=delayed_memory_ids_by_fact_id,
     )
 
 
@@ -1372,10 +1456,17 @@ async def delete_l4_memory_fact(context, fact_id: str) -> bool:
         tag_suffix="DELETED",
         deleted_fact=deleted_fact,
     )
+    delayed_memory_change = remap_delayed_memory_l4_fact_ids(
+        context,
+        removed_fact_ids=[target_id],
+        replacement_fact_ids=[],
+    )
     await emit_l4_memory_update(
         context,
         change={"removed_ids": [target_id], "changed": True},
     )
+    if delayed_memory_change.get("changed"):
+        await emit_delayed_memory_reference_update(context)
     return True
 
 

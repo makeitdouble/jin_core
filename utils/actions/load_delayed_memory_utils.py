@@ -4,7 +4,7 @@ from .action_payload_utils import (
 from .delayed_memory_utils import is_delayed_memory_report_id
 
 
-def build_append_delayed_memory_payload(
+def build_load_delayed_memory_payload(
     query: str,
     placeholder_payloads=(),
 ) -> str | None:

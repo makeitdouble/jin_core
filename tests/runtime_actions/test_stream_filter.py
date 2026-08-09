@@ -468,8 +468,8 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 "todo-1",
             ),
             (
-                "<APPEND_DELAYED_MEMORY: a1b2c3/>",
-                "APPEND_DELAYED_MEMORY",
+                "<LOAD_DELAYED_MEMORY: a1b2c3/>",
+                "LOAD_DELAYED_MEMORY",
                 "a1b2c3",
             ),
         )
@@ -680,8 +680,8 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 "todo-1",
             ),
             (
-                "<REMOVE_DELAYED_MEMORY: **d4e5f6**>",
-                "REMOVE_DELAYED_MEMORY",
+                "<UNLOAD_DELAYED_MEMORY: **d4e5f6**>",
+                "UNLOAD_DELAYED_MEMORY",
                 "d4e5f6",
             ),
             (

@@ -124,8 +124,8 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
         expected_actions.extend(
             (
                 "SAVE_DELAYED_MEMORY_CONTENT",
-                "APPEND_DELAYED_MEMORY",
-                "REMOVE_DELAYED_MEMORY",
+                "LOAD_DELAYED_MEMORY",
+                "UNLOAD_DELAYED_MEMORY",
                 "UPDATE_DELAYED_MEMORY",
             )
         )
@@ -1758,7 +1758,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             context,
             0,
             [{
-                "name": "APPEND_DELAYED_MEMORY",
+                "name": "LOAD_DELAYED_MEMORY",
                 "marker_count": 2,
                 "payloads": [
                     "Shared title",
@@ -1775,12 +1775,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
             context.runtime_session_action_history[0]["parts"],
             [
                 {
-                    "text": "APPEND_DELAYED_MEMORY",
+                    "text": "LOAD_DELAYED_MEMORY",
                     "detail": "Shared title",
                     "id": "abc123",
                 },
                 {
-                    "text": "APPEND_DELAYED_MEMORY",
+                    "text": "LOAD_DELAYED_MEMORY",
                     "detail": "Shared title",
                     "id": "def456",
                 },
@@ -1798,7 +1798,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             context,
             0,
             [{
-                "name": "REMOVE_DELAYED_MEMORY",
+                "name": "UNLOAD_DELAYED_MEMORY",
                 "marker_count": 2,
                 "payloads": [
                     "First report",
@@ -1815,12 +1815,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
             context.runtime_session_action_history[0]["parts"],
             [
                 {
-                    "text": "REMOVE_DELAYED_MEMORY",
+                    "text": "UNLOAD_DELAYED_MEMORY",
                     "detail": "First report",
                     "id": "abc123",
                 },
                 {
-                    "text": "REMOVE_DELAYED_MEMORY",
+                    "text": "UNLOAD_DELAYED_MEMORY",
                     "detail": "Second report",
                     "id": "def456",
                 },
@@ -2596,7 +2596,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 yield {
                     "type": "content",
                     "content": (
-                        "<APPEND_DELAYED_MEMORY: pwajtw>\n\n"
+                        "<LOAD_DELAYED_MEMORY: pwajtw>\n\n"
                         f"{visible_answer}\n\n"
                         "<CLEAN_TOOL_RESULTS>"
                     ),
@@ -2679,7 +2679,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 for event in context.runtime_action_events
             ],
             [
-                "append_delayed_memory",
+                "load_delayed_memory",
                 "clean_tool_results",
             ],
         )
@@ -3553,11 +3553,11 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
         self.assertIn(
-            "<APPEND_DELAYED_MEMORY: id >",
+            "<LOAD_DELAYED_MEMORY: id >",
             prompt,
         )
         self.assertIn(
-            "<REMOVE_DELAYED_MEMORY: id >",
+            "<UNLOAD_DELAYED_MEMORY: id >",
             prompt,
         )
         self.assertNotIn(

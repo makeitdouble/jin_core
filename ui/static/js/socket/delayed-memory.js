@@ -102,6 +102,30 @@ function generateDelayedMemoryReportId(
 }
 
 
+function normalizeDelayedMemoryFactIds(
+  value
+) {
+
+  const source =
+    Array.isArray(value)
+      ? value
+      : String(value || "").split(/[;,\s]+/);
+  const seen = new Set();
+
+  return source
+    .map(item => String(item || "").trim().toUpperCase())
+    .filter(
+      factId => {
+        if (!/^F[1-9]\d*$/.test(factId) || seen.has(factId)) {
+          return false;
+        }
+        seen.add(factId);
+        return true;
+      }
+    );
+
+}
+
 function parseDelayedMemoryReportPayload(
   payload
 ) {
@@ -116,7 +140,7 @@ function parseDelayedMemoryReportPayload(
   }
 
   const fieldPattern =
-    /^[^\S\r\n]*(title|summary|tags|body)[^\S\r\n]*:[^\S\r\n]*(.*)$/gim;
+    /^[^\S\r\n]*(title|summary|tags|body|anchor_fact_ids|absorbed_fact_ids|long_term_facts_ids)[^\S\r\n]*:[^\S\r\n]*(.*)$/gim;
 
   const matches = [];
   let match = fieldPattern.exec(text);
@@ -160,7 +184,16 @@ function parseDelayedMemoryReportPayload(
               .filter(Boolean)
               .join("\n")
               .trim()
-          : field.inline;
+          : [
+              "anchor_fact_ids",
+              "absorbed_fact_ids",
+              "long_term_facts_ids",
+            ].includes(field.name)
+            ? [field.inline, blockValue]
+                .filter(Boolean)
+                .join(" ")
+                .trim()
+            : field.inline;
     }
   );
 
@@ -182,6 +215,18 @@ function parseDelayedMemoryReportPayload(
       currentReports
     );
 
+  const anchorFactIds =
+    normalizeDelayedMemoryFactIds(
+      fields.anchor_fact_ids
+    );
+  const anchorFactIdSet =
+    new Set(anchorFactIds);
+  const absorbedFactIds =
+    normalizeDelayedMemoryFactIds([
+      ...normalizeDelayedMemoryFactIds(fields.absorbed_fact_ids),
+      ...normalizeDelayedMemoryFactIds(fields.long_term_facts_ids),
+    ]).filter(factId => !anchorFactIdSet.has(factId));
+
   return {
     [key]: {
       title,
@@ -194,6 +239,8 @@ function parseDelayedMemoryReportPayload(
           .filter(Boolean),
       body:
         String(fields.body || "").trim(),
+      anchor_fact_ids: anchorFactIds,
+      absorbed_fact_ids: absorbedFactIds,
       created_session_id:
         String(window.jinRuntimeSessionId || websocketClientId || "").trim(),
       created_time:
@@ -371,7 +418,6 @@ function syncDelayedMemoryReportsToRuntime() {
     delayed_memory_reports: delayedMemoryReports,
   });
 }
-
 
 
 window.syncDelayedMemoryReportsToRuntime =

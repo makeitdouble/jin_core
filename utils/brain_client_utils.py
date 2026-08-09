@@ -61,7 +61,7 @@ from datetime import datetime
 from xml.etree import ElementTree
 
 from contracts.rules_assembler import (
-    RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
+    RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_APPEND_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_CHECK_TODO,
@@ -71,7 +71,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-    RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
+    RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_REMOVE_SKILL,
     RUNTIME_ACTION_RESOLVE_TODO,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
@@ -113,6 +113,7 @@ from utils.actions import (
     parse_delayed_memory_content_payload,
     parse_idle_seconds,
     normalize_jin_color_payload,
+    normalize_delayed_memory_fact_roles,
     normalize_long_term_fact_ids,
     refresh_active_memory_runtime_metadata,
     strip_active_memory_runtime_metadata,
@@ -330,23 +331,35 @@ def build_delayed_memory_report(
             report_id
         )
 
-        requested_l4_fact_ids = normalize_long_term_fact_ids(
-            value.get(
-                "long_term_facts_ids",
-                [],
+        requested_anchor_fact_ids, requested_absorbed_fact_ids = (
+            normalize_delayed_memory_fact_roles(
+                value.get("anchor_fact_ids", []),
+                value.get("absorbed_fact_ids", []),
+                value.get("long_term_facts_ids", []),
             )
         )
         available_l4_fact_ids = get_runtime_l4_fact_ids(
             context
         )
+        anchor_fact_ids = [
+            fact_id
+            for fact_id in requested_anchor_fact_ids
+            if fact_id in available_l4_fact_ids
+        ]
+        absorbed_fact_ids = [
+            fact_id
+            for fact_id in requested_absorbed_fact_ids
+            if fact_id in available_l4_fact_ids
+        ]
+        anchor_fact_ids, absorbed_fact_ids = normalize_delayed_memory_fact_roles(
+            anchor_fact_ids,
+            absorbed_fact_ids,
+        )
 
         enriched_report[report_id] = {
             **value,
-            "long_term_facts_ids": [
-                fact_id
-                for fact_id in requested_l4_fact_ids
-                if fact_id in available_l4_fact_ids
-            ],
+            "anchor_fact_ids": anchor_fact_ids,
+            "absorbed_fact_ids": absorbed_fact_ids,
             "pinned": bool(value.get("pinned", False)),
             "created_session_id": (
                 str(
@@ -421,6 +434,7 @@ def build_delayed_memory_report(
                 )
             ),
         }
+        enriched_report[report_id].pop("long_term_facts_ids", None)
 
     return enriched_report
 
@@ -2044,25 +2058,47 @@ def update_delayed_memory_report(
         )
 
     available_l4_fact_ids = get_runtime_l4_fact_ids(context)
-    requested_l4_fact_ids = normalize_long_term_fact_ids(
-        update.get("long_term_facts_ids", [])
+    requested_anchor_fact_ids = normalize_long_term_fact_ids(
+        update.get("anchor_fact_ids", [])
     )
-    accepted_l4_fact_ids = [
+    requested_absorbed_fact_ids = normalize_long_term_fact_ids(
+        update.get("absorbed_fact_ids", [])
+    )
+    accepted_anchor_fact_ids = [
         fact_id
-        for fact_id in requested_l4_fact_ids
+        for fact_id in requested_anchor_fact_ids
         if fact_id in available_l4_fact_ids
     ]
+    accepted_absorbed_fact_ids = [
+        fact_id
+        for fact_id in requested_absorbed_fact_ids
+        if fact_id in available_l4_fact_ids
+    ]
+
+    current_anchor_fact_ids, current_absorbed_fact_ids = (
+        normalize_delayed_memory_fact_roles(
+            report.get("anchor_fact_ids", []),
+            report.get("absorbed_fact_ids", []),
+            report.get("long_term_facts_ids", []),
+        )
+    )
+    next_anchor_fact_ids, next_absorbed_fact_ids = (
+        normalize_delayed_memory_fact_roles(
+            [
+                *current_anchor_fact_ids,
+                *accepted_anchor_fact_ids,
+            ],
+            [
+                *current_absorbed_fact_ids,
+                *accepted_absorbed_fact_ids,
+            ],
+        )
+    )
     next_tags = _append_unique_delayed_memory_values(
         report.get("tags", []),
         update.get("tags", []),
         casefold=True,
     )
-    next_fact_ids = normalize_long_term_fact_ids([
-        *normalize_long_term_fact_ids(
-            report.get("long_term_facts_ids", [])
-        ),
-        *accepted_l4_fact_ids,
-    ])
     appended_body = str(update.get("body", "") or "").strip()
     current_body = str(report.get("body", "") or "").rstrip()
     next_body = current_body
@@ -2076,9 +2112,8 @@ def update_delayed_memory_report(
 
     if (
         next_tags == list(report.get("tags", []) or [])
-        and next_fact_ids == normalize_long_term_fact_ids(
-            report.get("long_term_facts_ids", [])
-        )
+        and next_anchor_fact_ids == current_anchor_fact_ids
+        and next_absorbed_fact_ids == current_absorbed_fact_ids
         and next_body == current_body
     ):
         return build_delayed_memory_failure_result(
@@ -2090,9 +2125,11 @@ def update_delayed_memory_report(
     updated_report = {
         **report,
         "tags": next_tags,
-        "long_term_facts_ids": next_fact_ids,
+        "anchor_fact_ids": next_anchor_fact_ids,
+        "absorbed_fact_ids": next_absorbed_fact_ids,
         "body": next_body,
     }
+    updated_report.pop("long_term_facts_ids", None)
     reports[report_id] = updated_report
 
     appended_reports = get_appended_delayed_memory_report(context)
@@ -2132,7 +2169,6 @@ def update_delayed_memory_report(
         "file_saved": not file_errors,
         "file_errors": file_errors,
     }
-
 
 def include_pinned_delayed_memory_reports(
     context,
@@ -2331,16 +2367,16 @@ def build_delayed_memory_action_text(
 
     if action == "append_delayed_memory":
         return (
-            f"Append failed: {title}"
+            f"Load failed: {title}"
             if failed
-            else f"Appending: {title}"
+            else f"Loading: {title}"
         )
 
     if action == "remove_delayed_memory":
         return (
-            f"Remove failed: {title}"
+            f"Unload failed: {title}"
             if failed
-            else f"Removing: {title}"
+            else f"Unloading: {title}"
         )
 
     if action == "update_delayed_memory":
@@ -2421,10 +2457,10 @@ def build_delayed_memory_history_text(
         return f"Delayed memory saved: {title}"
 
     if action == "append_delayed_memory":
-        return f"Delayed memory appended: {title}"
+        return f"Delayed memory loaded: {title}"
 
     if action == "remove_delayed_memory":
-        return f"Delayed memory removed from context: {title}"
+        return f"Delayed memory unloaded from context: {title}"
 
     if action == "update_delayed_memory":
         return f"Delayed memory updated: {title}"
@@ -2931,6 +2967,5 @@ def has_zero_diff_stall_alert(
             None,
         )
     )
-
 
 

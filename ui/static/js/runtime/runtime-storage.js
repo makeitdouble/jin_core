@@ -1217,9 +1217,24 @@
             String(report.body || "").trim(),
           pinned:
             Boolean(report.pinned),
-          long_term_facts_ids:
+          anchor_fact_ids:
             normalizeLongTermFactIds(
-              report.long_term_facts_ids
+              report.anchor_fact_ids
+            ),
+          absorbed_fact_ids:
+            normalizeLongTermFactIds(
+              [
+                ...(Array.isArray(report.absorbed_fact_ids)
+                  ? report.absorbed_fact_ids
+                  : []),
+                ...(Array.isArray(report.long_term_facts_ids)
+                  ? report.long_term_facts_ids
+                  : []),
+              ]
+            ).filter(
+              factId => !normalizeLongTermFactIds(
+                report.anchor_fact_ids
+              ).includes(factId)
             ),
           created_session_id:
             String(report.created_session_id || "").trim(),
