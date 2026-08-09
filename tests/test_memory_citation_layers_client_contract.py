@@ -114,9 +114,9 @@ class MemoryCitationLayersClientContractTests(unittest.TestCase):
         self.assertIn("/static/css/runtime-memory.css?v=memory-hover-sync-9", source)
         self.assertIn("/static/css/theme-win95.css?v=memory-citations-2", source)
         self.assertIn("/static/js/runtime/runtime-memory-view.js?v=runtime-memory-view-26", source)
-        self.assertIn("/static/js/runtime/runtime-avatar.js?v=memory-rings-17", source)
+        self.assertIn("/static/js/runtime/runtime-avatar.js?v=memory-rings-18", source)
         self.assertIn("/static/js/think-citations.js?v=think-citations-5", source)
-        self.assertIn("/static/js/chat.js?v=memory-reference-sync-2", source)
+        self.assertIn("/static/js/chat.js?v=reasoning-gap-1", source)
 
 
 if __name__ == "__main__":

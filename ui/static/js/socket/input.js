@@ -155,14 +155,25 @@ function allModelRuntimesOffline() {
 }
 
 if (factCheckTrigger) {
+  function toggleRuntimeAvatarMemoryLayers() {
+    const avatar =
+      window.JinRuntime
+      && window.JinRuntime.avatar;
+
+    if (
+      avatar
+      && typeof avatar.toggleMemoryLayers === "function"
+    ) {
+      avatar.toggleMemoryLayers();
+    }
+  }
+
   factCheckTrigger.addEventListener(
     "click",
     (event) => {
       event.preventDefault();
       event.stopPropagation();
-      if (window.JinRuntime && window.JinRuntime.avatar && typeof window.JinRuntime.avatar.refresh === "function") {
-        window.JinRuntime.avatar.refresh();
-      }
+      toggleRuntimeAvatarMemoryLayers();
     }
   );
 }
@@ -225,6 +236,10 @@ chatForm.addEventListener(
 
       return;
 
+    }
+
+    if (window.focusBrainContextTab) {
+      window.focusBrainContextTab();
     }
 
     const attachments =

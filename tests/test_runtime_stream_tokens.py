@@ -698,6 +698,93 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                 status=original_state["status"],
             )
 
+    async def test_service_context_counter_grows_during_stream(self):
+
+        runtime_id = settings.SERVICE_MODEL_UID
+        original_state = runtime_state.get_runtime_state(
+            runtime_id
+        )
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            runtime_action_events=[],
+            runtime_usage_events=[],
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=runtime_id,
+            role="service",
+            context_window=(
+                settings.SERVICE_CONTEXT_WINDOW
+            ),
+            log_method=(
+                context.logger.log_service
+            ),
+            context_snapshot={
+                "context_role": "service",
+                "system_prompt": "service system prompt",
+                "user_prompt": "service payload",
+            },
+        )
+
+        try:
+            await stream.run(
+                fake_generator()
+            )
+
+            service_state = runtime_state.get_runtime_state(
+                runtime_id
+            )
+
+            self.assertEqual(
+                service_state["used_tokens"],
+                42,
+            )
+            self.assertEqual(
+                service_state["context_tokens"],
+                12,
+            )
+            self.assertEqual(
+                service_state["total_tokens"],
+                42,
+            )
+
+            telemetry_counts = [
+                event["runtime"][runtime_id]["used_tokens"]
+                for event in context.emitter.events
+                if event.get("type") == "telemetry"
+            ]
+            self.assertGreaterEqual(
+                len(telemetry_counts),
+                2,
+            )
+            self.assertEqual(
+                telemetry_counts[-1],
+                42,
+            )
+            self.assertEqual(
+                context.runtime_usage_events[-1]["role"],
+                "service",
+            )
+            self.assertEqual(
+                context.runtime_usage_events[-1]["kind"],
+                "service",
+            )
+
+        finally:
+            runtime_state.update_runtime_state(
+                runtime_id=runtime_id,
+                used_tokens=original_state["used_tokens"],
+                context_tokens=original_state["context_tokens"],
+                total_tokens=original_state["total_tokens"],
+                max_tokens=original_state["max_tokens"],
+                last_error=original_state["last_error"],
+                status=original_state["status"],
+            )
+
     async def test_runtime_counter_keeps_estimated_total_when_provider_usage_has_no_total(self):
 
         runtime_id = settings.SERVICE_MODEL_UID
@@ -1010,7 +1097,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
-    async def test_non_brain_stream_does_not_update_context_counter(self):
+    async def test_non_brain_stream_updates_context_counter(self):
 
         runtime_id = settings.SERVICE_MODEL_UID
         original_state = runtime_state.get_runtime_state(
@@ -1049,12 +1136,29 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(
                 service_state["used_tokens"],
-                original_state["used_tokens"],
+                42,
+            )
+            self.assertEqual(
+                service_state["context_tokens"],
+                12,
+            )
+            self.assertEqual(
+                service_state["total_tokens"],
+                42,
             )
 
+            telemetry_counts = [
+                event["runtime"][runtime_id]["used_tokens"]
+                for event in context.emitter.events
+                if event.get("type") == "telemetry"
+            ]
+            self.assertGreaterEqual(
+                len(telemetry_counts),
+                2,
+            )
             self.assertEqual(
-                context.emitter.events,
-                [],
+                telemetry_counts[-1],
+                42,
             )
 
             self.assertEqual(
@@ -1076,6 +1180,8 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             runtime_state.update_runtime_state(
                 runtime_id=runtime_id,
                 used_tokens=original_state["used_tokens"],
+                context_tokens=original_state["context_tokens"],
+                total_tokens=original_state["total_tokens"],
                 max_tokens=original_state["max_tokens"],
                 last_error=original_state["last_error"],
                 status=original_state["status"],

@@ -210,6 +210,12 @@
         opacity 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
+.jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-memory-ring,
+.jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-memory-dash {
+    opacity: 0;
+    pointer-events: none;
+}
+
 .jin-avatar-memory-dash path {
     transition:
         stroke-opacity 0.28s cubic-bezier(0.22, 0.61, 0.36, 1),

@@ -6,6 +6,8 @@ sys.path.insert(
     str(Path(__file__).resolve().parents[1]),
 )
 
+import utils.stream_validator as stream_validator_module
+
 from utils.stream_validator import (
     MAX_REPEAT_SENTENCES,
     StreamValidator,
@@ -159,6 +161,54 @@ def test_stream_validator_stops_recurrent_sentence_inside_mixed_loop():
     assert validator.last_failure_loop_preview == (
         "Actually, I'll just do the task."
     )
+
+
+def test_stream_validator_sentence_repeat_threshold_can_be_raised(monkeypatch):
+    threshold = 7
+
+    monkeypatch.setattr(
+        stream_validator_module,
+        "MAX_REPEAT_SENTENCES",
+        threshold,
+    )
+
+    validator = StreamValidator()
+    repeated = "Actually, I'll just do the task.\n"
+
+    for repeat_index in range(threshold):
+        clean, is_valid = validator.filter_chunk(
+            repeated
+        )
+
+        if repeat_index < threshold - 1:
+            assert clean == repeated
+            assert is_valid
+            continue
+
+        assert clean == ""
+        assert not is_valid
+
+
+def test_stream_validator_sentence_repeat_threshold_zero_disables_check(monkeypatch):
+    monkeypatch.setattr(
+        stream_validator_module,
+        "MAX_REPEAT_SENTENCES",
+        0,
+    )
+
+    validator = StreamValidator()
+    repeated = "Actually, I'll just do the task.\n"
+
+    text = collect(
+        validator,
+        [
+            repeated
+            for _ in range(10)
+        ],
+    )
+
+    assert text == repeated * 10
+    assert validator.last_failure_reason is None
 
 
 def test_stream_validator_stops_repeated_sentence_sequence_with_markers():

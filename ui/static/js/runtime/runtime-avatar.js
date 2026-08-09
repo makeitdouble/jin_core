@@ -54,6 +54,7 @@
     Object.freeze(["l4", "delayed", "active"]);
   const SNAPSHOT_GLOW_CLEAR_DELAY_MS = 360;
   const CENTER_COLOR_STEP_MS = 120;
+  const MEMORY_LAYERS_HIDDEN_CLASS = "is-memory-layers-hidden";
 
   // 0 = no scene recolor, 1 = current full-strength scene recolor.
   const JIN_SCENE_COLOR_INTENSITY = 0.40;
@@ -2618,6 +2619,47 @@
     return true;
   }
 
+  function syncMemoryLayersToggleLabel(hidden) {
+    if (!factCheckTrigger) {
+      return;
+    }
+
+    const memoryLayersHidden =
+      hidden === undefined
+        ? avatarRoot.classList.contains(MEMORY_LAYERS_HIDDEN_CLASS)
+        : Boolean(hidden);
+    const label =
+      memoryLayersHidden
+        ? "show"
+        : "hide";
+
+    factCheckTrigger.setAttribute("title", label);
+    factCheckTrigger.setAttribute("aria-label", label);
+    factCheckTrigger.setAttribute("alt", label);
+    factCheckTrigger.dataset.memoryLayersHidden =
+      memoryLayersHidden ? "true" : "false";
+  }
+
+  function setMemoryLayersHidden(hidden) {
+    const nextHidden = Boolean(hidden);
+
+    avatarRoot.classList.toggle(
+      MEMORY_LAYERS_HIDDEN_CLASS,
+      nextHidden
+    );
+    avatarRoot.dataset.memoryLayersHidden =
+      nextHidden ? "true" : "false";
+    syncMemoryLayersToggleLabel(nextHidden);
+
+    return nextHidden;
+  }
+
+  function toggleMemoryLayers() {
+    return setMemoryLayersHidden(
+      !avatarRoot.classList.contains(MEMORY_LAYERS_HIDDEN_CLASS)
+    );
+  }
+
   function reinitializeAvatar() {
     avatarRefreshNonce += 1;
     snapshotRenderSequence += 1;
@@ -2835,6 +2877,8 @@
   }
 
   if (factCheckTrigger) {
+    syncMemoryLayersToggleLabel();
+
     factCheckTrigger.addEventListener("mousedown", (event) => {
       event.stopPropagation();
     });
@@ -2851,6 +2895,8 @@
     render: renderAvatar,
     refresh: reinitializeAvatar,
     setCenterColor,
+    setMemoryLayersHidden,
+    toggleMemoryLayers,
     setDelayedMemoryPinned: setDelayedMemoryDashPinned,
     syncActiveMemoryState,
     syncDelayedMemoryState,

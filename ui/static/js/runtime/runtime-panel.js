@@ -152,6 +152,73 @@
   }
 
 
+  function getRuntimeUsageAmount(runtime) {
+
+    if (!runtime) {
+      return 0;
+    }
+
+    return Math.max(
+      Number(runtime.used_tokens || 0),
+      Number(runtime.context_tokens || 0),
+      Number(runtime.total_tokens || 0)
+    );
+
+  }
+
+
+  function runtimeHasUsage(runtime) {
+
+    return getRuntimeUsageAmount(
+      runtime
+    ) > 0;
+
+  }
+
+
+  function buildServiceRuntimeUsageFallback(
+    serviceRuntime,
+    summarizerRuntime
+  ) {
+
+    if (
+      !summarizerRuntime
+      || runtimeHasUsage(serviceRuntime)
+      || !runtimeHasUsage(summarizerRuntime)
+    ) {
+      return serviceRuntime;
+    }
+
+    return {
+      ...summarizerRuntime,
+      label: "service",
+      model: (
+        serviceRuntime
+        && serviceRuntime.model
+      )
+        ? serviceRuntime.model
+        : summarizerRuntime.model,
+      status: (
+        serviceRuntime
+        && serviceRuntime.status
+      )
+        ? serviceRuntime.status
+        : summarizerRuntime.status,
+    };
+
+  }
+
+
+  function getServiceRuntime() {
+
+    return buildServiceRuntimeUsageFallback(
+      getRuntimeByLabel("service"),
+      getSummarizerRuntime()
+    );
+
+  }
+
+
   function getBrainRuntime() {
 
     return (
@@ -181,7 +248,7 @@
       return getBrainRuntime();
     }
 
-    return getRuntimeByLabel("service");
+    return getServiceRuntime();
 
   }
 
@@ -1203,9 +1270,7 @@
   function renderLiveRuntimeTelemetry() {
 
     const serviceRuntime =
-      getRuntimeByLabel(
-        "service"
-      );
+      getServiceRuntime();
 
     const brainRuntime =
       getBrainRuntime();
@@ -1372,6 +1437,15 @@
   }
 
 
+  function focusBrainContextTab() {
+
+    selectContextTab(
+      "brain"
+    );
+
+  }
+
+
   function setUseServiceAsBrain(enabled) {
 
     runtimePanelState.useServiceAsBrain =
@@ -1398,9 +1472,7 @@
       runtimeConfig || {};
 
     const serviceRuntime =
-      getRuntimeByLabel(
-        "service"
-      );
+      getServiceRuntime();
 
     const brainRuntime =
       getBrainRuntime();
@@ -1575,6 +1647,7 @@
     init,
     findRuntimeByLabel,
     getRuntimeByLabel,
+    getServiceRuntime,
     getBrainRuntime,
     getSummarizerRuntime,
     getSelectedRuntime,
@@ -1585,6 +1658,7 @@
     setUseServiceAsBrain,
     setRuntimeStatusSnapshot,
     setRuntimeConfigSnapshot,
+    focusBrainContextTab,
   };
 
   window.JinRuntime.panel = api;
@@ -1611,6 +1685,10 @@
 
   window.setRuntimeConfigSnapshot = function (runtimeConfig) {
     return api.setRuntimeConfigSnapshot(runtimeConfig);
+  };
+
+  window.focusBrainContextTab = function () {
+    return api.focusBrainContextTab();
   };
 
 }());

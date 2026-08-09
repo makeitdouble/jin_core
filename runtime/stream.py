@@ -294,9 +294,6 @@ class RuntimeStream:
 
     async def refresh_provider_token_usage(self):
 
-        if not self.is_brain_context():
-            return
-
         prompt_tokens = getattr(
             self.stream,
             "prompt_tokens",
@@ -404,9 +401,6 @@ class RuntimeStream:
         )
 
     async def refresh_token_usage(self):
-
-        if not self.is_brain_context():
-            return
 
         prompt_tokens = getattr(
             self.stream,

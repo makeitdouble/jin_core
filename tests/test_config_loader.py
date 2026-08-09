@@ -52,6 +52,11 @@ class ConfigLoaderTests(unittest.TestCase):
             50,
         )
 
+        self.assertEqual(
+            config.STREAM_VALIDATOR_MAX_REPEAT_SENTENCES,
+            5,
+        )
+
     def test_env_overrides_fallback_config_values(self):
 
         root = Path(__file__).resolve().parents[1]

@@ -9,6 +9,7 @@ AVATAR_JS = (
 )
 RUNTIME_JS = ROOT / "ui" / "static" / "js" / "runtime" / "runtime.js"
 AVATAR_CSS = ROOT / "ui" / "static" / "css" / "runtime-avatar.css"
+INPUT_JS = ROOT / "ui" / "static" / "js" / "socket" / "input.js"
 INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
 
@@ -140,15 +141,52 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
             source,
         )
 
+    def test_avatar_core_button_toggles_memory_layers_without_refresh(self):
+        index_source = INDEX_HTML.read_text(encoding="utf-8")
+        avatar_source = AVATAR_JS.read_text(encoding="utf-8")
+        input_source = INPUT_JS.read_text(encoding="utf-8")
+        css_source = AVATAR_CSS.read_text(encoding="utf-8")
+
+        self.assertIn('title="hide"', index_source)
+        self.assertIn('aria-label="hide"', index_source)
+        self.assertIn('alt="hide"', index_source)
+        self.assertIn(
+            "function toggleRuntimeAvatarMemoryLayers()",
+            input_source,
+        )
+        self.assertIn(
+            "avatar.toggleMemoryLayers();",
+            input_source,
+        )
+        self.assertIn(
+            "function setMemoryLayersHidden(hidden)",
+            avatar_source,
+        )
+        self.assertIn("toggleMemoryLayers,", avatar_source)
+        self.assertIn(
+            ".jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-memory-ring",
+            css_source,
+        )
+
+        click_start = input_source.index("if (factCheckTrigger) {")
+        click_end = input_source.index("chatForm.addEventListener", click_start)
+        click_block = input_source[click_start:click_end]
+
+        self.assertNotIn("avatar.refresh", click_block)
+
     def test_avatar_cache_versions_are_bumped(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            "/static/css/runtime-avatar.css?v=memory-rings-6",
+            "/static/css/runtime-avatar.css?v=memory-rings-7",
             source,
         )
         self.assertIn(
-            "/static/js/runtime/runtime-avatar.js?v=memory-rings-17",
+            "/static/js/runtime/runtime-avatar.js?v=memory-rings-18",
+            source,
+        )
+        self.assertIn(
+            "/static/js/socket/input.js?v=socket-input-memory-layer-toggle-brain-tab-1",
             source,
         )
 

@@ -46,6 +46,10 @@
     position: relative;
 }
 
+.jin-stream-wrapper > :not([hidden]) ~ :not([hidden]) {
+    margin-top: var(--chat-inner-gap) !important;
+}
+
 #chat-history .jin-stream-wrapper + .jin-stream-wrapper,
 #chat-history .jin-stream-wrapper + .jin-message-shell,
 #chat-history .jin-message-shell + .jin-stream-wrapper,

@@ -1,6 +1,7 @@
 from contracts.rules_assembler import (
     get_stream_validator_excluded_markers,
 )
+from config_loader import config
 
 # ---------------------------------------------------------
 # STREAM VALIDATOR
@@ -38,18 +39,81 @@ TRAILING_ARTIFACTS = [
 # VALIDATION THRESHOLDS
 # ---------------------------------------------------------
 
-WORD_WINDOW_SIZE = 30
-MAX_REPEAT_WORDS = 8
-MAX_REPEAT_WORD_SEQUENCE_SIZE = 6
-MAX_REPEAT_WORD_SEQUENCE_REPETITIONS = 6
-MAX_REPEAT_SENTENCES = 5
-MAX_SENTENCE_LOOP_SEQUENCE_SIZE = 16
+def configured_int(
+    name: str,
+    default: int,
+    *,
+    minimum: int = 1,
+    zero_disables: bool = False,
+) -> int:
+
+    try:
+        value = int(
+            getattr(
+                config,
+                name,
+                default,
+            )
+        )
+    except (TypeError, ValueError):
+        value = default
+
+    if zero_disables and value <= 0:
+        return 0
+
+    return max(
+        minimum,
+        value,
+    )
+
+
+WORD_WINDOW_SIZE = configured_int(
+    "STREAM_VALIDATOR_WORD_WINDOW_SIZE",
+    30,
+)
+MAX_REPEAT_WORDS = configured_int(
+    "STREAM_VALIDATOR_MAX_REPEAT_WORDS",
+    8,
+    minimum=2,
+    zero_disables=True,
+)
+MAX_REPEAT_WORD_SEQUENCE_SIZE = configured_int(
+    "STREAM_VALIDATOR_MAX_REPEAT_WORD_SEQUENCE_SIZE",
+    6,
+    minimum=2,
+    zero_disables=True,
+)
+MAX_REPEAT_WORD_SEQUENCE_REPETITIONS = configured_int(
+    "STREAM_VALIDATOR_MAX_REPEAT_WORD_SEQUENCE_REPETITIONS",
+    6,
+    minimum=2,
+    zero_disables=True,
+)
+MAX_REPEAT_SENTENCES = configured_int(
+    "STREAM_VALIDATOR_MAX_REPEAT_SENTENCES",
+    5,
+    minimum=2,
+    zero_disables=True,
+)
+MAX_SENTENCE_LOOP_SEQUENCE_SIZE = configured_int(
+    "STREAM_VALIDATOR_MAX_SENTENCE_LOOP_SEQUENCE_SIZE",
+    16,
+)
 MAX_RECURRENT_SENTENCE_HISTORY_SIZE = (
     MAX_SENTENCE_LOOP_SEQUENCE_SIZE
-    * MAX_REPEAT_SENTENCES
+    * max(
+        1,
+        MAX_REPEAT_SENTENCES,
+    )
 )
-MIN_RECURRENT_SENTENCE_WORDS = 5
-MIN_RECURRENT_SENTENCE_ALNUM = 20
+MIN_RECURRENT_SENTENCE_WORDS = configured_int(
+    "STREAM_VALIDATOR_MIN_RECURRENT_SENTENCE_WORDS",
+    5,
+)
+MIN_RECURRENT_SENTENCE_ALNUM = configured_int(
+    "STREAM_VALIDATOR_MIN_RECURRENT_SENTENCE_ALNUM",
+    20,
+)
 SENTENCE_HISTORY_SIZE = (
     MAX_SENTENCE_LOOP_SEQUENCE_SIZE
     + 1
@@ -583,7 +647,10 @@ class StreamValidator:
                 self.recent_words[-WORD_WINDOW_SIZE:]
             )
 
-            if len(self.recent_words) >= MAX_REPEAT_WORDS:
+            if (
+                MAX_REPEAT_WORDS > 0
+                and len(self.recent_words) >= MAX_REPEAT_WORDS
+            ):
 
                 last_word = self.recent_words[-1]
 
@@ -611,10 +678,13 @@ class StreamValidator:
 
                     return False
 
-            max_sequence_size = min(
-                MAX_REPEAT_WORD_SEQUENCE_SIZE,
-                len(self.recent_words) // 2,
-            )
+            max_sequence_size = 0
+
+            if MAX_REPEAT_WORD_SEQUENCE_REPETITIONS > 0:
+                max_sequence_size = min(
+                    MAX_REPEAT_WORD_SEQUENCE_SIZE,
+                    len(self.recent_words) // 2,
+                )
 
             for sequence_size in range(
                 2,
@@ -882,6 +952,9 @@ class StreamValidator:
         if not sentence_key:
             return True
 
+        if MAX_REPEAT_SENTENCES <= 0:
+            return True
+
         matching_sentences = [
             history_sentence
             for history_sentence in (
@@ -947,6 +1020,9 @@ class StreamValidator:
             > MAX_RECURRENT_SENTENCE_HISTORY_SIZE
         ):
             del self.recurrent_sentence_history[0]
+
+        if MAX_REPEAT_SENTENCES <= 0:
+            return True
 
         max_sequence_size = min(
             MAX_SENTENCE_LOOP_SEQUENCE_SIZE,

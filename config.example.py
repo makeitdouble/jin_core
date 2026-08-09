@@ -24,6 +24,21 @@ NATIVE_MODELS_ENDPOINT = "/api/v1/models"
 WEBSOCKET_MAX_MESSAGE_BYTES = 64 * 1024 * 1024
 
 # ---------------------------------------------------------
+# STREAM VALIDATOR
+# ---------------------------------------------------------
+
+# Repetition loop guards. Raise these values to make the validator softer.
+# Set a repeat threshold to 0 to disable that specific loop check.
+STREAM_VALIDATOR_WORD_WINDOW_SIZE = 30
+STREAM_VALIDATOR_MAX_REPEAT_WORDS = 8
+STREAM_VALIDATOR_MAX_REPEAT_WORD_SEQUENCE_SIZE = 6
+STREAM_VALIDATOR_MAX_REPEAT_WORD_SEQUENCE_REPETITIONS = 6
+STREAM_VALIDATOR_MAX_REPEAT_SENTENCES = 5
+STREAM_VALIDATOR_MAX_SENTENCE_LOOP_SEQUENCE_SIZE = 16
+STREAM_VALIDATOR_MIN_RECURRENT_SENTENCE_WORDS = 5
+STREAM_VALIDATOR_MIN_RECURRENT_SENTENCE_ALNUM = 20
+
+# ---------------------------------------------------------
 # TOKEN BUDGETING
 # ---------------------------------------------------------
 

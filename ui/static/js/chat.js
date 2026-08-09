@@ -969,7 +969,7 @@ function createStreamGroup(
     document.createElement("div");
 
   wrapper.className =
-    "jin-stream-wrapper mx-auto w-full max-w-4xl space-y-3";
+    "jin-stream-wrapper mx-auto w-full max-w-4xl";
 
   // THINKING
 

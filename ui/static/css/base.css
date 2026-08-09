@@ -33,19 +33,20 @@
     --chat-min-width: 200px;
     --scene-shade-alpha: 0;
     --jin-color: #1f4f8f;
-    --scene-base-color: #0f1b2c;
-    --scene-jin-tint-alpha: 0.40;
-    --scene-context-tint-boost: 0;
+    --scene-base-color: #122540;
+    --scene-jin-tint-alpha: 0.048;
 
     --scene-layer-base: 0;
-    --scene-layer-context: 1;
-    --scene-layer-search: 2;
-    --scene-layer-tint: 3;
+    --scene-layer-tint: 1;
+    --scene-layer-context: 2;
+    --scene-layer-search: 3;
     --scene-layer-shade: 4;
 
     /* Вертикальный ритм чата: добавляет немного воздуха между ходами. */
     --chat-turn-gap: 2.05rem;
     --chat-inner-gap: 0.85rem;
+    --chat-reasoning-gap: 0.28rem;
+    --chat-action-adjacent-gap: 0.82rem;
     --chat-question-gap: 2.55rem;
     --chat-history-edge-gap: 1.9rem;
 }
@@ -101,31 +102,15 @@ main.panel-startup-collapse-active {
 }
 
 main.scene-clutter-middle #scene-clutter-overlay,
-main.scene-cluttered #scene-clutter-overlay,
 main.scene-cluttered #scene-cluttered-overlay,
 main.scene-searching #scene-search-overlay {
     opacity: 1;
 }
 
-main.scene-clutter-middle {
-    --scene-context-tint-boost: 0.06;
-}
-
-main.scene-cluttered {
-    --scene-context-tint-boost: 0.12;
-}
-
-main.scene-searching {
-    --scene-context-tint-boost: 0.08;
-}
-
 #scene-jin-tint {
     z-index: var(--scene-layer-tint);
     background-color: var(--jin-color);
-    opacity: min(
-            0.34,
-            calc(var(--scene-jin-tint-alpha) + var(--scene-context-tint-boost))
-    );
+    opacity: var(--scene-jin-tint-alpha, 0.048);
     transition:
             background-color 0.22s ease,
             opacity 0.22s ease;
@@ -478,9 +463,21 @@ main.panels-collapsed-2 #scene-shade {
     margin-top: var(--chat-question-gap) !important;
 }
 
+#chat-history > .jin-stream-wrapper:has(> .jin-think-wrapper:last-child)
++ .jin-stream-wrapper:has(> .jin-think-wrapper:first-child) {
+    margin-top: var(--chat-reasoning-gap) !important;
+}
+
 #chat-history > :not(.jin-runtime-action-row) + .jin-runtime-action-row {
     /* Первый action-бабл держим рядом с ответом JIN, а не как отдельный ход. */
     margin-top: 0.45rem !important;
+}
+
+#chat-history > .jin-stream-wrapper:has(> .jin-think-wrapper:last-child)
++ .jin-runtime-action-row,
+#chat-history > .jin-runtime-action-row
++ .jin-stream-wrapper:has(> .jin-think-wrapper:first-child) {
+    margin-top: var(--chat-action-adjacent-gap) !important;
 }
 
 #chat-history > .jin-runtime-action-row + .jin-runtime-action-row {
