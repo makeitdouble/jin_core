@@ -22,6 +22,8 @@ class L4LoggerCardsClientContractTests(unittest.TestCase):
         self.assertIn('api.requestFactRestore(', source)
         self.assertIn('window.handleL4LoggerMemoryRestoreResult', source)
         self.assertIn('window.handleL4MemoryRestoreResult', source)
+        self.assertIn('resolveDeletedL4FactNumber(fact)', source)
+        self.assertIn('`${factNumber} · ${factTitle}`', source)
 
     def test_deleted_delayed_memory_card_exposes_payload_and_restore(self):
         source = LOG_ENTRIES_JS.read_text(encoding="utf-8")
@@ -89,8 +91,8 @@ class L4LoggerCardsClientContractTests(unittest.TestCase):
         self.assertIn('/static/css/runtime-memory.css?v=delayed-context-loaded-1', source)
         self.assertIn('/static/js/runtime/runtime-l4-memory.js?v=delayed-loaded-facts-1', source)
         self.assertIn('/static/js/logger/logger.js?v=l4-trace-reason-2', source)
-        self.assertIn('/static/js/logger/trace-modal.js?v=l4-truncate-diagnostics-1', source)
-        self.assertIn('/static/js/logger/log-entries.js?v=delayed-delete-restore-1', source)
+        self.assertIn('/static/js/logger/trace-modal.js?v=context-marker-layout-1', source)
+        self.assertIn('/static/js/logger/log-entries.js?v=l4-deleted-fact-number-1', source)
         self.assertIn('/static/js/socket/event-handlers.js?v=l4-restore-2', source)
 
 

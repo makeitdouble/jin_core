@@ -1497,6 +1497,23 @@ function resolveDeletedL4Fact(
   return null;
 }
 
+function resolveDeletedL4FactNumber(fact) {
+  const match =
+    String(fact && fact.id || "")
+      .trim()
+      .match(/^F(\d+)$/i);
+
+  if (!match) {
+    return null;
+  }
+
+  const number = Number(match[1]);
+
+  return Number.isSafeInteger(number)
+    ? number
+    : null;
+}
+
 function handleL4DeletedFactLog(
   tag,
   details,
@@ -1531,8 +1548,15 @@ function handleL4DeletedFactLog(
   key.className =
     "block mt-2 text-zinc-200 font-semibold";
 
-  key.textContent =
+  const factNumber =
+    resolveDeletedL4FactNumber(fact);
+  const factTitle =
     String(fact.key || fact.id || "L4 fact");
+
+  key.textContent =
+    factNumber !== null
+      ? `${factNumber} · ${factTitle}`
+      : factTitle;
 
   const value =
     document.createElement("span");

@@ -197,8 +197,14 @@ class RuntimeActionCounter:
                 continue
 
             payloads = resolved_display_payloads.get(
-                entry.name,
-                entry.payloads,
+                (
+                    entry.name,
+                    entry.identity,
+                ),
+                resolved_display_payloads.get(
+                    entry.name,
+                    entry.payloads,
+                ),
             )
 
             normalized_payloads = normalize_runtime_action_counter_payloads(
@@ -363,8 +369,14 @@ async def emit_runtime_action_counter_updates(
             continue
 
         payloads = resolved_display_payloads.get(
-            entry.name,
-            entry.payloads,
+            (
+                entry.name,
+                entry.identity,
+            ),
+            resolved_display_payloads.get(
+                entry.name,
+                entry.payloads,
+            ),
         )
 
         normalized_payloads = normalize_runtime_action_counter_payloads(

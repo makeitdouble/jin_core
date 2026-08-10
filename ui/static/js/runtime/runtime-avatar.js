@@ -518,9 +518,17 @@
       normalizeRuntimeCitationIdentity(
         line && line.key || ""
       );
+    const value =
+      normalizeRuntimeCitationIdentity(
+        line && line.value || ""
+      );
 
-    return key
-      ? `key:${key}`
+    // Runtime memory may legitimately contain repeated keys (for example,
+    // several `jin_fact` lines). A key-only identity collapses those lines
+    // into one marker, so every sibling inherits the same change ratio.
+    // Keep the concrete line text and source position in the fallback.
+    return (key || value)
+      ? `line:${index}:${key}␟${value}`
       : `line:${index}`;
   }
 
@@ -2043,14 +2051,25 @@
       marker.status === "new"
         ? 1
         : clamp(marker.ratio, 0, 1);
-    const markerRadius =
-      3.4 + Math.sqrt(ratio) * 2.8;
+    const isNew =
+      marker.status === "new";
+    const markerRadius = 6.2;
+    const markerStrokeWidth = isNew ? 0 : 1.05;
+    const markerFillGap = 0.7;
+    const markerMaxInnerRadius = Math.max(
+      0,
+      markerRadius - markerStrokeWidth * 0.5 - markerFillGap
+    );
+    const markerInnerRadius = isNew
+      ? markerRadius
+      : Math.max(
+        0,
+        markerMaxInnerRadius * Math.sqrt(ratio)
+      );
     const angle =
       (hashString(record.changeMarkerIdentity) % 36000) / 100;
     const point =
       polarPoint(record.radius, angle);
-    const isNew =
-      marker.status === "new";
     const markerGroup = createSvgElement("g", {
       class:
         `jin-avatar-runtime-change-marker is-${isNew ? "new" : "changed"}`,
@@ -2067,16 +2086,30 @@
       )
     );
 
-    markerGroup.appendChild(createSvgElement("circle", {
-      cx: point.x,
-      cy: point.y,
-      r: markerRadius,
-      fill: isNew ? color : "none",
-      "fill-opacity": isNew ? 0.94 : null,
-      stroke: color,
-      "stroke-width": isNew ? 0.85 : 1.05,
-      "stroke-opacity": 0.92,
-    }));
+    if (!isNew) {
+      markerGroup.appendChild(createSvgElement("circle", {
+        class: "jin-avatar-runtime-change-marker-ring",
+        cx: point.x,
+        cy: point.y,
+        r: markerRadius,
+        fill: "none",
+        stroke: color,
+        "stroke-width": markerStrokeWidth,
+        "stroke-opacity": 0.92,
+      }));
+    }
+
+    if (markerInnerRadius > 0.01) {
+      markerGroup.appendChild(createSvgElement("circle", {
+        class: "jin-avatar-runtime-change-marker-fill",
+        cx: point.x,
+        cy: point.y,
+        r: markerInnerRadius.toFixed(2),
+        fill: color,
+        "fill-opacity": 0.94,
+        stroke: "none",
+      }));
+    }
 
     group.appendChild(markerGroup);
   }
@@ -2492,11 +2525,30 @@
     const activeIdentities =
       getActiveThinkRuntimeCitationIdentitySets();
 
-    Array.from(
+    const citationNodes = Array.from(
       svg.querySelectorAll(
         ".jin-avatar-orbit[data-runtime-line-key], .jin-avatar-counter-orbit[data-runtime-line-key], .jin-avatar-memory-dash"
       )
-    ).forEach((orbitGroup) => {
+    );
+    const lineKeyUsage = new Map();
+
+    citationNodes.forEach((node) => {
+      const lineKey =
+        normalizeRuntimeCitationIdentity(
+          node.dataset.runtimeLineKey
+        );
+
+      if (!lineKey) {
+        return;
+      }
+
+      lineKeyUsage.set(
+        lineKey,
+        Number(lineKeyUsage.get(lineKey) || 0) + 1
+      );
+    });
+
+    citationNodes.forEach((orbitGroup) => {
       const lineIdentity =
         normalizeRuntimeCitationIdentity(
           orbitGroup.dataset.runtimeLineIdentity
@@ -2509,13 +2561,19 @@
         normalizeRuntimeCitationIdentity(
           orbitGroup.dataset.runtimeLineText
         );
+      const exactTextMatch = Boolean(
+        lineText
+        && activeIdentities.lineTexts.has(lineText)
+      );
+      const uniqueKeyMatch = Boolean(
+        lineKey
+        && Number(lineKeyUsage.get(lineKey) || 0) === 1
+        && activeIdentities.lineKeys.has(lineKey)
+      );
       const cited =
         lineIdentity
           ? activeIdentities.lineIdentities.has(lineIdentity)
-          : (
-            (lineKey && activeIdentities.lineKeys.has(lineKey))
-            || (lineText && activeIdentities.lineTexts.has(lineText))
-          );
+          : (exactTextMatch || uniqueKeyMatch);
 
       orbitGroup.classList.toggle(
         "is-runtime-cited",

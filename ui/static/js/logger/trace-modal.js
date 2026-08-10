@@ -963,6 +963,28 @@ function parseContextAttributes(raw) {
   return attributes;
 }
 
+function parseContextRuntimeActionMarkerTitle(
+  line,
+  nextLine,
+) {
+  if (
+      !/^Follow-up:\s*(?:true|false)\s*$/i.test(
+        String(nextLine || "").trim()
+      )
+  ) {
+    return "";
+  }
+
+  const marker =
+    String(line || "").trim();
+  const match =
+    marker.match(
+      /^<([A-Z][A-Z0-9_]*)(?::[^>\n]*)?>(?:<\/\1>)?$/
+    );
+
+  return match ? match[1] : "";
+}
+
 function splitContextPlainText(text) {
   const blocks = [];
   let title = "SYSTEM RULES";
@@ -984,22 +1006,52 @@ function splitContextPlainText(text) {
     lines = [];
   };
 
-  String(text || "")
-    .split("\n")
-    .forEach((line) => {
-      const heading =
-        line.trim();
+  const sourceLines =
+    String(text || "").split("\n");
 
-      if (
-          /^[A-Z][A-Z0-9 _/&()\-]{3,}:$/.test(heading)
-      ) {
-        flush();
-        title = heading.slice(0, -1);
-        return;
+  for (let i = 0; i < sourceLines.length; i += 1) {
+    const line = sourceLines[i];
+    const heading = line.trim();
+    const markerTitle =
+      parseContextRuntimeActionMarkerTitle(
+        line,
+        sourceLines[i + 1]
+      );
+
+    if (markerTitle) {
+      flush();
+      title = markerTitle;
+      lines.push(line);
+
+      for (i += 1; i < sourceLines.length; i += 1) {
+        const actionLine = sourceLines[i];
+
+        if (!actionLine.trim()) {
+          break;
+        }
+
+        if (actionLine.trim() === `${markerTitle}:`) {
+          continue;
+        }
+
+        lines.push(actionLine);
       }
 
-      lines.push(line);
-    });
+      flush();
+      title = "SYSTEM RULES";
+      continue;
+    }
+
+    if (
+        /^[A-Z][A-Z0-9 _/&()\-]{3,}:$/.test(heading)
+    ) {
+      flush();
+      title = heading.slice(0, -1);
+      continue;
+    }
+
+    lines.push(line);
+  }
 
   flush();
   return blocks;
@@ -1029,6 +1081,26 @@ function parseContextBlocks(text) {
   };
 
   for (let i = 0; i < lines.length; i += 1) {
+    const markerTitle =
+      parseContextRuntimeActionMarkerTitle(
+        lines[i],
+        lines[i + 1]
+      );
+
+    if (markerTitle) {
+      plain.push(lines[i]);
+
+      for (i += 1; i < lines.length; i += 1) {
+        plain.push(lines[i]);
+
+        if (!lines[i].trim()) {
+          break;
+        }
+      }
+
+      continue;
+    }
+
     const open =
       lines[i].match(
         /^\s*<([A-Za-z][\w.-]*)(\s+[^>]*)?>\s*$/

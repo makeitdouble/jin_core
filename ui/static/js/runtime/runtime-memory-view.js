@@ -490,36 +490,61 @@
     const activeIdentities =
       getActiveThinkMemoryCitationIdentitySets();
 
-    runtimeMemoryText
-      .querySelectorAll(
+    const citationRows = Array.from(
+      runtimeMemoryText.querySelectorAll(
         "[data-runtime-memory-line-key]"
       )
-      .forEach((row) => {
-        const lineIdentity =
-          normalizeRuntimeCitationIdentity(
-            row.dataset.runtimeMemoryLineIdentity
-          );
-        const lineKey =
-          normalizeRuntimeCitationIdentity(
-            row.dataset.runtimeMemoryLineKey
-          );
-        const lineText =
-          normalizeRuntimeCitationIdentity(
-            row.dataset.runtimeMemoryLineText
-          );
-        const matched =
-          lineIdentity
-            ? activeIdentities.lineIdentities.has(lineIdentity)
-            : (
-              (lineKey && activeIdentities.lineKeys.has(lineKey))
-              || (lineText && activeIdentities.lineTexts.has(lineText))
-            );
+    );
+    const lineKeyUsage = new Map();
 
-        row.classList.toggle(
-          "runtime-memory-citation-hit",
-          Boolean(matched)
+    citationRows.forEach((row) => {
+      const lineKey =
+        normalizeRuntimeCitationIdentity(
+          row.dataset.runtimeMemoryLineKey
         );
-      });
+
+      if (!lineKey) {
+        return;
+      }
+
+      lineKeyUsage.set(
+        lineKey,
+        Number(lineKeyUsage.get(lineKey) || 0) + 1
+      );
+    });
+
+    citationRows.forEach((row) => {
+      const lineIdentity =
+        normalizeRuntimeCitationIdentity(
+          row.dataset.runtimeMemoryLineIdentity
+        );
+      const lineKey =
+        normalizeRuntimeCitationIdentity(
+          row.dataset.runtimeMemoryLineKey
+        );
+      const lineText =
+        normalizeRuntimeCitationIdentity(
+          row.dataset.runtimeMemoryLineText
+        );
+      const exactTextMatch = Boolean(
+        lineText
+        && activeIdentities.lineTexts.has(lineText)
+      );
+      const uniqueKeyMatch = Boolean(
+        lineKey
+        && Number(lineKeyUsage.get(lineKey) || 0) === 1
+        && activeIdentities.lineKeys.has(lineKey)
+      );
+      const matched =
+        lineIdentity
+          ? activeIdentities.lineIdentities.has(lineIdentity)
+          : (exactTextMatch || uniqueKeyMatch);
+
+      row.classList.toggle(
+        "runtime-memory-citation-hit",
+        Boolean(matched)
+      );
+    });
 
     sortHighlightedMemoryRows();
   }

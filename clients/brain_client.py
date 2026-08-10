@@ -16,6 +16,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
+    RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
     build_runtime_action_display_text,
     get_runtime_action_display_name,
@@ -35,6 +36,7 @@ from rules.brain_context_builder import (
 from utils.brain_client_utils import (
     apply_runtime_action_calls,
     build_pending_asset_action_preview,
+    find_active_memory_slot_record,
     flush_pending_active_memory_resolve_failure_history,
     log_runtime_action_marker_removals,
     should_execute_save_delayed_memory,
@@ -72,6 +74,7 @@ from utils.actions import (
     RuntimeActionRepetitionGuard,
     RuntimeActionResult,
     RuntimeActionStreamFilter,
+    extract_active_memory_resolve_slot_id,
     extract_runtime_actions,
     normalize_jin_color_payload,
 )
@@ -695,6 +698,7 @@ async def ask_brain_stream(
         or []
     )
     action_counter = RuntimeActionCounter()
+    resolved_active_memory_display_payloads = {}
     raw_content_parts = []
     raw_model_output_parts = []
     pending_idle_action_calls = []
@@ -849,6 +853,58 @@ async def ask_brain_stream(
 
         return colors
 
+    def get_resolve_active_memory_display_payload(
+        payload,
+    ) -> str:
+
+        normalized_payload = str(
+            payload
+            or ""
+        ).strip()
+        active_memory_id = extract_active_memory_resolve_slot_id(
+            normalized_payload
+        )
+
+        if not active_memory_id:
+            return normalized_payload
+
+        cached_content = resolved_active_memory_display_payloads.get(
+            active_memory_id,
+            "",
+        )
+
+        if cached_content:
+            return cached_content
+
+        record = find_active_memory_slot_record(
+            context,
+            active_memory_id,
+        )
+        content = re.sub(
+            r"^\s*active_memory(?:_\d+)?\s*:\s*",
+            "",
+            str(record or ""),
+            flags=re.IGNORECASE,
+        )
+        content = re.sub(
+            r"\s*\[[^\]]+\]\s*",
+            " ",
+            content,
+        )
+        content = re.sub(
+            r"\s+",
+            " ",
+            content,
+        ).strip()
+
+        if content:
+            resolved_active_memory_display_payloads[
+                active_memory_id
+            ] = content
+            return content
+
+        return normalized_payload
+
     def get_action_counter_display_payloads() -> dict:
 
         display_payloads = {}
@@ -858,6 +914,24 @@ async def ask_brain_stream(
             display_payloads[
                 RUNTIME_ACTION_JIN_COLOR
             ] = applied_colors
+
+        for resolve_entry in action_counter.entries():
+            if (
+                resolve_entry is None
+                or resolve_entry.name != RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+                or not resolve_entry.payloads
+            ):
+                continue
+
+            display_payloads[(
+                resolve_entry.name,
+                resolve_entry.identity,
+            )] = [
+                get_resolve_active_memory_display_payload(
+                    payload
+                )
+                for payload in resolve_entry.payloads
+            ]
 
         delayed_memory_display_actions = (
             RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
