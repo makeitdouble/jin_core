@@ -13,6 +13,13 @@ from clients.brain_client import build_brain_payload
 from config_loader import config
 from rules.brain_context_builder import build_brain_context
 from runtime.runtime_context import RECENT_MESSAGES_MAX_PAIRS
+from runtime.behavior_contract import (
+    get_action_guard_name_for_runtime_action,
+)
+from contracts.rules_assembler import (
+    get_runtime_action_display_name,
+    runtime_action_has_close_tag,
+)
 from runtime.L1_memory import (
     schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
@@ -181,6 +188,188 @@ async def receive_message(
         )
 
         return None
+
+
+def normalize_runtime_action_guard_retry(
+    value,
+) -> dict:
+
+    if not isinstance(value, dict):
+        return {}
+
+    action = str(
+        value.get("action", "")
+        or ""
+    ).strip().lower()
+    guard = str(
+        value.get("guard", "")
+        or ""
+    ).strip()
+    confirmation_id = str(
+        value.get("confirmation_id", "")
+        or ""
+    ).strip()
+    action_id = str(
+        value.get("id", "")
+        or ""
+    ).strip()
+    context_snapshot = value.get(
+        "context_snapshot",
+        {},
+    )
+    if not isinstance(context_snapshot, dict):
+        context_snapshot = {}
+
+    try:
+        attempt = int(
+            value.get("attempt", 0)
+            or 0
+        )
+    except (TypeError, ValueError):
+        attempt = 0
+
+    if (
+        not action
+        or not guard
+        or not confirmation_id
+        or attempt != 1
+    ):
+        return {}
+
+    expected_guard = get_action_guard_name_for_runtime_action(
+        action
+    )
+
+    if not expected_guard or expected_guard != guard:
+        return {}
+
+    retry = {
+        "action": action,
+        "guard": guard,
+        "confirmation_id": confirmation_id,
+        "id": action_id,
+        "attempt": 1,
+    }
+
+    if context_snapshot:
+        retry["context_snapshot"] = dict(
+            context_snapshot
+        )
+
+    return retry
+
+
+def build_runtime_action_guard_retry_request(
+    message_data: dict,
+) -> dict | None:
+
+    if not isinstance(message_data, dict):
+        return None
+
+    decision = str(
+        message_data.get("decision", "")
+        or ""
+    ).strip().casefold()
+
+    if decision != "continue":
+        return None
+
+    retry = normalize_runtime_action_guard_retry({
+        "action": message_data.get("action", ""),
+        "guard": message_data.get("guard", ""),
+        "confirmation_id": message_data.get(
+            "confirmation_id",
+            "",
+        ),
+        "id": message_data.get("id", ""),
+        "attempt": message_data.get("retry_attempt", 0),
+        "context_snapshot": message_data.get(
+            "retry_context_snapshot",
+            {},
+        ),
+    })
+
+    user_text = str(
+        message_data.get("retry_user_message", "")
+        or ""
+    ).strip()
+
+    if not retry or not user_text:
+        return None
+
+    return {
+        "type": "runtime_action_guard_retry",
+        "text": user_text,
+        "runtime_action_guard_retry": retry,
+    }
+
+
+async def emit_runtime_action_guard_confirmation_failure(
+    context,
+    message_data: dict,
+    *,
+    error: str = "runtime_action_confirmation_expired",
+) -> None:
+
+    emitter = getattr(context, "emitter", None)
+    emit = getattr(emitter, "emit", None)
+
+    if emit is None:
+        return
+
+    action = str(
+        message_data.get("action", "")
+        or ""
+    ).strip().lower()
+    confirmation_id = str(
+        message_data.get("confirmation_id", "")
+        or ""
+    ).strip()
+    action_id = str(
+        message_data.get("id", "")
+        or ""
+    ).strip()
+
+    if not action or not confirmation_id:
+        return
+
+    display_name = get_runtime_action_display_name(
+        action
+    )
+    decision = str(
+        message_data.get("decision", "")
+        or ""
+    ).strip().casefold()
+    rejected = decision == "reject"
+
+    payload = {
+        "type": "runtime_action",
+        "action": action,
+        "status": "failed",
+        "display_name": display_name,
+        "close_tag": runtime_action_has_close_tag(action),
+        "confirmation_id": confirmation_id,
+        "error": (
+            "user_rejected_runtime_action"
+            if rejected
+            else error
+        ),
+        "text": (
+            f"{display_name} cancelled"
+            if rejected
+            else f"{display_name}: FAILED"
+        ),
+        "detail": (
+            "The original confirmation no longer exists after reconnect."
+            if not rejected
+            else "The stale confirmation was cancelled by the user."
+        ),
+    }
+
+    if action_id:
+        payload["id"] = action_id
+
+    await emit(payload)
 
 
 async def resolve_runtime_action_guard_confirmation(
@@ -742,6 +931,9 @@ async def process_message(
 ):
     websocket = context.websocket
     logger = context.logger
+    action_guard_retry = {}
+    is_action_guard_retry = False
+    retry_terminal_emitted = False
 
     try:
 
@@ -752,6 +944,20 @@ async def process_message(
         if not isinstance(idle_followup, dict):
             idle_followup = {}
         is_idle_followup = bool(idle_followup)
+        action_guard_retry = normalize_runtime_action_guard_retry(
+            message_data.get(
+                "runtime_action_guard_retry",
+                {},
+            )
+        )
+        context.runtime_action_guard_retry = action_guard_retry
+        context.runtime_action_guard_retry_consumed = False
+        context.runtime_suppress_chat_content = bool(
+            action_guard_retry
+        )
+        is_action_guard_retry = bool(
+            action_guard_retry
+        )
 
         user_text = (
             str(
@@ -780,7 +986,11 @@ async def process_message(
         context.runtime_current_turn_id = (
             f"idle_{context.runtime_turn_counter:06d}"
             if is_idle_followup
-            else f"turn_{context.runtime_turn_counter:06d}"
+            else (
+                f"retry_{context.runtime_turn_counter:06d}"
+                if is_action_guard_retry
+                else f"turn_{context.runtime_turn_counter:06d}"
+            )
         )
 
         if is_idle_followup:
@@ -848,6 +1058,8 @@ async def process_message(
                     else []
                 )
             )
+        elif is_action_guard_retry:
+            context.runtime_turn_attachments = []
         else:
             message_attachments = message_data.get(
                 "attachments",
@@ -882,7 +1094,10 @@ async def process_message(
         context.runtime_context_limit_stage = ""
         context.runtime_context_limit_kind = ""
         context.runtime_context_limit_finish_reason = ""
-        if not is_idle_followup:
+        if (
+            not is_idle_followup
+            and not is_action_guard_retry
+        ):
             await arm_save_session_from_user_text(
                 context,
                 user_text,
@@ -933,6 +1148,24 @@ async def process_message(
             context,
         )
 
+        if (
+            action_guard_retry
+            and not getattr(
+                context,
+                "runtime_action_guard_retry_consumed",
+                False,
+            )
+        ):
+            await emit_runtime_action_guard_confirmation_failure(
+                context,
+                {
+                    **action_guard_retry,
+                    "decision": "continue",
+                },
+                error="runtime_action_confirmation_retry_not_emitted",
+            )
+            retry_terminal_emitted = True
+
         if getattr(
             context,
             "runtime_turn_discard_requested",
@@ -981,7 +1214,7 @@ async def process_message(
                     or ""
                 ),
             )
-        else:
+        elif not is_action_guard_retry:
             append_runtime_recent_turn(
                 context,
                 user_message=user_text,
@@ -994,7 +1227,7 @@ async def process_message(
                 assistant_created_at=assistant_created_at,
             )
 
-        if is_idle_followup:
+        if is_idle_followup or is_action_guard_retry:
             memory_update_task = None
         elif getattr(
             context,
@@ -1047,14 +1280,36 @@ async def process_message(
                 context
             )
 
-        context.assistant_message_count += 1
-        if not is_idle_followup:
+        if not is_action_guard_retry:
+            context.assistant_message_count += 1
+        if (
+            not is_idle_followup
+            and not is_action_guard_retry
+        ):
             context.turn_number += 1
 
         # Background fact-checking is intentionally not armed here.
         # Fact-checking runs only from the explicit UI request path.
 
     except asyncio.CancelledError:
+
+        if (
+            action_guard_retry
+            and not retry_terminal_emitted
+            and not getattr(
+                context,
+                "runtime_action_guard_retry_consumed",
+                False,
+            )
+        ):
+            await emit_runtime_action_guard_confirmation_failure(
+                context,
+                {
+                    **action_guard_retry,
+                    "decision": "continue",
+                },
+                error="runtime_action_confirmation_retry_cancelled",
+            )
 
         await logger.log_runtime(
             "Agent runtime task cancelled."
@@ -1064,11 +1319,35 @@ async def process_message(
 
     except Exception as error:
 
+        if (
+            action_guard_retry
+            and not retry_terminal_emitted
+            and not getattr(
+                context,
+                "runtime_action_guard_retry_consumed",
+                False,
+            )
+        ):
+            await emit_runtime_action_guard_confirmation_failure(
+                context,
+                {
+                    **action_guard_retry,
+                    "decision": "continue",
+                },
+                error="runtime_action_confirmation_retry_failed",
+            )
+
         await handle_fatal_runtime_error(
             context,
             component="agent_runtime",
             exception=error,
         )
+
+    finally:
+
+        if is_action_guard_retry:
+            context.runtime_suppress_chat_content = False
+            context.runtime_action_guard_retry = {}
 
 
 # ---------------------------------------------------------

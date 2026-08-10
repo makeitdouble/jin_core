@@ -1965,6 +1965,98 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
+    async def test_reconnected_delayed_memory_confirmation_replays_once_without_new_guard(self):
+
+        async def delayed_memory_generator():
+
+            yield {
+                "type": "content",
+                "content": (
+                    "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+                    "title: Reconnected report\n"
+                    "summary: Runtime summary.\n"
+                    "tags: runtime, summary\n"
+                    "body: Full report.\n"
+                    "</SAVE_DELAYED_MEMORY_CONTENT>\n"
+                ),
+            }
+
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_asset_results=[],
+            runtime_delayed_memory_results=[],
+            runtime_session_action_history=[],
+            runtime_action_guard_confirmations={},
+            runtime_action_guard_retry={
+                "action": "save_delayed_memory_content",
+                "guard": "save_delayed_memory",
+                "confirmation_id": "stale-confirmation",
+                "id": "save_delayed_memory_content_9",
+                "attempt": 1,
+            },
+            runtime_action_guard_retry_consumed=False,
+            runtime_suppress_chat_content=True,
+            delayed_memory_reports={},
+            active_memory_records=[],
+            runtime_turn_user_message="создай отчот",
+            runtime_current_turn_id="retry_000001",
+            runtime_turn_started_at=0,
+            session_id="session-1",
+            timestamp="2026-07-13T17:00:00",
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=settings.SERVICE_MODEL_UID,
+            role="service",
+            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            log_method=context.logger.log_service,
+            runtime_actions={
+                "CAN_SAVE_DELAYED_MEMORY": True,
+            },
+        )
+
+        await stream.run(
+            delayed_memory_generator()
+        )
+
+        confirmation_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "runtime_action_guard_confirmation"
+        ]
+        runtime_events = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "runtime_action"
+        ]
+        lifecycle_events = [
+            event
+            for event in runtime_events
+            if not event.get("counter_only")
+        ]
+
+        self.assertEqual(confirmation_events, [])
+        self.assertEqual(len(context.delayed_memory_reports), 1)
+        self.assertTrue(context.runtime_action_guard_retry_consumed)
+        self.assertEqual(
+            {event.get("id") for event in lifecycle_events},
+            {"save_delayed_memory_content_9"},
+        )
+        self.assertEqual(
+            {
+                event.get("confirmation_id")
+                for event in lifecycle_events
+                if event.get("confirmation_id")
+            },
+            {"stale-confirmation"},
+        )
+        self.assertEqual(context.websocket.messages, [])
+
     async def test_jin_color_applies_without_trigger_confirmation(self):
 
         state = {

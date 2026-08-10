@@ -147,6 +147,14 @@ class RuntimeContext:
         default_factory=dict
     )
 
+    runtime_action_guard_retry: dict[str, object] = field(
+        default_factory=dict
+    )
+
+    runtime_action_guard_retry_consumed: bool = False
+
+    runtime_suppress_chat_content: bool = False
+
     runtime_pending_requests_queue: object | None = None
 
     runtime_session_action_history: list[dict] = field(

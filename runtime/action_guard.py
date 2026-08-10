@@ -65,6 +65,58 @@ def build_action_guard_confirmation_text(
     )
 
 
+def get_matching_action_guard_retry(
+    context,
+    action,
+    guard_name: str,
+) -> dict[str, Any]:
+
+    if bool(
+        getattr(
+            context,
+            "runtime_action_guard_retry_consumed",
+            False,
+        )
+    ):
+        return {}
+
+    retry = getattr(
+        context,
+        "runtime_action_guard_retry",
+        None,
+    )
+
+    if not isinstance(retry, dict) or not retry:
+        return {}
+
+    action_name = str(
+        getattr(action, "name", "")
+        or ""
+    ).strip().lower()
+    retry_action = str(
+        retry.get("action", "")
+        or ""
+    ).strip().lower()
+    retry_guard = str(
+        retry.get("guard", "")
+        or ""
+    ).strip()
+    expected_guard = get_action_guard_name_for_runtime_action(
+        getattr(action, "name", "")
+    )
+
+    if (
+        not action_name
+        or action_name != retry_action
+        or not expected_guard
+        or guard_name != expected_guard
+        or retry_guard != expected_guard
+    ):
+        return {}
+
+    return retry
+
+
 def get_action_guard_display_id(
     context,
     action,
@@ -161,6 +213,15 @@ async def wait_for_action_guard_confirmation(
             get_action_guard_triggers(guard_name)
         ),
         "timeout_ms": 0,
+        "retry_user_message": str(
+            getattr(
+                context,
+                "runtime_turn_user_message",
+                "",
+            )
+            or ""
+        ),
+        "retry_attempt": 1,
     }
 
     if action.name == RUNTIME_ACTION_JIN_COLOR:
@@ -225,6 +286,36 @@ async def confirm_runtime_action_guards(
             action_display_ids[id(action)] = action_id
 
         if not guard_name:
+            continue
+
+        retry = get_matching_action_guard_retry(
+            context,
+            action,
+            guard_name,
+        )
+        if retry:
+            retry_action_id = str(
+                retry.get("id", "")
+                or ""
+            ).strip()
+            retry_confirmation_id = str(
+                retry.get("confirmation_id", "")
+                or ""
+            ).strip()
+
+            if retry_action_id:
+                action_display_ids[id(action)] = retry_action_id
+            if retry_confirmation_id:
+                confirmation_ids[id(action)] = retry_confirmation_id
+
+            confirmed_guard_names.add(guard_name)
+            confirmed_action_ids.add(id(action))
+            context.runtime_action_guard_retry_consumed = True
+            append_action_guard_decision_message(
+                context,
+                guard_name,
+                ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE,
+            )
             continue
 
         if get_action_guard_blocker_match(

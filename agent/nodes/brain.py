@@ -1435,6 +1435,22 @@ class BrainNode(BaseNode):
         if not isinstance(idle_followup, dict):
             idle_followup = {}
 
+        action_guard_retry = getattr(
+            context,
+            "runtime_action_guard_retry",
+            {},
+        )
+        retry_context_snapshot = (
+            action_guard_retry.get(
+                "context_snapshot",
+                {},
+            )
+            if isinstance(action_guard_retry, dict)
+            else {}
+        )
+        if not isinstance(retry_context_snapshot, dict):
+            retry_context_snapshot = {}
+
         if idle_followup:
             idle_system_prompt = build_idle_followup_system_prompt(
                 idle_followup
@@ -1462,19 +1478,39 @@ class BrainNode(BaseNode):
             brain_payload = ""
             sequence_user_request = sequence_origin_request
         else:
-            system_prompt = (
-                build_brain_context(
-                    context,
-                    runtime_actions=runtime_actions,
-                    commit_active_memory_refresh=True,
+            retry_system_prompt = str(
+                retry_context_snapshot.get(
+                    "system_prompt",
+                    "",
                 )
+                or ""
             )
-            brain_payload = (
-                build_brain_payload(
-                    state.translated_input,
-                    context=context,
+            retry_user_prompt = str(
+                retry_context_snapshot.get(
+                    "user_prompt",
+                    "",
                 )
+                or ""
             )
+
+            if retry_system_prompt:
+                system_prompt = retry_system_prompt
+                brain_payload = retry_user_prompt
+            else:
+                system_prompt = (
+                    build_brain_context(
+                        context,
+                        runtime_actions=runtime_actions,
+                        commit_active_memory_refresh=True,
+                    )
+                )
+                brain_payload = (
+                    build_brain_payload(
+                        state.translated_input,
+                        context=context,
+                    )
+                )
+
             sequence_user_request = str(
                 getattr(
                     context,

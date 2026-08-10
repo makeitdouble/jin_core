@@ -3,6 +3,7 @@ import asyncio
 from types import SimpleNamespace
 
 from runtime.L1_memory_utils import emit_runtime_session_memory_update
+from runtime.action_guard import confirm_runtime_action_guards
 from runtime.registry import runtime_state
 from config_loader import (
     config,
@@ -17,9 +18,11 @@ from utils.tool_results import (
 from websocket import (
     PendingRequestQueue,
     apply_runtime_resume,
+    build_runtime_action_guard_retry_request,
     apply_session_bootstrap,
     arm_save_session_from_user_text,
     cancel_current_task,
+    emit_runtime_action_guard_confirmation_failure,
     reject_when_all_models_offline,
     refresh_pending_brain_usage,
     wait_for_runtime_memory_update,
@@ -28,6 +31,7 @@ from websocket import (
 from utils.runtime_action_abort import (
     mark_runtime_action_started,
 )
+from utils.actions.common_action_utils import RuntimeActionCall
 
 
 class FakeEmitter:
@@ -149,6 +153,193 @@ class FakeWebSocket:
 
 
 class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
+
+    def test_stale_guard_confirmation_builds_single_retry_with_original_context(self):
+
+        message = {
+            "decision": "continue",
+            "action": "save_delayed_memory_content",
+            "guard": "save_delayed_memory",
+            "confirmation_id": "turn_7:save_delayed_memory_content:abc",
+            "id": "save_delayed_memory_content_7",
+            "retry_attempt": 1,
+            "retry_user_message": "создай отчот",
+            "retry_context_snapshot": {
+                "system_prompt": "original system",
+                "user_prompt": "original model payload",
+            },
+        }
+
+        retry_request = build_runtime_action_guard_retry_request(
+            message
+        )
+
+        self.assertEqual(
+            retry_request["type"],
+            "runtime_action_guard_retry",
+        )
+        self.assertEqual(
+            retry_request["text"],
+            "создай отчот",
+        )
+        self.assertEqual(
+            retry_request["runtime_action_guard_retry"],
+            {
+                "action": "save_delayed_memory_content",
+                "guard": "save_delayed_memory",
+                "confirmation_id": "turn_7:save_delayed_memory_content:abc",
+                "id": "save_delayed_memory_content_7",
+                "attempt": 1,
+                "context_snapshot": {
+                    "system_prompt": "original system",
+                    "user_prompt": "original model payload",
+                },
+            },
+        )
+
+        second_attempt = dict(
+            message,
+            retry_attempt=2,
+        )
+        self.assertIsNone(
+            build_runtime_action_guard_retry_request(
+                second_attempt
+            )
+        )
+        self.assertIsNone(
+            build_runtime_action_guard_retry_request({
+                **message,
+                "decision": "reject",
+            })
+        )
+        self.assertIsNone(
+            build_runtime_action_guard_retry_request({
+                **message,
+                "guard": "save_session",
+            })
+        )
+
+    async def test_stale_guard_confirmation_failure_is_terminal_for_same_bubble(self):
+
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+        )
+
+        await emit_runtime_action_guard_confirmation_failure(
+            context,
+            {
+                "decision": "continue",
+                "action": "save_delayed_memory_content",
+                "confirmation_id": "stale-confirmation",
+                "id": "save_delayed_memory_content_3",
+            },
+        )
+
+        self.assertEqual(
+            context.emitter.events,
+            [{
+                "type": "runtime_action",
+                "action": "save_delayed_memory_content",
+                "status": "failed",
+                "display_name": "SAVE_DELAYED_MEMORY_CONTENT",
+                "close_tag": True,
+                "confirmation_id": "stale-confirmation",
+                "error": "runtime_action_confirmation_expired",
+                "text": "SAVE_DELAYED_MEMORY_CONTENT: FAILED",
+                "detail": "The original confirmation no longer exists after reconnect.",
+                "id": "save_delayed_memory_content_3",
+            }],
+        )
+
+    async def test_action_guard_retry_bypasses_only_matching_guard_once(self):
+
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+            runtime_action_guard_confirmations={},
+            runtime_action_guard_retry={
+                "action": "save_delayed_memory_content",
+                "guard": "save_delayed_memory",
+                "confirmation_id": "stale-confirmation",
+                "id": "save_delayed_memory_content_4",
+                "attempt": 1,
+            },
+            runtime_action_guard_retry_consumed=False,
+            runtime_action_failure_followup_messages=[],
+        )
+        action = RuntimeActionCall(
+            name="SAVE_DELAYED_MEMORY_CONTENT",
+            payload="title: Replay report",
+        )
+
+        (
+            confirmed_action_ids,
+            rejected_action_ids,
+            confirmation_ids,
+            action_display_ids,
+        ) = await confirm_runtime_action_guards(
+            context,
+            (action,),
+            user_message="создай отчот",
+        )
+
+        self.assertEqual(
+            confirmed_action_ids,
+            {id(action)},
+        )
+        self.assertEqual(
+            rejected_action_ids,
+            set(),
+        )
+        self.assertEqual(
+            confirmation_ids[id(action)],
+            "stale-confirmation",
+        )
+        self.assertEqual(
+            action_display_ids[id(action)],
+            "save_delayed_memory_content_4",
+        )
+        self.assertTrue(
+            context.runtime_action_guard_retry_consumed
+        )
+        self.assertFalse(
+            any(
+                event.get("type") == "runtime_action_guard_confirmation"
+                for event in context.emitter.events
+            )
+        )
+
+        wrong_action = RuntimeActionCall(
+            name="SAVE_SESSION",
+        )
+        context.runtime_action_guard_retry_consumed = False
+        context.runtime_action_guard_retry = {
+            **context.runtime_action_guard_retry,
+            "action": "save_delayed_memory_content",
+            "guard": "save_delayed_memory",
+        }
+        context.runtime_action_guard_confirmations = {}
+
+        async def reject_new_confirmation(event):
+            await FakeEmitter.emit(
+                context.emitter,
+                event,
+            )
+            if event.get("type") == "runtime_action_guard_confirmation":
+                future = context.runtime_action_guard_confirmations[
+                    event["confirmation_id"]
+                ]
+                future.set_result("reject")
+
+        context.emitter.emit = reject_new_confirmation
+
+        confirmed, rejected, _, _ = await confirm_runtime_action_guards(
+            context,
+            (wrong_action,),
+            user_message="сохрани сесию",
+        )
+
+        self.assertEqual(confirmed, set())
+        self.assertEqual(rejected, {id(wrong_action)})
 
     async def test_cancel_current_task_aborts_active_action_when_task_already_done(self):
 

@@ -138,11 +138,24 @@ class RuntimeStream:
         self.model_output_log_method = (
             model_output_log_method
         )
-        self.emit_to_chat = emit_to_chat
-        self.emit_content_to_chat = (
+        suppress_chat_content = bool(
+            getattr(
+                context,
+                "runtime_suppress_chat_content",
+                False,
+            )
+        )
+        self.emit_to_chat = (
             emit_to_chat
+            and not suppress_chat_content
+        )
+        self.emit_content_to_chat = (
+            self.emit_to_chat
             if emit_content_to_chat is None
-            else emit_content_to_chat
+            else (
+                emit_content_to_chat
+                and not suppress_chat_content
+            )
         )
         self.context_snapshot = context_snapshot or {}
         self.runtime_actions = runtime_actions or {}
@@ -221,6 +234,112 @@ class RuntimeStream:
                 )
 
         return names
+
+    def get_action_guard_retry(
+        self,
+        action,
+        guard_name: str = "",
+    ) -> dict:
+
+        retry = getattr(
+            self.context,
+            "runtime_action_guard_retry",
+            None,
+        )
+
+        if not isinstance(retry, dict) or not retry:
+            return {}
+
+        action_name = str(
+            getattr(action, "name", "")
+            or ""
+        ).strip().lower()
+        retry_action = str(
+            retry.get("action", "")
+            or ""
+        ).strip().lower()
+
+        if not action_name or action_name != retry_action:
+            return {}
+
+        expected_guard = get_action_guard_name_for_runtime_action(
+            getattr(action, "name", "")
+        )
+        retry_guard = str(
+            retry.get("guard", "")
+            or ""
+        ).strip()
+
+        if (
+            not expected_guard
+            or retry_guard != expected_guard
+            or (guard_name and guard_name != expected_guard)
+        ):
+            return {}
+
+        return retry
+
+    def get_action_guard_retry_confirmation_id(
+        self,
+        action,
+        guard_name: str = "",
+    ) -> str:
+
+        retry = self.get_action_guard_retry(
+            action,
+            guard_name,
+        )
+
+        return str(
+            retry.get("confirmation_id", "")
+            if retry
+            else ""
+        ).strip()
+
+    def get_action_guard_retry_display_id(
+        self,
+        action,
+    ) -> str:
+
+        retry = self.get_action_guard_retry(
+            action
+        )
+
+        return str(
+            retry.get("id", "")
+            if retry
+            else ""
+        ).strip()
+
+    def accept_action_guard_retry(
+        self,
+        action,
+        guard_name: str,
+        *,
+        completed: bool = False,
+    ) -> bool:
+
+        confirmation_id = (
+            self.get_action_guard_retry_confirmation_id(
+                action,
+                guard_name,
+            )
+        )
+
+        if not confirmation_id:
+            return False
+
+        self.confirmed_action_guard_names.add(
+            guard_name
+        )
+        self.action_guard_confirmation_ids[
+            id(action)
+        ] = confirmation_id
+
+        if completed:
+            self.context.runtime_action_guard_retry_consumed = True
+
+        return True
 
     def should_preserve_action_marker(
         self,
@@ -1205,6 +1324,12 @@ class RuntimeStream:
         action,
     ) -> str:
 
+        retry_display_id = self.get_action_guard_retry_display_id(
+            action
+        )
+        if retry_display_id:
+            return retry_display_id
+
         if action.name == RUNTIME_ACTION_JIN_COLOR:
             if not self.jin_color_action_id:
                 sequence = int(
@@ -1386,6 +1511,24 @@ class RuntimeStream:
             if not guard_name:
                 continue
 
+            retry_was_confirmed = (
+                guard_name in self.confirmed_action_guard_names
+            )
+            if self.accept_action_guard_retry(
+                action,
+                guard_name,
+                completed=True,
+            ):
+                if not retry_was_confirmed:
+                    self.append_action_guard_missing_trigger_message(
+                        guard_name,
+                        ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE,
+                    )
+                confirmed_action_ids.add(
+                    id(action)
+                )
+                continue
+
             if guard_name in self.rejected_action_guard_names:
                 rejected_action_ids.add(
                     id(action)
@@ -1458,6 +1601,16 @@ class RuntimeStream:
             )
 
             if not guard_name:
+                continue
+
+            if self.accept_action_guard_retry(
+                action,
+                guard_name,
+            ):
+                self.append_action_guard_missing_trigger_message(
+                    guard_name,
+                    ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE,
+                )
                 continue
 
             if (
@@ -1707,6 +1860,15 @@ class RuntimeStream:
             ),
             "missing_triggers": triggers,
             "timeout_ms": 0,
+            "retry_user_message": str(
+                getattr(
+                    self.context,
+                    "runtime_turn_user_message",
+                    "",
+                )
+                or ""
+            ),
+            "retry_attempt": 1,
         }
 
         if action.name == RUNTIME_ACTION_JIN_COLOR:
@@ -1823,22 +1985,28 @@ class RuntimeStream:
                         pending_ids
                     )
 
-                action_id = build_runtime_action_id(
-                    RUNTIME_ACTION_ASSET_ACTION,
-                    len(
-                        getattr(
-                            self.context,
-                            "runtime_asset_results",
-                            [],
-                        )
-                        or []
+                action_id = (
+                    self.get_action_guard_retry_display_id(
+                        action
                     )
-                    + len(pending_ids)
-                    + 1,
+                    or build_runtime_action_id(
+                        RUNTIME_ACTION_ASSET_ACTION,
+                        len(
+                            getattr(
+                                self.context,
+                                "runtime_asset_results",
+                                [],
+                            )
+                            or []
+                        )
+                        + len(pending_ids)
+                        + 1,
+                    )
                 )
-                pending_ids.append(
-                    action_id
-                )
+                if action_id not in pending_ids:
+                    pending_ids.append(
+                        action_id
+                    )
 
                 payload = {
                     "type": "runtime_action",
@@ -1850,22 +2018,26 @@ class RuntimeStream:
                     "close_tag": has_close_tag,
                 }
             elif action.name == RUNTIME_ACTION_SAVE_ACTIVE_MEMORY:
-                current_sequence = int(
-                    getattr(
-                        self.context,
-                        "runtime_active_memory_action_sequence",
-                        0,
+                action_id = self.get_action_guard_retry_display_id(
+                    action
+                )
+                if not action_id:
+                    current_sequence = int(
+                        getattr(
+                            self.context,
+                            "runtime_active_memory_action_sequence",
+                            0,
+                        )
+                        or 0
                     )
-                    or 0
-                )
-                next_sequence = current_sequence + 1
-                self.context.runtime_active_memory_action_sequence = (
-                    next_sequence
-                )
-                action_id = build_runtime_action_id(
-                    RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
-                    next_sequence,
-                )
+                    next_sequence = current_sequence + 1
+                    self.context.runtime_active_memory_action_sequence = (
+                        next_sequence
+                    )
+                    action_id = build_runtime_action_id(
+                        RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
+                        next_sequence,
+                    )
                 self.started_active_memory_action_ids.append(
                     action_id
                 )
@@ -1899,50 +2071,55 @@ class RuntimeStream:
                         pending_ids
                     )
 
-                current_sequence = max(
-                    int(
-                        getattr(
-                            self.context,
-                            "runtime_delayed_memory_action_sequence",
-                            0,
-                        )
-                        or 0
-                    ),
-                    len(
-                        getattr(
-                            self.context,
-                            "delayed_memory_reports",
-                            {},
-                        )
-                        or {}
-                    ),
-                    len([
-                        event
-                        for event in getattr(
-                            self.context,
-                            "runtime_action_events",
-                            [],
-                        )
-                        if isinstance(
-                            event,
-                            dict,
-                        )
-                        and event.get(
-                            "name"
-                        ) == "save_delayed_memory_content"
-                    ]),
+                action_id = self.get_action_guard_retry_display_id(
+                    action
                 )
-                next_sequence = current_sequence + 1
-                self.context.runtime_delayed_memory_action_sequence = (
-                    next_sequence
-                )
-                action_id = build_runtime_action_id(
-                    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
-                    next_sequence,
-                )
-                pending_ids.append(
-                    action_id
-                )
+                if not action_id:
+                    current_sequence = max(
+                        int(
+                            getattr(
+                                self.context,
+                                "runtime_delayed_memory_action_sequence",
+                                0,
+                            )
+                            or 0
+                        ),
+                        len(
+                            getattr(
+                                self.context,
+                                "delayed_memory_reports",
+                                {},
+                            )
+                            or {}
+                        ),
+                        len([
+                            event
+                            for event in getattr(
+                                self.context,
+                                "runtime_action_events",
+                                [],
+                            )
+                            if isinstance(
+                                event,
+                                dict,
+                            )
+                            and event.get(
+                                "name"
+                            ) == "save_delayed_memory_content"
+                        ]),
+                    )
+                    next_sequence = current_sequence + 1
+                    self.context.runtime_delayed_memory_action_sequence = (
+                        next_sequence
+                    )
+                    action_id = build_runtime_action_id(
+                        RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+                        next_sequence,
+                    )
+                if action_id not in pending_ids:
+                    pending_ids.append(
+                        action_id
+                    )
                 self.started_delayed_memory_action_ids.append(
                     action_id
                 )
@@ -1994,6 +2171,16 @@ class RuntimeStream:
 
                 if action.payload and not has_close_tag:
                     payload["payload"] = action.payload
+
+            retry_confirmation_id = (
+                self.get_action_guard_retry_confirmation_id(
+                    action
+                )
+            )
+            if retry_confirmation_id:
+                payload["confirmation_id"] = (
+                    retry_confirmation_id
+                )
 
             if delayed_memory_report_id:
                 payload["delayed_memory_report_id"] = (

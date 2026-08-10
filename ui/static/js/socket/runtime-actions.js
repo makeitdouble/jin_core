@@ -77,6 +77,14 @@ function handleRuntimeActionGuardConfirmation(
               : [],
           timeoutMs:
             Number(data.timeout_ms || 0),
+          retryUserMessage:
+            String(
+              data.retry_user_message || ""
+            ),
+          retryAttempt:
+            Number(data.retry_attempt || 1),
+          retryContextSnapshot:
+            data.context || null,
         },
       }
     );

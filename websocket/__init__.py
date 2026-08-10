@@ -49,6 +49,8 @@ from .bootstrap import (
 )
 from .messages import (
     arm_save_session_from_user_text,
+    build_runtime_action_guard_retry_request,
+    emit_runtime_action_guard_confirmation_failure,
     merge_runtime_idle_followup_turn,
     process_message,
     receive_message,
@@ -460,7 +462,29 @@ async def websocket_endpoint(
                     await logger.log_runtime(
                         "[RUNTIME ACTION] guard confirmation received"
                     )
+                    continue
 
+                retry_request = build_runtime_action_guard_retry_request(
+                    message_data
+                )
+
+                if retry_request is not None:
+                    await pending_requests.put(
+                        retry_request
+                    )
+                    await logger.log_runtime(
+                        "[RUNTIME ACTION] stale guard confirmation "
+                        "replayed once after reconnect"
+                    )
+                    continue
+
+                await emit_runtime_action_guard_confirmation_failure(
+                    context,
+                    message_data,
+                )
+                await logger.log_runtime(
+                    "[RUNTIME ACTION] stale guard confirmation failed"
+                )
                 continue
 
             await logger.log_user(

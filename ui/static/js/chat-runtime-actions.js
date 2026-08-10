@@ -1566,6 +1566,22 @@ function bindRuntimeActionGuardConfirmation(
               id: options.id || "",
               guard: confirmation.guard || "",
               decision,
+              retry_user_message:
+                String(
+                  confirmation.retryUserMessage
+                  || confirmation.retry_user_message
+                  || ""
+                ),
+              retry_attempt:
+                Number(
+                  confirmation.retryAttempt
+                  || confirmation.retry_attempt
+                  || 1
+                ),
+              retry_context_snapshot:
+                confirmation.retryContextSnapshot
+                || confirmation.retry_context_snapshot
+                || null,
             })
             : false;
 
