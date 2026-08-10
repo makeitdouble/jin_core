@@ -1755,6 +1755,7 @@
 
   function appendStaticScaffold(svg, overallColor, random) {
     const scaffold = createSvgElement("g", {
+      class: "jin-avatar-scaffold",
       fill: "none",
       "pointer-events": "none",
     });
@@ -2030,6 +2031,7 @@
 
     [24, 31, 39].forEach((radius, index) => {
       center.appendChild(createSvgElement("circle", {
+        class: "jin-avatar-center-ring",
         cx: CENTER,
         cy: CENTER,
         r: radius,

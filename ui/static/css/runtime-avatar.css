@@ -210,9 +210,13 @@
         opacity 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
+.jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-scaffold,
+.jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-orbit-entry,
 .jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-memory-ring,
-.jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-memory-dash {
-    opacity: 0;
+.jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-memory-dash,
+.jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-center-ring {
+    opacity: 0 !important;
+    visibility: hidden;
     pointer-events: none;
 }
 

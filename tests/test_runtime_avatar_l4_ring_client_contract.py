@@ -167,6 +167,20 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
             ".jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-memory-ring",
             css_source,
         )
+        self.assertIn(
+            ".jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-scaffold",
+            css_source,
+        )
+        self.assertIn(
+            ".jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-orbit-entry",
+            css_source,
+        )
+        self.assertIn(
+            ".jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-center-ring",
+            css_source,
+        )
+        self.assertIn('class: "jin-avatar-scaffold"', avatar_source)
+        self.assertIn('class: "jin-avatar-center-ring"', avatar_source)
 
         click_start = input_source.index("if (factCheckTrigger) {")
         click_end = input_source.index("chatForm.addEventListener", click_start)
@@ -178,11 +192,11 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            "/static/css/runtime-avatar.css?v=memory-rings-8",
+            "/static/css/runtime-avatar.css?v=memory-rings-9",
             source,
         )
         self.assertIn(
-            "/static/js/runtime/runtime-avatar.js?v=memory-rings-19",
+            "/static/js/runtime/runtime-avatar.js?v=memory-rings-20",
             source,
         )
         self.assertIn(

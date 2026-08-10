@@ -29,7 +29,7 @@ class AttachmentLogRedactionTests(unittest.TestCase):
             redacted["text_content"],
         )
 
-    def test_attachment_context_omits_text_preview_for_text_files(self):
+    def test_attachment_context_includes_full_text_for_text_files(self):
         context = format_attachment_context({
             "attachments": [
                 {
@@ -37,18 +37,16 @@ class AttachmentLogRedactionTests(unittest.TestCase):
                     "kind": "text",
                     "type": "text/plain",
                     "size_label": "12 KB",
-                    "text_preview": "do not send this preview",
-                    "text_content": "full content stays available to skills",
+                    "text_preview": "preview must not replace full text",
+                    "text_content": "full text body",
                 },
                 {
                     "name": "README.md",
                     "kind": "text",
                     "type": "text/markdown",
-                    "size_label": "304.8 KB",
-                    "text_preview": "# Dictionary body",
-                    "preview_limit": 2000,
-                    "truncated": True,
-                    "text_content": "full markdown stays available to skills",
+                    "size_label": "3 KB",
+                    "text_preview": "# Preview heading",
+                    "text_content": "# Real heading\n\nMarkdown body.",
                 },
             ],
         })
@@ -58,23 +56,78 @@ class AttachmentLogRedactionTests(unittest.TestCase):
             context,
         )
         self.assertIn(
-            "- README.md: text, text/markdown, 304.8 KB",
+            "full text body",
+            context,
+        )
+        self.assertIn(
+            "--- BEGIN ATTACHMENT TEXT: README.md ---",
+            context,
+        )
+        self.assertIn(
+            "# Real heading\n\nMarkdown body.",
             context,
         )
         self.assertNotIn(
-            "runtime_attachment",
+            "preview must not replace full text",
             context,
         )
         self.assertNotIn(
-            "text_preview",
+            "# Preview heading",
+            context,
+        )
+
+    def test_attachment_context_falls_back_to_preview_for_older_text_payloads(self):
+        context = format_attachment_context({
+            "attachments": [
+                {
+                    "name": "legacy.md",
+                    "kind": "text",
+                    "type": "text/markdown",
+                    "text_preview": "legacy markdown body",
+                },
+            ],
+        })
+
+        self.assertIn(
+            "legacy markdown body",
+            context,
+        )
+
+    def test_attachment_text_context_has_shared_message_budget(self):
+        context = format_attachment_context(
+            {
+                "attachments": [
+                    {
+                        "name": "one.md",
+                        "kind": "text",
+                        "type": "text/markdown",
+                        "text_content": "abcdefgh",
+                    },
+                    {
+                        "name": "two.md",
+                        "kind": "text",
+                        "type": "text/markdown",
+                        "text_content": "ijklmnop",
+                    },
+                ],
+            },
+            max_text_chars=10,
+        )
+
+        self.assertIn(
+            "abcdefgh",
+            context,
+        )
+        self.assertIn(
+            "ij",
             context,
         )
         self.assertNotIn(
-            "do not send this preview",
+            "klmnop",
             context,
         )
-        self.assertNotIn(
-            "# Dictionary body",
+        self.assertIn(
+            "[attachment text truncated: 6 chars omitted]",
             context,
         )
 

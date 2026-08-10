@@ -1,3 +1,6 @@
+TEXT_ATTACHMENT_CONTEXT_MAX_CHARS = 32000
+
+
 def has_message_attachments(
     message_data: dict,
 ) -> bool:
@@ -14,8 +17,48 @@ def has_message_attachments(
     )
 
 
+def _normalize_attachment_text(
+    value,
+) -> str:
+
+    return str(
+        value
+        if value is not None
+        else ""
+    ).replace(
+        "\r\n",
+        "\n",
+    ).replace(
+        "\r",
+        "\n",
+    )
+
+
+def _get_attachment_text_content(
+    attachment: dict,
+) -> str:
+
+    if "text_content" in attachment:
+        return _normalize_attachment_text(
+            attachment.get(
+                "text_content",
+            )
+        )
+
+    # Backward compatibility for turns created by older clients that only
+    # supplied the preview field.
+    return _normalize_attachment_text(
+        attachment.get(
+            "text_preview",
+            "",
+        )
+    )
+
+
 def format_attachment_context(
     message_data: dict,
+    *,
+    max_text_chars: int = TEXT_ATTACHMENT_CONTEXT_MAX_CHARS,
 ) -> str:
 
     attachments = message_data.get(
@@ -27,6 +70,21 @@ def format_attachment_context(
         list,
     ):
         return ""
+
+    try:
+        remaining_text_chars = max(
+            0,
+            int(
+                max_text_chars
+            ),
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        remaining_text_chars = (
+            TEXT_ATTACHMENT_CONTEXT_MAX_CHARS
+        )
 
     lines = [
         "Attached context:",
@@ -96,6 +154,49 @@ def format_attachment_context(
 
         lines.append(
             f"- {name}: {', '.join(detail_parts)}"
+        )
+
+        if kind.strip().lower() != "text":
+            continue
+
+        text_content = _get_attachment_text_content(
+            attachment
+        )
+
+        if not text_content.strip():
+            continue
+
+        if remaining_text_chars <= 0:
+            lines.append(
+                "[attachment text omitted: text context budget exhausted]"
+            )
+            continue
+
+        visible_text = text_content[
+            :remaining_text_chars
+        ]
+        omitted_chars = (
+            len(text_content)
+            - len(visible_text)
+        )
+        remaining_text_chars -= len(
+            visible_text
+        )
+
+        lines.append(
+            f"--- BEGIN ATTACHMENT TEXT: {name} ---"
+        )
+        lines.append(
+            visible_text
+        )
+
+        if omitted_chars > 0:
+            lines.append(
+                f"[attachment text truncated: {omitted_chars} chars omitted]"
+            )
+
+        lines.append(
+            f"--- END ATTACHMENT TEXT: {name} ---"
         )
 
     if not included:
