@@ -786,6 +786,23 @@
       });
   }
 
+  function getLongTermFactNumber(fact) {
+    const match =
+        String(fact && fact.id || "")
+          .trim()
+          .match(/^F(\d+)$/i);
+
+    if (!match) {
+      return null;
+    }
+
+    const number = Number(match[1]);
+
+    return Number.isSafeInteger(number)
+      ? number
+      : null;
+  }
+
   function getLongTermMemoryFactRecords() {
     const facts =
         typeof getLongTermMemoryFacts === "function"
@@ -805,13 +822,29 @@
         && String(fact.value || "").trim()
       ))
       .sort((left, right) => {
-        const updatedDifference =
-            String(right.updated_at || "").localeCompare(
-              String(left.updated_at || "")
-            );
+        const leftNumber =
+            getLongTermFactNumber(left);
+        const rightNumber =
+            getLongTermFactNumber(right);
 
-        if (updatedDifference) {
-          return updatedDifference;
+        if (
+            leftNumber !== null
+            || rightNumber !== null
+        ) {
+          if (leftNumber === null) {
+            return 1;
+          }
+
+          if (rightNumber === null) {
+            return -1;
+          }
+
+          const idDifference =
+              rightNumber - leftNumber;
+
+          if (idDifference) {
+            return idDifference;
+          }
         }
 
         return String(left.key || "").localeCompare(
@@ -1895,6 +1928,39 @@
 
       keySpan.textContent =
           `${memoryModel.runtimeMemoryDisplay.convertKeyToName(key) || key}:`;
+
+      if (options.interactiveLongTermMemory) {
+        row.classList.add(
+          "runtime-memory-l4-row"
+        );
+
+        const factNumber =
+            line && Number.isSafeInteger(
+              line.fact_number
+            )
+              ? line.fact_number
+              : null;
+
+        if (factNumber !== null) {
+          const numberSpan =
+              document.createElement("span");
+          const separatorSpan =
+              document.createElement("span");
+
+          numberSpan.className =
+              "runtime-memory-fact-number";
+          numberSpan.textContent =
+              String(factNumber);
+
+          separatorSpan.className =
+              "runtime-memory-fact-separator";
+          separatorSpan.textContent =
+              "·";
+
+          row.appendChild(numberSpan);
+          row.appendChild(separatorSpan);
+        }
+      }
 
       const valueSpan =
           document.createElement("span");
@@ -3842,6 +3908,8 @@
     return {
       id,
       key,
+      fact_number:
+        getLongTermFactNumber(fact),
       value: memoryModel.appendProperties(
           value,
           formatLongTermFactMetadata(fact)

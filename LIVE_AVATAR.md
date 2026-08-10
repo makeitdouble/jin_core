@@ -17,7 +17,7 @@ Read it like this:
 | Inner moving rings          | Current runtime memory lines |
 | Faster inner motion         | Larger runtime memory diff |
 | Color shifts in inner rings | Keyword/emotional content in runtime memory |
-| Small nodes and stripes     | Pending or long/notable runtime memory details |
+| Runtime change markers      | Last real runtime transition: filled = new line, hollow = changed line |
 | L4 blue dashes              | Long-term facts |
 | Dim L4 dots                 | L4 facts already represented by delayed reports |
 | Delayed report dashes       | Stored delayed memory reports |
@@ -129,7 +129,9 @@ These rings are the most "alive" part of the avatar: they change radius, speed, 
 | Ring direction | Seeded random direction |
 | Ring color | Keyword palette plus emotional/alert influence |
 | Extra stripes | The line is long compared to the others |
-| Small colored nodes | The line contains pending-related language |
+| Filled change marker | The line was added in the last real runtime transition |
+| Hollow change marker | The line changed in the last real runtime transition |
+| Change marker size | Magnitude of the line change |
 
 ### Runtime Ring Controls
 
@@ -141,7 +143,7 @@ These rings are the most "alive" part of the avatar: they change radius, speed, 
 | Dash texture | `runtime-avatar.js` | `appendOrbit()` -> `dashLength`, `gapLength`, `strokeWidth` |
 | Arc fragments | `runtime-avatar.js` | `appendOrbit()` -> `arcCount`, `appendArcCircle()` |
 | Long-line stripes | `runtime-avatar.js` | `appendLongFieldStripes()` |
-| Pending nodes | `runtime-avatar.js` | `appendPendingNodes()` |
+| Runtime change markers | `runtime-avatar.js` | `appendRuntimeChangeMarker()`, `resolveRuntimeChangeMarkers()` |
 
 ### Runtime Ring Speed
 
@@ -167,6 +169,25 @@ To make them more energetic:
 const baseSpeed = 18 + random() * 52;
 ```
 
+### Runtime Change Markers
+
+Runtime circles are no longer decorative and are no longer triggered by words such as `pending`.
+
+They show the last real runtime memory transition:
+
+| Marker | Meaning |
+|---|---|
+| Filled circle | A runtime line was newly added |
+| Hollow circle | An existing runtime line changed |
+| Marker size | Larger `key_change_ratio` / `value_change_ratio` |
+| Marker angle | Stable hash of the runtime line identity |
+
+If a later snapshot has no real line changes, the previous change markers remain visible. The avatar searches backward through runtime snapshot history until it finds the latest real transition. This keeps the last meaningful transition visible instead of making the markers disappear on a no-op redraw.
+
+A removal-only transition clears the old markers: the removed line is represented by its orbit disappearing, so no stale circle is carried forward.
+
+Random orbit circles and pending-keyword circles are intentionally not rendered.
+
 ## Runtime Colors
 
 Runtime colors come from a weighted palette. The avatar looks at text in the current runtime snapshot and blends colors if specific words appear.
@@ -179,7 +200,6 @@ The default palettes live near the top of:
 |---|---|
 | `KEYWORD_PALETTE` | Softly pushes rings toward thematic colors |
 | `AGGRESSIVE_PALETTE` | Strong alert-like coloring for high-priority words |
-| `PENDING_NODE_PALETTE` | Colors small pending nodes |
 
 Current keyword palette:
 

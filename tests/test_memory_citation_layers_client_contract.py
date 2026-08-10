@@ -54,6 +54,22 @@ class MemoryCitationLayersClientContractTests(unittest.TestCase):
         self.assertIn("function resetThinkCitationHighlightTurn()", source)
         self.assertIn("resetThinkCitationHighlightTurn,", source)
         self.assertIn("window.JinThinkCitations.resetThinkCitationHighlightTurn();", chat_source)
+
+    def test_only_latest_reasoning_is_persistent_and_old_reasoning_is_hover_preview(self):
+        source = THINK_CITATIONS_JS.read_text(encoding="utf-8")
+
+        self.assertIn("let latestThinkCitationTarget = null;", source)
+        self.assertIn("let hoveredThinkCitationTarget = null;", source)
+        self.assertIn("function getActiveThinkCitationTarget()", source)
+        self.assertIn("thinkContent === getActiveThinkCitationTarget()", source)
+        self.assertIn("latestThinkCitationTarget =\n      thinkContent;", source)
+        self.assertIn('"mouseenter",', source)
+        self.assertIn('"mouseleave",', source)
+        self.assertIn("activateHoveredThinkCitation(", source)
+        self.assertIn("deactivateHoveredThinkCitation(", source)
+        self.assertIn('origin: "think-citation-hover"', source)
+        self.assertNotIn('element.classList.add(\n      "has-rule-highlights"', source)
+
     def test_latest_persistent_reference_text_combines_reasoning_and_answer(self):
         source = CHAT_JS.read_text(encoding="utf-8")
         start = source.index("const memoryReferenceText =")
@@ -116,7 +132,7 @@ class MemoryCitationLayersClientContractTests(unittest.TestCase):
         self.assertIn("/static/css/theme-win95.css?v=delayed-context-loaded-1", source)
         self.assertIn("/static/js/runtime/runtime-memory-view.js?v=delayed-context-loaded-1", source)
         self.assertIn("/static/js/runtime/runtime-avatar.js?v=memory-rings-20", source)
-        self.assertIn("/static/js/think-citations.js?v=think-citations-5", source)
+        self.assertIn("/static/js/think-citations.js?v=think-citations-6", source)
         self.assertIn("/static/js/chat.js?v=reasoning-gap-1", source)
 
 

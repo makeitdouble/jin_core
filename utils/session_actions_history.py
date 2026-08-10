@@ -1083,7 +1083,7 @@ PAYLOAD_DISTINCT_SESSION_ACTIONS = {
     "UPDATE_DELAYED_MEMORY",
 }
 
-SEPARATE_SESSION_ACTION_MARKER_ITEMS = {
+SEPARATE_REPEATED_SESSION_ACTION_MARKER_ITEMS = {
     "SAVE_ACTIVE_MEMORY",
 }
 
@@ -1656,8 +1656,21 @@ def _build_session_action_marker_history_items(
         if not grouped_parts:
             return
 
+        preserve_separate = (
+            len(grouped_parts) == 1
+            and str(
+                grouped_parts[0].get(
+                    "text",
+                    "",
+                )
+                or ""
+            ).strip().upper()
+            in SEPARATE_REPEATED_SESSION_ACTION_MARKER_ITEMS
+        )
+
         append_item(
-            grouped_parts
+            grouped_parts,
+            preserve_separate=preserve_separate,
         )
         grouped_parts.clear()
 
@@ -1670,13 +1683,31 @@ def _build_session_action_marker_history_items(
             or ""
         ).strip().upper()
 
-        if action_name in SEPARATE_SESSION_ACTION_MARKER_ITEMS:
-            flush_grouped_parts()
-            append_item(
-                [
-                    part,
-                ],
-                preserve_separate=True,
+        if (
+            action_name
+            in SEPARATE_REPEATED_SESSION_ACTION_MARKER_ITEMS
+        ):
+            # Multiple SAVE_ACTIVE_MEMORY payloads in one model message
+            # must stay individually addressable, but a heterogeneous
+            # action set from the same message is one sequence step.
+            # Example: SAVE_ACTIVE_MEMORY + SAVE_SESSION should render as
+            # one "JIN message N executed: ..." entry, not two turns.
+            has_same_action = any(
+                str(
+                    grouped_part.get(
+                        "text",
+                        "",
+                    )
+                    or ""
+                ).strip().upper() == action_name
+                for grouped_part in grouped_parts
+            )
+
+            if has_same_action:
+                flush_grouped_parts()
+
+            grouped_parts.append(
+                part
             )
             continue
 

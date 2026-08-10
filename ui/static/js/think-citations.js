@@ -7,6 +7,8 @@
     "/static/js/think-rule-worker.js?v=rule-citations-6";
   const THINK_RUNTIME_CITATION_HIGHLIGHT_EVENT =
     "jin:think-runtime-citation-highlight";
+  const MEMORY_REFERENCE_HIGHLIGHT_EVENT =
+    "jin:memory-reference-highlight";
   const buildCitationRecordIdentity =
     window.JinRuntime
     && typeof window.JinRuntime.buildCitationRecordIdentity === "function"
@@ -16,6 +18,9 @@
   let thinkRuleCitationWorker = null;
   let thinkRuleCitationRegistryPromise = null;
   let nextThinkRuntimeCitationIndex = 0;
+  let latestThinkCitationTarget = null;
+  let hoveredThinkCitationTarget = null;
+  let latestPersistentMemoryReferenceText = "";
   const activeThinkRuleCitationJobs = new Map();
 
   function isThinkCitationDebugEnabled() {
@@ -802,31 +807,227 @@
     );
 
   }
-  function resetThinkCitationHighlightTurn() {
+
+  function hasThinkRuleHighlights(thinkContent) {
+
+    return Boolean(
+      thinkContent
+      && thinkContent.__jinHasRuleHighlights
+    );
+
+  }
+
+  function getActiveThinkCitationTarget() {
+
+    return (
+      hoveredThinkCitationTarget
+      || latestThinkCitationTarget
+    );
+
+  }
+
+  function setThinkCitationElementActive(
+    thinkContent,
+    active
+  ) {
+
+    if (!thinkContent) {
+      return;
+    }
+
+    const nextActive = Boolean(
+      active
+      && hasThinkRuleHighlights(
+        thinkContent
+      )
+    );
+
+    thinkContent.classList.toggle(
+      "has-rule-highlights",
+      nextActive
+    );
+
+    const runtimeActive = Boolean(
+      nextActive
+      && shouldRevealThinkRuntimeCitations(
+        thinkContent
+      )
+    );
+
+    if (
+      thinkContent.__jinRuntimeCitationHighlightActive
+      === runtimeActive
+    ) {
+      return;
+    }
+
+    thinkContent.__jinRuntimeCitationHighlightActive =
+      runtimeActive;
+
+    dispatchThinkRuntimeCitationHighlight(
+      thinkContent,
+      runtimeActive
+    );
+
+  }
+
+  function syncAllThinkCitationHighlights() {
+
+    const activeTarget =
+      getActiveThinkCitationTarget();
 
     document
       .querySelectorAll(
-        ".jin-think-content.has-rule-highlights"
+        ".jin-think-content"
       )
       .forEach((thinkContent) => {
-        thinkContent.classList.remove(
-          "has-rule-highlights"
+        setThinkCitationElementActive(
+          thinkContent,
+          thinkContent === activeTarget
         );
+      });
 
-        dispatchThinkRuntimeCitationHighlight(
+  }
+
+  function dispatchPersistentMemoryReferenceOverride(text) {
+
+    window.dispatchEvent(
+      new CustomEvent(
+        MEMORY_REFERENCE_HIGHLIGHT_EVENT,
+        {
+          detail: {
+            source: "persistent",
+            text: String(text || ""),
+            active: Boolean(
+              String(text || "")
+            ),
+            origin: "think-citation-hover",
+          },
+        }
+      )
+    );
+
+  }
+
+  function restoreLatestPersistentMemoryReference() {
+
+    dispatchPersistentMemoryReferenceOverride(
+      latestPersistentMemoryReferenceText
+    );
+
+  }
+
+  function activateHoveredThinkCitation(thinkContent) {
+
+    if (
+      !thinkContent
+      || thinkContent === latestThinkCitationTarget
+    ) {
+      return;
+    }
+
+    hoveredThinkCitationTarget =
+      thinkContent;
+
+    dispatchPersistentMemoryReferenceOverride(
+      thinkContent.__jinThinkRawText
+      || thinkContent.textContent
+      || ""
+    );
+
+    syncAllThinkCitationHighlights();
+
+  }
+
+  function deactivateHoveredThinkCitation(thinkContent) {
+
+    if (
+      !thinkContent
+      || hoveredThinkCitationTarget !== thinkContent
+    ) {
+      return;
+    }
+
+    hoveredThinkCitationTarget = null;
+
+    restoreLatestPersistentMemoryReference();
+    syncAllThinkCitationHighlights();
+
+  }
+
+  function bindThinkCitationHover(thinkContent) {
+
+    if (
+      !thinkContent
+      || thinkContent.__jinCitationHoverBound
+    ) {
+      return;
+    }
+
+    thinkContent.__jinCitationHoverBound = true;
+
+    thinkContent.addEventListener(
+      "mouseenter",
+      () => {
+        activateHoveredThinkCitation(
+          thinkContent
+        );
+      }
+    );
+
+    thinkContent.addEventListener(
+      "mouseleave",
+      () => {
+        deactivateHoveredThinkCitation(
+          thinkContent
+        );
+      }
+    );
+
+  }
+
+  function handlePersistentMemoryReferenceHighlight(event) {
+
+    const detail =
+      event && event.detail || {};
+
+    if (
+      detail.source !== "persistent"
+      || detail.origin === "think-citation-hover"
+    ) {
+      return;
+    }
+
+    latestPersistentMemoryReferenceText =
+      detail.active === false
+        ? ""
+        : String(detail.text || "");
+
+  }
+
+  function resetThinkCitationHighlightTurn() {
+
+    latestThinkCitationTarget = null;
+    hoveredThinkCitationTarget = null;
+
+    document
+      .querySelectorAll(
+        ".jin-think-content"
+      )
+      .forEach((thinkContent) => {
+        setThinkCitationElementActive(
           thinkContent,
           false
         );
       });
 
   }
+
   function syncThinkRuntimeCitationHighlight(thinkContent) {
 
-    dispatchThinkRuntimeCitationHighlight(
+    setThinkCitationElementActive(
       thinkContent,
-      shouldRevealThinkRuntimeCitations(
-        thinkContent
-      )
+      thinkContent === getActiveThinkCitationTarget()
     );
 
   }
@@ -943,9 +1144,7 @@
     element.replaceChildren(
       fragment
     );
-    element.classList.add(
-      "has-rule-highlights"
-    );
+    element.__jinHasRuleHighlights = true;
     element.__jinThinkTextNode = null;
 
     updateThinkContentExpandedHeight(
@@ -1056,6 +1255,14 @@
     thinkContent.__jinThinkRawText =
       text;
 
+    bindThinkCitationHover(
+      thinkContent
+    );
+
+    latestThinkCitationTarget =
+      thinkContent;
+    syncAllThinkCitationHighlights();
+
     activeThinkRuleCitationJobs.set(
       thinkId,
       {
@@ -1127,6 +1334,11 @@
       });
 
   }
+
+  window.addEventListener(
+    MEMORY_REFERENCE_HIGHLIGHT_EVENT,
+    handlePersistentMemoryReferenceHighlight
+  );
 
   window.JinThinkCitations = {
     resetThinkCitationHighlightTurn,

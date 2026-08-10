@@ -71,13 +71,34 @@
     opacity: 0.5;
 }
 
+/* Keep highlight colors, but remove expensive text glow from every memory record. */
+#runtime-memory-text .runtime-memory-line .runtime-memory-key,
+#runtime-memory-text .runtime-memory-line .runtime-memory-value {
+    text-shadow: none !important;
+}
+
+.runtime-memory-l4-row .runtime-memory-fact-number {
+    display: inline-block;
+    min-width: 3ch;
+    margin-right: 0.25ch;
+    color: rgba(161, 161, 170, 0.68);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.runtime-memory-l4-row .runtime-memory-fact-separator {
+    display: inline-block;
+    width: 1.4em;
+    color: rgba(161, 161, 170, 0.48);
+    text-align: center;
+}
+
 .runtime-memory-key,
 .runtime-memory-value {
     color: rgba(244,244,245,0.62);
     transition:
             color 0.62s cubic-bezier(0.22, 0.61, 0.36, 1),
-            font-weight 0.62s cubic-bezier(0.22, 0.61, 0.36, 1),
-            text-shadow 0.62s cubic-bezier(0.22, 0.61, 0.36, 1);
+            font-weight 0.62s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 .runtime-memory-value {
@@ -485,4 +506,286 @@
     font-size: 12px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
+}
+
+/* Structured context-window viewer inside the shared trace modal. */
+.jin-context-trace-modal .delayed-memory-modal-panel {
+    width: min(1320px, calc(100vw - 32px));
+    max-width: 1320px;
+}
+
+.jin-context-trace-modal .delayed-memory-modal-content {
+    padding: 14px;
+    background:
+            linear-gradient(180deg, rgba(24, 24, 27, 0.30), rgba(9, 9, 11, 0.04));
+}
+
+.jin-context-overview {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+    padding: 2px 2px 8px;
+}
+
+.jin-context-overview-title {
+    color: rgba(228, 228, 231, 0.92);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+}
+
+.jin-context-overview-badges,
+.jin-context-card-meta {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.jin-context-badge {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    border: 1px solid rgba(63, 63, 70, 0.82);
+    border-radius: 999px;
+    background: rgba(24, 24, 27, 0.62);
+    padding: 2px 7px;
+    color: rgba(212, 212, 216, 0.74);
+    font-size: 9px;
+    line-height: 1.45;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+
+.jin-context-badge-attribute {
+    border-color: rgba(56, 189, 248, 0.20);
+    background: rgba(8, 47, 73, 0.18);
+    color: rgba(186, 230, 253, 0.72);
+}
+
+.jin-context-badge-muted {
+    opacity: 0.68;
+}
+
+.jin-context-stack {
+    display: grid;
+    gap: 10px;
+}
+
+.jin-context-card {
+    overflow: hidden;
+    border: 1px solid rgba(63, 63, 70, 0.78);
+    border-radius: 7px;
+    background: rgba(9, 9, 11, 0.48);
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.018);
+}
+
+.jin-context-card-xml {
+    border-color: rgba(82, 82, 91, 0.92);
+}
+
+.jin-context-card-user {
+    border-color: rgba(56, 189, 248, 0.34);
+    background: rgba(8, 47, 73, 0.12);
+}
+
+.jin-context-card-header {
+    display: flex;
+    min-height: 38px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    border-bottom: 1px solid rgba(63, 63, 70, 0.70);
+    background: rgba(24, 24, 27, 0.62);
+    padding: 7px 10px;
+    cursor: row-resize;
+    user-select: none;
+    transition:
+            background-color 0.16s ease,
+            border-color 0.16s ease;
+}
+
+.jin-context-card-header:hover,
+.jin-context-card-header:focus-visible {
+    outline: none;
+    background: rgba(39, 39, 42, 0.70);
+    border-color: rgba(82, 82, 91, 0.90);
+}
+
+.jin-context-card-heading {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+}
+
+.jin-context-card-chevron {
+    width: 12px;
+    flex: 0 0 12px;
+    color: rgba(161, 161, 170, 0.62);
+    font-size: 10px;
+    line-height: 1;
+    transition: transform 0.16s ease;
+}
+
+.jin-context-card-title {
+    overflow: hidden;
+    color: rgba(244, 244, 245, 0.90);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.jin-context-card-xml .jin-context-card-title {
+    color: rgba(186, 230, 253, 0.90);
+}
+
+.jin-context-card-user .jin-context-card-title {
+    color: rgba(224, 242, 254, 0.96);
+}
+
+.jin-context-card-body {
+    min-width: 0;
+    padding: 10px;
+}
+
+.jin-context-card.is-collapsed .jin-context-card-header {
+    border-bottom-color: transparent;
+}
+
+.jin-context-card.is-collapsed .jin-context-card-body {
+    display: none;
+}
+
+.jin-context-card.is-collapsed .jin-context-card-chevron {
+    transform: rotate(-90deg);
+}
+
+.jin-context-kv-list {
+    display: grid;
+    gap: 0;
+}
+
+.jin-context-kv-row {
+    display: grid;
+    grid-template-columns: minmax(150px, 0.23fr) minmax(0, 1fr);
+    gap: 14px;
+    padding: 8px 3px;
+    border-bottom: 1px solid rgba(39, 39, 42, 0.74);
+}
+
+.jin-context-kv-row:last-child {
+    border-bottom: 0;
+}
+
+.jin-context-kv-key {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: rgba(125, 211, 252, 0.72);
+    font-size: 10px;
+    line-height: 1.55;
+}
+
+.jin-context-kv-value {
+    min-width: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: rgba(228, 228, 231, 0.84);
+    font-size: 11px;
+    line-height: 1.62;
+}
+
+.jin-context-chat-list {
+    display: grid;
+    gap: 7px;
+}
+
+.jin-context-chat-row {
+    display: grid;
+    grid-template-columns: 54px minmax(0, 1fr);
+    gap: 10px;
+    border-left: 2px solid rgba(113, 113, 122, 0.46);
+    background: rgba(24, 24, 27, 0.32);
+    padding: 8px 10px;
+}
+
+.jin-context-chat-user {
+    border-left-color: rgba(56, 189, 248, 0.58);
+}
+
+.jin-context-chat-jin,
+.jin-context-chat-brain {
+    border-left-color: rgba(45, 212, 191, 0.52);
+}
+
+.jin-context-chat-role {
+    color: rgba(161, 161, 170, 0.76);
+    font-size: 9px;
+    letter-spacing: 0.08em;
+}
+
+.jin-context-chat-content {
+    min-width: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: rgba(228, 228, 231, 0.84);
+    font-size: 11px;
+    line-height: 1.58;
+}
+
+.jin-context-line-list {
+    display: grid;
+    gap: 5px;
+}
+
+.jin-context-line-item {
+    min-width: 0;
+    border-left: 1px solid rgba(82, 82, 91, 0.72);
+    padding: 3px 9px;
+    overflow-wrap: anywhere;
+    color: rgba(212, 212, 216, 0.82);
+    font-size: 11px;
+    line-height: 1.52;
+}
+
+.jin-context-raw {
+    margin: 0;
+    max-width: none;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: rgba(212, 212, 216, 0.82);
+    font-size: 11px;
+    line-height: 1.62;
+    tab-size: 4;
+}
+
+.jin-context-empty {
+    padding: 8px 2px;
+    color: rgba(113, 113, 122, 0.70);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+}
+
+@media (max-width: 760px) {
+    .jin-context-overview,
+    .jin-context-card-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .jin-context-overview-badges,
+    .jin-context-card-meta {
+        justify-content: flex-start;
+    }
+
+    .jin-context-kv-row {
+        grid-template-columns: 1fr;
+        gap: 4px;
+    }
 }

@@ -891,11 +891,558 @@ function formatEmbeddedSummarizerReasoning(details) {
   );
 }
 
+
+function contextElement(
+  tag,
+  className,
+  text = null,
+) {
+  const element =
+    document.createElement(tag);
+
+  if (className) {
+    element.className = className;
+  }
+
+  if (text !== null) {
+    element.textContent = text;
+  }
+
+  return element;
+}
+
+function parseContextTraceSnapshot(details) {
+  const text =
+    String(details || "").replace(
+      /\r\n?/g,
+      "\n"
+    );
+
+  const header =
+    text.match(
+      /^SYSTEM PROMPT(?: \(INTERNAL ACTION RULES HIDDEN\))?\n-+\n/
+    );
+  const userMarker =
+    /\nUSER PROMPT \/ CONTEXT PAYLOAD\n-+\n/;
+  const user =
+    userMarker.exec(text);
+
+  if (!header || !user) {
+    return null;
+  }
+
+  return {
+    hiddenInternalActionRules:
+      header[0].includes(
+        "INTERNAL ACTION RULES HIDDEN"
+      ),
+    systemPrompt:
+      text.slice(
+        header[0].length,
+        user.index
+      ).trim(),
+    userPrompt:
+      text.slice(
+        user.index + user[0].length
+      ).trim(),
+  };
+}
+
+function parseContextAttributes(raw) {
+  const attributes = [];
+  const pattern =
+    /([A-Za-z_][\w.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s]+))/g;
+  let match;
+
+  while ((match = pattern.exec(String(raw || "")))) {
+    attributes.push(
+      `${match[1]}=${match[2] ?? match[3] ?? match[4] ?? ""}`
+    );
+  }
+
+  return attributes;
+}
+
+function splitContextPlainText(text) {
+  const blocks = [];
+  let title = "SYSTEM RULES";
+  let lines = [];
+
+  const flush = () => {
+    const content =
+      lines.join("\n").trim();
+
+    if (content) {
+      blocks.push({
+        title,
+        content,
+        attributes: [],
+        xml: false,
+      });
+    }
+
+    lines = [];
+  };
+
+  String(text || "")
+    .split("\n")
+    .forEach((line) => {
+      const heading =
+        line.trim();
+
+      if (
+          /^[A-Z][A-Z0-9 _/&()\-]{3,}:$/.test(heading)
+      ) {
+        flush();
+        title = heading.slice(0, -1);
+        return;
+      }
+
+      lines.push(line);
+    });
+
+  flush();
+  return blocks;
+}
+
+function parseContextBlocks(text) {
+  const source =
+    String(text || "").replace(
+      /\r\n?/g,
+      "\n"
+    );
+  const lines = source.split("\n");
+  const blocks = [];
+  let plain = [];
+
+  const flushPlain = () => {
+    const content =
+      plain.join("\n").trim();
+
+    if (content) {
+      blocks.push(
+        ...splitContextPlainText(content)
+      );
+    }
+
+    plain = [];
+  };
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const open =
+      lines[i].match(
+        /^\s*<([A-Za-z][\w.-]*)(\s+[^>]*)?>\s*$/
+      );
+
+    if (!open) {
+      plain.push(lines[i]);
+      continue;
+    }
+
+    const closeText =
+      `</${open[1]}>`;
+    let close = -1;
+
+    for (let j = i + 1; j < lines.length; j += 1) {
+      if (lines[j].trim() === closeText) {
+        close = j;
+        break;
+      }
+    }
+
+    if (close < 0) {
+      plain.push(lines[i]);
+      continue;
+    }
+
+    flushPlain();
+    blocks.push({
+      title: open[1],
+      attributes:
+        parseContextAttributes(open[2]),
+      content:
+        lines.slice(i + 1, close)
+          .join("\n")
+          .trim(),
+      xml: true,
+    });
+    i = close;
+  }
+
+  flushPlain();
+  return blocks;
+}
+
+function contextBadge(text, attribute = false) {
+  return contextElement(
+    "span",
+    attribute
+      ? "jin-context-badge jin-context-badge-attribute"
+      : "jin-context-badge",
+    text
+  );
+}
+
+function parseContextRows(content) {
+  const lines =
+    String(content || "")
+      .split("\n")
+      .filter((line) => line.trim());
+
+  const chat = lines.map((line) => {
+    const match =
+      line.match(
+        /^\s*<(USER|JIN|SERVICE|BRAIN)>([\s\S]*?)(?:<\/\1>)?\s*$/
+      );
+
+    return match
+      ? {
+          kind: "chat",
+          key: match[1],
+          value: match[2].trim(),
+        }
+      : null;
+  });
+
+  if (chat.length && chat.every(Boolean)) {
+    return chat;
+  }
+
+  const tags = lines.map((line) => {
+    const match =
+      line.match(
+        /^\s*<([A-Za-z][\w.-]*)>([\s\S]*?)<\/\1>\s*$/
+      );
+
+    return match
+      ? {
+          kind: "kv",
+          key: match[1],
+          value: match[2].trim(),
+        }
+      : null;
+  });
+
+  if (tags.length && tags.every(Boolean)) {
+    return tags;
+  }
+
+  const fields = lines
+    .map((line) => {
+      const match =
+        line.match(
+          /^\s*([^:]{1,90}):\s*(.*)$/
+        );
+
+      return match
+        ? {
+            kind: "kv",
+            key: match[1].trim(),
+            value: match[2].trim(),
+          }
+        : null;
+    })
+    .filter(Boolean);
+
+  if (
+      fields.length >= 2
+      && fields.length / Math.max(lines.length, 1) >= 0.7
+  ) {
+    return fields;
+  }
+
+  return [];
+}
+
+function renderContextBody(parent, content) {
+  const text =
+    String(content || "").trim();
+
+  if (!text) {
+    parent.appendChild(
+      contextElement(
+        "div",
+        "jin-context-empty",
+        "EMPTY"
+      )
+    );
+    return;
+  }
+
+  const rows =
+    parseContextRows(text);
+
+  if (rows.length) {
+    const list =
+      contextElement(
+        "div",
+        "jin-context-kv-list"
+      );
+
+    rows.forEach((row) => {
+      const item =
+        contextElement(
+          "div",
+          row.kind === "chat"
+            ? `jin-context-chat-row jin-context-chat-${row.key.toLowerCase()}`
+            : "jin-context-kv-row"
+        );
+
+      item.appendChild(
+        contextElement(
+          "div",
+          row.kind === "chat"
+            ? "jin-context-chat-role"
+            : "jin-context-kv-key",
+          row.key
+        )
+      );
+      item.appendChild(
+        contextElement(
+          "div",
+          row.kind === "chat"
+            ? "jin-context-chat-content"
+            : "jin-context-kv-value",
+          row.value || "<empty>"
+        )
+      );
+      list.appendChild(item);
+    });
+
+    parent.appendChild(list);
+    return;
+  }
+
+  const lines =
+    text.split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+  const simpleList =
+    lines.length > 1
+    && lines.length <= 40
+    && lines.every((line) => (
+      /^\d+[.)]\s+/.test(line)
+      || /^[A-Za-z0-9_#.-]+(?:\s+.*)?$/.test(line)
+    ));
+
+  if (simpleList) {
+    const list =
+      contextElement(
+        "div",
+        "jin-context-line-list"
+      );
+
+    lines.forEach((line) => {
+      list.appendChild(
+        contextElement(
+          "div",
+          "jin-context-line-item",
+          line
+        )
+      );
+    });
+
+    parent.appendChild(list);
+    return;
+  }
+
+  parent.appendChild(
+    contextElement(
+      "pre",
+      "jin-context-raw",
+      text
+    )
+  );
+}
+
+function appendContextCard(
+  parent,
+  block,
+) {
+  const card =
+    contextElement(
+      "section",
+      `jin-context-card ${block.xml ? "jin-context-card-xml" : "jin-context-card-plain"}`
+    );
+  const header =
+    contextElement(
+      "div",
+      "jin-context-card-header"
+    );
+  const heading =
+    contextElement(
+      "div",
+      "jin-context-card-heading"
+    );
+  const meta =
+    contextElement(
+      "div",
+      "jin-context-card-meta"
+    );
+  const body =
+    contextElement(
+      "div",
+      "jin-context-card-body"
+    );
+
+  header.title =
+    "Double-click to collapse / expand";
+  header.tabIndex = 0;
+  header.setAttribute("role", "button");
+  header.setAttribute("aria-expanded", "true");
+
+  heading.appendChild(
+    contextElement(
+      "span",
+      "jin-context-card-chevron",
+      "▾"
+    )
+  );
+  heading.appendChild(
+    contextElement(
+      "div",
+      "jin-context-card-title",
+      block.title
+    )
+  );
+
+  block.attributes.forEach((attribute) => {
+    meta.appendChild(
+      contextBadge(attribute, true)
+    );
+  });
+  meta.appendChild(
+    contextBadge(
+      `${String(block.content || "").split("\n").filter((line) => line.trim()).length} lines`
+    )
+  );
+
+  const toggle = () => {
+    const collapsed =
+      card.classList.toggle(
+        "is-collapsed"
+      );
+
+    header.setAttribute(
+      "aria-expanded",
+      collapsed ? "false" : "true"
+    );
+  };
+
+  header.addEventListener(
+    "dblclick",
+    toggle
+  );
+  header.addEventListener(
+    "keydown",
+    function (event) {
+      if (
+          event.key !== "Enter"
+          && event.key !== " "
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      toggle();
+    }
+  );
+
+  header.appendChild(heading);
+  header.appendChild(meta);
+  card.appendChild(header);
+  card.appendChild(body);
+  renderContextBody(body, block.content);
+  parent.appendChild(card);
+}
+
+function renderContextSnapshotTrace(snapshot) {
+  const blocks =
+    parseContextBlocks(
+      snapshot.systemPrompt
+    );
+  const overview =
+    contextElement(
+      "div",
+      "jin-context-overview"
+    );
+  const badges =
+    contextElement(
+      "div",
+      "jin-context-overview-badges"
+    );
+
+  overview.appendChild(
+    contextElement(
+      "div",
+      "jin-context-overview-title",
+      "CONTEXT WINDOW"
+    )
+  );
+  badges.appendChild(
+    contextBadge(`${blocks.length} blocks`)
+  );
+  badges.appendChild(
+    contextBadge(
+      `${snapshot.systemPrompt.length.toLocaleString()} system chars`
+    )
+  );
+  if (snapshot.hiddenInternalActionRules) {
+    badges.appendChild(
+      contextBadge("internal rules hidden")
+    );
+  }
+  overview.appendChild(badges);
+  traceModalContent.appendChild(overview);
+
+  const stack =
+    contextElement(
+      "div",
+      "jin-context-stack"
+    );
+
+  blocks.forEach((block) => {
+    appendContextCard(stack, block);
+  });
+
+  appendContextCard(
+    stack,
+    {
+      title: "USER PROMPT / CONTEXT PAYLOAD",
+      content:
+        snapshot.userPrompt || "<empty>",
+      attributes: [],
+      xml: false,
+    }
+  );
+  stack.lastElementChild.classList.add(
+    "jin-context-card-user"
+  );
+
+  traceModalContent.appendChild(stack);
+}
+
 function renderTraceDetails(
   details,
   title = "Trace",
 ) {
   traceModalContent.replaceChildren();
+
+  const contextSnapshot =
+    parseContextTraceSnapshot(details);
+
+  traceModal.classList.toggle(
+    "jin-context-trace-modal",
+    Boolean(contextSnapshot)
+  );
+
+  if (contextSnapshot) {
+    renderContextSnapshotTrace(
+      contextSnapshot
+    );
+
+    return;
+  }
 
   const parsed =
     parseTraceJson(details);

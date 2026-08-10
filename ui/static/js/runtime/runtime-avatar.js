@@ -71,13 +71,6 @@
     [["memory"], "#e1a449"],
   ];
 
-  const PENDING_NODE_PALETTE = [
-    "#e3b95b",
-    "#a58ae8",
-    "#70a9dc",
-    "#65c99a",
-  ];
-
   const DEFAULT_RING_COLOR = "#28cfc7";
   const DEFAULT_CENTER_COLOR = "#1f4f8f";
   const ACCENT_RING_COLOR = "#5be8df";
@@ -481,6 +474,56 @@
       : "";
   }
 
+  function getRuntimeChangeMarkerStatus(line) {
+    const statuses = [
+      line && line.status,
+      line && line.key_status,
+      line && line.value_status,
+    ]
+      .map(value => String(value || "").trim().toLowerCase())
+      .filter(Boolean);
+
+    if (statuses.includes("new")) {
+      return "new";
+    }
+
+    if (
+      statuses.includes("changed")
+      || Math.max(
+        Number(line && line.key_change_ratio || 0),
+        Number(line && line.value_change_ratio || 0)
+      ) > 0
+    ) {
+      return "changed";
+    }
+
+    return "";
+  }
+
+  function getRuntimeChangeMarkerIdentity(line, index) {
+    const lineId = String(line && line.id || "").trim();
+
+    if (lineId) {
+      return `id:${lineId}`;
+    }
+
+    const activeMemoryId =
+      String(line && line.active_memory_id || "").trim();
+
+    if (activeMemoryId) {
+      return `active:${activeMemoryId}`;
+    }
+
+    const key =
+      normalizeRuntimeCitationIdentity(
+        line && line.key || ""
+      );
+
+    return key
+      ? `key:${key}`
+      : `line:${index}`;
+  }
+
   function getSnapshotLines(snapshot) {
     const sourceLines = snapshot && Array.isArray(snapshot.lines)
       ? snapshot.lines
@@ -491,22 +534,41 @@
         const key = String(line && line.key || `memory_${index + 1}`).trim();
         const value = String(line && line.value || "").trim();
         const text = `${key}: ${value}`.trim();
+        const lineId =
+          String(line && line.id || "").trim();
+        const activeMemoryId =
+          String(line && line.active_memory_id || "").trim();
+        const status =
+          String(line && line.status || "").trim().toLowerCase();
+        const keyStatus =
+          String(line && line.key_status || "").trim().toLowerCase();
+        const valueStatus =
+          String(line && line.value_status || "").trim().toLowerCase();
 
         return {
+          id: lineId,
+          activeMemoryId,
           key,
           value,
           text,
+          status,
+          keyStatus,
+          valueStatus,
+          changeMarkerIdentity:
+            getRuntimeChangeMarkerIdentity(line, index),
+          changeMarkerStatus:
+            getRuntimeChangeMarkerStatus(line),
           avatarMemoryHoverId:
             buildAvatarMemoryHoverId(
               "runtime",
-              line && line.id || `line-${index}`
+              lineId || `line-${index}`
             ),
           referenceAliases:
             normalizeMemoryReferenceAliases([
               key,
               getAvatarMemoryReferenceDisplayKey(key),
-              line && line.id,
-              line && line.active_memory_id,
+              lineId,
+              activeMemoryId,
               ...collectMemoryMetadataReferenceAliases(value),
             ]),
           length: Array.from(text).length,
@@ -517,6 +579,127 @@
         };
       })
       .filter(line => line.text);
+  }
+
+  function collectSnapshotChangeMarkers(snapshot) {
+    const markers = new Map();
+
+    getSnapshotLines(snapshot).forEach((line) => {
+      if (!line.changeMarkerStatus) {
+        return;
+      }
+
+      markers.set(
+        line.changeMarkerIdentity,
+        {
+          status: line.changeMarkerStatus,
+          ratio:
+            line.changeMarkerStatus === "new"
+              ? 1
+              : clamp(line.changeRatio, 0, 1),
+        }
+      );
+    });
+
+    return markers;
+  }
+
+  function snapshotHasRuntimeChange(snapshot) {
+    const totalDiff =
+      Number(snapshot && snapshot.total_diff);
+
+    if (Number.isFinite(totalDiff) && totalDiff > 0) {
+      return true;
+    }
+
+    const patch =
+      snapshot && snapshot.patch;
+
+    if (!patch || typeof patch !== "object") {
+      return false;
+    }
+
+    return ["added", "changed", "removed"]
+      .some(key => (
+        Array.isArray(patch[key])
+        && patch[key].length > 0
+      ));
+  }
+
+  function getSnapshotHistory() {
+    const runtime = getRuntimeApi();
+
+    if (
+      !runtime
+      || typeof runtime.getRuntimeMemorySnapshots !== "function"
+    ) {
+      return [];
+    }
+
+    const snapshots = runtime.getRuntimeMemorySnapshots();
+
+    return Array.isArray(snapshots)
+      ? snapshots
+      : [];
+  }
+
+  function resolveRuntimeChangeMarkers(snapshot, snapshotIndex = null) {
+    const directMarkers =
+      collectSnapshotChangeMarkers(snapshot);
+
+    if (
+      directMarkers.size
+      || snapshotHasRuntimeChange(snapshot)
+    ) {
+      return directMarkers;
+    }
+
+    const snapshots = getSnapshotHistory();
+
+    if (!snapshots.length) {
+      return directMarkers;
+    }
+
+    const requestedIndex =
+      snapshotIndex !== null && snapshotIndex !== undefined
+        ? Number(snapshotIndex)
+        : Number(snapshot && snapshot.index);
+    let resolvedIndex =
+      Number.isInteger(requestedIndex)
+        ? requestedIndex
+        : snapshots.findIndex(candidate => candidate === snapshot);
+
+    if (resolvedIndex < 0) {
+      const runtimeMemoryId =
+        String(snapshot && snapshot.runtime_memory_id || "").trim();
+
+      if (runtimeMemoryId) {
+        resolvedIndex =
+          snapshots.findIndex(candidate => (
+            String(
+              candidate && candidate.runtime_memory_id || ""
+            ).trim() === runtimeMemoryId
+          ));
+      }
+    }
+
+    if (resolvedIndex < 0) {
+      resolvedIndex = snapshots.length - 1;
+    }
+
+    for (let index = resolvedIndex - 1; index >= 0; index -= 1) {
+      const markers =
+        collectSnapshotChangeMarkers(snapshots[index]);
+
+      if (
+        markers.size
+        || snapshotHasRuntimeChange(snapshots[index])
+      ) {
+        return markers;
+      }
+    }
+
+    return directMarkers;
   }
 
   function getSnapshotDiff(snapshot, lines) {
@@ -576,7 +759,7 @@
     return bestMatch;
   }
 
-  function computeRingRecords(lines, snapshotSeed) {
+  function computeRingRecords(lines, snapshotSeed, changeMarkers = new Map()) {
     const lengths = lines.map(line => line.length);
     const minLength = Math.min(...lengths);
     const maxLength = Math.max(...lengths);
@@ -603,6 +786,8 @@
         isLong: line.length >= averageLength + Math.max(7, deviation * 0.62)
           || (line.length === maxLength && lines.length > 1),
         aggressive: getAggressiveMatch(line.text),
+        changeMarker:
+          changeMarkers.get(line.changeMarkerIdentity) || null,
       };
     });
 
@@ -1847,53 +2032,53 @@
     }
   }
 
-  function appendPendingNodes(group, record) {
-    const pendingCount = countOccurrences(record.text, [
-      "pending",
-      "pending choice",
-      "pending_choices",
-      "pending value",
-      "pending_value",
-    ]);
+  function appendRuntimeChangeMarker(group, record, color) {
+    const marker = record && record.changeMarker;
 
-    if (!pendingCount) {
+    if (!marker) {
       return;
     }
 
-    const random = record.random;
-    const nodeCount = clamp(2 + pendingCount, 2, 6);
-    const startAngle = random() * 360;
+    const ratio =
+      marker.status === "new"
+        ? 1
+        : clamp(marker.ratio, 0, 1);
+    const markerRadius =
+      3.4 + Math.sqrt(ratio) * 2.8;
+    const angle =
+      (hashString(record.changeMarkerIdentity) % 36000) / 100;
+    const point =
+      polarPoint(record.radius, angle);
+    const isNew =
+      marker.status === "new";
+    const markerGroup = createSvgElement("g", {
+      class:
+        `jin-avatar-runtime-change-marker is-${isNew ? "new" : "changed"}`,
+      "pointer-events": "none",
+    });
 
-    for (let index = 0; index < nodeCount; index += 1) {
-      const angle = startAngle + index * (15 + random() * 24);
-      const nodeRadius =
-        clamp(
-          record.radius + (random() - 0.5) * 8,
-          MIN_RING_RADIUS,
-          INNER_DECORATION_MAX_RADIUS - 6
-        );
-      const point = polarPoint(nodeRadius, angle);
-      const color = PENDING_NODE_PALETTE[index % PENDING_NODE_PALETTE.length];
+    appendTitle(
+      markerGroup,
+      `${record.key} · ${isNew ? "new runtime line" : "runtime line changed"}`
+      + (
+        isNew
+          ? ""
+          : ` · ${Math.round(ratio * 100)}%`
+      )
+    );
 
-      group.appendChild(createSvgElement("circle", {
-        cx: point.x,
-        cy: point.y,
-        r: 4.2 + random() * 1.6,
-        fill: "none",
-        stroke: color,
-        "stroke-width": 0.55,
-        "stroke-opacity": 0.34,
-      }));
+    markerGroup.appendChild(createSvgElement("circle", {
+      cx: point.x,
+      cy: point.y,
+      r: markerRadius,
+      fill: isNew ? color : "none",
+      "fill-opacity": isNew ? 0.94 : null,
+      stroke: color,
+      "stroke-width": isNew ? 0.85 : 1.05,
+      "stroke-opacity": 0.92,
+    }));
 
-      group.appendChild(createSvgElement("circle", {
-        cx: point.x,
-        cy: point.y,
-        r: 1.15 + random() * 0.85,
-        fill: color,
-        "fill-opacity": 0.92,
-        filter: "url(#jin-avatar-soft-glow)",
-      }));
-    }
+    group.appendChild(markerGroup);
   }
 
   function appendOrbit(svg, record, records, overallColor, diffPercent, options = {}) {
@@ -1992,32 +2177,11 @@
       appendLongFieldStripes(orbitGroup, record, ringColor);
     }
 
-    appendPendingNodes(orbitGroup, record);
-
-    if (random() > 0.28) {
-      const nodeAngle = random() * 360;
-      const nodePoint = polarPoint(record.radius, nodeAngle);
-      const nodeColor = random() > 0.76 ? AMBER_ACCENT : ringColor;
-
-      orbitGroup.appendChild(createSvgElement("circle", {
-        cx: nodePoint.x,
-        cy: nodePoint.y,
-        r: 4.1 + random() * 2.3,
-        fill: "#071014",
-        stroke: nodeColor,
-        "stroke-width": 0.65 + random() * 0.8,
-        "stroke-opacity": 0.7,
-      }));
-
-      orbitGroup.appendChild(createSvgElement("circle", {
-        cx: nodePoint.x,
-        cy: nodePoint.y,
-        r: 1.1 + random() * 1.15,
-        fill: nodeColor,
-        "fill-opacity": 0.95,
-        filter: "url(#jin-avatar-soft-glow)",
-      }));
-    }
+    appendRuntimeChangeMarker(
+      orbitGroup,
+      record,
+      ringColor
+    );
 
     entryGroup.appendChild(orbitGroup);
     svg.appendChild(entryGroup);
@@ -2450,7 +2614,14 @@
       snapshot && snapshot.runtime_memory_id,
       snapshot && snapshot.index,
       snapshot && snapshot.total_diff,
-      lines.map(line => [line.key, line.value, line.status, line.key_status, line.value_status].join("␟")).join("␞"),
+      lines.map(line => [
+        line.key,
+        line.value,
+        line.status,
+        line.keyStatus,
+        line.valueStatus,
+        line.changeRatio,
+      ].join("␟")).join("␞"),
       activeMemoryRecords.map(record => record.text).join("␞"),
       delayedMemoryRecords.map(record => [
         record.id,
@@ -2485,7 +2656,19 @@
       options.seedNonce || avatarRefreshNonce,
     ].join(":");
     const random = createRandom(seed || "jin-avatar");
-    const records = lines.length ? computeRingRecords(lines, seed || "jin-avatar") : [];
+    const changeMarkers =
+      resolveRuntimeChangeMarkers(
+        snapshot,
+        options.snapshotIndex
+      );
+    const records =
+      lines.length
+        ? computeRingRecords(
+          lines,
+          seed || "jin-avatar",
+          changeMarkers
+        )
+        : [];
     const activeMemoryRecords = getActiveMemoryAvatarRecords();
     const delayedMemoryRecords = getDelayedMemoryAvatarRecords();
     const l4MemoryRecords = getL4MemoryAvatarRecords();

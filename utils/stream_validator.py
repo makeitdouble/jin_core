@@ -1104,15 +1104,25 @@ class StreamValidator:
             sequence = self.sentence_history[
                 -sequence_size:
             ]
+            loop_text = "\n".join(
+                sentence.strip()
+                for sentence in sequence
+                if sentence.strip()
+            )
 
             self.last_failure_reason = (
                 "Repeated sentence loop detected."
             )
             self.last_failure_preview = build_preview(
-                "".join(sequence)
+                loop_text
             )
+            # Keep the whole detected sentence period, not only the
+            # final sentence that happened to trip the threshold.
+            # The loop preview is used both by the validator console
+            # and CURRENT_SEQUENCE recovery context, so reducing a
+            # two-sentence loop to e.g. only "No." loses the cause.
             self.last_failure_loop_preview = build_loop_preview(
-                current_sentence.strip()
+                loop_text
             )
 
             return False
