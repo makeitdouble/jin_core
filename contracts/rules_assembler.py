@@ -19,13 +19,12 @@ CONTRACT_VERSION = 1
 ACTION_CONFIG_KEYS = (
     ("WEB_SEARCH", "CAN_WEB_SEARCH"),
     ("SAVE_SESSION", "CAN_SAVE_SESSION"),
-    ("LIST_SKILLS", "CAN_USE_ASSETS"),
     ("CLEAN_TOOL_RESULTS", "CAN_CLEAN_TOOL_RESULTS"),
     ("IDLE", "CAN_IDLE"),
     ("JIN_COLOR", "CAN_JIN_COLOR"),
     ("UPDATE_L4_FACTS", "CAN_UPDATE_L4_FACTS"),
-    ("APPEND_SKILL", "CAN_USE_ASSETS"),
-    ("REMOVE_SKILL", "CAN_USE_ASSETS"),
+    ("LOAD_SKILL", "CAN_USE_ASSETS"),
+    ("UNLOAD_SKILL", "CAN_USE_ASSETS"),
     ("ASSET_ACTION", "CAN_USE_ASSETS"),
     ("CREATE_TODO_LIST", "CAN_RUNTIME_TODO"),
     ("RESOLVE_TODO", "CAN_RUNTIME_TODO"),
@@ -305,9 +304,8 @@ def normalize_runtime_action_names(enabled_actions=None) -> tuple[str, ...]:
 
         if normalized_name == "ASSET_ACTION":
             normalized_names.extend((
-                "LIST_SKILLS",
-                "APPEND_SKILL",
-                "REMOVE_SKILL",
+                "LOAD_SKILL",
+                "UNLOAD_SKILL",
             ))
 
         for normalized_name in normalized_names:
@@ -443,18 +441,6 @@ def _action_enabled(
     )
 
 
-def _context_has_list_skills_tool_result(context=None) -> bool:
-    for entry in list(getattr(context, "runtime_tool_results", []) or []):
-        if not isinstance(entry, dict):
-            continue
-
-        result = entry.get("result")
-        if isinstance(result, dict) and result.get("action") == "list_skills":
-            return True
-
-    return False
-
-
 def _context_has_delayed_memory_reports(context=None) -> bool:
     reports = getattr(context, "delayed_memory_reports", None)
     return bool(isinstance(reports, dict) and reports)
@@ -481,19 +467,8 @@ def build_allowed_markers(
     context=None,
 ) -> str:
     markers: list[str] = []
-    has_list_skills_result = _context_has_list_skills_tool_result(context)
-
     for action in enabled_actions:
         action_name = _normalize_action_name(action)
-
-        if action_name == "LIST_SKILLS" and has_list_skills_result:
-            continue
-
-        if action_name in {
-            "APPEND_SKILL",
-            "REMOVE_SKILL",
-        } and not has_list_skills_result:
-            continue
 
         marker = get_runtime_action_private_marker(action_name)
         if marker:
@@ -516,8 +491,6 @@ def build_runtime_action_instructions(
         RUNTIME_ACTIONS_RULES,
         PROPOSAL_RULES,
     ]
-    has_list_skills_result = _context_has_list_skills_tool_result(context)
-
     def append_rules(action_name: str) -> None:
         action_instructions = build_runtime_action_contract_instructions(
             action_name
@@ -538,15 +511,9 @@ def build_runtime_action_instructions(
         } and not _context_has_delayed_memory_reports(context):
             continue
 
-        if normalized_name in {
-            "APPEND_SKILL",
-            "REMOVE_SKILL",
-        } and not has_list_skills_result:
-            continue
-
         append_rules(normalized_name)
 
-    if _action_enabled(enabled_actions, "LIST_SKILLS"):
+    if _action_enabled(enabled_actions, "LOAD_SKILL", "UNLOAD_SKILL"):
         instructions.append(SKILL_ROUTING_RULES)
 
     return "\n\n".join(
@@ -576,12 +543,11 @@ RUNTIME_ACTION_SAVE_ACTIVE_MEMORY = get_runtime_action_name(
 RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY = get_runtime_action_name(
     "resolve_active_memory"
 )
-RUNTIME_ACTION_LIST_SKILLS = get_runtime_action_name("list_skills")
 RUNTIME_ACTION_CLEAN_TOOL_RESULTS = get_runtime_action_name(
     "clean_tool_results"
 )
-RUNTIME_ACTION_APPEND_SKILL = get_runtime_action_name("append_skill")
-RUNTIME_ACTION_REMOVE_SKILL = get_runtime_action_name("remove_skill")
+RUNTIME_ACTION_LOAD_SKILL = get_runtime_action_name("load_skill")
+RUNTIME_ACTION_UNLOAD_SKILL = get_runtime_action_name("unload_skill")
 RUNTIME_ACTION_ASSET_ACTION = get_runtime_action_name("asset_action")
 RUNTIME_ACTION_CREATE_TODO_LIST = get_runtime_action_name("create_todo_list")
 RUNTIME_ACTION_RESOLVE_TODO = get_runtime_action_name("resolve_todo")

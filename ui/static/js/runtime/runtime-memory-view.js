@@ -11,6 +11,7 @@
   let setActiveMemoryRecords = null;
   let deleteRuntimeMemoryLine = null;
   let getDelayedMemoryReports = null;
+  let isDelayedMemoryReportLoaded = null;
   let setDelayedMemoryReportPinned = null;
   let setDelayedMemoryReportAnchorFactIds = null;
   let deleteDelayedMemoryReport = null;
@@ -426,10 +427,12 @@
       .sort((left, right) => {
         const leftHighlighted =
           left.classList.contains("runtime-memory-reference-hit")
-          || left.classList.contains("runtime-memory-citation-hit");
+          || left.classList.contains("runtime-memory-citation-hit")
+          || left.classList.contains("runtime-memory-context-loaded-hit");
         const rightHighlighted =
           right.classList.contains("runtime-memory-reference-hit")
-          || right.classList.contains("runtime-memory-citation-hit");
+          || right.classList.contains("runtime-memory-citation-hit")
+          || right.classList.contains("runtime-memory-context-loaded-hit");
 
         if (leftHighlighted !== rightHighlighted) {
           return leftHighlighted ? -1 : 1;
@@ -656,14 +659,14 @@
 
           const leftDate =
             Date.parse(
-              left.last_appended_date
+              left.last_loaded_date
               || left.created_date
               || left.created_time
               || ""
             ) || 0;
           const rightDate =
             Date.parse(
-              right.last_appended_date
+              right.last_loaded_date
               || right.created_date
               || right.created_time
               || ""
@@ -673,6 +676,47 @@
         });
   }
 
+  function isDelayedMemoryReportInContext(report) {
+    if (
+        !report
+        || typeof report !== "object"
+        || Array.isArray(report)
+    ) {
+      return false;
+    }
+
+    if (Boolean(report.pinned)) {
+      return true;
+    }
+
+    const reportId =
+      normalizeDelayedMemoryReportId(
+        report._storage_key || report.id
+      );
+
+    return Boolean(
+      reportId
+      && typeof isDelayedMemoryReportLoaded === "function"
+      && isDelayedMemoryReportLoaded(reportId)
+    );
+  }
+
+  function getContextLoadedDelayedMemoryFactIds() {
+    const factIds = new Set();
+
+    getDelayedMemoryReportRecords()
+      .filter(isDelayedMemoryReportInContext)
+      .forEach((report) => {
+        normalizeDelayedMemoryFactIds([
+          report.anchor_fact_ids,
+          report.facts_ids,
+          report.absorbed_fact_ids,
+          report.long_term_facts_ids,
+        ]).forEach(factId => factIds.add(factId));
+      });
+
+    return factIds;
+  }
   function setActiveMemoryRecordTexts(records) {
     if (typeof setActiveMemoryRecords === "function") {
       setActiveMemoryRecords(
@@ -1796,6 +1840,13 @@
           normalizeRuntimeCitationIdentity(
             `${line.key || "note"}: ${line.value || ""}`
           );
+
+      if (line && line.context_loaded === true) {
+        row.classList.add(
+            "runtime-memory-context-loaded-hit"
+        );
+      }
+
       setMemoryReferenceAliases(
         row,
         collectMemoryRecordReferenceAliases(line)
@@ -2302,12 +2353,23 @@
 
       clearDeleteTimer();
       deleteTimer = setTimeout(() => {
+        deleteTimer = null;
+
         if (!pointerDown) {
           return;
         }
 
         deleteCompleted = true;
         pointerDown = false;
+        pointerId = null;
+
+        // The same control can be reused after deletion (for example the
+        // delayed-memory report modal delete button). Do not leave the
+        // hold-to-delete opacity at zero after the timer completes.
+        setRuntimeMemoryRowPressVisual(
+            row,
+            false
+        );
 
         if (typeof onDelete === "function") {
           onDelete();
@@ -2382,6 +2444,12 @@
         ) {
           row.classList.add(
               "runtime-memory-delayed-row-active"
+          );
+        }
+
+        if (isDelayedMemoryReportInContext(report)) {
+          row.classList.add(
+              "runtime-memory-context-loaded-hit"
           );
         }
 
@@ -3531,6 +3599,25 @@
     delayedMemoryModalReport = {
       ...resolvedReport,
     };
+
+    // This button is a single persistent DOM node reused for every report.
+    // A completed hold from the previous report must never keep it faded out
+    // when the next report is opened.
+    if (delayedMemoryModalDeleteButton) {
+      delayedMemoryModalDeleteButton.style.removeProperty(
+          "transition-property"
+      );
+      delayedMemoryModalDeleteButton.style.removeProperty(
+          "transition-timing-function"
+      );
+      delayedMemoryModalDeleteButton.style.removeProperty(
+          "transition-duration"
+      );
+      delayedMemoryModalDeleteButton.style.removeProperty(
+          "opacity"
+      );
+    }
+
     setActiveDelayedMemoryReportRow(
         delayedMemoryModalReport._storage_key
     );
@@ -3741,7 +3828,8 @@
 
 
   function buildLongTermMemoryLine(
-    fact
+    fact,
+    contextLoadedFactIds = new Set()
   ) {
 
     const id =
@@ -3769,6 +3857,10 @@
           key,
           value
         ),
+      context_loaded:
+        contextLoadedFactIds.has(
+          normalizeDelayedMemoryFactId(id)
+        ),
       status: "same",
       key_status: "same",
       value_status: "same",
@@ -3783,9 +3875,15 @@
     const records =
         getLongTermMemoryFactRecords();
 
+    const contextLoadedFactIds =
+        getContextLoadedDelayedMemoryFactIds();
+
     const lines =
         records.map(
-          buildLongTermMemoryLine
+          fact => buildLongTermMemoryLine(
+            fact,
+            contextLoadedFactIds
+          )
         );
 
     if (runtimeMemoryText) {
@@ -4115,6 +4213,8 @@
     setActiveMemoryRecords = options.setActiveMemoryRecords || null;
     deleteRuntimeMemoryLine = options.deleteRuntimeMemoryLine || null;
     getDelayedMemoryReports = options.getDelayedMemoryReports || null;
+    isDelayedMemoryReportLoaded =
+        options.isDelayedMemoryReportLoaded || null;
     setDelayedMemoryReportPinned = options.setDelayedMemoryReportPinned || null;
     setDelayedMemoryReportAnchorFactIds =
         options.setDelayedMemoryReportAnchorFactIds || null;

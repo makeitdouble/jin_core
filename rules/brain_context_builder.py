@@ -42,7 +42,7 @@ BRAIN_RUNTIME_ACTIONS = {
     "CAN_UPDATE_L4_FACTS": True,
 }
 
-APPENDED_DELAYED_MEMORY_CONTEXT_FIELDS = (
+LOADED_DELAYED_MEMORY_CONTEXT_FIELDS = (
     "title",
     "summary",
     "tags",
@@ -448,84 +448,6 @@ def _append_zero_diff_alert(
     )
 
 
-def _build_current_appended_skills_context(
-    context=None,
-) -> str:
-
-    from utils.brain_client_utils import (
-        indent_xml,
-    )
-
-    if context is None:
-        return ""
-
-    appended_skills = list(
-        getattr(
-            context,
-            "runtime_appended_skills",
-            [],
-        )
-        or []
-    )
-    skill_labels = []
-
-    for skill in appended_skills:
-        modes = []
-
-        if isinstance(
-            skill,
-            dict,
-        ):
-            name = str(
-                skill.get(
-                    "name",
-                    "",
-                )
-                or ""
-            ).strip()
-            modes = [
-                str(mode).strip()
-                for mode in skill.get(
-                    "modes",
-                    [],
-                )
-                or []
-                if str(mode).strip()
-            ]
-        else:
-            name = str(
-                skill
-                or ""
-            ).strip()
-
-        if name:
-            mode_suffix = (
-                f" (modes: {', '.join(modes)})"
-                if modes
-                else ""
-            )
-            skill_labels.append(
-                f"{name}{mode_suffix}"
-            )
-
-    if not skill_labels:
-        return ""
-
-    lines = [
-        f"{index}. {label}"
-        for index, label in enumerate(
-            skill_labels,
-            start=1,
-        )
-    ]
-
-    return (
-        "<CURRENT_APPENDED_SKILLS>\n"
-        f"{indent_xml(escape(chr(10).join(lines)), spaces=4)}\n"
-        "</CURRENT_APPENDED_SKILLS>"
-    )
-
-
 def build_delayed_memory_inventory_context(
     context=None,
 ) -> str:
@@ -581,7 +503,7 @@ def build_delayed_memory_inventory_context(
     )
 
 
-def build_appended_delayed_memory_context(
+def build_loaded_delayed_memory_context(
     context=None,
 ) -> str:
 
@@ -596,16 +518,16 @@ def build_appended_delayed_memory_context(
     if context is None:
         return ""
 
-    appended_reports = include_pinned_delayed_memory_reports(
+    loaded_reports = include_pinned_delayed_memory_reports(
         context
     )
 
-    if not appended_reports:
+    if not loaded_reports:
         return ""
 
     blocks = []
 
-    for report_id, report in appended_reports.items():
+    for report_id, report in loaded_reports.items():
         if not isinstance(
             report,
             dict,
@@ -615,14 +537,14 @@ def build_appended_delayed_memory_context(
         payload = {
             "id": report_id,
         }
-        for field_name in APPENDED_DELAYED_MEMORY_CONTEXT_FIELDS:
+        for field_name in LOADED_DELAYED_MEMORY_CONTEXT_FIELDS:
             if field_name in report:
                 payload[field_name] = report[field_name]
 
         blocks.append(
-            "<APPENDED_DELAYED_MEMORY>\n"
+            "<LOADED_DELAYED_MEMORY>\n"
             f"{indent_xml(escape(format_tool_result_payload(payload)))}\n"
-            "</APPENDED_DELAYED_MEMORY>"
+            "</LOADED_DELAYED_MEMORY>"
         )
 
     return "\n".join(
@@ -751,7 +673,11 @@ def build_brain_context(
         build_session_actions_history_context,
     )
     from utils.context.tool_results import (
+        build_loaded_skills_content_context,
         build_tool_results_context,
+    )
+    from utils.context.skills import (
+        build_skills_inventory_context,
     )
 
     prompt_parts = []
@@ -769,6 +695,24 @@ def build_brain_context(
     if tool_results_context:
         prompt_parts.append(
             tool_results_context
+        )
+
+    # Skill inventory is always visible directly below tool results.
+    # The inventory is context state, not a runtime action.
+    prompt_parts.append(
+        build_skills_inventory_context(
+            context
+        )
+    )
+
+    loaded_skills_content_context = (
+        build_loaded_skills_content_context(
+            context
+        )
+    )
+    if loaded_skills_content_context:
+        prompt_parts.append(
+            loaded_skills_content_context
         )
 
     # User feedback block: carries the latest explicit response feedback forward.
@@ -817,28 +761,16 @@ def build_brain_context(
         context,
     )
 
-    # Appended delayed memory block: pins the selected delayed memory report.
-    appended_delayed_memory_context = (
-        build_appended_delayed_memory_context(
+    # Loaded delayed memory block: pins the selected delayed memory report.
+    loaded_delayed_memory_context = (
+        build_loaded_delayed_memory_context(
             context
         )
     )
 
-    if appended_delayed_memory_context:
+    if loaded_delayed_memory_context:
         runtime_context_parts.append(
-            appended_delayed_memory_context
-        )
-
-    # Current appended skills block: lists skills already loaded this turn.
-    current_appended_skills_context = (
-        _build_current_appended_skills_context(
-            context
-        )
-    )
-
-    if current_appended_skills_context:
-        runtime_context_parts.append(
-            current_appended_skills_context
+            loaded_delayed_memory_context
         )
 
     # L3 memory block: restores previous session state from prior turns.

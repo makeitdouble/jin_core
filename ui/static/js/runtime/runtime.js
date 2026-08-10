@@ -123,7 +123,7 @@ const {
   normalizeDelayedMemoryReports,
   readDelayedMemoryReports,
   writeDelayedMemoryReports,
-  appendDelayedMemoryReports: appendStoredDelayedMemoryReports,
+  mergeDelayedMemoryReports: mergeStoredDelayedMemoryReports,
   readFactsMemory,
   writeFactsMemory,
   removeFactsMemoryField,
@@ -555,6 +555,7 @@ session.init({
   renderRuntimeMemorySnapshot,
   persistRuntimeMemorySnapshot,
   attachFirstUserIdleToInitialRuntimeSnapshot,
+  getLoadedDelayedMemoryReportIds,
 });
 
 panel.init();
@@ -568,6 +569,7 @@ memoryView.init({
   setActiveMemoryRecords: writeActiveMemoryRecordsAndRefresh,
   deleteRuntimeMemoryLine: deleteRuntimeMemoryLineAndRender,
   getDelayedMemoryReports: readDelayedMemoryReports,
+  isDelayedMemoryReportLoaded,
   setDelayedMemoryReportPinned,
   setDelayedMemoryReportAnchorFactIds,
   deleteDelayedMemoryReport: deleteDelayedMemoryReportAndRender,
@@ -667,6 +669,46 @@ function syncDelayedMemoryReportsToServer(
   return window.syncDelayedMemoryReportsToRuntime(
     options
   );
+}
+
+function getLoadedDelayedMemoryReportIds() {
+  return Array.from(loadedDelayedMemoryReportIds)
+    .sort();
+}
+
+function replaceLoadedDelayedMemoryReportIds(
+  reportIds,
+  options = {}
+) {
+  const nextIds = new Set(
+    (Array.isArray(reportIds) ? reportIds : [])
+      .map(normalizeRuntimeDelayedMemoryReportId)
+      .filter(Boolean)
+  );
+  const changed =
+    nextIds.size !== loadedDelayedMemoryReportIds.size
+    || Array.from(nextIds).some(
+      reportId => !loadedDelayedMemoryReportIds.has(reportId)
+    );
+
+  if (!changed) {
+    return getLoadedDelayedMemoryReportIds();
+  }
+
+  loadedDelayedMemoryReportIds.clear();
+  nextIds.forEach(
+    reportId => loadedDelayedMemoryReportIds.add(reportId)
+  );
+
+  if (options.render !== false) {
+    renderRuntimeMemorySnapshot();
+
+    if (!syncDelayedMemoryStateToAvatar()) {
+      refreshRuntimeAvatar();
+    }
+  }
+
+  return getLoadedDelayedMemoryReportIds();
 }
 
 function isDelayedMemoryReportLoaded(reportId) {
@@ -1042,10 +1084,10 @@ function setDelayedMemoryReportPinned(
   reports[normalizedId] = {
     ...report,
     pinned: Boolean(pinned),
-    last_appended_date:
+    last_loaded_date:
       Boolean(pinned)
         ? new Date().toISOString()
-        : String(report.last_appended_date || "").trim(),
+        : String(report.last_loaded_date || "").trim(),
   };
 
   writeDelayedMemoryReports(
@@ -1402,12 +1444,12 @@ function deleteLongTermMemoryFactAndRender(
 }
 
 
-function appendDelayedMemoryReports(
+function mergeDelayedMemoryReports(
   reports
 ) {
 
   const nextReports =
-    appendStoredDelayedMemoryReports(
+    mergeStoredDelayedMemoryReports(
       reports
     );
 
@@ -1695,6 +1737,8 @@ window.JinRuntime.runtime = {
   appendActiveMemoryRecords: appendActiveMemoryRecordsAndRender,
   removeActiveMemoryRecordById: removeActiveMemoryRecordByIdAndRender,
   getDelayedMemoryReports: readDelayedMemoryReports,
+  getLoadedDelayedMemoryReportIds,
+  replaceLoadedDelayedMemoryReportIds,
   isDelayedMemoryReportLoaded,
   markDelayedMemoryReportLoaded,
   setDelayedMemoryReportPinned,
@@ -1710,7 +1754,7 @@ window.JinRuntime.runtime = {
     return deleteLongTermMemoryFactAndRender(factId);
   },
   replaceDelayedMemoryReports: replaceDelayedMemoryReportsAndRender,
-  appendDelayedMemoryReports,
+  mergeDelayedMemoryReports,
 };
 
 window.JinRuntime.init = function () {

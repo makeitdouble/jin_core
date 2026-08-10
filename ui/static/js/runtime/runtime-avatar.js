@@ -779,6 +779,13 @@
           normalizeL4FactIds(report.anchor_fact_ids);
         const factIds =
           normalizeL4FactIds(report.facts_ids);
+        const loaded =
+          Boolean(report.pinned)
+          || Boolean(
+            runtime
+            && typeof runtime.isDelayedMemoryReportLoaded === "function"
+            && runtime.isDelayedMemoryReportLoaded(id)
+          );
 
         if (!id || !title) {
           return null;
@@ -789,6 +796,7 @@
           title,
           summary,
           pinned: Boolean(report.pinned),
+          loaded,
           anchorFactIds,
           factIds,
           avatarMemoryHoverId:
@@ -909,6 +917,10 @@
 
     if (options.pinned) {
       classNames.push("is-memory-pinned");
+    }
+
+    if (options.contextLoaded) {
+      classNames.push("is-context-loaded");
     }
 
     if (options.archived) {
@@ -1163,6 +1175,7 @@
             : color,
           opacity: pinned ? 0.82 : 0.36,
           pinned,
+          contextLoaded: Boolean(record.loaded),
           avatarMemoryHoverId: record.avatarMemoryHoverId,
           citationKey:
             normalizeRuntimeCitationIdentity(record.id),
@@ -1505,6 +1518,10 @@
         serializeL4FactIds(record.factIds) || "";
       dashGroup.dataset.delayedMemoryAnchorFactIds =
         serializeL4FactIds(record.anchorFactIds) || "";
+      dashGroup.classList.toggle(
+        "is-context-loaded",
+        Boolean(record.loaded)
+      );
 
       if (
         !setDelayedMemoryDashPinned(
@@ -2125,7 +2142,8 @@
 
     Array.from(
       svg.querySelectorAll(
-        ".jin-avatar-memory-dash-delayed.is-memory-pinned"
+        ".jin-avatar-memory-dash-delayed.is-memory-pinned, "
+        + ".jin-avatar-memory-dash-delayed.is-context-loaded"
       )
     ).forEach((node) => {
       addL4FactIds(
@@ -2437,6 +2455,7 @@
         record.title,
         record.summary,
         record.pinned,
+        record.loaded,
         record.anchorFactIds.join(","),
         record.factIds.join(","),
       ].join("␟")).join("␞"),

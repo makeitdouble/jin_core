@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class DelayedMemoryClientContractTests(unittest.TestCase):
 
-    def test_remove_delayed_memory_does_not_rewrite_saved_reports(self):
+    def test_unload_delayed_memory_does_not_rewrite_saved_reports(self):
 
         source = (
             ROOT
@@ -29,7 +29,7 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             r"delete\s+reports\s*\[",
         )
 
-    def test_delayed_memory_append_metadata_is_persisted_client_side(self):
+    def test_delayed_memory_load_metadata_is_persisted_client_side(self):
 
         storage_source = (
             ROOT
@@ -53,19 +53,19 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "appended_times",
+            "loaded_times",
             storage_source,
         )
         self.assertIn(
-            "append_streak",
+            "load_streak",
             storage_source,
         )
         self.assertIn(
-            "last_appended_session_id",
+            "last_loaded_session_id",
             storage_source,
         )
         self.assertIn(
-            "all_appended_session_ids",
+            "all_loaded_session_ids",
             storage_source,
         )
         self.assertIn(
@@ -73,11 +73,7 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             storage_source,
         )
         self.assertIn(
-            "collectCurrentSessionAppendedMemoryIds",
-            storage_source,
-        )
-        self.assertIn(
-            'action === "append_delayed_memory"',
+            'action === "load_delayed_memory"',
             runtime_actions_source,
         )
         self.assertIn(
@@ -161,11 +157,11 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             socket_delayed_source,
         )
         self.assertIn(
-            'action === "append_delayed_memory"',
+            'action === "load_delayed_memory"',
             runtime_actions_source,
         )
         self.assertIn(
-            'action === "remove_delayed_memory"',
+            'action === "unload_delayed_memory"',
             runtime_actions_source,
         )
         self.assertIn(
@@ -173,7 +169,32 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             runtime_actions_source,
         )
 
-    def test_appended_delayed_memory_bubbles_open_their_own_reports(self):
+    def test_context_loaded_delayed_memory_highlights_report_and_linked_l4(self):
+
+        runtime_source = (
+            ROOT / "ui" / "static" / "js" / "runtime" / "runtime.js"
+        ).read_text(encoding="utf-8")
+        memory_view_source = (
+            ROOT / "ui" / "static" / "js" / "runtime" / "runtime-memory-view.js"
+        ).read_text(encoding="utf-8")
+        avatar_source = (
+            ROOT / "ui" / "static" / "js" / "runtime" / "runtime-avatar.js"
+        ).read_text(encoding="utf-8")
+        socket_source = (
+            ROOT / "ui" / "static" / "js" / "socket" / "delayed-memory.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("getLoadedDelayedMemoryReportIds", runtime_source)
+        self.assertIn("replaceLoadedDelayedMemoryReportIds", runtime_source)
+        self.assertIn("runtime-memory-context-loaded-hit", memory_view_source)
+        self.assertIn("getContextLoadedDelayedMemoryFactIds", memory_view_source)
+        self.assertIn("isDelayedMemoryReportInContext", memory_view_source)
+        self.assertIn("is-context-loaded", avatar_source)
+        self.assertIn("collectDelayedMemoryLinkedL4FactIds", avatar_source)
+        self.assertIn("loaded_delayed_memory_ids", socket_source)
+        self.assertIn("replaceLoadedDelayedMemoryReportIds", socket_source)
+
+    def test_loaded_delayed_memory_bubbles_open_their_own_reports(self):
 
         runtime_actions_source = (
             ROOT
@@ -237,7 +258,7 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             runtime_actions_source,
         )
         self.assertIn(
-            '"append_delayed_memory",',
+            '"load_delayed_memory",',
             chat_actions_source,
         )
         self.assertGreaterEqual(
@@ -484,7 +505,7 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             flush_block,
         )
 
-    def test_session_snapshot_history_and_appended_ids_are_persisted(self):
+    def test_session_snapshot_history_and_loaded_ids_are_persisted(self):
 
         storage_source = (
             ROOT
@@ -520,11 +541,11 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             storage_source,
         )
         self.assertIn(
-            "appended_memory_ids",
+            "loaded_memory_ids",
             session_source,
         )
         self.assertIn(
-            "collectCurrentSessionAppendedMemoryIds()",
+            "getLoadedDelayedMemoryReportIds()",
             session_source,
         )
 

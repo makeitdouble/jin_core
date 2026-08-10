@@ -1802,7 +1802,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
-    def test_append_delayed_history_splits_by_raw_id(self):
+    def test_load_delayed_history_splits_by_raw_id(self):
 
         context = SimpleNamespace(
             runtime_session_action_history=[],
@@ -1842,7 +1842,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
-    def test_remove_delayed_history_splits_by_raw_id(self):
+    def test_unload_delayed_history_splits_by_raw_id(self):
 
         context = SimpleNamespace(
             runtime_session_action_history=[],
@@ -3496,14 +3496,14 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
 
-    def test_prompt_keeps_appended_delayed_memory_in_normal_turns(self):
+    def test_prompt_keeps_loaded_delayed_memory_in_normal_turns(self):
 
         context = SimpleNamespace(
             runtime_memory="session_status: active",
             runtime_memory_stable="session_status: active",
             runtime_l2_memory="",
             active_memory_records=[],
-            runtime_appended_delayed_memory={
+            runtime_loaded_delayed_memory={
                 "id": "a1b2c3",
                 "title": "Pinned task plan",
                 "summary": "Use this plan for the next task.",
@@ -3519,7 +3519,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "<APPENDED_DELAYED_MEMORY>",
+            "<LOADED_DELAYED_MEMORY>",
             prompt,
         )
         self.assertIn(
@@ -3528,13 +3528,13 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertEqual(
             prompt.count(
-                "<APPENDED_DELAYED_MEMORY>"
+                "<LOADED_DELAYED_MEMORY>"
             ),
             1,
         )
         self.assertLess(
             prompt.index(
-                "<APPENDED_DELAYED_MEMORY>"
+                "<LOADED_DELAYED_MEMORY>"
             ),
             prompt.index(
                 "I identify myself as JIN"

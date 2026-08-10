@@ -99,7 +99,7 @@ def _runtime_action_aliases(
 
     # Keep compatibility with plural skill markers without putting aliases in
     # every contract.
-    if action_name in {"APPEND_SKILL", "REMOVE_SKILL"}:
+    if action_name in {"LOAD_SKILL", "UNLOAD_SKILL"}:
         plural_name = f"{action_name}S"
         if plural_name not in names:
             names.append(plural_name)

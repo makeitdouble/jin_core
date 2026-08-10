@@ -22,7 +22,9 @@
 .runtime-memory-reference-hit .runtime-memory-key,
 .runtime-memory-reference-hit .runtime-memory-value,
 .runtime-memory-citation-hit .runtime-memory-key,
-.runtime-memory-citation-hit .runtime-memory-value {
+.runtime-memory-citation-hit .runtime-memory-value,
+.runtime-memory-context-loaded-hit .runtime-memory-key,
+.runtime-memory-context-loaded-hit .runtime-memory-value {
     color: rgba(244, 244, 245, 0.92);
     text-shadow:
             0 0 7px rgba(248, 250, 252, 0.30),
@@ -364,7 +366,9 @@
 .runtime-memory-reference-hit .runtime-memory-key.flash-new,
 .runtime-memory-reference-hit .runtime-memory-value.flash-new,
 .runtime-memory-citation-hit .runtime-memory-key.flash-new,
-.runtime-memory-citation-hit .runtime-memory-value.flash-new {
+.runtime-memory-citation-hit .runtime-memory-value.flash-new,
+.runtime-memory-context-loaded-hit .runtime-memory-key.flash-new,
+.runtime-memory-context-loaded-hit .runtime-memory-value.flash-new {
     color: rgba(134,239,172,0.96);
     text-shadow:
             0 0 10px rgba(34,197,94,0.35),
@@ -372,7 +376,8 @@
 }
 
 .runtime-memory-reference-hit .runtime-memory-key.flash-changed,
-.runtime-memory-citation-hit .runtime-memory-key.flash-changed {
+.runtime-memory-citation-hit .runtime-memory-key.flash-changed,
+.runtime-memory-context-loaded-hit .runtime-memory-key.flash-changed {
     color: rgba(216,180,254,0.96);
     text-shadow:
             0 0 10px rgba(168,85,247,0.35),
@@ -380,7 +385,8 @@
 }
 
 .runtime-memory-reference-hit .runtime-memory-value.flash-changed,
-.runtime-memory-citation-hit .runtime-memory-value.flash-changed {
+.runtime-memory-citation-hit .runtime-memory-value.flash-changed,
+.runtime-memory-context-loaded-hit .runtime-memory-value.flash-changed {
     color: rgba(
             134,
             239,

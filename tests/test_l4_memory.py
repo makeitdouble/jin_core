@@ -1217,7 +1217,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 ],
             },
         }
-        context.runtime_appended_delayed_memory = {
+        context.runtime_loaded_delayed_memory = {
             "abc123": {
                 **context.delayed_memory_reports["abc123"],
                 "id": "abc123",

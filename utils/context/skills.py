@@ -1,9 +1,9 @@
-# Formats appended skill state and skill listing results for runtime context output.
+# Formats the always-visible skill inventory and loaded skill state.
 import re
+from xml.sax.saxutils import escape
 
-from rules.runtime import (
-    NO_ENTRIES_FOUND_MESSAGE,
-)
+from utils.brain_client_utils import indent_xml
+from utils.skills_asset_utils import list_skills
 
 
 def _normalize_skill_status_name(
@@ -35,21 +35,21 @@ def _normalize_skill_status_name(
     )
 
 
-def _appended_skill_names(
+def _loaded_skill_names(
     context=None,
 ) -> set[str]:
 
-    appended_skills = list(
+    loaded_skills = list(
         getattr(
             context,
-            "runtime_appended_skills",
+            "runtime_loaded_skills",
             [],
         )
         or []
     )
     names = set()
 
-    for skill in appended_skills:
+    for skill in loaded_skills:
         if isinstance(
             skill,
             dict,
@@ -72,40 +72,22 @@ def _appended_skill_names(
     return names
 
 
-def format_list_skills_result(
-    result: dict,
+def format_skills_inventory(
+    skills,
     context=None,
 ) -> str:
 
-    lines = []
-
-    skills = [
-        skill
-        for skill in result.get(
-            "skills",
-            [],
-        )
-        or []
-        if isinstance(
-            skill,
-            dict,
-        )
-    ]
-
-    if not skills:
-        lines.append(
-            NO_ENTRIES_FOUND_MESSAGE
-        )
-        return "\n".join(
-            lines
-        )
-
-    appended_names = _appended_skill_names(
+    loaded_names = _loaded_skill_names(
         context
     )
+    lines = []
 
     for index, skill in enumerate(
-        skills,
+        (
+            skill
+            for skill in (skills or [])
+            if isinstance(skill, dict)
+        ),
         start=1,
     ):
         name = str(
@@ -114,36 +96,59 @@ def format_list_skills_result(
                 "",
             )
             or ""
-        ).strip()
+        ).strip() or "(unnamed skill)"
 
-        if not name:
-            name = "(unnamed skill)"
-
-        status = ""
-        if _normalize_skill_status_name(
-            name
-        ) in appended_names:
-            status = " (appended)"
-
-        path = str(
-            skill.get(
-                "path",
-                "",
+        status = (
+            " (loaded)"
+            if _normalize_skill_status_name(name) in loaded_names
+            else ""
+        )
+        modes = [
+            str(mode).strip()
+            for mode in skill.get(
+                "modes",
+                [],
             )
-            or ""
-        ).strip()
-        path_suffix = (
-            f" - {path}"
-            if path
+            or []
+            if str(mode).strip()
+        ]
+        modes_suffix = (
+            f" [modes: {', '.join(modes)}]"
+            if modes
             else ""
         )
 
         lines.append(
-            f"{index}. {name}{status}{path_suffix}"
+            f"{index}. {name}{status}{modes_suffix}"
+        )
+
+    if not lines:
+        lines.append(
+            "No project skills available."
         )
 
     return "\n".join(
         lines
+    )
+
+
+def build_skills_inventory_context(
+    context=None,
+) -> str:
+
+    result = list_skills()
+    body = format_skills_inventory(
+        result.get(
+            "skills",
+            [],
+        ),
+        context,
+    )
+
+    return (
+        "<SKILLS>\n"
+        f"{indent_xml(escape(body), spaces=4)}\n"
+        "</SKILLS>"
     )
 
 
@@ -163,7 +168,6 @@ def format_missing_skill_result(
         requested = "unknown"
 
     return (
-        "You attempted to append a skill that does not exist: "
+        "You attempted to load a skill that does not exist: "
         f"{requested}"
     )
-

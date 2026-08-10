@@ -42,7 +42,7 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
             "created_session_id": "session-a",
             "created_time": "2026-07-19T16:14:14.628194",
             "created_date": "2026-07-19T16:14:14.628194",
-            "all_appended_session_ids": [
+            "all_loaded_session_ids": [
                 "session-a",
             ],
         }
@@ -397,7 +397,7 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
                     title="Kept report",
                 ),
             },
-            runtime_appended_delayed_memory={
+            runtime_loaded_delayed_memory={
                 "48ggds": {
                     **self.build_report(
                         title="Deleted report",
@@ -405,7 +405,7 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
                     "id": "48ggds",
                 },
             },
-            runtime_appended_delayed_memory_ids=[
+            runtime_loaded_delayed_memory_ids=[
                 "48ggds",
                 "a1b2c3",
             ],
@@ -437,10 +437,10 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
         )
         self.assertNotIn(
             "48ggds",
-            context.runtime_appended_delayed_memory,
+            context.runtime_loaded_delayed_memory,
         )
         self.assertEqual(
-            context.runtime_appended_delayed_memory_ids,
+            context.runtime_loaded_delayed_memory_ids,
             [
                 "a1b2c3",
             ],
@@ -460,7 +460,7 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
                 "id": "48ggds",
                 "session": "session-a",
                 "created_date": "2026-07-19T16:14:14.628194",
-                "all_appended_session_ids": [],
+                "all_loaded_session_ids": [],
                 "body": "Body",
             },
         )

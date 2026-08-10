@@ -372,10 +372,10 @@ function getInternalActionLogKey(
       actionName
     );
   const keepSkillMarkerSeparate = [
-    "APPEND_SKILL",
-    "APPEND_SKILLS",
-    "REMOVE_SKILL",
-    "REMOVE_SKILLS",
+    "LOAD_SKILL",
+    "LOAD_SKILLS",
+    "UNLOAD_SKILL",
+    "UNLOAD_SKILLS",
   ].includes(normalizedActionName);
   const instanceKey = keepSkillMarkerSeparate
     ? String(
@@ -601,8 +601,8 @@ function log_internal_action(
     ) || 0
   );
   const suppressMarkerCount = [
-    "APPEND_SKILL",
-    "APPEND_SKILLS",
+    "LOAD_SKILL",
+    "LOAD_SKILLS",
   ].includes(actionName);
   const cancelledByUser =
     String(data.status || "").toLowerCase() === "failed"

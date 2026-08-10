@@ -1,7 +1,7 @@
 {
   "update_delayed_memory": {
     "version": 2,
-    "description": "Allows the model to append selected data to an existing delayed memory report without rewriting its existing content.",
+    "description": "Allows the model to add selected data to an existing delayed memory report without rewriting its existing content.",
     "runtime_action": "UPDATE_DELAYED_MEMORY",
     "private_marker": "<UPDATE_DELAYED_MEMORY: id >",
     "triggers": [],

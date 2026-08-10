@@ -12,9 +12,10 @@ from .runtime_state import (
     get_visible_turn_count,
 )
 from .skills import (
-    _appended_skill_names,
+    _loaded_skill_names,
     _normalize_skill_status_name,
-    format_list_skills_result,
+    build_skills_inventory_context,
+    format_skills_inventory,
     format_missing_skill_result,
 )
 from .session_actions import (
@@ -62,7 +63,8 @@ __all__ = [
     "format_context_message_age_suffix",
     "format_delayed_memory_report_result",
     "format_delayed_memory_result_sections",
-    "format_list_skills_result",
+    "build_skills_inventory_context",
+    "format_skills_inventory",
     "format_missing_skill_result",
     "format_session_action_age",
     "format_session_result_sections",

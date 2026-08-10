@@ -284,7 +284,7 @@ function parseDelayedMemoryReportPayload(
 }
 
 
-function appendDelayedMemoryReportFromClientFallback(
+function mergeDelayedMemoryReportFromClientFallback(
   payload
 ) {
 
@@ -297,12 +297,12 @@ function appendDelayedMemoryReportFromClientFallback(
       !Object.keys(report).length
       || !window.JinRuntime
       || !window.JinRuntime.runtime
-      || !window.JinRuntime.runtime.appendDelayedMemoryReports
+      || !window.JinRuntime.runtime.mergeDelayedMemoryReports
   ) {
     return false;
   }
 
-  window.JinRuntime.runtime.appendDelayedMemoryReports(
+  window.JinRuntime.runtime.mergeDelayedMemoryReports(
     report
   );
 
@@ -380,7 +380,7 @@ function filterDelayedMemoryContentFromChunk(
       return visible;
     }
 
-    appendDelayedMemoryReportFromClientFallback(
+    mergeDelayedMemoryReportFromClientFallback(
       source.slice(
         payloadStart,
         closeIndex
@@ -482,10 +482,16 @@ function syncDelayedMemoryReportsToRuntime(options = {}) {
     return false;
   }
 
+  const loadedDelayedMemoryIds =
+    typeof window.JinRuntime.runtime.getLoadedDelayedMemoryReportIds === "function"
+      ? window.JinRuntime.runtime.getLoadedDelayedMemoryReportIds()
+      : [];
+
   return sendSocketMessage({
     type: "delayed_memory_store_sync",
     delayed_memory_reports: delayedMemoryReports,
     deleted_delayed_memory_report_ids: deletedReportIds,
+    loaded_delayed_memory_ids: loadedDelayedMemoryIds,
   });
 }
 
@@ -513,6 +519,16 @@ function handleDelayedMemoryStoreSnapshot(
 
   const localReports =
     window.JinRuntime.runtime.getDelayedMemoryReports();
+
+  if (
+      typeof window.JinRuntime.runtime.replaceLoadedDelayedMemoryReportIds
+        === "function"
+  ) {
+    window.JinRuntime.runtime.replaceLoadedDelayedMemoryReportIds(
+      data.loaded_delayed_memory_ids || [],
+      { render: false }
+    );
+  }
 
   window.JinRuntime.runtime.replaceDelayedMemoryReports({
     ...localReports,

@@ -175,6 +175,16 @@ def build_preview(
         .strip()
     )[:TRUNCATE]
 
+def build_loop_preview(
+        text: str,
+) -> str:
+
+    return (
+        str(text or "")
+        .replace("\n", "\\n")
+        .strip()
+    )
+
 class StreamValidator:
 
     def __init__(self):
@@ -672,7 +682,7 @@ class StreamValidator:
                     )
 
                     self.last_failure_preview = build_preview(preview)
-                    self.last_failure_loop_preview = build_preview(
+                    self.last_failure_loop_preview = build_loop_preview(
                         last_word
                     )
 
@@ -730,7 +740,7 @@ class StreamValidator:
                 self.last_failure_preview = build_preview(
                     preview
                 )
-                self.last_failure_loop_preview = build_preview(
+                self.last_failure_loop_preview = build_loop_preview(
                     loop_preview
                 )
 
@@ -987,7 +997,7 @@ class StreamValidator:
         self.last_failure_preview = build_preview(
             preview
         )
-        self.last_failure_loop_preview = build_preview(
+        self.last_failure_loop_preview = build_loop_preview(
             sentence.strip()
         )
 
@@ -1101,8 +1111,8 @@ class StreamValidator:
             self.last_failure_preview = build_preview(
                 "".join(sequence)
             )
-            self.last_failure_loop_preview = (
-                self.last_failure_preview
+            self.last_failure_loop_preview = build_loop_preview(
+                current_sentence.strip()
             )
 
             return False
@@ -1190,8 +1200,8 @@ class StreamValidator:
                 )
 
                 self.last_failure_preview = build_preview(paragraph)
-                self.last_failure_loop_preview = (
-                    self.last_failure_preview
+                self.last_failure_loop_preview = build_loop_preview(
+                    paragraph
                 )
 
                 return False

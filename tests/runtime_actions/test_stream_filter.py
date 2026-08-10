@@ -16,7 +16,7 @@ from contracts.rules_assembler import (
     get_runtime_action_private_marker,
     normalize_runtime_action_names,
 )
-from rules.brain_context_builder import build_appended_delayed_memory_context
+from rules.brain_context_builder import build_loaded_delayed_memory_context
 from tests.helpers.runtime_actions import (
     FakeContext,
     FakeEmitter,
@@ -37,7 +37,7 @@ from utils.actions import (
 )
 from utils.assets_utils import run_asset_action
 from utils.brain_client_utils import (
-    append_delayed_memory_runtime_result,
+    record_delayed_memory_runtime_result,
     flush_pending_active_memory_resolve_failure_history,
 )
 from utils.context.context_exports import build_tool_results_context
@@ -1737,7 +1737,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             TOOL_RESULT_KIND_DELAYED_MEMORY,
             {
                 "ok": False,
-                "action": "remove_delayed_memory",
+                "action": "unload_delayed_memory",
                 "failure": "No entries found.",
             },
         )
@@ -1774,7 +1774,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         begin_runtime_tool_results_turn(
             context
         )
-        append_delayed_memory_runtime_result(
+        record_delayed_memory_runtime_result(
             context,
             {
                 "ok": False,
@@ -1789,7 +1789,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 "runtime_turn_id": "turn_000001",
             },
         )
-        append_delayed_memory_runtime_result(
+        record_delayed_memory_runtime_result(
             context,
             {
                 "runtime_turn_id": "turn_000001",
@@ -1872,7 +1872,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         ]
         context.runtime_delayed_memory_results = [
             {
-                "action": "append_delayed_memory",
+                "action": "load_delayed_memory",
             },
         ]
         applied_count = asyncio.run(

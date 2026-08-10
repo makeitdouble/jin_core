@@ -20,7 +20,7 @@ from agent.nodes.brain import (
     prepare_asset_results_for_turn,
 )
 from rules.brain_context_builder import (
-    build_appended_delayed_memory_context,
+    build_loaded_delayed_memory_context,
 )
 from utils.context.context_exports import (
     build_tool_results_context,
@@ -286,7 +286,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 context = SimpleNamespace(
                     runtime_action_failure_followup_messages=[message],
                     runtime_recent_turns=[],
-                    runtime_appended_delayed_memory={},
+                    runtime_loaded_delayed_memory={},
                 )
 
                 prompt = BrainNode.build_followup_system_prompt(
@@ -341,7 +341,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 },
             ],
             runtime_recent_turns=[],
-            runtime_appended_delayed_memory={},
+            runtime_loaded_delayed_memory={},
         )
 
         with patch(
@@ -463,7 +463,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             ),
             runtime_turn_interruption_quote="looped sentence",
             runtime_recent_turns=[],
-            runtime_appended_delayed_memory={},
+            runtime_loaded_delayed_memory={},
         )
 
         prompt = BrainNode.build_followup_system_prompt(
@@ -505,7 +505,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             ),
             runtime_turn_interruption_quote="",
             runtime_recent_turns=[],
-            runtime_appended_delayed_memory={},
+            runtime_loaded_delayed_memory={},
         )
 
         prompt = BrainNode.build_followup_system_prompt(
@@ -599,7 +599,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         context.runtime_current_turn_id = "turn_000001"
         context.runtime_action_sequence_turn_ids = []
         context.runtime_session_action_history = []
-        context.runtime_appended_delayed_memory = {}
+        context.runtime_loaded_delayed_memory = {}
 
         with patch(
             "agent.nodes.brain.time.time",
@@ -649,11 +649,11 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             prompt,
         )
 
-    async def test_appended_delayed_memory_is_under_latest_request(self):
+    async def test_loaded_delayed_memory_is_under_latest_request(self):
 
         context = SimpleNamespace(
             runtime_recent_turns=[],
-            runtime_appended_delayed_memory={
+            runtime_loaded_delayed_memory={
                 "id": "a1b2c3",
                 "title": "Pinned delayed report",
                 "summary": "Summary",
@@ -666,8 +666,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             context=context,
         )
 
-        appended_delayed_memory = (
-            build_appended_delayed_memory_context(
+        loaded_delayed_memory = (
+            build_loaded_delayed_memory_context(
                 context
             )
         )
@@ -690,7 +690,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             prompt,
         )
         self.assertIn(
-            appended_delayed_memory,
+            loaded_delayed_memory,
             prompt,
         )
         self.assertNotIn(
@@ -702,7 +702,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 "<CURRENT_SEQUENCE>"
             ),
             prompt.index(
-                appended_delayed_memory
+                loaded_delayed_memory
             ),
         )
 
@@ -730,7 +730,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 },
             ],
             runtime_recent_turns=[],
-            runtime_appended_delayed_memory={},
+            runtime_loaded_delayed_memory={},
         )
         base_prompt = (
             "<RUNTIME_MEMORY>\nstate\n</RUNTIME_MEMORY>\n\n"
@@ -804,7 +804,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 },
             ],
             runtime_recent_turns=[],
-            runtime_appended_delayed_memory={},
+            runtime_loaded_delayed_memory={},
         )
 
         with patch(
@@ -2668,7 +2668,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             },
         ]
         context.runtime_recent_turns = []
-        context.runtime_appended_delayed_memory = {}
+        context.runtime_loaded_delayed_memory = {}
 
         state = AgentState(
             user_input=origin_request,

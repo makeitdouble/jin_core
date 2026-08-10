@@ -246,7 +246,7 @@ def test_stream_validator_stops_repeated_sentence_sequence_with_markers():
         "* *Wait*, I'll just do the search."
     )
     assert validator.last_failure_loop_preview == (
-        validator.last_failure_preview
+        "* *Wait*, I'll just do the search."
     )
 
 

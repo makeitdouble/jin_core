@@ -15,7 +15,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_JIN_COLOR,
     get_runtime_action_private_marker,
 )
-from rules.brain_context_builder import build_appended_delayed_memory_context
+from rules.brain_context_builder import build_loaded_delayed_memory_context
 from tests.helpers.runtime_actions import (
     FakeContext,
     FakeEmitter,
@@ -36,7 +36,7 @@ from utils.actions import (
 )
 from utils.assets_utils import run_asset_action
 from utils.brain_client_utils import (
-    append_delayed_memory_runtime_result,
+    record_delayed_memory_runtime_result,
     flush_pending_active_memory_resolve_failure_history,
 )
 from utils.context.context_exports import build_tool_results_context

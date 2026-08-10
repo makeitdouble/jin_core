@@ -4,19 +4,18 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from contracts.rules_assembler import (
-    RUNTIME_ACTION_APPEND_SKILL,
+    RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_CHECK_TODO,
     RUNTIME_ACTION_CREATE_TODO_LIST,
-    RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_UPDATE_L4_FACTS,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-    RUNTIME_ACTION_REMOVE_SKILL,
+    RUNTIME_ACTION_UNLOAD_SKILL,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_UPDATE_DELAYED_MEMORY,
     RUNTIME_ACTION_RESOLVE_TODO,
@@ -35,8 +34,8 @@ from .action_payload_utils import (
     _get_internal_action_placeholder_payloads,
 )
 from .load_delayed_memory_utils import build_load_delayed_memory_payload
-from .append_skill_utils import (
-    build_append_skill_payload,
+from .skill_load_utils import (
+    build_load_skill_payload,
     plural_skill_marker_action_name as _plural_skill_marker_action_name,
     split_internal_skill_marker_list as _split_internal_skill_marker_list,
 )
@@ -330,10 +329,9 @@ def normalize_runtime_action_name(
         "SAVE_ACTIVE_MEMORY": RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
         "RESOLVE_ACTIVE_MEMORY": RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
         "USE_ASSETS": RUNTIME_ACTION_ASSET_ACTION,
-        "LIST_SKILLS": RUNTIME_ACTION_LIST_SKILLS,
         "CLEAN_TOOL_RESULTS": RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-        "APPEND_SKILL": RUNTIME_ACTION_APPEND_SKILL,
-        "REMOVE_SKILL": RUNTIME_ACTION_REMOVE_SKILL,
+        "LOAD_SKILL": RUNTIME_ACTION_LOAD_SKILL,
+        "UNLOAD_SKILL": RUNTIME_ACTION_UNLOAD_SKILL,
         "ASSET_ACTION": RUNTIME_ACTION_ASSET_ACTION,
         "TODO_LIST": RUNTIME_ACTION_CREATE_TODO_LIST,
         "INTERNAL_ACTION_TODO_LIST": RUNTIME_ACTION_CREATE_TODO_LIST,
@@ -403,13 +401,10 @@ def normalize_runtime_action_names(
 
         if normalized_name == RUNTIME_ACTION_ASSET_ACTION:
             normalized_names.append(
-                RUNTIME_ACTION_LIST_SKILLS
+                RUNTIME_ACTION_LOAD_SKILL
             )
             normalized_names.append(
-                RUNTIME_ACTION_APPEND_SKILL
-            )
-            normalized_names.append(
-                RUNTIME_ACTION_REMOVE_SKILL
+                RUNTIME_ACTION_UNLOAD_SKILL
             )
 
         if (
@@ -443,8 +438,8 @@ _ACTION_PAYLOAD_BUILDERS = {
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY: build_load_delayed_memory_payload,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY: build_resolve_action_payload,
     RUNTIME_ACTION_UPDATE_DELAYED_MEMORY: build_update_delayed_memory_payload,
-    RUNTIME_ACTION_APPEND_SKILL: build_append_skill_payload,
-    RUNTIME_ACTION_REMOVE_SKILL: build_resolve_action_payload,
+    RUNTIME_ACTION_LOAD_SKILL: build_load_skill_payload,
+    RUNTIME_ACTION_UNLOAD_SKILL: build_resolve_action_payload,
     RUNTIME_ACTION_ASSET_ACTION: build_asset_action_payload,
 }
 
@@ -460,14 +455,6 @@ def _build_internal_action_call(
 
     if normalized_name not in KNOWN_RUNTIME_ACTIONS:
         return None
-
-    if normalized_name == RUNTIME_ACTION_LIST_SKILLS:
-        return RuntimeActionCall(
-            name=normalized_name,
-            payload=_clean_internal_action_query(
-                query
-            ),
-        )
 
     payload_builder = _ACTION_PAYLOAD_BUILDERS.get(
         normalized_name
@@ -921,9 +908,9 @@ def extract_runtime_actions(
             query
         )
         plural_marker_name = (
-            "APPEND_SKILLS"
-            if action_name == RUNTIME_ACTION_APPEND_SKILL
-            else "REMOVE_SKILLS"
+            "LOAD_SKILLS"
+            if action_name == RUNTIME_ACTION_LOAD_SKILL
+            else "UNLOAD_SKILLS"
         )
         plural_marker_payload = ", ".join(
             skill_names
@@ -1236,7 +1223,7 @@ def _action_text_may_contain_marker(
     )
 
     # No opening angle bracket means no runtime action. Names such as
-    # ``LIST_SKILLS`` or ``SAVE_SESSION`` in prose, Markdown/code spans, or
+    # ``SAVE_SESSION`` in prose, Markdown/code spans, or
     # standalone lines must pass through unchanged.
     if "<" not in upper_text:
         return False

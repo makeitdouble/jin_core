@@ -206,3 +206,12 @@ class WebSocketLogger:
             message,
             details=details,
         )
+
+    async def log_validator_loop(
+            self,
+            message: str,
+    ):
+        await self.log(
+            "[VALIDATOR:LOOP]",
+            message,
+        )

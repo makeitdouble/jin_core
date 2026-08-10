@@ -161,7 +161,7 @@ Rules:
 - Different wording or keys do not make a fact different.
 - A person may validly have several compatible roles; do not turn overlap into a
   contradiction.
-- Harmless repetition between L4 and an appended report does not require an L4
+- Harmless repetition between L4 and a loaded report does not require an L4
   change.
 - Keep separate durable facts separate when they express independent ideas.
 - Merge selected facts only when one canonical fact can represent their complete

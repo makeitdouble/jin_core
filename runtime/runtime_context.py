@@ -97,11 +97,11 @@ class RuntimeContext:
 
     runtime_delayed_memory_action_sequence: int = 0
 
-    runtime_appended_delayed_memory: dict = field(
+    runtime_loaded_delayed_memory: dict = field(
         default_factory=dict
     )
 
-    runtime_appended_delayed_memory_ids: list[str] = field(
+    runtime_loaded_delayed_memory_ids: list[str] = field(
         default_factory=list
     )
 
@@ -115,7 +115,7 @@ class RuntimeContext:
 
     delayed_memory_file_store_enabled: bool = True
 
-    runtime_appended_skills: list[dict] = field(
+    runtime_loaded_skills: list[dict] = field(
         default_factory=list
     )
 

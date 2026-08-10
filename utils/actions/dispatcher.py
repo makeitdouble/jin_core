@@ -1,18 +1,17 @@
 from contracts.rules_assembler import (
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
-    RUNTIME_ACTION_APPEND_SKILL,
+    RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_CHECK_TODO,
     RUNTIME_ACTION_CREATE_TODO_LIST,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
-    RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_UPDATE_L4_FACTS,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_UPDATE_DELAYED_MEMORY,
-    RUNTIME_ACTION_REMOVE_SKILL,
+    RUNTIME_ACTION_UNLOAD_SKILL,
     RUNTIME_ACTION_RESOLVE_TODO,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
@@ -118,9 +117,9 @@ async def apply_runtime_action_calls(
 
     if not hasattr(
         context,
-        "runtime_appended_skills",
+        "runtime_loaded_skills",
     ):
-        context.runtime_appended_skills = []
+        context.runtime_loaded_skills = []
 
     action_context_snapshot = (
         dict(context_snapshot)
@@ -227,18 +226,16 @@ async def apply_runtime_action_calls(
     resolve_active_memory_ids_seen = set()
     resolve_active_memory_failures_seen = set()
     save_delayed_memory_seen = set()
-    list_skills_seen = False
     resolved_user_message = resolve_runtime_action_user_message(
         context,
         user_message,
     )
     skill_state_action_names = {
-        RUNTIME_ACTION_APPEND_SKILL,
-        RUNTIME_ACTION_REMOVE_SKILL,
+        RUNTIME_ACTION_LOAD_SKILL,
+        RUNTIME_ACTION_UNLOAD_SKILL,
     }
     skill_workflow_action_names = {
         *skill_state_action_names,
-        RUNTIME_ACTION_LIST_SKILLS,
         RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
         RUNTIME_ACTION_IDLE,
         RUNTIME_ACTION_WEB_SEARCH,
@@ -250,7 +247,7 @@ async def apply_runtime_action_calls(
         RUNTIME_ACTION_RESOLVE_TODO,
         RUNTIME_ACTION_CHECK_TODO,
     }
-    appended_skill_names = {
+    loaded_skill_names = {
         normalize_skill_name(
             skill.get(
                 "name",
@@ -260,7 +257,7 @@ async def apply_runtime_action_calls(
         for skill in (
             getattr(
                 context,
-                "runtime_appended_skills",
+                "runtime_loaded_skills",
                 [],
             )
             or []
@@ -350,8 +347,8 @@ async def apply_runtime_action_calls(
                     action.payload
                 )
             elif action_name in {
-                RUNTIME_ACTION_APPEND_SKILL,
-                RUNTIME_ACTION_REMOVE_SKILL,
+                RUNTIME_ACTION_LOAD_SKILL,
+                RUNTIME_ACTION_UNLOAD_SKILL,
             }:
                 payload_identity = normalize_skill_name(
                     action.payload
@@ -881,18 +878,7 @@ async def apply_runtime_action_calls(
             ):
                 continue
 
-        if action.name == RUNTIME_ACTION_LIST_SKILLS:
-            if list_skills_seen:
-                continue
-
-            if not accept_runtime_action_once_per_message(
-                action
-            ):
-                continue
-
-            list_skills_seen = True
-
-        if action.name == RUNTIME_ACTION_APPEND_SKILL:
+        if action.name == RUNTIME_ACTION_LOAD_SKILL:
             requested_skill = normalize_skill_name(
                 action.payload
             )
@@ -905,14 +891,14 @@ async def apply_runtime_action_calls(
             ):
                 continue
 
-            if requested_skill in appended_skill_names:
+            if requested_skill in loaded_skill_names:
                 continue
 
-            appended_skill_names.add(
+            loaded_skill_names.add(
                 requested_skill
             )
 
-        if action.name == RUNTIME_ACTION_REMOVE_SKILL:
+        if action.name == RUNTIME_ACTION_UNLOAD_SKILL:
             requested_skill = normalize_skill_name(
                 action.payload
             )
@@ -925,15 +911,14 @@ async def apply_runtime_action_calls(
             ):
                 continue
 
-            appended_skill_names.discard(
+            loaded_skill_names.discard(
                 requested_skill
             )
 
         if action.name not in {
             RUNTIME_ACTION_WEB_SEARCH,
-            RUNTIME_ACTION_LIST_SKILLS,
-            RUNTIME_ACTION_APPEND_SKILL,
-            RUNTIME_ACTION_REMOVE_SKILL,
+            RUNTIME_ACTION_LOAD_SKILL,
+            RUNTIME_ACTION_UNLOAD_SKILL,
         }:
             if not accept_runtime_action_once_per_message(
                 action
@@ -1275,13 +1260,13 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
     ]
 
-    append_delayed_memory_actions = [
+    load_delayed_memory_actions = [
         action
         for action in filtered_actions
         if action.name == RUNTIME_ACTION_LOAD_DELAYED_MEMORY
     ]
 
-    remove_delayed_memory_actions = [
+    unload_delayed_memory_actions = [
         action
         for action in filtered_actions
         if action.name == RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY
@@ -1297,12 +1282,6 @@ async def apply_runtime_action_calls(
         action
         for action in filtered_actions
         if action.name == RUNTIME_ACTION_UPDATE_L4_FACTS
-    ]
-
-    list_skill_actions = [
-        action
-        for action in filtered_actions
-        if action.name == RUNTIME_ACTION_LIST_SKILLS
     ]
 
     clean_tool_result_actions = [
@@ -1323,16 +1302,16 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_JIN_COLOR
     ]
 
-    append_skill_actions = [
+    load_skill_actions = [
         action
         for action in filtered_actions
-        if action.name == RUNTIME_ACTION_APPEND_SKILL
+        if action.name == RUNTIME_ACTION_LOAD_SKILL
     ]
 
-    remove_skill_actions = [
+    unload_skill_actions = [
         action
         for action in filtered_actions
-        if action.name == RUNTIME_ACTION_REMOVE_SKILL
+        if action.name == RUNTIME_ACTION_UNLOAD_SKILL
     ]
 
     asset_actions = [
@@ -1458,17 +1437,16 @@ async def apply_runtime_action_calls(
 
     skill_results = await apply_skill_actions(
         context,
-        list_skill_actions=list_skill_actions,
-        append_skill_actions=append_skill_actions,
-        remove_skill_actions=remove_skill_actions,
+        load_skill_actions=load_skill_actions,
+        unload_skill_actions=unload_skill_actions,
         runtime_todo_action_items=runtime_todo_action_items,
         log_runtime=log_runtime,
     )
     saved_asset_results = list(
         skill_results["saved_asset_results"]
     )
-    appended_skill_results = skill_results["appended_skill_results"]
-    removed_skill_results = skill_results["removed_skill_results"]
+    loaded_skill_results = skill_results["loaded_skill_results"]
+    unloaded_skill_results = skill_results["unloaded_skill_results"]
 
     saved_asset_results.extend(
         await apply_asset_actions(
@@ -1482,8 +1460,8 @@ async def apply_runtime_action_calls(
 
     delayed_memory_results = await apply_delayed_memory_actions(
         context,
-        append_delayed_memory_actions=append_delayed_memory_actions,
-        remove_delayed_memory_actions=remove_delayed_memory_actions,
+        load_delayed_memory_actions=load_delayed_memory_actions,
+        unload_delayed_memory_actions=unload_delayed_memory_actions,
         update_delayed_memory_actions=update_delayed_memory_actions,
         log_runtime=log_runtime,
     )
@@ -1509,8 +1487,8 @@ async def apply_runtime_action_calls(
     )
 
     skill_state_results = (
-        appended_skill_results
-        + removed_skill_results
+        loaded_skill_results
+        + unloaded_skill_results
     )
 
     await emit_skill_state_results(
@@ -1598,10 +1576,10 @@ async def apply_runtime_action_calls(
             saved_asset_results
         )
         + len(
-            appended_skill_results
+            loaded_skill_results
         )
         + len(
-            removed_skill_results
+            unloaded_skill_results
         )
         + len(
             clean_tool_result_actions

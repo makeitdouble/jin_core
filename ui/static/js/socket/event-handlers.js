@@ -227,10 +227,12 @@ function handleMessageError(
     false
   );
 
-  appendLog(
-    "[VALIDATOR]",
-    data.text
-  );
+  if (!data.suppress_log) {
+    appendLog(
+      data.log_tag || "[VALIDATOR]",
+      data.text
+    );
+  }
 
   finishStreamMessage(
     data.message_id

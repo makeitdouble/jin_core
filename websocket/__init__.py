@@ -36,6 +36,7 @@ from .attachments import (
 )
 from .bootstrap import (
     apply_delayed_memory_reports,
+    apply_loaded_delayed_memory_ids,
     apply_runtime_memory_slot_delete,
     apply_runtime_resume,
     apply_session_bootstrap,
@@ -272,6 +273,10 @@ async def websocket_endpoint(
                     context,
                     message_data,
                 )
+                apply_loaded_delayed_memory_ids(
+                    context,
+                    message_data,
+                )
                 for report_id in deleted_report_ids:
                     delete_errors = delete_delayed_memory_report_files(
                         report_id
@@ -431,6 +436,10 @@ async def websocket_endpoint(
                     )
 
                     await emit_runtime_l1_diff_update(
+                        context
+                    )
+
+                    await emit_delayed_memory_store_snapshot(
                         context
                     )
 

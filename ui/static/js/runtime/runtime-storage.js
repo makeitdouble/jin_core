@@ -1176,6 +1176,33 @@
   }
 
 
+  function readDelayedLoadMetadata(
+    report,
+    key,
+    fallbackValue
+  ) {
+    if (
+        report
+        && Object.prototype.hasOwnProperty.call(report, key)
+    ) {
+      return report[key];
+    }
+
+    const legacyPrefix = "append" + "ed";
+    const legacyKeys = {
+      loaded_times: `${legacyPrefix}_times`,
+      load_streak: "append_streak",
+      last_loaded_date: `last_${legacyPrefix}_date`,
+      last_loaded_session_id: `last_${legacyPrefix}_session_id`,
+      all_loaded_session_ids: `all_${legacyPrefix}_session_ids`,
+    };
+    const legacyKey = legacyKeys[key];
+
+    return legacyKey && report
+      ? report[legacyKey]
+      : fallbackValue;
+  }
+
   function normalizeDelayedMemoryReports(
     value
   ) {
@@ -1271,21 +1298,45 @@
             || createdDate,
           created_date:
             createdDate,
-          appended_times:
+          loaded_times:
             normalizeDelayedMemoryCounter(
-              report.appended_times
+              readDelayedLoadMetadata(
+                report,
+                "loaded_times",
+                0
+              )
             ),
-          append_streak:
+          load_streak:
             normalizeDelayedMemoryCounter(
-              report.append_streak
+              readDelayedLoadMetadata(
+                report,
+                "load_streak",
+                0
+              )
             ),
-          last_appended_date:
-            String(report.last_appended_date || "").trim(),
-          last_appended_session_id:
-            String(report.last_appended_session_id || "").trim(),
-          all_appended_session_ids:
+          last_loaded_date:
+            String(
+              readDelayedLoadMetadata(
+                report,
+                "last_loaded_date",
+                ""
+              ) || ""
+            ).trim(),
+          last_loaded_session_id:
+            String(
+              readDelayedLoadMetadata(
+                report,
+                "last_loaded_session_id",
+                ""
+              ) || ""
+            ).trim(),
+          all_loaded_session_ids:
             normalizeDelayedMemorySessionIds(
-              report.all_appended_session_ids
+              readDelayedLoadMetadata(
+                report,
+                "all_loaded_session_ids",
+                []
+              )
             ),
         };
       }
@@ -1344,30 +1395,6 @@
   }
 
 
-  function collectCurrentSessionAppendedMemoryIds() {
-
-    const sessionId =
-      getCurrentRuntimeSessionId();
-    const reports =
-      readDelayedMemoryReports();
-
-    if (!sessionId) {
-      return [];
-    }
-
-    return Object.entries(reports)
-      .filter(function ([, report]) {
-        return (
-          report
-          && Array.isArray(report.all_appended_session_ids)
-          && report.all_appended_session_ids.includes(sessionId)
-        );
-      })
-      .map(([reportId]) => reportId);
-
-  }
-
-
   function readDelayedMemoryReports() {
 
     const rawReports =
@@ -1410,7 +1437,7 @@
   }
 
 
-  function appendDelayedMemoryReports(
+  function mergeDelayedMemoryReports(
     reports
   ) {
 
@@ -1913,7 +1940,6 @@
     writeLatestSavedSessionMemory,
     readSavedSessionMemoryHistory,
     writeSavedSessionMemoryHistory,
-    collectCurrentSessionAppendedMemoryIds,
     readLatestSavedRuntimeMemory,
     writeLatestSavedRuntimeMemory,
     normalizeActiveMemoryRecords,
@@ -1939,7 +1965,7 @@
     normalizeDelayedMemoryReports,
     readDelayedMemoryReports,
     writeDelayedMemoryReports,
-    appendDelayedMemoryReports,
+    mergeDelayedMemoryReports,
     buildPersistedRuntimeSnapshot,
     cloneRuntimeMemoryToCurrentSession,
     cloneRuntimeMemoryFromSessionId,

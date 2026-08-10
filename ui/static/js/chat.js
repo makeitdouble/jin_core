@@ -1231,15 +1231,11 @@ function stripInternalActionMarkers(
       "$1"
     )
     .replace(
-      /(^|\n)[^\S\r\n]*<LIST_SKILLS(?::[^>\n]*)?>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<LOAD_SKILLS?:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(
-      /(^|\n)[^\S\r\n]*<APPEND_SKILLS?:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
-      "$1"
-    )
-    .replace(
-      /(^|\n)[^\S\r\n]*<REMOVE_SKILLS?:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<UNLOAD_SKILLS?:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(

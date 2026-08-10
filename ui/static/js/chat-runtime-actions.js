@@ -1749,7 +1749,7 @@ function updateRuntimeActionRow(
   if (
     [
       "save_delayed_memory_content",
-      "append_delayed_memory",
+      "load_delayed_memory",
     ].includes(action)
   ) {
     if (
@@ -2304,11 +2304,9 @@ function appendRuntimeAction(
   icon.textContent =
     action === "web_search"
       ? "🔍"
-      : action === "list_skills"
-        ? "📘"
-        : action === "asset_action"
-          ? "▣"
-      : "●";
+      : action === "asset_action"
+        ? "▣"
+        : "●";
 
   if (options.contextSnapshot) {
     icon.className +=
@@ -2382,7 +2380,7 @@ function appendRuntimeAction(
   if (
     [
       "save_delayed_memory_content",
-      "append_delayed_memory",
+      "load_delayed_memory",
     ].includes(action)
   ) {
     if (

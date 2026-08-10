@@ -105,16 +105,17 @@ class MemoryCitationLayersClientContractTests(unittest.TestCase):
         css = WIN95_CSS.read_text(encoding="utf-8")
 
         self.assertIn(".runtime-memory-reference-hit,", css)
-        self.assertIn(".runtime-memory-citation-hit {", css)
+        self.assertIn(".runtime-memory-citation-hit,", css)
+        self.assertIn(".runtime-memory-context-loaded-hit {", css)
         self.assertIn(".runtime-memory-citation-hit .runtime-memory-key", css)
 
     def test_cache_versions_are_bumped_for_citation_sync_assets(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertIn("/static/css/runtime-memory.css?v=delayed-delete-1", source)
-        self.assertIn("/static/css/theme-win95.css?v=rating-persist-1", source)
-        self.assertIn("/static/js/runtime/runtime-memory-view.js?v=delayed-delete-1", source)
-        self.assertIn("/static/js/runtime/runtime-avatar.js?v=memory-rings-18", source)
+        self.assertIn("/static/css/runtime-memory.css?v=delayed-context-loaded-1", source)
+        self.assertIn("/static/css/theme-win95.css?v=delayed-context-loaded-1", source)
+        self.assertIn("/static/js/runtime/runtime-memory-view.js?v=delayed-context-loaded-1", source)
+        self.assertIn("/static/js/runtime/runtime-avatar.js?v=memory-rings-19", source)
         self.assertIn("/static/js/think-citations.js?v=think-citations-5", source)
         self.assertIn("/static/js/chat.js?v=reasoning-gap-1", source)
 

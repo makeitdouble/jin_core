@@ -27,7 +27,7 @@ File behavior:
 - Keep generated lists in files; report only concise examples in chat.
 
 Action workflow:
-1. Use LIST_SKILLS before an operational file workflow if the relevant project skills are not already appended.
+1. Check <SKILLS> before an operational file workflow and LOAD_SKILL if the relevant project skill is available but not loaded.
 2. Use ASSET_ACTION with JSON payload for create_asset_file, append_asset_file, preview_file, and any task-specific asset action provided by another loaded instruction block.
 3. Emit ASSET_ACTION as a JSON block:
 <ASSET_ACTION>

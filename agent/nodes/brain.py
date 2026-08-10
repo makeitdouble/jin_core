@@ -879,18 +879,18 @@ class BrainNode(BaseNode):
 
         if context is not None:
             from rules.brain_context_builder import (
-                build_appended_delayed_memory_context,
+                build_loaded_delayed_memory_context,
             )
 
-            appended_delayed_memory_context = (
-                build_appended_delayed_memory_context(
+            loaded_delayed_memory_context = (
+                build_loaded_delayed_memory_context(
                     context
                 )
             )
 
-            if appended_delayed_memory_context:
+            if loaded_delayed_memory_context:
                 sections.append(
-                    appended_delayed_memory_context
+                    loaded_delayed_memory_context
                 )
 
         sections.append(
@@ -1645,9 +1645,9 @@ class BrainNode(BaseNode):
             runtime_action_event_offset
         )
         skill_state_followup_event_names = {
-            "append_skill",
-            "remove_skill",
-            "append_delayed_memory",
+            "load_skill",
+            "unload_skill",
+            "load_delayed_memory",
         }
 
         def collect_pending_action_events():

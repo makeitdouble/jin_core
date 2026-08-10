@@ -11,7 +11,7 @@
     },
     "rules": [
       "Use this marker only for a meaningful L4 contradiction, ambiguous durable fact, inaccurate formulation, or semantic duplicate that matters to the current understanding.",
-      "Do not use it for harmless repetition between L4 and appended delayed memory, stylistic rewording with no change of meaning, temporary session details, weak suspicions, or issues unrelated to durable memory.",
+      "Do not use it for harmless repetition between L4 and loaded delayed memory, stylistic rewording with no change of meaning, temporary session details, weak suspicions, or issues unrelated to durable memory.",
       "Do not interrupt an unrelated conversation only to clean memory. Raise the issue when it affects the current answer or can be resolved naturally in the current topic.",
       "When the user's meaning is not already clear, ask one brief natural question in the visible conversation. You may name the conflicting remembered meanings, but do not expose the marker or internal action mechanics.",
       "Never emit the marker while ambiguity remains or on the same turn in which you ask for clarification. Emit it after the user resolves the issue, or immediately when the user's current message itself is an explicit correction.",

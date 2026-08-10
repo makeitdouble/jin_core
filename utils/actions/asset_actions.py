@@ -244,11 +244,7 @@ async def emit_saved_asset_results(
             )
             or "assets"
         )
-        action_name = (
-            "list_skills"
-            if result_action == "list_skills"
-            else "asset_action"
-        )
+        action_name = "asset_action"
         text = (
             saved_asset_result_texts[
                 result_index - 1

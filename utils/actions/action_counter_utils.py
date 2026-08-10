@@ -34,10 +34,10 @@ class RuntimeActionCounter:
     """Count identical parsed markers once, before execution dedupe."""
 
     _EXCLUDED_ACTIONS = frozenset({
-        "APPEND_SKILL",
-        "APPEND_SKILLS",
-        "REMOVE_SKILL",
-        "REMOVE_SKILLS",
+        "LOAD_SKILL",
+        "LOAD_SKILLS",
+        "UNLOAD_SKILL",
+        "UNLOAD_SKILLS",
     })
 
     def __init__(self):

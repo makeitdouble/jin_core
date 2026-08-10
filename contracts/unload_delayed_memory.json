@@ -10,7 +10,7 @@
       "emit_followup": false
     },
     "rules": [
-      "Emit <UNLOAD_DELAYED_MEMORY: id > to unload one currently loaded APPENDED_DELAYED_MEMORY from context in the next turn/message; the saved report is never deleted from storage.",
+      "Emit <UNLOAD_DELAYED_MEMORY: id > to unload one currently loaded LOADED_DELAYED_MEMORY from context in the next turn/message; the saved report is never deleted from storage.",
       "id - is a placeholder word; replace it with the 6-character id prefix shown in <DELAYED_MEMORY>."
     ],
     "close_tag": false

@@ -1,4 +1,4 @@
-# Formats delayed memory tool results and appended delayed memory context blocks.
+# Formats delayed memory tool results and loaded delayed memory context blocks.
 from .formatting import (
     format_tool_result_payload,
 )
@@ -90,7 +90,7 @@ def format_delayed_memory_result_sections(
             or ""
         )
 
-        if action == "append_delayed_memory":
+        if action == "load_delayed_memory":
             if result.get("ok") is False:
                 sections.append(
                     (
@@ -102,7 +102,7 @@ def format_delayed_memory_result_sections(
                 )
             continue
 
-        if action == "remove_delayed_memory":
+        if action == "unload_delayed_memory":
             sections.append(
                 (
                     "UNLOAD_DELAYED_MEMORY",

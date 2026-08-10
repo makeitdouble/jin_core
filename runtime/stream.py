@@ -44,7 +44,7 @@ from runtime.behavior_contract import (
 )
 from contracts.rules_assembler import (
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
-    RUNTIME_ACTION_APPEND_SKILL,
+    RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
@@ -149,7 +149,7 @@ class RuntimeStream:
         self.filter_runtime_actions_enabled = filter_runtime_actions
         if self.filter_runtime_actions_enabled:
             self.context.runtime_skill_state_barrier_active = False
-        self.append_skill_marker_names = self.build_appended_skill_name_set()
+        self.load_skill_marker_names = self.build_loaded_skill_name_set()
         self.repetition_guard = RuntimeActionRepetitionGuard()
         self.action_counter = RuntimeActionCounter()
         self.marker_repetition_aborted = False
@@ -188,14 +188,14 @@ class RuntimeStream:
             ),
         )
 
-    def build_appended_skill_name_set(self) -> set[str]:
+    def build_loaded_skill_name_set(self) -> set[str]:
 
         names = set()
 
         for skill in (
             getattr(
                 self.context,
-                "runtime_appended_skills",
+                "runtime_loaded_skills",
                 [],
             )
             or []
@@ -228,7 +228,7 @@ class RuntimeStream:
         action,
     ) -> bool:
 
-        if action.name != RUNTIME_ACTION_APPEND_SKILL:
+        if action.name != RUNTIME_ACTION_LOAD_SKILL:
             return False
 
         requested_skill = normalize_skill_name(
@@ -238,10 +238,10 @@ class RuntimeStream:
         if not requested_skill:
             return False
 
-        if requested_skill in self.append_skill_marker_names:
+        if requested_skill in self.load_skill_marker_names:
             return True
 
-        self.append_skill_marker_names.add(
+        self.load_skill_marker_names.add(
             requested_skill
         )
 
@@ -650,10 +650,17 @@ class RuntimeStream:
             or "Runtime stream validator interrupted generation."
         )
 
-        quote = getattr(
-            validator,
-            "last_failure_preview",
-            "",
+        quote = (
+            getattr(
+                validator,
+                "last_failure_loop_preview",
+                "",
+            )
+            or getattr(
+                validator,
+                "last_failure_preview",
+                "",
+            )
         )
 
         self.context.runtime_turn_interruption_reason = reason

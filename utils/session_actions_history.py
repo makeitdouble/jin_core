@@ -123,8 +123,8 @@ def get_current_action_sequence_started_at(
 
 ACTION_DISPLAY_ALIASES = {
     "append_asset_file": "Appended asset file",
-    "append_delayed_memory": "Loaded delayed memory",
-    "append_skill": "Appended skill",
+    "load_delayed_memory": "Loaded delayed memory",
+    "load_skill": "Loaded skill",
     "append_wildcard_file": "Appended wildcard file",
     "asset_action": "Asset action",
     "check_duplicates": "Checked duplicates",
@@ -134,15 +134,12 @@ ACTION_DISPLAY_ALIASES = {
     "create_wildcard_library": "Created wildcard library",
     "expand_template": "Expanded template",
     "generate_prompt_batch": "Generated prompt batch",
-    "list_skills": "Listed skills",
     "list_wildcards": "Listed wildcards",
-    "load_delayed_memory": "Loaded delayed memory",
     "preview_file": "Previewed file",
     "read_asset_file": "Read asset file",
     "read_asset_text": "Read asset text",
-    "remove_delayed_memory": "Unloaded delayed memory",
-    "remove_skill": "Removed skill",
     "unload_delayed_memory": "Unloaded delayed memory",
+    "unload_skill": "Unloaded skill",
     "resolve_active_memory": "Resolved active memory",
     "run_document_reader": "Read document iteratively",
     "run_python_skill": "Ran Python skill",
@@ -1179,10 +1176,10 @@ def _build_payload_distinct_session_action_parts(
             )
 
     skill_marker_action = action_name in {
-        "APPEND_SKILL",
-        "APPEND_SKILLS",
-        "REMOVE_SKILL",
-        "REMOVE_SKILLS",
+        "LOAD_SKILL",
+        "LOAD_SKILLS",
+        "UNLOAD_SKILL",
+        "UNLOAD_SKILLS",
     }
 
     if (
@@ -1483,10 +1480,10 @@ def _build_formatted_session_action_marker_parts(
             ).strip()
         })
         skill_marker_action = action_name in {
-            "APPEND_SKILL",
-            "APPEND_SKILLS",
-            "REMOVE_SKILL",
-            "REMOVE_SKILLS",
+            "LOAD_SKILL",
+            "LOAD_SKILLS",
+            "UNLOAD_SKILL",
+            "UNLOAD_SKILLS",
         }
         payload_distinct_parts = (
             _build_payload_distinct_session_action_parts(
@@ -1551,8 +1548,8 @@ def _build_formatted_session_action_marker_parts(
                 )
             elif (
                 action_name in {
-                    "APPEND_SKILL",
-                    "REMOVE_SKILL",
+                    "LOAD_SKILL",
+                    "UNLOAD_SKILL",
                 }
                 and payloads
             ):

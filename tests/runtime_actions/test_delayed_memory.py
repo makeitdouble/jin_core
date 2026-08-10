@@ -15,7 +15,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_JIN_COLOR,
     get_runtime_action_private_marker,
 )
-from rules.brain_context_builder import build_appended_delayed_memory_context
+from rules.brain_context_builder import build_loaded_delayed_memory_context
 from runtime.stream import RuntimeStream
 from tests.helpers.runtime_actions import (
     FakeContext,
@@ -38,7 +38,7 @@ from utils.actions import (
 )
 from utils.assets_utils import run_asset_action
 from utils.brain_client_utils import (
-    append_delayed_memory_runtime_result,
+    record_delayed_memory_runtime_result,
     build_delayed_memory_report,
     flush_pending_active_memory_resolve_failure_history,
     include_pinned_delayed_memory_reports,
@@ -625,11 +625,11 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             "2026-06-29T12:00:00",
         )
         self.assertEqual(
-            report["appended_times"],
+            report["loaded_times"],
             0,
         )
         self.assertEqual(
-            report["append_streak"],
+            report["load_streak"],
             0,
         )
         self.assertEqual(
@@ -928,7 +928,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_append_delayed_memory_uses_appended_context_block(self):
+    def test_load_delayed_memory_uses_loaded_context_block(self):
 
         Emitter = FakeEmitter
 
@@ -954,11 +954,11 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 "created_session_id": "session-a",
                 "created_time": "2026-08-02T19:51:41.803270",
                 "created_date": "2026-08-02T19:51:41.803270",
-                "appended_times": 1,
-                "append_streak": 1,
-                "last_appended_date": "2026-08-02T19:57:42.787241",
-                "last_appended_session_id": "session-a",
-                "all_appended_session_ids": [
+                "loaded_times": 1,
+                "load_streak": 1,
+                "last_loaded_date": "2026-08-02T19:57:42.787241",
+                "last_loaded_session_id": "session-a",
+                "all_loaded_session_ids": [
                     "session-a",
                 ],
             },
@@ -995,22 +995,22 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             tool_results,
             "<TOOLS_RESULTS>\n</TOOLS_RESULTS>",
         )
-        appended_context = build_appended_delayed_memory_context(
+        loaded_context = build_loaded_delayed_memory_context(
             context
         )
         self.assertIn(
-            "<APPENDED_DELAYED_MEMORY>",
-            appended_context,
+            "<LOADED_DELAYED_MEMORY>",
+            loaded_context,
         )
         self.assertIn(
             '"id": "a1b2c3"',
-            appended_context,
+            loaded_context,
         )
         self.assertLess(
-            appended_context.index(
+            loaded_context.index(
                 '"id": "a1b2c3"',
             ),
-            appended_context.index(
+            loaded_context.index(
                 '"title":',
             ),
         )
@@ -1019,15 +1019,15 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             "created_session_id",
             "created_time",
             "created_date",
-            "appended_times",
-            "append_streak",
-            "last_appended_date",
-            "last_appended_session_id",
-            "all_appended_session_ids",
+            "loaded_times",
+            "load_streak",
+            "last_loaded_date",
+            "last_loaded_session_id",
+            "all_loaded_session_ids",
         ):
             self.assertNotIn(
                 metadata_key,
-                appended_context,
+                loaded_context,
             )
         self.assertEqual(
             context.emitter.events[0]["text"],
@@ -1053,7 +1053,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_started_append_delayed_memory_events_are_report_scoped(self):
+    def test_started_load_delayed_memory_events_are_report_scoped(self):
 
         context = SimpleNamespace(
             emitter=FakeEmitter(),
@@ -1123,7 +1123,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_append_delayed_memory_keeps_multiple_reports(self):
+    def test_load_delayed_memory_keeps_multiple_reports(self):
 
         Emitter = FakeEmitter
 
@@ -1180,7 +1180,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             set(
-                context.runtime_appended_delayed_memory
+                context.runtime_loaded_delayed_memory
             ),
             {
                 "a1b2c3",
@@ -1188,22 +1188,22 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             },
         )
 
-        appended_context = build_appended_delayed_memory_context(
+        loaded_context = build_loaded_delayed_memory_context(
             context
         )
         self.assertEqual(
-            appended_context.count(
-                "<APPENDED_DELAYED_MEMORY>"
+            loaded_context.count(
+                "<LOADED_DELAYED_MEMORY>"
             ),
             2,
         )
         self.assertIn(
             '"title": "First report"',
-            appended_context,
+            loaded_context,
         )
         self.assertIn(
             '"title": "Second report"',
-            appended_context,
+            loaded_context,
         )
 
         tool_results = build_tool_results_context(
@@ -1214,7 +1214,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             tool_results,
         )
         self.assertNotIn(
-            "<APPENDED_DELAYED_MEMORY>",
+            "<LOADED_DELAYED_MEMORY>",
             tool_results,
         )
         self.assertEqual(
@@ -1254,7 +1254,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_invalid_append_delayed_memory_id_returns_failure_tool_result(self):
+    def test_invalid_load_delayed_memory_id_returns_failure_tool_result(self):
 
         Emitter = FakeEmitter
 
@@ -1327,7 +1327,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_append_delayed_memory_tracks_session_metadata(self):
+    def test_load_delayed_memory_tracks_session_metadata(self):
 
         Emitter = FakeEmitter
 
@@ -1375,11 +1375,11 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
         report = context.delayed_memory_reports["a1b2c3"]
         self.assertEqual(
-            report["appended_times"],
+            report["loaded_times"],
             1,
         )
         self.assertEqual(
-            report["append_streak"],
+            report["load_streak"],
             1,
         )
         self.assertEqual(
@@ -1387,21 +1387,21 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             "2026-07-16T10:00:00+03:00",
         )
         self.assertEqual(
-            report["last_appended_date"],
+            report["last_loaded_date"],
             "2026-07-17T19:40:00+03:00",
         )
         self.assertEqual(
-            report["last_appended_session_id"],
+            report["last_loaded_session_id"],
             "session-a",
         )
         self.assertEqual(
-            report["all_appended_session_ids"],
+            report["all_loaded_session_ids"],
             [
                 "session-a",
             ],
         )
         self.assertEqual(
-            context.runtime_appended_delayed_memory_ids,
+            context.runtime_loaded_delayed_memory_ids,
             [
                 "a1b2c3",
             ],
@@ -1433,19 +1433,19 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
 
         report = next_context.delayed_memory_reports["a1b2c3"]
         self.assertEqual(
-            report["appended_times"],
+            report["loaded_times"],
             2,
         )
         self.assertEqual(
-            report["append_streak"],
+            report["load_streak"],
             2,
         )
         self.assertEqual(
-            report["last_appended_session_id"],
+            report["last_loaded_session_id"],
             "session-b",
         )
         self.assertEqual(
-            report["all_appended_session_ids"],
+            report["all_loaded_session_ids"],
             [
                 "session-a",
                 "session-b",
@@ -1453,7 +1453,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_remove_delayed_memory_only_detaches_from_context(self):
+    def test_unload_delayed_memory_only_detaches_from_context(self):
 
         Emitter = FakeEmitter
 
@@ -1465,7 +1465,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         context.runtime_search_calls = []
         context.runtime_appended_skills = []
         context.runtime_asset_results = []
-        context.runtime_appended_delayed_memory = {
+        context.runtime_loaded_delayed_memory = {
             "id": "a1b2c3",
             "title": "Pinned report",
             "summary": "Summary",
@@ -1498,7 +1498,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             1,
         )
         self.assertEqual(
-            context.runtime_appended_delayed_memory,
+            context.runtime_loaded_delayed_memory,
             {},
         )
         self.assertIn(
@@ -1528,7 +1528,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_remove_delayed_memory_detaches_multiple_reports(self):
+    def test_unload_delayed_memory_detaches_multiple_reports(self):
 
         Emitter = FakeEmitter
 
@@ -1540,7 +1540,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         context.runtime_search_calls = []
         context.runtime_appended_skills = []
         context.runtime_asset_results = []
-        context.runtime_appended_delayed_memory = {
+        context.runtime_loaded_delayed_memory = {
             "a1b2c3": {
                 "id": "a1b2c3",
                 "title": "First report",
@@ -1554,7 +1554,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 "title": "Third report",
             },
         }
-        context.runtime_appended_delayed_memory_ids = [
+        context.runtime_loaded_delayed_memory_ids = [
             "a1b2c3",
             "b2c3d4",
             "c3d4e5",
@@ -1593,14 +1593,14 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             set(
-                context.runtime_appended_delayed_memory
+                context.runtime_loaded_delayed_memory
             ),
             {
                 "c3d4e5",
             },
         )
         self.assertEqual(
-            context.runtime_appended_delayed_memory_ids,
+            context.runtime_loaded_delayed_memory_ids,
             [
                 "c3d4e5",
             ],
@@ -1628,7 +1628,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
 
 
 
-    def test_invalid_remove_delayed_memory_id_returns_failed_result(self):
+    def test_invalid_unload_delayed_memory_id_returns_failed_result(self):
 
         Emitter = FakeEmitter
 
@@ -1712,7 +1712,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_missing_remove_delayed_memory_id_returns_failed_result(self):
+    def test_missing_unload_delayed_memory_id_returns_failed_result(self):
 
         Emitter = FakeEmitter
 
@@ -2000,7 +2000,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                     "pinned": True,
                 },
             },
-            runtime_appended_delayed_memory={},
+            runtime_loaded_delayed_memory={},
             runtime_current_turn_id="turn-1",
             runtime_pinned_delayed_memory_turns={},
             session_id="session-1",
@@ -2014,7 +2014,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         self.assertIn("a1b2c3", first)
         self.assertIn("a1b2c3", second)
         self.assertEqual(
-            context.delayed_memory_reports["a1b2c3"]["appended_times"],
+            context.delayed_memory_reports["a1b2c3"]["loaded_times"],
             1,
         )
 
@@ -2023,11 +2023,11 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         include_pinned_delayed_memory_reports(context)
 
         self.assertEqual(
-            context.delayed_memory_reports["a1b2c3"]["appended_times"],
+            context.delayed_memory_reports["a1b2c3"]["loaded_times"],
             2,
         )
         self.assertEqual(
-            context.delayed_memory_reports["a1b2c3"]["last_appended_date"],
+            context.delayed_memory_reports["a1b2c3"]["last_loaded_date"],
             "2026-08-02T20:01:00",
         )
 
@@ -2041,7 +2041,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         context.runtime_appended_skills = []
         context.runtime_asset_results = []
         context.runtime_delayed_memory_results = []
-        context.runtime_appended_delayed_memory = {
+        context.runtime_loaded_delayed_memory = {
             "a1b2c3": {
                 "id": "a1b2c3",
                 "title": "Pinned report",
@@ -2081,5 +2081,5 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
         self.assertIn(
             "a1b2c3",
-            context.runtime_appended_delayed_memory,
+            context.runtime_loaded_delayed_memory,
         )

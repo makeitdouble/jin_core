@@ -62,17 +62,16 @@ from xml.etree import ElementTree
 
 from contracts.rules_assembler import (
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
-    RUNTIME_ACTION_APPEND_SKILL,
+    RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_CHECK_TODO,
     RUNTIME_ACTION_CREATE_TODO_LIST,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
-    RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
-    RUNTIME_ACTION_REMOVE_SKILL,
+    RUNTIME_ACTION_UNLOAD_SKILL,
     RUNTIME_ACTION_RESOLVE_TODO,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
@@ -94,7 +93,6 @@ from utils.python_skill_asset_utils import (
     run_context_asset_action,
 )
 from utils.skills_asset_utils import (
-    list_skills,
     load_skill,
     normalize_skill_name,
 )
@@ -396,40 +394,40 @@ def build_delayed_memory_report(
                 ).strip()
                 or created_time
             ),
-            "appended_times": int(
+            "loaded_times": int(
                 normalize_delayed_memory_counter(
                     value.get(
-                        "appended_times",
+                        "loaded_times",
                         0,
                     )
                 )
             ),
-            "append_streak": int(
+            "load_streak": int(
                 normalize_delayed_memory_counter(
                     value.get(
-                        "append_streak",
+                        "load_streak",
                         0,
                     )
                 )
             ),
-            "last_appended_date": str(
+            "last_loaded_date": str(
                 value.get(
-                    "last_appended_date",
+                    "last_loaded_date",
                     "",
                 )
                 or ""
             ).strip(),
-            "last_appended_session_id": str(
+            "last_loaded_session_id": str(
                 value.get(
-                    "last_appended_session_id",
+                    "last_loaded_session_id",
                     "",
                 )
                 or ""
             ).strip(),
-            "all_appended_session_ids": (
+            "all_loaded_session_ids": (
                 normalize_delayed_memory_session_ids(
                     value.get(
-                        "all_appended_session_ids",
+                        "all_loaded_session_ids",
                         [],
                     )
                 )
@@ -494,7 +492,7 @@ def normalize_delayed_memory_session_ids(
     return session_ids
 
 
-def update_delayed_memory_append_metadata(
+def update_delayed_memory_load_metadata(
     context,
     report: dict,
 ) -> dict:
@@ -531,23 +529,23 @@ def update_delayed_memory_append_metadata(
     ).strip()
     previous_last_session_id = str(
         updated_report.get(
-            "last_appended_session_id",
+            "last_loaded_session_id",
             "",
         )
         or ""
     ).strip()
-    appended_session_ids = normalize_delayed_memory_session_ids(
+    loaded_session_ids = normalize_delayed_memory_session_ids(
         updated_report.get(
-            "all_appended_session_ids",
+            "all_loaded_session_ids",
             [],
         )
     )
 
     if (
         session_id
-        and session_id not in appended_session_ids
+        and session_id not in loaded_session_ids
     ):
-        appended_session_ids.append(
+        loaded_session_ids.append(
             session_id
         )
 
@@ -575,18 +573,18 @@ def update_delayed_memory_append_metadata(
         ).strip()
         or updated_report["created_date"]
     )
-    updated_report["appended_times"] = (
+    updated_report["loaded_times"] = (
         normalize_delayed_memory_counter(
             updated_report.get(
-                "appended_times",
+                "loaded_times",
                 0,
             )
         )
         + 1
     )
-    updated_report["append_streak"] = normalize_delayed_memory_counter(
+    updated_report["load_streak"] = normalize_delayed_memory_counter(
         updated_report.get(
-            "append_streak",
+            "load_streak",
             0,
         )
     )
@@ -598,16 +596,16 @@ def update_delayed_memory_append_metadata(
             or previous_last_session_id != session_id
         )
     ):
-        updated_report["append_streak"] += 1
+        updated_report["load_streak"] += 1
 
-    updated_report["last_appended_date"] = now
-    updated_report["last_appended_session_id"] = session_id
-    updated_report["all_appended_session_ids"] = appended_session_ids
+    updated_report["last_loaded_date"] = now
+    updated_report["last_loaded_session_id"] = session_id
+    updated_report["all_loaded_session_ids"] = loaded_session_ids
 
     return updated_report
 
 
-def record_appended_delayed_memory_id(
+def record_loaded_delayed_memory_id(
     context,
     report_id: str,
 ) -> None:
@@ -620,25 +618,25 @@ def record_appended_delayed_memory_id(
     if not normalized_report_id:
         return
 
-    appended_ids = getattr(
+    loaded_ids = getattr(
         context,
-        "runtime_appended_delayed_memory_ids",
+        "runtime_loaded_delayed_memory_ids",
         None,
     )
 
     if not isinstance(
-        appended_ids,
+        loaded_ids,
         list,
     ):
-        appended_ids = []
+        loaded_ids = []
         setattr(
             context,
-            "runtime_appended_delayed_memory_ids",
-            appended_ids,
+            "runtime_loaded_delayed_memory_ids",
+            loaded_ids,
         )
 
-    if normalized_report_id not in appended_ids:
-        appended_ids.append(
+    if normalized_report_id not in loaded_ids:
+        loaded_ids.append(
             normalized_report_id
         )
 
@@ -1612,7 +1610,7 @@ def append_asset_runtime_result(
     )
 
 
-def append_delayed_memory_runtime_result(
+def record_delayed_memory_runtime_result(
     context,
     result: dict,
 ) -> None:
@@ -1688,24 +1686,24 @@ def clear_delayed_memory_runtime_results(
     )
 
 
-def get_appended_delayed_memory_report(
+def get_loaded_delayed_memory_reports(
     context,
 ) -> dict:
 
-    appended_reports = getattr(
+    loaded_reports = getattr(
         context,
-        "runtime_appended_delayed_memory",
+        "runtime_loaded_delayed_memory",
         None,
     )
 
     if not isinstance(
-        appended_reports,
+        loaded_reports,
         dict,
     ):
-        appended_reports = {}
+        loaded_reports = {}
 
     legacy_report_id = str(
-        appended_reports.get(
+        loaded_reports.get(
             "id",
             "",
         )
@@ -1718,21 +1716,21 @@ def get_appended_delayed_memory_report(
             legacy_report_id
         )
         and (
-            "title" in appended_reports
-            or "body" in appended_reports
-            or "summary" in appended_reports
+            "title" in loaded_reports
+            or "body" in loaded_reports
+            or "summary" in loaded_reports
         )
     ):
-        appended_reports = {
+        loaded_reports = {
             legacy_report_id: {
-                **appended_reports,
+                **loaded_reports,
                 "id": legacy_report_id,
             },
         }
     else:
         normalized_reports = {}
 
-        for report_id, report in appended_reports.items():
+        for report_id, report in loaded_reports.items():
             normalized_report_id = str(
                 report_id
                 or ""
@@ -1754,18 +1752,18 @@ def get_appended_delayed_memory_report(
                 "id": normalized_report_id,
             }
 
-        appended_reports = normalized_reports
+        loaded_reports = normalized_reports
 
     setattr(
         context,
-        "runtime_appended_delayed_memory",
-        appended_reports,
+        "runtime_loaded_delayed_memory",
+        loaded_reports,
     )
 
-    return appended_reports
+    return loaded_reports
 
 
-def set_appended_delayed_memory_report(
+def set_loaded_delayed_memory_report(
     context,
     result: dict,
 ) -> bool:
@@ -1806,14 +1804,14 @@ def set_appended_delayed_memory_report(
     ):
         return False
 
-    appended_reports = get_appended_delayed_memory_report(
+    loaded_reports = get_loaded_delayed_memory_reports(
         context
     )
 
-    if report_id in appended_reports:
+    if report_id in loaded_reports:
         return False
 
-    appended_reports[report_id] = {
+    loaded_reports[report_id] = {
         **report,
         "id": report_id,
     }
@@ -1821,7 +1819,7 @@ def set_appended_delayed_memory_report(
     return True
 
 
-def clear_appended_delayed_memory_report(
+def clear_loaded_delayed_memory_report(
     context,
     report_id: str = "",
 ) -> bool:
@@ -1843,28 +1841,28 @@ def clear_appended_delayed_memory_report(
     if isinstance(saved_report, dict) and bool(saved_report.get("pinned", False)):
         return False
 
-    appended_reports = get_appended_delayed_memory_report(
+    loaded_reports = get_loaded_delayed_memory_reports(
         context
     )
 
-    if normalized_report_id not in appended_reports:
+    if normalized_report_id not in loaded_reports:
         return False
 
-    del appended_reports[normalized_report_id]
+    del loaded_reports[normalized_report_id]
 
-    appended_ids = getattr(
+    loaded_ids = getattr(
         context,
-        "runtime_appended_delayed_memory_ids",
+        "runtime_loaded_delayed_memory_ids",
         None,
     )
 
     if isinstance(
-        appended_ids,
+        loaded_ids,
         list,
     ):
-        appended_ids[:] = [
+        loaded_ids[:] = [
             item
-            for item in appended_ids
+            for item in loaded_ids
             if str(item or "").strip().casefold()
             != normalized_report_id
         ]
@@ -1931,7 +1929,7 @@ def build_delayed_memory_failure_result(
     }
 
 
-def append_delayed_memory_report(
+def load_delayed_memory_report(
     context,
     payload: str,
 ) -> dict:
@@ -1951,7 +1949,7 @@ def append_delayed_memory_report(
         dict,
     ):
         return build_delayed_memory_failure_result(
-            action="append_delayed_memory",
+            action="load_delayed_memory",
             requested=report_id
             or payload,
             error=(
@@ -1961,12 +1959,12 @@ def append_delayed_memory_report(
             ),
         )
 
-    updated_report = update_delayed_memory_append_metadata(
+    updated_report = update_delayed_memory_load_metadata(
         context,
         report,
     )
     reports[report_id] = updated_report
-    record_appended_delayed_memory_id(
+    record_loaded_delayed_memory_id(
         context,
         report_id,
     )
@@ -1990,7 +1988,7 @@ def append_delayed_memory_report(
 
     return {
         "ok": True,
-        "action": "append_delayed_memory",
+        "action": "load_delayed_memory",
         "id": report_id,
         "title": str(
             updated_report.get(
@@ -2008,7 +2006,7 @@ def append_delayed_memory_report(
     }
 
 
-def _append_unique_delayed_memory_values(
+def _merge_unique_delayed_memory_values(
     existing,
     incoming,
     *,
@@ -2101,19 +2099,19 @@ def update_delayed_memory_report(
             ],
         )
     )
-    next_tags = _append_unique_delayed_memory_values(
+    next_tags = _merge_unique_delayed_memory_values(
         report.get("tags", []),
         update.get("tags", []),
         casefold=True,
     )
-    appended_body = str(update.get("body", "") or "").strip()
+    added_body = str(update.get("body", "") or "").strip()
     current_body = str(report.get("body", "") or "").rstrip()
     next_body = current_body
 
-    if appended_body:
+    if added_body:
         next_body = "\n\n".join(
             part
-            for part in (current_body, appended_body)
+            for part in (current_body, added_body)
             if part
         )
 
@@ -2140,10 +2138,10 @@ def update_delayed_memory_report(
     updated_report.pop("long_term_facts_ids", None)
     reports[report_id] = updated_report
 
-    appended_reports = get_appended_delayed_memory_report(context)
+    loaded_reports = get_loaded_delayed_memory_reports(context)
 
-    if report_id in appended_reports:
-        appended_reports[report_id] = {
+    if report_id in loaded_reports:
+        loaded_reports[report_id] = {
             **updated_report,
             "id": report_id,
         }
@@ -2187,10 +2185,10 @@ def include_pinned_delayed_memory_reports(
         "delayed_memory_reports",
         None,
     )
-    appended_reports = get_appended_delayed_memory_report(context)
+    loaded_reports = get_loaded_delayed_memory_reports(context)
 
     if not isinstance(reports, dict):
-        return appended_reports
+        return loaded_reports
     turn_id = str(
         getattr(context, "runtime_current_turn_id", "")
         or getattr(context, "runtime_message_id", "")
@@ -2215,7 +2213,7 @@ def include_pinned_delayed_memory_reports(
         updated_report = report
 
         if turn_id and touched_by_report.get(report_id) != turn_id:
-            updated_report = update_delayed_memory_append_metadata(
+            updated_report = update_delayed_memory_load_metadata(
                 context,
                 report,
             )
@@ -2224,7 +2222,7 @@ def include_pinned_delayed_memory_reports(
             touched_by_report[report_id] = turn_id
             reports_to_persist[report_id] = updated_report
 
-        appended_reports[report_id] = {
+        loaded_reports[report_id] = {
             **updated_report,
             "id": report_id,
         }
@@ -2242,10 +2240,10 @@ def include_pinned_delayed_memory_reports(
 
         persist_delayed_memory_reports(reports_to_persist)
 
-    return appended_reports
+    return loaded_reports
 
 
-def remove_delayed_memory_report(
+def unload_delayed_memory_report(
     context,
     payload: str,
 ) -> dict:
@@ -2256,7 +2254,7 @@ def remove_delayed_memory_report(
 
     if not report_id:
         return build_delayed_memory_failure_result(
-            action="remove_delayed_memory",
+            action="unload_delayed_memory",
             requested=payload,
             error="invalid_delayed_memory_id",
         )
@@ -2277,23 +2275,23 @@ def remove_delayed_memory_report(
         dict,
     ):
         return build_delayed_memory_failure_result(
-            action="remove_delayed_memory",
+            action="unload_delayed_memory",
             requested=report_id,
             error="delayed_memory_not_found",
         )
 
     if bool(report.get("pinned", False)):
         return build_delayed_memory_failure_result(
-            action="remove_delayed_memory",
+            action="unload_delayed_memory",
             requested=report_id,
             error="delayed_memory_pinned",
         )
 
     return {
         "ok": True,
-        "action": "remove_delayed_memory",
+        "action": "unload_delayed_memory",
         "id": report_id,
-        "detached": bool(
+        "unloaded": bool(
             report_id
         ),
         "title": (
@@ -2373,14 +2371,14 @@ def build_delayed_memory_action_text(
 
     failed = result.get("ok") is False
 
-    if action == "append_delayed_memory":
+    if action == "load_delayed_memory":
         return (
             f"Load failed: {title}"
             if failed
             else f"Loading: {title}"
         )
 
-    if action == "remove_delayed_memory":
+    if action == "unload_delayed_memory":
         return (
             f"Unload failed: {title}"
             if failed
@@ -2464,10 +2462,10 @@ def build_delayed_memory_history_text(
     if action == "save_delayed_memory_content":
         return f"Delayed memory saved: {title}"
 
-    if action == "append_delayed_memory":
+    if action == "load_delayed_memory":
         return f"Delayed memory loaded: {title}"
 
-    if action == "remove_delayed_memory":
+    if action == "unload_delayed_memory":
         return f"Delayed memory unloaded from context: {title}"
 
     if action == "update_delayed_memory":

@@ -216,30 +216,29 @@ def _append_recorded_tool_results(
     return appended
 
 
-def _append_appended_skills(
-    parts: list[str],
+def build_loaded_skills_content_context(
     context=None,
-) -> None:
+) -> str:
 
     if context is None:
-        return
+        return ""
 
-    appended_skills = list(
+    loaded_skills = list(
         getattr(
             context,
-            "runtime_appended_skills",
+            "runtime_loaded_skills",
             [],
         )
         or []
     )
 
-    if not appended_skills:
-        return
+    if not loaded_skills:
+        return ""
 
-    parts.append(
-        "<APPENDED_SKILLS_CONTENT>\n"
-        f"{indent_xml(escape(format_tool_result_payload(appended_skills)))}\n"
-        "</APPENDED_SKILLS_CONTENT>"
+    return (
+        "<LOADED_SKILLS_CONTENT>\n"
+        f"{indent_xml(escape(format_tool_result_payload(loaded_skills)))}\n"
+        "</LOADED_SKILLS_CONTENT>"
     )
 
 
@@ -291,7 +290,7 @@ def _append_asset_results(
     )
 
 
-def _append_delayed_memory_results(
+def _load_delayed_memory_results(
     parts: list[str],
     context=None,
 ) -> None:
@@ -335,17 +334,11 @@ def build_tool_results_context(
 ) -> str:
 
     tool_result_blocks = []
-    extra_parts = []
 
-    if _append_recorded_tool_results(
+    if not _append_recorded_tool_results(
         tool_result_blocks,
         context,
     ):
-        _append_appended_skills(
-            extra_parts,
-            context,
-        )
-    else:
         _append_tool_results(
             tool_result_blocks,
             context,
@@ -354,24 +347,11 @@ def build_tool_results_context(
             tool_result_blocks,
             context,
         )
-        _append_delayed_memory_results(
+        _load_delayed_memory_results(
             tool_result_blocks,
             context,
         )
-        _append_appended_skills(
-            extra_parts,
-            context,
-        )
 
-    parts = [
-        build_tools_results_context(
-            tool_result_blocks
-        )
-    ]
-    parts.extend(
-        extra_parts
-    )
-
-    return "\n".join(
-        parts
+    return build_tools_results_context(
+        tool_result_blocks
     )

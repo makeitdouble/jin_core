@@ -8,9 +8,8 @@ from config_loader import (
 )
 from contracts.rules_assembler import (
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
-    RUNTIME_ACTION_APPEND_SKILL,
+    RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
-    RUNTIME_ACTION_LIST_SKILLS,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_UPDATE_L4_FACTS,
@@ -609,7 +608,7 @@ async def ask_brain_stream(
         context=context,
     )
 
-    appended_skill_marker_names = {
+    loaded_skill_marker_names = {
         normalize_skill_name(
             skill.get(
                 "name",
@@ -624,22 +623,22 @@ async def ask_brain_stream(
         for skill in (
             getattr(
                 context,
-                "runtime_appended_skills",
+                "runtime_loaded_skills",
                 [],
             )
             or []
         )
     }
-    appended_skill_marker_names.discard(
+    loaded_skill_marker_names.discard(
         ""
     )
 
-    def preserve_duplicate_append_skill_marker(
+    def preserve_duplicate_load_skill_marker(
         _raw_marker,
         action,
     ) -> bool:
 
-        if action.name != RUNTIME_ACTION_APPEND_SKILL:
+        if action.name != RUNTIME_ACTION_LOAD_SKILL:
             return False
 
         requested_skill = normalize_skill_name(
@@ -649,10 +648,10 @@ async def ask_brain_stream(
         if not requested_skill:
             return False
 
-        if requested_skill in appended_skill_marker_names:
+        if requested_skill in loaded_skill_marker_names:
             return True
 
-        appended_skill_marker_names.add(
+        loaded_skill_marker_names.add(
             requested_skill
         )
 
@@ -660,7 +659,7 @@ async def ask_brain_stream(
 
     content_filter = RuntimeActionStreamFilter(
         enabled_actions=enabled_actions,
-        preserve_action_marker=preserve_duplicate_append_skill_marker,
+        preserve_action_marker=preserve_duplicate_load_skill_marker,
         repetition_guard=RuntimeActionRepetitionGuard(),
         #preserve_action_text=True
     )

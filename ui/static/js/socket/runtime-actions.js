@@ -550,8 +550,8 @@ const PAYLOAD_DISTINCT_RUNTIME_ACTIONS = new Set([
   "save_active_memory",
   "resolve_active_memory",
   "save_delayed_memory_content",
-  "append_delayed_memory",
-  "remove_delayed_memory",
+  "load_delayed_memory",
+  "unload_delayed_memory",
   "update_delayed_memory",
 ]);
 
@@ -687,8 +687,8 @@ function getDelayedMemoryRuntimeActionPreview(
       )
       || (
         [
-          "append_delayed_memory",
-          "remove_delayed_memory",
+          "load_delayed_memory",
+          "unload_delayed_memory",
           "update_delayed_memory",
         ].includes(action)
           ? data.payload
@@ -745,8 +745,8 @@ function handleRuntimeAction(
     );
   const reportScopedDelayedAction =
     [
-      "append_delayed_memory",
-      "remove_delayed_memory",
+      "load_delayed_memory",
+      "unload_delayed_memory",
       "update_delayed_memory",
     ].includes(action)
     && Boolean(
@@ -869,8 +869,8 @@ function handleRuntimeAction(
     );
 
   const suppressMarkerCount = [
-    "append_skill",
-    "append_skills",
+    "load_skill",
+    "load_skills",
   ].includes(action);
 
   const markerCount = suppressMarkerCount
@@ -1136,9 +1136,9 @@ function handleRuntimeAction(
     && data.delayed_memory_report
     && window.JinRuntime
     && window.JinRuntime.runtime
-    && window.JinRuntime.runtime.appendDelayedMemoryReports
+    && window.JinRuntime.runtime.mergeDelayedMemoryReports
   ) {
-    window.JinRuntime.runtime.appendDelayedMemoryReports(
+    window.JinRuntime.runtime.mergeDelayedMemoryReports(
       data.delayed_memory_report
     );
   }
@@ -1150,24 +1150,24 @@ function handleRuntimeAction(
     && data.delayed_memory_result.id
     && window.JinRuntime
     && window.JinRuntime.runtime
-    && window.JinRuntime.runtime.appendDelayedMemoryReports
+    && window.JinRuntime.runtime.mergeDelayedMemoryReports
   ) {
-    window.JinRuntime.runtime.appendDelayedMemoryReports({
+    window.JinRuntime.runtime.mergeDelayedMemoryReports({
       [data.delayed_memory_result.id]:
         data.delayed_memory_result.report,
     });
   }
 
   if (
-    action === "append_delayed_memory"
+    action === "load_delayed_memory"
     && data.delayed_memory_result
     && data.delayed_memory_result.report
     && data.delayed_memory_result.id
     && window.JinRuntime
     && window.JinRuntime.runtime
-    && window.JinRuntime.runtime.appendDelayedMemoryReports
+    && window.JinRuntime.runtime.mergeDelayedMemoryReports
   ) {
-    window.JinRuntime.runtime.appendDelayedMemoryReports({
+    window.JinRuntime.runtime.mergeDelayedMemoryReports({
       [data.delayed_memory_result.id]:
         data.delayed_memory_result.report,
     });
@@ -1185,14 +1185,14 @@ function handleRuntimeAction(
     && typeof window.JinRuntime.runtime.markDelayedMemoryReportLoaded
       === "function"
   ) {
-    if (action === "append_delayed_memory") {
+    if (action === "load_delayed_memory") {
       window.JinRuntime.runtime.markDelayedMemoryReportLoaded(
         delayedMemoryPreview.reportId,
         true
       );
     }
 
-    if (action === "remove_delayed_memory") {
+    if (action === "unload_delayed_memory") {
       window.JinRuntime.runtime.markDelayedMemoryReportLoaded(
         delayedMemoryPreview.reportId,
         false

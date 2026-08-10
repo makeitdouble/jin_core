@@ -48,6 +48,7 @@
       persistRuntimeMemorySnapshot,
       attachFirstUserIdleToInitialRuntimeSnapshot,
       rememberStableRuntimeSnapshot: rememberStableRuntimeSnapshotCallback,
+      getLoadedDelayedMemoryReportIds,
     } = deps;
 
     const {
@@ -66,7 +67,6 @@
       writeLatestSavedRuntimeMemory,
       readLatestSavedRuntimeMemory,
       buildPersistedRuntimeSnapshot,
-      collectCurrentSessionAppendedMemoryIds,
       collectOtherLatestRuntimeMemorySnapshots,
       clearOtherLatestRuntimeMemorySnapshots,
       getSavedRuntimeMemoryFallback,
@@ -614,8 +614,10 @@
         session_id:
           getCurrentSavedSessionId(),
         saved_at: savedAt,
-        appended_memory_ids:
-          collectCurrentSessionAppendedMemoryIds(),
+        loaded_memory_ids:
+          typeof getLoadedDelayedMemoryReportIds === "function"
+            ? getLoadedDelayedMemoryReportIds()
+            : [],
         session_memory: sessionMemory,
         session_memory_updates:
           data.updates || 0,
@@ -1189,12 +1191,12 @@
             && sessionMemory.session_memory_updates
           )
           || 0,
-        appended_memory_ids:
+        loaded_memory_ids:
           (
             sessionMemory
-            && Array.isArray(sessionMemory.appended_memory_ids)
+            && Array.isArray(sessionMemory.loaded_memory_ids)
           )
-            ? sessionMemory.appended_memory_ids
+            ? sessionMemory.loaded_memory_ids
                 .map(item => String(item || "").trim())
                 .filter(Boolean)
             : [],

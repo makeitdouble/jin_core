@@ -38,7 +38,7 @@ Path authority:
 - If the file is not listed and was not just created successfully, treat it as missing. Do not substitute a guessed path.
 
 Action workflow:
-1. Use LIST_SKILLS to retrieve relevant project skills before a wildcard workflow.
+1. Check <SKILLS> for relevant project skills before a wildcard workflow and LOAD_SKILL if needed.
 2. Before any action that references existing wildcard files, call list_wildcards.
 3. After list_wildcards, use only the exact returned wildcard paths, without .txt, inside __category/file__ tokens.
 4. Use ASSET_ACTION with JSON payload for list_wildcards, sample_wildcard, expand_template, generate_prompt_batch, check_duplicates, or preview_file.

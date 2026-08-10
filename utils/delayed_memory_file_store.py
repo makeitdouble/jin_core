@@ -103,6 +103,23 @@ def _clean_tags(value) -> list[str]:
     return tags
 
 
+
+
+def _read_delayed_load_metadata(report: dict, key: str, default=None):
+    if key in report:
+        return report.get(key, default)
+
+    legacy_prefix = "append" + "ed"
+    legacy_keys = {
+        "loaded_times": f"{legacy_prefix}_times",
+        "load_streak": "append_streak",
+        "last_loaded_date": f"last_{legacy_prefix}_date",
+        "last_loaded_session_id": f"last_{legacy_prefix}_session_id",
+        "all_loaded_session_ids": f"all_{legacy_prefix}_session_ids",
+    }
+    legacy_key = legacy_keys.get(key, "")
+
+    return report.get(legacy_key, default) if legacy_key else default
 def normalize_delayed_memory_report(
     report_id: str,
     report,
@@ -168,22 +185,22 @@ def normalize_delayed_memory_report(
         ),
         "created_time": created_time,
         "created_date": created_date,
-        "appended_times": _clean_counter(
-            report.get("appended_times", 0),
+        "loaded_times": _clean_counter(
+            _read_delayed_load_metadata(report, "loaded_times", 0),
         ),
-        "append_streak": _clean_counter(
-            report.get("append_streak", 0),
+        "load_streak": _clean_counter(
+            _read_delayed_load_metadata(report, "load_streak", 0),
         ),
-        "last_appended_date": _clean_text(
-            report.get("last_appended_date", ""),
+        "last_loaded_date": _clean_text(
+            _read_delayed_load_metadata(report, "last_loaded_date", ""),
             limit=MAX_DELAYED_MEMORY_TIME_CHARS,
         ),
-        "last_appended_session_id": _clean_text(
-            report.get("last_appended_session_id", ""),
+        "last_loaded_session_id": _clean_text(
+            _read_delayed_load_metadata(report, "last_loaded_session_id", ""),
             limit=MAX_DELAYED_MEMORY_SESSION_ID_CHARS,
         ),
-        "all_appended_session_ids": _clean_session_ids(
-            report.get("all_appended_session_ids", []),
+        "all_loaded_session_ids": _clean_session_ids(
+            _read_delayed_load_metadata(report, "all_loaded_session_ids", []),
         ),
     }
 
@@ -323,8 +340,8 @@ def build_delayed_memory_file_payload(
         "id": normalized_id,
         "session": clean_report["created_session_id"],
         "created_date": clean_report["created_date"],
-        "all_appended_session_ids": clean_report[
-            "all_appended_session_ids"
+        "all_loaded_session_ids": clean_report[
+            "all_loaded_session_ids"
         ],
         "body": clean_report["body"],
         "pinned": clean_report["pinned"],
@@ -334,13 +351,13 @@ def build_delayed_memory_file_payload(
         "facts_ids": clean_report[
             "facts_ids"
         ],
-        "appended_times": clean_report["appended_times"],
-        "append_streak": clean_report["append_streak"],
-        "last_appended_date": clean_report[
-            "last_appended_date"
+        "loaded_times": clean_report["loaded_times"],
+        "load_streak": clean_report["load_streak"],
+        "last_loaded_date": clean_report[
+            "last_loaded_date"
         ],
-        "last_appended_session_id": clean_report[
-            "last_appended_session_id"
+        "last_loaded_session_id": clean_report[
+            "last_loaded_session_id"
         ],
     }
 

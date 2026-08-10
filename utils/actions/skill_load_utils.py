@@ -1,6 +1,6 @@
 from contracts.rules_assembler import (
-    RUNTIME_ACTION_APPEND_SKILL,
-    RUNTIME_ACTION_REMOVE_SKILL,
+    RUNTIME_ACTION_LOAD_SKILL,
+    RUNTIME_ACTION_UNLOAD_SKILL,
 )
 
 from .action_payload_utils import _clean_internal_action_query
@@ -16,11 +16,11 @@ def plural_skill_marker_action_name(
         .upper()
     )
 
-    if normalized_name == "APPEND_SKILLS":
-        return RUNTIME_ACTION_APPEND_SKILL
+    if normalized_name == "LOAD_SKILLS":
+        return RUNTIME_ACTION_LOAD_SKILL
 
-    if normalized_name == "REMOVE_SKILLS":
-        return RUNTIME_ACTION_REMOVE_SKILL
+    if normalized_name == "UNLOAD_SKILLS":
+        return RUNTIME_ACTION_UNLOAD_SKILL
 
     return None
 
@@ -41,7 +41,7 @@ def split_internal_skill_marker_list(
     )
 
 
-def build_append_skill_payload(
+def build_load_skill_payload(
     query: str,
     placeholder_payloads=(),
 ) -> str:

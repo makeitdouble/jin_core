@@ -11,7 +11,7 @@
     },
     "rules": [
       "PROJECT ASSETS:",
-      "After the relevant skill appears in APPENDED_SKILLS, DO NOT follow its instructions, only by user request."
+      "Use only capabilities from skills already loaded in <LOADED_SKILLS_CONTENT>, and only when the user request requires them."
     ],
     "close_tag": true
   }

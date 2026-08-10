@@ -72,7 +72,7 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
         self.assertIn("@keyframes jin-avatar-memory-absorb-dot", css_source)
         self.assertIn("rgba(147, 197, 253, 0.30)", css_source)
 
-    def test_l4_ring_is_appended_inside_delayed_and_active_rings(self):
+    def test_l4_ring_is_rendered_inside_delayed_and_active_rings(self):
         source = AVATAR_JS.read_text(encoding="utf-8")
         start = source.index("function appendMemorySignalRings(")
         end = source.index("\n  function appendDefs(", start)
@@ -178,11 +178,11 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            "/static/css/runtime-avatar.css?v=memory-rings-7",
+            "/static/css/runtime-avatar.css?v=memory-rings-8",
             source,
         )
         self.assertIn(
-            "/static/js/runtime/runtime-avatar.js?v=memory-rings-18",
+            "/static/js/runtime/runtime-avatar.js?v=memory-rings-19",
             source,
         )
         self.assertIn(

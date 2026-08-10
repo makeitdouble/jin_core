@@ -141,6 +141,114 @@ def clean_deleted_delayed_memory_report_ids(value) -> list[str]:
     return report_ids
 
 
+def clean_loaded_delayed_memory_report_ids(value) -> list[str]:
+
+    source = value if isinstance(value, list) else [value]
+    report_ids = []
+    seen = set()
+
+    for item in source:
+        report_id = str(
+            item
+            or ""
+        ).strip().casefold()
+
+        if (
+            not report_id
+            or report_id in seen
+            or not is_delayed_memory_report_id(
+                report_id
+            )
+        ):
+            continue
+
+        seen.add(report_id)
+        report_ids.append(report_id)
+
+    return report_ids
+
+
+def apply_loaded_delayed_memory_ids(
+    context,
+    message_data: dict,
+) -> list[str]:
+
+    if "loaded_delayed_memory_ids" in message_data:
+        raw_ids = message_data.get(
+            "loaded_delayed_memory_ids",
+            [],
+        )
+    elif "loaded_memory_ids" in message_data:
+        raw_ids = message_data.get(
+            "loaded_memory_ids",
+            [],
+        )
+    else:
+        return list(
+            getattr(
+                context,
+                "runtime_loaded_delayed_memory_ids",
+                [],
+            )
+            or []
+        )
+
+    requested_ids = clean_loaded_delayed_memory_report_ids(
+        raw_ids
+    )
+    reports = getattr(
+        context,
+        "delayed_memory_reports",
+        {},
+    )
+    reports = reports if isinstance(reports, dict) else {}
+    loaded_reports = {}
+    loaded_ids = []
+
+    for report_id in requested_ids:
+        report = reports.get(report_id)
+
+        if not isinstance(report, dict):
+            continue
+
+        loaded_ids.append(report_id)
+        loaded_reports[report_id] = {
+            **report,
+            "id": report_id,
+        }
+
+    context.runtime_loaded_delayed_memory = loaded_reports
+    context.runtime_loaded_delayed_memory_ids = loaded_ids
+
+    from runtime.L4_memory import (
+        refresh_runtime_l4_archived_fact_ids,
+    )
+
+    refresh_runtime_l4_archived_fact_ids(
+        context
+    )
+
+    return loaded_ids
+
+
+def get_context_loaded_delayed_memory_ids(
+    context,
+) -> list[str]:
+
+    loaded_reports = getattr(
+        context,
+        "runtime_loaded_delayed_memory",
+        {},
+    )
+
+    if not isinstance(loaded_reports, dict):
+        return []
+
+    return clean_loaded_delayed_memory_report_ids(
+        list(loaded_reports.keys())
+    )
+
+
 def apply_delayed_memory_reports(
     context,
     message_data: dict,
@@ -184,38 +292,38 @@ def apply_delayed_memory_reports(
         **incoming_reports,
     }
 
-    appended_reports = getattr(
+    loaded_reports = getattr(
         context,
-        "runtime_appended_delayed_memory",
+        "runtime_loaded_delayed_memory",
         None,
     )
 
     if isinstance(
-        appended_reports,
+        loaded_reports,
         dict,
     ):
         for report_id in deleted_report_ids:
-            appended_reports.pop(
+            loaded_reports.pop(
                 report_id,
                 None,
             )
 
-    appended_ids = getattr(
+    loaded_ids = getattr(
         context,
-        "runtime_appended_delayed_memory_ids",
+        "runtime_loaded_delayed_memory_ids",
         None,
     )
 
     if isinstance(
-        appended_ids,
+        loaded_ids,
         list,
     ):
         deleted_report_id_set = set(
             deleted_report_ids
         )
-        appended_ids[:] = [
+        loaded_ids[:] = [
             report_id
-            for report_id in appended_ids
+            for report_id in loaded_ids
             if str(report_id or "").strip().casefold()
             not in deleted_report_id_set
         ]
@@ -1302,6 +1410,10 @@ def apply_session_bootstrap(
         context,
         message_data,
     )
+    apply_loaded_delayed_memory_ids(
+        context,
+        message_data,
+    )
 
     session_memory = clean_bootstrap_memory(
         message_data.get(
@@ -1524,6 +1636,11 @@ async def emit_delayed_memory_store_snapshot(
     await context.emitter.emit({
         "type": "delayed_memory_store_snapshot",
         "delayed_memory_reports": reports,
+        "loaded_delayed_memory_ids": (
+            get_context_loaded_delayed_memory_ids(
+                context
+            )
+        ),
     })
 
 

@@ -16,51 +16,51 @@ from utils.tool_results import (
 async def apply_delayed_memory_actions(
     context,
     *,
-    append_delayed_memory_actions,
-    remove_delayed_memory_actions,
+    load_delayed_memory_actions,
+    unload_delayed_memory_actions,
     update_delayed_memory_actions,
     log_runtime,
 ):
     from utils.brain_client_utils import (
-        append_delayed_memory_report,
-        append_delayed_memory_runtime_result,
+        load_delayed_memory_report,
+        record_delayed_memory_runtime_result,
         build_delayed_memory_failure_result,
         build_delayed_memory_history_text,
-        clear_appended_delayed_memory_report,
+        clear_loaded_delayed_memory_report,
         clear_delayed_memory_runtime_results,
         get_delayed_memory_reports,
-        remove_delayed_memory_report,
-        set_appended_delayed_memory_report,
+        unload_delayed_memory_report,
+        set_loaded_delayed_memory_report,
         update_delayed_memory_report,
     )
 
     delayed_memory_results = []
 
-    if append_delayed_memory_actions:
+    if load_delayed_memory_actions:
         if log_runtime is not None:
             await log_runtime(
-                "[RUNTIME ACTION] append_delayed_memory requested"
+                "[RUNTIME ACTION] load_delayed_memory requested"
             )
 
         clear_delayed_memory_runtime_results(
             context
         )
 
-        for action in append_delayed_memory_actions:
-            result = append_delayed_memory_report(
+        for action in load_delayed_memory_actions:
+            result = load_delayed_memory_report(
                 context,
                 action.payload,
             )
-            did_append_delayed_memory = set_appended_delayed_memory_report(
+            did_load_delayed_memory = set_loaded_delayed_memory_report(
                 context,
                 result,
             )
             if result.get("ok") is False:
-                append_delayed_memory_runtime_result(
+                record_delayed_memory_runtime_result(
                     context,
                     result,
                 )
-            if did_append_delayed_memory:
+            if did_load_delayed_memory:
                 history_text = build_delayed_memory_history_text(
                     result
                 )
@@ -88,7 +88,7 @@ async def apply_delayed_memory_actions(
                 context,
                 action.payload,
             )
-            append_delayed_memory_runtime_result(
+            record_delayed_memory_runtime_result(
                 context,
                 result,
             )
@@ -114,10 +114,10 @@ async def apply_delayed_memory_actions(
                 result
             )
 
-    if remove_delayed_memory_actions:
+    if unload_delayed_memory_actions:
         if log_runtime is not None:
             await log_runtime(
-                "[RUNTIME ACTION] remove_delayed_memory requested"
+                "[RUNTIME ACTION] unload_delayed_memory requested"
             )
 
         clear_delayed_memory_runtime_results(
@@ -130,37 +130,37 @@ async def apply_delayed_memory_actions(
             )
         )
 
-        for action in remove_delayed_memory_actions:
-            result = remove_delayed_memory_report(
+        for action in unload_delayed_memory_actions:
+            result = unload_delayed_memory_report(
                 context,
                 action.payload,
             )
-            did_remove_delayed_memory = clear_appended_delayed_memory_report(
+            did_unload_delayed_memory = clear_loaded_delayed_memory_report(
                 context,
                 result.get(
                     "id",
                     "",
                 ),
             )
-            result["detached"] = did_remove_delayed_memory
+            result["unloaded"] = did_unload_delayed_memory
             if (
                 result.get("ok") is not False
-                and not did_remove_delayed_memory
+                and not did_unload_delayed_memory
             ):
                 result = build_delayed_memory_failure_result(
-                    action="remove_delayed_memory",
+                    action="unload_delayed_memory",
                     requested=result.get(
                         "id",
                         "",
                     ),
-                    error="delayed_memory_not_appended",
+                    error="delayed_memory_not_loaded",
                 )
-                result["detached"] = False
-            append_delayed_memory_runtime_result(
+                result["unloaded"] = False
+            record_delayed_memory_runtime_result(
                 context,
                 result,
             )
-            if did_remove_delayed_memory:
+            if did_unload_delayed_memory:
                 history_text = build_delayed_memory_history_text(
                     result
                 )

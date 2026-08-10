@@ -28,7 +28,7 @@
       "</SAVE_DELAYED_MEMORY_CONTENT>",
       "You must fulfill title, summary, tags, and body so the report is valid for runtime processing.",
       "When the report consolidates facts from <LONG_TERM_MEMORY>, list every referenced F<number> id in facts_ids.",
-      "anchor_fact_ids are the most important/key facts among facts_ids. They remain directly visible in <LONG_TERM_MEMORY>; while the report exists they receive a [ delayed_memory_id: ... ] suffix.",
+      "anchor_fact_ids are the most important/key facts among facts_ids. Choose from 1 to 3 anchor facts. They remain directly visible in <LONG_TERM_MEMORY>; while the report exists they receive a [ delayed_memory_id: ... ] suffix.",
       "facts_ids is the full set of L4 facts attached to the report, including every anchor_fact_ids entry. Non-anchor facts_ids are represented by the report and are hidden from <LONG_TERM_MEMORY> while the report exists.",
       "Use exact ids copied from the [ id: ... ] suffixes. Do not list unrelated ids and never use PF pending ids.",
       "anchor_fact_ids must be a subset of facts_ids. Leave both arrays empty when the report does not consolidate L4 facts."

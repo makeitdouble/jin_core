@@ -15,7 +15,7 @@ Do not use:
 
 Mode files:
 - Every Markdown file beside `chunk_reader.py` whose name ends with `-mode.md` is an available reader mode.
-- Use the exact filename shown in the appended skill context, for example `plain-mode.md`.
+- Use the exact filename shown in the loaded skill context, for example `plain-mode.md`.
 - Adding another `*-mode.md` file automatically makes it available; no Python or runtime changes are required.
 
 Single-mode action:
@@ -54,4 +54,4 @@ Rules for run_python_skill:
 - The script must stay inside `assets/skills/<skill>/` and end in `.py`.
 - `$ATTACHMENT` is replaced with a temporary local path containing the selected attachment.
 - No shell is used. stdout and stderr are returned as the tool result.
-- Use only when the appended skill documents the script contract or the user explicitly requests the test.
+- Use only when the loaded skill documents the script contract or the user explicitly requests the test.

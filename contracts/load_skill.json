@@ -1,0 +1,24 @@
+{
+  "load_skill": {
+    "version": 1,
+    "description": "Allows the model to load skills.",
+    "runtime_action": "LOAD_SKILL",
+    "private_marker": "<LOAD_SKILL: name of skill >",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": true
+    },
+    "rules": [
+      "LOAD / UNLOAD SKILLS:",
+      "Use LOAD_SKILL and UNLOAD_SKILL only for a single skill load or unload.",
+      "<LOAD_SKILL: name of skill >",
+      "<UNLOAD_SKILL: name of skill >",
+      "For multiple skills you can also use: <LOAD_SKILLS: name1, name2, name3 >",
+      "<UNLOAD_SKILLS: name1, name2, name3 >",
+      "You may load multiple skills at once.",
+      "Never load a skill already marked as loaded in <SKILLS>."
+    ],
+    "close_tag": false
+  }
+}

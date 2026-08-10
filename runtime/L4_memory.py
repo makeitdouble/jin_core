@@ -406,10 +406,10 @@ def get_loaded_delayed_memory_reports(
 ) -> dict:
 
     from utils.brain_client_utils import (
-        get_appended_delayed_memory_report,
+        get_loaded_delayed_memory_reports,
     )
 
-    return get_appended_delayed_memory_report(
+    return get_loaded_delayed_memory_reports(
         context
     )
 
@@ -688,9 +688,9 @@ def remap_delayed_memory_l4_fact_ids(
             "file_errors": [],
         }
 
-    from utils.brain_client_utils import get_appended_delayed_memory_report
+    from utils.brain_client_utils import get_loaded_delayed_memory_reports
 
-    appended_reports = get_appended_delayed_memory_report(context)
+    loaded_reports = get_loaded_delayed_memory_reports(context)
     changed_reports = {}
     removed_report_refs = []
 
@@ -760,8 +760,8 @@ def remap_delayed_memory_l4_fact_ids(
         reports[report_id] = updated_report
         changed_reports[report_id] = updated_report
 
-        if report_id in appended_reports:
-            appended_reports[report_id] = {
+        if report_id in loaded_reports:
+            loaded_reports[report_id] = {
                 **updated_report,
                 "id": report_id,
             }
@@ -894,9 +894,9 @@ def restore_delayed_memory_l4_fact_refs(
             "file_errors": [],
         }
 
-    from utils.brain_client_utils import get_appended_delayed_memory_report
+    from utils.brain_client_utils import get_loaded_delayed_memory_reports
 
-    appended_reports = get_appended_delayed_memory_report(context)
+    loaded_reports = get_loaded_delayed_memory_reports(context)
     changed_reports = {}
     missing_report_ids = []
 
@@ -951,8 +951,8 @@ def restore_delayed_memory_l4_fact_refs(
         reports[report_id] = updated_report
         changed_reports[report_id] = updated_report
 
-        if report_id in appended_reports:
-            appended_reports[report_id] = {
+        if report_id in loaded_reports:
+            loaded_reports[report_id] = {
                 **updated_report,
                 "id": report_id,
             }

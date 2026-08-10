@@ -55,13 +55,60 @@ class StreamHandler:
             or "Generation stopped."
         )
 
-        if validator.last_failure_preview:
+        loop_quote = (
+            validator.last_failure_loop_preview
+            or validator.last_failure_preview
+        )
+
+        if loop_quote:
             reason = (
                 f'{reason} Looped text: '
-                f'"{validator.last_failure_preview}"'
+                f'"{loop_quote}"'
             )
 
         return reason
+
+    def build_validator_loop_log_text(
+        self,
+        validator,
+    ) -> str:
+
+        reason = (
+            validator.last_failure_reason
+            or "Generation stopped."
+        )
+        loop_quote = (
+            validator.last_failure_loop_preview
+            or validator.last_failure_preview
+        )
+
+        if not loop_quote:
+            return reason
+
+        return (
+            f'{reason}\n'
+            f'"{loop_quote}"'
+        )
+
+    async def log_validator_loop(
+        self,
+        validator,
+    ):
+
+        log_method = getattr(
+            self.logger,
+            "log_validator_loop",
+            None,
+        )
+
+        if log_method is None:
+            log_method = self.logger.log_validator
+
+        await log_method(
+            self.build_validator_loop_log_text(
+                validator
+            )
+        )
 
     # ---------------------------------------------------------
     # START STREAM
@@ -130,15 +177,8 @@ class StreamHandler:
                     failure_reason
                 )
 
-                raw_chunk_preview = (
-                    chunk
-                    .replace("\n", "\\n")
-                )[:160]
-
-                await self.logger.log_validator(
-                    f"{self.thinking_validator.last_failure_reason}\n"
-                    f'Preview: "{self.thinking_validator.last_failure_preview}"\n'
-                    f'Raw thinking chunk: "{raw_chunk_preview}"'
+                await self.log_validator_loop(
+                    self.thinking_validator
                 )
 
                 if emit:
@@ -151,6 +191,7 @@ class StreamHandler:
                         "text": self.build_validator_error_text(
                             self.thinking_validator
                         ),
+                        "suppress_log": True,
                     })
 
                 return False
@@ -247,21 +288,8 @@ class StreamHandler:
 
             if not is_valid:
 
-                raw_chunk_preview = (
-                    chunk
-                    .replace("\n", "\\n")
-                )[:160]
-
-                safe_chunk_preview = (
-                    safe_chunk
-                    .replace("\n", "\\n")
-                )[:160]
-
-                await self.logger.log_validator(
-                    f"{self.validator.last_failure_reason}\n"
-                    f'Preview: "{self.validator.last_failure_preview}"\n'
-                    f'Raw chunk: "{raw_chunk_preview}"\n'
-                    f'Safe chunk: "{safe_chunk_preview}"'
+                await self.log_validator_loop(
+                    self.validator
                 )
 
                 reason = (
@@ -278,6 +306,7 @@ class StreamHandler:
                             self.message_id
                         ),
                         "text": reason,
+                        "suppress_log": True,
                     })
 
                 return False

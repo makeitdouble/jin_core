@@ -1061,7 +1061,7 @@ def _materialize_attachment(
     )
 
 
-def _require_appended_skill(
+def _require_loaded_skill(
     context,
     skill: str,
 ) -> str:
@@ -1069,7 +1069,7 @@ def _require_appended_skill(
     requested = normalize_skill_name(
         skill
     )
-    appended_names = {
+    loaded_names = {
         normalize_skill_name(
             item.get(
                 "name",
@@ -1084,19 +1084,19 @@ def _require_appended_skill(
         for item in (
             getattr(
                 context,
-                "runtime_appended_skills",
+                "runtime_loaded_skills",
                 [],
             )
             or []
         )
     }
-    appended_names.discard(
+    loaded_names.discard(
         ""
     )
 
-    if requested not in appended_names:
+    if requested not in loaded_names:
         raise PermissionError(
-            f"skill must be appended before execution: {requested}"
+            f"skill must be loaded before execution: {requested}"
         )
 
     return requested
@@ -1270,7 +1270,7 @@ async def run_python_skill_action(
             "args must be a list"
         )
 
-    _require_appended_skill(
+    _require_loaded_skill(
         context,
         skill_name,
     )
@@ -2652,7 +2652,7 @@ async def run_document_reader_action(
         or "chunk_reader"
     ).strip()
 
-    _require_appended_skill(
+    _require_loaded_skill(
         context,
         skill_name,
     )

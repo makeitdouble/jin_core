@@ -353,6 +353,18 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
             ".delayed-memory-modal-delete svg",
             css_source,
         )
+        self.assertIn(
+            "deleteTimer = null;",
+            source,
+        )
+        self.assertIn(
+            "setRuntimeMemoryRowPressVisual(\n            row,\n            false\n        );",
+            source,
+        )
+        self.assertIn(
+            'delayedMemoryModalDeleteButton.style.removeProperty(\n          "opacity"',
+            source,
+        )
 
     @unittest.skipUnless(
         shutil.which("node"),
@@ -410,15 +422,15 @@ for (const [text, reference, expected] of cases) {
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            '/static/css/runtime-memory.css?v=delayed-delete-1',
+            '/static/css/runtime-memory.css?v=delayed-context-loaded-1',
             source,
         )
         self.assertIn(
-            '/static/js/runtime/runtime-memory-view.js?v=delayed-delete-1',
+            '/static/js/runtime/runtime-memory-view.js?v=delayed-context-loaded-1',
             source,
         )
         self.assertIn(
-            '/static/js/runtime/runtime.js?v=delayed-delete-1',
+            '/static/js/runtime/runtime.js?v=delayed-context-loaded-1',
             source,
         )
         self.assertIn(
