@@ -508,7 +508,7 @@ class L1MemoryTests(
                 user_message="Use a skill.",
                 assistant_message="Partial answer",
                 interruption_reason="Repeated sentence loop detected.",
-                interruption_quote="Wait, I should use append_skill first.",
+                interruption_quote="Wait, I should use load_skill first.",
             )
 
             self.assertIn(
@@ -520,7 +520,7 @@ class L1MemoryTests(
                 message,
             )
             self.assertIn(
-                '"Wait, I should use append_skill first."',
+                '"Wait, I should use load_skill first."',
                 message,
             )
             self.assertNotIn(

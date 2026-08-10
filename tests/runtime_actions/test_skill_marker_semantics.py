@@ -40,8 +40,8 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
                 f"{name}\nTest skill.",
             )
 
-    def test_plural_append_skills_is_one_uncounted_marker(self):
-        marker = "<APPEND_SKILLS: file_manager, wildcards, porn>"
+    def test_plural_load_skills_is_one_uncounted_marker(self):
+        marker = "<LOAD_SKILLS: file_manager, wildcards, porn>"
         parsed = extract_runtime_actions(
             marker,
             enabled_actions=["CAN_USE_ASSETS"],
@@ -51,7 +51,7 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
             [(action.name, action.payload) for action in parsed.observed_actions],
             [
                 (
-                    "APPEND_SKILLS",
+                    "LOAD_SKILLS",
                     "file_manager, wildcards, porn",
                 ),
             ],
@@ -91,7 +91,7 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
         self.assertEqual(len(context.emitter.events), 2)
         self.assertEqual(
             {event["action"] for event in context.emitter.events},
-            {"append_skills"},
+            {"load_skills"},
         )
         self.assertEqual(
             {event["id"] for event in context.emitter.events},
@@ -99,7 +99,7 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             {event["text"] for event in context.emitter.events},
-            {"APPEND_SKILLS: file_manager, wildcards, porn"},
+            {"LOAD_SKILLS: file_manager, wildcards, porn"},
         )
         self.assertTrue(
             all("marker_count" not in event for event in context.emitter.events)
@@ -109,14 +109,14 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             [item["text"] for item in context.runtime_session_action_history],
-            ["APPEND_SKILLS: file_manager, wildcards, porn"],
+            ["LOAD_SKILLS: file_manager, wildcards, porn"],
         )
 
-    def test_singular_append_skill_markers_stay_separate_without_counter(self):
+    def test_singular_load_skill_markers_stay_separate_without_counter(self):
         parsed = extract_runtime_actions(
             (
-                "<APPEND_SKILL: wildcards>\n"
-                "<APPEND_SKILL: porn>"
+                "<LOAD_SKILL: wildcards>\n"
+                "<LOAD_SKILL: porn>"
             ),
             enabled_actions=["CAN_USE_ASSETS"],
         )
@@ -155,8 +155,8 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
         self.assertEqual(
             [event["text"] for event in completed_events],
             [
-                "APPEND_SKILL: wildcards",
-                "APPEND_SKILL: porn",
+                "LOAD_SKILL: wildcards",
+                "LOAD_SKILL: porn",
             ],
         )
         self.assertEqual(
@@ -172,8 +172,8 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
         self.assertEqual(
             [item["text"] for item in context.runtime_session_action_history],
             [
-                "APPEND_SKILL: wildcards",
-                "APPEND_SKILL: porn",
+                "LOAD_SKILL: wildcards",
+                "LOAD_SKILL: porn",
             ],
         )
 
@@ -185,8 +185,8 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
             RuntimeActionCall(name="WEB_SEARCH", payload="alpha"),
             RuntimeActionCall(name="WEB_SEARCH", payload="beta"),
             RuntimeActionCall(name="WEB_SEARCH", payload="alpha"),
-            RuntimeActionCall(name="APPEND_SKILL", payload="wildcards"),
-            RuntimeActionCall(name="APPEND_SKILL", payload="porn"),
+            RuntimeActionCall(name="LOAD_SKILL", payload="wildcards"),
+            RuntimeActionCall(name="LOAD_SKILL", payload="porn"),
         ])
 
         self.assertEqual(
@@ -261,8 +261,8 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
         index_source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn("keepSkillMarkerSeparate", logger_source)
-        self.assertIn('"APPEND_SKILLS"', logger_source)
-        self.assertIn('"append_skills"', runtime_source)
+        self.assertIn('"LOAD_SKILLS"', logger_source)
+        self.assertIn('"load_skills"', runtime_source)
         self.assertIn("suppressMarkerCount", runtime_source)
         self.assertRegex(
             index_source,

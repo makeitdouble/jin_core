@@ -494,11 +494,11 @@ This prevents two facts with the same key from glowing incorrectly.
 
 ## Central Button
 
-The center button is visually part of the avatar. It currently refreshes the avatar drawing.
+The center button is visually part of the avatar. It toggles the visibility of the avatar's outer memory layers.
 
 DOM id:
 
-`#fact-check-trigger`
+`#memory-layers-toggle`
 
 Visual style:
 
@@ -511,7 +511,7 @@ Click behavior:
 Current click behavior:
 
 ```js
-window.JinRuntime.avatar.refresh()
+window.JinRuntime.avatar.toggleMemoryLayers()
 ```
 
 The old manual fact-check WebSocket path still exists separately, but the center click currently redraws the avatar rather than starting fact-check.

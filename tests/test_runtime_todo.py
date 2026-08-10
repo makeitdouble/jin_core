@@ -36,10 +36,10 @@ class RuntimeTodoTests(unittest.TestCase):
         enabled_actions = self.enabled_actions_with_runtime_todo()
         result = extract_runtime_actions(
             "<TODO_LIST>\n"
-            "1. LIST_SKILLS\n"
-            "2. APPEND_SKILL wildcards\n"
+            "1. LOAD_SKILL wildcards\n"
+            "2. Use the loaded skill\n"
             "</TODO_LIST>\n"
-            "<LIST_SKILLS>",
+            "<LOAD_SKILL: wildcards>",
             enabled_actions=enabled_actions,
         )
 
@@ -47,8 +47,8 @@ class RuntimeTodoTests(unittest.TestCase):
         self.assertEqual(
             [(action.name, action.payload) for action in result.actions],
             [
-                ("CREATE_TODO_LIST", "1. LIST_SKILLS\n2. APPEND_SKILL wildcards"),
-                ("LIST_SKILLS", ""),
+                ("CREATE_TODO_LIST", "1. LOAD_SKILL wildcards\n2. Use the loaded skill"),
+                ("LOAD_SKILL", "wildcards"),
             ],
         )
 

@@ -154,7 +154,7 @@ function allModelRuntimesOffline() {
 
 }
 
-if (factCheckTrigger) {
+if (memoryLayersToggle) {
   function toggleRuntimeAvatarMemoryLayers() {
     const avatar =
       window.JinRuntime
@@ -168,7 +168,7 @@ if (factCheckTrigger) {
     }
   }
 
-  factCheckTrigger.addEventListener(
+  memoryLayersToggle.addEventListener(
     "click",
     (event) => {
       event.preventDefault();

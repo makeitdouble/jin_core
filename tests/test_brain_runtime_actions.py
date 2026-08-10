@@ -75,13 +75,6 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
     if bool(runtime_actions.get("CAN_SAVE_SESSION", False)):
         expected_actions.append("SAVE_SESSION")
 
-    if bool(runtime_actions.get("CAN_USE_ASSETS", False)):
-        expected_actions.extend(
-            (
-                "LIST_SKILLS",
-            )
-        )
-
     if bool(runtime_actions.get("CAN_CLEAN_TOOL_RESULTS", False)):
         expected_actions.append(
             "CLEAN_TOOL_RESULTS"
@@ -105,8 +98,8 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
     if bool(runtime_actions.get("CAN_USE_ASSETS", False)):
         expected_actions.extend(
             (
-                "APPEND_SKILL",
-                "REMOVE_SKILL",
+                "LOAD_SKILL",
+                "UNLOAD_SKILL",
                 "ASSET_ACTION",
             )
         )
@@ -954,7 +947,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             emitter=FakeEmitter(),
             runtime_action_events=[],
             runtime_search_calls=[],
-            runtime_appended_skills=[],
+            runtime_loaded_skills=[],
             runtime_save_session_requested=False,
             runtime_save_session_action_emitted=False,
             runtime_skill_state_barrier_active=False,
@@ -1013,7 +1006,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                         "astronomical news tracker>"
                     ),
                     "\n",
-                    "<LIST_SKILLS>",
+                    "<LOAD_SKILL: wildcards>",
                 ):
                     yield {
                         "type": "content",
@@ -1067,7 +1060,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             [
                 "web_search",
                 "save_active_memory",
-                "list_skills",
+                "load_skill",
             ],
         )
         self.assertEqual(
@@ -1085,8 +1078,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
             context.active_memory_records[0],
         )
         self.assertEqual(
-            context.runtime_asset_results[-1]["action"],
-            "list_skills",
+            context.runtime_loaded_skills[-1]["name"],
+            "wildcards",
         )
         self.assertEqual(
             [
@@ -1094,9 +1087,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 for item in context.runtime_session_action_history
             ],
             [
-                "WEB_SEARCH - Latest astronomical news 2026",
-                "SAVE_ACTIVE_MEMORY - astronomical news tracker",
-                "LIST_SKILLS",
+                (
+                    "WEB_SEARCH - Latest astronomical news 2026, "
+                    "SAVE_ACTIVE_MEMORY - astronomical news tracker"
+                ),
             ],
         )
         self.assertEqual(
@@ -1110,16 +1104,9 @@ class BrainRuntimeActionTests(unittest.TestCase):
                         "text": "WEB_SEARCH",
                         "detail": "Latest astronomical news 2026",
                     },
-                ],
-                [
                     {
                         "text": "SAVE_ACTIVE_MEMORY",
                         "detail": "astronomical news tracker",
-                    },
-                ],
-                [
-                    {
-                        "text": "LIST_SKILLS",
                     },
                 ],
             ],
@@ -1227,7 +1214,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             context = SimpleNamespace(
                 runtime_action_events=[],
                 runtime_search_calls=[],
-                runtime_appended_skills=[],
+                runtime_loaded_skills=[],
                 runtime_save_session_requested=False,
                 runtime_save_session_action_emitted=False,
                 runtime_skill_state_barrier_active=False,
@@ -1333,7 +1320,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
-    def test_stream_groups_two_action_markers_into_one_history_item(self):
+    def test_stream_groups_two_current_action_markers_into_one_history_item(self):
 
         class FakeBrainClient:
             async def stream(self, **_kwargs):
@@ -1341,7 +1328,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     "type": "content",
                     "content": (
                         "<SAVE_SESSION>\n"
-                        "<LIST_SKILLS>"
+                        "<JIN_COLOR: #112233>"
                     ),
                 }
 
@@ -1349,62 +1336,42 @@ class BrainRuntimeActionTests(unittest.TestCase):
             pass
 
         async def collect(context):
-            chunks = []
-
-            async for chunk in ask_brain_stream(
-                client=FakeBrainClient(),
-                text="save session and list skills",
-                context=context,
-                runtime_actions={
-                    "CAN_SAVE_SESSION": True,
-                    "CAN_USE_ASSETS": True,
-                },
-            ):
-                chunks.append(
-                    chunk
+            return [
+                chunk
+                async for chunk in ask_brain_stream(
+                    client=FakeBrainClient(),
+                    text="save session and set color",
+                    context=context,
+                    runtime_actions={
+                        "CAN_SAVE_SESSION": True,
+                        "CAN_JIN_COLOR": True,
+                    },
                 )
-
-            return chunks
+            ]
 
         context = Context()
         original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
         config.USE_SERVICE_AS_BRAIN = False
 
         try:
-            asyncio.run(
-                collect(
-                    context
-                )
-            )
+            asyncio.run(collect(context))
         finally:
             config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
 
         self.assertEqual(
-            [
-                item["text"]
-                for item in context.runtime_session_action_history
-            ],
-            [
-                "SAVE_SESSION, LIST_SKILLS",
-            ],
+            [item["text"] for item in context.runtime_session_action_history],
+            ["SAVE_SESSION, JIN_COLOR"],
         )
 
         prompt = build_brain_context(
             context=context,
             runtime_actions={
                 "CAN_SAVE_SESSION": True,
-                "CAN_USE_ASSETS": True,
+                "CAN_JIN_COLOR": True,
             },
         )
-
-        self.assertIn(
-            "<SESSION_ACTIONS_HISTORY>",
-            prompt,
-        )
-        self.assertIn(
-            "1. SAVE_SESSION, LIST_SKILLS",
-            prompt,
-        )
+        self.assertIn("<SESSION_ACTIONS_HISTORY>", prompt)
+        self.assertIn("1. SAVE_SESSION, JIN_COLOR", prompt)
 
     def test_stream_history_preserves_duplicate_markers_after_action_dedup(self):
 
@@ -1498,34 +1465,34 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
 
-    def test_session_history_includes_appended_and_removed_skill_names(self):
+    def test_session_history_includes_loaded_and_unloaded_skill_names(self):
 
         formatted = format_session_action_marker_names([
             RuntimeActionCall(
                 name="LIST_SKILLS",
             ),
             RuntimeActionCall(
-                name="APPEND_SKILL",
+                name="LOAD_SKILL",
                 payload="wildcards",
             ),
             RuntimeActionCall(
-                name="APPEND_SKILL",
+                name="LOAD_SKILL",
                 payload="file_manager",
             ),
             RuntimeActionCall(
-                name="APPEND_SKILL",
+                name="LOAD_SKILL",
                 payload="wildcards",
             ),
             RuntimeActionCall(
-                name="REMOVE_SKILL",
+                name="UNLOAD_SKILL",
                 payload="image_prompt_generator",
             ),
             RuntimeActionCall(
-                name="REMOVE_SKILL",
+                name="UNLOAD_SKILL",
                 payload="image_prompt_generator",
             ),
             RuntimeActionCall(
-                name="REMOVE_SKILL",
+                name="UNLOAD_SKILL",
                 payload="file_manager",
             ),
         ])
@@ -1534,14 +1501,14 @@ class BrainRuntimeActionTests(unittest.TestCase):
             formatted,
             (
                 "LIST_SKILLS, "
-                "APPEND_SKILL: wildcards, "
-                "APPEND_SKILL: file_manager, "
-                "REMOVE_SKILL: image_prompt_generator, "
-                "REMOVE_SKILL: file_manager"
+                "LOAD_SKILL: wildcards, "
+                "LOAD_SKILL: file_manager, "
+                "UNLOAD_SKILL: image_prompt_generator, "
+                "UNLOAD_SKILL: file_manager"
             ),
         )
 
-    def test_session_history_adds_count_to_every_marker_part(self):
+    def test_session_history_groups_current_marker_parts_for_turn(self):
 
         context = SimpleNamespace(
             runtime_session_action_history=[],
@@ -1552,60 +1519,23 @@ class BrainRuntimeActionTests(unittest.TestCase):
             context,
             0,
             [
-                RuntimeActionCall(
-                    name="WEB_SEARCH",
-                    payload="latest news",
-                ),
-                RuntimeActionCall(
-                    name="SAVE_ACTIVE_MEMORY",
-                    payload="remember coffee",
-                ),
-                RuntimeActionCall(
-                    name="IDLE",
-                    payload="5s",
-                ),
-                RuntimeActionCall(
-                    name="APPEND_SKILL",
-                    payload="wildcards",
-                ),
-                RuntimeActionCall(
-                    name="APPEND_SKILL",
-                    payload="file_manager",
-                ),
+                RuntimeActionCall(name="WEB_SEARCH", payload="latest news"),
+                RuntimeActionCall(name="SAVE_ACTIVE_MEMORY", payload="remember coffee"),
+                RuntimeActionCall(name="IDLE", payload="5s"),
+                RuntimeActionCall(name="LOAD_SKILL", payload="wildcards"),
+                RuntimeActionCall(name="LOAD_SKILL", payload="file_manager"),
             ],
         )
 
         self.assertEqual(
-            [
-                item["parts"]
-                for item in context.runtime_session_action_history
-            ],
-            [
-                [
-                    {
-                        "text": "WEB_SEARCH",
-                        "detail": "latest news",
-                    },
-                ],
-                [
-                    {
-                        "text": "SAVE_ACTIVE_MEMORY",
-                        "detail": "remember coffee",
-                    },
-                ],
-                [
-                    {
-                        "text": "IDLE",
-                        "detail": "5s",
-                    },
-                    {
-                        "text": "APPEND_SKILL: wildcards",
-                    },
-                    {
-                        "text": "APPEND_SKILL: file_manager",
-                    },
-                ],
-            ],
+            [item["parts"] for item in context.runtime_session_action_history],
+            [[
+                {"text": "WEB_SEARCH", "detail": "latest news"},
+                {"text": "SAVE_ACTIVE_MEMORY", "detail": "remember coffee"},
+                {"text": "IDLE", "detail": "5s"},
+                {"text": "LOAD_SKILL: wildcards"},
+                {"text": "LOAD_SKILL: file_manager"},
+            ]],
         )
 
     def test_jin_color_history_preserves_ordered_color_swatches(self):
@@ -1940,19 +1870,19 @@ class BrainRuntimeActionTests(unittest.TestCase):
             0,
             [
                 RuntimeActionCall(
-                    name="APPEND_SKILL",
+                    name="LOAD_SKILL",
                     payload="wildcards",
                 ),
                 RuntimeActionCall(
-                    name="APPEND_SKILL",
+                    name="LOAD_SKILL",
                     payload="wildcards",
                 ),
                 RuntimeActionCall(
-                    name="APPEND_SKILL",
+                    name="LOAD_SKILL",
                     payload="file_manager",
                 ),
                 RuntimeActionCall(
-                    name="REMOVE_SKILL",
+                    name="UNLOAD_SKILL",
                     payload="image_prompt_generator",
                 ),
             ],
@@ -1961,21 +1891,21 @@ class BrainRuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             context.runtime_session_action_history[0]["text"],
             (
-                "APPEND_SKILL: wildcards, "
-                "APPEND_SKILL: file_manager, "
-                "REMOVE_SKILL: image_prompt_generator"
+                "LOAD_SKILL: wildcards, "
+                "LOAD_SKILL: file_manager, "
+                "UNLOAD_SKILL: image_prompt_generator"
             ),
         )
 
-    def test_stream_preserves_duplicate_failed_append_skill_marker(self):
+    def test_stream_preserves_duplicate_failed_load_skill_marker(self):
 
         class FakeBrainClient:
             async def stream(self, **_kwargs):
                 yield {
                     "type": "content",
                     "content": (
-                        "<APPEND_SKILL: name of skill >\n"
-                        "<APPEND_SKILL: name of skill >"
+                        "<LOAD_SKILL: name of skill >\n"
+                        "<LOAD_SKILL: name of skill >"
                     ),
                 }
 
@@ -2033,14 +1963,14 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "<APPEND_SKILL: name of skill >",
+            "<LOAD_SKILL: name of skill >",
             visible_text,
         )
         self.assertEqual(
             context.runtime_action_events,
             [
                 {
-                    "name": "append_skill",
+                    "name": "load_skill",
                     "runtime_turn_id": "turn-1",
                     "payload": "name of skill",
                 },
@@ -2048,7 +1978,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertEqual(
             context.runtime_asset_results[-1]["action"],
-            "append_skill",
+            "load_skill",
         )
         self.assertEqual(
             context.runtime_asset_results[-1]["error"],
@@ -2057,12 +1987,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
         self.assertEqual(
             context.runtime_session_action_history[-1]["text"],
             (
-                "APPEND_SKILL: name of skill "
+                "LOAD_SKILL: name of skill "
                 "( does not exist )"
             ),
         )
         self.assertIn(
-            "APPEND_SKILL: name of skill ( does not exist )",
+            "LOAD_SKILL: name of skill ( does not exist )",
             build_session_actions_history_context(
                 context,
                 current_sequence=True,
@@ -2073,7 +2003,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             event
             for event in context.emitter.events
             if event.get("type") == "runtime_action"
-            and event.get("action") == "append_skill"
+            and event.get("action") == "load_skill"
             and event.get("status") == "counter_final"
         ]
 
@@ -3242,17 +3172,22 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            get_runtime_action_private_marker("LIST_SKILLS"),
+            "<SKILLS>",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            get_runtime_action_private_marker("LOAD_SKILL"),
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            get_runtime_action_private_marker("UNLOAD_SKILL"),
         )
         assert_not_contains_text(
             self,
             prompt,
-            get_runtime_action_private_marker("APPEND_SKILL"),
-        )
-        assert_not_contains_text(
-            self,
-            prompt,
-            get_runtime_action_private_marker("REMOVE_SKILL"),
+            "<LIST_SKILLS>",
         )
         assert_not_contains_text(
             self,
@@ -3264,36 +3199,15 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
             "create_wildcard_file",
         )
-        assert_not_contains_text(
-            self,
-            prompt,
-            "assets/wildcards",
-        )
 
-    def test_prompt_shows_append_remove_rules_only_after_list_skills_result(self):
+    def test_prompt_always_shows_load_unload_rules_with_skill_inventory(self):
 
         context = SimpleNamespace(
             runtime_memory="session_status: active",
             runtime_memory_stable="session_status: active",
             runtime_l2_memory="",
             active_memory_records=[],
-            runtime_tool_results=[
-                {
-                    "kind": TOOL_RESULT_KIND_ASSET,
-                    "result": {
-                        "ok": True,
-                        "action": "list_skills",
-                        "skills": [
-                            {
-                                "name": "wildcards",
-                                "path": "assets/skills/wildcards.txt",
-                            },
-                        ],
-                    },
-                },
-            ],
-            runtime_asset_results=[],
-            runtime_appended_skills=[],
+            runtime_loaded_skills=[],
         )
 
         prompt = build_brain_context(
@@ -3303,52 +3217,44 @@ class BrainRuntimeActionTests(unittest.TestCase):
             },
         )
 
+        assert_contains_text(
+            self,
+            prompt,
+            "<SKILLS>",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "LOAD / UNLOAD SKILLS:",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            get_runtime_action_private_marker("LOAD_SKILL"),
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            get_runtime_action_private_marker("UNLOAD_SKILL"),
+        )
         assert_not_contains_text(
             self,
             prompt,
-            "LIST SKILLS:",
-        )
-        assert_contains_text(
-            self,
-            prompt,
-            "APPEND / REMOVE SKILLS:",
-        )
-        assert_contains_text(
-            self,
-            prompt,
-            get_runtime_action_private_marker("APPEND_SKILL"),
-        )
-        assert_contains_text(
-            self,
-            prompt,
-            get_runtime_action_private_marker("REMOVE_SKILL"),
+            "<LIST_SKILLS>",
         )
 
-    def test_prompt_shows_recorded_list_skills_tool_result(self):
+    def test_prompt_shows_always_visible_skill_inventory(self):
 
-        list_result = {
-            "ok": True,
-            "action": "list_skills",
-            "skills": [
+        context = SimpleNamespace(
+            runtime_memory="session_status: active",
+            runtime_memory_stable="session_status: active",
+            runtime_l2_memory="",
+            active_memory_records=[],
+            runtime_loaded_skills=[
                 {
                     "name": "wildcards",
-                    "path": "assets/skills/wildcards.txt",
                 },
             ],
-        }
-        context = SimpleNamespace(
-            runtime_memory="session_status: active",
-            runtime_memory_stable="session_status: active",
-            runtime_l2_memory="",
-            active_memory_records=[],
-            runtime_asset_results=[],
-            runtime_tool_results=[
-                {
-                    "kind": TOOL_RESULT_KIND_ASSET,
-                    "result": list_result,
-                },
-            ],
-            runtime_appended_skills=[],
         )
 
         prompt = build_brain_context(
@@ -3359,19 +3265,24 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         assert_contains_text(
+            self,
+            prompt,
+            "<SKILLS>",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "wildcards (loaded)",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "<LOADED_SKILLS_CONTENT>",
+        )
+        assert_not_contains_text(
             self,
             prompt,
             '<TOOL_RESULT name="LIST_SKILLS">',
-        )
-        assert_contains_text(
-            self,
-            prompt,
-            "1. wildcards - assets/skills/wildcards.txt",
-        )
-        assert_contains_text(
-            self,
-            prompt,
-            "APPEND / REMOVE SKILLS:",
         )
 
     def test_prompt_places_tool_results_at_context_top(self):
@@ -3381,34 +3292,18 @@ class BrainRuntimeActionTests(unittest.TestCase):
             runtime_memory_stable="session_status: active",
             runtime_l2_memory="",
             active_memory_records=[],
-            runtime_session_action_history=[
-                "Listed skills",
-            ],
             runtime_asset_results=[
                 {
                     "ok": True,
-                    "action": "list_skills",
-                    "skills": [
-                        {
-                            "name": "wildcards",
-                            "path": "assets/skills/wildcards.txt",
-                            "content": "first line\nsecond line",
-                        },
-                    ],
-                },
-                {
-                    "ok": True,
-                    "action": "list_skills",
-                    "skills": [
-                        {
-                            "name": "wildcards",
-                            "path": "assets/skills/wildcards.txt",
-                            "content": "first line\nsecond line",
-                        },
-                    ],
+                    "action": "read_asset",
+                    "path": "assets/test.txt",
+                    "content": "asset result",
                 },
             ],
-            runtime_appended_skills=[
+            runtime_session_action_history=[
+                "Read asset",
+            ],
+            runtime_loaded_skills=[
                 {
                     "name": "wildcards",
                     "path": "assets/skills/wildcards.txt",
@@ -3424,77 +3319,29 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 "CAN_USE_ASSETS": True,
             },
         )
-        self.assertTrue(
-            prompt.startswith(
-                "<TOOLS_RESULTS>"
-            )
+
+        self.assertTrue(prompt.startswith("<TOOLS_RESULTS>"))
+        self.assertLess(
+            prompt.index('<TOOL_RESULT name="ASSETS">'),
+            prompt.index("<SKILLS>"),
         )
         self.assertLess(
-            prompt.index("<TOOL_RESULT"),
-            prompt.index("<APPENDED_SKILLS_CONTENT>"),
+            prompt.index("<SKILLS>"),
+            prompt.index("<LOADED_SKILLS_CONTENT>"),
         )
         self.assertLess(
-            prompt.index("<APPENDED_SKILLS_CONTENT>"),
+            prompt.index("<LOADED_SKILLS_CONTENT>"),
+            prompt.index("<RUNTIME_MEMORY>"),
+        )
+        self.assertLess(
+            prompt.index("<RUNTIME_MEMORY>"),
             prompt.index("<SESSION_ACTIONS_HISTORY>"),
         )
-        self.assertLess(
-            prompt.index("<APPENDED_SKILLS_CONTENT>"),
-            prompt.index("RUNTIME ACTION EXECUTION RULES:"),
-        )
-        self.assertLess(
-            prompt.index("RUNTIME ACTION EXECUTION RULES:"),
-            prompt.index("I identify myself as JIN"),
-        )
-        self.assertNotIn(
-            "first line\\nsecond line",
-            prompt,
-        )
-        self.assertIn(
-            "first line\n",
-            prompt,
-        )
-        self.assertIn(
-            "second line",
-            prompt,
-        )
-        self.assertIn(
-            '<TOOL_RESULT name="LIST_SKILLS">',
-            prompt,
-        )
-        self.assertEqual(
-            prompt.count(
-                '<TOOL_RESULT name="LIST_SKILLS">'
-            ),
-            1,
-        )
-        self.assertNotIn(
-            '<TOOL_RESULT name="SKILLS">',
-            prompt,
-        )
-        self.assertNotIn(
-            '<TOOL_RESULT name="ASSETS">',
-            prompt,
-        )
-        self.assertNotIn(
-            "All available skills:",
-            prompt,
-        )
-        self.assertIn(
-            "1. wildcards (appended) - assets/skills/wildcards.txt",
-            prompt,
-        )
-        self.assertNotIn(
-            '"action": "list_skills"',
-            prompt,
-        )
-        self.assertNotIn(
-            '"skills":',
-            prompt,
-        )
-        self.assertIn(
-            "<APPENDED_SKILLS_CONTENT>",
-            prompt,
-        )
+        self.assertIn("asset result", prompt)
+        self.assertIn("first line\n", prompt)
+        self.assertIn("second line", prompt)
+        self.assertIn("wildcards (loaded)", prompt)
+        self.assertNotIn('<TOOL_RESULT name="LIST_SKILLS">', prompt)
 
     def test_prompt_keeps_loaded_delayed_memory_in_normal_turns(self):
 
@@ -3658,12 +3505,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
             runtime_asset_results=[
                 {
                     "ok": False,
-                    "action": "append_skill",
+                    "action": "load_skill",
                     "requested": "file_writer",
                     "error": "skill_not_found",
                 },
             ],
-            runtime_appended_skills=[],
+            runtime_loaded_skills=[],
         )
 
         prompt = build_brain_context(
@@ -3678,11 +3525,11 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
         self.assertIn(
-            "You attempted to append a skill that does not exist: file_writer",
+            "You attempted to load a skill that does not exist: file_writer",
             prompt,
         )
         self.assertNotIn(
-            '"action": "append_skill"',
+            '"action": "load_skill"',
             prompt,
         )
         self.assertNotIn(

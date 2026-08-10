@@ -938,7 +938,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         context.emitter = Emitter()
         context.runtime_action_events = []
         context.runtime_search_calls = []
-        context.runtime_appended_skills = []
+        context.runtime_loaded_skills = []
         context.runtime_asset_results = []
         context.delayed_memory_reports = {
             "a1b2c3": {
@@ -1133,7 +1133,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         context.emitter = Emitter()
         context.runtime_action_events = []
         context.runtime_search_calls = []
-        context.runtime_appended_skills = []
+        context.runtime_loaded_skills = []
         context.runtime_asset_results = []
         context.delayed_memory_reports = {
             "a1b2c3": {
@@ -1264,7 +1264,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         context.emitter = Emitter()
         context.runtime_action_events = []
         context.runtime_search_calls = []
-        context.runtime_appended_skills = []
+        context.runtime_loaded_skills = []
         context.runtime_asset_results = []
         context.runtime_delayed_memory_results = []
         context.delayed_memory_reports = {
@@ -1339,7 +1339,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         context.timestamp = "2026-07-17T19:40:00+03:00"
         context.runtime_action_events = []
         context.runtime_search_calls = []
-        context.runtime_appended_skills = []
+        context.runtime_loaded_skills = []
         context.runtime_asset_results = []
         context.delayed_memory_reports = {
             "a1b2c3": {
@@ -1413,7 +1413,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         next_context.timestamp = "2026-07-19T12:15:00+03:00"
         next_context.runtime_action_events = []
         next_context.runtime_search_calls = []
-        next_context.runtime_appended_skills = []
+        next_context.runtime_loaded_skills = []
         next_context.runtime_asset_results = []
         next_context.delayed_memory_reports = (
             context.delayed_memory_reports
@@ -1463,7 +1463,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         context.emitter = Emitter()
         context.runtime_action_events = []
         context.runtime_search_calls = []
-        context.runtime_appended_skills = []
+        context.runtime_loaded_skills = []
         context.runtime_asset_results = []
         context.runtime_loaded_delayed_memory = {
             "id": "a1b2c3",
@@ -1538,7 +1538,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         context.emitter = Emitter()
         context.runtime_action_events = []
         context.runtime_search_calls = []
-        context.runtime_appended_skills = []
+        context.runtime_loaded_skills = []
         context.runtime_asset_results = []
         context.runtime_loaded_delayed_memory = {
             "a1b2c3": {
@@ -1638,7 +1638,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         context.emitter = Emitter()
         context.runtime_action_events = []
         context.runtime_search_calls = []
-        context.runtime_appended_skills = []
+        context.runtime_loaded_skills = []
         context.runtime_asset_results = []
         context.runtime_delayed_memory_results = []
         context.delayed_memory_reports = {
@@ -1722,7 +1722,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         context.emitter = Emitter()
         context.runtime_action_events = []
         context.runtime_search_calls = []
-        context.runtime_appended_skills = []
+        context.runtime_loaded_skills = []
         context.runtime_asset_results = []
         context.runtime_delayed_memory_results = []
         context.delayed_memory_reports = {
@@ -1898,7 +1898,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         context.emitter = FakeEmitter()
         context.runtime_action_events = []
         context.runtime_search_calls = []
-        context.runtime_appended_skills = []
+        context.runtime_loaded_skills = []
         context.runtime_asset_results = []
         context.runtime_delayed_memory_results = []
         context.delayed_memory_reports = {
@@ -2038,7 +2038,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         context.emitter = FakeEmitter()
         context.runtime_action_events = []
         context.runtime_search_calls = []
-        context.runtime_appended_skills = []
+        context.runtime_loaded_skills = []
         context.runtime_asset_results = []
         context.runtime_delayed_memory_results = []
         context.runtime_loaded_delayed_memory = {

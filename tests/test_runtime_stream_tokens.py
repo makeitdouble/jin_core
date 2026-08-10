@@ -1465,7 +1465,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             runtime_usage_events=[],
             runtime_asset_results=[],
             runtime_session_action_history=[],
-            runtime_appended_skills=[
+            runtime_loaded_skills=[
                 {
                     "name": "chunk_reader",
                 },

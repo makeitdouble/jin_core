@@ -12,9 +12,9 @@ const sendButton =
     'button[type="submit"]'
   );
 
-const factCheckTrigger =
+const memoryLayersToggle =
   document.getElementById(
-    "fact-check-trigger"
+    "memory-layers-toggle"
   );
 
 const websocketClientId =

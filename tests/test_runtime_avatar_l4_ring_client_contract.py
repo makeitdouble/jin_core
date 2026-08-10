@@ -182,7 +182,7 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
         self.assertIn('class: "jin-avatar-scaffold"', avatar_source)
         self.assertIn('class: "jin-avatar-center-ring"', avatar_source)
 
-        click_start = input_source.index("if (factCheckTrigger) {")
+        click_start = input_source.index("if (memoryLayersToggle) {")
         click_end = input_source.index("chatForm.addEventListener", click_start)
         click_block = input_source[click_start:click_end]
 
@@ -196,7 +196,7 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            "/static/js/runtime/runtime-avatar.js?v=memory-rings-20",
+            "/static/js/runtime/runtime-avatar.js?v=runtime-change-markers-24",
             source,
         )
         self.assertIn(

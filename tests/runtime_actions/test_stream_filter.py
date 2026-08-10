@@ -443,8 +443,6 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
         cases = (
             ("<SAVE_SESSION/>", "SAVE_SESSION", ""),
-            ("<LIST_SKILLS/>", "LIST_SKILLS", ""),
-            ("<LIST_SKILLS/>", "LIST_SKILLS", ""),
             (
                 "<WEB_SEARCH: blue tomato/>",
                 "WEB_SEARCH",
@@ -458,8 +456,8 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 "remember tea",
             ),
             (
-                "<APPEND_SKILL: file_manager/>",
-                "APPEND_SKILL",
+                "<LOAD_SKILL: file_manager/>",
+                "LOAD_SKILL",
                 "file_manager",
             ),
             (
@@ -685,8 +683,8 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 "d4e5f6",
             ),
             (
-                "<REMOVE_SKILL: **wildcards**>",
-                "REMOVE_SKILL",
+                "<UNLOAD_SKILL: **wildcards**>",
+                "UNLOAD_SKILL",
                 "wildcards",
             ),
         )
@@ -1265,11 +1263,11 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
         result = stream_filter.filter(
-            "<APPEND_SKILL: wildcards>\n"
-            "<APPEND_SKILL: wildcards>\n"
-            "<APPEND_SKILL: wildcards>\n"
-            "<APPEND_SKILL: wildcards>\n"
-            "<APPEND_SKILL: wildcards>"
+            "<LOAD_SKILL: wildcards>\n"
+            "<LOAD_SKILL: wildcards>\n"
+            "<LOAD_SKILL: wildcards>\n"
+            "<LOAD_SKILL: wildcards>\n"
+            "<LOAD_SKILL: wildcards>"
         )
 
         self.assertTrue(
@@ -1294,17 +1292,17 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
         result = stream_filter.filter(
-            "<APPEND_SKILL: file_manager>\n"
-            "<APPEND_SKILL: wildcards>\n"
-            "<APPEND_SKILL: file_manager>\n"
-            "<APPEND_SKILL: wildcards>\n"
-            "<APPEND_SKILL: file_manager>\n"
-            "<APPEND_SKILL: wildcards>\n"
-            "<APPEND_SKILL: file_manager>\n"
-            "<APPEND_SKILL: wildcards>\n"
-            "<APPEND_SKILL: file_manager>\n"
-            "<APPEND_SKILL: wildcards>\n"
-            "<APPEND_SKILL: file_manager>"
+            "<LOAD_SKILL: file_manager>\n"
+            "<LOAD_SKILL: wildcards>\n"
+            "<LOAD_SKILL: file_manager>\n"
+            "<LOAD_SKILL: wildcards>\n"
+            "<LOAD_SKILL: file_manager>\n"
+            "<LOAD_SKILL: wildcards>\n"
+            "<LOAD_SKILL: file_manager>\n"
+            "<LOAD_SKILL: wildcards>\n"
+            "<LOAD_SKILL: file_manager>\n"
+            "<LOAD_SKILL: wildcards>\n"
+            "<LOAD_SKILL: file_manager>"
         )
 
         self.assertTrue(
@@ -1845,7 +1843,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         context.emitter = Emitter()
         context.runtime_action_events = []
         context.runtime_search_calls = []
-        context.runtime_appended_skills = []
+        context.runtime_loaded_skills = []
         context.runtime_tool_results = [
             {
                 "kind": TOOL_RESULT_KIND_SEARCH,
@@ -2396,7 +2394,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 background_tasks=set(),
                 runtime_action_events=[],
                 runtime_search_calls=[],
-                runtime_appended_skills=[],
+                runtime_loaded_skills=[],
                 runtime_pending_requests_queue=queue,
                 runtime_pending_idle_followups=[],
                 runtime_idle_action_sequence=0,
@@ -2489,7 +2487,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 background_tasks=set(),
                 runtime_action_events=[],
                 runtime_search_calls=[],
-                runtime_appended_skills=[],
+                runtime_loaded_skills=[],
                 runtime_pending_requests_queue=queue,
                 runtime_pending_idle_followups=[],
                 runtime_idle_action_sequence=0,

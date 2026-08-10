@@ -1301,7 +1301,7 @@ memoryDragHandle.addEventListener("dblclick", (event) => {
         memoryDragHandle,
         {
             ignoredTarget:
-                document.getElementById("fact-check-trigger"),
+                document.getElementById("memory-layers-toggle"),
         }
     );
 });

@@ -426,7 +426,7 @@ for (const [text, reference, expected] of cases) {
             source,
         )
         self.assertIn(
-            '/static/js/runtime/runtime-memory-view.js?v=delayed-context-loaded-1',
+            '/static/js/runtime/runtime-memory-view.js?v=citation-duplicates-2',
             source,
         )
         self.assertIn(

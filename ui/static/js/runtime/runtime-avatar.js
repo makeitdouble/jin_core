@@ -81,7 +81,7 @@
   const L4_MEMORY_RING_COLOR = "#93c5fd";
 
   const avatarRoot = document.getElementById("jin-runtime-avatar");
-  const factCheckTrigger = document.getElementById("fact-check-trigger");
+  const memoryLayersToggle = document.getElementById("memory-layers-toggle");
   const settingsPanel = document.getElementById("settings-panel");
   const normalizeRuntimeCitationIdentity =
     window.JinRuntime.normalizeCitationIdentity;
@@ -2882,7 +2882,7 @@
   }
 
   function syncMemoryLayersToggleLabel(hidden) {
-    if (!factCheckTrigger) {
+    if (!memoryLayersToggle) {
       return;
     }
 
@@ -2895,10 +2895,10 @@
         ? "show"
         : "hide";
 
-    factCheckTrigger.setAttribute("title", label);
-    factCheckTrigger.setAttribute("aria-label", label);
-    factCheckTrigger.setAttribute("alt", label);
-    factCheckTrigger.dataset.memoryLayersHidden =
+    memoryLayersToggle.setAttribute("title", label);
+    memoryLayersToggle.setAttribute("aria-label", label);
+    memoryLayersToggle.setAttribute("alt", label);
+    memoryLayersToggle.dataset.memoryLayersHidden =
       memoryLayersHidden ? "true" : "false";
   }
 
@@ -3138,10 +3138,10 @@
     });
   }
 
-  if (factCheckTrigger) {
+  if (memoryLayersToggle) {
     syncMemoryLayersToggleLabel();
 
-    factCheckTrigger.addEventListener("mousedown", (event) => {
+    memoryLayersToggle.addEventListener("mousedown", (event) => {
       event.stopPropagation();
     });
 

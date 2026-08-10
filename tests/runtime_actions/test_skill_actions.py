@@ -59,7 +59,7 @@ from utils.tool_results import (
 
 class RuntimeSkillActionTests(RuntimeActionTestCase):
 
-    def test_extracts_list_skills_marker(self):
+    def test_legacy_list_skills_marker_stays_visible_text(self):
 
         result = extract_runtime_actions(
             "<LIST_SKILLS>",
@@ -70,43 +70,21 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
 
         self.assertEqual(
             result.text,
-            "",
+            "<LIST_SKILLS>",
         )
         self.assertEqual(
             result.actions,
-            (
-                RuntimeActionCall(
-                    name="LIST_SKILLS",
-                    payload="",
-                ),
-            ),
+            (),
         )
 
-    def test_extracts_current_list_skills_marker(self):
+    def test_list_skills_has_no_private_marker(self):
 
-        result = extract_runtime_actions(
+        self.assertEqual(
             get_runtime_action_private_marker("LIST_SKILLS"),
-            enabled_actions=[
-                "CAN_USE_ASSETS",
-            ],
-        )
-
-        self.assertEqual(
-            result.text,
             "",
         )
-        self.assertEqual(
-            result.actions,
-            (
-                RuntimeActionCall(
-                    name="LIST_SKILLS",
-                    payload="",
-                ),
-            ),
-        )
 
-
-    def test_stream_filter_handles_split_self_closing_list_skills_marker(self):
+    def test_stream_filter_keeps_split_legacy_list_skills_marker_as_text(self):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=[
@@ -122,38 +100,101 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
         )
 
         self.assertEqual(
-            first.text,
-            "",
+            first.text + second.text,
+            "<LIST_SKILLS/>",
         )
         self.assertEqual(
-            first.actions,
+            first.actions + second.actions,
             (),
-        )
-        self.assertEqual(
-            second.text,
-            "",
-        )
-        self.assertEqual(
-            second.actions,
-            (
-                RuntimeActionCall(
-                    name="LIST_SKILLS",
-                    payload="",
-                ),
-            ),
         )
         self.assertEqual(
             stream_filter.flush(),
             "",
         )
 
+    def test_skill_inventory_lists_available_skills_without_runtime_action(self):
 
-    def test_extracts_append_and_remove_skill_markers(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                self.write_skill_fixture(
+                    root,
+                    "wildcards.txt",
+                    "wildcards\nUse ASSET_ACTION for wildcard files.",
+                )
+                self.write_skill_fixture(
+                    root,
+                    "file_manager.txt",
+                    "file_manager\nUse ASSET_ACTION for asset files.",
+                )
+
+                result = list_skills()
+
+        skills_by_name = {
+            skill["name"]: skill
+            for skill in result["skills"]
+        }
+        self.assertEqual(
+            set(skills_by_name),
+            {"wildcards", "file_manager"},
+        )
+        self.assertNotIn("content", skills_by_name["wildcards"])
+
+    def test_empty_skill_inventory_has_no_entries(self):
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                result = list_skills()
+
+        self.assertEqual(result["skills"], [])
+
+    def test_loading_missing_skill_records_current_load_error(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                applied_count = asyncio.run(
+                    apply_runtime_action_calls(
+                        context,
+                        (
+                            RuntimeActionCall(
+                                name="LOAD_SKILL",
+                                payload="missing_skill",
+                            ),
+                        ),
+                    )
+                )
+
+        self.assertEqual(applied_count, 1)
+        self.assertEqual(context.runtime_loaded_skills, [])
+        self.assertEqual(
+            context.runtime_asset_results[0]["action"],
+            "load_skill",
+        )
+        self.assertEqual(
+            context.runtime_asset_results[0]["error"],
+            "skill_not_found",
+        )
+
+    def test_extracts_load_and_unload_skill_markers(self):
 
         result = extract_runtime_actions(
             (
-                "<APPEND_SKILL: image_prompt_generator>\n"
-                "<REMOVE_SKILL: wildcards>"
+                "<LOAD_SKILL: image_prompt_generator>\n"
+                "<UNLOAD_SKILL: wildcards>"
             ),
             enabled_actions=[
                 "CAN_USE_ASSETS",
@@ -168,24 +209,24 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
             result.actions,
             (
                 RuntimeActionCall(
-                    name="APPEND_SKILL",
+                    name="LOAD_SKILL",
                     payload="image_prompt_generator",
                 ),
                 RuntimeActionCall(
-                    name="REMOVE_SKILL",
+                    name="UNLOAD_SKILL",
                     payload="wildcards",
                 ),
             ),
         )
 
 
-    def test_extracts_plural_append_and_remove_skill_markers(self):
+    def test_extracts_plural_append_and_unload_skill_markers(self):
 
         result = extract_runtime_actions(
             (
-                "<APPEND_SKILLS: "
+                "<LOAD_SKILLS: "
                 "file_manager, image_prompt_generator, porn, wildcards>\n"
-                "<REMOVE_SKILLS: old_skill, unused_skill>"
+                "<UNLOAD_SKILLS: old_skill, unused_skill>"
             ),
             enabled_actions=[
                 "CAN_USE_ASSETS",
@@ -204,46 +245,46 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
             result.actions,
             (
                 RuntimeActionCall(
-                    name="APPEND_SKILL",
+                    name="LOAD_SKILL",
                     payload="file_manager",
-                    marker_name="APPEND_SKILLS",
+                    marker_name="LOAD_SKILLS",
                     marker_payload=append_payload,
-                    marker_group="append_skills_001",
+                    marker_group="load_skills_001",
                 ),
                 RuntimeActionCall(
-                    name="APPEND_SKILL",
+                    name="LOAD_SKILL",
                     payload="image_prompt_generator",
-                    marker_name="APPEND_SKILLS",
+                    marker_name="LOAD_SKILLS",
                     marker_payload=append_payload,
-                    marker_group="append_skills_001",
+                    marker_group="load_skills_001",
                 ),
                 RuntimeActionCall(
-                    name="APPEND_SKILL",
+                    name="LOAD_SKILL",
                     payload="porn",
-                    marker_name="APPEND_SKILLS",
+                    marker_name="LOAD_SKILLS",
                     marker_payload=append_payload,
-                    marker_group="append_skills_001",
+                    marker_group="load_skills_001",
                 ),
                 RuntimeActionCall(
-                    name="APPEND_SKILL",
+                    name="LOAD_SKILL",
                     payload="wildcards",
-                    marker_name="APPEND_SKILLS",
+                    marker_name="LOAD_SKILLS",
                     marker_payload=append_payload,
-                    marker_group="append_skills_001",
+                    marker_group="load_skills_001",
                 ),
                 RuntimeActionCall(
-                    name="REMOVE_SKILL",
+                    name="UNLOAD_SKILL",
                     payload="old_skill",
-                    marker_name="REMOVE_SKILLS",
+                    marker_name="UNLOAD_SKILLS",
                     marker_payload=remove_payload,
-                    marker_group="remove_skills_002",
+                    marker_group="unload_skills_002",
                 ),
                 RuntimeActionCall(
-                    name="REMOVE_SKILL",
+                    name="UNLOAD_SKILL",
                     payload="unused_skill",
-                    marker_name="REMOVE_SKILLS",
+                    marker_name="UNLOAD_SKILLS",
                     marker_payload=remove_payload,
-                    marker_group="remove_skills_002",
+                    marker_group="unload_skills_002",
                 ),
             ),
         )
@@ -251,25 +292,25 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
             result.observed_actions,
             (
                 RuntimeActionCall(
-                    name="APPEND_SKILLS",
+                    name="LOAD_SKILLS",
                     payload=append_payload,
-                    marker_name="APPEND_SKILLS",
+                    marker_name="LOAD_SKILLS",
                     marker_payload=append_payload,
-                    marker_group="append_skills_001",
+                    marker_group="load_skills_001",
                 ),
                 RuntimeActionCall(
-                    name="REMOVE_SKILLS",
+                    name="UNLOAD_SKILLS",
                     payload=remove_payload,
-                    marker_name="REMOVE_SKILLS",
+                    marker_name="UNLOAD_SKILLS",
                     marker_payload=remove_payload,
-                    marker_group="remove_skills_002",
+                    marker_group="unload_skills_002",
                 ),
             ),
         )
-    def test_append_skill_name_attribute_stays_visible_text(self):
+    def test_load_skill_name_attribute_stays_visible_text(self):
 
         result = extract_runtime_actions(
-            '<APPEND_SKILL name="file_manager" />',
+            '<LOAD_SKILL name="file_manager" />',
             enabled_actions=[
                 "CAN_USE_ASSETS",
             ],
@@ -277,7 +318,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
 
         self.assertEqual(
             result.text,
-            '<APPEND_SKILL name="file_manager" />',
+            '<LOAD_SKILL name="file_manager" />',
         )
         self.assertEqual(
             result.actions,
@@ -285,7 +326,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
         )
 
 
-    def test_stream_filter_keeps_split_append_skill_name_attribute_as_text(self):
+    def test_stream_filter_keeps_split_load_skill_name_attribute_as_text(self):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=[
@@ -294,7 +335,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
         )
 
         first = stream_filter.filter(
-            '<APPEND_SKILL name="file'
+            '<LOAD_SKILL name="file'
         )
         second = stream_filter.filter(
             '_manager" />'
@@ -302,7 +343,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
 
         self.assertEqual(
             first.text,
-            '<APPEND_SKILL name="file',
+            '<LOAD_SKILL name="file',
         )
         self.assertEqual(
             first.actions,
@@ -322,7 +363,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
         )
 
 
-    def test_stream_filter_handles_split_plural_append_skill_marker(self):
+    def test_stream_filter_handles_split_plural_load_skill_marker(self):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=[
@@ -331,7 +372,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
         )
 
         first = stream_filter.filter(
-            "<APPEND_SKILLS: file_manager,"
+            "<LOAD_SKILLS: file_manager,"
         )
         second = stream_filter.filter(
             " image_prompt_generator, porn, wildcards>"
@@ -356,32 +397,32 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
             second.actions,
             (
                 RuntimeActionCall(
-                    name="APPEND_SKILL",
+                    name="LOAD_SKILL",
                     payload="file_manager",
-                    marker_name="APPEND_SKILLS",
+                    marker_name="LOAD_SKILLS",
                     marker_payload=marker_payload,
-                    marker_group="append_skills_001",
+                    marker_group="load_skills_001",
                 ),
                 RuntimeActionCall(
-                    name="APPEND_SKILL",
+                    name="LOAD_SKILL",
                     payload="image_prompt_generator",
-                    marker_name="APPEND_SKILLS",
+                    marker_name="LOAD_SKILLS",
                     marker_payload=marker_payload,
-                    marker_group="append_skills_001",
+                    marker_group="load_skills_001",
                 ),
                 RuntimeActionCall(
-                    name="APPEND_SKILL",
+                    name="LOAD_SKILL",
                     payload="porn",
-                    marker_name="APPEND_SKILLS",
+                    marker_name="LOAD_SKILLS",
                     marker_payload=marker_payload,
-                    marker_group="append_skills_001",
+                    marker_group="load_skills_001",
                 ),
                 RuntimeActionCall(
-                    name="APPEND_SKILL",
+                    name="LOAD_SKILL",
                     payload="wildcards",
-                    marker_name="APPEND_SKILLS",
+                    marker_name="LOAD_SKILLS",
                     marker_payload=marker_payload,
-                    marker_group="append_skills_001",
+                    marker_group="load_skills_001",
                 ),
             ),
         )
@@ -389,11 +430,11 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
             second.observed_actions,
             (
                 RuntimeActionCall(
-                    name="APPEND_SKILLS",
+                    name="LOAD_SKILLS",
                     payload=marker_payload,
-                    marker_name="APPEND_SKILLS",
+                    marker_name="LOAD_SKILLS",
                     marker_payload=marker_payload,
-                    marker_group="append_skills_001",
+                    marker_group="load_skills_001",
                 ),
             ),
         )
@@ -401,34 +442,34 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
             stream_filter.flush(),
             "",
         )
-    def test_duplicate_append_skill_markers_are_preserved_as_text(self):
+    def test_duplicate_load_skill_markers_are_preserved_as_text(self):
 
-        appended_skill_names = set()
+        loaded_skill_names = set()
 
-        def preserve_duplicate_append_skill(_raw_marker, action):
-            if action.name != "APPEND_SKILL":
+        def preserve_duplicate_load_skill(_raw_marker, action):
+            if action.name != "LOAD_SKILL":
                 return False
 
             requested_skill = normalize_skill_name(
                 action.payload
             )
 
-            if requested_skill in appended_skill_names:
+            if requested_skill in loaded_skill_names:
                 return True
 
-            appended_skill_names.add(
+            loaded_skill_names.add(
                 requested_skill
             )
             return False
 
         text = (
             "<SAVE_SESSION>\n"
-            "<APPEND_SKILL: file_manager >\n"
-            "<APPEND_SKILL: image_prompt_generator >\n"
-            "<APPEND_SKILL: wildcards >\n"
-            "<APPEND_SKILL: porn >\n"
-            "<APPEND_SKILL: file_manager >\n"
-            "<APPEND_SKILL: image_prompt_generator >"
+            "<LOAD_SKILL: file_manager >\n"
+            "<LOAD_SKILL: image_prompt_generator >\n"
+            "<LOAD_SKILL: wildcards >\n"
+            "<LOAD_SKILL: porn >\n"
+            "<LOAD_SKILL: file_manager >\n"
+            "<LOAD_SKILL: image_prompt_generator >"
         )
 
         result = extract_runtime_actions(
@@ -437,7 +478,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
                 "CAN_SAVE_SESSION",
                 "CAN_USE_ASSETS",
             ],
-            preserve_action_marker=preserve_duplicate_append_skill,
+            preserve_action_marker=preserve_duplicate_load_skill,
         )
 
         self.assertEqual(
@@ -447,33 +488,33 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
                     name="SAVE_SESSION",
                 ),
                 RuntimeActionCall(
-                    name="APPEND_SKILL",
+                    name="LOAD_SKILL",
                     payload="file_manager",
                 ),
                 RuntimeActionCall(
-                    name="APPEND_SKILL",
+                    name="LOAD_SKILL",
                     payload="image_prompt_generator",
                 ),
                 RuntimeActionCall(
-                    name="APPEND_SKILL",
+                    name="LOAD_SKILL",
                     payload="wildcards",
                 ),
                 RuntimeActionCall(
-                    name="APPEND_SKILL",
+                    name="LOAD_SKILL",
                     payload="porn",
                 ),
             ),
         )
         self.assertIn(
-            "<APPEND_SKILL: file_manager >",
+            "<LOAD_SKILL: file_manager >",
             result.text,
         )
         self.assertIn(
-            "<APPEND_SKILL: image_prompt_generator >",
+            "<LOAD_SKILL: image_prompt_generator >",
             result.text,
         )
         self.assertNotIn(
-            "<APPEND_SKILL: wildcards >",
+            "<LOAD_SKILL: wildcards >",
             result.text,
         )
         self.assertEqual(
@@ -482,254 +523,54 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
         )
 
 
-    def test_placeholder_append_skill_is_processed_once_and_duplicate_preserved(self):
+    def test_placeholder_load_skill_is_processed_once_and_duplicate_preserved(self):
 
-        appended_skill_names = set()
+        loaded_skill_names = set()
 
-        def preserve_duplicate_append_skill(_raw_marker, action):
-            if action.name != "APPEND_SKILL":
+        def preserve_duplicate_load_skill(_raw_marker, action):
+            if action.name != "LOAD_SKILL":
                 return False
 
             requested_skill = normalize_skill_name(
                 action.payload
             )
 
-            if requested_skill in appended_skill_names:
+            if requested_skill in loaded_skill_names:
                 return True
 
-            appended_skill_names.add(
+            loaded_skill_names.add(
                 requested_skill
             )
             return False
 
         result = extract_runtime_actions(
             (
-                "<APPEND_SKILL: name of skill >\n"
-                "<APPEND_SKILL: name of skill >"
+                "<LOAD_SKILL: name of skill >\n"
+                "<LOAD_SKILL: name of skill >"
             ),
             enabled_actions=[
                 "CAN_USE_ASSETS",
             ],
-            preserve_action_marker=preserve_duplicate_append_skill,
+            preserve_action_marker=preserve_duplicate_load_skill,
         )
 
         self.assertEqual(
             result.actions,
             (
                 RuntimeActionCall(
-                    name="APPEND_SKILL",
+                    name="LOAD_SKILL",
                     payload="name of skill",
                 ),
             ),
         )
         self.assertIn(
-            "<APPEND_SKILL: name of skill >",
+            "<LOAD_SKILL: name of skill >",
             result.text,
         )
         self.assertEqual(
             len(result.removed_markers),
             1,
         )
-
-
-    def test_apply_runtime_action_calls_lists_skills(self):
-
-        Emitter = FakeEmitter
-
-        Context = FakeContext
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            with contextlib.ExitStack() as stack:
-                for patcher in self.patch_asset_roots(root):
-                    stack.enter_context(patcher)
-
-                self.write_skill_fixture(
-                    root,
-                    "wildcards.txt",
-                    "wildcards\nUse ASSET_ACTION for wildcard files.",
-                )
-                self.write_skill_fixture(
-                    root,
-                    "file_manager.txt",
-                    "file_manager\nUse ASSET_ACTION for asset files.",
-                )
-
-                context = Context()
-                context.emitter = Emitter()
-
-                applied_count = asyncio.run(
-                    apply_runtime_action_calls(
-                        context,
-                        (
-                            RuntimeActionCall(
-                                name="LIST_SKILLS",
-                                payload="",
-                            ),
-                        ),
-                    )
-                )
-
-                self.assertEqual(
-                    applied_count,
-                    1,
-                )
-                self.assertEqual(
-                    context.runtime_asset_results[0]["action"],
-                    "list_skills",
-                )
-                self.assertEqual(
-                    context.runtime_asset_results[0]["requested"],
-                    "",
-                )
-                skills_by_name = {
-                    skill["name"]: skill
-                    for skill in context.runtime_asset_results[0]["skills"]
-                }
-                self.assertIn(
-                    "wildcards",
-                    skills_by_name,
-                )
-                self.assertIn(
-                    "file_manager",
-                    skills_by_name,
-                )
-                self.assertNotIn(
-                    "content",
-                    skills_by_name["wildcards"],
-                )
-                self.assertTrue(
-                    (root / "assets" / "skills" / "wildcards.txt").exists()
-                )
-                self.assertTrue(
-                    (root / "assets" / "skills" / "file_manager.txt").exists()
-                )
-                self.assertEqual(
-                    context.emitter.events[0]["action"],
-                    "list_skills",
-                )
-                self.assertEqual(
-                    context.emitter.events[0]["text"],
-                    "Listed skills",
-                )
-                self.assertEqual(
-                    context.runtime_session_action_history[0]["text"],
-                    "Listed skills",
-                )
-                self.assertIsInstance(
-                    context.runtime_session_action_history[0]["created_at"],
-                    float,
-                )
-
-    def test_apply_runtime_action_calls_reads_list_skills_each_time(self):
-
-        Emitter = FakeEmitter
-
-        Context = FakeContext
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            with contextlib.ExitStack() as stack:
-                for patcher in self.patch_asset_roots(root):
-                    stack.enter_context(patcher)
-
-                self.write_skill_fixture(
-                    root,
-                    "file_manager.txt",
-                    "file_manager\nUse ASSET_ACTION for asset files.",
-                )
-
-                context = Context()
-                context.emitter = Emitter()
-                context.runtime_current_turn_id = "turn_000001"
-
-                asyncio.run(
-                    apply_runtime_action_calls(
-                        context,
-                        (
-                            RuntimeActionCall(
-                                name="LIST_SKILLS",
-                                payload="",
-                            ),
-                        ),
-                    )
-                )
-
-                context.runtime_current_turn_id = "turn_000002"
-
-                asyncio.run(
-                    apply_runtime_action_calls(
-                        context,
-                        (
-                            RuntimeActionCall(
-                                name="LIST_SKILLS",
-                                payload="",
-                            ),
-                        ),
-                    )
-                )
-
-                self.assertEqual(
-                    len(context.runtime_asset_results),
-                    2,
-                )
-                self.assertNotIn(
-                    "runtime_action_reused",
-                    context.runtime_asset_results[0],
-                )
-                self.assertNotIn(
-                    "runtime_action_reused",
-                    context.runtime_asset_results[1],
-                )
-                self.assertEqual(
-                    context.runtime_asset_results[1][
-                        "runtime_turn_id"
-                    ],
-                    "turn_000002",
-                )
-
-
-    def test_empty_list_skills_returns_default_no_entries_tool_result(self):
-
-        Emitter = FakeEmitter
-
-        Context = FakeContext
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            with contextlib.ExitStack() as stack:
-                for patcher in self.patch_asset_roots(root):
-                    stack.enter_context(patcher)
-
-                context = Context()
-                context.emitter = Emitter()
-
-                applied_count = asyncio.run(
-                    apply_runtime_action_calls(
-                        context,
-                        (
-                            RuntimeActionCall(
-                                name="LIST_SKILLS",
-                                payload="",
-                            ),
-                        ),
-                    )
-                )
-
-                self.assertEqual(
-                    applied_count,
-                    1,
-                )
-                self.assertEqual(
-                    context.runtime_asset_results[0]["skills"],
-                    [],
-                )
-                self.assertIn(
-                    "No entries found.",
-                    build_tool_results_context(
-                        context
-                    ),
-                )
 
 
     def test_apply_runtime_action_calls_appends_and_removes_skill(self):
@@ -767,11 +608,11 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
                         context,
                         (
                             RuntimeActionCall(
-                                name="APPEND_SKILL",
+                                name="LOAD_SKILL",
                                 payload="Image Prompt Generator.txt",
                             ),
                             RuntimeActionCall(
-                                name="REMOVE_SKILL",
+                                name="UNLOAD_SKILL",
                                 payload="wildcards",
                             ),
                         ),
@@ -784,32 +625,32 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
                     2,
                 )
                 self.assertEqual(
-                    context.runtime_appended_skills[0]["name"],
+                    context.runtime_loaded_skills[0]["name"],
                     "image_prompt_generator",
                 )
                 self.assertEqual(
-                    context.runtime_appended_skills[0]["path"],
+                    context.runtime_loaded_skills[0]["path"],
                     "assets/skills/Image Prompt Generator.txt",
                 )
                 self.assertIn(
                     "Describe images.",
-                    context.runtime_appended_skills[0]["content"],
+                    context.runtime_loaded_skills[0]["content"],
                 )
                 self.assertEqual(
                     context.emitter.events[0]["action"],
-                    "append_skill",
+                    "load_skill",
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "APPEND_SKILL: Image Prompt Generator.txt",
+                    "LOAD_SKILL: Image Prompt Generator.txt",
                 )
                 self.assertEqual(
                     context.emitter.events[2]["action"],
-                    "remove_skill",
+                    "unload_skill",
                 )
                 self.assertEqual(
                     context.emitter.events[2]["text"],
-                    "REMOVE_SKILL: wildcards",
+                    "UNLOAD_SKILL: wildcards",
                 )
                 self.assertEqual(
                     {
@@ -853,7 +694,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
                         context,
                         (
                             RuntimeActionCall(
-                                name="APPEND_SKILL",
+                                name="LOAD_SKILL",
                                 payload="file_writer",
                             ),
                         ),
@@ -865,12 +706,12 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
                     1,
                 )
                 self.assertEqual(
-                    context.runtime_appended_skills,
+                    context.runtime_loaded_skills,
                     [],
                 )
                 self.assertEqual(
                     context.runtime_asset_results[0]["action"],
-                    "append_skill",
+                    "load_skill",
                 )
                 self.assertEqual(
                     context.runtime_asset_results[0]["requested"],
@@ -882,7 +723,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.runtime_session_action_history[0]["text"],
-                    "APPEND_SKILL: file_writer ( does not exist )",
+                    "LOAD_SKILL: file_writer ( does not exist )",
                 )
                 self.assertEqual(
                     len(context.emitter.events),
@@ -890,7 +731,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "APPEND_SKILL: file_writer ( does not exist )",
+                    "LOAD_SKILL: file_writer ( does not exist )",
                 )
                 self.assertEqual(
                     context.emitter.events[0]["status"],
@@ -898,7 +739,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
                 )
 
 
-    def test_append_skill_blocks_other_actions_in_same_stream(self):
+    def test_load_skill_blocks_other_actions_in_same_stream(self):
 
         Emitter = FakeEmitter
 
@@ -942,7 +783,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
                         context,
                         (
                             RuntimeActionCall(
-                                name="APPEND_SKILL",
+                                name="LOAD_SKILL",
                                 payload="wildcards",
                             ),
                             RuntimeActionCall(
@@ -958,7 +799,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
                     1,
                 )
                 self.assertEqual(
-                    context.runtime_appended_skills[0]["name"],
+                    context.runtime_loaded_skills[0]["name"],
                     "wildcards",
                 )
                 self.assertTrue(
@@ -970,7 +811,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
                         for event in context.runtime_action_events
                     ],
                     [
-                        "append_skill",
+                        "load_skill",
                     ],
                 )
                 self.assertFalse(

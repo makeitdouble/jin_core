@@ -69,7 +69,7 @@ def test_stream_validator_allows_repeated_sentences_when_sentence_check_disabled
 
     repeated = (
         "* Wait, I'll check if I should use "
-        "`append_skill` first.\n"
+        "`load_skill` first.\n"
     )
 
     for _ in range(3):

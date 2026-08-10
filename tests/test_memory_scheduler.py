@@ -258,13 +258,13 @@ class MemorySchedulerTests(
                 runtime_memory_updates=0,
                 runtime_memory_pending_turns=[],
                 runtime_memory_update_task=None,
-                runtime_turn_user_message="Use append_skill if needed.",
+                runtime_turn_user_message="Use load_skill if needed.",
                 runtime_turn_assistant_response="Partial answer",
                 runtime_turn_interruption_reason=(
                     "Repeated sentence loop detected."
                 ),
                 runtime_turn_interruption_quote=(
-                    "Wait, I'll check if I should use append_skill first."
+                    "Wait, I'll check if I should use load_skill first."
                 ),
             )
 
@@ -285,7 +285,7 @@ class MemorySchedulerTests(
                 user_prompt,
             )
             self.assertIn(
-                "Wait, I'll check if I should use append_skill first.",
+                "Wait, I'll check if I should use load_skill first.",
                 user_prompt,
             )
             self.assertNotIn(

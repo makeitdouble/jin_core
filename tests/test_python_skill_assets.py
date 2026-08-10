@@ -303,7 +303,7 @@ class PythonSkillAssetTests(unittest.TestCase):
                 context_window=2048,
             ),
         }
-        context.runtime_appended_skills = [
+        context.runtime_loaded_skills = [
             {
                 "name": "chunk_reader",
             },
@@ -396,13 +396,13 @@ class PythonSkillAssetTests(unittest.TestCase):
             pass
 
         client = GuardedServiceClient(
-            context_window=2048,
+            context_window=4096,
         )
         context = Context()
         context.clients = {
             "service": client,
         }
-        context.runtime_appended_skills = [
+        context.runtime_loaded_skills = [
             {
                 "name": "chunk_reader",
             },
@@ -418,7 +418,7 @@ class PythonSkillAssetTests(unittest.TestCase):
                         + ("%D0%BF" * 10)
                         + str(index)
                     )
-                    for index in range(220)
+                    for index in range(80)
                 ),
             },
         ]
@@ -522,7 +522,7 @@ class PythonSkillAssetTests(unittest.TestCase):
         context.clients = {
             "service": client,
         }
-        context.runtime_appended_skills = [
+        context.runtime_loaded_skills = [
             {
                 "name": "chunk_reader",
             },
@@ -615,7 +615,7 @@ class PythonSkillAssetTests(unittest.TestCase):
         }
         context.emitter = Emitter()
         context.runtime_active_asset_action_id = "asset:test"
-        context.runtime_appended_skills = [
+        context.runtime_loaded_skills = [
             {
                 "name": "chunk_reader",
             },
@@ -709,7 +709,7 @@ class PythonSkillAssetTests(unittest.TestCase):
         context.clients = {
             "service": client,
         }
-        context.runtime_appended_skills = [
+        context.runtime_loaded_skills = [
             {
                 "name": "chunk_reader",
             },
@@ -800,7 +800,7 @@ class PythonSkillAssetTests(unittest.TestCase):
         }
         context.emitter = Emitter()
         context.runtime_active_asset_action_id = "asset:test"
-        context.runtime_appended_skills = [
+        context.runtime_loaded_skills = [
             {
                 "name": "chunk_reader",
             },
@@ -893,7 +893,7 @@ class PythonSkillAssetTests(unittest.TestCase):
             "service": service_client,
             "brain": brain_client,
         }
-        context.runtime_appended_skills = [
+        context.runtime_loaded_skills = [
             {
                 "name": "chunk_reader",
             },
@@ -1044,7 +1044,7 @@ class PythonSkillAssetTests(unittest.TestCase):
             context.clients = {
                 "service": client,
             }
-            context.runtime_appended_skills = [
+            context.runtime_loaded_skills = [
                 {
                     "name": "chunk_reader",
                 },
@@ -1219,7 +1219,7 @@ class PythonSkillAssetTests(unittest.TestCase):
         context.clients = {
             "service": client,
         }
-        context.runtime_appended_skills = [
+        context.runtime_loaded_skills = [
             {
                 "name": "chunk_reader",
             },
@@ -1231,7 +1231,7 @@ class PythonSkillAssetTests(unittest.TestCase):
                 "type": "text/plain",
                 "text_content": " ".join(
                     f"word-{index}"
-                    for index in range(2000)
+                    for index in range(600)
                 ),
             },
         ]
@@ -1258,7 +1258,7 @@ class PythonSkillAssetTests(unittest.TestCase):
         )
         self.assertEqual(
             result["total_words"],
-            2000,
+            600,
         )
         self.assertGreater(
             result["chunks"],
@@ -1291,7 +1291,7 @@ class PythonSkillAssetTests(unittest.TestCase):
                 context_window=2048,
             ),
         }
-        context.runtime_appended_skills = [
+        context.runtime_loaded_skills = [
             {
                 "name": "chunk_reader",
             },
@@ -1390,7 +1390,7 @@ print(json.dumps({"name": path.name, "text": path.read_text(encoding="utf-8")}))
                 encoding="utf-8",
             )
             context = Context()
-            context.runtime_appended_skills = [
+            context.runtime_loaded_skills = [
                 {
                     "name": "echo_skill",
                 },

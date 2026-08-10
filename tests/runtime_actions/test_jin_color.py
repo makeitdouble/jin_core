@@ -259,7 +259,7 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
             context = SimpleNamespace(
                 runtime_action_events=[],
                 runtime_search_calls=[],
-                runtime_appended_skills=[],
+                runtime_loaded_skills=[],
                 runtime_save_session_requested=False,
                 runtime_save_session_action_emitted=False,
                 runtime_skill_state_barrier_active=False,
@@ -330,7 +330,7 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
                     },
                 ],
                 runtime_search_calls=[],
-                runtime_appended_skills=[],
+                runtime_loaded_skills=[],
                 runtime_save_session_requested=False,
                 runtime_save_session_action_emitted=False,
                 runtime_skill_state_barrier_active=False,
@@ -397,7 +397,7 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
             context = SimpleNamespace(
                 runtime_action_events=[],
                 runtime_search_calls=[],
-                runtime_appended_skills=[],
+                runtime_loaded_skills=[],
                 runtime_save_session_requested=False,
                 runtime_save_session_action_emitted=False,
                 runtime_skill_state_barrier_active=False,
@@ -476,7 +476,7 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
             context = SimpleNamespace(
                 runtime_action_events=[],
                 runtime_search_calls=[],
-                runtime_appended_skills=[],
+                runtime_loaded_skills=[],
                 runtime_save_session_requested=False,
                 runtime_save_session_action_emitted=False,
                 runtime_skill_state_barrier_active=False,

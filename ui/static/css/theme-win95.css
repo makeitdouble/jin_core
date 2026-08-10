@@ -81,7 +81,7 @@ body.theme-win95 #memory-drag-handle {
 }
 
 body.theme-win95 #console-title,
-body.theme-win95 #fact-check-trigger {
+body.theme-win95 #memory-layers-toggle {
     color: var(--win95-title-text);
     font-family: Calibri, Arial, sans-serif;
     font-size: 14px!important;
@@ -366,7 +366,7 @@ body.theme-win95 #settings-panel button {
     font-weight: 500;
 }
 
-body.theme-win95 #settings-panel #fact-check-trigger {
+body.theme-win95 #settings-panel #memory-layers-toggle {
     color: var(--win95-title-text) !important;
     text-shadow: 1px 1px 0 var(--win95-blue-shadow);
 }

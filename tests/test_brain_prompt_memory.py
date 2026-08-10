@@ -202,7 +202,7 @@ class BrainPromptMemoryTests(
                 turn_number=1,
                 user_message_count=2,
                 assistant_message_count=1,
-                runtime_appended_skills=[
+                runtime_loaded_skills=[
                     {
                         "name": "wildcards",
                     },
@@ -213,7 +213,7 @@ class BrainPromptMemoryTests(
                         "created_at": 40.0,
                     },
                     {
-                        "text": "Appended skill: wildcards",
+                        "text": "Loaded skill: wildcards",
                         "created_at": 940.0,
                     },
                     {
@@ -253,11 +253,11 @@ class BrainPromptMemoryTests(
                 prompt.index("<CURRENT_SESSION_STATE>"),
             )
             self.assertLess(
-                prompt.index("<CURRENT_SESSION_STATE>"),
-                prompt.index("<CURRENT_APPENDED_SKILLS>"),
+                prompt.index("<LOADED_SKILLS_CONTENT>"),
+                prompt.index("<RUNTIME_MEMORY>"),
             )
             self.assertLess(
-                prompt.index("<CURRENT_APPENDED_SKILLS>"),
+                prompt.index("<CURRENT_SESSION_STATE>"),
                 prompt.index("<SESSION_ACTIONS_HISTORY>"),
             )
             self.assertIn(
@@ -265,7 +265,7 @@ class BrainPromptMemoryTests(
                 prompt,
             )
             self.assertIn(
-                "<CURRENT_APPENDED_SKILLS>\n    1. wildcards\n</CURRENT_APPENDED_SKILLS>",
+                "<LOADED_SKILLS_CONTENT>\n        [\n          {\n            \"name\": \"wildcards\"\n          }\n        ]\n</LOADED_SKILLS_CONTENT>",
                 prompt,
             )
             self.assertIn(
@@ -273,7 +273,7 @@ class BrainPromptMemoryTests(
                 prompt,
             )
             self.assertIn(
-                "2. Appended skill: wildcards ( 1m ago )",
+                "2. Loaded skill: wildcards ( 1m ago )",
                 prompt,
             )
             self.assertIn(
@@ -505,12 +505,12 @@ class BrainPromptMemoryTests(
                     },
                     {
                         "text": (
-                            "APPEND_SKILL: file_manager (count: 3), "
+                            "LOAD_SKILL: file_manager (count: 3), "
                             "CLEAN_TOOL_RESULTS"
                         ),
                         "parts": [
                             {
-                                "text": "APPEND_SKILL: file_manager",
+                                "text": "LOAD_SKILL: file_manager",
                                 "count": 3,
                             },
                             {
@@ -554,7 +554,7 @@ class BrainPromptMemoryTests(
             )
             self.assertIn(
                 (
-                    "JIN message 2 executed: APPEND_SKILL: file_manager (count: 3), "
+                    "JIN message 2 executed: LOAD_SKILL: file_manager (count: 3), "
                     "CLEAN_TOOL_RESULTS ( 2s ago )"
                 ),
                 history,
@@ -666,7 +666,7 @@ class BrainPromptMemoryTests(
                         "runtime_turn_id": "turn_000002",
                     },
                     {
-                        "text": "APPEND_SKILL",
+                        "text": "LOAD_SKILL",
                         "created_at": 998.0,
                         "runtime_turn_id": "turn_000002",
                     },
@@ -688,7 +688,7 @@ class BrainPromptMemoryTests(
                     "<CURRENT_SEQUENCE>\n"
                     "    --- Sequence started ---\n"
                     "    JIN message 1 executed: LIST_SKILLS ( 55s ago )\n"
-                    "    JIN message 2 executed: APPEND_SKILL ( 2s ago )\n"
+                    "    JIN message 2 executed: LOAD_SKILL ( 2s ago )\n"
                     "</CURRENT_SEQUENCE>"
                 ),
             )
@@ -775,7 +775,7 @@ class BrainPromptMemoryTests(
                         "runtime_turn_id": "turn_000002",
                     },
                     {
-                        "text": "APPEND_SKILL",
+                        "text": "LOAD_SKILL",
                         "created_at": 998.0,
                         "runtime_turn_id": "turn_000002",
                     },
@@ -797,7 +797,7 @@ class BrainPromptMemoryTests(
                     "    1. SAVE_ACTIVE_MEMORY ( 3m ago )\n"
                     "    --- Sequence started ---\n"
                     "    2. LIST_SKILLS ( 55s ago )\n"
-                    "    3. APPEND_SKILL ( 2s ago )\n"
+                    "    3. LOAD_SKILL ( 2s ago )\n"
                     "    --- Sequence ended ---\n"
                     "</SESSION_ACTIONS_HISTORY>"
                 ),
@@ -818,7 +818,7 @@ class BrainPromptMemoryTests(
                         "name": "list_skills",
                     },
                     {
-                        "name": "append_skill",
+                        "name": "load_skill",
                     },
                 ],
             )
