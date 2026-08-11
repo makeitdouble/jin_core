@@ -2,6 +2,8 @@ let traceModal;
 let traceModalContent;
 let traceModalReason;
 let traceModalTitle;
+let traceModalCopyButton;
+let traceModalContextCopyText = "";
 let traceModalL1StreamId = null;
 let traceModalL1StreamStatus = null;
 let traceModalL1StreamReasoning = null;
@@ -43,6 +45,32 @@ function ensureTraceModal() {
   traceModalTitle.textContent =
     "Trace";
 
+  const headerActions =
+    document.createElement("div");
+
+  headerActions.className =
+    "delayed-memory-modal-actions";
+
+  traceModalCopyButton =
+    document.createElement("button");
+
+  traceModalCopyButton.type =
+    "button";
+
+  traceModalCopyButton.className =
+    "delayed-memory-modal-icon-button jin-context-copy-button hidden";
+
+  traceModalCopyButton.setAttribute(
+    "aria-label",
+    "Copy context"
+  );
+
+  traceModalCopyButton.title =
+    "Copy raw context";
+
+  traceModalCopyButton.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="12" rx="1.5"></rect><path d="M15 8V5.5A1.5 1.5 0 0 0 13.5 4h-9A1.5 1.5 0 0 0 3 5.5v10A1.5 1.5 0 0 0 4.5 17H8"></path></svg>';
+
   const closeButton =
     document.createElement("button");
 
@@ -82,8 +110,16 @@ function ensureTraceModal() {
     traceModalTitle
   );
 
-  header.appendChild(
+  headerActions.appendChild(
+    traceModalCopyButton
+  );
+
+  headerActions.appendChild(
     closeButton
+  );
+
+  header.appendChild(
+    headerActions
   );
 
   panel.appendChild(
@@ -141,6 +177,102 @@ function ensureTraceModal() {
         null;
     }
   }
+
+  async function copyTraceModalContext() {
+    const text = String(
+      traceModalContextCopyText || ""
+    );
+
+    if (!text) {
+      return;
+    }
+
+    let copied = false;
+
+    if (
+        navigator.clipboard
+        && typeof navigator.clipboard.writeText === "function"
+    ) {
+      try {
+        await navigator.clipboard.writeText(
+          text
+        );
+        copied = true;
+      } catch (_) {
+        copied = false;
+      }
+    }
+
+    if (!copied) {
+      const textarea =
+        document.createElement("textarea");
+
+      textarea.value = text;
+      textarea.setAttribute(
+        "readonly",
+        ""
+      );
+      textarea.style.position =
+        "fixed";
+      textarea.style.opacity =
+        "0";
+      textarea.style.pointerEvents =
+        "none";
+
+      document.body.appendChild(
+        textarea
+      );
+      textarea.select();
+
+      try {
+        copied = document.execCommand(
+          "copy"
+        );
+      } catch (_) {
+        copied = false;
+      }
+
+      textarea.remove();
+    }
+
+    if (!copied) {
+      return;
+    }
+
+    traceModalCopyButton.classList.add(
+      "is-copied"
+    );
+    traceModalCopyButton.setAttribute(
+      "aria-label",
+      "Context copied"
+    );
+    traceModalCopyButton.title =
+      "Copied";
+
+    window.setTimeout(
+      function () {
+        if (!traceModalCopyButton) {
+          return;
+        }
+
+        traceModalCopyButton.classList.remove(
+          "is-copied"
+        );
+        traceModalCopyButton.setAttribute(
+          "aria-label",
+          "Copy context"
+        );
+        traceModalCopyButton.title =
+          "Copy raw context";
+      },
+      900
+    );
+  }
+
+  traceModalCopyButton.addEventListener(
+    "click",
+    copyTraceModalContext
+  );
 
   closeButton.addEventListener(
     "click",
@@ -1537,12 +1669,6 @@ function renderContextDelayedMemoryBody(
         "button",
         "delayed-memory-modal-icon-button delayed-memory-modal-pin jin-context-delayed-pin"
       );
-    const separator =
-      contextElement(
-        "span",
-        "jin-context-delayed-separator",
-        "·"
-      );
     const label =
       contextElement(
         "span",
@@ -1561,7 +1687,6 @@ function renderContextDelayedMemoryBody(
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 3.3 20.7 9.3 18.6 11.4 16.9 9.7 13.7 12.9 14.4 15.7 12.9 17.2 9.4 13.7 5.3 17.8 4.2 16.7 8.3 12.6 4.8 9.1 6.3 7.6 9.1 8.3 12.3 5.1 10.6 3.4 12.7 1.3Z"/></svg>';
 
     row.appendChild(pinButton);
-    row.appendChild(separator);
     row.appendChild(label);
 
     row.addEventListener(
@@ -1961,6 +2086,22 @@ function renderTraceDetails(
   title = "Trace",
 ) {
   traceModalContent.replaceChildren();
+  traceModalContextCopyText = "";
+
+  if (traceModalCopyButton) {
+    traceModalCopyButton.classList.add(
+      "hidden"
+    );
+    traceModalCopyButton.classList.remove(
+      "is-copied"
+    );
+    traceModalCopyButton.setAttribute(
+      "aria-label",
+      "Copy context"
+    );
+    traceModalCopyButton.title =
+      "Copy raw context";
+  }
 
   const contextSnapshot =
     parseContextTraceSnapshot(details);
@@ -1971,6 +2112,19 @@ function renderTraceDetails(
   );
 
   if (contextSnapshot) {
+    traceModalContextCopyText = [
+      contextSnapshot.systemPrompt,
+      contextSnapshot.userPrompt,
+    ]
+      .filter((part) => String(part || "").trim())
+      .join("\n\n");
+
+    if (traceModalCopyButton) {
+      traceModalCopyButton.classList.remove(
+        "hidden"
+      );
+    }
+
     renderContextSnapshotTrace(
       contextSnapshot
     );

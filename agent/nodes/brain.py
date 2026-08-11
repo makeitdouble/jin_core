@@ -301,12 +301,10 @@ def build_context_limit_recovery_context(
 
 
 FOLLOWUP_SYSTEM_MESSAGE = (
-    "MANDATORY: DO NOT START NEW SEQUENCE!\n"
-    "MANDATORY: YOU MUST stop execute and notify user if the original user request is satisfied by previous steps!\n"
-    "MANDATORY: YOU MUST USE CURRENT_SEQUENCE BLOCK AS THE SOLE SOURCE OF TRUTH FOR THE ACTION ORDER AND EXECUTION STATUS!\n"
-    "MANDATORY: YOU MUST DERIVE REMAINING STEPS FROM <INITIAL_SEQUENCE_USER_MESSAGE> AND CONTINUE FROM CURRENT_SEQUENCE!\n"
-    "\n"
-    "\n"
+    "!!!DO NOT START A NEW SEQUENCE!!!\n"
+    "!!!YOU MUST stop execute and notify user if the original user request is satisfied by CURRENT SEQUENCE steps!!!\n"
+    "YOU MUST USE CURRENT_SEQUENCE BLOCK AS THE SOLE SOURCE OF TRUTH FOR THE ACTION ORDER AND EXECUTION STATUS!\n"
+    "DERIVE REMAINING STEPS FROM <INITIAL_SEQUENCE_USER_MESSAGE> AND CONTINUE FROM CURRENT_SEQUENCE OR STOP AND NOTIFY USER!\n"
     "\n"
     "If conditions are not met - continue without confirmation!\n"
     "\n"
@@ -466,7 +464,7 @@ def format_previous_runtime_memory_tag(
         sequence_started_at,
         (int, float),
     ) or sequence_started_at <= 0:
-        return "<PREVIOUS_RUNTIME>"
+        return "<PREVIOUS_RUNTIME_STATE>"
 
     if now is None:
         now = time.time()
@@ -480,7 +478,7 @@ def format_previous_runtime_memory_tag(
         TypeError,
         ValueError,
     ):
-        return "<PREVIOUS_RUNTIME>"
+        return "<PREVIOUS_RUNTIME_STATE>"
 
     from runtime.L1_memory_utils import (
         format_user_idle_seconds,
@@ -491,10 +489,10 @@ def format_previous_runtime_memory_tag(
     )
 
     if not elapsed_text:
-        return "<PREVIOUS_RUNTIME>"
+        return "<PREVIOUS_RUNTIME_STATE>"
 
     return (
-        "<PREVIOUS_RUNTIME "
+        "<PREVIOUS_RUNTIME_STATE "
         f"( {elapsed_text} ago ) >"
     )
 
@@ -536,7 +534,7 @@ def rename_runtime_memory_for_followup(
         prompt[:opening_index]
         + previous_opening_tag
         + prompt[opening_index + len(opening_tag):closing_index]
-        + "</PREVIOUS_RUNTIME>"
+        + "</PREVIOUS_RUNTIME_STATE>"
         + prompt[closing_index + len(closing_tag):]
     )
 
@@ -849,14 +847,14 @@ class BrainNode(BaseNode):
             sequence_started_at=sequence_started_at,
         )
 
-        if current_runtime_context:
-            sections.append(
-                current_runtime_context
-            )
-
         if current_actions_history_context:
             sections.append(
                 current_actions_history_context
+            )
+
+        if current_runtime_context:
+            sections.append(
+                current_runtime_context
             )
 
         sections.append(

@@ -594,6 +594,7 @@ memoryView.init({
   getDelayedMemoryReports: readDelayedMemoryReports,
   isDelayedMemoryReportLoaded,
   setDelayedMemoryReportPinned,
+  updateDelayedMemoryReportFields,
   setDelayedMemoryReportAnchorFactIds,
   deleteDelayedMemoryReport: deleteDelayedMemoryReportAndRender,
   removeLongTermFactIdFromDelayedMemoryReports,
@@ -1079,6 +1080,77 @@ function removeActiveMemoryRecordByIdAndRender(
   }
 
   return nextRecords;
+
+}
+
+
+function updateDelayedMemoryReportFields(
+  reportId,
+  fields = {}
+) {
+
+  const normalizedId =
+    normalizeRuntimeDelayedMemoryReportId(
+      reportId
+    );
+  const reports =
+    readDelayedMemoryReports();
+  const report =
+    reports[normalizedId];
+
+  if (
+      !normalizedId
+      || !report
+      || typeof report !== "object"
+      || Array.isArray(report)
+  ) {
+    return false;
+  }
+
+  const nextTitle =
+    Object.prototype.hasOwnProperty.call(fields, "title")
+      ? String(fields.title || "").trim() || "undefined"
+      : String(report.title || "").trim() || "undefined";
+  const nextSummary =
+    Object.prototype.hasOwnProperty.call(fields, "summary")
+      ? String(fields.summary || "")
+      : String(report.summary || "");
+  const nextBody =
+    Object.prototype.hasOwnProperty.call(fields, "body")
+      ? String(fields.body || "")
+      : String(report.body || "");
+
+  reports[normalizedId] = {
+    ...report,
+    title: nextTitle,
+    summary: nextSummary,
+    body: nextBody,
+  };
+
+  writeDelayedMemoryReports(
+    reports
+  );
+
+  if (runtimeMemoryDisplayMode === "delayed") {
+    renderRuntimeMemorySnapshot();
+  }
+
+  syncDelayedMemoryReportsToServer();
+
+  dispatchDelayedMemoryStoreChanged(
+    "update",
+    normalizedId
+  );
+
+  const updatedReport =
+    readDelayedMemoryReports()[normalizedId];
+
+  return updatedReport
+    ? {
+      ...updatedReport,
+      _storage_key: normalizedId,
+    }
+    : false;
 
 }
 
@@ -1788,6 +1860,7 @@ window.JinRuntime.runtime = {
   isDelayedMemoryReportLoaded,
   markDelayedMemoryReportLoaded,
   setDelayedMemoryReportPinned,
+  updateDelayedMemoryReportFields,
   setDelayedMemoryReportAnchorFactIds,
   deleteDelayedMemoryReport: deleteDelayedMemoryReportAndRender,
   restoreDelayedMemoryReport: restoreDelayedMemoryReportAndRender,

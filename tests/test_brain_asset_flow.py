@@ -109,15 +109,23 @@ def _assert_latest_request_payload(
             expected_followup_message
         ),
         system_prompt.index(
-            "<CURRENT_RUNTIME"
+            "<CURRENT_SEQUENCE>"
         ),
     )
     test_case.assertLess(
         system_prompt.index(
-            "</CURRENT_RUNTIME>"
+            "</CURRENT_SEQUENCE>"
         ),
         system_prompt.index(
-            "<CURRENT_SEQUENCE>"
+            "<LATEST_USER_INPUT"
+        ),
+    )
+    test_case.assertLess(
+        system_prompt.index(
+            "</LATEST_USER_INPUT>"
+        ),
+        system_prompt.index(
+            "<TOOLS_RESULTS>"
         ),
     )
     test_case.assertIn(
@@ -355,14 +363,14 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertIn(
-            "<CURRENT_RUNTIME ( 10s ago )>\n"
+            "<LATEST_USER_INPUT ( 10s ago )>\n"
             "user_message: keep &lt;this&gt; in delayed memory\n"
-            "</CURRENT_RUNTIME>",
+            "</LATEST_USER_INPUT>",
             prompt,
         )
         self.assertLess(
-            prompt.index("<CURRENT_RUNTIME"),
-            prompt.index("<CURRENT_SEQUENCE>"),
+            prompt.index("</CURRENT_SEQUENCE>"),
+            prompt.index("<LATEST_USER_INPUT"),
         )
         self.assertIn(
             "<CURRENT_SEQUENCE>\n"
@@ -580,14 +588,14 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 sequence_started_at=1000.0,
                 now=1150.0,
             ),
-            "<PREVIOUS_RUNTIME ( 2m 30s ago ) >",
+            "<PREVIOUS_RUNTIME_STATE ( 2m 30s ago ) >",
         )
         self.assertEqual(
             format_previous_runtime_memory_tag(
                 sequence_started_at=1000.0,
                 now=1185.0,
             ),
-            "<PREVIOUS_RUNTIME ( 3m 5s ago ) >",
+            "<PREVIOUS_RUNTIME_STATE ( 3m 5s ago ) >",
         )
 
     async def test_followup_runtime_memory_tag_uses_sequence_started_at(self):
@@ -613,8 +621,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn(
             (
-                "<PREVIOUS_RUNTIME ( 2m 30s ago ) >"
-                "state</PREVIOUS_RUNTIME>"
+                "<PREVIOUS_RUNTIME_STATE ( 2m 30s ago ) >"
+                "state</PREVIOUS_RUNTIME_STATE>"
             ),
             prompt,
         )
@@ -631,8 +639,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn(
-            "<PREVIOUS_RUNTIME>\nactive_topic: test\n"
-            "</PREVIOUS_RUNTIME>",
+            "<PREVIOUS_RUNTIME_STATE>\nactive_topic: test\n"
+            "</PREVIOUS_RUNTIME_STATE>",
             prompt,
         )
         self.assertNotIn(
@@ -2568,14 +2576,14 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertLess(
             prompt.index(idle_instruction),
-            prompt.index("<CURRENT_RUNTIME"),
-        )
-        self.assertLess(
-            prompt.index("<CURRENT_RUNTIME"),
             prompt.index("<CURRENT_SEQUENCE>"),
         )
         self.assertLess(
-            prompt.index("<CURRENT_SEQUENCE>"),
+            prompt.index("</CURRENT_SEQUENCE>"),
+            prompt.index("<LATEST_USER_INPUT"),
+        )
+        self.assertLess(
+            prompt.index("</LATEST_USER_INPUT>"),
             prompt.index("<TOOLS_RESULTS>"),
         )
         self.assertEqual(
@@ -2651,8 +2659,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn(
             (
-                "<PREVIOUS_RUNTIME ( 2m 30s ago ) >"
-                "frozen state</PREVIOUS_RUNTIME>"
+                "<PREVIOUS_RUNTIME_STATE ( 2m 30s ago ) >"
+                "frozen state</PREVIOUS_RUNTIME_STATE>"
             ),
             prompt,
         )

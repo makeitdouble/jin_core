@@ -13,6 +13,7 @@
   let getDelayedMemoryReports = null;
   let isDelayedMemoryReportLoaded = null;
   let setDelayedMemoryReportPinned = null;
+  let updateDelayedMemoryReportFields = null;
   let setDelayedMemoryReportAnchorFactIds = null;
   let deleteDelayedMemoryReport = null;
   let getFactsMemoryFields = null;
@@ -61,6 +62,10 @@
   let delayedMemoryModalPinButton = null;
   let delayedMemoryModalDeleteButton = null;
   let delayedMemoryModalReport = null;
+  let delayedMemoryModalTitleEditor = null;
+  let delayedMemoryModalSummaryEditor = null;
+  let delayedMemoryModalBodyEditor = null;
+  let delayedMemoryModalEditSaveTimer = null;
   let activeDelayedMemoryReportId = "";
 
   const runtimeDiffHistory = {
@@ -3177,6 +3182,149 @@
         pinned ? "Unpin delayed memory" : "Pin delayed memory";
   }
 
+  function clearDelayedMemoryModalEditSaveTimer() {
+    if (!delayedMemoryModalEditSaveTimer) {
+      return;
+    }
+
+    window.clearTimeout(
+        delayedMemoryModalEditSaveTimer
+    );
+    delayedMemoryModalEditSaveTimer = null;
+  }
+
+  function readDelayedMemoryModalEditorText(editor) {
+    return editor
+      ? String(editor.innerText || "")
+      : "";
+  }
+
+  function commitDelayedMemoryModalEdits(options = {}) {
+    if (!delayedMemoryModalReport) {
+      return false;
+    }
+
+    clearDelayedMemoryModalEditSaveTimer();
+
+    let title =
+        readDelayedMemoryModalEditorText(
+            delayedMemoryModalTitleEditor
+        ).trim();
+    const summary =
+        readDelayedMemoryModalEditorText(
+            delayedMemoryModalSummaryEditor
+        );
+    const body =
+        readDelayedMemoryModalEditorText(
+            delayedMemoryModalBodyEditor
+        );
+
+    if (!title && options.finalizeTitle) {
+      title = "undefined";
+
+      if (delayedMemoryModalTitleEditor) {
+        delayedMemoryModalTitleEditor.textContent =
+            title;
+      }
+    }
+
+    delayedMemoryModalReport = {
+      ...delayedMemoryModalReport,
+      title,
+      summary,
+      body,
+    };
+
+    if (delayedMemoryModalTitle) {
+      delayedMemoryModalTitle.textContent =
+          title || "Delayed memory";
+    }
+
+    if (
+        !title
+        || typeof updateDelayedMemoryReportFields !== "function"
+    ) {
+      return false;
+    }
+
+    const updatedReport =
+        updateDelayedMemoryReportFields(
+            delayedMemoryModalReport._storage_key,
+            {
+              title,
+              summary,
+              body,
+            }
+        );
+
+    if (updatedReport) {
+      delayedMemoryModalReport = {
+        ...updatedReport,
+      };
+    }
+
+    return updatedReport;
+  }
+
+  function scheduleDelayedMemoryModalEditSave() {
+    if (!delayedMemoryModalReport) {
+      return;
+    }
+
+    clearDelayedMemoryModalEditSaveTimer();
+
+    delayedMemoryModalEditSaveTimer =
+        window.setTimeout(
+            () => {
+              delayedMemoryModalEditSaveTimer = null;
+              commitDelayedMemoryModalEdits();
+            },
+            250
+        );
+  }
+
+  function bindDelayedMemoryModalEditor(
+    editor,
+    options = {}
+  ) {
+    if (!editor) {
+      return;
+    }
+
+    editor.setAttribute(
+        "contenteditable",
+        "plaintext-only"
+    );
+    editor.setAttribute(
+        "spellcheck",
+        "false"
+    );
+    editor.classList.add(
+        "delayed-memory-modal-editable"
+    );
+
+    editor.addEventListener("input", () => {
+      if (options.title && delayedMemoryModalTitle) {
+        delayedMemoryModalTitle.textContent =
+            readDelayedMemoryModalEditorText(editor).trim()
+            || "Delayed memory";
+      }
+
+      scheduleDelayedMemoryModalEditSave();
+    });
+
+    if (options.singleLine) {
+      editor.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") {
+          return;
+        }
+
+        event.preventDefault();
+        editor.blur();
+      });
+    }
+  }
+
   function deleteDelayedMemoryModalReport() {
     if (
         !delayedMemoryModalReport
@@ -3196,7 +3344,9 @@
         );
 
     if (deleted !== false) {
-      closeDelayedMemoryReportModal();
+      closeDelayedMemoryReportModal({
+        save: false,
+      });
     }
   }
 
@@ -3233,9 +3383,17 @@
   }
 
 
-  function closeDelayedMemoryReportModal() {
+  function closeDelayedMemoryReportModal(options = {}) {
     if (!delayedMemoryModal) {
       return;
+    }
+
+    if (options.save !== false) {
+      commitDelayedMemoryModalEdits({
+        finalizeTitle: true,
+      });
+    } else {
+      clearDelayedMemoryModalEditSaveTimer();
     }
 
     dispatchDelayedMemoryReportAvatarHighlight(
@@ -3254,6 +3412,9 @@
         "flex"
     );
     delayedMemoryModalReport = null;
+    delayedMemoryModalTitleEditor = null;
+    delayedMemoryModalSummaryEditor = null;
+    delayedMemoryModalBodyEditor = null;
   }
 
   function ensureDelayedMemoryModal() {
@@ -3525,6 +3686,35 @@
     );
   }
 
+  function appendDelayedMemoryModalEditableField(
+    parent,
+    label,
+    value,
+    options = {}
+  ) {
+    const text =
+        document.createElement("div");
+
+    text.className =
+        "delayed-memory-modal-value";
+
+    text.textContent =
+        normalizeDelayedMemoryDisplayText(value);
+
+    bindDelayedMemoryModalEditor(
+        text,
+        options
+    );
+
+    appendDelayedMemoryModalFieldNode(
+        parent,
+        label,
+        text
+    );
+
+    return text;
+  }
+
   function appendDelayedMemoryFactIdField(
     parent,
     label,
@@ -3622,7 +3812,7 @@
         );
       });
 
-      item.addEventListener("dblclick", (event) => {
+      item.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
 
@@ -3667,13 +3857,6 @@
   }
 
   function appendDelayedMemoryModalBody(parent, body) {
-    const normalizedBody =
-        normalizeDelayedMemoryDisplayText(body);
-
-    if (!normalizedBody) {
-      return;
-    }
-
     const section =
         document.createElement("section");
 
@@ -3696,7 +3879,11 @@
         "delayed-memory-modal-body";
 
     pre.textContent =
-        normalizedBody;
+        normalizeDelayedMemoryDisplayText(body);
+
+    bindDelayedMemoryModalEditor(
+        pre
+    );
 
     section.appendChild(
         heading
@@ -3709,6 +3896,8 @@
     parent.appendChild(
         section
     );
+
+    return pre;
   }
 
   function appendDelayedMemoryModalExtraFields(parent, report) {
@@ -3820,17 +4009,23 @@
     fields.className =
         "delayed-memory-modal-fields";
 
-    appendDelayedMemoryModalField(
-        fields,
-        "Title",
-        delayedMemoryModalReport.title
-    );
+    delayedMemoryModalTitleEditor =
+        appendDelayedMemoryModalEditableField(
+            fields,
+            "Title",
+            delayedMemoryModalReport.title,
+            {
+              title: true,
+              singleLine: true,
+            }
+        );
 
-    appendDelayedMemoryModalField(
-        fields,
-        "Summary",
-        delayedMemoryModalReport.summary
-    );
+    delayedMemoryModalSummaryEditor =
+        appendDelayedMemoryModalEditableField(
+            fields,
+            "Summary",
+            delayedMemoryModalReport.summary
+        );
 
     appendDelayedMemoryModalField(
         fields,
@@ -3867,10 +4062,11 @@
         fields
     );
 
-    appendDelayedMemoryModalBody(
-        delayedMemoryModalContent,
-        delayedMemoryModalReport.body
-    );
+    delayedMemoryModalBodyEditor =
+        appendDelayedMemoryModalBody(
+            delayedMemoryModalContent,
+            delayedMemoryModalReport.body
+        );
 
     delayedMemoryModal.classList.remove(
         "hidden"
@@ -4401,6 +4597,8 @@
     isDelayedMemoryReportLoaded =
         options.isDelayedMemoryReportLoaded || null;
     setDelayedMemoryReportPinned = options.setDelayedMemoryReportPinned || null;
+    updateDelayedMemoryReportFields =
+        options.updateDelayedMemoryReportFields || null;
     setDelayedMemoryReportAnchorFactIds =
         options.setDelayedMemoryReportAnchorFactIds || null;
     deleteDelayedMemoryReport =

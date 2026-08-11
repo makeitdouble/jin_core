@@ -204,6 +204,15 @@
     color: rgba(244, 244, 245, 0.86);
 }
 
+.delayed-memory-modal-editable {
+    cursor: text;
+    outline: none;
+}
+
+.delayed-memory-modal-editable:focus {
+    outline: none;
+}
+
 .delayed-memory-modal-fact-ids {
     display: flex;
     flex-wrap: wrap;
@@ -493,6 +502,20 @@
             drop-shadow(0 0 7px rgba(240, 253, 250, 0.64))
             drop-shadow(0 0 16px rgba(153, 246, 228, 0.34))
             drop-shadow(0 0 24px rgba(45, 212, 191, 0.18));
+}
+
+.jin-context-copy-button svg {
+    width: 17px;
+    height: 17px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.jin-context-copy-button.is-copied {
+    color: rgba(153, 246, 228, 0.98);
 }
 
 .delayed-memory-modal-close {
@@ -805,18 +828,6 @@
 .jin-context-delayed-pin svg {
     width: 13px;
     height: 13px;
-}
-
-.jin-context-delayed-separator {
-    display: inline-flex;
-    width: 8px;
-    height: 20px;
-    flex: 0 0 8px;
-    align-items: center;
-    justify-content: center;
-    color: rgba(113, 113, 122, 0.78);
-    font-size: 12px;
-    line-height: 1;
 }
 
 .jin-context-delayed-label {
