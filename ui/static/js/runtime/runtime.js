@@ -82,6 +82,29 @@ if (!memoryView) {
   );
 }
 
+const DELAYED_MEMORY_STORE_CHANGED_EVENT =
+  "jin:delayed-memory-store-changed";
+
+function dispatchDelayedMemoryStoreChanged(
+  reason = "",
+  reportId = ""
+) {
+  window.dispatchEvent(
+    new CustomEvent(
+      DELAYED_MEMORY_STORE_CHANGED_EVENT,
+      {
+        detail: {
+          reason: String(reason || ""),
+          reportId:
+            normalizeRuntimeDelayedMemoryReportId(
+              reportId
+            ),
+        },
+      }
+    )
+  );
+}
+
 const {
   splitMemoryTextLines,
   stripMemoryTextMetaForDisplay,
@@ -1119,6 +1142,11 @@ function setDelayedMemoryReportPinned(
     );
   }
 
+  dispatchDelayedMemoryStoreChanged(
+    "pin",
+    normalizedId
+  );
+
   return true;
 
 }
@@ -1236,6 +1264,11 @@ function deleteDelayedMemoryReportAndRender(
     report
   );
 
+  dispatchDelayedMemoryStoreChanged(
+    "delete",
+    normalizedId
+  );
+
   return {
     id: normalizedId,
     report: deletedReport,
@@ -1304,6 +1337,11 @@ function restoreDelayedMemoryReportAndRender(
   }
 
   syncDelayedMemoryReportsToServer();
+
+  dispatchDelayedMemoryStoreChanged(
+    "restore",
+    normalizedId
+  );
 
   return {
     id: normalizedId,
@@ -1459,6 +1497,10 @@ function mergeDelayedMemoryReports(
     refreshRuntimeAvatar();
   }
 
+  dispatchDelayedMemoryStoreChanged(
+    "merge"
+  );
+
   return nextReports;
 
 }
@@ -1506,6 +1548,10 @@ function replaceDelayedMemoryReportsAndRender(
     nextReports
   );
   renderRuntimeMemorySnapshot();
+
+  dispatchDelayedMemoryStoreChanged(
+    "replace"
+  );
 
   if (syncDelayedMemoryStateToAvatar()) {
     return readDelayedMemoryReports();

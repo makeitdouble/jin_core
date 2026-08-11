@@ -67,6 +67,13 @@
     color: rgba(244, 244, 245, 0.86);
 }
 
+.runtime-memory-external-hover-hit .runtime-memory-key,
+.runtime-memory-external-hover-hit .runtime-memory-value,
+.runtime-memory-external-hover-hit .runtime-memory-fact-number,
+.runtime-memory-external-hover-hit .runtime-memory-fact-separator {
+    color: rgba(244, 244, 245, 0.96) !important;
+}
+
 .runtime-memory-active-row[data-active-memory-status="paused"] {
     opacity: 0.5;
 }
@@ -493,6 +500,10 @@
     line-height: 1;
 }
 
+.delayed-memory-report-modal {
+    z-index: 60;
+}
+
 .delayed-memory-modal-section > .delayed-memory-modal-fields {
     margin-top: 8px;
 }
@@ -752,6 +763,97 @@
     color: rgba(212, 212, 216, 0.82);
     font-size: 11px;
     line-height: 1.52;
+}
+
+.jin-context-delayed-list {
+    display: grid;
+    gap: 2px;
+}
+
+.jin-context-delayed-row {
+    position: relative;
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 6px;
+    border-radius: 4px;
+    padding: 2px 5px 2px 2px;
+    color: rgba(212, 212, 216, 0.82);
+    cursor: pointer;
+    transition:
+            background-color 0.14s ease,
+            color 0.14s ease,
+            opacity 0.14s ease;
+}
+
+.jin-context-delayed-row:hover,
+.jin-context-delayed-row:focus-visible {
+    outline: none;
+    background: rgba(39, 39, 42, 0.46);
+    color: rgba(244, 244, 245, 0.94);
+}
+
+.jin-context-delayed-pin {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+    border: 0;
+    background: transparent;
+    padding: 0;
+}
+
+.jin-context-delayed-pin svg {
+    width: 13px;
+    height: 13px;
+}
+
+.jin-context-delayed-separator {
+    display: inline-flex;
+    width: 8px;
+    height: 20px;
+    flex: 0 0 8px;
+    align-items: center;
+    justify-content: center;
+    color: rgba(113, 113, 122, 0.78);
+    font-size: 12px;
+    line-height: 1;
+}
+
+.jin-context-delayed-label {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 11px;
+    line-height: 1.52;
+}
+
+.jin-context-delayed-row.is-missing {
+    color: rgba(161, 161, 170, 0.58);
+    cursor: default;
+    opacity: 0.62;
+}
+
+.jin-context-delayed-row.is-missing:hover,
+.jin-context-delayed-row.is-missing:focus-visible {
+    background: transparent;
+    color: rgba(161, 161, 170, 0.58);
+}
+
+.jin-context-delayed-row.is-missing::after {
+    content: "";
+    position: absolute;
+    left: 3px;
+    right: 3px;
+    top: 50%;
+    height: 1px;
+    background: currentColor;
+    opacity: 0.72;
+    pointer-events: none;
+}
+
+.jin-context-delayed-row.is-missing .jin-context-delayed-pin {
+    color: inherit;
+    filter: none;
+    cursor: default;
 }
 
 .jin-context-raw {

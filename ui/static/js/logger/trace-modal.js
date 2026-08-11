@@ -8,6 +8,9 @@ let traceModalL1StreamReasoning = null;
 let traceModalL1StreamAnswer = null;
 let traceModalL1StreamFrame = null;
 
+const CONTEXT_DELAYED_MEMORY_STORE_CHANGED_EVENT =
+  "jin:delayed-memory-store-changed";
+
 function ensureTraceModal() {
   if (traceModal) {
     return;
@@ -104,6 +107,11 @@ function ensureTraceModal() {
   );
 
   function closeTraceModal() {
+    setContextDelayedMemoryHover(
+      "",
+      false
+    );
+
     traceModal.classList.add(
       "hidden"
     );
@@ -152,8 +160,28 @@ function ensureTraceModal() {
     "keydown",
     function (event) {
       if (event.key === "Escape") {
+        const delayedMemoryReportModal =
+          document.querySelector(
+            ".delayed-memory-report-modal.flex:not(.hidden)"
+          );
+
+        if (delayedMemoryReportModal) {
+          return;
+        }
+
         closeTraceModal();
       }
+    }
+  );
+
+  window.addEventListener(
+    CONTEXT_DELAYED_MEMORY_STORE_CHANGED_EVENT,
+    function (event) {
+      const detail = event && event.detail || {};
+
+      syncContextDelayedMemoryRows(
+        detail.reportId || ""
+      );
     }
   );
 }
@@ -1226,6 +1254,426 @@ function parseContextRows(content) {
   return [];
 }
 
+function normalizeContextDelayedMemoryReportId(value) {
+  const match =
+    String(value || "")
+      .trim()
+      .match(/^([a-z0-9]{6})(?:_|$)/i);
+
+  return match
+    ? String(match[1] || "").toLowerCase()
+    : "";
+}
+
+function getContextDelayedMemoryReports() {
+  const runtime =
+    window.JinRuntime
+    && window.JinRuntime.runtime;
+
+  if (
+      !runtime
+      || typeof runtime.getDelayedMemoryReports !== "function"
+  ) {
+    return {};
+  }
+
+  const reports =
+    runtime.getDelayedMemoryReports();
+
+  return (
+      reports
+      && typeof reports === "object"
+      && !Array.isArray(reports)
+    )
+      ? reports
+      : {};
+}
+
+function getContextDelayedMemoryReport(reportId) {
+  const normalizedReportId =
+    normalizeContextDelayedMemoryReportId(reportId);
+  const reports =
+    getContextDelayedMemoryReports();
+  const report =
+    normalizedReportId
+    && reports[normalizedReportId];
+
+  if (
+      !report
+      || typeof report !== "object"
+      || Array.isArray(report)
+  ) {
+    return null;
+  }
+
+  return {
+    ...report,
+    _storage_key: normalizedReportId,
+  };
+}
+
+function setContextDelayedMemoryHover(
+  reportId,
+  active
+) {
+  const memoryView =
+    window.JinRuntime
+    && window.JinRuntime.memoryView;
+
+  if (
+      memoryView
+      && typeof memoryView.setDelayedMemoryReportHover === "function"
+  ) {
+    memoryView.setDelayedMemoryReportHover(
+      reportId,
+      active
+    );
+    return;
+  }
+
+  const buildAvatarMemoryHoverId =
+    window.JinRuntime
+    && window.JinRuntime.buildAvatarMemoryHoverId;
+  const avatarMemoryHoverId =
+    active
+    && typeof buildAvatarMemoryHoverId === "function"
+      ? buildAvatarMemoryHoverId(
+          "delayed",
+          reportId
+        )
+      : "";
+
+  window.dispatchEvent(
+    new CustomEvent(
+      "jin:memory-row-avatar-hover",
+      {
+        detail: avatarMemoryHoverId
+          ? {
+              active: true,
+              avatarMemoryHoverId,
+            }
+          : {
+              active: false,
+            },
+      }
+    )
+  );
+}
+
+function openContextDelayedMemoryReport(reportId) {
+  const report =
+    getContextDelayedMemoryReport(reportId);
+  const memoryView =
+    window.JinRuntime
+    && window.JinRuntime.memoryView;
+
+  if (
+      !report
+      || !memoryView
+      || typeof memoryView.openDelayedMemoryReportModal !== "function"
+  ) {
+    return false;
+  }
+
+  setContextDelayedMemoryHover(
+    reportId,
+    false
+  );
+  memoryView.openDelayedMemoryReportModal(
+    report
+  );
+  return true;
+}
+
+function syncContextDelayedMemoryRow(row) {
+  if (!row || !row.dataset) {
+    return;
+  }
+
+  const reportId =
+    normalizeContextDelayedMemoryReportId(
+      row.dataset.delayedMemoryId
+    );
+  const report =
+    getContextDelayedMemoryReport(reportId);
+  const pinButton =
+    row.querySelector(
+      ".jin-context-delayed-pin"
+    );
+  const missing = !report;
+
+  row.classList.toggle(
+    "is-missing",
+    missing
+  );
+  row.dataset.delayedMemoryMissing =
+    missing ? "true" : "false";
+  row.setAttribute(
+    "aria-disabled",
+    missing ? "true" : "false"
+  );
+
+  if (missing) {
+    row.removeAttribute("role");
+    row.removeAttribute("tabindex");
+
+    if (pinButton) {
+      pinButton.disabled = true;
+      pinButton.title =
+        "Delayed memory report deleted";
+    }
+
+    return;
+  }
+
+  row.setAttribute(
+    "role",
+    "button"
+  );
+  row.setAttribute(
+    "tabindex",
+    "0"
+  );
+
+  if (!pinButton) {
+    return;
+  }
+
+  const pinned =
+    Boolean(report.pinned);
+
+  pinButton.disabled = false;
+  pinButton.classList.toggle(
+    "delayed-memory-modal-pin-active",
+    pinned
+  );
+  pinButton.setAttribute(
+    "aria-pressed",
+    pinned ? "true" : "false"
+  );
+  pinButton.setAttribute(
+    "aria-label",
+    pinned
+      ? "Unpin delayed memory"
+      : "Pin delayed memory"
+  );
+  pinButton.title =
+    pinned
+      ? "Unpin delayed memory"
+      : "Pin delayed memory";
+}
+
+function syncContextDelayedMemoryRows(reportId = "") {
+  if (!traceModalContent) {
+    return;
+  }
+
+  const normalizedReportId =
+    normalizeContextDelayedMemoryReportId(
+      reportId
+    );
+  const rows =
+    Array.from(
+      traceModalContent.querySelectorAll(
+        ".jin-context-delayed-row"
+      )
+    );
+
+  rows.forEach((row) => {
+    if (
+        normalizedReportId
+        && normalizeContextDelayedMemoryReportId(
+          row.dataset.delayedMemoryId
+        ) !== normalizedReportId
+    ) {
+      return;
+    }
+
+    syncContextDelayedMemoryRow(
+      row
+    );
+  });
+}
+
+function renderContextDelayedMemoryBody(
+  parent,
+  content
+) {
+  const lines =
+    String(content || "")
+      .split("\n")
+      .map(line => line.trim())
+      .filter(Boolean);
+
+  if (!lines.length) {
+    parent.appendChild(
+      contextElement(
+        "div",
+        "jin-context-empty",
+        "EMPTY"
+      )
+    );
+    return;
+  }
+
+  const list =
+    contextElement(
+      "div",
+      "jin-context-delayed-list"
+    );
+
+  lines.forEach((line) => {
+    const reportId =
+      normalizeContextDelayedMemoryReportId(
+        line
+      );
+    const row =
+      contextElement(
+        "div",
+        "jin-context-delayed-row"
+      );
+    const pinButton =
+      contextElement(
+        "button",
+        "delayed-memory-modal-icon-button delayed-memory-modal-pin jin-context-delayed-pin"
+      );
+    const separator =
+      contextElement(
+        "span",
+        "jin-context-delayed-separator",
+        "·"
+      );
+    const label =
+      contextElement(
+        "span",
+        "jin-context-delayed-label",
+        line
+      );
+
+    row.dataset.delayedMemoryId =
+      reportId;
+    pinButton.type = "button";
+    pinButton.setAttribute(
+      "aria-pressed",
+      "false"
+    );
+    pinButton.innerHTML =
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 3.3 20.7 9.3 18.6 11.4 16.9 9.7 13.7 12.9 14.4 15.7 12.9 17.2 9.4 13.7 5.3 17.8 4.2 16.7 8.3 12.6 4.8 9.1 6.3 7.6 9.1 8.3 12.3 5.1 10.6 3.4 12.7 1.3Z"/></svg>';
+
+    row.appendChild(pinButton);
+    row.appendChild(separator);
+    row.appendChild(label);
+
+    row.addEventListener(
+      "click",
+      function (event) {
+        if (
+            event.target
+            && event.target.closest(
+              ".jin-context-delayed-pin"
+            )
+        ) {
+          return;
+        }
+
+        if (
+            row.dataset.delayedMemoryMissing === "true"
+        ) {
+          return;
+        }
+
+        if (!openContextDelayedMemoryReport(reportId)) {
+          syncContextDelayedMemoryRow(row);
+        }
+      }
+    );
+
+    row.addEventListener(
+      "keydown",
+      function (event) {
+        if (
+            event.target !== row
+            || (
+              event.key !== "Enter"
+              && event.key !== " "
+            )
+            || row.dataset.delayedMemoryMissing === "true"
+        ) {
+          return;
+        }
+
+        event.preventDefault();
+
+        if (!openContextDelayedMemoryReport(reportId)) {
+          syncContextDelayedMemoryRow(row);
+        }
+      }
+    );
+
+    row.addEventListener(
+      "mouseenter",
+      function () {
+        if (
+            row.dataset.delayedMemoryMissing === "true"
+        ) {
+          return;
+        }
+
+        setContextDelayedMemoryHover(
+          reportId,
+          true
+        );
+      }
+    );
+
+    row.addEventListener(
+      "mouseleave",
+      function () {
+        setContextDelayedMemoryHover(
+          reportId,
+          false
+        );
+      }
+    );
+
+    pinButton.addEventListener(
+      "click",
+      function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const report =
+          getContextDelayedMemoryReport(
+            reportId
+          );
+        const runtime =
+          window.JinRuntime
+          && window.JinRuntime.runtime;
+
+        if (
+            !report
+            || !runtime
+            || typeof runtime.setDelayedMemoryReportPinned !== "function"
+        ) {
+          syncContextDelayedMemoryRow(row);
+          return;
+        }
+
+        runtime.setDelayedMemoryReportPinned(
+          reportId,
+          !Boolean(report.pinned)
+        );
+        syncContextDelayedMemoryRow(row);
+      }
+    );
+
+    list.appendChild(row);
+    syncContextDelayedMemoryRow(row);
+  });
+
+  parent.appendChild(list);
+}
+
 function renderContextBody(parent, content) {
   const text =
     String(content || "").trim();
@@ -1424,7 +1872,21 @@ function appendContextCard(
   header.appendChild(meta);
   card.appendChild(header);
   card.appendChild(body);
-  renderContextBody(body, block.content);
+  if (
+      String(block.title || "")
+        .trim()
+        .toUpperCase() === "DELAYED_MEMORY"
+  ) {
+    renderContextDelayedMemoryBody(
+      body,
+      block.content
+    );
+  } else {
+    renderContextBody(
+      body,
+      block.content
+    );
+  }
   parent.appendChild(card);
 }
 

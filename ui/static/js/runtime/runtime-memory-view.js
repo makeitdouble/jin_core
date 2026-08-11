@@ -1770,6 +1770,98 @@
     );
   }
 
+  function setDelayedMemoryReportHover(
+      reportId,
+      active
+  ) {
+    if (runtimeMemoryText) {
+      runtimeMemoryText
+        .querySelectorAll(
+          ".runtime-memory-external-hover-hit"
+        )
+        .forEach((row) => {
+          row.classList.remove(
+            "runtime-memory-external-hover-hit"
+          );
+        });
+    }
+
+    const normalizedReportId =
+        normalizeDelayedMemoryReportId(
+            reportId
+        );
+    const reports =
+        typeof getDelayedMemoryReports === "function"
+          ? getDelayedMemoryReports()
+          : {};
+    const report =
+        normalizedReportId
+        && reports
+        && typeof reports === "object"
+        && !Array.isArray(reports)
+        && reports[normalizedReportId]
+        && typeof reports[normalizedReportId] === "object"
+        && !Array.isArray(reports[normalizedReportId])
+          ? {
+              ...reports[normalizedReportId],
+              _storage_key: normalizedReportId,
+            }
+          : null;
+
+    if (!active || !report) {
+      clearDelayedMemoryAvatarHover();
+      return false;
+    }
+
+    dispatchDelayedMemoryAvatarHover(
+        report,
+        true
+    );
+
+    if (!runtimeMemoryText) {
+      return true;
+    }
+
+    const delayedHoverId =
+        buildAvatarMemoryHoverId(
+            "delayed",
+            normalizedReportId
+        );
+    const linkedFactHoverIds =
+        new Set(
+            normalizeDelayedMemoryFactIds([
+              report.anchor_fact_ids,
+              report.facts_ids,
+              report.absorbed_fact_ids,
+              report.long_term_facts_ids,
+            ]).map((factId) => (
+              buildAvatarMemoryHoverId(
+                  "l4",
+                  factId
+              )
+            )).filter(Boolean)
+        );
+
+    runtimeMemoryText
+      .querySelectorAll(
+        ".runtime-memory-line[data-avatar-memory-hover-id]"
+      )
+      .forEach((row) => {
+        const hoverId =
+            String(
+                row.dataset.avatarMemoryHoverId || ""
+            ).trim();
+
+        row.classList.toggle(
+          "runtime-memory-external-hover-hit",
+          hoverId === delayedHoverId
+          || linkedFactHoverIds.has(hoverId)
+        );
+      });
+
+    return true;
+  }
+
   function clearDelayedMemoryAvatarHover() {
     dispatchMemoryRowAvatarHover({
       active: false,
@@ -3173,7 +3265,7 @@
         document.createElement("div");
 
     delayedMemoryModal.className =
-        "fixed inset-0 z-50 hidden items-center justify-center bg-black/70 p-4";
+        "delayed-memory-report-modal fixed inset-0 z-50 hidden items-center justify-center bg-black/70 p-4";
 
     delayedMemoryModalPanel =
         document.createElement("div");
@@ -4356,6 +4448,7 @@
   window.JinRuntime.memoryView = {
     init,
     openDelayedMemoryReportModal,
+    setDelayedMemoryReportHover,
     render: renderRuntimeMemorySnapshot,
     renderRuntimeMemorySnapshot,
     renderDiffs: renderRuntimeDiffs,

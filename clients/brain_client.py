@@ -47,6 +47,7 @@ from runtime.action_guard import (
     get_action_guard_display_id,
 )
 from utils.session_actions_history import (
+    attach_session_action_jin_message_since,
     build_asset_action_marker_text,
     emit_session_actions_update,
     replace_session_action_history_since,
@@ -701,6 +702,9 @@ async def ask_brain_stream(
     resolved_active_memory_display_payloads = {}
     raw_content_parts = []
     raw_model_output_parts = []
+    session_action_message_parts = []
+    session_action_message_content = ""
+    session_action_marker_seen = False
     pending_idle_action_calls = []
     confirmed_action_guard_names = set()
     rejected_action_guard_names = set()
@@ -718,6 +722,39 @@ async def ask_brain_stream(
                 (),
             )
         )
+
+    def capture_session_action_message_preview(
+        result,
+        counter_entries,
+    ) -> None:
+
+        nonlocal session_action_message_content
+        nonlocal session_action_marker_seen
+
+        if session_action_marker_seen:
+            return
+
+        visible_text = str(
+            getattr(
+                result,
+                "text",
+                "",
+            )
+            or ""
+        )
+
+        if visible_text:
+            session_action_message_parts.append(
+                visible_text
+            )
+
+        if not counter_entries:
+            return
+
+        session_action_marker_seen = True
+        session_action_message_content = "".join(
+            session_action_message_parts
+        ).strip()
 
     def build_pending_asset_action_stream_preview(
         pending_text: str,
@@ -1045,8 +1082,17 @@ async def ask_brain_stream(
             session_action_history_start,
             marker_actions,
         )
+        message_attached = (
+            attach_session_action_jin_message_since(
+                context,
+                session_action_history_start,
+                session_action_message_content,
+            )
+            if session_action_message_content
+            else False
+        )
 
-        if not updated:
+        if not updated and not message_attached:
             return
 
         await emit_session_actions_update(
@@ -1068,15 +1114,24 @@ async def ask_brain_stream(
             status="counter_final",
         )
 
+        marker_actions = action_counter.marker_actions(
+            display_payloads=(
+                get_action_counter_display_payloads()
+            ),
+        )
         replace_session_action_history_since(
             context,
             session_action_history_start,
-            action_counter.marker_actions(
-                display_payloads=(
-                    get_action_counter_display_payloads()
-                ),
-            ),
+            marker_actions,
         )
+
+        if marker_actions and session_action_message_content:
+            attach_session_action_jin_message_since(
+                context,
+                session_action_history_start,
+                session_action_message_content,
+            )
+
         flush_pending_active_memory_resolve_failure_history(
             context
         )
@@ -1542,6 +1597,10 @@ async def ask_brain_stream(
                 result
             )
         )
+        capture_session_action_message_preview(
+            result,
+            counter_entries,
+        )
 
         await emit_action_counter_updates(
             counter_entries
@@ -1817,6 +1876,10 @@ async def ask_brain_stream(
                     tail_result
                 )
             )
+            capture_session_action_message_preview(
+                tail_result,
+                tail_counter_entries,
+            )
             await emit_action_counter_updates(
                 tail_counter_entries
             )
@@ -1920,6 +1983,10 @@ async def ask_brain_stream(
             capture_observed_action_markers(
                 tail_result
             )
+        )
+        capture_session_action_message_preview(
+            tail_result,
+            tail_counter_entries,
         )
         await emit_action_counter_updates(
             tail_counter_entries

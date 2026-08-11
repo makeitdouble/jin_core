@@ -252,13 +252,21 @@ def _format_jin_message_content(
     text: str,
 ) -> str:
 
-    return re.sub(
+    preview = re.sub(
         r"\s+",
         " ",
         str(
             text
             or ""
         ).strip(),
+    )
+
+    if len(preview) <= 150:
+        return preview
+
+    return (
+        preview[:147].rstrip()
+        + "..."
     )
 
 

@@ -301,14 +301,13 @@ def build_context_limit_recovery_context(
 
 
 FOLLOWUP_SYSTEM_MESSAGE = (
+    "MANDATORY: DO NOT START NEW SEQUENCE!\n"
+    "MANDATORY: YOU MUST stop execute and notify user if the original user request is satisfied by previous steps!\n"
     "MANDATORY: YOU MUST USE CURRENT_SEQUENCE BLOCK AS THE SOLE SOURCE OF TRUTH FOR THE ACTION ORDER AND EXECUTION STATUS!\n"
-    "MANDATORY: THIS IS NOT START OF A SEQUENCE!\n"
-    "MANDATORY: YOU ARE IN THE MIDDLE OF RUNNING SEQUENCE!\n"
-    "MANDATORY: YOU MUST FINISH CURRENT SEQUENCE AND DO NOT START NEW SEQUENCE!\n"
     "MANDATORY: YOU MUST DERIVE REMAINING STEPS FROM <INITIAL_SEQUENCE_USER_MESSAGE> AND CONTINUE FROM CURRENT_SEQUENCE!\n"
     "\n"
     "\n"
-    "If the original user request is satisfied - stop execute and notify user!\n"
+    "\n"
     "If conditions are not met - continue without confirmation!\n"
     "\n"
 )
