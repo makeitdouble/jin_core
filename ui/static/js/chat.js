@@ -11,6 +11,9 @@ const STREAM_NEAR_BOTTOM_PX = 72;
 const MEMORY_REFERENCE_HIGHLIGHT_EVENT =
   "jin:memory-reference-highlight";
 
+let liveUserTurnAnchor = null;
+let keepLiveUserTurnAtTop = false;
+
 
 function isChatRenderForeground() {
 
@@ -334,9 +337,212 @@ function requestStreamFrame(callback) {
 
 }
 
+function getChatHistoryTopGap() {
+
+  if (!chatHistory) {
+    return 0;
+  }
+
+  const styles =
+    window.getComputedStyle(
+      chatHistory
+    );
+
+  return (
+    Number.parseFloat(
+      styles.paddingTop
+    )
+    || 0
+  );
+
+}
+
+
+function updateLiveUserTurnBottomSpace() {
+
+  if (!chatHistory) {
+    return;
+  }
+
+  if (
+    !liveUserTurnAnchor
+    || !liveUserTurnAnchor.isConnected
+  ) {
+    chatHistory.style.removeProperty(
+      "--jin-live-turn-bottom-space"
+    );
+
+    return;
+  }
+
+  const anchorRect =
+    liveUserTurnAnchor.getBoundingClientRect();
+
+  let tailBottom =
+    anchorRect.bottom;
+
+  let sibling =
+    liveUserTurnAnchor.nextElementSibling;
+
+  while (sibling) {
+    if (!sibling.hidden) {
+      const rect =
+        sibling.getBoundingClientRect();
+
+      tailBottom =
+        Math.max(
+          tailBottom,
+          rect.bottom
+        );
+    }
+
+    sibling =
+      sibling.nextElementSibling;
+  }
+
+  const edgeGap =
+    getChatHistoryTopGap();
+
+  const occupiedHeight =
+    Math.max(
+      0,
+      tailBottom - anchorRect.top
+    );
+
+  const availableHeight =
+    Math.max(
+      0,
+      chatHistory.clientHeight
+      - edgeGap
+      - edgeGap
+    );
+
+  const bottomSpace =
+    Math.max(
+      0,
+      availableHeight - occupiedHeight
+    );
+
+  chatHistory.style.setProperty(
+    "--jin-live-turn-bottom-space",
+    `${Math.ceil(bottomSpace)}px`
+  );
+
+}
+
+
+function scrollLiveUserTurnToTop() {
+
+  if (
+    !chatHistory
+    || !liveUserTurnAnchor
+    || !liveUserTurnAnchor.isConnected
+  ) {
+    return;
+  }
+
+  updateLiveUserTurnBottomSpace();
+
+  const historyRect =
+    chatHistory.getBoundingClientRect();
+
+  const anchorRect =
+    liveUserTurnAnchor.getBoundingClientRect();
+
+  const targetTop =
+    chatHistory.scrollTop
+    + anchorRect.top
+    - historyRect.top
+    - getChatHistoryTopGap();
+
+  chatHistory.scrollTop =
+    Math.max(
+      0,
+      targetTop
+    );
+
+}
+
+
+function prepareLiveUserTurnViewport() {
+
+  liveUserTurnAnchor = null;
+  keepLiveUserTurnAtTop = false;
+
+  if (chatHistory) {
+    chatHistory.style.removeProperty(
+      "--jin-live-turn-bottom-space"
+    );
+  }
+
+}
+
+
+function activateLiveUserTurnViewport(
+  messageRow
+) {
+
+  if (
+    !chatHistory
+    || !messageRow
+  ) {
+    return;
+  }
+
+  liveUserTurnAnchor =
+    messageRow;
+  keepLiveUserTurnAtTop =
+    true;
+
+  scrollLiveUserTurnToTop();
+
+  requestAnimationFrame(
+    () => {
+      if (keepLiveUserTurnAtTop) {
+        scrollLiveUserTurnToTop();
+      } else {
+        updateLiveUserTurnBottomSpace();
+      }
+    }
+  );
+
+}
+
+
+function releaseLiveUserTurnTopLock() {
+
+  keepLiveUserTurnAtTop = false;
+  updateLiveUserTurnBottomSpace();
+
+}
+
+
+function scrollChatHistoryAfterAppend() {
+
+  if (!chatHistory) {
+    return;
+  }
+
+  updateLiveUserTurnBottomSpace();
+
+  if (keepLiveUserTurnAtTop) {
+    scrollLiveUserTurnToTop();
+    return;
+  }
+
+  chatHistory.scrollTop =
+    chatHistory.scrollHeight;
+
+}
+
+
 function shouldAutoScroll() {
 
   if (!chatHistory) {
+    return false;
+  }
+
+  if (keepLiveUserTurnAtTop) {
     return false;
   }
 
@@ -351,6 +557,44 @@ function shouldAutoScroll() {
   );
 
 }
+
+
+if (chatHistory) {
+  chatHistory.addEventListener(
+    "wheel",
+    releaseLiveUserTurnTopLock,
+    { passive: true }
+  );
+
+  chatHistory.addEventListener(
+    "touchstart",
+    releaseLiveUserTurnTopLock,
+    { passive: true }
+  );
+}
+
+window.addEventListener(
+  "jin:generation-state-changed",
+  (event) => {
+    if (
+      event.detail
+      && event.detail.active === false
+    ) {
+      releaseLiveUserTurnTopLock();
+    }
+  }
+);
+
+window.addEventListener(
+  "resize",
+  () => {
+    updateLiveUserTurnBottomSpace();
+
+    if (keepLiveUserTurnAtTop) {
+      scrollLiveUserTurnToTop();
+    }
+  }
+);
 
 
 function appendTextNodeData(
@@ -491,6 +735,8 @@ function flushStreamFrame() {
     }
 
   });
+
+  updateLiveUserTurnBottomSpace();
 
   if (
     autoscroll
@@ -775,8 +1021,7 @@ function createMessageElement(
     msgDiv
   );
 
-  chatHistory.scrollTop =
-    chatHistory.scrollHeight;
+  scrollChatHistoryAfterAppend();
 
   return pre;
 
@@ -881,6 +1126,10 @@ function appendChatMessage(
 
   flushRuntimeActionsAfterResponse(
     role
+  );
+
+  return pre.closest(
+    ".jin-message-shell"
   );
 
 }
@@ -1106,8 +1355,7 @@ function createStreamGroup(
     wrapper
   );
 
-  chatHistory.scrollTop =
-    chatHistory.scrollHeight;
+  scrollChatHistoryAfterAppend();
 
   return {
     wrapper,
@@ -1448,6 +1696,14 @@ window.updateJinInputLoopCounter =
   updateJinInputLoopCounter;
 window.appendChatMessage =
   appendChatMessage;
+window.prepareLiveUserTurnViewport =
+  prepareLiveUserTurnViewport;
+window.activateLiveUserTurnViewport =
+  activateLiveUserTurnViewport;
+window.updateLiveUserTurnBottomSpace =
+  updateLiveUserTurnBottomSpace;
+window.scrollChatHistoryAfterAppend =
+  scrollChatHistoryAfterAppend;
 window.stripInternalActionMarkers =
   stripInternalActionMarkers;
 

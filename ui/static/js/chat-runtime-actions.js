@@ -2455,8 +2455,12 @@ function appendRuntimeAction(
     action
   );
 
-  chatHistory.scrollTop =
-    chatHistory.scrollHeight;
+  if (window.scrollChatHistoryAfterAppend) {
+    window.scrollChatHistoryAfterAppend();
+  } else {
+    chatHistory.scrollTop =
+      chatHistory.scrollHeight;
+  }
 
   return true;
 

@@ -55,6 +55,14 @@ body {
     min-width: 0;
 }
 
+#app-header {
+    position: relative;
+    z-index: 40;
+    box-shadow:
+            0 5px 14px rgba(0, 0, 0, 0.22),
+            0 1px 0 rgba(255, 255, 255, 0.018);
+}
+
 main {
     background-color: var(--scene-base-color);
     transition: background-color 0.22s ease;
@@ -449,7 +457,11 @@ main.panels-collapsed-2 #scene-shade {
     padding-left: 0;
     padding-right: 0;
     padding-top: var(--chat-history-edge-gap) !important;
-    padding-bottom: var(--chat-history-edge-gap) !important;
+    padding-bottom: calc(
+            var(--chat-history-edge-gap)
+            + var(--jin-live-turn-bottom-space, 0px)
+    ) !important;
+    scroll-padding-top: var(--chat-history-edge-gap);
     scroll-padding-bottom: calc(var(--chat-history-edge-gap) + 0.5rem);
 }
 

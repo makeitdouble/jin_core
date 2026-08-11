@@ -257,12 +257,23 @@ chatForm.addEventListener(
       window.startJinAnswerRatingL1GateForTurn();
     }
 
-    appendChatMessage(
-      "user",
-      text,
-      null,
-      attachments
-    );
+    if (window.prepareLiveUserTurnViewport) {
+      window.prepareLiveUserTurnViewport();
+    }
+
+    const userMessageRow =
+      appendChatMessage(
+        "user",
+        text,
+        null,
+        attachments
+      );
+
+    if (window.activateLiveUserTurnViewport) {
+      window.activateLiveUserTurnViewport(
+        userMessageRow
+      );
+    }
 
     if (window.markSessionActivityDirty) {
       window.markSessionActivityDirty();
