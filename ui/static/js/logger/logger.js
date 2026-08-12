@@ -455,22 +455,37 @@ const consolePanel = document.getElementById("console-panel");
                 collapsedHeight;
 
             clampPanelGeometry(panel);
-            syncMemoryPanelBodyMount();
+            syncCollapsedPanelBodies();
 
             return;
+        }
+
+        if (panel === consolePanel) {
+            attachConsolePanelBody();
         }
 
         if (panel === memoryPanel) {
             attachMemoryPanelBody();
         }
 
+        const expandedHeight =
+            panel.dataset.expandedHeight || "";
+        const expandFromCollapsed =
+            Boolean(expandedHeight);
+
         panel.classList.remove(
             "panel-collapsed"
         );
 
-        panel.style.removeProperty(
-            "height"
-        );
+        if (expandedHeight) {
+            panel.style.height =
+                expandedHeight;
+        } else {
+            panel.style.removeProperty(
+                "height"
+            );
+        }
+
         delete panel.dataset.expandedHeight;
 
         restorePanelDimension(
@@ -485,8 +500,13 @@ const consolePanel = document.getElementById("console-panel");
             "expandedMaxHeight"
         );
 
-        clampPanelGeometry(panel);
-        syncMemoryPanelBodyMount();
+        clampPanelGeometry(
+            panel,
+            {
+                expandFromCollapsed,
+            }
+        );
+        syncCollapsedPanelBodies();
     }
 
     function restorePanelDimension(panel, styleName, datasetName) {
@@ -886,7 +906,7 @@ const consolePanel = document.getElementById("console-panel");
             `${nextHeight}px`;
     }
 
-    function clampFreePanelGeometry(panel) {
+    function clampFreePanelGeometry(panel, options = {}) {
         const parentRect =
             panel.parentElement.getBoundingClientRect();
 
@@ -957,10 +977,16 @@ const consolePanel = document.getElementById("console-panel");
         const minHeight =
             Math.round(parentRect.height * 0.49);
 
+        const maxExpandedHeight =
+            Math.max(
+                minHeight,
+                parentRect.height - (PANEL_VIEWPORT_GAP * 2)
+            );
+
         const maxTop =
             Math.max(
                 PANEL_VIEWPORT_GAP,
-                parentRect.height - minHeight - PANEL_VIEWPORT_GAP
+                parentRect.height - PANEL_VIEWPORT_GAP
             );
 
         const nextTop =
@@ -972,20 +998,23 @@ const consolePanel = document.getElementById("console-panel");
                 )
             );
 
-        const maxHeight =
+        const availableHeight =
             Math.max(
-                minHeight,
+                0,
                 parentRect.height - nextTop - PANEL_VIEWPORT_GAP
             );
 
-        const nextHeight =
-            Math.max(
-                minHeight,
-                Math.min(
-                    panelRect.height,
-                    maxHeight
-                )
-            );
+        const targetHeight =
+            options.expandFromCollapsed
+                ? availableHeight
+                : Math.max(
+                    minHeight,
+                    Math.min(
+                        panelRect.height,
+                        maxExpandedHeight,
+                        availableHeight
+                    )
+                );
 
         panel.style.left =
             `${nextLeft}px`;
@@ -997,10 +1026,10 @@ const consolePanel = document.getElementById("console-panel");
             "auto";
 
         panel.style.height =
-            `${nextHeight}px`;
+            `${targetHeight}px`;
     }
 
-    function clampPanelGeometry(panel) {
+    function clampPanelGeometry(panel, options = {}) {
         if (!panel) {
             return;
         }
@@ -1016,7 +1045,10 @@ const consolePanel = document.getElementById("console-panel");
             return;
         }
 
-        clampFreePanelGeometry(panel);
+        clampFreePanelGeometry(
+            panel,
+            options
+        );
     }
 
     function clampAllPanelGeometry() {
@@ -1214,6 +1246,10 @@ const consolePanel = document.getElementById("console-panel");
 
 const memoryPanel = document.getElementById("settings-panel");
 const memoryDragHandle = document.getElementById("memory-drag-handle");
+const consoleStreamPlaceholder =
+    document.createComment(
+        "console-stream detached while console panel is collapsed"
+    );
 const memoryPanelScrollBody =
     memoryPanel
         ? memoryPanel.querySelector(".settings-scroll")
@@ -1224,7 +1260,118 @@ const memoryPanelScrollPlaceholder =
     );
 const MEMORY_PANEL_COLLAPSE_SYNC_EVENT =
     "jin:memory-panel-collapse-sync";
+let consoleStreamDetachTimer = null;
 let memoryPanelScrollDetachTimer = null;
+
+function clearConsoleStreamDetachTimer() {
+    if (consoleStreamDetachTimer === null) {
+        return;
+    }
+
+    window.clearTimeout(
+        consoleStreamDetachTimer
+    );
+    consoleStreamDetachTimer = null;
+}
+
+function detachConsolePanelBody() {
+    clearConsoleStreamDetachTimer();
+
+    if (
+        !consolePanel
+        || !consoleStream
+        || consoleStream.parentNode !== consolePanel
+    ) {
+        return;
+    }
+
+    consolePanel.insertBefore(
+        consoleStreamPlaceholder,
+        consoleStream
+    );
+    consolePanel.removeChild(
+        consoleStream
+    );
+}
+
+function attachConsolePanelBody() {
+    clearConsoleStreamDetachTimer();
+
+    if (
+        !consolePanel
+        || !consoleStream
+    ) {
+        return;
+    }
+
+    if (consoleStream.parentNode === consolePanel) {
+        return;
+    }
+
+    if (consoleStreamPlaceholder.parentNode === consolePanel) {
+        consolePanel.insertBefore(
+            consoleStream,
+            consoleStreamPlaceholder
+        );
+        consolePanel.removeChild(
+            consoleStreamPlaceholder
+        );
+    } else {
+        consolePanel.appendChild(
+            consoleStream
+        );
+    }
+}
+
+function getPanelBodyDetachDelayMs(panel) {
+    if (!panel) {
+        return 0;
+    }
+
+    const duration =
+        getComputedStyle(panel)
+            .getPropertyValue("--panel-collapse-duration")
+            .trim();
+
+    return Math.max(
+        0,
+        parseCssDurationMs(duration)
+    ) + 100;
+}
+
+function scheduleConsolePanelBodyDetach() {
+    clearConsoleStreamDetachTimer();
+
+    if (
+        !consolePanel
+        || !consoleStream
+        || !consolePanel.classList.contains("panel-collapsed")
+    ) {
+        attachConsolePanelBody();
+        return;
+    }
+
+    consoleStreamDetachTimer =
+        window.setTimeout(
+            detachConsolePanelBody,
+            getPanelBodyDetachDelayMs(consolePanel)
+        );
+}
+
+function syncConsolePanelBodyMount() {
+    if (
+        !consolePanel
+        || !consoleStream
+    ) {
+        return;
+    }
+
+    if (consolePanel.classList.contains("panel-collapsed")) {
+        scheduleConsolePanelBodyDetach();
+    } else {
+        attachConsolePanelBody();
+    }
+}
 
 function dispatchMemoryPanelCollapseSync() {
     window.dispatchEvent(
@@ -1315,19 +1462,9 @@ function attachMemoryPanelBody() {
 }
 
 function getMemoryPanelScrollDetachDelayMs() {
-    if (!memoryPanel) {
-        return 0;
-    }
-
-    const duration =
-        getComputedStyle(memoryPanel)
-            .getPropertyValue("--panel-collapse-duration")
-            .trim();
-
-    return Math.max(
-        0,
-        parseCssDurationMs(duration)
-    ) + 100;
+    return getPanelBodyDetachDelayMs(
+        memoryPanel
+    );
 }
 
 function scheduleMemoryPanelBodyDetach() {
@@ -1365,6 +1502,26 @@ function syncMemoryPanelBodyMount() {
     }
 }
 
+function syncCollapsedPanelBodies() {
+    syncConsolePanelBodyMount();
+    syncMemoryPanelBodyMount();
+}
+
+if (consolePanel && typeof MutationObserver !== "undefined") {
+    const consolePanelBodyObserver =
+        new MutationObserver(
+            syncConsolePanelBodyMount
+        );
+
+    consolePanelBodyObserver.observe(
+        consolePanel,
+        {
+            attributes: true,
+            attributeFilter: ["class"],
+        }
+    );
+}
+
 if (memoryPanel && typeof MutationObserver !== "undefined") {
     const memoryPanelBodyObserver =
         new MutationObserver(
@@ -1380,7 +1537,7 @@ if (memoryPanel && typeof MutationObserver !== "undefined") {
     );
 }
 
-syncMemoryPanelBodyMount();
+syncCollapsedPanelBodies();
 
 window.JinPanels =
     Object.assign(
@@ -1389,6 +1546,8 @@ window.JinPanels =
             collapseAllPanels,
             cancelStartupCollapseAnimation,
             refreshCollapsedPanelHeights,
+            syncCollapsedPanelBodies,
+            syncConsolePanelBodyMount,
             syncMemoryPanelBodyMount,
             syncSceneShadeToPanelCollapse,
         }

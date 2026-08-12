@@ -140,6 +140,66 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
             source,
         )
 
+    def test_collapsed_console_panel_detaches_stream_blocks_after_transition(self):
+        source = LOGGER_JS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "console-stream detached while console panel is collapsed",
+            source,
+        )
+        self.assertIn(
+            "function scheduleConsolePanelBodyDetach()",
+            source,
+        )
+        self.assertIn(
+            "function attachConsolePanelBody()",
+            source,
+        )
+        self.assertIn(
+            "syncConsolePanelBodyMount,",
+            source,
+        )
+        self.assertIn(
+            "syncCollapsedPanelBodies,",
+            source,
+        )
+
+    def test_panel_expand_restores_saved_expanded_height_before_clamp(self):
+        source = LOGGER_JS.read_text(encoding="utf-8")
+        start = source.index("function setPanelCollapsed(panel, collapsed)")
+        end = source.index("function restorePanelDimension", start)
+        body = source[start:end]
+
+        self.assertIn(
+            "const expandedHeight =\n            panel.dataset.expandedHeight || \"\";",
+            body,
+        )
+        self.assertIn(
+            "panel.style.height =\n                expandedHeight;",
+            body,
+        )
+        self.assertLess(
+            body.index("const expandedHeight"),
+            body.index("delete panel.dataset.expandedHeight"),
+        )
+        self.assertIn(
+            "expandFromCollapsed,",
+            body,
+        )
+
+        free_start = source.index("function clampFreePanelGeometry(")
+        free_end = source.index("function clampPanelGeometry", free_start)
+        free_body = source[free_start:free_end]
+
+        self.assertIn(
+            "const availableHeight =",
+            free_body,
+        )
+        self.assertIn(
+            "options.expandFromCollapsed\n                ? availableHeight",
+            free_body,
+        )
+
     def test_open_delayed_report_dispatches_avatar_active_state(self):
         source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
         css_source = RUNTIME_MEMORY_CSS.read_text(encoding="utf-8")
