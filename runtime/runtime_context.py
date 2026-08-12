@@ -53,6 +53,16 @@ class RuntimeContext:
 
     deep_thought_count: int = 0
 
+    runtime_deep_search_calls: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_deep_search_result: str = ""
+
+    runtime_deep_search_result_id: str = ""
+
+    runtime_deep_search_query_sequence: int = 0
+
     runtime_search_queries: list[str] = field(
         default_factory=list
     )

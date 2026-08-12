@@ -8,8 +8,135 @@
     opacity: 0.45;
 }
 
+.jin-runtime-action-row.jin-runtime-action-deep-search[data-runtime-action-completed="true"] {
+    opacity: 0.84;
+}
+
 .jin-runtime-action-label {
     margin-left: var(--jin-runtime-action-label-nudge);
+}
+
+.jin-runtime-action-icon {
+    box-sizing: border-box;
+    color: rgba(165, 243, 252, 0.90);
+    box-shadow:
+            0 0 0 1px rgba(8, 145, 178, 0.08),
+            inset 0 0 12px rgba(34, 211, 238, 0.05);
+}
+
+.jin-runtime-action-icon svg {
+    display: block;
+    width: 15px;
+    height: 15px;
+}
+
+.jin-runtime-action-icon-save,
+.jin-runtime-action-icon-memory {
+    border-color: rgba(74, 222, 128, 0.48) !important;
+    background: rgba(6, 78, 59, 0.34) !important;
+    color: rgba(187, 247, 208, 0.92);
+}
+
+.jin-runtime-action-icon-resolve {
+    border-color: rgba(132, 204, 22, 0.48) !important;
+    background: rgba(54, 83, 20, 0.34) !important;
+    color: rgba(217, 249, 157, 0.92);
+}
+
+.jin-runtime-action-icon-delete {
+    border-color: rgba(248, 113, 113, 0.48) !important;
+    background: rgba(127, 29, 29, 0.30) !important;
+    color: rgba(254, 202, 202, 0.90);
+}
+
+.jin-runtime-action-icon-clean,
+.jin-runtime-action-icon-todo,
+.jin-runtime-action-icon-update {
+    border-color: rgba(251, 191, 36, 0.42) !important;
+    background: rgba(120, 53, 15, 0.28) !important;
+    color: rgba(253, 230, 138, 0.92);
+}
+
+.jin-runtime-action-icon-skill {
+    border-color: rgba(129, 140, 248, 0.44) !important;
+    background: rgba(49, 46, 129, 0.30) !important;
+    color: rgba(199, 210, 254, 0.92);
+}
+
+.jin-runtime-action-icon-asset {
+    border-color: rgba(96, 165, 250, 0.44) !important;
+    background: rgba(30, 64, 175, 0.26) !important;
+    color: rgba(191, 219, 254, 0.92);
+}
+
+.jin-runtime-action-icon-color {
+    border-color: rgba(244, 114, 182, 0.44) !important;
+    background: rgba(131, 24, 67, 0.26) !important;
+    color: rgba(251, 207, 232, 0.92);
+}
+
+.jin-runtime-action-icon-idle {
+    border-color: rgba(148, 163, 184, 0.32) !important;
+    background: rgba(30, 41, 59, 0.28) !important;
+    color: rgba(203, 213, 225, 0.82);
+}
+
+.jin-runtime-action-deep-search .jin-runtime-action-label {
+    border-color: rgba(34, 211, 238, 0.72) !important;
+    background:
+            linear-gradient(90deg,
+                    rgba(8, 47, 73, 0.62),
+                    rgba(20, 83, 45, 0.28)) !important;
+    color: rgba(207, 250, 254, 0.96) !important;
+    box-shadow:
+            0 10px 30px rgba(0, 0, 0, 0.22),
+            0 0 22px rgba(34, 211, 238, 0.10),
+            inset 0 0 20px rgba(34, 211, 238, 0.055);
+}
+
+.jin-runtime-action-search-active .jin-runtime-action-label {
+    position: relative;
+    overflow: hidden;
+    animation:
+            jinRuntimeActionSearchPulse
+            1.45s
+            ease-in-out
+            infinite;
+}
+
+.jin-runtime-action-search-active .jin-runtime-action-label::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+            linear-gradient(90deg,
+                    transparent,
+                    rgba(125, 211, 252, 0.22),
+                    transparent);
+    transform: translateX(-120%);
+    animation:
+            jinRuntimeActionSearchSweep
+            1.3s
+            linear
+            infinite;
+}
+
+@keyframes jinRuntimeActionSearchPulse {
+    0%,
+    100% {
+        filter: brightness(1.02) saturate(1.04);
+    }
+
+    50% {
+        filter: brightness(1.15) saturate(1.12);
+    }
+}
+
+@keyframes jinRuntimeActionSearchSweep {
+    100% {
+        transform: translateX(120%);
+    }
 }
 
 .jin-runtime-action-confirm-prefix {

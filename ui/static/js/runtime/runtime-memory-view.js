@@ -2033,6 +2033,12 @@
       const valuePresentation =
           memoryModel.buildRuntimeMemoryValuePresentation(line);
 
+      if (String(valuePresentation.text || "").trim()) {
+        row.classList.add(
+            "runtime-memory-kv-row"
+        );
+      }
+
       const fullRawLine =
           `${key}: ${valuePresentation.raw}`;
 
@@ -2620,6 +2626,12 @@
             "runtime-memory-line runtime-memory-delayed-row";
         row.dataset.memoryHighlightSortIndex =
             String(index);
+
+        if (summary) {
+          row.classList.add(
+              "runtime-memory-kv-row"
+          );
+        }
 
         const reportId =
             normalizeDelayedMemoryReportId(

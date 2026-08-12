@@ -1,5 +1,7 @@
 # Builds recent chat message and sequence origin context blocks.
 import time
+from datetime import datetime
+from math import isfinite
 from xml.sax.saxutils import escape
 
 from runtime.runtime_context import (
@@ -54,21 +56,69 @@ def format_context_message_age_suffix(
     now: float | None = None,
 ) -> str:
 
-    if not isinstance(
-        created_at,
-        (int, float),
-    ):
+    timestamp = parse_context_timestamp(
+        created_at
+    )
+
+    if timestamp is None:
         return ""
 
-    if created_at <= 0:
+    if timestamp <= 0:
         return ""
 
     if now is None:
         now = time.time()
 
     return (
-        f" ( {format_session_action_age(now - float(created_at))} ago )"
+        f" ( {format_session_action_age(now - timestamp)} ago )"
     )
+
+
+def parse_context_timestamp(
+    value,
+) -> float | None:
+
+    if isinstance(
+        value,
+        (int, float),
+    ):
+        timestamp = float(
+            value
+        )
+        return timestamp if isfinite(timestamp) else None
+
+    text = str(
+        value
+        or ""
+    ).strip()
+
+    if not text:
+        return None
+
+    try:
+        timestamp = float(
+            text
+        )
+        return timestamp if isfinite(timestamp) else None
+    except ValueError:
+        pass
+
+    normalized = text
+    if normalized.endswith(
+        "Z"
+    ):
+        normalized = (
+            normalized[:-1]
+            + "+00:00"
+        )
+
+    try:
+        timestamp = datetime.fromisoformat(
+            normalized
+        ).timestamp()
+        return timestamp if isfinite(timestamp) else None
+    except ValueError:
+        return None
 
 
 def append_context_message_age(

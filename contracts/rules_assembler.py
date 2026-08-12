@@ -17,6 +17,7 @@ CONTRACT_VERSION = 1
 
 
 ACTION_CONFIG_KEYS = (
+    ("DEEP_WEB_SEARCH", "CAN_DEEP_WEB_SEARCH"),
     ("WEB_SEARCH", "CAN_WEB_SEARCH"),
     ("SAVE_SESSION", "CAN_SAVE_SESSION"),
     ("CLEAN_TOOL_RESULTS", "CAN_CLEAN_TOOL_RESULTS"),
@@ -523,6 +524,7 @@ def build_runtime_action_instructions(
     )
 
 
+RUNTIME_ACTION_DEEP_WEB_SEARCH = get_runtime_action_name("deep_web_search")
 RUNTIME_ACTION_WEB_SEARCH = get_runtime_action_name("web_search")
 RUNTIME_ACTION_SAVE_SESSION = get_runtime_action_name("save_session")
 RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT = get_runtime_action_name(

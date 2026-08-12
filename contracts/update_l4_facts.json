@@ -10,6 +10,7 @@
       "emit_followup": false
     },
     "rules": [
+      "Use this marker and clean update instruction to add new or update existing L4 facts.",
       "Use this marker only for a meaningful L4 contradiction, ambiguous durable fact, inaccurate formulation, or semantic duplicate that matters to the current understanding.",
       "Do not use it for harmless repetition between L4 and loaded delayed memory, stylistic rewording with no change of meaning, temporary session details, weak suspicions, or issues unrelated to durable memory.",
       "Do not interrupt an unrelated conversation only to clean memory. Raise the issue when it affects the current answer or can be resolved naturally in the current topic.",

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from contracts.rules_assembler import (
+    RUNTIME_ACTION_DEEP_WEB_SEARCH,
     RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
@@ -139,6 +140,22 @@ def _find_all_runtime_action_matches(
             close_tag,
         )
 
+        if action_name == RUNTIME_ACTION_DEEP_WEB_SEARCH:
+            action_matches = (
+                *_find_deep_web_search_block_matches(
+                    text,
+                    private_marker,
+                    action_name,
+                ),
+                *find_runtime_action_matches(
+                    text,
+                    private_marker,
+                    action_name,
+                    False,
+                ),
+                *action_matches,
+            )
+
         if action_name == RUNTIME_ACTION_ASSET_ACTION:
             action_matches = tuple(
                 match
@@ -153,6 +170,94 @@ def _find_all_runtime_action_matches(
     return select_non_overlapping_regexp_matches(
         matches
     )
+
+
+def _find_deep_web_search_block_matches(
+    text: str,
+    private_marker: str,
+    action_name: str,
+) -> tuple[RuntimeActionRegexpMatch, ...]:
+
+    marker_name, placeholder_payload = extract_private_marker_parts(
+        private_marker
+    )
+    names = [
+        name
+        for name in (
+            marker_name,
+            action_name,
+        )
+        if str(name or "").strip()
+    ]
+    name_pattern = "|".join(
+        re.escape(name)
+        for name in dict.fromkeys(names)
+    )
+
+    if not name_pattern:
+        return ()
+
+    placeholder_key = (
+        placeholder_payload
+        or "research objective"
+    ).casefold().strip(
+        "`'\"<>"
+    ).strip()
+    regexp = re.compile(
+        (
+            r"<\s*(?P<name>"
+            + name_pattern
+            + r")"
+            r"(?:\s*:\s*(?P<attribute_payload>[^>\r\n]*?))?"
+            r"\s*>"
+            r"(?P<body>.*?)"
+            r"<\s*/\s*(?:"
+            + name_pattern
+            + r")\s*>+"
+        ),
+        re.IGNORECASE | re.DOTALL,
+    )
+    matches = []
+
+    for match in regexp.finditer(str(text or "")):
+        attribute_payload = str(
+            match.group("attribute_payload")
+            or ""
+        ).strip()
+        body_payload = str(
+            match.group("body")
+            or ""
+        ).strip()
+        attribute_key = attribute_payload.casefold().strip(
+            "`'\"<>"
+        ).strip()
+        payload = (
+            body_payload
+            if (
+                body_payload
+                and (
+                    not attribute_payload
+                    or attribute_key == placeholder_key
+                )
+            )
+            else attribute_payload
+        )
+
+        matches.append(
+            RuntimeActionRegexpMatch(
+                start=match.start(),
+                end=match.end(),
+                raw=match.group(0),
+                name=str(
+                    match.group("name")
+                    or action_name
+                ).strip().upper(),
+                payload=payload,
+                source="regexp",
+            )
+        )
+
+    return tuple(matches)
 
 
 def _is_payloadless_jin_color_marker(
@@ -424,10 +529,25 @@ def normalize_runtime_action_names(
     )
 
 
+def build_deep_web_search_payload(
+    query: str,
+    placeholder_payloads=(),
+) -> str | None:
+
+    return build_web_search_payload(
+        query,
+        (
+            *placeholder_payloads,
+            "research objective",
+        ),
+    )
+
+
 _ACTION_PAYLOAD_BUILDERS = {
     RUNTIME_ACTION_IDLE: build_idle_payload,
     RUNTIME_ACTION_JIN_COLOR: build_jin_color_payload,
     RUNTIME_ACTION_UPDATE_L4_FACTS: build_update_l4_facts_payload,
+    RUNTIME_ACTION_DEEP_WEB_SEARCH: build_deep_web_search_payload,
     RUNTIME_ACTION_WEB_SEARCH: build_web_search_payload,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY: build_save_active_memory_payload,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY: build_resolve_action_payload,

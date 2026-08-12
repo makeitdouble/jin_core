@@ -20,11 +20,11 @@
 }
 
 .runtime-memory-reference-hit .runtime-memory-key,
-.runtime-memory-reference-hit .runtime-memory-value,
+.runtime-memory-reference-hit:not(.runtime-memory-kv-row) .runtime-memory-value,
 .runtime-memory-citation-hit .runtime-memory-key,
-.runtime-memory-citation-hit .runtime-memory-value,
+.runtime-memory-citation-hit:not(.runtime-memory-kv-row) .runtime-memory-value,
 .runtime-memory-context-loaded-hit .runtime-memory-key,
-.runtime-memory-context-loaded-hit .runtime-memory-value {
+.runtime-memory-context-loaded-hit:not(.runtime-memory-kv-row) .runtime-memory-value {
     color: rgba(244, 244, 245, 0.92);
     text-shadow:
             0 0 7px rgba(248, 250, 252, 0.30),
@@ -53,7 +53,7 @@
 }
 
 .runtime-memory-delayed-row-active .runtime-memory-key,
-.runtime-memory-delayed-row-active .runtime-memory-value {
+.runtime-memory-delayed-row-active:not(.runtime-memory-kv-row) .runtime-memory-value {
     color: rgba(244, 244, 245, 0.94);
     text-shadow:
         0 0 5px rgba(240, 253, 250, 0.32),
@@ -61,16 +61,16 @@
 }
 
 .runtime-memory-line:not(.runtime-memory-user-idle):hover .runtime-memory-key,
-.runtime-memory-line:not(.runtime-memory-user-idle):hover .runtime-memory-value,
+.runtime-memory-line:not(.runtime-memory-user-idle):not(.runtime-memory-kv-row):hover .runtime-memory-value,
 .runtime-memory-line:not(.runtime-memory-user-idle):focus-visible .runtime-memory-key,
-.runtime-memory-line:not(.runtime-memory-user-idle):focus-visible .runtime-memory-value {
+.runtime-memory-line:not(.runtime-memory-user-idle):not(.runtime-memory-kv-row):focus-visible .runtime-memory-value {
     color: rgba(244, 244, 245, 0.86);
 }
 
 .runtime-memory-external-hover-hit .runtime-memory-key,
-.runtime-memory-external-hover-hit .runtime-memory-value,
-.runtime-memory-external-hover-hit .runtime-memory-fact-number,
-.runtime-memory-external-hover-hit .runtime-memory-fact-separator {
+.runtime-memory-external-hover-hit:not(.runtime-memory-kv-row) .runtime-memory-value,
+.runtime-memory-external-hover-hit:not(.runtime-memory-kv-row) .runtime-memory-fact-number,
+.runtime-memory-external-hover-hit:not(.runtime-memory-kv-row) .runtime-memory-fact-separator {
     color: rgba(244, 244, 245, 0.96) !important;
 }
 

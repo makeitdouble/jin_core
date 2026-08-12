@@ -138,6 +138,13 @@ SEARCH_MAX_RESULTS = 5
 
 SEARCH_TIMEOUT = 100.0
 
+# DEEP_WEB_SEARCH uses the service model as bounded research workers.
+DEEP_WEB_SEARCH_MAX_QUERIES = 10
+DEEP_WEB_SEARCH_MAX_QUERIES_PER_WORKER = 3
+DEEP_WEB_SEARCH_MAX_WORKER_CALLS = 24
+DEEP_WEB_SEARCH_MAX_DEPTH = 4
+DEEP_WEB_SEARCH_MAX_TOKENS = 700
+
 # ---------------------------------------------------------
 # TRANSLATOR MODEL
 # ---------------------------------------------------------

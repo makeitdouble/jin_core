@@ -1197,13 +1197,13 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             ),
             2,
         )
-        self.assertIn(
-            '"title": "First report"',
+        self.assertRegex(
             loaded_context,
+            r'"title": "First report \( \d+s ago \)"',
         )
-        self.assertIn(
-            '"title": "Second report"',
+        self.assertRegex(
             loaded_context,
+            r'"title": "Second report \( \d+s ago \)"',
         )
 
         tool_results = build_tool_results_context(

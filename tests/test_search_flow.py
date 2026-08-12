@@ -347,11 +347,21 @@ class SearchFlowTests(
                 False,
             )
         )
+        self._original_service_deep_web_search = (
+            SERVICE_AS_BRAIN_RUNTIME_ACTIONS.get(
+                "CAN_DEEP_WEB_SEARCH",
+                False,
+            )
+        )
         SERVICE_AS_BRAIN_RUNTIME_ACTIONS["CAN_WEB_SEARCH"] = True
+        SERVICE_AS_BRAIN_RUNTIME_ACTIONS["CAN_DEEP_WEB_SEARCH"] = True
 
     def tearDown(self):
         SERVICE_AS_BRAIN_RUNTIME_ACTIONS["CAN_WEB_SEARCH"] = (
             self._original_service_web_search
+        )
+        SERVICE_AS_BRAIN_RUNTIME_ACTIONS["CAN_DEEP_WEB_SEARCH"] = (
+            self._original_service_deep_web_search
         )
 
     def test_found_search_result_contains_results(self):
@@ -836,6 +846,129 @@ class SearchFlowTests(
         self.assertEqual(
             len(brain_client.prompts),
             2,
+        )
+
+    async def test_deep_search_marker_runs_child_search_bubbles(self):
+
+        search_provider = FakeSearchProvider(
+            results=[
+                make_result(
+                    title="Blue tomato evidence",
+                    quote="Blue tomato anthocyanin evidence.",
+                ),
+            ],
+        )
+        brain_client = FakeBrainClient(
+            streams=[
+                [
+                    {
+                        "type": "content",
+                        "content": (
+                            "<DEEP_WEB_SEARCH>\n"
+                            "Research blue tomato varieties.\n"
+                            "</DEEP_WEB_SEARCH>"
+                        ),
+                    },
+                ],
+                [
+                    {
+                        "type": "content",
+                        "content": "Blue tomato summary from deep search.",
+                    },
+                ],
+            ],
+            ask_responses=[
+                (
+                    '{"queries":["blue tomato varieties",'
+                    '"blue tomato anthocyanins"],'
+                    '"spawn":[],"report":"need two sources",'
+                    '"done":true}'
+                ),
+                (
+                    '{"queries":[],"spawn":[],'
+                    '"report":"blue tomato final report",'
+                    '"done":true}'
+                ),
+            ],
+        )
+        context = make_context(
+            brain_client,
+            search_provider=search_provider,
+        )
+        state = AgentState(
+            user_input="Research blue tomatoes.",
+            translated_input="Research blue tomatoes.",
+        )
+
+        await BrainNode().run(
+            state,
+            context,
+        )
+
+        runtime_events = [
+            message
+            for message in get_fake_websocket(
+                context
+            ).messages
+            if message.get("type") == "runtime_action"
+            and message.get("action") == "web_search"
+        ]
+        started = [
+            event
+            for event in runtime_events
+            if event.get("status") == "started"
+        ]
+        completed = [
+            event
+            for event in runtime_events
+            if event.get("status") == "completed"
+        ]
+        message_chunks = [
+            message.get(
+                "chunk",
+                "",
+            )
+            for message in get_fake_websocket(
+                context
+            ).messages
+            if message.get("type") == "message_chunk"
+        ]
+        visible_text = "".join(
+            message_chunks
+        )
+
+        self.assertEqual(
+            search_provider.queries,
+            [
+                "blue tomato varieties",
+                "blue tomato anthocyanins",
+            ],
+        )
+        self.assertEqual(
+            [event.get("query") for event in started],
+            search_provider.queries,
+        )
+        self.assertEqual(
+            [event.get("query") for event in completed],
+            search_provider.queries,
+        )
+        self.assertTrue(
+            all(
+                event.get("deep_search_child") is True
+                for event in runtime_events
+            )
+        )
+        self.assertNotIn(
+            "<DEEP_WEB_SEARCH",
+            visible_text,
+        )
+        self.assertNotIn(
+            "</DEEP_WEB_SEARCH>",
+            visible_text,
+        )
+        self.assertEqual(
+            state.brain_response,
+            "Blue tomato summary from deep search.",
         )
 
     async def test_empty_search_results_are_removed_from_brain_context(self):

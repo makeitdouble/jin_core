@@ -140,6 +140,110 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
 
+    def test_extracts_deep_web_search_marker_payload(self):
+
+        result = extract_runtime_actions(
+            (
+                "<DEEP_WEB_SEARCH>\n"
+                "blue tomato varieties\n"
+                "</DEEP_WEB_SEARCH>"
+            ),
+            enabled_actions=[
+                "CAN_DEEP_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            len(result.actions),
+            1,
+        )
+        self.assertEqual(
+            result.actions[0].name,
+            "DEEP_WEB_SEARCH",
+        )
+        self.assertIn(
+            "blue tomato varieties",
+            result.actions[0].payload,
+        )
+
+
+    def test_extracts_legacy_inline_deep_web_search_marker_payload(self):
+
+        result = extract_runtime_actions(
+            "<DEEP_WEB_SEARCH: blue tomato varieties>",
+            enabled_actions=[
+                "CAN_DEEP_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            len(result.actions),
+            1,
+        )
+        self.assertIn(
+            "blue tomato varieties",
+            result.actions[0].payload,
+        )
+
+
+    def test_legacy_inline_deep_web_search_placeholder_is_ignored(self):
+
+        result = extract_runtime_actions(
+            "<DEEP_WEB_SEARCH: research objective >",
+            enabled_actions=[
+                "CAN_DEEP_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.actions,
+            (),
+        )
+
+
+    def test_deep_web_search_block_uses_body_when_attribute_is_placeholder(self):
+
+        result = extract_runtime_actions(
+            (
+                "<DEEP_WEB_SEARCH: research objective >\n"
+                "Identify the movie with the talking head robot.\n"
+                "</DEEP_WEB_SEARCH>"
+            ),
+            enabled_actions=[
+                "CAN_DEEP_WEB_SEARCH",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            len(result.actions),
+            1,
+        )
+        self.assertIn(
+            "talking head robot",
+            result.actions[0].payload,
+        )
+        self.assertNotIn(
+            "research objective",
+            result.actions[0].payload,
+        )
+
+
     def test_extracts_bracketed_web_search_marker_inside_text(self):
 
         result = extract_runtime_actions(

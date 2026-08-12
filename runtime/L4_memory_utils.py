@@ -16,6 +16,9 @@ from utils.tokens import (
     estimate_runtime_tokens,
     estimate_tokens,
 )
+from utils.context.messages import (
+    format_context_message_age_suffix,
+)
 
 
 L4_STORE_VERSION = 2
@@ -2014,6 +2017,34 @@ def format_l4_fact_line(fact: dict, *, include_metadata: bool = True) -> str:
     return line
 
 
+def format_l4_fact_context_age_suffix(
+    fact: dict,
+    *,
+    now: float | None = None,
+) -> str:
+
+    if not isinstance(
+        fact,
+        dict,
+    ):
+        return ""
+
+    return (
+        format_context_message_age_suffix(
+            fact.get(
+                "updated_at",
+            ),
+            now=now,
+        )
+        or format_context_message_age_suffix(
+            fact.get(
+                "created_at",
+            ),
+            now=now,
+        )
+    )
+
+
 def format_l4_merge_detail_fact(fact: dict) -> str:
     if not isinstance(fact, dict):
         return ""
@@ -2097,6 +2128,7 @@ def format_long_term_memory_context(
     facts: list[dict],
     *,
     delayed_memory_ids_by_fact_id=None,
+    now: float | None = None,
 ) -> str:
     lines = []
     delayed_memory_ids_by_fact_id = (
@@ -2144,8 +2176,12 @@ def format_long_term_memory_context(
                 f"{normalized_delayed_memory_id} ]"
             )
 
+        age_suffix = format_l4_fact_context_age_suffix(
+            fact,
+            now=now,
+        )
         lines.append(
-            f"{line}{suffix}"
+            f"{line}{suffix}{age_suffix}"
         )
 
     if not lines:

@@ -2,6 +2,7 @@ import asyncio
 import json
 import tempfile
 import unittest
+from datetime import datetime, timezone
 
 from runtime.L4_memory import (
     apply_l4_memory_store_sync,
@@ -1140,6 +1141,37 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("[ id: F2 ]", context_block)
         self.assertNotIn("source_session_ids", context_block)
         self.assertIn("[source_session_ids: session-a]", ui_line)
+
+    def test_context_includes_fact_age_suffix(self):
+        now = datetime(
+            2026,
+            8,
+            2,
+            12,
+            0,
+            tzinfo=timezone.utc,
+        ).timestamp()
+
+        context_block = format_long_term_memory_context(
+            [
+                {
+                    "id": "F9",
+                    "key": "user.current_focus",
+                    "value": "User is tuning JIN context freshness.",
+                    "created_at": "2026-08-01T12:00:00Z",
+                    "updated_at": "2026-08-02T11:55:00Z",
+                },
+            ],
+            now=now,
+        )
+
+        self.assertIn(
+            (
+                "user.current_focus: User is tuning JIN context freshness. "
+                "[ id: F9 ] ( 5m ago )"
+            ),
+            context_block,
+        )
 
     def test_delayed_report_anchor_stays_visible_with_report_suffix(self):
         context = RuntimeContext(

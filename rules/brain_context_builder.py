@@ -17,6 +17,7 @@ from contracts.rules_assembler import (
 
 
 SERVICE_AS_BRAIN_RUNTIME_ACTIONS = {
+    "CAN_DEEP_WEB_SEARCH": True,
     "CAN_WEB_SEARCH": True,
     "CAN_USE_ASSETS": True,
     "CAN_SAVE_SESSION": True,
@@ -30,6 +31,7 @@ SERVICE_AS_BRAIN_RUNTIME_ACTIONS = {
 }
 
 BRAIN_RUNTIME_ACTIONS = {
+    "CAN_DEEP_WEB_SEARCH": True,
     "CAN_WEB_SEARCH": True,
     "CAN_USE_ASSETS": True,
     "CAN_SAVE_SESSION": True,
@@ -486,7 +488,10 @@ def build_delayed_memory_inventory_context(
             continue
 
         report_names.append(
-            filename[:-5]
+            _append_delayed_memory_context_age(
+                filename[:-5],
+                report,
+            )
         )
 
     if not report_names:
@@ -500,6 +505,45 @@ def build_delayed_memory_inventory_context(
         "<DELAYED_MEMORY>\n"
         + "\n".join(report_names)
         + "\n</DELAYED_MEMORY>"
+    )
+
+
+def _format_delayed_memory_context_age_suffix(
+    report: dict,
+    *,
+    now: float | None = None,
+) -> str:
+
+    from utils.context.messages import (
+        format_context_message_age_suffix,
+    )
+
+    if not isinstance(
+        report,
+        dict,
+    ):
+        return ""
+
+    return format_context_message_age_suffix(
+        report.get(
+            "created_time",
+        )
+        or report.get(
+            "created_date",
+        ),
+        now=now,
+    )
+
+
+def _append_delayed_memory_context_age(
+    text: str,
+    report: dict,
+    *,
+    now: float | None = None,
+) -> str:
+
+    return (
+        f"{text}{_format_delayed_memory_context_age_suffix(report, now=now)}"
     )
 
 
@@ -539,7 +583,16 @@ def build_loaded_delayed_memory_context(
         }
         for field_name in LOADED_DELAYED_MEMORY_CONTEXT_FIELDS:
             if field_name in report:
-                payload[field_name] = report[field_name]
+                field_value = report[field_name]
+                if field_name == "title":
+                    field_value = _append_delayed_memory_context_age(
+                        str(
+                            field_value
+                            or ""
+                        ).strip(),
+                        report,
+                    )
+                payload[field_name] = field_value
 
         blocks.append(
             "<LOADED_DELAYED_MEMORY>\n"

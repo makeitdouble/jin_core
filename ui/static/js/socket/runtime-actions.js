@@ -865,6 +865,10 @@ function handleRuntimeAction(
       data
     );
 
+  const deepSearchChild =
+    data.deep_search_child === true
+    || data.deepSearchChild === true;
+
   const closeTag =
     isRuntimeActionCloseTag(
       data
@@ -1243,6 +1247,8 @@ function handleRuntimeAction(
           detail: runtimeDetail,
           displayName,
           sceneEffect,
+          status,
+          deepSearchChild,
           closeTag,
           pendingUntilL3,
           forceCompletePendingL3,
@@ -1274,6 +1280,7 @@ function handleRuntimeAction(
           runtimeTurnId,
           runtimeMessageId,
           sceneEffect,
+          deepSearchChild,
           forceCompletePendingL3,
         }
       );
@@ -1338,6 +1345,8 @@ function handleRuntimeAction(
       detail: runtimeDetail,
       displayName,
       sceneEffect,
+      status,
+      deepSearchChild,
       closeTag,
       pendingUntilL3,
       forceCompletePendingL3,
@@ -1369,6 +1378,7 @@ function handleRuntimeAction(
         runtimeTurnId,
         runtimeMessageId,
         sceneEffect,
+        deepSearchChild,
         forceCompletePendingL3,
         fallbackToLatestActive:
           terminalFailure,

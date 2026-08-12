@@ -60,6 +60,12 @@ def _normalize_session_action_history_item(
             )
             or ""
         ).strip()
+        plain_sequence = bool(
+            item.get(
+                "runtime_session_action_plain_sequence",
+                False,
+            )
+        )
     else:
         text = str(
             item
@@ -67,6 +73,7 @@ def _normalize_session_action_history_item(
         ).strip()
         parts = []
         jin_message_content = ""
+        plain_sequence = False
 
     return {
         "text": text,
@@ -74,6 +81,7 @@ def _normalize_session_action_history_item(
         "created_at": created_at,
         "runtime_turn_id": runtime_turn_id,
         "jin_message_content": jin_message_content,
+        "plain_sequence": plain_sequence,
     }
 
 
@@ -407,6 +415,12 @@ def build_session_actions_history_context(
 
         action_index += 1
         if current_sequence:
+            if item.get("plain_sequence"):
+                lines.append(
+                    f"{action_index}. {text}"
+                )
+                continue
+
             jin_message_content = _format_jin_message_content(
                 item.get(
                     "jin_message_content",

@@ -2,6 +2,7 @@
 from xml.sax.saxutils import escape
 
 from contracts.rules_assembler import (
+    RUNTIME_ACTION_DEEP_WEB_SEARCH,
     RUNTIME_ACTION_WEB_SEARCH,
 )
 from utils.brain_client_utils import (
@@ -12,6 +13,7 @@ from utils.tool_results import (
     TOOL_RESULT_KIND_ACTIVE_MEMORY,
     TOOL_RESULT_KIND_ASSET,
     TOOL_RESULT_KIND_DELAYED_MEMORY,
+    TOOL_RESULT_KIND_DEEP_SEARCH,
     TOOL_RESULT_KIND_SEARCH,
     TOOL_RESULT_KIND_SESSION,
     get_runtime_tool_results,
@@ -132,6 +134,33 @@ def _append_recorded_tool_results(
             parts.append(
                 f"    <TOOL_RESULT {attrs}>\n"
                 f"{indent_xml(search_result)}\n"
+                "    </TOOL_RESULT>"
+            )
+            appended = True
+            continue
+
+        if kind == TOOL_RESULT_KIND_DEEP_SEARCH:
+            deep_result = str(
+                result
+                or ""
+            ).strip()
+            if not deep_result:
+                continue
+
+            attrs = f'name="{escape(RUNTIME_ACTION_DEEP_WEB_SEARCH)}"'
+            result_id = str(
+                entry.get(
+                    "id",
+                    "",
+                )
+                or ""
+            ).strip()
+            if result_id:
+                attrs += f' id="{escape(result_id)}"'
+
+            parts.append(
+                f"    <TOOL_RESULT {attrs}>\n"
+                f"{indent_xml(deep_result)}\n"
                 "    </TOOL_RESULT>"
             )
             appended = True

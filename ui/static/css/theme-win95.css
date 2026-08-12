@@ -569,11 +569,11 @@ body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-context-lo
 }
 
 body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit .runtime-memory-key,
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit .runtime-memory-value,
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit:not(.runtime-memory-kv-row) .runtime-memory-value,
 body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-citation-hit .runtime-memory-key,
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-citation-hit .runtime-memory-value,
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-citation-hit:not(.runtime-memory-kv-row) .runtime-memory-value,
 body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-context-loaded-hit .runtime-memory-key,
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-context-loaded-hit .runtime-memory-value {
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-context-loaded-hit:not(.runtime-memory-kv-row) .runtime-memory-value {
     color: #005650 !important;
     text-shadow: none;
 }

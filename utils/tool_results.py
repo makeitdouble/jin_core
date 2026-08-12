@@ -3,6 +3,7 @@ from copy import deepcopy
 
 
 TOOL_RESULT_KIND_SEARCH = "search"
+TOOL_RESULT_KIND_DEEP_SEARCH = "deep_search"
 TOOL_RESULT_KIND_ASSET = "asset"
 TOOL_RESULT_KIND_ACTIVE_MEMORY = "active_memory"
 TOOL_RESULT_KIND_DELAYED_MEMORY = "delayed_memory"
@@ -215,6 +216,16 @@ def snapshot_runtime_tool_results_state(
             "runtime_search_result_id",
             "",
         ),
+        "runtime_deep_search_result": getattr(
+            context,
+            "runtime_deep_search_result",
+            "",
+        ),
+        "runtime_deep_search_result_id": getattr(
+            context,
+            "runtime_deep_search_result_id",
+            "",
+        ),
         "list_counts": {
             attribute_name: _runtime_result_list_count(
                 context,
@@ -335,6 +346,21 @@ def clear_runtime_tool_results_before_state(
             "",
         )
 
+    if (
+        state.get("runtime_deep_search_result")
+        or state.get("runtime_deep_search_result_id")
+    ):
+        setattr(
+            context,
+            "runtime_deep_search_result",
+            "",
+        )
+        setattr(
+            context,
+            "runtime_deep_search_result_id",
+            "",
+        )
+
     list_counts = state.get(
         "list_counts",
         {},
@@ -404,6 +430,16 @@ def clear_runtime_tool_results(
     setattr(
         context,
         "runtime_search_result_id",
+        "",
+    )
+    setattr(
+        context,
+        "runtime_deep_search_result",
+        "",
+    )
+    setattr(
+        context,
+        "runtime_deep_search_result_id",
         "",
     )
     for attribute_name in RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES:

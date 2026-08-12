@@ -16,6 +16,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_DEEP_WEB_SEARCH,
     RUNTIME_ACTION_WEB_SEARCH,
     build_runtime_action_display_text,
     get_runtime_action_display_name,
@@ -117,6 +118,12 @@ async def apply_runtime_action_calls(
 
     if not hasattr(
         context,
+        "runtime_deep_search_calls",
+    ):
+        context.runtime_deep_search_calls = []
+
+    if not hasattr(
+        context,
         "runtime_loaded_skills",
     ):
         context.runtime_loaded_skills = []
@@ -202,10 +209,16 @@ async def apply_runtime_action_calls(
         for event in context.runtime_action_events
         if event.get("name") == RUNTIME_ACTION_WEB_SEARCH.lower()
     )
+    deep_search_action_count = sum(
+        1
+        for event in context.runtime_action_events
+        if event.get("name") == RUNTIME_ACTION_DEEP_WEB_SEARCH.lower()
+    )
 
     accepted_action_names = set()
 
     search_calls = []
+    deep_search_calls = []
     filtered_actions = []
     rejected_action_events = {}
     rejected_active_memory_results = []
@@ -238,6 +251,7 @@ async def apply_runtime_action_calls(
         *skill_state_action_names,
         RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
         RUNTIME_ACTION_IDLE,
+        RUNTIME_ACTION_DEEP_WEB_SEARCH,
         RUNTIME_ACTION_WEB_SEARCH,
         RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_UPDATE_L4_FACTS,
@@ -857,6 +871,32 @@ async def apply_runtime_action_calls(
             )
             continue
 
+        if action.name == RUNTIME_ACTION_DEEP_WEB_SEARCH:
+            objective = extract_search_query(
+                action.payload
+            )
+
+            if (
+                not objective
+                or getattr(
+                    context,
+                    "runtime_deep_search_calls",
+                    [],
+                )
+                or getattr(
+                    context,
+                    "runtime_deep_search_result",
+                    "",
+                )
+            ):
+                continue
+
+            if not accept_runtime_action_once_per_message(
+                action,
+                objective,
+            ):
+                continue
+
         if action.name == RUNTIME_ACTION_WEB_SEARCH:
             query = extract_search_query(
                 action.payload
@@ -916,6 +956,7 @@ async def apply_runtime_action_calls(
             )
 
         if action.name not in {
+            RUNTIME_ACTION_DEEP_WEB_SEARCH,
             RUNTIME_ACTION_WEB_SEARCH,
             RUNTIME_ACTION_LOAD_SKILL,
             RUNTIME_ACTION_UNLOAD_SKILL,
@@ -1009,6 +1050,12 @@ async def apply_runtime_action_calls(
             action_event["runtime_turn_id"] = runtime_turn_id
 
         query = ""
+        deep_search_objective = ""
+
+        if action.name == RUNTIME_ACTION_DEEP_WEB_SEARCH:
+            deep_search_objective = extract_search_query(
+                action.payload
+            )
 
         if action.name == RUNTIME_ACTION_WEB_SEARCH:
             query = extract_search_query(
@@ -1025,7 +1072,21 @@ async def apply_runtime_action_calls(
             if active_memory_id:
                 action_event["id"] = active_memory_id
 
-        if query:
+        if deep_search_objective:
+            deep_search_action_count += 1
+            tool_call_id = build_runtime_action_id(
+                action.name,
+                deep_search_action_count,
+            )
+            action_event["id"] = tool_call_id
+            action_event["query"] = deep_search_objective
+            deep_search_calls.append({
+                "id": tool_call_id,
+                "query": deep_search_objective,
+                "context": action_context_snapshot,
+            })
+
+        elif query:
             search_action_count += 1
             tool_call_id = build_runtime_action_id(
                 action.name,
@@ -1345,6 +1406,11 @@ async def apply_runtime_action_calls(
 
         context.runtime_search_calls.extend(
             search_calls
+        )
+
+    if deep_search_calls:
+        context.runtime_deep_search_calls.extend(
+            deep_search_calls
         )
 
     logger = getattr(

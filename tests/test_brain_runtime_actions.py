@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -68,6 +69,9 @@ def assert_not_contains_text(test_case, text: str, needle: str) -> None:
 
 def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
     expected_actions = []
+
+    if bool(runtime_actions.get("CAN_DEEP_WEB_SEARCH", False)):
+        expected_actions.append("DEEP_WEB_SEARCH")
 
     if bool(runtime_actions.get("CAN_WEB_SEARCH", False)):
         expected_actions.append("WEB_SEARCH")
@@ -3388,6 +3392,53 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ),
         )
 
+    def test_prompt_formats_loaded_delayed_memory_title_with_age_suffix(self):
+        now = datetime(
+            2026,
+            8,
+            2,
+            12,
+            0,
+            tzinfo=timezone.utc,
+        ).timestamp()
+        context = SimpleNamespace(
+            runtime_memory="session_status: active",
+            runtime_memory_stable="session_status: active",
+            runtime_l2_memory="",
+            active_memory_records=[],
+            runtime_loaded_delayed_memory={
+                "id": "a1b2c3",
+                "title": "Pinned task plan",
+                "summary": "Use this plan for the next task.",
+                "created_time": "2026-08-02T11:58:00Z",
+            },
+        )
+
+        with patch(
+            "utils.context.messages.time.time",
+            return_value=now,
+        ):
+            prompt = build_brain_context(
+                context=context,
+                runtime_actions={
+                    "CAN_SAVE_DELAYED_MEMORY": True,
+                },
+                user_input="start the task",
+            )
+
+        self.assertIn(
+            '"title": "Pinned task plan ( 2m ago )"',
+            prompt,
+        )
+        loaded_block = prompt[
+            prompt.index("<LOADED_DELAYED_MEMORY>"):
+            prompt.index("</LOADED_DELAYED_MEMORY>")
+        ]
+        self.assertNotIn(
+            '"created_time"',
+            loaded_block,
+        )
+
     def test_prompt_lists_available_delayed_memory_below_session_state(self):
 
         empty_context = SimpleNamespace(
@@ -3492,6 +3543,44 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertNotIn(
             "bad_Invalid_id",
+            prompt,
+        )
+
+    def test_prompt_lists_delayed_memory_inventory_with_age_suffix(self):
+        now = datetime(
+            2026,
+            8,
+            2,
+            12,
+            0,
+            tzinfo=timezone.utc,
+        ).timestamp()
+        context = SimpleNamespace(
+            runtime_memory="session_status: active",
+            runtime_memory_stable="session_status: active",
+            runtime_l2_memory="",
+            active_memory_records=[],
+            delayed_memory_reports={
+                "a1b2c3": {
+                    "title": "Fresh report",
+                    "created_time": "2026-08-02T11:58:00Z",
+                },
+            },
+        )
+
+        with patch(
+            "utils.context.messages.time.time",
+            return_value=now,
+        ):
+            prompt = build_brain_context(
+                context=context,
+                runtime_actions={
+                    "CAN_SAVE_DELAYED_MEMORY": True,
+                },
+            )
+
+        self.assertIn(
+            "a1b2c3_Fresh_report ( 2m ago )",
             prompt,
         )
 

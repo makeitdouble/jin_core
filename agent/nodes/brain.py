@@ -10,6 +10,9 @@ from runtime.L3_memory import (
 from runtime.stream import (
     RuntimeStream,
 )
+from runtime.deep_web_search import (
+    run_deep_web_search,
+)
 
 from clients.brain_client import (
     ask_brain_stream,
@@ -26,6 +29,7 @@ from rules.runtime import (
     REASONING_RECOVERY_MESSAGE,
 )
 from contracts.rules_assembler import (
+    RUNTIME_ACTION_DEEP_WEB_SEARCH,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_WEB_SEARCH,
 )
@@ -56,6 +60,7 @@ from utils.language import (
 )
 from utils.tool_results import (
     TOOL_RESULT_KIND_ASSET,
+    TOOL_RESULT_KIND_DEEP_SEARCH,
     TOOL_RESULT_KIND_SEARCH,
     TOOL_RESULT_KIND_SESSION,
     begin_runtime_tool_results_turn,
@@ -301,6 +306,7 @@ def build_context_limit_recovery_context(
 
 
 FOLLOWUP_SYSTEM_MESSAGE = (
+    "!!!USER IS WAITING!!!\n"
     "!!!DO NOT START A NEW SEQUENCE!!!\n"
     "!!!YOU MUST stop execute and notify user if the original user request is satisfied by CURRENT SEQUENCE steps!!!\n"
     "YOU MUST USE CURRENT_SEQUENCE BLOCK AS THE SOLE SOURCE OF TRUTH FOR THE ACTION ORDER AND EXECUTION STATUS!\n"
@@ -1402,6 +1408,9 @@ class BrainNode(BaseNode):
             context
         )
         context.runtime_turn_reasoning_content = ""
+        context.runtime_deep_search_calls.clear()
+        context.runtime_deep_search_result = ""
+        context.runtime_deep_search_result_id = ""
         context.runtime_search_queries.clear()
         context.runtime_search_calls.clear()
         context.runtime_search_result = ""
@@ -1828,6 +1837,103 @@ class BrainNode(BaseNode):
                 await emit_active_memory_records_update_if_dirty(
                     context
                 )
+
+                text, reasoning = await self.run_brain_stream(
+                    state=state,
+                    context=context,
+                    brain_runtime=brain_runtime,
+                    brain_client=brain_client,
+                    system_prompt=followup_system_prompt,
+                    brain_payload="",
+                    runtime_actions=followup_runtime_actions,
+                    emit_content_to_chat=(
+                        not state.translate_response
+                    ),
+                    filter_runtime_actions=True,
+                )
+
+                followup_count += 1
+                continue
+
+            if context.runtime_deep_search_calls:
+
+                deep_search_call = context.runtime_deep_search_calls.pop(0)
+                objective = str(
+                    deep_search_call.get("query")
+                    or ""
+                ).strip()
+                tool_call_id = str(
+                    deep_search_call.get("id")
+                    or ""
+                ).strip()
+                context.runtime_deep_search_calls.clear()
+
+                # DEEP_WEB_SEARCH owns the web-search budget for this sequence.
+                # Ignore a stray direct WEB_SEARCH emitted alongside it.
+                context.runtime_search_queries.clear()
+                context.runtime_search_calls.clear()
+
+                await logger.log_runtime(
+                    "[RUNTIME ACTION] executing deep web search "
+                    f"id={tool_call_id!r} objective={objective!r}"
+                )
+
+                deep_search_result = await run_deep_web_search(
+                    context=context,
+                    objective=objective,
+                    context_snapshot=deep_search_call.get("context"),
+                )
+
+                mark_runtime_action_completed(
+                    context,
+                    action=RUNTIME_ACTION_DEEP_WEB_SEARCH,
+                    action_id=tool_call_id,
+                )
+                context.runtime_deep_search_result = deep_search_result
+                context.runtime_deep_search_result_id = tool_call_id
+                record_runtime_tool_result(
+                    context,
+                    TOOL_RESULT_KIND_DEEP_SEARCH,
+                    deep_search_result,
+                    result_id=tool_call_id,
+                )
+
+                followup_action_events = consume_current_action_batch()
+                followup_runtime_actions = {
+                    **runtime_actions,
+                    "CAN_DEEP_WEB_SEARCH": False,
+                    "CAN_WEB_SEARCH": False,
+                }
+                latest_followup_action = (
+                    format_followup_actions_from_events(
+                        followup_action_events
+                    )
+                    or format_followup_action_from_event({
+                        "name": RUNTIME_ACTION_DEEP_WEB_SEARCH.lower(),
+                        "id": tool_call_id,
+                    })
+                )
+
+                followup_system_prompt = self.build_followup_system_prompt(
+                    build_brain_context(
+                        context,
+                        runtime_actions=followup_runtime_actions,
+                        commit_active_memory_refresh=True,
+                        include_previous_chat_messages=False,
+                        include_previous_reasoning=False,
+                    ),
+                    sequence_user_request,
+                    context=context,
+                    latest_action=latest_followup_action,
+                    instruction=(
+                        "Answer the latest user request from the trusted "
+                        "DEEP_WEB_SEARCH result. Synthesize the worker reports "
+                        "and source evidence; do not start another web search "
+                        "in this sequence."
+                    ),
+                )
+
+                await emit_active_memory_records_update_if_dirty(context)
 
                 text, reasoning = await self.run_brain_stream(
                     state=state,

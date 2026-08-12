@@ -105,8 +105,208 @@ const RUNTIME_ACTION_GUARD_MAX_ROTATION_SCALE = 0.15;
 const RUNTIME_ACTION_GUARD_MIN_ROTATION_WIDTH = 220;
 const RUNTIME_ACTION_GUARD_MAX_ROTATION_WIDTH = 760;
 const RUNTIME_ACTION_GUARD_MIN_ICON_GAP = 8;
+const RUNTIME_ACTION_ICON_SVG_NS =
+  "http://www.w3.org/2000/svg";
+const runtimeActionIconDefinitions = {
+  web_search: {
+    title: "web search",
+    tone: "search",
+    svg: '<circle cx="10.5" cy="10.5" r="5.25"></circle><path d="m15 15 4 4"></path>',
+  },
+  deep_web_search: {
+    title: "deep web search",
+    tone: "search",
+    svg: '<circle cx="10.5" cy="10.5" r="5.25"></circle><path d="m15 15 4 4"></path><path d="M5.5 10.5h10"></path><path d="M10.5 5.5c1.5 1.6 2.25 3.25 2.25 5s-.75 3.4-2.25 5"></path><path d="M10.5 5.5c-1.5 1.6-2.25 3.25-2.25 5s.75 3.4 2.25 5"></path>',
+  },
+  save_session: {
+    title: "save session",
+    tone: "save",
+    svg: '<path d="M5 4h11l3 3v13H5z"></path><path d="M8 4v6h7V4"></path><path d="M8 16h8"></path>',
+  },
+  save_delayed_memory_content: {
+    title: "save delayed memory",
+    tone: "save",
+    svg: '<path d="M5 4h11l3 3v13H5z"></path><path d="M8 4v6h7V4"></path><path d="M8 16h8"></path>',
+  },
+  load_delayed_memory: {
+    title: "load delayed memory",
+    tone: "memory",
+    svg: '<path d="M5 5h14v14H5z"></path><path d="M8 8h8"></path><path d="M12 8v8"></path><path d="m9 13 3 3 3-3"></path>',
+  },
+  unload_delayed_memory: {
+    title: "unload delayed memory",
+    tone: "delete",
+    svg: '<path d="M9 4h6l1 2h4"></path><path d="M4 6h16"></path><path d="m7 9 .7 10h8.6L17 9"></path><path d="M10 11v5"></path><path d="M14 11v5"></path>',
+  },
+  update_delayed_memory: {
+    title: "update delayed memory",
+    tone: "update",
+    svg: '<path d="M5 5h10l4 4v10H5z"></path><path d="M14 5v5h5"></path><path d="m8 16 1.2-3.2 5.6-5.6 2 2-5.6 5.6z"></path>',
+  },
+  save_active_memory: {
+    title: "save active memory",
+    tone: "memory",
+    svg: '<path d="M7 5h10v15l-5-3-5 3z"></path><path d="M12 8v5"></path><path d="M9.5 10.5h5"></path>',
+  },
+  resolve_active_memory: {
+    title: "resolve active memory",
+    tone: "resolve",
+    svg: '<circle cx="12" cy="12" r="7"></circle><path d="m8.5 12.3 2.2 2.2 4.8-5"></path>',
+  },
+  clean_tool_results: {
+    title: "clean tool results",
+    tone: "clean",
+    svg: '<path d="M14 4 5 13"></path><path d="m11 7 6 6"></path><path d="m3 18 4-4 3 3-4 4H3z"></path><path d="M13.5 14.5 17 18"></path>',
+  },
+  load_skill: {
+    title: "load skill",
+    tone: "skill",
+    svg: '<path d="M8 4h8v5H8z"></path><path d="M6 12h12v8H6z"></path><path d="M12 9v3"></path><path d="M10 16h4"></path>',
+  },
+  unload_skill: {
+    title: "unload skill",
+    tone: "delete",
+    svg: '<path d="M8 4h8v5H8z"></path><path d="M6 12h12v8H6z"></path><path d="M10 16h4"></path><path d="m5 5 14 14"></path>',
+  },
+  asset_action: {
+    title: "asset action",
+    tone: "asset",
+    svg: '<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"></path><path d="M4 7.5 12 12l8-4.5"></path><path d="M12 12v9"></path>',
+  },
+  create_todo_list: {
+    title: "create todo list",
+    tone: "todo",
+    svg: '<path d="M8 6h11"></path><path d="M8 12h11"></path><path d="M8 18h7"></path><path d="M4 6h.01"></path><path d="M4 12h.01"></path><path d="M4 18h.01"></path><path d="M18 16v4"></path><path d="M16 18h4"></path>',
+  },
+  resolve_todo: {
+    title: "resolve todo",
+    tone: "resolve",
+    svg: '<path d="M5 5h14v14H5z"></path><path d="m8.5 12.2 2.2 2.3 4.8-5"></path>',
+  },
+  check_todo: {
+    title: "check todo",
+    tone: "todo",
+    svg: '<path d="M8 4h8l2 3v13H6V7z"></path><path d="M9 12h4"></path><path d="M9 16h6"></path><path d="m14 5 2 2"></path>',
+  },
+  idle: {
+    title: "idle",
+    tone: "idle",
+    svg: '<path d="M17 14.5A7 7 0 0 1 9.5 5a7.5 7.5 0 1 0 7.5 9.5z"></path>',
+  },
+  jin_color: {
+    title: "jin color",
+    tone: "color",
+    svg: '<path d="M12 3C8 7.2 6 10.4 6 13.5A6 6 0 0 0 18 13.5C18 10.4 16 7.2 12 3z"></path><path d="M9.5 14.5c.7 1 1.6 1.5 2.5 1.5s1.8-.5 2.5-1.5"></path>',
+  },
+  update_l4_facts: {
+    title: "update L4 facts",
+    tone: "update",
+    svg: '<ellipse cx="12" cy="6" rx="6" ry="3"></ellipse><path d="M6 6v6c0 1.7 2.7 3 6 3s6-1.3 6-3V6"></path><path d="M6 12v3c0 1.7 2.7 3 6 3 1.3 0 2.4-.2 3.4-.6"></path><path d="m16 16 2 2 3-4"></path>',
+  },
+};
 let runtimeActionGuardGeometryFrame = null;
 let saveSessionPendingUntilL3Active = false;
+
+function normalizeRuntimeActionIconName(
+  action
+) {
+
+  return String(
+    action || ""
+  ).trim().toLowerCase();
+
+}
+
+function getRuntimeActionIconDefinition(
+  action
+) {
+
+  const actionName =
+    normalizeRuntimeActionIconName(
+      action
+    );
+
+  return (
+    runtimeActionIconDefinitions[actionName]
+    || {
+      title: "runtime action",
+      tone: "default",
+      svg: '<circle cx="12" cy="12" r="6"></circle><path d="M12 9v3"></path><path d="M12 15h.01"></path>',
+    }
+  );
+
+}
+
+function appendRuntimeActionIconGlyph(
+  icon,
+  action
+) {
+
+  if (!icon) {
+    return null;
+  }
+
+  const definition =
+    getRuntimeActionIconDefinition(
+      action
+    );
+  const svg =
+    document.createElementNS(
+      RUNTIME_ACTION_ICON_SVG_NS,
+      "svg"
+    );
+
+  icon.classList.add(
+    "jin-runtime-action-icon",
+    `jin-runtime-action-icon-${definition.tone}`
+  );
+  icon.dataset.runtimeActionIcon =
+    normalizeRuntimeActionIconName(
+      action
+    ) || "runtime_action";
+
+  svg.setAttribute(
+    "viewBox",
+    "0 0 24 24"
+  );
+  svg.setAttribute(
+    "aria-hidden",
+    "true"
+  );
+  svg.setAttribute(
+    "focusable",
+    "false"
+  );
+  svg.setAttribute(
+    "fill",
+    "none"
+  );
+  svg.setAttribute(
+    "stroke",
+    "currentColor"
+  );
+  svg.setAttribute(
+    "stroke-width",
+    "1.8"
+  );
+  svg.setAttribute(
+    "stroke-linecap",
+    "round"
+  );
+  svg.setAttribute(
+    "stroke-linejoin",
+    "round"
+  );
+  svg.innerHTML =
+    definition.svg;
+
+  icon.replaceChildren(
+    svg
+  );
+
+  return definition;
+
+}
 
 function isSaveSessionRuntimeAction(
   action
@@ -220,6 +420,92 @@ function runtimeActionRowIsTerminal(
     )
     || /\baborted\b/.test(text)
     || /\bcancelled\b/.test(text)
+  );
+
+}
+
+function isDeepSearchRuntimeActionRow(
+  action,
+  options = {}
+) {
+
+  const normalizedAction =
+    String(
+      action || ""
+    ).trim().toLowerCase();
+
+  return (
+    normalizedAction === "deep_web_search"
+    || (
+      normalizedAction === "web_search"
+      && (
+        options.deepSearchChild === true
+        || options.deep_search_child === true
+      )
+    )
+  );
+
+}
+
+function syncRuntimeActionSearchState(
+  row,
+  action,
+  options = {}
+) {
+
+  if (!row) {
+    return;
+  }
+
+  const isDeepSearch =
+    isDeepSearchRuntimeActionRow(
+      action,
+      options
+    );
+
+  if (!isDeepSearch) {
+    delete row.dataset.runtimeActionDeepSearch;
+    delete row.dataset.runtimeActionStatus;
+    row.classList.remove(
+      "jin-runtime-action-deep-search",
+      "jin-runtime-action-search-active"
+    );
+    return;
+  }
+
+  const status =
+    String(
+      options.status || ""
+    ).trim().toLowerCase();
+
+  if (status) {
+    row.dataset.runtimeActionStatus =
+      status;
+  } else {
+    delete row.dataset.runtimeActionStatus;
+  }
+
+  row.dataset.runtimeActionDeepSearch =
+    "true";
+  row.classList.add(
+    "jin-runtime-action-deep-search"
+  );
+
+  const terminalStatus = [
+    "completed",
+    "complete",
+    "done",
+    "failed",
+    "interrupted",
+    "aborted",
+    "counter_final",
+  ].includes(status);
+
+  row.classList.toggle(
+    "jin-runtime-action-search-active",
+    !terminalStatus
+    && options.completed !== true
+    && options.cancelled !== true
   );
 
 }
@@ -1692,6 +1978,12 @@ function updateRuntimeActionRow(
     options.cancelled
   );
 
+  syncRuntimeActionSearchState(
+    row,
+    action,
+    options
+  );
+
   const pendingUntilL3 =
     Boolean(options.pendingUntilL3)
     || (
@@ -1932,6 +2224,14 @@ function markRuntimeActionRowCompleted(
 
   row.dataset.runtimeActionCompleted =
     "true";
+
+  if (row.dataset.runtimeActionDeepSearch === "true") {
+    row.classList.remove(
+      "opacity-45",
+      "jin-runtime-action-search-active"
+    );
+    return;
+  }
 
   delete row.dataset.runtimeActionPendingL3;
   delete row.dataset.runtimeActionCompletionDeferred;
@@ -2315,14 +2615,13 @@ function appendRuntimeAction(
   }
 
   icon.className =
-    "h-6 w-6 rounded bg-cyan-950/70 border border-cyan-700 flex items-center justify-center text-[12px] shrink-0";
+    "h-6 w-6 rounded bg-cyan-950/70 border border-cyan-700 flex items-center justify-center shrink-0";
 
-  icon.textContent =
-    action === "web_search"
-      ? "🔍"
-      : action === "asset_action"
-        ? "▣"
-        : "●";
+  const iconDefinition =
+    appendRuntimeActionIconGlyph(
+      icon,
+      action
+    );
 
   if (options.contextSnapshot) {
     icon.className +=
@@ -2330,6 +2629,10 @@ function appendRuntimeAction(
 
     icon.title =
       "show action context";
+    icon.setAttribute(
+      "aria-label",
+      `show action context: ${iconDefinition.title}`
+    );
 
     icon.addEventListener(
       "click",
@@ -2350,6 +2653,13 @@ function appendRuntimeAction(
         );
       }
     );
+  } else {
+    icon.title =
+      iconDefinition.title;
+    icon.setAttribute(
+      "aria-hidden",
+      "true"
+    );
   }
 
   const label =
@@ -2368,6 +2678,12 @@ function appendRuntimeAction(
   syncRuntimeActionCancelledState(
     row,
     options.cancelled
+  );
+
+  syncRuntimeActionSearchState(
+    row,
+    action,
+    options
   );
 
   const detail =

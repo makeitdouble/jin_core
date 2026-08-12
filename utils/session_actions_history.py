@@ -802,6 +802,7 @@ def record_session_action_history(
     *,
     display_parts=None,
     preserve_separate: bool = False,
+    plain_sequence: bool = False,
 ) -> None:
 
     if context is None:
@@ -869,6 +870,9 @@ def record_session_action_history(
 
     if preserve_separate:
         item["runtime_session_action_preserve_separate"] = True
+
+    if plain_sequence:
+        item["runtime_session_action_plain_sequence"] = True
 
     runtime_turn_id = get_current_action_sequence_turn_id(
         context

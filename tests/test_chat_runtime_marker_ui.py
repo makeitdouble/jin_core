@@ -6,6 +6,12 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 CHAT_JS = ROOT / "ui" / "static" / "js" / "chat.js"
+CHAT_RUNTIME_ACTIONS_JS = (
+    ROOT / "ui" / "static" / "js" / "chat-runtime-actions.js"
+)
+SOCKET_RUNTIME_ACTIONS_JS = (
+    ROOT / "ui" / "static" / "js" / "socket" / "runtime-actions.js"
+)
 INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
 
@@ -45,6 +51,18 @@ const cases = [
     "before\n<ASSET_ACTION>{\"action\":\"test\"}</ASSET_ACTION>\nafter",
     "before\n\nafter",
   ],
+  [
+    "<DEEP_WEB_SEARCH>\nFind albums like Hitman.\n</DEEP_WEB_SEARCH>",
+    "",
+  ],
+  [
+    "<DEEP_WEB_SEARCH: research objective >\nFind albums like Hitman.\n</DEEP_WEB_SEARCH>",
+    "",
+  ],
+  [
+    "before\n<DEEP_WEB_SEARCH>\nFind albums.\n</DEEP_WEB_SEARCH>\nafter",
+    "before\n\nafter",
+  ],
 ];
 
 for (const [input, expected] of cases) {
@@ -79,8 +97,104 @@ for (const [input, expected] of cases) {
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            '/static/js/chat.js?v=reasoning-gap-1',
+            '/static/js/chat.js?v=deep-search-marker-strip-2',
             source,
+        )
+
+        self.assertIn(
+            '/static/js/chat-runtime-actions.js?v=runtime-action-icons-2',
+            source,
+        )
+
+        self.assertIn(
+            '/static/js/socket/runtime-actions.js?v=deep-search-bubbles-1',
+            source,
+        )
+        self.assertIn(
+            '/static/css/chat-runtime-action.css?v=runtime-action-icons-2',
+            source,
+        )
+
+    def test_runtime_action_icons_cover_core_actions(self):
+        chat_runtime_source = CHAT_RUNTIME_ACTIONS_JS.read_text(
+            encoding="utf-8"
+        )
+
+        for action in (
+            "web_search",
+            "deep_web_search",
+            "save_delayed_memory_content",
+            "save_active_memory",
+            "resolve_active_memory",
+            "unload_delayed_memory",
+            "clean_tool_results",
+            "asset_action",
+            "create_todo_list",
+            "resolve_todo",
+            "check_todo",
+            "load_skill",
+            "unload_skill",
+            "idle",
+            "jin_color",
+            "update_l4_facts",
+        ):
+            self.assertIn(
+                f"{action}: {{",
+                chat_runtime_source,
+            )
+
+        self.assertIn(
+            "appendRuntimeActionIconGlyph(",
+            chat_runtime_source,
+        )
+        self.assertIn(
+            "jin-runtime-action-icon-delete",
+            (
+                ROOT
+                / "ui"
+                / "static"
+                / "css"
+                / "chat-runtime-action.css"
+            ).read_text(
+                encoding="utf-8"
+            ),
+        )
+
+    def test_deep_search_child_runtime_actions_stay_visible(self):
+        chat_runtime_source = CHAT_RUNTIME_ACTIONS_JS.read_text(
+            encoding="utf-8"
+        )
+        socket_runtime_source = SOCKET_RUNTIME_ACTIONS_JS.read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            "function syncRuntimeActionSearchState(",
+            chat_runtime_source,
+        )
+        self.assertIn(
+            'row.dataset.runtimeActionDeepSearch =\n    "true";',
+            chat_runtime_source,
+        )
+        self.assertIn(
+            "row.dataset.runtimeActionDeepSearch === \"true\"",
+            chat_runtime_source,
+        )
+        self.assertIn(
+            '"jin-runtime-action-search-active"',
+            chat_runtime_source,
+        )
+        self.assertIn(
+            "const deepSearchChild =",
+            socket_runtime_source,
+        )
+        self.assertIn(
+            "data.deep_search_child === true",
+            socket_runtime_source,
+        )
+        self.assertIn(
+            "deepSearchChild,",
+            socket_runtime_source,
         )
 
 

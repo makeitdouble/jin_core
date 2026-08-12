@@ -77,9 +77,21 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
             '"runtime-memory-reference-hit"',
             source,
         )
+        self.assertIn(
+            '"runtime-memory-kv-row"',
+            source,
+        )
         css_source = RUNTIME_MEMORY_CSS.read_text(encoding="utf-8")
         self.assertIn(
             '.runtime-memory-reference-hit .runtime-memory-key',
+            css_source,
+        )
+        self.assertIn(
+            '.runtime-memory-reference-hit:not(.runtime-memory-kv-row) .runtime-memory-value',
+            css_source,
+        )
+        self.assertIn(
+            '.runtime-memory-line:not(.runtime-memory-user-idle):not(.runtime-memory-kv-row):hover .runtime-memory-value',
             css_source,
         )
         self.assertNotIn(

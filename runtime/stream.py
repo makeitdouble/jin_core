@@ -43,6 +43,7 @@ from runtime.behavior_contract import (
     should_pause_action_guard_for_confirmation,
 )
 from contracts.rules_assembler import (
+    RUNTIME_ACTION_DEEP_WEB_SEARCH,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
@@ -1076,12 +1077,17 @@ class RuntimeStream:
         result,
     ) -> str | None:
 
-        counter_entries = self.action_counter.record(
-            getattr(
+        observed_actions = tuple(
+            action
+            for action in getattr(
                 result,
                 "observed_actions",
                 (),
             )
+            if action.name != RUNTIME_ACTION_DEEP_WEB_SEARCH
+        )
+        counter_entries = self.action_counter.record(
+            observed_actions
         )
         await emit_runtime_action_counter_updates(
             self.context,
@@ -1938,6 +1944,11 @@ class RuntimeStream:
         )
 
         for action in actions:
+            # DEEP_WEB_SEARCH is an orchestration marker, not a visible chat
+            # event. Its child WEB_SEARCH calls are the visible runtime bubbles.
+            if action.name == RUNTIME_ACTION_DEEP_WEB_SEARCH:
+                continue
+
             display_name = get_runtime_action_display_name(
                 action.name
             )
