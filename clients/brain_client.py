@@ -82,9 +82,30 @@ from utils.actions import (
 from utils.runtime_todo import (
     has_active_runtime_todo,
 )
+from utils.current_context_window import (
+    prepare_current_context_window_prompt,
+)
 from utils.skills_asset_utils import (
     normalize_skill_name,
 )
+
+
+def get_brain_runtime_id() -> str:
+
+    return (
+        config.SERVICE_MODEL_UID
+        if config.USE_SERVICE_AS_BRAIN
+        else config.BRAIN_MODEL_UID
+    )
+
+
+def get_brain_fallback_context_window() -> int:
+
+    return (
+        config.SERVICE_CONTEXT_WINDOW
+        if config.USE_SERVICE_AS_BRAIN
+        else config.BRAIN_CONTEXT_WINDOW
+    )
 
 
 def get_response_enabled_runtime_actions(
@@ -330,6 +351,17 @@ async def ask_brain(
         brain_payload,
         context=context,
     )
+
+    prepared_context_window = await prepare_current_context_window_prompt(
+        client=client,
+        context=context,
+        runtime_id=get_brain_runtime_id(),
+        system_prompt=system_prompt,
+        user_prompt=model_user_prompt,
+        fallback_context_window=get_brain_fallback_context_window(),
+        force_refresh=True,
+    )
+    system_prompt = prepared_context_window.system_prompt
 
     action_context_snapshot = build_brain_context_snapshot(
         context=context,
@@ -611,6 +643,17 @@ async def ask_brain_stream(
         resolved_brain_payload,
         context=context,
     )
+
+    prepared_context_window = await prepare_current_context_window_prompt(
+        client=client,
+        context=context,
+        runtime_id=get_brain_runtime_id(),
+        system_prompt=resolved_system_prompt,
+        user_prompt=model_user_prompt,
+        fallback_context_window=get_brain_fallback_context_window(),
+        force_refresh=True,
+    )
+    resolved_system_prompt = prepared_context_window.system_prompt
 
     loaded_skill_marker_names = {
         normalize_skill_name(

@@ -1,4 +1,8 @@
 import unittest
+from datetime import (
+    datetime,
+    timezone,
+)
 from types import (
     SimpleNamespace,
 )
@@ -123,7 +127,7 @@ class BrainPromptMemoryTests(
             )
             context.runtime_memory = (
                 "active topic: Metaphorical identity query\n"
-                "user_idle: 3m 3s (trace: 0.50)"
+                "user_idle: 3m 3s [ created: 5m ago ]"
             )
             context.runtime_user_idle_seconds = 9
 
@@ -189,6 +193,82 @@ class BrainPromptMemoryTests(
             )
             self.assertIn(
                 "Lamborghini pricing",
+                prompt,
+            )
+
+    def test_brain_prompt_includes_runtime_memory_lifecycle_counters(self):
+
+            context = RuntimeContext(
+                websocket=object(),
+                emitter=object(),
+                logger=object(),
+                clients={},
+            )
+            context.runtime_memory = "topic: first value"
+            context.runtime_memory_snapshot_datetime = datetime(
+                2026,
+                1,
+                1,
+                12,
+                0,
+                0,
+                tzinfo=timezone.utc,
+            )
+            first_snapshot = build_runtime_memory_snapshot(
+                context,
+                context.runtime_memory,
+            )
+            context.runtime_memory_snapshots.append(
+                first_snapshot
+            )
+
+            context.runtime_memory_snapshot_datetime = datetime(
+                2026,
+                1,
+                1,
+                12,
+                5,
+                3,
+                tzinfo=timezone.utc,
+            )
+            prompt = build_brain_context(
+                context=context,
+                runtime_actions={
+                    "CAN_WEB_SEARCH": False,
+                },
+            )
+
+            self.assertIn(
+                "topic: first value [ created: 5m 3s ago ]",
+                prompt,
+            )
+
+            context.runtime_memory = "topic: second value"
+            second_snapshot = build_runtime_memory_snapshot(
+                context,
+                context.runtime_memory,
+            )
+            context.runtime_memory_snapshots.append(
+                second_snapshot
+            )
+            context.runtime_memory_snapshot_datetime = datetime(
+                2026,
+                1,
+                1,
+                12,
+                6,
+                6,
+                tzinfo=timezone.utc,
+            )
+            prompt = build_brain_context(
+                context=context,
+                runtime_actions={
+                    "CAN_WEB_SEARCH": False,
+                },
+            )
+
+            self.assertIn(
+                "topic: second value [ updated: 1m 3s ago ]",
                 prompt,
             )
 
@@ -312,7 +392,7 @@ class BrainPromptMemoryTests(
             )
 
             self.assertIn(
-                "<PREVIOUS_JIN_RESPONSE_REASONING>",
+                "<PREVIOUS_REASONING_CONTENT>",
                 prompt,
             )
             self.assertIn(
@@ -321,10 +401,10 @@ class BrainPromptMemoryTests(
             )
             self.assertLess(
                 prompt.index("</SESSION_ACTIONS_HISTORY>"),
-                prompt.index("<PREVIOUS_JIN_RESPONSE_REASONING>"),
+                prompt.index("<PREVIOUS_REASONING_CONTENT>"),
             )
             self.assertLess(
-                prompt.index("</PREVIOUS_JIN_RESPONSE_REASONING>"),
+                prompt.index("</PREVIOUS_REASONING_CONTENT>"),
                 prompt.index("I identify myself as JIN"),
             )
 
@@ -349,14 +429,14 @@ class BrainPromptMemoryTests(
 
             self.assertIn(
                 (
-                    "<PREVIOUS_JIN_RESPONSE_REASONING>\n"
+                    "<PREVIOUS_REASONING_CONTENT>\n"
                     "\n"
-                    "</PREVIOUS_JIN_RESPONSE_REASONING>"
+                    "</PREVIOUS_REASONING_CONTENT>"
                 ),
                 prompt,
             )
             self.assertLess(
-                prompt.index("<PREVIOUS_JIN_RESPONSE_REASONING>"),
+                prompt.index("<PREVIOUS_REASONING_CONTENT>"),
                 prompt.index("I identify myself as JIN"),
             )
 
@@ -403,7 +483,9 @@ class BrainPromptMemoryTests(
                     long_reasoning
                 ),
                 prefix[:edge_chars]
-                + "\n,,,\n"
+                + "\n"
+                + "---------------------------- CUTTED 600 chars ----------------------------"
+                + "\n"
                 + suffix[-edge_chars:],
             )
 
@@ -431,7 +513,7 @@ class BrainPromptMemoryTests(
             )
 
             self.assertNotIn(
-                "<PREVIOUS_JIN_RESPONSE_REASONING>",
+                "<PREVIOUS_REASONING_CONTENT>",
                 prompt,
             )
 
@@ -444,8 +526,67 @@ class BrainPromptMemoryTests(
             )
 
             self.assertNotIn(
-                "<PREVIOUS_JIN_RESPONSE_REASONING>",
+                "<PREVIOUS_REASONING_CONTENT>",
                 guarded_prompt,
+            )
+
+    def test_previous_reasoning_loop_blocks_render_in_existing_slot(self):
+
+            context = SimpleNamespace(
+                runtime_memory="",
+                deep_thought_count=0,
+                runtime_search_result="",
+                runtime_search_result_id="",
+                runtime_session_action_history=[
+                    {
+                        "text": "output token limit reached during reasoning",
+                    },
+                ],
+                runtime_previous_reasoning_content="ordinary reasoning",
+                runtime_previous_reasoning_loop_contents=[
+                    (
+                        "loop one opening "
+                        + "m" * 1200
+                        + " loop one ending"
+                    ),
+                    "loop two short",
+                ],
+            )
+
+            prompt = build_brain_context(
+                context=context,
+                runtime_actions={
+                    "CAN_WEB_SEARCH": False,
+                },
+                include_runtime_action_instructions=False,
+                include_previous_reasoning=False,
+            )
+
+            self.assertEqual(
+                prompt.count("<PREVIOUS_REASONING_LOOP_CONTENT>"),
+                2,
+            )
+            self.assertIn(
+                (
+                    "---------------------------- CUTTED "
+                ),
+                prompt,
+            )
+            self.assertIn(
+                "loop two short",
+                prompt,
+            )
+            self.assertNotIn(
+                "ordinary reasoning",
+                prompt,
+            )
+            self.assertLess(
+                prompt.index("</SESSION_ACTIONS_HISTORY>"),
+                prompt.index("<PREVIOUS_REASONING_LOOP_CONTENT>"),
+            )
+            self.assertLess(
+                prompt.rindex("</PREVIOUS_REASONING_LOOP_CONTENT>"),
+                prompt.index("I identify myself as JIN"),
             )
 
     def test_current_action_age_starts_at_one_second(self):

@@ -47,10 +47,10 @@ class DelayedMemoryPinnedGlowClientContractTests(unittest.TestCase):
     def test_cache_versions_are_bumped(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertIn("/static/css/runtime-memory.css?v=delayed-context-loaded-1", source)
-        self.assertIn("/static/js/runtime/runtime.js?v=delayed-context-loaded-1", source)
+        self.assertIn("/static/css/runtime-memory.css?v=memory-highlight-text-1", source)
+        self.assertIn("/static/js/runtime/runtime.js?v=delayed-fact-link-1", source)
         self.assertIn("/static/js/chat-attachments.js?v=chat-attachments-4", source)
-        self.assertIn("/static/js/logger/trace-modal.js?v=context-marker-layout-1", source)
+        self.assertIn("/static/js/logger/trace-modal.js?v=context-copy-1", source)
         self.assertIn("/static/js/logger/session-actions.js?v=logger-session-actions-6", source)
 
 

@@ -1482,7 +1482,7 @@
     return {
       ...snapshot,
       session_id: runtimeSessionId,
-      persisted_pheromone_strength: true,
+      persisted_memory_scores: true,
     };
 
   }

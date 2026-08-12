@@ -1,6 +1,10 @@
 import json
 import re
 import unicodedata
+from datetime import (
+    datetime,
+    timezone,
+)
 from difflib import SequenceMatcher
 
 from runtime.L1_memory_rules import (
@@ -12,7 +16,7 @@ from runtime.L1_memory_rules import (
     GENERIC_MEMORY_MATCH_KEYS,
     GENERIC_MEMORY_VALUE_SIMILARITY_MIN,
     HOT_THRESHOLD,
-    HOT_TRACE_EXCLUDED_KEYS,
+    HOT_MEMORY_KEY_EXCLUDED_KEYS,
     INTERRUPTED_ASSISTANT_MEMORY_TEMPLATE,
     REPEATABLE_RUNTIME_MEMORY_KEY_FAMILIES,
     RUNTIME_MEMORY_CONFIRMATION_SUFFIX_PATTERN,
@@ -74,8 +78,8 @@ RUNTIME_MEMORY_KEY_PREFIX_RE = re.compile(
     r"^\s*-?\s*[A-Za-z][A-Za-z0-9_ #]{0,80}\s*:",
 )
 
-RUNTIME_MEMORY_TRACE_SUFFIX_RE = re.compile(
-    r"\s*(?:\[\s*trace\s*:\s*[^\]]*\]|\(\s*trace\s*:\s*[^)]*\))\s*",
+LEGACY_RUNTIME_MEMORY_SCORE_SUFFIX_RE = re.compile(
+    r"\s*(?:\[\s*t\s*r\s*a\s*c\s*e\s*:\s*[^\]]*\]|\(\s*t\s*r\s*a\s*c\s*e\s*:\s*[^)]*\))\s*",
     re.IGNORECASE,
 )
 
@@ -84,6 +88,15 @@ RUNTIME_MEMORY_QUOTE_COUNT_SUFFIX_RE = re.compile(
         r"\s*\[\s*"
         r"(?:total_quotes_count|messages_quote_count)"
         r"\s*:\s*\d+\s*\]\s*"
+    ),
+    re.IGNORECASE,
+)
+
+RUNTIME_MEMORY_LIFECYCLE_SUFFIX_RE = re.compile(
+    (
+        r"\s*\[\s*"
+        r"(?:created|updated)"
+        r"\s*:\s*[^]]+?\s+ago\s*\]\s*"
     ),
     re.IGNORECASE,
 )
@@ -890,9 +903,13 @@ def strip_runtime_memory_line_metadata(
         value: str,
 ) -> str:
 
-    cleaned = RUNTIME_MEMORY_TRACE_SUFFIX_RE.sub(
+    cleaned = LEGACY_RUNTIME_MEMORY_SCORE_SUFFIX_RE.sub(
         " ",
         str(value or ""),
+    )
+    cleaned = RUNTIME_MEMORY_LIFECYCLE_SUFFIX_RE.sub(
+        " ",
+        cleaned,
     )
     cleaned = RUNTIME_MEMORY_QUOTE_COUNT_SUFFIX_RE.sub(
         " ",
@@ -1019,6 +1036,257 @@ def format_user_idle_seconds(
     return f"{days}d"
 
 
+def format_runtime_memory_elapsed_seconds(
+        seconds,
+) -> str:
+
+    try:
+        total_seconds = max(
+            0,
+            int(seconds),
+        )
+    except (
+            TypeError,
+            ValueError,
+    ):
+        total_seconds = 0
+
+    return format_user_idle_seconds(
+        total_seconds
+    ) or "0s"
+
+
+def get_runtime_memory_snapshot_datetime(
+        context=None,
+) -> datetime:
+
+    override = getattr(
+        context,
+        "runtime_memory_snapshot_datetime",
+        None,
+    )
+
+    if isinstance(
+        override,
+        datetime,
+    ):
+        if override.tzinfo is None:
+            return override.replace(
+                tzinfo=timezone.utc,
+            )
+
+        return override.astimezone(
+            timezone.utc
+        )
+
+    if override:
+        parsed = parse_runtime_memory_lifecycle_datetime(
+            override
+        )
+
+        if parsed is not None:
+            return parsed
+
+    return datetime.now(
+        timezone.utc
+    ).replace(
+        microsecond=0
+    )
+
+
+def format_runtime_memory_lifecycle_timestamp(
+        value,
+) -> str:
+
+    parsed = parse_runtime_memory_lifecycle_datetime(
+        value
+    )
+
+    if parsed is None:
+        parsed = get_runtime_memory_snapshot_datetime()
+
+    return parsed.astimezone(
+        timezone.utc
+    ).replace(
+        microsecond=0
+    ).isoformat()
+
+
+def parse_runtime_memory_lifecycle_datetime(
+        value,
+) -> datetime | None:
+
+    if isinstance(
+        value,
+        datetime,
+    ):
+        parsed = value
+    else:
+        text = str(
+            value or ""
+        ).strip()
+
+        if not text:
+            return None
+
+        try:
+            parsed = datetime.fromisoformat(
+                text.replace(
+                    "Z",
+                    "+00:00",
+                )
+            )
+        except ValueError:
+            return None
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(
+            tzinfo=timezone.utc,
+        )
+
+    return parsed.astimezone(
+        timezone.utc
+    )
+
+
+def get_runtime_memory_lifecycle_status(
+        line: dict,
+) -> str:
+
+    status = str(
+        line.get(
+            "memory_lifecycle_status",
+            "",
+        )
+        or ""
+    ).strip().lower()
+
+    if status in {
+        "created",
+        "updated",
+    }:
+        return status
+
+    if line.get(
+        "updated_at",
+    ):
+        return "updated"
+
+    return "created"
+
+
+def set_runtime_memory_line_lifecycle(
+        line: dict,
+        previous_line: dict | None,
+        *,
+        changed: bool,
+        snapshot_time: datetime,
+) -> None:
+
+    snapshot_timestamp = format_runtime_memory_lifecycle_timestamp(
+        snapshot_time
+    )
+
+    created_at = (
+        previous_line.get(
+            "created_at",
+        )
+        if isinstance(previous_line, dict)
+        else None
+    )
+    if not created_at:
+        created_at = snapshot_timestamp
+
+    previous_status = (
+        get_runtime_memory_lifecycle_status(
+            previous_line
+        )
+        if isinstance(previous_line, dict)
+        else "created"
+    )
+    previous_updated_at = (
+        previous_line.get(
+            "updated_at",
+        )
+        if isinstance(previous_line, dict)
+        else None
+    )
+
+    if changed:
+        line["memory_lifecycle_status"] = "updated"
+        line["updated_at"] = snapshot_timestamp
+    elif previous_status == "updated":
+        line["memory_lifecycle_status"] = "updated"
+        line["updated_at"] = (
+            format_runtime_memory_lifecycle_timestamp(
+                previous_updated_at
+            )
+            if previous_updated_at
+            else snapshot_timestamp
+        )
+    else:
+        line["memory_lifecycle_status"] = "created"
+        line["updated_at"] = ""
+
+    line["created_at"] = format_runtime_memory_lifecycle_timestamp(
+        created_at
+    )
+
+
+def format_runtime_memory_lifecycle_suffix(
+        line: dict,
+        *,
+        now: datetime | None = None,
+) -> str:
+
+    if not isinstance(
+        line,
+        dict,
+    ):
+        return ""
+
+    status = get_runtime_memory_lifecycle_status(
+        line
+    )
+    timestamp = line.get(
+        "updated_at" if status == "updated" else "created_at",
+    )
+    parsed_timestamp = parse_runtime_memory_lifecycle_datetime(
+        timestamp
+    )
+
+    if parsed_timestamp is None:
+        return ""
+
+    current_time = (
+        now
+        if isinstance(now, datetime)
+        else get_runtime_memory_snapshot_datetime()
+    )
+    if current_time.tzinfo is None:
+        current_time = current_time.replace(
+            tzinfo=timezone.utc,
+        )
+    current_time = current_time.astimezone(
+        timezone.utc
+    )
+
+    elapsed_seconds = max(
+        0,
+        int(
+            (
+                current_time
+                - parsed_timestamp
+            ).total_seconds()
+        ),
+    )
+
+    return (
+        f" [ {status}: "
+        f"{format_runtime_memory_elapsed_seconds(elapsed_seconds)} ago ]"
+    )
+
+
 def get_user_idle_context_text(
         context=None,
 ) -> str:
@@ -1081,9 +1349,135 @@ def remove_runtime_user_idle_lines(
         lines
     )
 
+
+def build_runtime_memory_lifecycle_maps(
+        context=None,
+) -> tuple[dict[str, dict], dict[str, dict]]:
+
+    snapshots = list(
+        getattr(
+            context,
+            "runtime_memory_snapshots",
+            [],
+        )
+        or []
+    )
+
+    if not snapshots:
+        return {}, {}
+
+    latest_lines = (
+        snapshots[-1].get(
+            "lines",
+            [],
+        )
+        or []
+    )
+
+    by_identity = {}
+    by_key = {}
+
+    for line in latest_lines:
+        if not isinstance(
+            line,
+            dict,
+        ):
+            continue
+
+        identity = runtime_memory_line_identity(
+            line
+        )
+
+        if identity:
+            by_identity[identity] = line
+
+        key = normalize_memory_key(
+            line.get(
+                "key",
+                "",
+            )
+        )
+
+        if key:
+            by_key[key] = line
+
+    return by_identity, by_key
+
+
+def append_runtime_memory_lifecycle_suffixes(
+        lines: list[str],
+        context=None,
+) -> list[str]:
+
+    by_identity, by_key = build_runtime_memory_lifecycle_maps(
+        context
+    )
+
+    if (
+            not by_identity
+            and not by_key
+    ):
+        return lines
+
+    now = get_runtime_memory_snapshot_datetime(
+        context
+    )
+    annotated_lines = []
+
+    for raw_line in lines:
+        parsed_lines = parse_runtime_memory_lines(
+            raw_line
+        )
+
+        if len(parsed_lines) != 1:
+            annotated_lines.append(
+                raw_line
+            )
+            continue
+
+        parsed_line = parsed_lines[0]
+        source_line = (
+            by_identity.get(
+                runtime_memory_line_identity(
+                    parsed_line
+                )
+            )
+            or by_key.get(
+                normalize_memory_key(
+                    parsed_line.get(
+                        "key",
+                        "",
+                    )
+                )
+            )
+        )
+        suffix = format_runtime_memory_lifecycle_suffix(
+            source_line,
+            now=now,
+        )
+
+        if not suffix:
+            annotated_lines.append(
+                raw_line
+            )
+            continue
+
+        annotated_lines.append(
+            (
+                f"{parsed_line.get('key', 'note')}: "
+                f"{parsed_line.get('value', '')}"
+                f"{suffix}"
+            ).strip()
+        )
+
+    return annotated_lines
+
+
 def build_runtime_memory_context_text(
         memory: str,
         context=None,
+        *,
+        include_lifecycle_suffixes: bool = False,
 ) -> str:
 
     durable_memory = remove_runtime_user_idle_lines(
@@ -1129,6 +1523,12 @@ def build_runtime_memory_context_text(
     if user_idle_text:
         lines.append(
             f"{RUNTIME_USER_IDLE_KEY}: {user_idle_text}"
+        )
+
+    if include_lifecycle_suffixes:
+        lines = append_runtime_memory_lifecycle_suffixes(
+            lines,
+            context,
         )
 
     return "\n".join(
@@ -2019,28 +2419,22 @@ def format_runtime_memory_quote_suffix(
     )
 
 
-def format_runtime_memory_trace_suffix(
+def format_runtime_memory_status_suffix(
         line: dict,
+        *,
+        now: datetime | None = None,
 ) -> str:
 
-    strength = line.get(
-        "strength",
+    return format_runtime_memory_lifecycle_suffix(
+        line,
+        now=now,
     )
-
-    if strength is None:
-        return ""
-
-    try:
-        return f" [trace: {float(strength):.2f}]"
-    except (
-            TypeError,
-            ValueError,
-    ):
-        return f" [trace: {strength}]"
 
 
 def build_runtime_memory_annotated_text(
         lines: list[dict],
+        *,
+        now: datetime | None = None,
 ) -> str:
 
     annotated_lines = []
@@ -2064,7 +2458,7 @@ def build_runtime_memory_annotated_text(
         annotated_lines.append(
             (
                 f"{key}: {value}"
-                f"{format_runtime_memory_trace_suffix(line)}"
+                f"{format_runtime_memory_status_suffix(line, now=now)}"
                 f"{format_runtime_memory_quote_suffix(line)}"
             ).strip()
         )
@@ -2078,11 +2472,11 @@ def get_strength_zones(
         lines: list[dict],
 ) -> dict:
     hot = []
-    excluded_hot_trace_keys = {
+    excluded_hot_memory_keys = {
         normalize_memory_key(
             key
         )
-        for key in HOT_TRACE_EXCLUDED_KEYS
+        for key in HOT_MEMORY_KEY_EXCLUDED_KEYS
     }
 
     for line in lines:
@@ -2091,7 +2485,7 @@ def get_strength_zones(
         if strength >= HOT_THRESHOLD:
             if normalize_memory_key(
                 key
-            ) in excluded_hot_trace_keys:
+            ) in excluded_hot_memory_keys:
                 continue
             hot.append(key)
 
@@ -2360,7 +2754,14 @@ def apply_runtime_memory_diff(
         previous_snapshot: dict | None,
         context=None,
         pending_quote_identities: set[str] | None = None,
+        snapshot_time: datetime | None = None,
 ) -> list[dict]:
+
+    snapshot_time = (
+        snapshot_time
+        if isinstance(snapshot_time, datetime)
+        else get_runtime_memory_snapshot_datetime(context)
+    )
 
     if not previous_snapshot:
         for line in current_lines:
@@ -2374,6 +2775,12 @@ def apply_runtime_memory_diff(
             line["key_change_ratio"] = 1.0
             line["value_change_ratio"] = 1.0
             line["status"] = "new"
+            set_runtime_memory_line_lifecycle(
+                line,
+                None,
+                changed=False,
+                snapshot_time=snapshot_time,
+            )
             line["strength"] = compute_line_strength(
                 prev_strength=None,
                 change_ratio_val=1.0,
@@ -2479,6 +2886,12 @@ def apply_runtime_memory_diff(
             line["key_change_ratio"] = 1.0
             line["value_change_ratio"] = 1.0
             line["status"] = "new"
+            set_runtime_memory_line_lifecycle(
+                line,
+                None,
+                changed=False,
+                snapshot_time=snapshot_time,
+            )
             line["strength"] = compute_line_strength(
                 prev_strength=None,
                 change_ratio_val=1.0,
@@ -2535,9 +2948,18 @@ def apply_runtime_memory_diff(
                 or line["value_status"] == "changed"
         ):
             line["status"] = "changed"
+            lifecycle_changed = True
 
         else:
             line["status"] = "same"
+            lifecycle_changed = False
+
+        set_runtime_memory_line_lifecycle(
+            line,
+            previous_line,
+            changed=lifecycle_changed,
+            snapshot_time=snapshot_time,
+        )
 
         exact_identity_match = (
                 exact_previous_line is not None
@@ -2806,6 +3228,9 @@ def build_runtime_memory_snapshot(
         memory: str,
 ) -> dict:
 
+    snapshot_time = get_runtime_memory_snapshot_datetime(
+        context
+    )
     snapshots = getattr(
         context,
         "runtime_memory_snapshots",
@@ -2838,6 +3263,7 @@ def build_runtime_memory_snapshot(
         previous_snapshot,
         context=context,
         pending_quote_identities=pending_quote_identities,
+        snapshot_time=snapshot_time,
     )
 
     patch_details = build_runtime_memory_patch(
@@ -2864,9 +3290,13 @@ def build_runtime_memory_snapshot(
             "assistant_message_count",
             0,
         ),
+        "created_at": format_runtime_memory_lifecycle_timestamp(
+            snapshot_time
+        ),
         "raw_memory": display_memory,
         "annotated_memory": build_runtime_memory_annotated_text(
-            lines
+            lines,
+            now=snapshot_time,
         ),
         "lines": lines,
         "patch": patch_details["patch"],
@@ -2981,6 +3411,9 @@ def rebuild_latest_runtime_memory_snapshot(
         return None
 
     latest_snapshot = snapshots[-1]
+    snapshot_time = get_runtime_memory_snapshot_datetime(
+        context
+    )
     previous_snapshot = (
         snapshots[-2]
         if len(snapshots) > 1
@@ -3009,6 +3442,7 @@ def rebuild_latest_runtime_memory_snapshot(
             "runtime_memory_pending_quote_identities",
             set(),
         ),
+        snapshot_time=snapshot_time,
     )
 
     patch_details = build_runtime_memory_patch(
@@ -3018,9 +3452,15 @@ def rebuild_latest_runtime_memory_snapshot(
 
     refreshed_snapshot = {
         **latest_snapshot,
+        "created_at": latest_snapshot.get(
+            "created_at",
+        ) or format_runtime_memory_lifecycle_timestamp(
+            snapshot_time
+        ),
         "raw_memory": display_memory,
         "annotated_memory": build_runtime_memory_annotated_text(
-            lines
+            lines,
+            now=snapshot_time,
         ),
         "lines": lines,
         "patch": patch_details["patch"],

@@ -358,7 +358,7 @@
   }
 
 
-  // Removes bracket metadata from every runtime memory line for plain fallback rendering, e.g. "note: hi [trace: 0.50]" -> "note: hi".
+  // Removes bracket metadata from every runtime memory line for plain fallback rendering, e.g. "note: hi [ created: 1s ago ]" -> "note: hi".
   function stripMemoryTextMetaForDisplay(text) {
 
     return splitMemoryTextLines(text)
@@ -714,16 +714,120 @@
   }
 
 
-  function formatRuntimeMemoryStrengthProperties(line) {
+  function formatRuntimeMemoryElapsedSeconds(value) {
 
-    const strength =
-        Number(line && line.strength);
+    const totalSeconds =
+        Math.max(
+          0,
+          Math.floor(Number(value || 0))
+        );
 
-    if (!Number.isFinite(strength)) {
+    if (totalSeconds < 60) {
+      return `${totalSeconds}s`;
+    }
+
+    const totalMinutes =
+        Math.floor(totalSeconds / 60);
+    const seconds =
+        totalSeconds % 60;
+
+    if (totalMinutes < 60) {
+      return seconds
+        ? `${totalMinutes}m ${seconds}s`
+        : `${totalMinutes}m`;
+    }
+
+    const totalHours =
+        Math.floor(totalMinutes / 60);
+    const minutes =
+        totalMinutes % 60;
+
+    if (totalHours < 24) {
+      return minutes
+        ? `${totalHours}h ${minutes}m`
+        : `${totalHours}h`;
+    }
+
+    const days =
+        Math.floor(totalHours / 24);
+    const hours =
+        totalHours % 24;
+
+    return hours
+      ? `${days}d ${hours}h`
+      : `${days}d`;
+
+  }
+
+
+  function parseRuntimeMemoryLifecycleTimestamp(value) {
+
+    const text =
+        String(value || "").trim();
+
+    if (!text) {
+      return null;
+    }
+
+    const timestamp =
+        Date.parse(text);
+
+    return Number.isFinite(timestamp)
+      ? timestamp
+      : null;
+
+  }
+
+
+  function getRuntimeMemoryLifecycleStatus(line) {
+
+    const status =
+        String(line && line.memory_lifecycle_status || "")
+          .trim()
+          .toLowerCase();
+
+    if (
+        status === "created"
+        || status === "updated"
+    ) {
+      return status;
+    }
+
+    return line && line.updated_at
+      ? "updated"
+      : "created";
+
+  }
+
+
+  function formatRuntimeMemoryLifecycleProperties(line) {
+
+    if (!line || typeof line !== "object") {
       return [];
     }
 
-    return [`trace: ${strength.toFixed(2)}`];
+    const status =
+        getRuntimeMemoryLifecycleStatus(line);
+    const timestamp =
+        parseRuntimeMemoryLifecycleTimestamp(
+          status === "updated"
+            ? line.updated_at
+            : line.created_at
+        );
+
+    if (timestamp === null) {
+      return [];
+    }
+
+    const elapsedSeconds =
+        Math.max(
+          0,
+          Math.floor((Date.now() - timestamp) / 1000)
+        );
+
+    return [
+      `[ ${status}: ${formatRuntimeMemoryElapsedSeconds(elapsedSeconds)} ago ]`,
+    ];
 
   }
 
@@ -751,7 +855,7 @@
   }
 
 
-  // Builds the UI value presentation while keeping raw hover data, e.g. value "Book" with strength 0.5 -> text "Book", raw "Book [trace: 0.50]".
+  // Builds the UI value presentation while keeping raw hover data, e.g. value "Book" with lifecycle data -> text "Book [ created: 1s ago ]".
   function buildRuntimeMemoryValuePresentation(line) {
 
     const value =
@@ -763,10 +867,13 @@
     const parsedValue =
         splitMemoryMeta(value);
 
-    const strengthProperties =
-        memoryMetaHasTag(parsedValue, "trace")
+    const lifecycleProperties =
+        [
+          "created",
+          "updated",
+        ].some(tag => memoryMetaHasTag(parsedValue, tag))
           ? []
-          : formatRuntimeMemoryStrengthProperties(line);
+          : formatRuntimeMemoryLifecycleProperties(line);
     const quoteCountProperties =
         [
           "total_quotes_count",
@@ -779,7 +886,7 @@
         appendProperties(
           displayValue,
           [
-            ...strengthProperties,
+            ...lifecycleProperties,
             ...quoteCountProperties,
           ]
         );
@@ -787,23 +894,34 @@
     const presentation =
         splitMemoryMeta(rawValue);
 
+    let displayText =
+        presentation.text;
+
     if (
         normalizeRuntimeMemoryKey(line && line.key) === "user_message"
     ) {
-      presentation.text =
+      displayText =
           formatUserMessageValueForDisplay(
               displayValue
           );
     } else if (
         isJinResponseRuntimeMemoryKey(line && line.key)
     ) {
-      presentation.text =
+      displayText =
           formatJinResponseValueForDisplay(
-              presentation.text
+              displayText
           );
     }
 
-    return presentation;
+    return {
+      ...presentation,
+      text: lifecycleProperties.length
+        ? appendProperties(
+            displayText,
+            lifecycleProperties
+          )
+        : displayText,
+    };
 
   }
 
@@ -995,7 +1113,7 @@
     consumeRuntimeMemorySnapshotFlash,
     removeRuntimeMemoryLineByKey,
     upsertRuntimeMemoryLine,
-    formatRuntimeMemoryStrengthProperties,
+    formatRuntimeMemoryLifecycleProperties,
     buildRuntimeMemoryValuePresentation,
     formatUserMessageValueForDisplay,
     runtimeMemoryDisplay,

@@ -15,6 +15,8 @@
   let setDelayedMemoryReportPinned = null;
   let updateDelayedMemoryReportFields = null;
   let setDelayedMemoryReportAnchorFactIds = null;
+  let linkDelayedMemoryReportFactId = null;
+  let unlinkDelayedMemoryReportFactId = null;
   let deleteDelayedMemoryReport = null;
   let getFactsMemoryFields = null;
   let deleteFactsMemoryField = null;
@@ -106,6 +108,16 @@
 
   const runtimeDiffMax =
       document.getElementById("runtime-diff-max");
+
+  const settingsPanel =
+      document.getElementById("settings-panel");
+
+  const MEMORY_PANEL_COLLAPSE_SYNC_EVENT =
+      "jin:memory-panel-collapse-sync";
+
+  let pendingRuntimeMemoryRender = false;
+  let memoryHighlightsSuspended = false;
+  let memoryPanelVisibilityEventsBound = false;
 
   function requireRuntimeMemoryHistory() {
     if (!runtimeMemoryHistory) {
@@ -342,6 +354,121 @@
     return memoryReferenceHighlightState.persistentText || "";
   }
 
+  function isRuntimeMemoryPanelCollapsed() {
+    return Boolean(
+      settingsPanel
+      && settingsPanel.classList.contains(
+        "panel-collapsed"
+      )
+    );
+  }
+
+  function isRuntimeMemoryViewDomConnected() {
+    return Boolean(
+      runtimeMemoryText
+      && runtimeMemoryText.isConnected
+    );
+  }
+
+  function isRuntimeMemoryViewSuspended() {
+    return (
+      isRuntimeMemoryPanelCollapsed()
+      || !isRuntimeMemoryViewDomConnected()
+    );
+  }
+
+  function clearRuntimeMemoryHighlightClasses() {
+    if (!runtimeMemoryText || !runtimeMemoryText.isConnected) {
+      return;
+    }
+
+    runtimeMemoryText
+      .querySelectorAll(
+        [
+          ".runtime-memory-reference-hit",
+          ".runtime-memory-citation-hit",
+          ".runtime-memory-external-hover-hit",
+        ].join(", ")
+      )
+      .forEach((row) => {
+        row.classList.remove(
+          "runtime-memory-reference-hit",
+          "runtime-memory-citation-hit",
+          "runtime-memory-external-hover-hit"
+        );
+      });
+  }
+
+  function suspendRuntimeMemoryHighlights() {
+    if (memoryHighlightsSuspended) {
+      return;
+    }
+
+    clearRuntimeMemoryHighlightClasses();
+    memoryHighlightsSuspended = true;
+  }
+
+  function getCurrentRuntimeAvatarSourceSnapshot() {
+    if (
+      !runtimeMemoryHistory
+      || !Array.isArray(runtimeMemoryHistory.snapshots)
+      || runtimeMemoryHistory.index < 0
+    ) {
+      return null;
+    }
+
+    return runtimeMemoryHistory.snapshots[
+      runtimeMemoryHistory.index
+    ] || null;
+  }
+
+  function handleRuntimeMemoryPanelVisibilityChange() {
+    if (isRuntimeMemoryViewSuspended()) {
+      suspendRuntimeMemoryHighlights();
+      return;
+    }
+
+    memoryHighlightsSuspended = false;
+
+    if (pendingRuntimeMemoryRender) {
+      pendingRuntimeMemoryRender = false;
+      renderRuntimeMemorySnapshot({
+        flashMode: "none",
+      });
+      return;
+    }
+
+    applyMemoryReferenceHighlights();
+  }
+
+  function bindRuntimeMemoryPanelVisibilityEvents() {
+    if (memoryPanelVisibilityEventsBound) {
+      return;
+    }
+
+    window.addEventListener(
+      MEMORY_PANEL_COLLAPSE_SYNC_EVENT,
+      handleRuntimeMemoryPanelVisibilityChange
+    );
+
+    if (settingsPanel && typeof MutationObserver !== "undefined") {
+      const observer =
+          new MutationObserver(
+              handleRuntimeMemoryPanelVisibilityChange
+          );
+
+      observer.observe(
+        settingsPanel,
+        {
+          attributes: true,
+          attributeFilter: ["class"],
+        }
+      );
+    }
+
+    memoryPanelVisibilityEventsBound = true;
+  }
+
   function buildMemoryReferenceAliasUsage(rows) {
     const usage = new Map();
 
@@ -368,6 +495,13 @@
     if (!runtimeMemoryText) {
       return;
     }
+
+    if (isRuntimeMemoryViewSuspended()) {
+      suspendRuntimeMemoryHighlights();
+      return;
+    }
+
+    memoryHighlightsSuspended = false;
 
     const sourceText =
         getActiveMemoryReferenceText();
@@ -408,6 +542,11 @@
 
   function sortHighlightedMemoryRows() {
     if (!runtimeMemoryText) {
+      return;
+    }
+
+    if (isRuntimeMemoryViewSuspended()) {
+      suspendRuntimeMemoryHighlights();
       return;
     }
 
@@ -491,6 +630,13 @@
     if (!runtimeMemoryText) {
       return;
     }
+
+    if (isRuntimeMemoryViewSuspended()) {
+      suspendRuntimeMemoryHighlights();
+      return;
+    }
+
+    memoryHighlightsSuspended = false;
 
     const activeIdentities =
       getActiveThinkMemoryCitationIdentitySets();
@@ -1084,7 +1230,7 @@
           let lastIndex = 0;
 
           trimmed.replace(
-            /\s*(\[[^\]]+\]|\(\s*trace\s*:[^)]+\))/gi,
+            /\s*(\[[^\]]+\])/gi,
             (match, suffix, offset) => {
               if (!parts.length) {
                 const body =
@@ -1410,6 +1556,19 @@
     clearRuntimeMemoryLineAvatarHover();
     clearDelayedMemoryAvatarHover();
     clampRuntimeMemoryHistoryIndex();
+
+    if (isRuntimeMemoryViewSuspended()) {
+      pendingRuntimeMemoryRender = true;
+      suspendRuntimeMemoryHighlights();
+      dispatchRuntimeAvatarSnapshot(
+        getCurrentRuntimeAvatarSourceSnapshot()
+      );
+      return;
+    }
+
+    pendingRuntimeMemoryRender = false;
+    memoryHighlightsSuspended = false;
+
     ensureRuntimeMemoryDisplayModeAvailable();
     updateRuntimeMemoryTitleState();
 
@@ -1521,7 +1680,7 @@
     );
   }
 
-  function runtimeMemoryTraceFontWeight(line) {
+  function runtimeMemoryValueFontWeight(line) {
     const strength =
         Number(line && line.strength);
 
@@ -1643,6 +1802,10 @@
       flashMode,
       persistGlow
   ) {
+    if (flashMode === "none") {
+      return false;
+    }
+
     if (persistGlow || flashMode === "replay") {
       return true;
     }
@@ -1779,18 +1942,6 @@
       reportId,
       active
   ) {
-    if (runtimeMemoryText) {
-      runtimeMemoryText
-        .querySelectorAll(
-          ".runtime-memory-external-hover-hit"
-        )
-        .forEach((row) => {
-          row.classList.remove(
-            "runtime-memory-external-hover-hit"
-          );
-        });
-    }
-
     const normalizedReportId =
         normalizeDelayedMemoryReportId(
             reportId
@@ -1812,6 +1963,33 @@
               _storage_key: normalizedReportId,
             }
           : null;
+
+    if (isRuntimeMemoryViewSuspended()) {
+      suspendRuntimeMemoryHighlights();
+
+      if (!active || !report) {
+        clearDelayedMemoryAvatarHover();
+        return false;
+      }
+
+      dispatchDelayedMemoryAvatarHover(
+          report,
+          true
+      );
+      return true;
+    }
+
+    if (runtimeMemoryText) {
+      runtimeMemoryText
+        .querySelectorAll(
+          ".runtime-memory-external-hover-hit"
+        )
+        .forEach((row) => {
+          row.classList.remove(
+            "runtime-memory-external-hover-hit"
+          );
+        });
+    }
 
     if (!active || !report) {
       clearDelayedMemoryAvatarHover();
@@ -2100,7 +2278,7 @@
           ` ${valuePresentation.text}`;
       valueSpan.style.fontWeight =
           String(
-              runtimeMemoryTraceFontWeight(line)
+              runtimeMemoryValueFontWeight(line)
           );
 
       const hoverTitle =
@@ -2942,6 +3120,383 @@
     return key || value || `Fact ${factId}`;
   }
 
+  function trimDelayedMemoryFactPreview(
+    value,
+    limit = 20
+  ) {
+    const text =
+        normalizeDelayedMemoryDisplayText(value);
+
+    return text.length > limit
+      ? text.slice(0, limit)
+      : text;
+  }
+
+  function buildDelayedMemoryFactOptionLabel(
+    factId,
+    fact
+  ) {
+    const key =
+        normalizeDelayedMemoryDisplayText(
+            fact && fact.key
+        )
+        || "fact_key";
+    const title =
+        trimDelayedMemoryFactPreview(
+            fact && (
+              fact.value
+              || fact.content
+              || fact.title
+            )
+        )
+        || "fact_title";
+
+    return `${factId} . ${key}: ${title}`;
+  }
+
+  function matchesDelayedMemoryFactQuery(
+    factId,
+    fact,
+    query
+  ) {
+    const normalizedQuery =
+        normalizeDelayedMemoryDisplayText(query)
+          .toLowerCase();
+
+    if (!normalizedQuery) {
+      return true;
+    }
+
+    return [
+      factId,
+      fact && fact.key,
+      fact && fact.value,
+      fact && fact.content,
+      fact && fact.title,
+    ].some((value) => (
+      normalizeDelayedMemoryDisplayText(value)
+        .toLowerCase()
+        .includes(normalizedQuery)
+    ));
+  }
+
+  function getDelayedMemoryFactOptions(
+    factLookup,
+    currentFactIds,
+    query = ""
+  ) {
+    return getLongTermMemoryFactRecords()
+      .map((fact) => {
+        const factId =
+            normalizeDelayedMemoryFactId(
+                fact && fact.id
+            );
+
+        return factId
+          ? {
+            factId,
+            fact,
+          }
+          : null;
+      })
+      .filter((entry) => (
+        entry
+        && !currentFactIds.has(entry.factId)
+        && matchesDelayedMemoryFactQuery(
+            entry.factId,
+            entry.fact,
+            query
+        )
+      ))
+      .map((entry) => ({
+        ...entry,
+        title:
+          buildDelayedMemoryFactIdTitle(
+              entry.factId,
+              factLookup
+          ),
+        label:
+          buildDelayedMemoryFactOptionLabel(
+              entry.factId,
+              entry.fact
+          ),
+      }));
+  }
+
+  function linkFactToDelayedMemoryModal(
+    factId
+  ) {
+    if (
+        !delayedMemoryModalReport
+        || typeof linkDelayedMemoryReportFactId !== "function"
+    ) {
+      return false;
+    }
+
+    const updatedReport =
+        linkDelayedMemoryReportFactId(
+            delayedMemoryModalReport._storage_key,
+            factId
+        );
+
+    if (
+        !updatedReport
+        || typeof updatedReport !== "object"
+        || Array.isArray(updatedReport)
+    ) {
+      return false;
+    }
+
+    openDelayedMemoryReportModal(
+        updatedReport
+    );
+
+    return true;
+  }
+
+  function unlinkFactFromDelayedMemoryModal(
+    factId
+  ) {
+    if (
+        !delayedMemoryModalReport
+        || typeof unlinkDelayedMemoryReportFactId !== "function"
+    ) {
+      return false;
+    }
+
+    const updatedReport =
+        unlinkDelayedMemoryReportFactId(
+            delayedMemoryModalReport._storage_key,
+            factId
+        );
+
+    if (
+        !updatedReport
+        || typeof updatedReport !== "object"
+        || Array.isArray(updatedReport)
+    ) {
+      return false;
+    }
+
+    openDelayedMemoryReportModal(
+        updatedReport
+    );
+
+    return true;
+  }
+
+  function appendDelayedMemoryFactPicker(
+    container,
+    factLookup,
+    currentFactIds
+  ) {
+    const addButton =
+        document.createElement("button");
+
+    addButton.type =
+        "button";
+    addButton.className =
+        "delayed-memory-modal-fact-add";
+    addButton.textContent =
+        "+";
+    addButton.setAttribute(
+        "aria-label",
+        "Add fact to report"
+    );
+
+    const picker =
+        document.createElement("div");
+
+    picker.className =
+        "delayed-memory-modal-fact-picker hidden";
+
+    const input =
+        document.createElement("input");
+
+    input.type =
+        "text";
+    input.className =
+        "delayed-memory-modal-fact-input";
+    input.placeholder =
+        "fact id or text";
+    input.setAttribute(
+        "autocomplete",
+        "off"
+    );
+    input.setAttribute(
+        "spellcheck",
+        "false"
+    );
+
+    const dropdown =
+        document.createElement("div");
+
+    dropdown.className =
+        "delayed-memory-modal-fact-dropdown";
+
+    function renderOptions() {
+      dropdown.innerHTML =
+          "";
+
+      const options =
+          getDelayedMemoryFactOptions(
+              factLookup,
+              currentFactIds,
+              input.value
+          );
+
+      if (!options.length) {
+        const empty =
+            document.createElement("div");
+
+        empty.className =
+            "delayed-memory-modal-fact-empty";
+        empty.textContent =
+            "no facts";
+        dropdown.appendChild(
+            empty
+        );
+        return;
+      }
+
+      options.forEach((option) => {
+        const optionButton =
+            document.createElement("button");
+        const id =
+            document.createElement("span");
+        const separator =
+            document.createElement("span");
+        const text =
+            document.createElement("span");
+
+        optionButton.type =
+            "button";
+        optionButton.className =
+            "delayed-memory-modal-fact-option";
+        optionButton.title =
+            option.title;
+
+        id.className =
+            "delayed-memory-modal-fact-option-id";
+        id.textContent =
+            option.factId;
+
+        separator.className =
+            "delayed-memory-modal-fact-option-separator";
+        separator.textContent =
+            ".";
+
+        text.className =
+            "delayed-memory-modal-fact-option-text";
+        text.textContent =
+            option.label.replace(
+                `${option.factId} . `,
+                ""
+            );
+
+        optionButton.appendChild(
+            id
+        );
+        optionButton.appendChild(
+            separator
+        );
+        optionButton.appendChild(
+            text
+        );
+        optionButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          linkFactToDelayedMemoryModal(
+              option.factId
+          );
+        });
+
+        dropdown.appendChild(
+            optionButton
+        );
+      });
+    }
+
+    function openPicker() {
+      picker.classList.remove(
+          "hidden"
+      );
+      renderOptions();
+      input.focus();
+    }
+
+    addButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (picker.classList.contains("hidden")) {
+        openPicker();
+      } else {
+        picker.classList.add(
+            "hidden"
+        );
+      }
+    });
+
+    input.addEventListener("input", renderOptions);
+
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        picker.classList.add(
+            "hidden"
+        );
+        addButton.focus();
+        return;
+      }
+
+      if (event.key !== "Enter") {
+        return;
+      }
+
+      event.preventDefault();
+
+      const typedFactId =
+          normalizeDelayedMemoryFactId(
+              input.value
+          );
+      const exactFactId =
+          /^F[1-9]\d*$/.test(typedFactId)
+            ? typedFactId
+            : "";
+      const options =
+          getDelayedMemoryFactOptions(
+              factLookup,
+              currentFactIds,
+              input.value
+          );
+      const nextFactId =
+          exactFactId
+          || (options[0] && options[0].factId)
+          || "";
+
+      if (nextFactId) {
+        linkFactToDelayedMemoryModal(
+            nextFactId
+        );
+      }
+    });
+
+    picker.appendChild(
+        input
+    );
+    picker.appendChild(
+        dropdown
+    );
+
+    container.appendChild(
+        addButton
+    );
+    container.appendChild(
+        picker
+    );
+  }
+
   function removeDelayedMemoryFactIdFromModal(factId) {
     const normalizedFactId =
         normalizeDelayedMemoryFactId(factId);
@@ -3742,7 +4297,10 @@
           ? sortDelayedMemoryFactIdsByNumber(normalizedFactIds)
           : normalizedFactIds;
 
-    if (!factIds.length) {
+    if (
+        !factIds.length
+        && fieldName !== "facts_ids"
+    ) {
       if (Array.isArray(value) && value.length < 1) {
         appendDelayedMemoryModalField(
             parent,
@@ -3756,12 +4314,29 @@
 
     const factLookup =
         getDelayedMemoryFactLookup();
+    const currentFactIds =
+        new Set(
+            factIds
+        );
 
     const list =
         document.createElement("div");
 
     list.className =
         "delayed-memory-modal-value delayed-memory-modal-fact-ids";
+
+    if (!factIds.length) {
+      const empty =
+          document.createElement("span");
+
+      empty.className =
+          "delayed-memory-modal-fact-empty-inline";
+      empty.textContent =
+          "[]";
+      list.appendChild(
+          empty
+      );
+    }
 
     factIds.forEach((factId) => {
       const item =
@@ -3828,6 +4403,10 @@
         event.preventDefault();
         event.stopPropagation();
 
+        if (item.dataset.delayedMemoryFactHoldDeleted === "true") {
+          return;
+        }
+
         setDelayedMemoryModalAnchorFactId(
             factId,
             fieldName === "anchor_fact_ids"
@@ -3839,20 +4418,11 @@
       configureRuntimeMemoryDeleteHold(
           item,
           () => {
-            if (typeof deleteLongTermMemoryFact !== "function") {
-              return;
-            }
-
-            const deleted =
-                deleteLongTermMemoryFact(
-                    factId
-                );
-
-            if (deleted !== false) {
-              removeDelayedMemoryFactIdFromModal(
-                  factId
-              );
-            }
+            item.dataset.delayedMemoryFactHoldDeleted =
+                "true";
+            unlinkFactFromDelayedMemoryModal(
+                factId
+            );
           }
       );
 
@@ -3860,6 +4430,14 @@
           item
       );
     });
+
+    if (fieldName === "facts_ids") {
+      appendDelayedMemoryFactPicker(
+          list,
+          factLookup,
+          currentFactIds
+      );
+    }
 
     appendDelayedMemoryModalFieldNode(
         parent,
@@ -4613,6 +5191,10 @@
         options.updateDelayedMemoryReportFields || null;
     setDelayedMemoryReportAnchorFactIds =
         options.setDelayedMemoryReportAnchorFactIds || null;
+    linkDelayedMemoryReportFactId =
+        options.linkDelayedMemoryReportFactId || null;
+    unlinkDelayedMemoryReportFactId =
+        options.unlinkDelayedMemoryReportFactId || null;
     deleteDelayedMemoryReport =
         options.deleteDelayedMemoryReport || null;
     getFactsMemoryFields = options.getFactsMemoryFields || null;
@@ -4641,6 +5223,7 @@
     }
 
     bindMemoryReferenceHighlightEvents();
+    bindRuntimeMemoryPanelVisibilityEvents();
 
     idle.configure({
       onIdleTextChanged(text) {

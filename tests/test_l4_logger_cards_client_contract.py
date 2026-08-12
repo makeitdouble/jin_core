@@ -88,11 +88,11 @@ class L4LoggerCardsClientContractTests(unittest.TestCase):
     def test_cache_versions_are_bumped(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertIn('/static/css/runtime-memory.css?v=delayed-context-loaded-1', source)
+        self.assertIn('/static/css/runtime-memory.css?v=memory-highlight-text-1', source)
         self.assertIn('/static/js/runtime/runtime-l4-memory.js?v=delayed-loaded-facts-1', source)
         self.assertIn('/static/js/logger/logger.js?v=l4-trace-reason-2', source)
-        self.assertIn('/static/js/logger/trace-modal.js?v=context-marker-layout-1', source)
-        self.assertIn('/static/js/logger/log-entries.js?v=l4-deleted-fact-number-1', source)
+        self.assertIn('/static/js/logger/trace-modal.js?v=context-copy-1', source)
+        self.assertIn('/static/js/logger/log-entries.js?v=delayed-fact-unlink-1', source)
         self.assertIn('/static/js/socket/event-handlers.js?v=l4-restore-2', source)
 
 

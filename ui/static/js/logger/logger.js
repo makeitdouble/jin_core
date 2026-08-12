@@ -455,8 +455,13 @@ const consolePanel = document.getElementById("console-panel");
                 collapsedHeight;
 
             clampPanelGeometry(panel);
+            syncMemoryPanelBodyMount();
 
             return;
+        }
+
+        if (panel === memoryPanel) {
+            attachMemoryPanelBody();
         }
 
         panel.classList.remove(
@@ -481,6 +486,7 @@ const consolePanel = document.getElementById("console-panel");
         );
 
         clampPanelGeometry(panel);
+        syncMemoryPanelBodyMount();
     }
 
     function restorePanelDimension(panel, styleName, datasetName) {
@@ -1208,6 +1214,173 @@ const consolePanel = document.getElementById("console-panel");
 
 const memoryPanel = document.getElementById("settings-panel");
 const memoryDragHandle = document.getElementById("memory-drag-handle");
+const memoryPanelScrollBody =
+    memoryPanel
+        ? memoryPanel.querySelector(".settings-scroll")
+        : null;
+const memoryPanelScrollPlaceholder =
+    document.createComment(
+        "settings-scroll detached while memory panel is collapsed"
+    );
+const MEMORY_PANEL_COLLAPSE_SYNC_EVENT =
+    "jin:memory-panel-collapse-sync";
+let memoryPanelScrollDetachTimer = null;
+
+function dispatchMemoryPanelCollapseSync() {
+    window.dispatchEvent(
+        new CustomEvent(
+            MEMORY_PANEL_COLLAPSE_SYNC_EVENT,
+            {
+                detail: {
+                    collapsed: Boolean(
+                        memoryPanel
+                        && memoryPanel.classList.contains(
+                            "panel-collapsed"
+                        )
+                    ),
+                    bodyMounted: Boolean(
+                        memoryPanelScrollBody
+                        && memoryPanelScrollBody.isConnected
+                    ),
+                },
+            }
+        )
+    );
+}
+
+function clearMemoryPanelScrollDetachTimer() {
+    if (memoryPanelScrollDetachTimer === null) {
+        return;
+    }
+
+    window.clearTimeout(
+        memoryPanelScrollDetachTimer
+    );
+    memoryPanelScrollDetachTimer = null;
+}
+
+function detachMemoryPanelBody() {
+    clearMemoryPanelScrollDetachTimer();
+
+    if (
+        !memoryPanel
+        || !memoryPanelScrollBody
+        || memoryPanelScrollBody.parentNode !== memoryPanel
+    ) {
+        dispatchMemoryPanelCollapseSync();
+        return;
+    }
+
+    memoryPanel.insertBefore(
+        memoryPanelScrollPlaceholder,
+        memoryPanelScrollBody
+    );
+    memoryPanel.removeChild(
+        memoryPanelScrollBody
+    );
+    dispatchMemoryPanelCollapseSync();
+}
+
+function attachMemoryPanelBody() {
+    clearMemoryPanelScrollDetachTimer();
+
+    if (
+        !memoryPanel
+        || !memoryPanelScrollBody
+    ) {
+        dispatchMemoryPanelCollapseSync();
+        return;
+    }
+
+    if (memoryPanelScrollBody.parentNode === memoryPanel) {
+        dispatchMemoryPanelCollapseSync();
+        return;
+    }
+
+    if (memoryPanelScrollPlaceholder.parentNode === memoryPanel) {
+        memoryPanel.insertBefore(
+            memoryPanelScrollBody,
+            memoryPanelScrollPlaceholder
+        );
+        memoryPanel.removeChild(
+            memoryPanelScrollPlaceholder
+        );
+    } else {
+        memoryPanel.appendChild(
+            memoryPanelScrollBody
+        );
+    }
+
+    dispatchMemoryPanelCollapseSync();
+}
+
+function getMemoryPanelScrollDetachDelayMs() {
+    if (!memoryPanel) {
+        return 0;
+    }
+
+    const duration =
+        getComputedStyle(memoryPanel)
+            .getPropertyValue("--panel-collapse-duration")
+            .trim();
+
+    return Math.max(
+        0,
+        parseCssDurationMs(duration)
+    ) + 100;
+}
+
+function scheduleMemoryPanelBodyDetach() {
+    clearMemoryPanelScrollDetachTimer();
+
+    if (
+        !memoryPanel
+        || !memoryPanelScrollBody
+        || !memoryPanel.classList.contains("panel-collapsed")
+    ) {
+        attachMemoryPanelBody();
+        return;
+    }
+
+    memoryPanelScrollDetachTimer =
+        window.setTimeout(
+            detachMemoryPanelBody,
+            getMemoryPanelScrollDetachDelayMs()
+        );
+}
+
+function syncMemoryPanelBodyMount() {
+    if (
+        !memoryPanel
+        || !memoryPanelScrollBody
+    ) {
+        dispatchMemoryPanelCollapseSync();
+        return;
+    }
+
+    if (memoryPanel.classList.contains("panel-collapsed")) {
+        scheduleMemoryPanelBodyDetach();
+    } else {
+        attachMemoryPanelBody();
+    }
+}
+
+if (memoryPanel && typeof MutationObserver !== "undefined") {
+    const memoryPanelBodyObserver =
+        new MutationObserver(
+            syncMemoryPanelBodyMount
+        );
+
+    memoryPanelBodyObserver.observe(
+        memoryPanel,
+        {
+            attributes: true,
+            attributeFilter: ["class"],
+        }
+    );
+}
+
+syncMemoryPanelBodyMount();
 
 window.JinPanels =
     Object.assign(
@@ -1216,6 +1389,7 @@ window.JinPanels =
             collapseAllPanels,
             cancelStartupCollapseAnimation,
             refreshCollapsedPanelHeights,
+            syncMemoryPanelBodyMount,
             syncSceneShadeToPanelCollapse,
         }
     );

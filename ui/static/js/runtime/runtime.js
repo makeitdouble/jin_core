@@ -596,6 +596,8 @@ memoryView.init({
   setDelayedMemoryReportPinned,
   updateDelayedMemoryReportFields,
   setDelayedMemoryReportAnchorFactIds,
+  linkDelayedMemoryReportFactId,
+  unlinkDelayedMemoryReportFactId,
   deleteDelayedMemoryReport: deleteDelayedMemoryReportAndRender,
   removeLongTermFactIdFromDelayedMemoryReports,
   getFactsMemoryFields,
@@ -1281,6 +1283,422 @@ function setDelayedMemoryReportAnchorFactIds(
 
 }
 
+function normalizeRuntimeLongTermFactIds(
+  value
+) {
+
+  const source =
+    Array.isArray(value)
+      ? value
+      : [value];
+  const seen =
+    new Set();
+  const factIds = [];
+
+  source.forEach((item) => {
+    if (Array.isArray(item)) {
+      normalizeRuntimeLongTermFactIds(item)
+        .forEach((factId) => {
+          if (seen.has(factId)) {
+            return;
+          }
+
+          seen.add(factId);
+          factIds.push(factId);
+        });
+      return;
+    }
+
+    const text =
+      String(item || "").trim();
+
+    if (text.startsWith("[") && text.endsWith("]")) {
+      try {
+        const parsed =
+          JSON.parse(text);
+
+        if (Array.isArray(parsed)) {
+          normalizeRuntimeLongTermFactIds(parsed)
+            .forEach((factId) => {
+              if (seen.has(factId)) {
+                return;
+              }
+
+              seen.add(factId);
+              factIds.push(factId);
+            });
+          return;
+        }
+      } catch (_error) {
+        // Fall through to token parsing.
+      }
+    }
+
+    const tokens =
+      text.match(/\bF[1-9]\d*\b/gi);
+
+    if (tokens && tokens.length) {
+      tokens.forEach((token) => {
+        const normalizedFactId =
+          normalizeLongTermFactId(token);
+
+        if (
+            !normalizedFactId
+            || seen.has(normalizedFactId)
+        ) {
+          return;
+        }
+
+        seen.add(normalizedFactId);
+        factIds.push(normalizedFactId);
+      });
+      return;
+    }
+
+    const normalizedFactId =
+      normalizeLongTermFactId(item);
+
+    if (
+        !normalizedFactId
+        || seen.has(normalizedFactId)
+    ) {
+      return;
+    }
+
+    seen.add(normalizedFactId);
+    factIds.push(normalizedFactId);
+  });
+
+  return factIds;
+
+}
+
+function getRuntimeLongTermFactIdNumber(
+  factId
+) {
+
+  const match =
+    String(factId || "").match(/^F([1-9]\d*)$/);
+
+  return match
+    ? Number(match[1])
+    : Number.POSITIVE_INFINITY;
+
+}
+
+function sortRuntimeLongTermFactIds(
+  factIds
+) {
+
+  return [...factIds].sort((left, right) => {
+    const leftNumber =
+      getRuntimeLongTermFactIdNumber(left);
+    const rightNumber =
+      getRuntimeLongTermFactIdNumber(right);
+
+    if (leftNumber !== rightNumber) {
+      return leftNumber - rightNumber;
+    }
+
+    return String(left).localeCompare(
+      String(right)
+    );
+  });
+
+}
+
+function findLongTermMemoryFact(
+  factId
+) {
+
+  const normalizedFactId =
+    normalizeLongTermFactId(factId);
+  const facts =
+    l4Memory && typeof l4Memory.getFacts === "function"
+      ? l4Memory.getFacts()
+      : getVisibleLongTermMemoryFacts();
+
+  return (Array.isArray(facts) ? facts : [])
+    .find((fact) => (
+      normalizeLongTermFactId(fact && fact.id)
+      === normalizedFactId
+    )) || null;
+
+}
+
+function writeDelayedMemoryFactLinksAndRender(
+  reportId,
+  reports,
+  reason
+) {
+
+  writeDelayedMemoryReports(
+    reports
+  );
+
+  if (runtimeMemoryDisplayMode === "delayed") {
+    renderRuntimeMemorySnapshot();
+  }
+
+  if (!syncDelayedMemoryStateToAvatar()) {
+    refreshRuntimeAvatar();
+  }
+
+  syncDelayedMemoryReportsToServer();
+
+  dispatchDelayedMemoryStoreChanged(
+    reason,
+    reportId
+  );
+
+  const updatedReport =
+    readDelayedMemoryReports()[reportId];
+
+  return updatedReport
+    ? {
+      ...updatedReport,
+      _storage_key: reportId,
+    }
+    : false;
+
+}
+
+function logUnlinkedDelayedMemoryReportFact(
+  reportId,
+  report,
+  factId,
+  wasAnchor
+) {
+
+  if (typeof window.appendLog !== "function") {
+    return;
+  }
+
+  const fact =
+    findLongTermMemoryFact(
+      factId
+    );
+  const payload = {
+    kind: "delayed_memory_fact_unlink",
+    report_id: reportId,
+    fact_id: factId,
+    was_anchor: Boolean(wasAnchor),
+    report: {
+      id: reportId,
+      _storage_key: reportId,
+      title: String(report && report.title || ""),
+      summary: String(report && report.summary || ""),
+    },
+    fact: fact
+      ? {
+        ...fact,
+      }
+      : null,
+  };
+
+  window.appendLog(
+    "[MEMORY:DELAYED:FACT_UNLINKED]",
+    "Delayed memory fact unlinked",
+    JSON.stringify(
+      payload,
+      null,
+      2
+    ),
+    {
+      memory_event: "delayed_memory_fact_unlinked",
+      delayed_memory_fact_unlink: payload,
+    }
+  );
+
+}
+
+function linkDelayedMemoryReportFactId(
+  reportId,
+  factId,
+  options = {}
+) {
+
+  const normalizedId =
+    normalizeRuntimeDelayedMemoryReportId(
+      reportId
+    );
+  const normalizedFactId =
+    normalizeLongTermFactId(
+      factId
+    );
+  const reports =
+    readDelayedMemoryReports();
+  const report =
+    reports[normalizedId];
+
+  if (
+      !normalizedId
+      || !normalizedFactId
+      || !report
+      || typeof report !== "object"
+      || Array.isArray(report)
+  ) {
+    return false;
+  }
+
+  const factIds =
+    normalizeRuntimeLongTermFactIds(
+      report.facts_ids
+    );
+  const anchorFactIds =
+    normalizeRuntimeLongTermFactIds(
+      report.anchor_fact_ids
+    );
+  const nextFactIds =
+    factIds.includes(normalizedFactId)
+      ? factIds
+      : sortRuntimeLongTermFactIds([
+        ...factIds,
+        normalizedFactId,
+      ]);
+  const shouldAnchor =
+    Boolean(options && options.anchor);
+  const nextAnchorFactIds =
+    shouldAnchor && !anchorFactIds.includes(normalizedFactId)
+      ? sortRuntimeLongTermFactIds([
+        ...anchorFactIds,
+        normalizedFactId,
+      ])
+      : anchorFactIds;
+
+  if (
+      nextFactIds.length === factIds.length
+      && nextAnchorFactIds.length === anchorFactIds.length
+  ) {
+    return {
+      ...report,
+      _storage_key: normalizedId,
+    };
+  }
+
+  reports[normalizedId] = {
+    ...report,
+    facts_ids: nextFactIds,
+    anchor_fact_ids: nextAnchorFactIds,
+  };
+
+  return writeDelayedMemoryFactLinksAndRender(
+    normalizedId,
+    reports,
+    "fact_link"
+  );
+
+}
+
+function unlinkDelayedMemoryReportFactId(
+  reportId,
+  factId,
+  options = {}
+) {
+
+  const normalizedId =
+    normalizeRuntimeDelayedMemoryReportId(
+      reportId
+    );
+  const normalizedFactId =
+    normalizeLongTermFactId(
+      factId
+    );
+  const reports =
+    readDelayedMemoryReports();
+  const report =
+    reports[normalizedId];
+
+  if (
+      !normalizedId
+      || !normalizedFactId
+      || !report
+      || typeof report !== "object"
+      || Array.isArray(report)
+  ) {
+    return false;
+  }
+
+  const factIds =
+    normalizeRuntimeLongTermFactIds(
+      report.facts_ids
+    );
+  const anchorFactIds =
+    normalizeRuntimeLongTermFactIds(
+      report.anchor_fact_ids
+    );
+  const absorbedFactIds =
+    normalizeRuntimeLongTermFactIds(
+      report.absorbed_fact_ids
+    );
+  const longTermFactIds =
+    normalizeRuntimeLongTermFactIds(
+      report.long_term_facts_ids
+    );
+  const nextFactIds =
+    factIds.filter(item => item !== normalizedFactId);
+  const nextAnchorFactIds =
+    anchorFactIds.filter(item => item !== normalizedFactId);
+  const nextAbsorbedFactIds =
+    absorbedFactIds.filter(item => item !== normalizedFactId);
+  const nextLongTermFactIds =
+    longTermFactIds.filter(item => item !== normalizedFactId);
+  const changed =
+    nextFactIds.length !== factIds.length
+    || nextAnchorFactIds.length !== anchorFactIds.length
+    || nextAbsorbedFactIds.length !== absorbedFactIds.length
+    || nextLongTermFactIds.length !== longTermFactIds.length;
+
+  if (!changed) {
+    return {
+      ...report,
+      _storage_key: normalizedId,
+    };
+  }
+
+  const updatedReport = {
+    ...report,
+    facts_ids: nextFactIds,
+    anchor_fact_ids: nextAnchorFactIds,
+  };
+
+  if (nextAbsorbedFactIds.length) {
+    updatedReport.absorbed_fact_ids =
+      nextAbsorbedFactIds;
+  } else {
+    delete updatedReport.absorbed_fact_ids;
+  }
+
+  if (nextLongTermFactIds.length) {
+    updatedReport.long_term_facts_ids =
+      nextLongTermFactIds;
+  } else {
+    delete updatedReport.long_term_facts_ids;
+  }
+
+  reports[normalizedId] =
+    updatedReport;
+
+  const result =
+    writeDelayedMemoryFactLinksAndRender(
+      normalizedId,
+      reports,
+      "fact_unlink"
+    );
+
+  if (!options || options.log !== false) {
+    logUnlinkedDelayedMemoryReportFact(
+      normalizedId,
+      report,
+      normalizedFactId,
+      anchorFactIds.includes(normalizedFactId)
+    );
+  }
+
+  return result;
+
+}
+
 function deleteDelayedMemoryReportAndRender(
   reportId
 ) {
@@ -1862,6 +2280,8 @@ window.JinRuntime.runtime = {
   setDelayedMemoryReportPinned,
   updateDelayedMemoryReportFields,
   setDelayedMemoryReportAnchorFactIds,
+  linkDelayedMemoryReportFactId,
+  unlinkDelayedMemoryReportFactId,
   deleteDelayedMemoryReport: deleteDelayedMemoryReportAndRender,
   restoreDelayedMemoryReport: restoreDelayedMemoryReportAndRender,
   getFactsMemoryFields,

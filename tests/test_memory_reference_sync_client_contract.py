@@ -10,6 +10,7 @@ MEMORY_VIEW_JS = (
 )
 RUNTIME_JS = ROOT / "ui" / "static" / "js" / "runtime" / "runtime.js"
 CHAT_JS = ROOT / "ui" / "static" / "js" / "chat.js"
+LOGGER_JS = ROOT / "ui" / "static" / "js" / "logger" / "logger.js"
 RUNTIME_MEMORY_CSS = ROOT / "ui" / "static" / "css" / "runtime-memory.css"
 INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
@@ -97,6 +98,46 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
         self.assertNotIn(
             '.runtime-memory-reference-hit {',
             css_source,
+        )
+
+    def test_collapsed_memory_panel_suspends_reference_highlight_dom_work(self):
+        source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "function isRuntimeMemoryViewSuspended()",
+            source,
+        )
+        self.assertIn(
+            "suspendRuntimeMemoryHighlights();",
+            source,
+        )
+        self.assertIn(
+            "pendingRuntimeMemoryRender = true;",
+            source,
+        )
+        self.assertIn(
+            'MEMORY_PANEL_COLLAPSE_SYNC_EVENT =\n      "jin:memory-panel-collapse-sync"',
+            source,
+        )
+
+    def test_collapsed_memory_panel_detaches_scroll_body_after_transition(self):
+        source = LOGGER_JS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "settings-scroll detached while memory panel is collapsed",
+            source,
+        )
+        self.assertIn(
+            "function scheduleMemoryPanelBodyDetach()",
+            source,
+        )
+        self.assertIn(
+            "function attachMemoryPanelBody()",
+            source,
+        )
+        self.assertIn(
+            "syncMemoryPanelBodyMount,",
+            source,
         )
 
     def test_open_delayed_report_dispatches_avatar_active_state(self):
@@ -256,7 +297,7 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            'item.addEventListener("dblclick"',
+            'unlinkFactFromDelayedMemoryModal(',
             source,
         )
         self.assertIn(
@@ -434,19 +475,19 @@ for (const [text, reference, expected] of cases) {
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            '/static/css/runtime-memory.css?v=delayed-context-loaded-1',
+            '/static/css/runtime-memory.css?v=memory-highlight-text-1',
             source,
         )
         self.assertIn(
-            '/static/js/runtime/runtime-memory-view.js?v=citation-duplicates-2',
+            '/static/js/runtime/runtime-memory-view.js?v=delayed-fact-link-1',
             source,
         )
         self.assertIn(
-            '/static/js/runtime/runtime.js?v=delayed-context-loaded-1',
+            '/static/js/runtime/runtime.js?v=delayed-fact-link-1',
             source,
         )
         self.assertIn(
-            '/static/js/chat.js?v=reasoning-gap-1',
+            '/static/js/chat.js?v=deep-search-marker-strip-2',
             source,
         )
 

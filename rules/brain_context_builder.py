@@ -52,8 +52,11 @@ LOADED_DELAYED_MEMORY_CONTEXT_FIELDS = (
 )
 
 PREVIOUS_REASONING_EDGE_PERCENT = 25
+PREVIOUS_REASONING_LOOP_EDGE_PERCENT = 15
 PREVIOUS_REASONING_MIN_CROP_CHARS = 1000
-PREVIOUS_REASONING_SEPARATOR = ",,,"
+PREVIOUS_REASONING_SEPARATOR_TEMPLATE = (
+    "---------------------------- CUTTED {chars} chars ----------------------------"
+)
 
 
 def build_loop_rules(
@@ -215,6 +218,7 @@ def _append_L1_runtime_memory(
     runtime_memory = build_runtime_memory_context_text(
         raw_runtime_memory,
         context,
+        include_lifecycle_suffixes=True,
     )
 
     stored_active_memory_records = [
@@ -660,29 +664,29 @@ def crop_previous_reasoning_text(
     if len(cleaned) <= edge_chars * 2:
         return cleaned
 
+    cut_chars = len(cleaned) - edge_chars * 2
+
     return (
         cleaned[:edge_chars]
         + "\n"
-        + PREVIOUS_REASONING_SEPARATOR
+        + PREVIOUS_REASONING_SEPARATOR_TEMPLATE.format(
+            chars=cut_chars
+        )
         + "\n"
         + cleaned[-edge_chars:]
     )
 
 
-def build_previous_reasoning_context(
-    context=None,
+def _format_previous_reasoning_context(
+    *,
+    tag_name: str,
+    reasoning: str,
+    edge_percent: float,
 ) -> str:
 
-    reasoning = crop_previous_reasoning_text(
-        (
-            getattr(
-                context,
-                "runtime_previous_reasoning_content",
-                "",
-            )
-            if context is not None
-            else ""
-        )
+    cropped_reasoning = crop_previous_reasoning_text(
+        reasoning,
+        edge_percent=edge_percent,
     )
 
     from utils.brain_client_utils import (
@@ -690,14 +694,84 @@ def build_previous_reasoning_context(
     )
 
     return (
-        "<PREVIOUS_JIN_RESPONSE_REASONING>\n"
+        f"<{tag_name}>\n"
         + indent_xml(
             escape(
-                reasoning
+                cropped_reasoning
             ),
             spaces=4,
         )
-        + "\n</PREVIOUS_JIN_RESPONSE_REASONING>"
+        + f"\n</{tag_name}>"
+    )
+
+
+def build_previous_reasoning_context(
+    context=None,
+) -> str:
+
+    return _format_previous_reasoning_context(
+        tag_name="PREVIOUS_REASONING_CONTENT",
+        reasoning=(
+            (
+                getattr(
+                    context,
+                    "runtime_previous_reasoning_content",
+                    "",
+                )
+                if context is not None
+                else ""
+            )
+        ),
+        edge_percent=PREVIOUS_REASONING_EDGE_PERCENT,
+    )
+
+
+def build_previous_reasoning_loop_context(
+    context=None,
+) -> str:
+
+    if context is None:
+        return ""
+
+    loop_reasonings = getattr(
+        context,
+        "runtime_previous_reasoning_loop_contents",
+        [],
+    )
+
+    if isinstance(
+        loop_reasonings,
+        str,
+    ):
+        loop_reasonings = [
+            loop_reasonings,
+        ]
+
+    if not isinstance(
+        loop_reasonings,
+        list,
+    ):
+        return ""
+
+    blocks = []
+
+    for reasoning in loop_reasonings:
+        if not str(
+            reasoning
+            or ""
+        ).strip():
+            continue
+
+        blocks.append(
+            _format_previous_reasoning_context(
+                tag_name="PREVIOUS_REASONING_LOOP_CONTENT",
+                reasoning=reasoning,
+                edge_percent=PREVIOUS_REASONING_LOOP_EDGE_PERCENT,
+            )
+        )
+
+    return "\n".join(
+        blocks
     )
 
 
@@ -888,30 +962,30 @@ def build_brain_context(
             session_actions_history_context
         )
 
-    # Previous reasoning block: carries a compact edge slice from the last
-    # ordinary chat turn, but stays out of follow-up ticks.
-    previous_reasoning_context = (
-        build_previous_reasoning_context(
+    # Previous reasoning block: loop recovery keeps failed reasoning attempts
+    # in the same prompt slot as ordinary previous reasoning.
+    previous_reasoning_loop_context = (
+        build_previous_reasoning_loop_context(
             context
         )
-        if (
-            include_previous_reasoning
-            and not getattr(
-                context,
-                "runtime_followup_tick_active",
-                False,
-            )
-        )
-        else ""
     )
 
-    if include_previous_reasoning and not getattr(
-        context,
-        "runtime_followup_tick_active",
-        False,
+    if previous_reasoning_loop_context:
+        prompt_parts.append(
+            previous_reasoning_loop_context
+        )
+    elif (
+        include_previous_reasoning
+        and not getattr(
+            context,
+            "runtime_followup_tick_active",
+            False,
+        )
     ):
         prompt_parts.append(
-            previous_reasoning_context
+            build_previous_reasoning_context(
+                context
+            )
         )
 
     # Runtime action instructions block: describes the private action protocol.

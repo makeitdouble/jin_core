@@ -47,6 +47,9 @@ from clients.search_client import (
 from utils.brain_client_utils import (
     get_brain_runtime_config,
 )
+from utils.current_context_window import (
+    prepare_current_context_window_prompt,
+)
 from utils.runtime_action_abort import (
     mark_runtime_action_completed,
 )
@@ -303,6 +306,120 @@ def build_context_limit_recovery_context(
         + ".\n"
         "</CONTEXT_LIMIT_RECOVERY>"
     )
+
+
+def _normalize_previous_reasoning_content(
+        reasoning,
+) -> str:
+
+    return str(
+        reasoning
+        or ""
+    ).strip()
+
+
+def _recovery_reasoning_pending(
+        context,
+) -> bool:
+
+    if context is None:
+        return False
+
+    if getattr(
+        context,
+        "runtime_reasoning_recovery_pending",
+        False,
+    ):
+        return True
+
+    if not getattr(
+        context,
+        "runtime_context_limit_recovery_pending",
+        False,
+    ):
+        return False
+
+    return (
+        str(
+            getattr(
+                context,
+                "runtime_context_limit_stage",
+                "",
+            )
+            or ""
+        ).strip().casefold()
+        == "reasoning"
+    )
+
+
+def remember_recovery_reasoning_for_followup(
+        context,
+        reasoning,
+) -> None:
+
+    if not _recovery_reasoning_pending(
+        context
+    ):
+        return
+
+    normalized_reasoning = _normalize_previous_reasoning_content(
+        reasoning
+    )
+
+    if not normalized_reasoning:
+        return
+
+    loop_contents = getattr(
+        context,
+        "runtime_previous_reasoning_loop_contents",
+        [],
+    )
+
+    if not isinstance(
+        loop_contents,
+        list,
+    ):
+        loop_contents = []
+
+    loop_contents.append(
+        normalized_reasoning
+    )
+    context.runtime_previous_reasoning_loop_contents = loop_contents
+
+
+def remember_successful_previous_reasoning(
+        context,
+        reasoning,
+) -> None:
+
+    if context is None:
+        return
+
+    if (
+        getattr(
+            context,
+            "runtime_turn_interrupted",
+            False,
+        )
+        or getattr(
+            context,
+            "runtime_reasoning_recovery_pending",
+            False,
+        )
+        or getattr(
+            context,
+            "runtime_context_limit_recovery_pending",
+            False,
+        )
+    ):
+        return
+
+    context.runtime_previous_reasoning_content = (
+        _normalize_previous_reasoning_content(
+            reasoning
+        )
+    )
+    context.runtime_previous_reasoning_loop_contents = []
 
 
 FOLLOWUP_SYSTEM_MESSAGE = (
@@ -1262,6 +1379,17 @@ class BrainNode(BaseNode):
             )
             context.runtime_followup_tick_active = True
 
+        prepared_context_window = await prepare_current_context_window_prompt(
+            client=brain_client,
+            context=context,
+            runtime_id=brain_runtime["runtime_id"],
+            system_prompt=system_prompt,
+            user_prompt=effective_brain_payload,
+            fallback_context_window=brain_runtime["context_window"],
+            force_refresh=True,
+        )
+        system_prompt = prepared_context_window.system_prompt
+
         context_snapshot = build_brain_context_snapshot(
             context=context,
             system_prompt=system_prompt,
@@ -1408,11 +1536,41 @@ class BrainNode(BaseNode):
             context
         )
         context.runtime_turn_reasoning_content = ""
-        context.runtime_deep_search_calls.clear()
+
+        def ensure_runtime_list(
+                name: str,
+        ) -> list:
+
+            value = getattr(
+                context,
+                name,
+                None,
+            )
+
+            if not isinstance(
+                value,
+                list,
+            ):
+                value = []
+                setattr(
+                    context,
+                    name,
+                    value,
+                )
+
+            return value
+
+        ensure_runtime_list(
+            "runtime_deep_search_calls"
+        ).clear()
         context.runtime_deep_search_result = ""
         context.runtime_deep_search_result_id = ""
-        context.runtime_search_queries.clear()
-        context.runtime_search_calls.clear()
+        ensure_runtime_list(
+            "runtime_search_queries"
+        ).clear()
+        ensure_runtime_list(
+            "runtime_search_calls"
+        ).clear()
         context.runtime_search_result = ""
         context.runtime_search_result_id = ""
         prepare_asset_results_for_turn(
@@ -1779,6 +1937,11 @@ class BrainNode(BaseNode):
 
             if abort_requested():
                 break
+
+            remember_recovery_reasoning_for_followup(
+                context,
+                reasoning,
+            )
 
             context.runtime_active_memory_refresh_tick = (
                 followup_count + 1
@@ -2360,6 +2523,11 @@ class BrainNode(BaseNode):
             followup_count += 1
             continue
 
+        remember_recovery_reasoning_for_followup(
+            context,
+            reasoning,
+        )
+
         if followup_count >= max_followups:
             context.runtime_active_memory_refresh_tick = (
                 followup_count + 1
@@ -2449,14 +2617,10 @@ class BrainNode(BaseNode):
 
         state.brain_response = text or ""
         if context is not None and not idle_followup:
-            context.runtime_previous_reasoning_content = str(
-                getattr(
-                    context,
-                    "runtime_turn_reasoning_content",
-                    "",
-                )
-                or ""
-            ).strip()
+            remember_successful_previous_reasoning(
+                context,
+                reasoning,
+            )
 
 
 

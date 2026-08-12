@@ -564,17 +564,35 @@ body.theme-win95 #summarizer-window-bar::after {
 body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit,
 body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-citation-hit,
 body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-context-loaded-hit {
-    background: #d7f0ed;
-    box-shadow: inset 0 0 0 1px #6b9e99;
+    background: transparent;
+    box-shadow: none;
 }
 
 body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit .runtime-memory-key,
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit:not(.runtime-memory-kv-row) .runtime-memory-value,
 body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-citation-hit .runtime-memory-key,
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-citation-hit:not(.runtime-memory-kv-row) .runtime-memory-value,
 body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-context-loaded-hit .runtime-memory-key,
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-context-loaded-hit:not(.runtime-memory-kv-row) .runtime-memory-value {
-    color: #005650 !important;
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit .runtime-memory-fact-number,
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-citation-hit .runtime-memory-fact-number,
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-context-loaded-hit .runtime-memory-fact-number {
+    color: #0000ee !important;
+    font-weight: 600;
+    text-shadow: none;
+}
+
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit .runtime-memory-fact-separator,
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-citation-hit .runtime-memory-fact-separator,
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-context-loaded-hit .runtime-memory-fact-separator {
+    color: #4040b0 !important;
+    text-shadow: none;
+}
+
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit:not(.runtime-memory-kv-row) .runtime-memory-value,
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-citation-hit:not(.runtime-memory-kv-row) .runtime-memory-value,
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-context-loaded-hit:not(.runtime-memory-kv-row) .runtime-memory-value,
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit.runtime-memory-kv-row .runtime-memory-value,
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-citation-hit.runtime-memory-kv-row .runtime-memory-value,
+body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-context-loaded-hit.runtime-memory-kv-row .runtime-memory-value {
+    color: #003c8f !important;
     text-shadow: none;
 }
 

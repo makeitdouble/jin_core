@@ -1,4 +1,8 @@
 import unittest
+from datetime import (
+    datetime,
+    timezone,
+)
 from types import (
     SimpleNamespace,
 )
@@ -52,7 +56,7 @@ class RuntimeMemoryCompoundLineTests(unittest.TestCase):
         memory = (
             "active_topic: Drawing a house using text format. "
             "user_intent: Initial request was for an image/drawing. "
-            "jin_last_action: Provided ASCII art representation [trace: 0.50]"
+            "jin_last_action: Provided ASCII art representation [ created: 5m 3s ago ]"
         )
 
         self.assertEqual(
@@ -60,7 +64,7 @@ class RuntimeMemoryCompoundLineTests(unittest.TestCase):
             "\n".join([
                 "active_topic: Drawing a house using text format.",
                 "user_intent: Initial request was for an image/drawing.",
-                "jin_last_action: Provided ASCII art representation [trace: 0.50]",
+                "jin_last_action: Provided ASCII art representation [ created: 5m 3s ago ]",
             ]),
         )
 
@@ -177,7 +181,7 @@ class L1MemoryTests(
                 prompt,
             )
 
-    def test_runtime_memory_user_prompt_omits_hot_traces(self):
+    def test_runtime_memory_user_prompt_omits_strength_zone_hints(self):
 
             prompt = build_runtime_memory_user_prompt(
                 current_memory="user_message: hello",
@@ -196,7 +200,7 @@ class L1MemoryTests(
             )
 
             self.assertNotIn(
-                "hot_traces:",
+                "hot_memory:",
                 prompt,
             )
             self.assertNotIn(
@@ -204,7 +208,7 @@ class L1MemoryTests(
                 prompt,
             )
             self.assertNotIn(
-                "Memory traces (pheromone strength)",
+                "Memory strength",
                 prompt,
             )
             self.assertNotIn(
@@ -251,7 +255,117 @@ class L1MemoryTests(
                 "topic: reconnect counters",
             )
 
-    def test_runtime_memory_reasoning_quotes_boost_trace_once_per_response(self):
+    def test_runtime_memory_snapshot_uses_created_lifecycle_suffix(self):
+
+            context = RuntimeContext(
+                websocket=object(),
+                emitter=object(),
+                logger=object(),
+                clients={},
+            )
+            context.runtime_memory = "topic: lifecycle counters"
+            context.runtime_memory_snapshot_datetime = datetime(
+                2026,
+                1,
+                1,
+                12,
+                0,
+                0,
+                tzinfo=timezone.utc,
+            )
+
+            snapshot = build_runtime_memory_snapshot(
+                context,
+                context.runtime_memory,
+            )
+            line = snapshot["lines"][0]
+
+            self.assertEqual(
+                line["memory_lifecycle_status"],
+                "created",
+            )
+            self.assertIn(
+                "[ created: 0s ago ]",
+                snapshot["annotated_memory"],
+            )
+    def test_runtime_memory_snapshot_keeps_updated_lifecycle_status(self):
+
+            context = RuntimeContext(
+                websocket=object(),
+                emitter=object(),
+                logger=object(),
+                clients={},
+            )
+            context.runtime_memory = "topic: first value"
+            context.runtime_memory_snapshot_datetime = datetime(
+                2026,
+                1,
+                1,
+                12,
+                0,
+                0,
+                tzinfo=timezone.utc,
+            )
+
+            first_snapshot = build_runtime_memory_snapshot(
+                context,
+                context.runtime_memory,
+            )
+            context.runtime_memory_snapshots.append(
+                first_snapshot
+            )
+
+            context.runtime_memory = "topic: second value"
+            context.runtime_memory_snapshot_datetime = datetime(
+                2026,
+                1,
+                1,
+                12,
+                1,
+                3,
+                tzinfo=timezone.utc,
+            )
+            second_snapshot = build_runtime_memory_snapshot(
+                context,
+                context.runtime_memory,
+            )
+            context.runtime_memory_snapshots.append(
+                second_snapshot
+            )
+
+            context.runtime_memory_snapshot_datetime = datetime(
+                2026,
+                1,
+                1,
+                12,
+                2,
+                6,
+                tzinfo=timezone.utc,
+            )
+            third_snapshot = build_runtime_memory_snapshot(
+                context,
+                context.runtime_memory,
+            )
+            line = third_snapshot["lines"][0]
+
+            self.assertEqual(
+                line["memory_lifecycle_status"],
+                "updated",
+            )
+            self.assertEqual(
+                line["created_at"],
+                first_snapshot["lines"][0]["created_at"],
+            )
+            self.assertEqual(
+                line["updated_at"],
+                second_snapshot["lines"][0]["updated_at"],
+            )
+            self.assertIn(
+                "[ updated: 1m 3s ago ]",
+                third_snapshot["annotated_memory"],
+            )
+
+    def test_runtime_memory_reasoning_quotes_boost_score_once_per_response(self):
 
             context = RuntimeContext(
                 websocket=object(),
@@ -260,15 +374,15 @@ class L1MemoryTests(
                 clients={},
             )
             context.runtime_memory = (
-                "topic: The user is tuning runtime memory trace "
+                "topic: The user is tuning runtime memory status "
                 "through reasoning citations"
             )
             context.runtime_current_turn_id = "turn-1"
 
             reasoning = (
                 "I should lean on this memory: The user is tuning runtime "
-                "memory trace through reasoning citations. Repeating it: "
-                "The user is tuning runtime memory trace through reasoning "
+                "memory status through reasoning citations. Repeating it: "
+                "The user is tuning runtime memory status through reasoning "
                 "citations."
             )
 

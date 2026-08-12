@@ -22,11 +22,11 @@ STRENGTH_NEW_KEY = 0.5
 # Sets the minimum strength retained for durable memory lines.
 DURABLE_FLOOR = 0.25
 
-# Sets the strength threshold for marking memory lines as hot traces.
+# Sets the strength threshold for marking runtime memory lines as hot.
 HOT_THRESHOLD = 0.5
 
-# Lists memory keys that should never be treated as hot traces.
-HOT_TRACE_EXCLUDED_KEYS = [
+# Lists memory keys that should never be treated as hot.
+HOT_MEMORY_KEY_EXCLUDED_KEYS = [
     "user_idle",
 ]
 
@@ -269,7 +269,7 @@ LIVE_INTERACTION_SIGNALS = (
     "\n"
     "Store the useful inferred pattern, not a transcript or quoted evidence.\n"
     "\n"
-    "Treat inferred signals as temporary adaptive traces, not permanent user traits.\n"
+    "Treat inferred signals as temporary adaptive context, not permanent user traits.\n"
     "You must distinct weak signal from durable preference or identity claim and use cautious wording for uncertain inferences.\n"
     "\n"
     "</live_interaction_signal_rules>\n"

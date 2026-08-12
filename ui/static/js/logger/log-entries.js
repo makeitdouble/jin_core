@@ -882,6 +882,9 @@ const l4DeletedFactCards =
 const delayedDeletedReportCards =
   new Map();
 
+const delayedUnlinkedFactCards =
+  new Map();
+
 function parseL4JsonPayload(details) {
   const text =
     String(details || "").trim();
@@ -1886,6 +1889,224 @@ function handleDelayedMemoryDeletedReportLog(
   return logDiv;
 }
 
+function resolveDelayedMemoryFactUnlink(
+  details,
+  meta,
+) {
+  if (
+      meta
+      && meta.delayed_memory_fact_unlink
+      && typeof meta.delayed_memory_fact_unlink === "object"
+  ) {
+    return meta.delayed_memory_fact_unlink;
+  }
+
+  const payload =
+    parseL4JsonPayload(details);
+
+  if (
+      payload
+      && payload.kind === "delayed_memory_fact_unlink"
+  ) {
+    return payload;
+  }
+
+  return null;
+}
+
+function getDelayedMemoryFactUnlinkCardId(
+  payload
+) {
+  return [
+    payload && payload.report_id,
+    payload && payload.fact_id,
+  ]
+    .map(value => String(value || "").trim())
+    .filter(Boolean)
+    .join(":");
+}
+
+function handleDelayedMemoryFactUnlinkedLog(
+  tag,
+  details,
+  meta,
+) {
+  const isUnlinked =
+    String(meta && meta.memory_event || "").toLowerCase()
+      === "delayed_memory_fact_unlinked"
+    || String(tag || "").toUpperCase()
+      === "[MEMORY:DELAYED:FACT_UNLINKED]";
+
+  if (!isUnlinked) {
+    return null;
+  }
+
+  const payload =
+    resolveDelayedMemoryFactUnlink(
+      details,
+      meta
+    );
+  const reportId =
+    String(payload && payload.report_id || "")
+      .trim()
+      .toLowerCase();
+  const factId =
+    String(payload && payload.fact_id || "")
+      .trim();
+  const cardId =
+    getDelayedMemoryFactUnlinkCardId(
+      payload
+    );
+
+  if (!payload || !reportId || !factId || !cardId) {
+    return null;
+  }
+
+  const logDiv =
+    createL4LoggerCard(
+      "[MEMORY:DELAYED:FACT_UNLINKED]"
+    );
+
+  const title =
+    document.createElement("span");
+
+  title.className =
+    "block mt-2 text-zinc-200 font-semibold";
+
+  title.textContent =
+    `${factId} . ${String(
+      payload.report
+      && (
+        payload.report.title
+        || payload.report.id
+      )
+      || reportId
+    )}`;
+
+  const summary =
+    document.createElement("span");
+
+  summary.className =
+    "block mt-1 text-zinc-400";
+
+  const fact =
+    payload.fact
+    && typeof payload.fact === "object"
+      ? payload.fact
+      : null;
+
+  summary.textContent =
+    fact
+      ? `${String(fact.key || factId)}: ${String(fact.value || "")}`
+      : "Fact unlinked from delayed memory report.";
+
+  logDiv.appendChild(
+    title
+  );
+
+  if (summary.textContent) {
+    logDiv.appendChild(
+      summary
+    );
+  }
+
+  const actions =
+    document.createElement("div");
+
+  actions.className =
+    "mt-2 flex flex-wrap items-center gap-2";
+
+  const payloadButton =
+    createL4LoggerButton(
+      "payload"
+    );
+
+  const restoreButton =
+    createL4LoggerButton(
+      "restore"
+    );
+
+  payloadButton.addEventListener(
+    "click",
+    function () {
+      showTrace(
+        JSON.stringify(
+          payload,
+          null,
+          2
+        ),
+        "Delayed memory fact unlinked"
+      );
+    }
+  );
+
+  restoreButton.addEventListener(
+    "click",
+    function () {
+      const api =
+        window.JinRuntime
+        && window.JinRuntime.runtime;
+
+      if (!api || typeof api.linkDelayedMemoryReportFactId !== "function") {
+        return;
+      }
+
+      const restored =
+        api.linkDelayedMemoryReportFactId(
+          reportId,
+          factId,
+          {
+            anchor: Boolean(payload.was_anchor),
+            log: false,
+          }
+        );
+
+      if (!restored) {
+        restoreButton.textContent =
+          "restore failed";
+
+        window.setTimeout(
+          function () {
+            restoreButton.textContent =
+              "restore";
+          },
+          1400
+        );
+        return;
+      }
+
+      restoreButton.disabled =
+        true;
+      restoreButton.textContent =
+        "restored";
+      restoreButton.classList.add(
+        "opacity-50"
+      );
+
+      delayedUnlinkedFactCards.delete(
+        cardId
+      );
+      dismissLogAfterClear(
+        logDiv
+      );
+    }
+  );
+
+  delayedUnlinkedFactCards.set(
+    cardId,
+    {
+      logDiv,
+      restoreButton,
+    }
+  );
+
+  actions.appendChild(payloadButton);
+  actions.appendChild(restoreButton);
+  logDiv.appendChild(actions);
+
+  return logDiv;
+}
+
 function appendLog(
   tag,
   message,
@@ -1938,6 +2159,17 @@ function appendLog(
 
   if (l4DeletedFactLog) {
     return l4DeletedFactLog;
+  }
+
+  const delayedMemoryFactUnlinkedLog =
+    handleDelayedMemoryFactUnlinkedLog(
+      tag,
+      normalized.details,
+      meta
+    );
+
+  if (delayedMemoryFactUnlinkedLog) {
+    return delayedMemoryFactUnlinkedLog;
   }
 
   const delayedMemoryDeletedLog =

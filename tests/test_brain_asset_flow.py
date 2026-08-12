@@ -1662,6 +1662,164 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "I am JIN.",
         )
 
+    async def test_reasoning_recovery_followups_receive_loop_reasoning_and_waiting_message(self):
+
+        calls = []
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+            context = kwargs["context"]
+
+            if len(calls) == 1:
+                context.runtime_context_limit_recovery_pending = True
+                context.runtime_context_limit_stage = "reasoning"
+                context.runtime_context_limit_kind = "output"
+                context.runtime_context_limit_finish_reason = "length"
+                context.runtime_turn_interrupted = True
+                return (
+                    "",
+                    "first failed reasoning",
+                )
+
+            if len(calls) == 2:
+                system_prompt = kwargs["system_prompt"]
+                self.assertEqual(
+                    kwargs["brain_payload"],
+                    "",
+                )
+                self.assertTrue(
+                    system_prompt.startswith(
+                        FOLLOWUP_SYSTEM_MESSAGE
+                    ),
+                    system_prompt,
+                )
+                self.assertIn(
+                    "<PREVIOUS_REASONING_LOOP_CONTENT>",
+                    system_prompt,
+                )
+                self.assertEqual(
+                    system_prompt.count(
+                        "<PREVIOUS_REASONING_LOOP_CONTENT>"
+                    ),
+                    1,
+                )
+                self.assertIn(
+                    "first failed reasoning",
+                    system_prompt,
+                )
+                context.runtime_reasoning_recovery_pending = True
+                context.runtime_turn_interrupted = True
+                context.runtime_turn_interruption_reason = (
+                    "Repeated thinking sentence loop detected."
+                )
+                return (
+                    "",
+                    "second failed reasoning",
+                )
+
+            if len(calls) == 3:
+                system_prompt = kwargs["system_prompt"]
+                self.assertEqual(
+                    kwargs["brain_payload"],
+                    "",
+                )
+                self.assertTrue(
+                    system_prompt.startswith(
+                        FOLLOWUP_SYSTEM_MESSAGE
+                    ),
+                    system_prompt,
+                )
+                self.assertEqual(
+                    system_prompt.count(
+                        "<PREVIOUS_REASONING_LOOP_CONTENT>"
+                    ),
+                    2,
+                )
+                self.assertLess(
+                    system_prompt.index(
+                        "first failed reasoning"
+                    ),
+                    system_prompt.index(
+                        "second failed reasoning"
+                    ),
+                )
+                context.runtime_turn_interrupted = False
+                return (
+                    "Recovered answer.",
+                    "final successful reasoning",
+                )
+
+            self.fail(
+                "Brain model kept running after recovery answer"
+            )
+
+        context = _context()
+        context.runtime_deep_search_calls = []
+        context.runtime_deep_search_result = ""
+        context.runtime_deep_search_result_id = ""
+        context.runtime_tool_results = []
+        context.runtime_session_action_history = []
+        context.runtime_current_turn_id = "turn_reasoning_recovery"
+        context.runtime_current_sequence_turn_id = ""
+        context.runtime_action_sequence_turn_ids = []
+        context.runtime_turn_user_message = "question"
+        context.runtime_turn_assistant_response = ""
+        context.runtime_turn_interrupted = False
+        context.runtime_turn_interruption_reason = ""
+        context.runtime_turn_interruption_quote = ""
+        context.runtime_reasoning_recovery_pending = False
+        context.runtime_context_limit_recovery_pending = False
+        context.runtime_context_limit_stage = ""
+        context.runtime_context_limit_kind = ""
+        context.runtime_context_limit_finish_reason = ""
+        context.runtime_previous_reasoning_content = ""
+        context.runtime_previous_reasoning_loop_contents = []
+        context.runtime_memory = ""
+        context.deep_thought_count = 0
+        state = AgentState(
+            user_input="question",
+        )
+        state.translated_input = state.user_input
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=_brain_runtime(),
+        ), patch(
+            "agent.nodes.brain.build_brain_payload",
+            return_value="brain payload",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch(
+            "agent.nodes.brain.config.BRAIN_MAX_FOLLOWUPS",
+            5,
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertEqual(
+            len(calls),
+            3,
+        )
+        self.assertEqual(
+            state.brain_response,
+            "Recovered answer.",
+        )
+        self.assertEqual(
+            context.runtime_previous_reasoning_content,
+            "final successful reasoning",
+        )
+        self.assertEqual(
+            context.runtime_previous_reasoning_loop_contents,
+            [],
+        )
+
     async def test_asset_operation_result_is_returned_to_model_before_final_answer(self):
 
         calls = []

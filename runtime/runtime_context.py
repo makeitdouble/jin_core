@@ -211,6 +211,12 @@ class RuntimeContext:
         default_factory=dict
     )
 
+    runtime_current_context_window: dict = field(
+        default_factory=dict
+    )
+
+    runtime_current_context_window_text: str = ""
+
     runtime_memory: str = DEFAULT_RUNTIME_MEMORY
 
     runtime_memory_stable: str = DEFAULT_RUNTIME_MEMORY
@@ -328,6 +334,10 @@ class RuntimeContext:
     runtime_turn_reasoning_content: str = ""
 
     runtime_previous_reasoning_content: str = ""
+
+    runtime_previous_reasoning_loop_contents: list[str] = field(
+        default_factory=list
+    )
 
     runtime_turn_interrupted: bool = False
 
@@ -469,6 +479,7 @@ class ContextContract:
     runtime_mode: str = ""
     service_model_uid: str = ""
     brain_model_uid: str = ""
+    current_context_window: str = ""
     jin_color: str = DEFAULT_JIN_COLOR
     can_web_search: bool = True
     can_use_assets: bool = False
@@ -503,6 +514,11 @@ class ContextContract:
             and self.brain_model_uid
         ):
             fields["BRAIN_MODEL_UID"] = self.brain_model_uid
+
+        if self.current_context_window:
+            fields["CURRENT_CONTEXT_WINDOW"] = (
+                self.current_context_window
+            )
 
         if self.jin_color:
             fields["JIN_COLOR"] = self.jin_color

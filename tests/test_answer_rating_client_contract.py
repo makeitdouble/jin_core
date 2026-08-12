@@ -75,7 +75,7 @@ class AnswerRatingClientContractTests(unittest.TestCase):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn("/static/css/chat-rating.css?v=rating-persist-1", source)
-        self.assertIn("/static/css/theme-win95.css?v=delayed-context-loaded-1", source)
+        self.assertIn("/static/css/theme-win95.css?v=memory-highlight-text-1", source)
         self.assertIn("/static/js/answer-rating.js?v=answer-rating-persist-1", source)
         self.assertIn(
             "/static/js/runtime/runtime-feedback.js?v=runtime-feedback-persist-1",

@@ -110,6 +110,11 @@ def build_runtime_xml(
             runtime_mode=get_brain_runtime_mode(),
             service_model_uid=settings.SERVICE_MODEL_UID,
             brain_model_uid=settings.BRAIN_MODEL_UID,
+            current_context_window=getattr(
+                context,
+                "runtime_current_context_window_text",
+                "",
+            ),
             jin_color=get_current_jin_color(
                 context
             ),
