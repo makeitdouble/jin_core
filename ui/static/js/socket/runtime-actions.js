@@ -560,7 +560,6 @@ const PAYLOAD_DISTINCT_RUNTIME_ACTIONS = new Set([
   "save_delayed_memory_content",
   "load_delayed_memory",
   "unload_delayed_memory",
-  "update_delayed_memory",
 ]);
 
 function normalizeRuntimeActionPayloadIdentity(value) {
@@ -697,7 +696,6 @@ function getDelayedMemoryRuntimeActionPreview(
         [
           "load_delayed_memory",
           "unload_delayed_memory",
-          "update_delayed_memory",
         ].includes(action)
           ? data.payload
           : ""
@@ -755,7 +753,6 @@ function handleRuntimeAction(
     [
       "load_delayed_memory",
       "unload_delayed_memory",
-      "update_delayed_memory",
     ].includes(action)
     && Boolean(
       delayedMemoryPreview.reportId
@@ -1153,21 +1150,6 @@ function handleRuntimeAction(
     window.JinRuntime.runtime.mergeDelayedMemoryReports(
       data.delayed_memory_report
     );
-  }
-
-  if (
-    action === "update_delayed_memory"
-    && data.delayed_memory_result
-    && data.delayed_memory_result.report
-    && data.delayed_memory_result.id
-    && window.JinRuntime
-    && window.JinRuntime.runtime
-    && window.JinRuntime.runtime.mergeDelayedMemoryReports
-  ) {
-    window.JinRuntime.runtime.mergeDelayedMemoryReports({
-      [data.delayed_memory_result.id]:
-        data.delayed_memory_result.report,
-    });
   }
 
   if (

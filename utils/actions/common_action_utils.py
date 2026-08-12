@@ -18,7 +18,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_UNLOAD_SKILL,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
-    RUNTIME_ACTION_UPDATE_DELAYED_MEMORY,
     RUNTIME_ACTION_RESOLVE_TODO,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
@@ -64,7 +63,6 @@ from .save_delayed_memory_utils import (
     build_save_delayed_memory_payload,
     parse_delayed_memory_content_payload,
 )
-from .update_delayed_memory_utils import build_update_delayed_memory_payload
 from .web_search_utils import (
     build_web_search_payload,
     extract_search_query,
@@ -430,7 +428,6 @@ def normalize_runtime_action_name(
         "SAVE_SESSION": RUNTIME_ACTION_SAVE_SESSION,
         "SAVE_DELAYED_MEMORY": RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
         "SAVE_DELAYED_MEMORY_CONTENT": RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
-        "UPDATE_DELAYED_MEMORY": RUNTIME_ACTION_UPDATE_DELAYED_MEMORY,
         "SAVE_ACTIVE_MEMORY": RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
         "RESOLVE_ACTIVE_MEMORY": RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
         "USE_ASSETS": RUNTIME_ACTION_ASSET_ACTION,
@@ -500,9 +497,6 @@ def normalize_runtime_action_names(
             normalized_names.append(
                 RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY
             )
-            normalized_names.append(
-                RUNTIME_ACTION_UPDATE_DELAYED_MEMORY
-            )
 
         if normalized_name == RUNTIME_ACTION_ASSET_ACTION:
             normalized_names.append(
@@ -557,7 +551,6 @@ _ACTION_PAYLOAD_BUILDERS = {
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT: build_save_delayed_memory_payload,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY: build_load_delayed_memory_payload,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY: build_resolve_action_payload,
-    RUNTIME_ACTION_UPDATE_DELAYED_MEMORY: build_update_delayed_memory_payload,
     RUNTIME_ACTION_LOAD_SKILL: build_load_skill_payload,
     RUNTIME_ACTION_UNLOAD_SKILL: build_resolve_action_payload,
     RUNTIME_ACTION_ASSET_ACTION: build_asset_action_payload,

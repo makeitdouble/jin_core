@@ -60,7 +60,6 @@ from .save_delayed_memory_utils import (
     normalize_long_term_fact_ids,
     parse_delayed_memory_content_payload,
 )
-from .update_delayed_memory_utils import parse_update_delayed_memory_payload
 from .web_search_utils import extract_search_query
 
 __all__ = [
@@ -106,7 +105,6 @@ __all__ = [
     "normalize_long_term_fact_ids",
     "parse_delayed_memory_content_payload",
     "parse_idle_seconds",
-    "parse_update_delayed_memory_payload",
     "refresh_active_memory_runtime_metadata",
     "remove_active_memory_entries",
     "slugify_delayed_memory_title",

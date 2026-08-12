@@ -112,13 +112,9 @@ from utils.actions import (
     parse_idle_seconds,
     normalize_jin_color_payload,
     normalize_delayed_memory_fact_ids,
-    normalize_long_term_fact_ids,
     refresh_active_memory_runtime_metadata,
     strip_active_memory_runtime_metadata,
     strip_active_memory_managed_suffixes,
-)
-from utils.actions.update_delayed_memory_utils import (
-    parse_update_delayed_memory_payload,
 )
 from utils.session_actions_history import (
     build_active_memory_resolve_failed_history_text,
@@ -492,7 +488,7 @@ def normalize_delayed_memory_session_ids(
     return session_ids
 
 
-def update_delayed_memory_load_metadata(
+def refresh_delayed_memory_load_metadata(
     context,
     report: dict,
 ) -> dict:
@@ -1959,7 +1955,7 @@ def load_delayed_memory_report(
             ),
         )
 
-    updated_report = update_delayed_memory_load_metadata(
+    updated_report = refresh_delayed_memory_load_metadata(
         context,
         report,
     )
@@ -2006,176 +2002,6 @@ def load_delayed_memory_report(
     }
 
 
-def _merge_unique_delayed_memory_values(
-    existing,
-    incoming,
-    *,
-    casefold: bool = False,
-) -> list[str]:
-
-    result = []
-    seen = set()
-
-    for value in (existing, incoming):
-        source = value if isinstance(value, list) else []
-
-        for item in source:
-            text = str(item or "").strip()
-            identity = text.casefold() if casefold else text
-
-            if not text or identity in seen:
-                continue
-
-            seen.add(identity)
-            result.append(text)
-
-    return result
-
-
-def update_delayed_memory_report(
-    context,
-    payload: str,
-) -> dict:
-
-    update = parse_update_delayed_memory_payload(payload)
-    report_id = str(update.get("id", "") or "").strip().casefold()
-
-    if not report_id:
-        return build_delayed_memory_failure_result(
-            action="update_delayed_memory",
-            requested=payload,
-            error="invalid_delayed_memory_update",
-        )
-
-    reports = get_delayed_memory_reports(context)
-    report = reports.get(report_id)
-
-    if not isinstance(report, dict):
-        return build_delayed_memory_failure_result(
-            action="update_delayed_memory",
-            requested=report_id,
-            error="delayed_memory_not_found",
-        )
-
-    available_l4_fact_ids = get_runtime_l4_fact_ids(context)
-    requested_anchor_fact_ids = normalize_long_term_fact_ids(
-        update.get("anchor_fact_ids", [])
-    )
-    requested_facts_ids = normalize_long_term_fact_ids(
-        [
-            *normalize_long_term_fact_ids(update.get("facts_ids", [])),
-            *normalize_long_term_fact_ids(update.get("absorbed_fact_ids", [])),
-        ]
-    )
-    accepted_anchor_fact_ids = [
-        fact_id
-        for fact_id in requested_anchor_fact_ids
-        if fact_id in available_l4_fact_ids
-    ]
-    accepted_facts_ids = [
-        fact_id
-        for fact_id in requested_facts_ids
-        if fact_id in available_l4_fact_ids
-    ]
-
-    current_anchor_fact_ids, current_facts_ids = (
-        normalize_delayed_memory_fact_ids(
-            report.get("anchor_fact_ids", []),
-            report.get("facts_ids", []),
-            legacy_absorbed_fact_ids=report.get("absorbed_fact_ids", []),
-            legacy_long_term_fact_ids=report.get("long_term_facts_ids", []),
-        )
-    )
-    next_anchor_fact_ids, next_facts_ids = (
-        normalize_delayed_memory_fact_ids(
-            [
-                *current_anchor_fact_ids,
-                *accepted_anchor_fact_ids,
-            ],
-            [
-                *current_facts_ids,
-                *accepted_facts_ids,
-                *accepted_anchor_fact_ids,
-            ],
-        )
-    )
-    next_tags = _merge_unique_delayed_memory_values(
-        report.get("tags", []),
-        update.get("tags", []),
-        casefold=True,
-    )
-    added_body = str(update.get("body", "") or "").strip()
-    current_body = str(report.get("body", "") or "").rstrip()
-    next_body = current_body
-
-    if added_body:
-        next_body = "\n\n".join(
-            part
-            for part in (current_body, added_body)
-            if part
-        )
-
-    if (
-        next_tags == list(report.get("tags", []) or [])
-        and next_anchor_fact_ids == current_anchor_fact_ids
-        and next_facts_ids == current_facts_ids
-        and next_body == current_body
-    ):
-        return build_delayed_memory_failure_result(
-            action="update_delayed_memory",
-            requested=report_id,
-            error="delayed_memory_update_empty",
-        )
-
-    updated_report = {
-        **report,
-        "tags": next_tags,
-        "anchor_fact_ids": next_anchor_fact_ids,
-        "facts_ids": next_facts_ids,
-        "body": next_body,
-    }
-    updated_report.pop("absorbed_fact_ids", None)
-    updated_report.pop("long_term_facts_ids", None)
-    reports[report_id] = updated_report
-
-    loaded_reports = get_loaded_delayed_memory_reports(context)
-
-    if report_id in loaded_reports:
-        loaded_reports[report_id] = {
-            **updated_report,
-            "id": report_id,
-        }
-
-    file_errors = []
-
-    if bool(
-        getattr(
-            context,
-            "delayed_memory_file_store_enabled",
-            False,
-        )
-    ):
-        from utils.delayed_memory_file_store import (
-            persist_delayed_memory_reports,
-        )
-
-        file_errors = persist_delayed_memory_reports({
-            report_id: updated_report,
-        })
-
-    return {
-        "ok": True,
-        "action": "update_delayed_memory",
-        "id": report_id,
-        "title": str(updated_report.get("title", "") or "").strip(),
-        "report": {
-            **updated_report,
-            "id": report_id,
-        },
-        "file_saved": not file_errors,
-        "file_errors": file_errors,
-    }
-
 def include_pinned_delayed_memory_reports(
     context,
 ) -> dict:
@@ -2213,7 +2039,7 @@ def include_pinned_delayed_memory_reports(
         updated_report = report
 
         if turn_id and touched_by_report.get(report_id) != turn_id:
-            updated_report = update_delayed_memory_load_metadata(
+            updated_report = refresh_delayed_memory_load_metadata(
                 context,
                 report,
             )
@@ -2319,7 +2145,7 @@ def build_delayed_memory_action_text(
         result,
         dict,
     ):
-        return "Delayed memory updated"
+        return "Delayed memory action"
 
     action = str(
         result.get(
@@ -2385,14 +2211,7 @@ def build_delayed_memory_action_text(
             else f"Unloading: {title}"
         )
 
-    if action == "update_delayed_memory":
-        return (
-            f"Update failed: {title}"
-            if failed
-            else f"Updating: {title}"
-        )
-
-    return "Delayed memory updated"
+    return "Delayed memory action"
 
 
 def build_delayed_memory_history_text(
@@ -2467,9 +2286,6 @@ def build_delayed_memory_history_text(
 
     if action == "unload_delayed_memory":
         return f"Delayed memory unloaded from context: {title}"
-
-    if action == "update_delayed_memory":
-        return f"Delayed memory updated: {title}"
 
     return ""
 

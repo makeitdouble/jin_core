@@ -18,7 +18,6 @@ async def apply_delayed_memory_actions(
     *,
     load_delayed_memory_actions,
     unload_delayed_memory_actions,
-    update_delayed_memory_actions,
     log_runtime,
 ):
     from utils.brain_client_utils import (
@@ -31,7 +30,6 @@ async def apply_delayed_memory_actions(
         get_delayed_memory_reports,
         unload_delayed_memory_report,
         set_loaded_delayed_memory_report,
-        update_delayed_memory_report,
     )
 
     delayed_memory_results = []
@@ -69,47 +67,6 @@ async def apply_delayed_memory_actions(
                         context,
                         history_text,
                     )
-            delayed_memory_results.append(
-                result
-            )
-
-    if update_delayed_memory_actions:
-        if log_runtime is not None:
-            await log_runtime(
-                "[RUNTIME ACTION] update_delayed_memory requested"
-            )
-
-        clear_delayed_memory_runtime_results(
-            context
-        )
-
-        for action in update_delayed_memory_actions:
-            result = update_delayed_memory_report(
-                context,
-                action.payload,
-            )
-            record_delayed_memory_runtime_result(
-                context,
-                result,
-            )
-
-            if result.get("ok") is not False:
-                from runtime.L4_memory import (
-                    refresh_runtime_l4_archived_fact_ids,
-                )
-
-                refresh_runtime_l4_archived_fact_ids(
-                    context
-                )
-                history_text = build_delayed_memory_history_text(
-                    result
-                )
-                if history_text:
-                    record_session_action_history(
-                        context,
-                        history_text,
-                    )
-
             delayed_memory_results.append(
                 result
             )

@@ -115,9 +115,9 @@ class RuntimeActionRegexpUtilsTests(unittest.TestCase):
 
     def test_close_tag_action_holds_opening_tag_with_header_payload(self):
         marker_start = find_unclosed_runtime_action_start(
-            "<UPDATE_DELAYED_MEMORY: a1b2c3>\ntags: social",
-            "<UPDATE_DELAYED_MEMORY: id >",
-            "UPDATE_DELAYED_MEMORY",
+            "<CUSTOM_ACTION: a1b2c3>\ntags: social",
+            "<CUSTOM_ACTION: id >",
+            "CUSTOM_ACTION",
             close_tag=True,
         )
 

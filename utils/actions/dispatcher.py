@@ -10,7 +10,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_UPDATE_L4_FACTS,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
-    RUNTIME_ACTION_UPDATE_DELAYED_MEMORY,
     RUNTIME_ACTION_UNLOAD_SKILL,
     RUNTIME_ACTION_RESOLVE_TODO,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
@@ -1333,12 +1332,6 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY
     ]
 
-    update_delayed_memory_actions = [
-        action
-        for action in filtered_actions
-        if action.name == RUNTIME_ACTION_UPDATE_DELAYED_MEMORY
-    ]
-
     update_l4_facts_actions = [
         action
         for action in filtered_actions
@@ -1528,7 +1521,6 @@ async def apply_runtime_action_calls(
         context,
         load_delayed_memory_actions=load_delayed_memory_actions,
         unload_delayed_memory_actions=unload_delayed_memory_actions,
-        update_delayed_memory_actions=update_delayed_memory_actions,
         log_runtime=log_runtime,
     )
 

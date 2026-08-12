@@ -138,11 +138,6 @@ const runtimeActionIconDefinitions = {
     tone: "delete",
     svg: '<path d="M9 4h6l1 2h4"></path><path d="M4 6h16"></path><path d="m7 9 .7 10h8.6L17 9"></path><path d="M10 11v5"></path><path d="M14 11v5"></path>',
   },
-  update_delayed_memory: {
-    title: "update delayed memory",
-    tone: "update",
-    svg: '<path d="M5 5h10l4 4v10H5z"></path><path d="M14 5v5h5"></path><path d="m8 16 1.2-3.2 5.6-5.6 2 2-5.6 5.6z"></path>',
-  },
   save_active_memory: {
     title: "save active memory",
     tone: "memory",

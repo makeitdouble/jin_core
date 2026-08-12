@@ -188,7 +188,6 @@ def _format_memory_action_context_part(
     if normalized_action in {
         "RESOLVE_ACTIVE_MEMORY",
         "UNLOAD_DELAYED_MEMORY",
-        "UPDATE_DELAYED_MEMORY",
     }:
         resolved_id = part_id or detail
 
