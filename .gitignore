@@ -25,6 +25,7 @@ assets/*
 
 # Memory contents
 memory/**/*.json
+logs/
 
 # Keep empty memory directory structure
 !memory/**/.gitkeep

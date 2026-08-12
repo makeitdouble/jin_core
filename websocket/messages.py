@@ -30,6 +30,7 @@ from utils.brain_client_utils import (
     get_brain_runtime_config,
     should_prearm_save_session,
 )
+from utils.chat_log import append_chat_log_entry
 from utils.session_actions_history import emit_session_actions_update
 from utils.token_usage import (
     format_token_usage_summary,
@@ -1122,6 +1123,19 @@ async def process_message(
             )
             context.user_message_count += 1
 
+        if not is_action_guard_retry:
+            try:
+                append_chat_log_entry(
+                    context,
+                    role="user",
+                    text=user_text,
+                )
+            except Exception as error:
+                await logger.log_system(
+                    "[CHAT_LOG] local user message save failed: "
+                    + str(error)
+                )
+
         state = AgentState(
             user_input=user_text
         )
@@ -1198,6 +1212,18 @@ async def process_message(
                 or state.brain_response
                 or context.runtime_turn_assistant_response
         )
+        if not is_action_guard_retry:
+            try:
+                append_chat_log_entry(
+                    context,
+                    role="jin",
+                    text=assistant_message,
+                )
+            except Exception as error:
+                await logger.log_system(
+                    "[CHAT_LOG] local JIN message save failed: "
+                    + str(error)
+                )
 
         assistant_created_at = time.time()
         if is_idle_followup:

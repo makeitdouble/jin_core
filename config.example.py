@@ -5,6 +5,7 @@ TRANSLATION_ENABLED = False
 TRANSLATE_RESPONSE = False
 FORMAT_RESPONSE = True
 DEBUG_RULE_CITATIONS = True
+LOG_CHAT = True
 
 # When True, a brain generation stopped by the model/context output limit
 # continues immediately in an internal follow-up tick instead of ending the
