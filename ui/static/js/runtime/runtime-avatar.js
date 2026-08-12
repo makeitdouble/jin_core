@@ -26,20 +26,20 @@
   const STATIC_RADIAL_LINE_OUTER_RADIUS = 166 * INNER_RING_SCALE;
   const MEMORY_RING_LAYOUT = Object.freeze({
     l4: Object.freeze({
-      radius: 156,
-      strokeWidth: 1.10,
-      minArcDegrees: 3.4,
-      maxArcDegrees: 9.4,
-      arcRatio: 0.45,
-      startAngle: -3,
-    }),
-    delayed: Object.freeze({
       radius: 166,
       strokeWidth: 1.05,
       minArcDegrees: 3.2,
       maxArcDegrees: 8.8,
       arcRatio: 0.42,
       startAngle: -6,
+    }),
+    delayed: Object.freeze({
+      radius: 156,
+      strokeWidth: 1.10,
+      minArcDegrees: 3.4,
+      maxArcDegrees: 9.4,
+      arcRatio: 0.45,
+      startAngle: -3,
     }),
     active: Object.freeze({
       radius: 176,
@@ -51,7 +51,7 @@
     }),
   });
   const MEMORY_SIGNAL_KIND_ORDER =
-    Object.freeze(["l4", "delayed", "active"]);
+    Object.freeze(["delayed", "l4", "active"]);
   const SNAPSHOT_GLOW_CLEAR_DELAY_MS = 360;
   const CENTER_COLOR_STEP_MS = 120;
   const MEMORY_LAYERS_HIDDEN_CLASS = "is-memory-layers-hidden";
@@ -82,7 +82,7 @@
 
   const avatarRoot = document.getElementById("jin-runtime-avatar");
   const memoryLayersToggle = document.getElementById("memory-layers-toggle");
-  const settingsPanel = document.getElementById("settings-panel");
+  const memoryPanel = document.getElementById("memory-panel");
   const normalizeRuntimeCitationIdentity =
     window.JinRuntime.normalizeCitationIdentity;
   const buildCitationRecordIdentity =
@@ -1830,16 +1830,16 @@
   ) {
     appendMemorySignalRing(
       svg,
-      l4MemoryRecords,
-      MEMORY_RING_LAYOUT.l4,
-      "l4",
+      delayedMemoryRecords,
+      MEMORY_RING_LAYOUT.delayed,
+      "delayed",
       overallColor
     );
     appendMemorySignalRing(
       svg,
-      delayedMemoryRecords,
-      MEMORY_RING_LAYOUT.delayed,
-      "delayed",
+      l4MemoryRecords,
+      MEMORY_RING_LAYOUT.l4,
+      "l4",
       overallColor
     );
     appendMemorySignalRing(
@@ -2973,11 +2973,11 @@
   let snapshotRenderSequence = 0;
 
   function resolveMemoryLayer() {
-    if (!settingsPanel) {
+    if (!memoryPanel) {
       return null;
     }
 
-    const classes = settingsPanel.classList;
+    const classes = memoryPanel.classList;
 
     if (
       classes.contains("memory-l3-updating")
@@ -3130,9 +3130,9 @@
     applyThinkRuntimeCitationGlow();
   });
 
-  if (settingsPanel && typeof MutationObserver !== "undefined") {
+  if (memoryPanel && typeof MutationObserver !== "undefined") {
     const observer = new MutationObserver(syncMemoryLayer);
-    observer.observe(settingsPanel, {
+    observer.observe(memoryPanel, {
       attributes: true,
       attributeFilter: ["class"],
     });

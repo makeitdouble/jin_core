@@ -487,7 +487,7 @@ let factCheckGlowPulseTimer = null;
 let factCheckGlowFadeTimer = null;
 
 function getMemoryPanel() {
-  return document.getElementById("settings-panel");
+  return document.getElementById("memory-panel");
 }
 
 function clearFactCheckGlowTimers() {

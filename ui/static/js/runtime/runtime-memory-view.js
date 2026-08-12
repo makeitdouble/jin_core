@@ -109,8 +109,8 @@
   const runtimeDiffMax =
       document.getElementById("runtime-diff-max");
 
-  const settingsPanel =
-      document.getElementById("settings-panel");
+  const memoryPanel =
+      document.getElementById("memory-panel");
 
   const MEMORY_PANEL_COLLAPSE_SYNC_EVENT =
       "jin:memory-panel-collapse-sync";
@@ -356,8 +356,8 @@
 
   function isRuntimeMemoryPanelCollapsed() {
     return Boolean(
-      settingsPanel
-      && settingsPanel.classList.contains(
+      memoryPanel
+      && memoryPanel.classList.contains(
         "panel-collapsed"
       )
     );
@@ -451,14 +451,14 @@
       handleRuntimeMemoryPanelVisibilityChange
     );
 
-    if (settingsPanel && typeof MutationObserver !== "undefined") {
+    if (memoryPanel && typeof MutationObserver !== "undefined") {
       const observer =
           new MutationObserver(
               handleRuntimeMemoryPanelVisibilityChange
           );
 
       observer.observe(
-        settingsPanel,
+        memoryPanel,
         {
           attributes: true,
           attributeFilter: ["class"],

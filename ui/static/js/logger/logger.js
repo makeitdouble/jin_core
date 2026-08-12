@@ -320,9 +320,25 @@ const consolePanel = document.getElementById("console-panel");
     const PANEL_VIEWPORT_GAP = 8;
     const PANEL_DOCK_FREE = "free";
     const STARTUP_COLLAPSE_CLASS = "panel-startup-collapse-active";
+    const COLLAPSED_AVATAR_MIN_PANEL_WIDTH = 150;
+    const COLLAPSED_AVATAR_MIN_RUNTIME_SIZE = 132;
+    const COLLAPSED_AVATAR_RESET_ANIMATION_MS = 320;
+    const COLLAPSED_AVATAR_RESET_EXPAND_DELAY_MS = 420;
+    const COLLAPSED_AVATAR_RESIZE_EDGES = [
+        "n",
+        "s",
+        "e",
+        "w",
+        "ne",
+        "nw",
+        "se",
+        "sw",
+    ];
     let startupCollapseClassTimer = null;
     let startupCollapseFrameId = null;
     let startupCollapsePreviousDuration = null;
+    let collapsedAvatarResetTimer = null;
+    let collapsedAvatarResetFrameId = null;
 
     function getDefaultPanelDock(panel) {
         if (panel === consolePanel) {
@@ -364,6 +380,193 @@ const consolePanel = document.getElementById("console-panel");
         return Number.isFinite(parsedGap)
             ? parsedGap
             : PANEL_VIEWPORT_GAP;
+    }
+
+    function clampNumber(value, min, max) {
+        const safeMin =
+            Math.min(
+                min,
+                max
+            );
+
+        const safeMax =
+            Math.max(
+                min,
+                max
+            );
+
+        return Math.max(
+            safeMin,
+            Math.min(
+                value,
+                safeMax
+            )
+        );
+    }
+
+    function parseCssPixelValue(value, fallback) {
+        const parsed =
+            Number.parseFloat(
+                String(value || "").trim()
+            );
+
+        return Number.isFinite(parsed)
+            ? parsed
+            : fallback;
+    }
+
+    function getRootCssPixelValue(propertyName, fallback) {
+        return parseCssPixelValue(
+            getComputedStyle(document.documentElement)
+                .getPropertyValue(propertyName),
+            fallback
+        );
+    }
+
+    function resolveCssLengthTermPixels(term, fallback) {
+        const value =
+            String(term || "").trim();
+
+        if (!value) {
+            return fallback;
+        }
+
+        const parsed =
+            Number.parseFloat(value);
+
+        if (!Number.isFinite(parsed)) {
+            return fallback;
+        }
+
+        if (value.endsWith("px")) {
+            return parsed;
+        }
+
+        if (value.endsWith("vh")) {
+            return window.innerHeight * parsed / 100;
+        }
+
+        if (value.endsWith("vw")) {
+            return window.innerWidth * parsed / 100;
+        }
+
+        if (value.endsWith("rem")) {
+            return parsed * parseCssPixelValue(
+                getComputedStyle(document.documentElement).fontSize,
+                16
+            );
+        }
+
+        return fallback;
+    }
+
+    function resolveCssLengthPixels(value, fallback) {
+        const rawValue =
+            String(value || "").trim();
+
+        if (!rawValue) {
+            return fallback;
+        }
+
+        const clampMatch =
+            rawValue.match(
+                /^clamp\((.+),(.+),(.+)\)$/i
+            );
+
+        if (clampMatch) {
+            const min =
+                resolveCssLengthTermPixels(
+                    clampMatch[1],
+                    fallback
+                );
+
+            const preferred =
+                resolveCssLengthTermPixels(
+                    clampMatch[2],
+                    fallback
+                );
+
+            const max =
+                resolveCssLengthTermPixels(
+                    clampMatch[3],
+                    fallback
+                );
+
+            return clampNumber(
+                preferred,
+                min,
+                max
+            );
+        }
+
+        const parsed =
+            parseCssPixelValue(
+                rawValue,
+                Number.NaN
+            );
+
+        if (
+            Number.isFinite(parsed)
+            && rawValue.endsWith("px")
+        ) {
+            return parsed;
+        }
+
+        const probe =
+            document.createElement("div");
+
+        probe.style.position =
+            "absolute";
+        probe.style.visibility =
+            "hidden";
+        probe.style.pointerEvents =
+            "none";
+        probe.style.width =
+            rawValue;
+        probe.style.height =
+            rawValue;
+
+        document.body.appendChild(
+            probe
+        );
+
+        const rect =
+            probe.getBoundingClientRect();
+
+        probe.remove();
+
+        return rect.width > 0
+            ? rect.width
+            : fallback;
+    }
+
+    function getDefaultRuntimeAvatarSize() {
+        const rawSize =
+            getComputedStyle(document.documentElement)
+                .getPropertyValue("--runtime-avatar-panel-size")
+                .trim();
+
+        const fallback =
+            memoryDragHandle
+                ? memoryDragHandle.getBoundingClientRect().height
+                : 278;
+
+        return resolveCssLengthPixels(
+            rawSize,
+            fallback
+        );
+    }
+
+    function getDefaultPanelWidth() {
+        const rawWidth =
+            getComputedStyle(document.documentElement)
+                .getPropertyValue("--panel-width")
+                .trim();
+
+        return resolveCssLengthPixels(
+            rawWidth,
+            330
+        );
     }
 
     function syncSceneShadeToPanelCollapse() {
@@ -528,12 +731,28 @@ const consolePanel = document.getElementById("console-panel");
         );
     }
 
+    function getCollapsedAvatarFrameHeight(panel) {
+        const style =
+            getComputedStyle(panel);
+
+        return (
+            parseCssPixelValue(
+                style.borderTopWidth,
+                0
+            )
+            + parseCssPixelValue(
+                style.borderBottomWidth,
+                0
+            )
+        );
+    }
+
     function getCollapsedPanelHeight(panel) {
         if (panel === memoryPanel && memoryDragHandle) {
             return `${
                 Math.round(
                     memoryDragHandle.getBoundingClientRect().height
-                    + getPanelFrameHeight(panel)
+                    + getCollapsedAvatarFrameHeight(panel)
                 )
             }px`;
         }
@@ -708,7 +927,7 @@ const consolePanel = document.getElementById("console-panel");
             consoleStream,
             memoryPanel,
             memoryPanel
-                ? memoryPanel.querySelector(".settings-scroll")
+                ? memoryPanel.querySelector(".memory-scroll")
                 : null,
         ].filter(Boolean);
     }
@@ -862,6 +1081,557 @@ const consolePanel = document.getElementById("console-panel");
                 bounds.maxHeight
             )
         );
+    }
+
+    function isCollapsedMemoryAvatarPanel(panel) {
+        return Boolean(
+            panel
+            && panel === memoryPanel
+            && panel.classList.contains("panel-collapsed")
+        );
+    }
+
+    function getCollapsedAvatarResizeBounds(panel) {
+        const parentRect =
+            panel.parentElement.getBoundingClientRect();
+
+        const gap =
+            getPanelGapPixels(panel);
+
+        const frameHeight =
+            getCollapsedAvatarFrameHeight(panel);
+
+        const maxWidth =
+            Math.max(
+                1,
+                parentRect.width - (gap * 2)
+            );
+
+        const maxHeight =
+            Math.max(
+                1,
+                parentRect.height - (gap * 2)
+            );
+
+        const minWidth =
+            Math.min(
+                COLLAPSED_AVATAR_MIN_PANEL_WIDTH,
+                maxWidth
+            );
+
+        const minHeight =
+            Math.min(
+                COLLAPSED_AVATAR_MIN_RUNTIME_SIZE + frameHeight,
+                maxHeight
+            );
+
+        return {
+            parentRect,
+            gap,
+            frameHeight,
+            minWidth,
+            minHeight,
+            maxWidth,
+            maxHeight,
+        };
+    }
+
+    function applyCollapsedAvatarSize(panel, width, height) {
+        const bounds =
+            getCollapsedAvatarResizeBounds(panel);
+
+        const nextWidth =
+            Math.round(
+                clampNumber(
+                    width,
+                    bounds.minWidth,
+                    bounds.maxWidth
+                )
+            );
+
+        const nextHeight =
+            Math.round(
+                clampNumber(
+                    height,
+                    bounds.minHeight,
+                    bounds.maxHeight
+                )
+            );
+
+        const runtimeAvatarSize =
+            Math.max(
+                1,
+                nextHeight - bounds.frameHeight
+            );
+
+        panel.style.width =
+            `${nextWidth}px`;
+
+        panel.style.setProperty(
+            "--runtime-avatar-panel-size",
+            `${Math.round(runtimeAvatarSize)}px`
+        );
+
+        const collapsedHeight =
+            `${nextHeight}px`;
+
+        panel.style.height =
+            collapsedHeight;
+        panel.style.minHeight =
+            collapsedHeight;
+        panel.style.maxHeight =
+            collapsedHeight;
+
+        return {
+            width: nextWidth,
+            height: nextHeight,
+            bounds,
+        };
+    }
+
+    function clampCollapsedAvatarSizeToViewport(panel) {
+        if (
+            !isCollapsedMemoryAvatarPanel(panel)
+            || !panel.parentElement
+        ) {
+            return null;
+        }
+
+        const panelRect =
+            panel.getBoundingClientRect();
+
+        const styledHeight =
+            parseCssPixelValue(
+                panel.style.height,
+                Number.NaN
+            );
+
+        return applyCollapsedAvatarSize(
+            panel,
+            panelRect.width,
+            Number.isFinite(styledHeight)
+                ? styledHeight
+                : panelRect.height
+        );
+    }
+
+    function applyCollapsedAvatarGeometry(panel, geometry) {
+        const size =
+            applyCollapsedAvatarSize(
+                panel,
+                geometry.width,
+                geometry.height
+            );
+
+        const bounds =
+            size.bounds;
+
+        const maxLeft =
+            Math.max(
+                bounds.gap,
+                bounds.parentRect.width - size.width - bounds.gap
+            );
+
+        const maxTop =
+            Math.max(
+                bounds.gap,
+                bounds.parentRect.height - size.height - bounds.gap
+            );
+
+        panel.style.left =
+            `${
+                Math.round(
+                    clampNumber(
+                        geometry.left,
+                        bounds.gap,
+                        maxLeft
+                    )
+                )
+            }px`;
+
+        panel.style.top =
+            `${
+                Math.round(
+                    clampNumber(
+                        geometry.top,
+                        bounds.gap,
+                        maxTop
+                    )
+                )
+            }px`;
+
+        panel.style.right =
+            "auto";
+
+        panel.style.bottom =
+            "auto";
+    }
+
+    function clampCollapsedAvatarGeometry(panel) {
+        const size =
+            clampCollapsedAvatarSizeToViewport(panel);
+
+        if (!size) {
+            return;
+        }
+
+        const bounds =
+            size.bounds;
+
+        const dock =
+            getPanelDock(panel);
+
+        if (dock === "right") {
+            panel.style.left =
+                "auto";
+            panel.style.right =
+                `${bounds.gap}px`;
+            panel.style.top =
+                `${bounds.gap}px`;
+            panel.style.bottom =
+                "auto";
+            return;
+        }
+
+        if (dock === "left") {
+            panel.style.left =
+                `${bounds.gap}px`;
+            panel.style.right =
+                "auto";
+            panel.style.top =
+                `${bounds.gap}px`;
+            panel.style.bottom =
+                "auto";
+            return;
+        }
+
+        const panelRect =
+            panel.getBoundingClientRect();
+
+        const currentLeft =
+            panelRect.left - bounds.parentRect.left;
+
+        const currentTop =
+            panelRect.top - bounds.parentRect.top;
+
+        applyCollapsedAvatarGeometry(
+            panel,
+            {
+                left: currentLeft,
+                top: currentTop,
+                width: size.width,
+                height: size.height,
+            }
+        );
+    }
+
+    function resetCollapsedAvatarToDefault(panel) {
+        if (
+            !isCollapsedMemoryAvatarPanel(panel)
+            || !panel.parentElement
+        ) {
+            return;
+        }
+
+        const parentRect =
+            panel.parentElement.getBoundingClientRect();
+
+        const panelRect =
+            panel.getBoundingClientRect();
+
+        const centerX =
+            panelRect.left - parentRect.left + (panelRect.width / 2);
+
+        const centerY =
+            panelRect.top - parentRect.top + (panelRect.height / 2);
+
+        if (collapsedAvatarResetFrameId !== null) {
+            window.cancelAnimationFrame(
+                collapsedAvatarResetFrameId
+            );
+            collapsedAvatarResetFrameId = null;
+        }
+
+        panel.classList.add(
+            "panel-avatar-resetting"
+        );
+
+        const defaultRuntimeAvatarSize =
+            getDefaultRuntimeAvatarSize();
+
+        const defaultCollapsedHeight =
+            defaultRuntimeAvatarSize
+            + getCollapsedAvatarFrameHeight(panel);
+
+        const bounds =
+            getCollapsedAvatarResizeBounds(panel);
+
+        const targetWidth =
+            clampNumber(
+                getDefaultPanelWidth(),
+                bounds.minWidth,
+                bounds.maxWidth
+            );
+
+        setPanelFreeDock(panel);
+
+        const targetHeight =
+            clampNumber(
+                defaultCollapsedHeight,
+                bounds.minHeight,
+                bounds.maxHeight
+            );
+
+        const maxLeft =
+            Math.max(
+                bounds.gap,
+                parentRect.width - targetWidth - bounds.gap
+            );
+
+        const maxTop =
+            Math.max(
+                bounds.gap,
+                parentRect.height - targetHeight - bounds.gap
+            );
+
+        const targetLeft =
+            clampNumber(
+                centerX - (targetWidth / 2),
+                bounds.gap,
+                maxLeft
+            );
+
+        const targetTop =
+            clampNumber(
+                centerY - (targetHeight / 2),
+                bounds.gap,
+                maxTop
+            );
+
+        panel.style.right =
+            "auto";
+
+        panel.style.bottom =
+            "auto";
+
+        const startGeometry = {
+            left: panelRect.left - parentRect.left,
+            top: panelRect.top - parentRect.top,
+            width: panelRect.width,
+            height: panelRect.height,
+        };
+
+        const targetGeometry = {
+            left: targetLeft,
+            top: targetTop,
+            width: targetWidth,
+            height: targetHeight,
+        };
+
+        const startTime =
+            window.performance.now();
+
+        const animateReset = (timestamp) => {
+            const elapsed =
+                timestamp - startTime;
+
+            const rawProgress =
+                clampNumber(
+                    elapsed / COLLAPSED_AVATAR_RESET_ANIMATION_MS,
+                    0,
+                    1
+                );
+
+            const progress =
+                rawProgress < 0.5
+                    ? 4 * Math.pow(
+                        rawProgress,
+                        3
+                    )
+                    : 1 - Math.pow(
+                        -2 * rawProgress + 2,
+                        3
+                    ) / 2;
+
+            applyCollapsedAvatarGeometry(
+                panel,
+                {
+                    left:
+                        startGeometry.left
+                        + (
+                            targetGeometry.left
+                            - startGeometry.left
+                        ) * progress,
+                    top:
+                        startGeometry.top
+                        + (
+                            targetGeometry.top
+                            - startGeometry.top
+                        ) * progress,
+                    width:
+                        startGeometry.width
+                        + (
+                            targetGeometry.width
+                            - startGeometry.width
+                        ) * progress,
+                    height:
+                        startGeometry.height
+                        + (
+                            targetGeometry.height
+                            - startGeometry.height
+                        ) * progress,
+                }
+            );
+
+            if (rawProgress < 1) {
+                collapsedAvatarResetFrameId =
+                    window.requestAnimationFrame(
+                        animateReset
+                    );
+                return;
+            }
+
+            collapsedAvatarResetFrameId =
+                null;
+        };
+
+        collapsedAvatarResetFrameId =
+            window.requestAnimationFrame(
+                animateReset
+            );
+    }
+
+    function getCollapsedAvatarResizeCursor(edge) {
+        if (
+            edge === "n"
+            || edge === "s"
+        ) {
+            return "ns-resize";
+        }
+
+        if (
+            edge === "e"
+            || edge === "w"
+        ) {
+            return "ew-resize";
+        }
+
+        if (
+            edge === "ne"
+            || edge === "sw"
+        ) {
+            return "nesw-resize";
+        }
+
+        return "nwse-resize";
+    }
+
+    function resolveCollapsedAvatarResizeGeometry(panel, state, event) {
+        const bounds =
+            getCollapsedAvatarResizeBounds(panel);
+
+        const dx =
+            event.clientX - state.startX;
+
+        const dy =
+            event.clientY - state.startY;
+
+        const resizeNorth =
+            state.edge.includes("n");
+
+        const resizeSouth =
+            state.edge.includes("s");
+
+        const resizeEast =
+            state.edge.includes("e");
+
+        const resizeWest =
+            state.edge.includes("w");
+
+        let nextLeft =
+            state.startLeft;
+
+        let nextTop =
+            state.startTop;
+
+        let nextWidth =
+            state.startWidth;
+
+        let nextHeight =
+            state.startHeight;
+
+        if (resizeEast) {
+            const maxWidth =
+                bounds.parentRect.width - bounds.gap - state.startLeft;
+
+            nextWidth =
+                clampNumber(
+                    state.startWidth + dx,
+                    bounds.minWidth,
+                    Math.min(
+                        bounds.maxWidth,
+                        maxWidth
+                    )
+                );
+        }
+
+        if (resizeWest) {
+            const maxWidth =
+                state.startRight - bounds.gap;
+
+            nextWidth =
+                clampNumber(
+                    state.startWidth - dx,
+                    bounds.minWidth,
+                    Math.min(
+                        bounds.maxWidth,
+                        maxWidth
+                    )
+                );
+
+            nextLeft =
+                state.startRight - nextWidth;
+        }
+
+        if (resizeSouth) {
+            const maxHeight =
+                bounds.parentRect.height - bounds.gap - state.startTop;
+
+            nextHeight =
+                clampNumber(
+                    state.startHeight + dy,
+                    bounds.minHeight,
+                    Math.min(
+                        bounds.maxHeight,
+                        maxHeight
+                    )
+                );
+        }
+
+        if (resizeNorth) {
+            const maxHeight =
+                state.startBottom - bounds.gap;
+
+            nextHeight =
+                clampNumber(
+                    state.startHeight - dy,
+                    bounds.minHeight,
+                    Math.min(
+                        bounds.maxHeight,
+                        maxHeight
+                    )
+                );
+
+            nextTop =
+                state.startBottom - nextHeight;
+        }
+
+        return {
+            left: nextLeft,
+            top: nextTop,
+            width: nextWidth,
+            height: nextHeight,
+        };
     }
 
     function clampDockedPanelGeometry(panel, dock) {
@@ -1034,6 +1804,11 @@ const consolePanel = document.getElementById("console-panel");
             return;
         }
 
+        if (isCollapsedMemoryAvatarPanel(panel)) {
+            clampCollapsedAvatarGeometry(panel);
+            return;
+        }
+
         const dock =
             getPanelDock(panel);
 
@@ -1155,6 +1930,174 @@ const consolePanel = document.getElementById("console-panel");
         });
     }
 
+    function attachCollapsedAvatarResize(panel) {
+        if (panel !== memoryPanel) {
+            return;
+        }
+
+        let resizeState =
+            null;
+
+        function finishResize(event) {
+            if (!resizeState) {
+                return;
+            }
+
+            if (
+                event
+                && resizeState.handle.releasePointerCapture
+            ) {
+                try {
+                    resizeState.handle.releasePointerCapture(
+                        resizeState.pointerId
+                    );
+                } catch (_error) {
+                    // Pointer capture may already be released by the browser.
+                }
+            }
+
+            resizeState =
+                null;
+
+            panel.classList.remove(
+                "panel-avatar-resizing",
+                "panel-resizing"
+            );
+
+            document.body.style.cursor =
+                "";
+
+            document.body.style.userSelect =
+                "";
+        }
+
+        function handleResizeMove(event) {
+            if (
+                !resizeState
+                || event.pointerId !== resizeState.pointerId
+            ) {
+                return;
+            }
+
+            event.preventDefault();
+
+            applyCollapsedAvatarGeometry(
+                panel,
+                resolveCollapsedAvatarResizeGeometry(
+                    panel,
+                    resizeState,
+                    event
+                )
+            );
+        }
+
+        COLLAPSED_AVATAR_RESIZE_EDGES.forEach((edge) => {
+            const resizeHandle =
+                document.createElement("div");
+
+            resizeHandle.className =
+                "panel-avatar-resize-handle";
+
+            resizeHandle.dataset.panelAvatarResizeEdge =
+                edge;
+
+            resizeHandle.setAttribute(
+                "aria-hidden",
+                "true"
+            );
+
+            panel.appendChild(
+                resizeHandle
+            );
+
+            resizeHandle.addEventListener("pointerdown", (event) => {
+                if (
+                    event.pointerType === "mouse"
+                    && event.button !== 0
+                ) {
+                    return;
+                }
+
+                if (!isCollapsedMemoryAvatarPanel(panel)) {
+                    return;
+                }
+
+                event.preventDefault();
+                event.stopPropagation();
+
+                finishStartupCollapseAnimation();
+                setPanelFreeDock(panel);
+
+                const parentRect =
+                    panel.parentElement.getBoundingClientRect();
+
+                const panelRect =
+                    panel.getBoundingClientRect();
+
+                const startLeft =
+                    panelRect.left - parentRect.left;
+
+                const startTop =
+                    panelRect.top - parentRect.top;
+
+                resizeState = {
+                    edge,
+                    handle: resizeHandle,
+                    pointerId: event.pointerId,
+                    startX: event.clientX,
+                    startY: event.clientY,
+                    startLeft,
+                    startTop,
+                    startWidth: panelRect.width,
+                    startHeight: panelRect.height,
+                    startRight: startLeft + panelRect.width,
+                    startBottom: startTop + panelRect.height,
+                };
+
+                panel.style.left =
+                    `${Math.round(startLeft)}px`;
+                panel.style.top =
+                    `${Math.round(startTop)}px`;
+                panel.style.right =
+                    "auto";
+                panel.style.bottom =
+                    "auto";
+
+                panel.classList.add(
+                    "panel-avatar-resizing",
+                    "panel-resizing"
+                );
+
+                document.body.style.cursor =
+                    getCollapsedAvatarResizeCursor(edge);
+
+                document.body.style.userSelect =
+                    "none";
+
+                if (resizeHandle.setPointerCapture) {
+                    resizeHandle.setPointerCapture(
+                        event.pointerId
+                    );
+                }
+            });
+        });
+
+        window.addEventListener(
+            "pointermove",
+            handleResizeMove
+        );
+
+        window.addEventListener(
+            "pointerup",
+            finishResize
+        );
+
+        window.addEventListener(
+            "pointercancel",
+            finishResize
+        );
+    }
+
     let isConsoleDragging = false;
     let consoleOffsetX = 0;
     let consoleOffsetY = 0;
@@ -1244,7 +2187,7 @@ const consolePanel = document.getElementById("console-panel");
 
 
 
-const memoryPanel = document.getElementById("settings-panel");
+const memoryPanel = document.getElementById("memory-panel");
 const memoryDragHandle = document.getElementById("memory-drag-handle");
 const consoleStreamPlaceholder =
     document.createComment(
@@ -1252,11 +2195,11 @@ const consoleStreamPlaceholder =
     );
 const memoryPanelScrollBody =
     memoryPanel
-        ? memoryPanel.querySelector(".settings-scroll")
+        ? memoryPanel.querySelector(".memory-scroll")
         : null;
 const memoryPanelScrollPlaceholder =
     document.createComment(
-        "settings-scroll detached while memory panel is collapsed"
+        "memory-scroll detached while memory panel is collapsed"
     );
 const MEMORY_PANEL_COLLAPSE_SYNC_EVENT =
     "jin:memory-panel-collapse-sync";
@@ -1628,6 +2571,65 @@ window.addEventListener("mouseup", () => {
 });
 
 memoryDragHandle.addEventListener("dblclick", (event) => {
+    if (isCollapsedMemoryAvatarPanel(memoryPanel)) {
+        event.preventDefault();
+        finishStartupCollapseAnimation();
+
+        if (collapsedAvatarResetTimer !== null) {
+            window.clearTimeout(
+                collapsedAvatarResetTimer
+            );
+        }
+
+        resetCollapsedAvatarToDefault(memoryPanel);
+        syncSceneShadeToPanelCollapse();
+
+        collapsedAvatarResetTimer =
+            window.setTimeout(
+                () => {
+                    collapsedAvatarResetTimer =
+                        null;
+
+                    const bounds =
+                        getCollapsedAvatarResizeBounds(memoryPanel);
+
+                    const defaultWidth =
+                        getDefaultPanelWidth();
+
+                    if (collapsedAvatarResetFrameId !== null) {
+                        window.cancelAnimationFrame(
+                            collapsedAvatarResetFrameId
+                        );
+                        collapsedAvatarResetFrameId =
+                            null;
+                    }
+
+                    if (defaultWidth <= bounds.maxWidth) {
+                        memoryPanel.style.removeProperty(
+                            "width"
+                        );
+                    }
+
+                    memoryPanel.style.removeProperty(
+                        "--runtime-avatar-panel-size"
+                    );
+
+                    memoryPanel.classList.remove(
+                        "panel-avatar-resetting"
+                    );
+
+                    setPanelCollapsed(
+                        memoryPanel,
+                        false
+                    );
+                    syncSceneShadeToPanelCollapse();
+                },
+                COLLAPSED_AVATAR_RESET_EXPAND_DELAY_MS
+            );
+
+        return;
+    }
+
     togglePanelCollapseFromHeader(
         event,
         memoryPanel,
@@ -1644,6 +2646,10 @@ attachBottomResize(
 );
 
 attachBottomResize(
+    memoryPanel
+);
+
+attachCollapsedAvatarResize(
     memoryPanel
 );
 

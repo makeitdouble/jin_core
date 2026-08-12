@@ -23,7 +23,7 @@
     --panel-width: 330px;
     --panel-collapsed-title-height: 40px;
     --runtime-avatar-panel-size: clamp(278px, 30vh, 286px);
-    --settings-avatar-collapsed-height: calc(var(--runtime-avatar-panel-size) + 2px);
+    --memory-avatar-collapsed-frame-size: 2px;
     --panel-collapse-duration: 0.22s;
     --panel-startup-collapse-duration: 5s;
     --panel-collapse-easing: cubic-bezier(0.45, 0, 0.55, 1);
@@ -162,7 +162,7 @@ main.panels-collapsed-2 #scene-shade {
 }
 
 #console-panel,
-#settings-panel {
+#memory-panel {
     width: var(--panel-width);
     max-height: 100%;
     opacity: 1;
@@ -177,7 +177,7 @@ main.panels-collapsed-2 #scene-shade {
 }
 
 #console-panel:not(.panel-collapsed),
-#settings-panel:not(.panel-collapsed) {
+#memory-panel:not(.panel-collapsed) {
     min-height: 49%;
 }
 
@@ -187,14 +187,14 @@ main.panels-collapsed-2 #scene-shade {
     max-height: var(--panel-collapsed-title-height) !important;
 }
 
-#settings-panel.panel-collapsed {
-    height: var(--settings-avatar-collapsed-height) !important;
-    min-height: var(--settings-avatar-collapsed-height) !important;
-    max-height: var(--settings-avatar-collapsed-height) !important;
+#memory-panel.panel-collapsed {
+    height: calc(var(--runtime-avatar-panel-size) + var(--memory-avatar-collapsed-frame-size)) !important;
+    min-height: calc(var(--runtime-avatar-panel-size) + var(--memory-avatar-collapsed-frame-size)) !important;
+    max-height: calc(var(--runtime-avatar-panel-size) + var(--memory-avatar-collapsed-frame-size)) !important;
 }
 
 #console-stream,
-.settings-scroll {
+.memory-scroll {
     max-height: calc(100vh - var(--panel-collapsed-title-height));
     min-height: 0;
     transition:
@@ -205,7 +205,7 @@ main.panels-collapsed-2 #scene-shade {
 }
 
 #console-panel.panel-collapsed #console-stream,
-#settings-panel.panel-collapsed .settings-scroll {
+#memory-panel.panel-collapsed .memory-scroll {
     max-height: 0;
     padding-top: 0 !important;
     padding-bottom: 0 !important;
@@ -242,8 +242,102 @@ main.panels-collapsed-2 #scene-shade {
     display: none;
 }
 
+.panel-avatar-resize-handle {
+    position: absolute;
+    z-index: 14;
+    display: none;
+    touch-action: none;
+}
+
+#memory-panel.panel-collapsed .panel-avatar-resize-handle {
+    display: block;
+}
+
+#memory-panel.panel-collapsed.panel-avatar-resetting {
+    transition: opacity 0.35s ease !important;
+}
+
+#memory-panel.panel-avatar-resetting #memory-drag-handle {
+    transition: none !important;
+}
+
+#memory-panel.panel-avatar-resetting .jin-runtime-avatar-shell {
+    transition: none !important;
+}
+
+#memory-panel.panel-avatar-resetting .jin-runtime-avatar-core-button {
+    transition:
+            box-shadow 0.18s ease,
+            transform 0.18s ease,
+            background 0.18s ease;
+}
+
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="n"],
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="s"] {
+    right: 14px;
+    left: 14px;
+    height: 12px;
+    cursor: ns-resize;
+}
+
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="n"] {
+    top: 0;
+}
+
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="s"] {
+    bottom: 0;
+}
+
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="e"],
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="w"] {
+    top: 14px;
+    bottom: 14px;
+    width: 12px;
+    cursor: ew-resize;
+}
+
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="e"] {
+    right: 0;
+}
+
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="w"] {
+    left: 0;
+}
+
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="ne"],
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="nw"],
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="se"],
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="sw"] {
+    width: 18px;
+    height: 18px;
+}
+
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="ne"] {
+    top: 0;
+    right: 0;
+    cursor: nesw-resize;
+}
+
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="nw"] {
+    top: 0;
+    left: 0;
+    cursor: nwse-resize;
+}
+
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="se"] {
+    right: 0;
+    bottom: 0;
+    cursor: nwse-resize;
+}
+
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="sw"] {
+    bottom: 0;
+    left: 0;
+    cursor: nesw-resize;
+}
+
 #console-panel.panel-resizing,
-#settings-panel.panel-resizing {
+#memory-panel.panel-resizing {
     transition: opacity 0.35s ease;
 }
 
@@ -272,7 +366,7 @@ main.panels-collapsed-2 #scene-shade {
 }
 
 
-#settings-panel {
+#memory-panel {
     right: var(--panel-gap);
     top: var(--panel-gap);
     height: calc(100% - (var(--panel-gap) * 2));
@@ -290,13 +384,13 @@ main.panels-collapsed-2 #scene-shade {
 }
 
 #console-stream,
-.settings-scroll {
+.memory-scroll {
     scrollbar-width: none;
     -ms-overflow-style: none;
 }
 
 #console-stream::-webkit-scrollbar,
-.settings-scroll::-webkit-scrollbar {
+.memory-scroll::-webkit-scrollbar {
     width: 0;
     height: 0;
     display: none;
@@ -597,7 +691,7 @@ main.panels-collapsed-2 #scene-shade {
 }
 
 
-#settings-panel {
+#memory-panel {
     transition:
             border-color 1.8s ease,
             box-shadow 1.8s ease,
@@ -605,7 +699,7 @@ main.panels-collapsed-2 #scene-shade {
             opacity 0.35s ease;
 }
 
-#settings-panel.panel-resizing {
+#memory-panel.panel-resizing {
     transition:
             border-color 1.8s ease,
             box-shadow 1.8s ease,
@@ -617,7 +711,7 @@ main.panels-collapsed-2 #scene-shade {
     transition: opacity 3s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-#settings-panel.panel-inactive {
+#memory-panel.panel-inactive {
     opacity: 0.75;
     transition:
             border-color 1.8s ease,
@@ -630,7 +724,7 @@ main.panels-collapsed-2 #scene-shade {
     transition: opacity 0.35s ease;
 }
 
-#settings-panel.panel-inactive:hover {
+#memory-panel.panel-inactive:hover {
     opacity: 1;
     transition:
             border-color 1.8s ease,
@@ -639,7 +733,7 @@ main.panels-collapsed-2 #scene-shade {
 }
 
 main.panel-startup-collapse-active #console-panel,
-main.panel-startup-collapse-active #settings-panel {
+main.panel-startup-collapse-active #memory-panel {
     transition:
             height var(--panel-collapse-duration) var(--panel-collapse-easing),
             min-height var(--panel-collapse-duration) var(--panel-collapse-easing),
@@ -647,7 +741,7 @@ main.panel-startup-collapse-active #settings-panel {
             opacity var(--panel-collapse-duration) var(--panel-collapse-easing) !important;
 }
 
-main.panel-startup-collapse-active #settings-panel {
+main.panel-startup-collapse-active #memory-panel {
     transition:
             border-color 1.8s ease,
             box-shadow 1.8s ease,
@@ -657,7 +751,7 @@ main.panel-startup-collapse-active #settings-panel {
             opacity var(--panel-collapse-duration) var(--panel-collapse-easing) !important;
 }
 
-#settings-panel.memory-updating {
+#memory-panel.memory-updating {
     border-color: rgba(255,190,95,.50);
 
     box-shadow:
@@ -667,7 +761,7 @@ main.panel-startup-collapse-active #settings-panel {
             inset 0 0 16px rgba(255,170,70,.05);
 }
 
-#settings-panel.memory-l2-updating {
+#memory-panel.memory-l2-updating {
     border-color: rgba(255, 255, 255, 0.50);
 
     box-shadow:
@@ -677,7 +771,7 @@ main.panel-startup-collapse-active #settings-panel {
             inset 0 0 16px rgba(255, 255, 255, 0.04);
 }
 
-#settings-panel.memory-l3-updating {
+#memory-panel.memory-l3-updating {
     border-color: rgba(190, 120, 255, 0.50);
 
     box-shadow:
@@ -687,19 +781,19 @@ main.panel-startup-collapse-active #settings-panel {
             inset 0 0 16px rgba(168, 85, 247, 0.05);
 }
 
-#settings-panel.memory-updating.memory-pulse {
+#memory-panel.memory-updating.memory-pulse {
     animation: memoryGlowPulse 5s ease-in-out infinite;
 }
 
-#settings-panel.memory-l2-updating.memory-l2-pulse {
+#memory-panel.memory-l2-updating.memory-l2-pulse {
     animation: memoryL2GlowPulse 5s ease-in-out infinite;
 }
 
-#settings-panel.memory-l3-updating.memory-l3-pulse {
+#memory-panel.memory-l3-updating.memory-l3-pulse {
     animation: memoryL3GlowPulse 5s ease-in-out infinite;
 }
 
-#settings-panel.memory-fading {
+#memory-panel.memory-fading {
     border-color: rgba(255, 190, 95, 0.18);
 
     box-shadow:
@@ -709,7 +803,7 @@ main.panel-startup-collapse-active #settings-panel {
             inset 0 0 10px rgba(255, 170, 70, 0.03);
 }
 
-#settings-panel.memory-l2-fading {
+#memory-panel.memory-l2-fading {
     border-color: rgba(255, 255, 255, 0.18);
 
     box-shadow:
@@ -719,7 +813,7 @@ main.panel-startup-collapse-active #settings-panel {
             inset 0 0 10px rgba(255, 255, 255, 0.03);
 }
 
-#settings-panel.memory-l3-fading {
+#memory-panel.memory-l3-fading {
     border-color: rgba(190, 120, 255, 0.18);
 
     box-shadow:
@@ -728,7 +822,7 @@ main.panel-startup-collapse-active #settings-panel {
             0 0 32px rgba(126, 34, 206, 0.06),
             inset 0 0 10px rgba(168, 85, 247, 0.03);
 }
-#settings-panel.fact-check-running {
+#memory-panel.fact-check-running {
     border-color: rgba(56, 189, 248, 0.58);
 
     box-shadow:
@@ -738,11 +832,11 @@ main.panel-startup-collapse-active #settings-panel {
             inset 0 0 18px rgba(14, 165, 233, 0.06);
 }
 
-#settings-panel.fact-check-running.fact-check-pulse {
+#memory-panel.fact-check-running.fact-check-pulse {
     animation: factCheckGlowPulse 4s ease-in-out infinite;
 }
 
-#settings-panel.fact-check-fading {
+#memory-panel.fact-check-fading {
     border-color: rgba(56, 189, 248, 0.20);
 
     box-shadow:

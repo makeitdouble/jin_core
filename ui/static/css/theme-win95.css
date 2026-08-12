@@ -1,7 +1,7 @@
 /* Переопределения интерфейса для темы Windows 95. */
 
 body.theme-win95 {
-    --settings-avatar-collapsed-height: calc(var(--runtime-avatar-panel-size) + 4px);
+    --memory-avatar-collapsed-frame-size: 4px;
     --win95-face: #bbbabb;
     --win95-face-dark: #b8b8b8;
     --win95-face-soft: #d2d2d2;
@@ -51,7 +51,7 @@ body.theme-win95 #brain-dot {
 }
 
 body.theme-win95 #console-panel,
-body.theme-win95 #settings-panel {
+body.theme-win95 #memory-panel {
     background: var(--win95-face);
     color: var(--win95-text);
     border-top: 2px solid var(--win95-light);
@@ -159,7 +159,7 @@ body.theme-win95 .win95-window-button-close {
 }
 
 body.theme-win95 #console-stream,
-body.theme-win95 #settings-panel .settings-scroll {
+body.theme-win95 #memory-panel .memory-scroll {
     padding: 10px 10px 12px;
     background: var(--win95-face);
     color: var(--win95-text);
@@ -302,7 +302,7 @@ body.theme-win95 #console-stream button:active {
     transform: translate(1px, 1px);
 }
 
-body.theme-win95 #settings-panel .settings-scroll > .grid:first-child {
+body.theme-win95 #memory-panel .memory-scroll > .grid:first-child {
     border: 0;
     border-radius: 0;
     background: transparent;
@@ -310,7 +310,7 @@ body.theme-win95 #settings-panel .settings-scroll > .grid:first-child {
     padding: 0 2px;
 }
 
-body.theme-win95 #settings-panel [data-context-tab] {
+body.theme-win95 #memory-panel [data-context-tab] {
     height: 32px;
     background: var(--win95-face);
     border: 1px solid var(--win95-shadow);
@@ -327,7 +327,7 @@ body.theme-win95 #settings-panel [data-context-tab] {
             inset -1px -1px 0 #8a8a8a;
 }
 
-body.theme-win95 #settings-panel [data-context-tab][aria-selected="true"] {
+body.theme-win95 #memory-panel [data-context-tab][aria-selected="true"] {
     background: var(--win95-face-dark);
     border-color: var(--win95-shadow);
     box-shadow:
@@ -357,16 +357,16 @@ body.theme-win95 #context-panel-model,
 body.theme-win95 #runtime-memory-text,
 body.theme-win95 #context-summary-tokens,
 body.theme-win95 .runtime-memory-header,
-body.theme-win95 #settings-panel pre,
-body.theme-win95 #settings-panel span,
-body.theme-win95 #settings-panel button {
+body.theme-win95 #memory-panel pre,
+body.theme-win95 #memory-panel span,
+body.theme-win95 #memory-panel button {
     color: var(--win95-text) !important;
     text-shadow: none;
     font-family: Calibri, Arial, sans-serif;
     font-weight: 500;
 }
 
-body.theme-win95 #settings-panel #memory-layers-toggle {
+body.theme-win95 #memory-panel #memory-layers-toggle {
     color: var(--win95-title-text) !important;
     text-shadow: 1px 1px 0 var(--win95-blue-shadow);
 }
@@ -561,53 +561,53 @@ body.theme-win95 #summarizer-window-bar::after {
             );
 }
 
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit,
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-citation-hit,
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-context-loaded-hit {
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-reference-hit,
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-citation-hit,
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-context-loaded-hit {
     background: transparent;
     box-shadow: none;
 }
 
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit .runtime-memory-key,
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-citation-hit .runtime-memory-key,
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-context-loaded-hit .runtime-memory-key,
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit .runtime-memory-fact-number,
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-citation-hit .runtime-memory-fact-number,
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-context-loaded-hit .runtime-memory-fact-number {
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-reference-hit .runtime-memory-key,
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-citation-hit .runtime-memory-key,
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-context-loaded-hit .runtime-memory-key,
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-reference-hit .runtime-memory-fact-number,
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-citation-hit .runtime-memory-fact-number,
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-context-loaded-hit .runtime-memory-fact-number {
     color: #0000ee !important;
     font-weight: 600;
     text-shadow: none;
 }
 
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit .runtime-memory-fact-separator,
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-citation-hit .runtime-memory-fact-separator,
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-context-loaded-hit .runtime-memory-fact-separator {
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-reference-hit .runtime-memory-fact-separator,
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-citation-hit .runtime-memory-fact-separator,
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-context-loaded-hit .runtime-memory-fact-separator {
     color: #4040b0 !important;
     text-shadow: none;
 }
 
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit:not(.runtime-memory-kv-row) .runtime-memory-value,
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-citation-hit:not(.runtime-memory-kv-row) .runtime-memory-value,
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-context-loaded-hit:not(.runtime-memory-kv-row) .runtime-memory-value,
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-reference-hit.runtime-memory-kv-row .runtime-memory-value,
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-citation-hit.runtime-memory-kv-row .runtime-memory-value,
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-context-loaded-hit.runtime-memory-kv-row .runtime-memory-value {
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-reference-hit:not(.runtime-memory-kv-row) .runtime-memory-value,
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-citation-hit:not(.runtime-memory-kv-row) .runtime-memory-value,
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-context-loaded-hit:not(.runtime-memory-kv-row) .runtime-memory-value,
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-reference-hit.runtime-memory-kv-row .runtime-memory-value,
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-citation-hit.runtime-memory-kv-row .runtime-memory-value,
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-context-loaded-hit.runtime-memory-kv-row .runtime-memory-value {
     color: #003c8f !important;
     text-shadow: none;
 }
 
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-key.flash-new,
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-value.flash-new {
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-key.flash-new,
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-value.flash-new {
     color: #007f48 !important;
     font-weight: 500;
 }
 
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-key.flash-changed {
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-key.flash-changed {
     color: #6b3fb0 !important;
     font-weight: 500;
 }
 
-body.theme-win95 #settings-panel #runtime-memory-text .runtime-memory-value.flash-changed {
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-value.flash-changed {
     color: rgba(
             0,
             112,

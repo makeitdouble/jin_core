@@ -124,7 +124,7 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
         source = LOGGER_JS.read_text(encoding="utf-8")
 
         self.assertIn(
-            "settings-scroll detached while memory panel is collapsed",
+            "memory-scroll detached while memory panel is collapsed",
             source,
         )
         self.assertIn(
@@ -539,7 +539,7 @@ for (const [text, reference, expected] of cases) {
             source,
         )
         self.assertIn(
-            '/static/js/runtime/runtime-memory-view.js?v=delayed-fact-link-1',
+            '/static/js/runtime/runtime-memory-view.js?v=memory-panel-rename-1',
             source,
         )
         self.assertIn(

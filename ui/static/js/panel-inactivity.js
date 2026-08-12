@@ -7,7 +7,7 @@
   const STARTUP_COLLAPSE_CLASS = "panel-startup-collapse-active";
   const PANEL_IDS = [
     "console-panel",
-    "settings-panel",
+    "memory-panel",
   ];
   let startupAutoCollapseTimerId = null;
   let startupAutoCollapseCancelled = false;

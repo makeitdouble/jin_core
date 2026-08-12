@@ -386,13 +386,13 @@
     }
 }
 
-#settings-panel.fact-check-running .jin-runtime-avatar-core-button {
+#memory-panel.fact-check-running .jin-runtime-avatar-core-button {
     box-shadow:
         0 0 0 1px rgba(125, 211, 252, 0.32),
         0 0 24px rgba(56, 189, 248, 0.23);
 }
 
-#settings-panel.panel-collapsed #memory-drag-handle {
+#memory-panel.panel-collapsed #memory-drag-handle {
     flex: 0 0 var(--runtime-avatar-panel-size);
     height: var(--runtime-avatar-panel-size);
     min-height: var(--runtime-avatar-panel-size);
@@ -400,21 +400,21 @@
     border-bottom: 0;
 }
 
-#settings-panel.panel-collapsed #memory-drag-handle::before,
-#settings-panel.panel-collapsed #memory-drag-handle::after {
+#memory-panel.panel-collapsed #memory-drag-handle::before,
+#memory-panel.panel-collapsed #memory-drag-handle::after {
     display: none;
 }
 
-#settings-panel.panel-collapsed .jin-runtime-avatar-shell {
-    width: min(100%, 278px);
+#memory-panel.panel-collapsed .jin-runtime-avatar-shell {
+    width: min(100%, max(64px, calc(var(--runtime-avatar-panel-size) - 8px)));
 }
 
-#settings-panel.panel-collapsed .jin-runtime-avatar-core-button {
-    width: 44px;
-    height: 44px;
+#memory-panel.panel-collapsed .jin-runtime-avatar-core-button {
+    width: clamp(34px, calc(var(--runtime-avatar-panel-size) * 0.15), 68px);
+    height: clamp(34px, calc(var(--runtime-avatar-panel-size) * 0.15), 68px);
 }
 
-#settings-panel.panel-collapsed .jin-runtime-avatar {
+#memory-panel.panel-collapsed .jin-runtime-avatar {
     filter: drop-shadow(0 0 5px rgba(24, 224, 207, 0.16));
 }
 
@@ -450,7 +450,7 @@ body.theme-win95 #memory-drag-handle .win95-window-controls {
     z-index: 6;
 }
 
-body.theme-win95 #settings-panel.panel-collapsed #memory-drag-handle {
+body.theme-win95 #memory-panel.panel-collapsed #memory-drag-handle {
     flex: 0 0 var(--runtime-avatar-panel-size);
     height: var(--runtime-avatar-panel-size);
     min-height: var(--runtime-avatar-panel-size);
@@ -458,13 +458,13 @@ body.theme-win95 #settings-panel.panel-collapsed #memory-drag-handle {
     border-bottom: 0;
 }
 
-body.theme-win95 #settings-panel.panel-collapsed .jin-runtime-avatar-shell {
-    width: min(100%, 278px);
+body.theme-win95 #memory-panel.panel-collapsed .jin-runtime-avatar-shell {
+    width: min(100%, max(64px, calc(var(--runtime-avatar-panel-size) - 8px)));
 }
 
-body.theme-win95 #settings-panel.panel-collapsed .jin-runtime-avatar-core-button {
-    width: 44px;
-    height: 44px;
+body.theme-win95 #memory-panel.panel-collapsed .jin-runtime-avatar-core-button {
+    width: clamp(34px, calc(var(--runtime-avatar-panel-size) * 0.15), 68px);
+    height: clamp(34px, calc(var(--runtime-avatar-panel-size) * 0.15), 68px);
 }
 
 @media (prefers-reduced-motion: reduce) {
