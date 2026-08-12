@@ -428,6 +428,79 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
             css_source,
         )
 
+    def test_delayed_memory_fact_picker_is_minimal_and_floating(self):
+        source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
+        css_source = RUNTIME_MEMORY_CSS.read_text(encoding="utf-8")
+
+        self.assertNotIn(
+            "delayed-memory-modal-fact-add",
+            source + css_source,
+        )
+        self.assertNotIn(
+            "fact id or text",
+            source,
+        )
+        self.assertIn(
+            'container.addEventListener("click"',
+            source,
+        )
+        self.assertIn(
+            "closeActiveDelayedMemoryFactPicker();",
+            source,
+        )
+        self.assertIn(
+            "activeDelayedMemoryFactPicker.container.contains(target)",
+            source,
+        )
+        self.assertIn(
+            ".delayed-memory-modal-fact-picker",
+            css_source,
+        )
+        self.assertIn(
+            "width: auto;",
+            css_source,
+        )
+        self.assertIn(
+            "max-width: min(220px, 40vw);",
+            css_source,
+        )
+        self.assertIn(
+            "position: relative;",
+            css_source,
+        )
+        self.assertIn(
+            "color: rgba(244, 244, 245, 0.86);",
+            css_source,
+        )
+        self.assertIn(
+            "function updatePickerInputWidth()",
+            source,
+        )
+        self.assertIn(
+            "Math.min(queryLength + 1, 28)",
+            source,
+        )
+        self.assertIn(
+            "caret-color: rgba(244, 244, 245, 0.92);",
+            css_source,
+        )
+        self.assertIn(
+            "position: absolute;",
+            css_source,
+        )
+        self.assertIn(
+            "top: calc(100% + 7px);",
+            css_source,
+        )
+        self.assertIn(
+            "left: calc(100% + 8px);",
+            css_source,
+        )
+        self.assertIn(
+            "width: clamp(260px, 32vw, 360px);",
+            css_source,
+        )
+
     def test_delayed_memory_modal_delete_uses_hold_and_runtime_restore_payload(self):
         source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
         runtime_source = RUNTIME_JS.read_text(encoding="utf-8")

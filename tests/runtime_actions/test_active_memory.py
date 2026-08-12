@@ -496,7 +496,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context
         )
         self.assertIn(
-            '<TOOL_RESULT name="SAVE_ACTIVE_MEMORY">',
+            '<TOOL_RESULT name="SAVE_ACTIVE_MEMORY"',
             tool_results,
         )
         self.assertIn(
@@ -989,7 +989,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context
         )
         self.assertIn(
-            '<TOOL_RESULT name="RESOLVE_ACTIVE_MEMORY">',
+            '<TOOL_RESULT name="RESOLVE_ACTIVE_MEMORY"',
             tool_results,
         )
         self.assertIn(
@@ -1333,7 +1333,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context
         )
         self.assertIn(
-            '<TOOL_RESULT name="RESOLVE_ACTIVE_MEMORY">',
+            '<TOOL_RESULT name="RESOLVE_ACTIVE_MEMORY"',
             tool_results,
         )
         self.assertIn(

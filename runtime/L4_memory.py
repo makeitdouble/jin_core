@@ -1440,8 +1440,7 @@ async def run_l4_jin_note(
     existing_ids = {fact.get("id") for fact in base_store.get("facts", [])}
 
     if (
-        not selected_fact_ids
-        or not message
+        not message
         or any(fact_id not in existing_ids for fact_id in selected_fact_ids)
     ):
         return await log_l4_skip_event(

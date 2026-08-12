@@ -3285,7 +3285,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_not_contains_text(
             self,
             prompt,
-            '<TOOL_RESULT name="LIST_SKILLS">',
+            '<TOOL_RESULT name="LIST_SKILLS"',
         )
 
     def test_prompt_places_tool_results_at_context_top(self):
@@ -3325,7 +3325,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         self.assertTrue(prompt.startswith("<TOOLS_RESULTS>"))
         self.assertLess(
-            prompt.index('<TOOL_RESULT name="ASSETS">'),
+            prompt.index('<TOOL_RESULT name="ASSETS"'),
             prompt.index("<SKILLS>"),
         )
         self.assertLess(
@@ -3344,7 +3344,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         self.assertIn("first line\n", prompt)
         self.assertIn("second line", prompt)
         self.assertIn("wildcards (loaded)", prompt)
-        self.assertNotIn('<TOOL_RESULT name="LIST_SKILLS">', prompt)
+        self.assertNotIn('<TOOL_RESULT name="LIST_SKILLS"', prompt)
 
     def test_prompt_keeps_loaded_delayed_memory_in_normal_turns(self):
 
@@ -3609,7 +3609,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
-            '<TOOL_RESULT name="SKILL_ERROR">',
+            '<TOOL_RESULT name="SKILL_ERROR"',
             prompt,
         )
         self.assertIn(

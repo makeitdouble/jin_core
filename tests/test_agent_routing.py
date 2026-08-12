@@ -91,7 +91,7 @@ class AgentRoutingTests(
             tool_results_context,
         )
         self.assertIn(
-            '<TOOL_RESULT name="SAVE_SESSION">',
+            '<TOOL_RESULT name="SAVE_SESSION"',
             tool_results_context,
         )
         self.assertIn(

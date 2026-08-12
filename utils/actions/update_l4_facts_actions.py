@@ -29,9 +29,15 @@ async def _emit_update_l4_facts_result(
     completed = result.get("status") == "completed"
     change = result.get("change") if isinstance(result.get("change"), dict) else {}
     replacement_count = len(change.get("replacement_fact_ids", []) or [])
+    added_count = len(change.get("added_ids", []) or [])
 
     if completed and result.get("changed"):
-        detail = f"L4 updated: {replacement_count} replacement fact(s)"
+        detail_parts = []
+        if replacement_count:
+            detail_parts.append(f"{replacement_count} updated/merged fact(s)")
+        if added_count:
+            detail_parts.append(f"{added_count} new fact(s)")
+        detail = "L4 updated: " + ", ".join(detail_parts or ["changed"])
     elif completed:
         detail = "L4 note reviewed: no change"
     else:

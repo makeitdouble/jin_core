@@ -643,7 +643,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             context
         )
         self.assertIn(
-            '<TOOL_RESULT name="SAVE_DELAYED_MEMORY_CONTENT">',
+            '<TOOL_RESULT name="SAVE_DELAYED_MEMORY_CONTENT"',
             tool_results,
         )
         self.assertIn(
@@ -1299,7 +1299,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             tool_results,
         )
         self.assertIn(
-            '<TOOL_RESULT name="LOAD_DELAYED_MEMORY">',
+            '<TOOL_RESULT name="LOAD_DELAYED_MEMORY"',
             tool_results,
         )
         self.assertIn(
@@ -1674,7 +1674,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             "invalid_delayed_memory_id",
         )
         self.assertIn(
-            '<TOOL_RESULT name="UNLOAD_DELAYED_MEMORY">',
+            '<TOOL_RESULT name="UNLOAD_DELAYED_MEMORY"',
             build_tool_results_context(
                 context
             ),
@@ -1757,7 +1757,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             tool_results,
         )
         self.assertIn(
-            '<TOOL_RESULT name="UNLOAD_DELAYED_MEMORY">',
+            '<TOOL_RESULT name="UNLOAD_DELAYED_MEMORY"',
             tool_results,
         )
         self.assertIn(

@@ -1738,6 +1738,29 @@ def apply_l4_merge_operations(
     }
 
 
+def normalize_l4_jin_note_fact_specs(raw_facts) -> list[dict] | None:
+    if not isinstance(raw_facts, list):
+        return None
+
+    facts = []
+    for raw_fact in raw_facts:
+        if not isinstance(raw_fact, dict):
+            return None
+
+        key = normalize_l4_key(raw_fact.get("key"))
+        value = normalize_l4_text(raw_fact.get("value"))
+        if not key or not value:
+            return None
+
+        facts.append({
+            "key": key,
+            "value": value,
+            "category": normalize_l4_category(raw_fact.get("category")),
+        })
+
+    return facts
+
+
 def normalize_l4_jin_note_result(payload) -> dict:
     if not isinstance(payload, dict):
         return {}
@@ -1747,34 +1770,37 @@ def normalize_l4_jin_note_result(payload) -> dict:
         return {
             "action": "keep",
             "replacement_facts": [],
+            "new_facts": [],
         }
 
-    if action != "replace":
+    replacement_actions = {"replace", "update", "merge"}
+    if action not in {*replacement_actions, "create"}:
         return {}
 
     raw_replacements = payload.get("replacement_facts")
-    if not isinstance(raw_replacements, list):
+    if raw_replacements is None:
+        raw_replacements = []
+    replacements = normalize_l4_jin_note_fact_specs(raw_replacements)
+    if replacements is None:
         return {}
 
-    replacements = []
-    for raw_fact in raw_replacements:
-        if not isinstance(raw_fact, dict):
-            return {}
+    raw_new_facts = payload.get("new_facts")
+    if raw_new_facts is None:
+        raw_new_facts = []
+    new_facts = normalize_l4_jin_note_fact_specs(raw_new_facts)
+    if new_facts is None:
+        return {}
 
-        key = normalize_l4_key(raw_fact.get("key"))
-        value = normalize_l4_text(raw_fact.get("value"))
-        if not key or not value:
-            return {}
+    if action in replacement_actions and not replacements:
+        return {}
 
-        replacements.append({
-            "key": key,
-            "value": value,
-            "category": normalize_l4_category(raw_fact.get("category")),
-        })
+    if action == "create" and (replacements or not new_facts):
+        return {}
 
     return {
-        "action": "replace",
+        "action": action,
         "replacement_facts": replacements,
+        "new_facts": new_facts,
     }
 
 
@@ -1798,7 +1824,7 @@ def apply_l4_jin_note_result(
     selected_ids = normalize_l4_string_list(selected_fact_ids)
     facts_by_id = {fact["id"]: fact for fact in base_store["facts"]}
 
-    if not selected_ids or any(fact_id not in facts_by_id for fact_id in selected_ids):
+    if any(fact_id not in facts_by_id for fact_id in selected_ids):
         return base_store, {
             "valid": False,
             "reason": "unknown_selected_fact_id",
@@ -1813,8 +1839,6 @@ def apply_l4_jin_note_result(
             "changed": False,
         }
 
-    selected_facts = [facts_by_id[fact_id] for fact_id in selected_ids]
-
     if normalized_result["action"] == "keep":
         return base_store, {
             "valid": True,
@@ -1824,54 +1848,189 @@ def apply_l4_jin_note_result(
             "replacement_fact_ids": [],
         }
 
-    unselected_facts = [
+    action = normalized_result["action"]
+    if action == "replace":
+        action = "merge" if len(selected_ids) > 1 else "update"
+    replacement_specs = normalized_result["replacement_facts"]
+    new_fact_specs = normalized_result["new_facts"]
+    has_replacements = bool(replacement_specs)
+    if has_replacements and not selected_ids:
+        return base_store, {
+            "valid": False,
+            "reason": "missing_selected_fact_id",
+            "changed": False,
+        }
+    if (
+        action == "update"
+        and has_replacements
+        and len(replacement_specs) != len(selected_ids)
+    ):
+        return base_store, {
+            "valid": False,
+            "reason": "update_replacement_count_mismatch",
+            "changed": False,
+        }
+
+    selected_facts = [facts_by_id[fact_id] for fact_id in selected_ids]
+    if action == "update":
+        replacement_anchor_ids = selected_ids[:len(replacement_specs)]
+        merged_selected_ids = []
+    elif has_replacements:
+        replacement_anchor_ids = selected_ids[:1]
+        merged_selected_ids = selected_ids[1:]
+    else:
+        replacement_anchor_ids = []
+        merged_selected_ids = []
+
+    replacement_anchor_id_set = set(replacement_anchor_ids)
+    merged_selected_id_set = set(merged_selected_ids)
+    output_facts = [
         dict(fact)
         for fact in base_store["facts"]
-        if fact["id"] not in set(selected_ids)
+        if fact["id"] not in merged_selected_id_set
     ]
-    unselected_keys = {fact["key"] for fact in unselected_facts}
-    unselected_ids = {fact["id"] for fact in unselected_facts}
+    output_indexes_by_id = {
+        fact["id"]: index
+        for index, fact in enumerate(output_facts)
+    }
+    allocated_keys = {
+        fact["key"]
+        for fact in output_facts
+        if fact["id"] not in replacement_anchor_id_set
+    }
+    allocated_ids = {
+        fact["id"]
+        for fact in output_facts
+        if fact["id"] not in replacement_anchor_id_set
+    }
     replacement_facts = []
-    replacement_keys = set()
+    new_facts = []
 
-    allocation_store = {**base_store, "facts": [*unselected_facts]}
-    for raw_fact in normalized_result["replacement_facts"]:
-        replacement = normalize_l4_fact(
+    allocation_store = {**base_store, "facts": [*output_facts]}
+
+    def normalize_note_fact(
+        raw_fact: dict,
+        *,
+        fact_id: str,
+        created_at: str,
+        source_facts: list[dict] | None = None,
+        source_fact_ids=(),
+        mention_count: int = 1,
+        duplicate_key_reason: str,
+    ) -> tuple[dict | None, str]:
+        fact = normalize_l4_fact(
             {
                 **raw_fact,
-                "id": allocate_l4_fact_id(allocation_store, pending=False),
-                "created_at": current_time,
+                "id": fact_id,
+                "created_at": created_at,
                 "updated_at": current_time,
+                "mention_count": mention_count,
+                "source_session_ids": merge_l4_string_lists(
+                    *[
+                        source_fact.get("source_session_ids")
+                        for source_fact in source_facts or []
+                    ],
+                ),
+                "source_runtime_snapshot_ids": merge_l4_string_lists(
+                    *[
+                        source_fact.get("source_runtime_snapshot_ids")
+                        for source_fact in source_facts or []
+                    ],
+                ),
+                "source_keys": merge_l4_string_lists(
+                    *[
+                        source_fact.get("source_keys")
+                        for source_fact in source_facts or []
+                    ],
+                ),
+                "source_fact_ids": merge_l4_string_lists(
+                    *[
+                        source_fact.get("source_fact_ids")
+                        for source_fact in source_facts or []
+                    ],
+                    source_fact_ids,
+                ),
             },
             pending=False,
             now=current_time,
         )
+        if fact is None:
+            return None, "invalid_note_fact"
+        if fact["key"] in allocated_keys:
+            return None, duplicate_key_reason
+        if fact["id"] in allocated_ids:
+            return None, "note_fact_id_collision"
+        allocated_keys.add(fact["key"])
+        allocated_ids.add(fact["id"])
+        allocation_store["facts"].append(fact)
+        return fact, ""
+
+    def allocate_note_fact(
+        raw_fact: dict,
+        *,
+        duplicate_key_reason: str,
+    ) -> tuple[dict | None, str]:
+        return normalize_note_fact(
+            raw_fact,
+            fact_id=allocate_l4_fact_id(allocation_store, pending=False),
+            created_at=current_time,
+            duplicate_key_reason=duplicate_key_reason,
+        )
+
+    for index, raw_fact in enumerate(replacement_specs):
+        anchor_id = (
+            replacement_anchor_ids[index]
+            if index < len(replacement_anchor_ids)
+            else ""
+        )
+        if anchor_id:
+            anchor = facts_by_id[anchor_id]
+            source_facts = selected_facts if action != "update" else [anchor]
+            absorbed_ids = (
+                [
+                    fact_id
+                    for fact_id in selected_ids
+                    if fact_id != anchor_id
+                ]
+                if action != "update"
+                else []
+            )
+            replacement, reason = normalize_note_fact(
+                raw_fact,
+                fact_id=anchor_id,
+                created_at=anchor.get("created_at") or current_time,
+                source_facts=source_facts,
+                source_fact_ids=absorbed_ids,
+                mention_count=max(1, int(anchor.get("mention_count") or 1)),
+                duplicate_key_reason="replacement_key_matches_existing_fact",
+            )
+        else:
+            replacement, reason = allocate_note_fact(
+                raw_fact,
+                duplicate_key_reason="replacement_key_matches_existing_fact",
+            )
         if replacement is None:
             return base_store, {
                 "valid": False,
-                "reason": "invalid_replacement_fact",
+                "reason": reason,
                 "changed": False,
             }
-        if replacement["key"] in unselected_keys:
-            return base_store, {
-                "valid": False,
-                "reason": "replacement_key_matches_unselected_fact",
-                "changed": False,
-            }
-        if replacement["id"] in unselected_ids:
-            return base_store, {
-                "valid": False,
-                "reason": "replacement_matches_unselected_fact",
-                "changed": False,
-            }
-        if replacement["key"] in replacement_keys:
-            return base_store, {
-                "valid": False,
-                "reason": "duplicate_replacement_key",
-                "changed": False,
-            }
-        replacement_keys.add(replacement["key"])
+        if anchor_id:
+            output_facts[output_indexes_by_id[anchor_id]] = replacement
         replacement_facts.append(replacement)
+
+    for raw_fact in new_fact_specs:
+        new_fact, reason = allocate_note_fact(
+            raw_fact,
+            duplicate_key_reason="new_fact_key_matches_existing_fact",
+        )
+        if new_fact is None:
+            return base_store, {
+                "valid": False,
+                "reason": reason,
+                "changed": False,
+            }
+        new_facts.append(new_fact)
 
     before_signatures = sorted(
         _l4_fact_semantic_signature(fact)
@@ -1882,7 +2041,7 @@ def apply_l4_jin_note_result(
         for fact in replacement_facts
     )
 
-    if before_signatures == after_signatures:
+    if has_replacements and not new_facts and before_signatures == after_signatures:
         return base_store, {
             "valid": True,
             "changed": False,
@@ -1892,13 +2051,21 @@ def apply_l4_jin_note_result(
         }
 
     replacement_ids = [fact["id"] for fact in replacement_facts]
+    added_ids = [fact["id"] for fact in new_facts]
     next_store = {
         **base_store,
-        "facts": [*unselected_facts, *replacement_facts],
-        "next_fact_id": allocation_store.get("next_fact_id", base_store.get("next_fact_id", 1)),
-        "deleted_fact_ids": merge_l4_string_lists(
-            base_store.get("deleted_fact_ids"),
-            selected_ids,
+        "facts": [*output_facts, *new_facts],
+        "next_fact_id": allocation_store.get(
+            "next_fact_id",
+            base_store.get("next_fact_id", 1),
+        ),
+        "deleted_fact_ids": (
+            merge_l4_string_lists(
+                base_store.get("deleted_fact_ids"),
+                merged_selected_ids,
+            )
+            if merged_selected_ids
+            else base_store.get("deleted_fact_ids", [])
         ),
         "revision": base_store["revision"] + 1,
         "updated_at": current_time,
@@ -1907,14 +2074,19 @@ def apply_l4_jin_note_result(
     return next_store, {
         "valid": True,
         "changed": True,
-        "action": "replace",
+        "action": action,
         "selected_fact_ids": selected_ids,
-        "removed_fact_ids": selected_ids,
+        "removed_fact_ids": merged_selected_ids,
         "replacement_fact_ids": replacement_ids,
+        "added_ids": added_ids,
         "selected_facts": [build_l4_merge_detail_fact(fact) for fact in selected_facts],
         "replacement_facts": [
             build_l4_merge_detail_fact(fact)
             for fact in replacement_facts
+        ],
+        "new_facts": [
+            build_l4_merge_detail_fact(fact)
+            for fact in new_facts
         ],
         "total_facts": len(next_store["facts"]),
     }

@@ -68,6 +68,7 @@
   let delayedMemoryModalSummaryEditor = null;
   let delayedMemoryModalBodyEditor = null;
   let delayedMemoryModalEditSaveTimer = null;
+  let activeDelayedMemoryFactPicker = null;
   let activeDelayedMemoryReportId = "";
 
   const runtimeDiffHistory = {
@@ -3285,24 +3286,22 @@
     return true;
   }
 
+  function closeActiveDelayedMemoryFactPicker(options = {}) {
+    if (
+        !activeDelayedMemoryFactPicker
+        || typeof activeDelayedMemoryFactPicker.close !== "function"
+    ) {
+      return;
+    }
+
+    activeDelayedMemoryFactPicker.close(options);
+  }
+
   function appendDelayedMemoryFactPicker(
     container,
     factLookup,
     currentFactIds
   ) {
-    const addButton =
-        document.createElement("button");
-
-    addButton.type =
-        "button";
-    addButton.className =
-        "delayed-memory-modal-fact-add";
-    addButton.textContent =
-        "+";
-    addButton.setAttribute(
-        "aria-label",
-        "Add fact to report"
-    );
 
     const picker =
         document.createElement("div");
@@ -3317,8 +3316,10 @@
         "text";
     input.className =
         "delayed-memory-modal-fact-input";
-    input.placeholder =
-        "fact id or text";
+    input.setAttribute(
+        "aria-label",
+        "Search facts"
+    );
     input.setAttribute(
         "autocomplete",
         "off"
@@ -3333,6 +3334,42 @@
 
     dropdown.className =
         "delayed-memory-modal-fact-dropdown";
+
+    function updatePickerInputWidth() {
+      const queryLength =
+          String(input.value || "").length;
+
+      input.style.width =
+          queryLength > 0
+            ? `${Math.min(queryLength + 1, 28)}ch`
+            : "";
+    }
+
+    function closePicker(options = {}) {
+      picker.classList.add(
+          "hidden"
+      );
+      container.classList.remove(
+          "delayed-memory-modal-fact-ids-active"
+      );
+      input.value =
+          "";
+      updatePickerInputWidth();
+      dropdown.innerHTML =
+          "";
+
+      if (options.blur !== false) {
+        input.blur();
+      }
+
+      if (
+          activeDelayedMemoryFactPicker
+          && activeDelayedMemoryFactPicker.close === closePicker
+      ) {
+        activeDelayedMemoryFactPicker =
+            null;
+      }
+    }
 
     function renderOptions() {
       dropdown.innerHTML =
@@ -3406,6 +3443,7 @@
         optionButton.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
+          closePicker();
           linkFactToDelayedMemoryModal(
               option.factId
           );
@@ -3418,35 +3456,58 @@
     }
 
     function openPicker() {
+      if (
+          activeDelayedMemoryFactPicker
+          && activeDelayedMemoryFactPicker.close !== closePicker
+      ) {
+        closeActiveDelayedMemoryFactPicker();
+      }
+
+      activeDelayedMemoryFactPicker = {
+        close: closePicker,
+        container,
+      };
       picker.classList.remove(
           "hidden"
       );
+      container.classList.add(
+          "delayed-memory-modal-fact-ids-active"
+      );
+      updatePickerInputWidth();
       renderOptions();
-      input.focus();
+      input.focus({
+        preventScroll: true,
+      });
     }
 
-    addButton.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
+    container.addEventListener("click", (event) => {
+      const target =
+          event.target;
 
-      if (picker.classList.contains("hidden")) {
-        openPicker();
-      } else {
-        picker.classList.add(
-            "hidden"
-        );
+      if (
+          target
+          && typeof target.closest === "function"
+          && (
+              target.closest(".delayed-memory-modal-fact-id")
+              || target.closest(".delayed-memory-modal-fact-option")
+          )
+      ) {
+        return;
       }
+
+      openPicker();
     });
 
-    input.addEventListener("input", renderOptions);
+    input.addEventListener("input", () => {
+      updatePickerInputWidth();
+      renderOptions();
+    });
 
     input.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        picker.classList.add(
-            "hidden"
-        );
-        addButton.focus();
+        event.stopPropagation();
+        closePicker();
         return;
       }
 
@@ -3476,6 +3537,7 @@
           || "";
 
       if (nextFactId) {
+        closePicker();
         linkFactToDelayedMemoryModal(
             nextFactId
         );
@@ -3489,9 +3551,6 @@
         dropdown
     );
 
-    container.appendChild(
-        addButton
-    );
     container.appendChild(
         picker
     );
@@ -3955,6 +4014,8 @@
       return;
     }
 
+    closeActiveDelayedMemoryFactPicker();
+
     if (options.save !== false) {
       commitDelayedMemoryModalEdits({
         finalizeTitle: true,
@@ -4174,6 +4235,28 @@
       if (event.target === delayedMemoryModal) {
         closeDelayedMemoryReportModal();
       }
+    });
+
+    document.addEventListener("click", (event) => {
+      if (
+          !activeDelayedMemoryFactPicker
+          || !activeDelayedMemoryFactPicker.container
+      ) {
+        return;
+      }
+
+      const target =
+          event.target;
+
+      if (
+          target
+          && typeof activeDelayedMemoryFactPicker.container.contains === "function"
+          && activeDelayedMemoryFactPicker.container.contains(target)
+      ) {
+        return;
+      }
+
+      closeActiveDelayedMemoryFactPicker();
     });
 
     document.addEventListener("keydown", (event) => {
@@ -4402,6 +4485,8 @@
       item.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
+
+        closeActiveDelayedMemoryFactPicker();
 
         if (item.dataset.delayedMemoryFactHoldDeleted === "true") {
           return;

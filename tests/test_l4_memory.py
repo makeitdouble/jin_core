@@ -15,8 +15,10 @@ from runtime.L4_memory import (
 )
 from runtime.L4_memory_utils import (
     add_l4_pending_candidates,
+    apply_l4_jin_note_result,
     apply_l4_merge_operations,
     build_l4_fact_id,
+    build_l4_jin_note_system_prompt,
     build_l4_merge_batch_plan,
     build_l4_merge_system_prompt,
     build_l4_merge_user_prompt,
@@ -1171,6 +1173,171 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 "[ id: F9 ] ( 5m ago )"
             ),
             context_block,
+        )
+
+    def test_jin_note_prompt_surfaces_only_update_merge_create(self):
+        prompt = build_l4_jin_note_system_prompt().casefold()
+
+        self.assertIn("update", prompt)
+        self.assertIn("merge", prompt)
+        self.assertIn("create", prompt)
+        self.assertNotIn("delete", prompt)
+        self.assertNotIn("remove", prompt)
+
+    def test_jin_note_rejects_empty_replacement_facts(self):
+        store = normalize_l4_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "user.preference.response_style",
+                    "value": "The user prefers concise replies.",
+                },
+            ],
+        })
+
+        next_store, change = apply_l4_jin_note_result(
+            store,
+            selected_fact_ids=["F1"],
+            result={
+                "action": "update",
+                "replacement_facts": [],
+                "new_facts": [],
+            },
+            now="2026-08-12T10:00:00Z",
+        )
+
+        self.assertEqual(next_store, store)
+        self.assertFalse(change["valid"])
+        self.assertFalse(change["changed"])
+
+    def test_jin_note_update_preserves_selected_fact_id(self):
+        store = normalize_l4_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "user.preference.response_style",
+                    "value": "The user prefers concise replies.",
+                    "created_at": "2026-08-01T10:00:00Z",
+                },
+            ],
+        })
+
+        next_store, change = apply_l4_jin_note_result(
+            store,
+            selected_fact_ids=["F1"],
+            result={
+                "action": "update",
+                "replacement_facts": [
+                    {
+                        "key": "user.preference.response_style",
+                        "value": "The user prefers concise Russian replies.",
+                        "category": "user_preference",
+                    },
+                ],
+                "new_facts": [],
+            },
+            now="2026-08-12T10:00:00Z",
+        )
+
+        self.assertTrue(change["valid"])
+        self.assertTrue(change["changed"])
+        self.assertEqual(change["action"], "update")
+        self.assertEqual(change["replacement_fact_ids"], ["F1"])
+        self.assertEqual(change["removed_fact_ids"], [])
+        self.assertEqual(next_store["deleted_fact_ids"], [])
+        self.assertEqual(next_store["facts"][0]["id"], "F1")
+        self.assertEqual(
+            next_store["facts"][0]["value"],
+            "The user prefers concise Russian replies.",
+        )
+
+    def test_jin_note_create_can_run_without_selected_facts(self):
+        store = normalize_l4_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "user.hardware.main_gpu",
+                    "value": "The user's main GPU is RTX 4090.",
+                },
+            ],
+        })
+
+        next_store, change = apply_l4_jin_note_result(
+            store,
+            selected_fact_ids=[],
+            result={
+                "action": "create",
+                "replacement_facts": [],
+                "new_facts": [
+                    {
+                        "key": "user.preference.response_language",
+                        "value": "The user prefers Russian replies.",
+                        "category": "user_preference",
+                    },
+                ],
+            },
+            now="2026-08-12T10:00:00Z",
+        )
+
+        self.assertTrue(change["valid"])
+        self.assertTrue(change["changed"])
+        self.assertEqual(change["added_ids"], ["F2"])
+        self.assertEqual(change["removed_fact_ids"], [])
+        self.assertEqual(
+            [fact["id"] for fact in next_store["facts"]],
+            ["F1", "F2"],
+        )
+        self.assertEqual(next_store["deleted_fact_ids"], [])
+
+    def test_jin_note_merge_preserves_first_selected_fact_id(self):
+        store = normalize_l4_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "user.social_connections",
+                    "value": "Taras is a close friend.",
+                },
+                {
+                    "id": "F2",
+                    "key": "user.stakeholder_profile",
+                    "value": "Taras is a key technical stakeholder.",
+                },
+            ],
+        })
+
+        next_store, change = apply_l4_jin_note_result(
+            store,
+            selected_fact_ids=["F1", "F2"],
+            result={
+                "action": "merge",
+                "replacement_facts": [
+                    {
+                        "key": "user.relationship.taras",
+                        "value": (
+                            "Taras is both a close friend and an active "
+                            "technical stakeholder."
+                        ),
+                        "category": "user_fact",
+                    },
+                ],
+                "new_facts": [],
+            },
+            now="2026-08-12T10:00:00Z",
+        )
+
+        self.assertTrue(change["valid"])
+        self.assertTrue(change["changed"])
+        self.assertEqual(change["action"], "merge")
+        self.assertEqual(change["replacement_fact_ids"], ["F1"])
+        self.assertEqual(change["removed_fact_ids"], ["F2"])
+        self.assertEqual(next_store["deleted_fact_ids"], ["F2"])
+        self.assertEqual(
+            [fact["id"] for fact in next_store["facts"]],
+            ["F1"],
+        )
+        self.assertEqual(
+            next_store["facts"][0]["source_fact_ids"],
+            ["F2"],
         )
 
     def test_delayed_report_anchor_stays_visible_with_report_suffix(self):

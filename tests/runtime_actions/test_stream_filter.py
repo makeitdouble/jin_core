@@ -52,6 +52,7 @@ from utils.tool_results import (
     TOOL_RESULT_KIND_ASSET,
     TOOL_RESULT_KIND_DELAYED_MEMORY,
     TOOL_RESULT_KIND_SEARCH,
+    TOOL_RESULT_KIND_SESSION,
     begin_runtime_tool_results_turn,
     record_runtime_tool_result,
 )
@@ -1865,6 +1866,55 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             3,
         )
 
+    def test_recorded_tool_results_include_individual_age_suffixes(self):
+
+        Context = FakeContext
+
+        context = Context()
+
+        record_runtime_tool_result(
+            context,
+            TOOL_RESULT_KIND_DELAYED_MEMORY,
+            {
+                "ok": True,
+                "action": "save_delayed_memory_content",
+                "destination": "delayed_memory_reports",
+                "report": {
+                    "f7jf9a": {
+                        "title": "Architecture note",
+                    },
+                },
+            },
+            created_at=698.0,
+        )
+        record_runtime_tool_result(
+            context,
+            TOOL_RESULT_KIND_SESSION,
+            {
+                "ok": True,
+                "action": "save_session",
+                "session_snapshot": "session saved",
+            },
+            created_at=999.0,
+        )
+
+        with patch(
+            "utils.context.tool_results.time.time",
+            return_value=1000.0,
+        ):
+            tool_results = build_tool_results_context(
+                context
+            )
+
+        self.assertIn(
+            '<TOOL_RESULT name="SAVE_DELAYED_MEMORY_CONTENT" ( 5m 2s ago ) >',
+            tool_results,
+        )
+        self.assertIn(
+            '<TOOL_RESULT name="SAVE_SESSION" ( 1s ago ) >',
+            tool_results,
+        )
+
 
     def test_failed_tool_results_dedupe_ignores_volatile_result_id(self):
 
@@ -1925,7 +1975,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             tool_results.count(
-                '<TOOL_RESULT name="SAVE_DELAYED_MEMORY_CONTENT">'
+                '<TOOL_RESULT name="SAVE_DELAYED_MEMORY_CONTENT"'
             ),
             1,
         )

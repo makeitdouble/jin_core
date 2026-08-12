@@ -233,6 +233,10 @@
     position: relative;
 }
 
+.delayed-memory-modal-fact-ids-active {
+    z-index: 2;
+}
+
 .delayed-memory-modal-fact-id {
     display: inline-flex;
     align-items: center;
@@ -274,32 +278,16 @@
     color: rgba(244, 244, 245, 0.38);
 }
 
-.delayed-memory-modal-fact-add {
-    width: 16px;
-    height: 16px;
+.delayed-memory-modal-fact-picker {
+    position: relative;
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    border: 1px solid rgba(113, 113, 122, 0.38);
-    background: rgba(24, 24, 27, 0.58);
-    color: rgba(244, 244, 245, 0.62);
-    font-size: 12px;
-    line-height: 1;
-    cursor: pointer;
-}
-
-.delayed-memory-modal-fact-add:hover,
-.delayed-memory-modal-fact-add:focus-visible {
-    border-color: rgba(161, 161, 170, 0.58);
-    color: rgba(244, 244, 245, 0.88);
-    outline: none;
-}
-
-.delayed-memory-modal-fact-picker {
-    display: inline-grid;
-    grid-template-columns: minmax(128px, 180px) minmax(176px, 260px);
-    align-items: start;
-    gap: 6px;
+    width: auto;
+    min-width: 8px;
+    max-width: min(220px, 40vw);
+    height: 16px;
+    flex: 0 1 auto;
+    overflow: visible;
 }
 
 .delayed-memory-modal-fact-picker.hidden {
@@ -307,25 +295,35 @@
 }
 
 .delayed-memory-modal-fact-input {
-    height: 22px;
-    border: 1px solid rgba(63, 63, 70, 0.92);
-    background: rgba(9, 9, 11, 0.88);
+    width: 8px;
+    min-width: 8px;
+    max-width: min(220px, 40vw);
+    height: 16px;
+    border: 0;
+    background: transparent;
     color: rgba(244, 244, 245, 0.86);
-    padding: 0 7px;
+    caret-color: rgba(244, 244, 245, 0.92);
+    padding: 0;
     font: inherit;
-    font-size: 11px;
     outline: none;
+    overflow: hidden;
 }
 
 .delayed-memory-modal-fact-input:focus {
-    border-color: rgba(161, 161, 170, 0.52);
+    outline: none;
 }
 
 .delayed-memory-modal-fact-dropdown {
+    position: absolute;
+    top: calc(100% + 7px);
+    left: calc(100% + 8px);
+    z-index: 3;
+    width: clamp(260px, 32vw, 360px);
     max-height: 132px;
     overflow-y: auto;
     border: 1px solid rgba(63, 63, 70, 0.74);
     background: rgba(9, 9, 11, 0.96);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.34);
 }
 
 .delayed-memory-modal-fact-option {

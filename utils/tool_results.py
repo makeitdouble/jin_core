@@ -1,4 +1,5 @@
 import json
+import time
 from copy import deepcopy
 
 
@@ -15,6 +16,166 @@ RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES = (
     "runtime_asset_retry_context",
     "runtime_delayed_memory_results",
 )
+RUNTIME_TOOL_RESULT_CREATED_AT_ATTRIBUTE = (
+    "runtime_tool_result_created_ats"
+)
+
+
+def _parse_tool_result_timestamp(
+    value,
+) -> float | None:
+
+    if isinstance(
+        value,
+        (int, float),
+    ):
+        timestamp = float(
+            value
+        )
+    else:
+        try:
+            timestamp = float(
+                str(
+                    value
+                    or ""
+                ).strip()
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            return None
+
+    if timestamp <= 0:
+        return None
+
+    return timestamp
+
+
+def get_runtime_tool_result_created_ats(
+    context,
+) -> list:
+
+    created_ats = getattr(
+        context,
+        RUNTIME_TOOL_RESULT_CREATED_AT_ATTRIBUTE,
+        None,
+    )
+
+    if not isinstance(
+        created_ats,
+        list,
+    ):
+        created_ats = []
+        setattr(
+            context,
+            RUNTIME_TOOL_RESULT_CREATED_AT_ATTRIBUTE,
+            created_ats,
+        )
+
+    return created_ats
+
+
+def align_runtime_tool_result_created_ats(
+    context,
+) -> list:
+
+    tool_results = get_runtime_tool_results(
+        context
+    )
+    created_ats = get_runtime_tool_result_created_ats(
+        context
+    )
+
+    if len(created_ats) < len(tool_results):
+        created_ats.extend(
+            [None] * (
+                len(tool_results)
+                - len(created_ats)
+            )
+        )
+    elif len(created_ats) > len(tool_results):
+        del created_ats[
+            len(tool_results):
+        ]
+
+    return created_ats
+
+
+def get_runtime_tool_result_created_at(
+    context,
+    index: int,
+    entry: dict | None = None,
+) -> float | None:
+
+    if isinstance(
+        entry,
+        dict,
+    ):
+        for key in (
+            "created_at",
+            "recorded_at",
+        ):
+            timestamp = _parse_tool_result_timestamp(
+                entry.get(
+                    key
+                )
+            )
+            if timestamp is not None:
+                return timestamp
+
+    created_ats = getattr(
+        context,
+        RUNTIME_TOOL_RESULT_CREATED_AT_ATTRIBUTE,
+        None,
+    )
+    if not isinstance(
+        created_ats,
+        list,
+    ):
+        return None
+
+    try:
+        created_at = created_ats[
+            index
+        ]
+    except (
+        TypeError,
+        IndexError,
+    ):
+        return None
+
+    return _parse_tool_result_timestamp(
+        created_at
+    )
+
+
+def _trim_runtime_tool_result_created_ats_prefix(
+    context,
+    count: int,
+) -> None:
+
+    created_ats = getattr(
+        context,
+        RUNTIME_TOOL_RESULT_CREATED_AT_ATTRIBUTE,
+        None,
+    )
+
+    if not isinstance(
+        created_ats,
+        list,
+    ):
+        return
+
+    if count <= 0:
+        return
+
+    del created_ats[
+        :min(
+            count,
+            len(created_ats),
+        )
+    ]
 
 
 def _failed_tool_result_dedupe_key(
@@ -96,9 +257,13 @@ def record_runtime_tool_result(
     result,
     *,
     result_id: str = "",
-) -> None:
+    created_at: float | None = None,
+) -> bool:
 
     tool_results = get_runtime_tool_results(
+        context
+    )
+    created_ats = align_runtime_tool_result_created_ats(
         context
     )
     turn_count = int(
@@ -146,8 +311,23 @@ def record_runtime_tool_result(
             ):
                 return False
 
+    recorded_at = (
+        _parse_tool_result_timestamp(
+            created_at
+        )
+        if created_at is not None
+        else None
+    )
+
     tool_results.append(
         entry
+    )
+    created_ats.append(
+        (
+            time.time()
+            if recorded_at is None
+            else recorded_at
+        )
     )
     setattr(
         context,
@@ -165,13 +345,44 @@ def remove_runtime_tool_results(
     tool_results = get_runtime_tool_results(
         context
     )
-    tool_results[:] = [
-        entry
-        for entry in tool_results
-        if not predicate(
+    created_ats = getattr(
+        context,
+        RUNTIME_TOOL_RESULT_CREATED_AT_ATTRIBUTE,
+        None,
+    )
+    next_tool_results = []
+    next_created_ats = []
+
+    for index, entry in enumerate(
+        tool_results
+    ):
+        if predicate(
+            entry
+        ):
+            continue
+
+        next_tool_results.append(
             entry
         )
-    ]
+        if (
+            isinstance(
+                created_ats,
+                list,
+            )
+            and index < len(
+                created_ats
+            )
+        ):
+            next_created_ats.append(
+                created_ats[index]
+            )
+
+    tool_results[:] = next_tool_results
+    if isinstance(
+        created_ats,
+        list,
+    ):
+        created_ats[:] = next_created_ats
 
 
 def _runtime_result_list_count(
@@ -311,6 +522,10 @@ def clear_runtime_tool_results_before_state(
                 len(tool_results),
             )
         ]
+        _trim_runtime_tool_result_created_ats_prefix(
+            context,
+            tool_result_count,
+        )
 
     generation = int(
         getattr(
@@ -401,6 +616,9 @@ def clear_runtime_tool_results(
 ) -> None:
 
     get_runtime_tool_results(
+        context
+    ).clear()
+    get_runtime_tool_result_created_ats(
         context
     ).clear()
     generation = int(

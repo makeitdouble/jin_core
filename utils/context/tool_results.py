@@ -1,4 +1,5 @@
 # Builds the full tool results context from search, asset, memory, and session results.
+import time
 from xml.sax.saxutils import escape
 
 from contracts.rules_assembler import (
@@ -16,6 +17,7 @@ from utils.tool_results import (
     TOOL_RESULT_KIND_DEEP_SEARCH,
     TOOL_RESULT_KIND_SEARCH,
     TOOL_RESULT_KIND_SESSION,
+    get_runtime_tool_result_created_at,
     get_runtime_tool_results,
 )
 from utils.tool_results_context import (
@@ -35,6 +37,97 @@ from .result_sections import (
     format_active_memory_result_sections,
     format_session_result_sections,
 )
+
+
+def _format_tool_result_age(
+    elapsed_seconds,
+) -> str:
+
+    seconds = max(
+        1,
+        int(
+            elapsed_seconds
+        ),
+    )
+
+    if seconds < 60:
+        return f"{seconds}s"
+
+    minutes, seconds = divmod(
+        seconds,
+        60,
+    )
+    if minutes < 60:
+        if seconds:
+            return f"{minutes}m {seconds}s"
+        return f"{minutes}m"
+
+    hours, minutes = divmod(
+        minutes,
+        60,
+    )
+    if hours < 24:
+        if minutes:
+            return f"{hours}h {minutes}m"
+        return f"{hours}h"
+
+    days, hours = divmod(
+        hours,
+        24,
+    )
+    if hours:
+        return f"{days}d {hours}h"
+    return f"{days}d"
+
+
+def _format_tool_result_age_suffix(
+    created_at,
+    *,
+    now: float | None = None,
+) -> str:
+
+    if created_at is None:
+        return ""
+
+    try:
+        timestamp = float(
+            created_at
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return ""
+
+    if timestamp <= 0:
+        return ""
+
+    if now is None:
+        now = time.time()
+
+    return (
+        f" ( {_format_tool_result_age(now - timestamp)} ago )"
+    )
+
+
+def _build_tool_result_open_tag(
+    attrs: str,
+    *,
+    created_at=None,
+    now: float | None = None,
+) -> str:
+
+    age_suffix = _format_tool_result_age_suffix(
+        created_at,
+        now=now,
+    )
+    close = (
+        " >"
+        if age_suffix
+        else ">"
+    )
+
+    return f"    <TOOL_RESULT {attrs}{age_suffix}{close}"
 
 
 def _append_tool_results(
@@ -74,7 +167,7 @@ def _append_tool_results(
         )
 
     parts.append(
-        f"    <TOOL_RESULT {tool_result_attrs}>\n"
+        f"{_build_tool_result_open_tag(tool_result_attrs)}\n"
         f"{indent_xml(search_result)}\n"
         "    </TOOL_RESULT>"
     )
@@ -89,9 +182,12 @@ def _append_recorded_tool_results(
         return False
 
     appended = False
+    now = time.time()
 
-    for entry in get_runtime_tool_results(
+    for index, entry in enumerate(
+        get_runtime_tool_results(
         context
+        )
     ):
         if not isinstance(
             entry,
@@ -108,6 +204,11 @@ def _append_recorded_tool_results(
         ).strip()
         result = entry.get(
             "result"
+        )
+        created_at = get_runtime_tool_result_created_at(
+            context,
+            index,
+            entry,
         )
 
         if kind == TOOL_RESULT_KIND_SEARCH:
@@ -132,7 +233,7 @@ def _append_recorded_tool_results(
                 attrs += f' id="{escape(result_id)}"'
 
             parts.append(
-                f"    <TOOL_RESULT {attrs}>\n"
+                f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
                 f"{indent_xml(search_result)}\n"
                 "    </TOOL_RESULT>"
             )
@@ -159,7 +260,7 @@ def _append_recorded_tool_results(
                 attrs += f' id="{escape(result_id)}"'
 
             parts.append(
-                f"    <TOOL_RESULT {attrs}>\n"
+                f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
                 f"{indent_xml(deep_result)}\n"
                 "    </TOOL_RESULT>"
             )
@@ -174,12 +275,14 @@ def _append_recorded_tool_results(
             if not sections:
                 continue
 
-            blocks = [
-                f'    <TOOL_RESULT name="{escape(name)}">\n'
-                f"{indent_xml(escape(payload))}\n"
-                "    </TOOL_RESULT>"
-                for name, payload in sections
-            ]
+            blocks = []
+            for name, payload in sections:
+                attrs = f'name="{escape(name)}"'
+                blocks.append(
+                    f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
+                    f"{indent_xml(escape(payload))}\n"
+                    "    </TOOL_RESULT>"
+                )
             parts.extend(
                 blocks
             )
@@ -193,12 +296,14 @@ def _append_recorded_tool_results(
             if not sections:
                 continue
 
-            blocks = [
-                f'    <TOOL_RESULT name="{escape(name)}">\n'
-                f"{indent_xml(escape(payload))}\n"
-                "    </TOOL_RESULT>"
-                for name, payload in sections
-            ]
+            blocks = []
+            for name, payload in sections:
+                attrs = f'name="{escape(name)}"'
+                blocks.append(
+                    f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
+                    f"{indent_xml(escape(payload))}\n"
+                    "    </TOOL_RESULT>"
+                )
             parts.extend(
                 blocks
             )
@@ -212,12 +317,14 @@ def _append_recorded_tool_results(
             if not sections:
                 continue
 
-            blocks = [
-                f'    <TOOL_RESULT name="{escape(name)}">\n'
-                f"{indent_xml(escape(payload))}\n"
-                "    </TOOL_RESULT>"
-                for name, payload in sections
-            ]
+            blocks = []
+            for name, payload in sections:
+                attrs = f'name="{escape(name)}"'
+                blocks.append(
+                    f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
+                    f"{indent_xml(escape(payload))}\n"
+                    "    </TOOL_RESULT>"
+                )
             parts.extend(
                 blocks
             )
@@ -231,12 +338,14 @@ def _append_recorded_tool_results(
             if not sections:
                 continue
 
-            blocks = [
-                f'    <TOOL_RESULT name="{escape(name)}">\n'
-                f"{indent_xml(escape(payload))}\n"
-                "    </TOOL_RESULT>"
-                for name, payload in sections
-            ]
+            blocks = []
+            for name, payload in sections:
+                attrs = f'name="{escape(name)}"'
+                blocks.append(
+                    f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
+                    f"{indent_xml(escape(payload))}\n"
+                    "    </TOOL_RESULT>"
+                )
             parts.extend(
                 blocks
             )
@@ -308,8 +417,9 @@ def _append_asset_results(
         asset_results[-5:],
         context,
     ):
+        attrs = f'name="{escape(name)}"'
         tool_result_blocks.append(
-            f'    <TOOL_RESULT name="{escape(name)}">\n'
+            f"{_build_tool_result_open_tag(attrs)}\n"
             f"{indent_xml(escape(payload))}\n"
             "    </TOOL_RESULT>"
         )
@@ -344,8 +454,9 @@ def _load_delayed_memory_results(
     for name, payload in format_delayed_memory_result_sections(
         delayed_memory_results[-5:],
     ):
+        attrs = f'name="{escape(name)}"'
         tool_result_blocks.append(
-            f'    <TOOL_RESULT name="{escape(name)}">\n'
+            f"{_build_tool_result_open_tag(attrs)}\n"
             f"{indent_xml(escape(payload))}\n"
             "    </TOOL_RESULT>"
         )
