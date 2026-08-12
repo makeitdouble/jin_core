@@ -54,6 +54,10 @@ LOADED_DELAYED_MEMORY_CONTEXT_FIELDS = (
 PREVIOUS_REASONING_EDGE_PERCENT = 25
 PREVIOUS_REASONING_LOOP_EDGE_PERCENT = 15
 PREVIOUS_REASONING_MIN_CROP_CHARS = 1000
+PREVIOUS_REASONING_CONTEXT_MIN_CROP_CHARS = (
+    PREVIOUS_REASONING_MIN_CROP_CHARS
+    + 1000
+)
 PREVIOUS_REASONING_SEPARATOR_TEMPLATE = (
     "---------------------------- CUTTED {chars} chars ----------------------------"
 )
@@ -682,11 +686,21 @@ def _format_previous_reasoning_context(
     tag_name: str,
     reasoning: str,
     edge_percent: float,
+    min_crop_chars: int = PREVIOUS_REASONING_MIN_CROP_CHARS,
+    crop: bool = True,
 ) -> str:
 
-    cropped_reasoning = crop_previous_reasoning_text(
-        reasoning,
-        edge_percent=edge_percent,
+    cropped_reasoning = (
+        crop_previous_reasoning_text(
+            reasoning,
+            edge_percent=edge_percent,
+            min_crop_chars=min_crop_chars,
+        )
+        if crop
+        else str(
+            reasoning
+            or ""
+        ).strip()
     )
 
     from utils.brain_client_utils import (
@@ -707,22 +721,56 @@ def _format_previous_reasoning_context(
 
 def build_previous_reasoning_context(
     context=None,
+    *,
+    include_turn_reasoning: bool = False,
+    crop: bool = True,
 ) -> str:
+
+    reasoning_parts = []
+    seen_reasoning_parts = set()
+
+    for attr_name in (
+        "runtime_previous_reasoning_content",
+        "runtime_turn_reasoning_content",
+    ):
+        if (
+            attr_name == "runtime_turn_reasoning_content"
+            and not include_turn_reasoning
+        ):
+            continue
+
+        reasoning_part = str(
+            getattr(
+                context,
+                attr_name,
+                "",
+            )
+            if context is not None
+            else ""
+            or ""
+        ).strip()
+
+        if (
+            not reasoning_part
+            or reasoning_part in seen_reasoning_parts
+        ):
+            continue
+
+        reasoning_parts.append(
+            reasoning_part
+        )
+        seen_reasoning_parts.add(
+            reasoning_part
+        )
 
     return _format_previous_reasoning_context(
         tag_name="PREVIOUS_REASONING_CONTENT",
-        reasoning=(
-            (
-                getattr(
-                    context,
-                    "runtime_previous_reasoning_content",
-                    "",
-                )
-                if context is not None
-                else ""
-            )
+        reasoning="\n\n".join(
+            reasoning_parts
         ),
         edge_percent=PREVIOUS_REASONING_EDGE_PERCENT,
+        min_crop_chars=PREVIOUS_REASONING_CONTEXT_MIN_CROP_CHARS,
+        crop=crop,
     )
 
 
@@ -788,6 +836,8 @@ def build_brain_context(
     include_runtime_action_instructions: bool = True,
     include_previous_chat_messages: bool = True,
     include_previous_reasoning: bool = True,
+    include_turn_reasoning: bool = False,
+    crop_previous_reasoning: bool = True,
 ) -> str:
 
     from utils.context.messages import (
@@ -984,7 +1034,9 @@ def build_brain_context(
     ):
         prompt_parts.append(
             build_previous_reasoning_context(
-                context
+                context,
+                include_turn_reasoning=include_turn_reasoning,
+                crop=crop_previous_reasoning,
             )
         )
 

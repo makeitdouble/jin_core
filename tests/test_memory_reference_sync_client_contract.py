@@ -8,6 +8,9 @@ ROOT = Path(__file__).resolve().parents[1]
 MEMORY_VIEW_JS = (
     ROOT / "ui" / "static" / "js" / "runtime" / "runtime-memory-view.js"
 )
+MEMORY_MODEL_JS = (
+    ROOT / "ui" / "static" / "js" / "runtime" / "runtime-memory-model.js"
+)
 RUNTIME_JS = ROOT / "ui" / "static" / "js" / "runtime" / "runtime.js"
 CHAT_JS = ROOT / "ui" / "static" / "js" / "chat.js"
 LOGGER_JS = ROOT / "ui" / "static" / "js" / "logger" / "logger.js"
@@ -531,6 +534,86 @@ for (const [text, reference, expected] of cases) {
             completed.stderr or completed.stdout,
         )
 
+    @unittest.skipUnless(
+        shutil.which("node"),
+        "node is required for the browser-side memory model test",
+    )
+    def test_runtime_memory_value_presentation_hides_suffixes_and_truncates_text(self):
+        script = r'''
+const fs = require("fs");
+const source = fs.readFileSync(process.argv[1], "utf8");
+
+global.window = {};
+Date.now = () => Date.parse("2026-08-12T12:00:00Z");
+
+eval(source);
+
+const memoryModel = window.JinRuntime.memoryModel;
+const longValue = "x".repeat(120);
+const presentation = memoryModel.buildRuntimeMemoryValuePresentation({
+  key: "topic",
+  value: longValue,
+  created_at: "2026-08-12T11:59:55Z",
+});
+
+if (presentation.text !== `${"x".repeat(100)}...`) {
+  throw new Error(`unexpected visible text: ${presentation.text}`);
+}
+
+if (presentation.text.includes("[ created:")) {
+  throw new Error(`lifecycle suffix leaked into text: ${presentation.text}`);
+}
+
+if (!presentation.raw.includes("[ created: 5s ago ]")) {
+  throw new Error(`raw hover text lost lifecycle suffix: ${presentation.raw}`);
+}
+
+const taggedPresentation = memoryModel.buildRuntimeMemoryValuePresentation({
+  key: "topic",
+  value: "visible value [ status: pinned ]",
+  created_at: "2026-08-12T11:59:55Z",
+});
+
+if (taggedPresentation.text !== "visible value") {
+  throw new Error(`metadata suffix leaked into text: ${taggedPresentation.text}`);
+}
+
+if (!taggedPresentation.raw.includes("[ status: pinned ]")) {
+  throw new Error(`raw hover text lost existing metadata: ${taggedPresentation.raw}`);
+}
+
+const userMessagePresentation = memoryModel.buildRuntimeMemoryValuePresentation({
+  key: "user_message",
+  value: "\"hello\" [ repeated: 3 ]",
+  created_at: "2026-08-12T11:59:55Z",
+});
+
+if (userMessagePresentation.text !== "\"hello\"") {
+  throw new Error(`user_message suffix leaked into text: ${userMessagePresentation.text}`);
+}
+
+if (!userMessagePresentation.raw.includes("[ repeated: 3 ]")) {
+  throw new Error(`raw hover text lost user_message metadata: ${userMessagePresentation.raw}`);
+}
+'''
+        completed = subprocess.run(
+            [
+                shutil.which("node"),
+                "-e",
+                script,
+                str(MEMORY_MODEL_JS),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(
+            completed.returncode,
+            0,
+            completed.stderr or completed.stdout,
+        )
+
     def test_cache_versions_are_bumped(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
@@ -540,6 +623,10 @@ for (const [text, reference, expected] of cases) {
         )
         self.assertIn(
             '/static/js/runtime/runtime-memory-view.js?v=memory-panel-rename-1',
+            source,
+        )
+        self.assertIn(
+            '/static/js/runtime/runtime-memory-model.js?v=runtime-memory-model-hidden-suffix-1',
             source,
         )
         self.assertIn(

@@ -20,6 +20,7 @@ from agent.nodes.brain import (
     prepare_asset_results_for_turn,
 )
 from rules.brain_context_builder import (
+    build_brain_context,
     build_loaded_delayed_memory_context,
 )
 from utils.context.context_exports import (
@@ -458,6 +459,119 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn(
             "RULE C",
+            prompt,
+        )
+
+    async def test_action_followup_keeps_previous_reasoning_in_base_context_slot(self):
+
+        context = SimpleNamespace(
+            runtime_memory="",
+            runtime_recent_turns=[],
+            runtime_session_action_history=[],
+            runtime_loaded_delayed_memory={},
+            runtime_previous_reasoning_content=(
+                "previous reasoning <note>"
+            ),
+            runtime_turn_reasoning_content=(
+                "turn reasoning opening "
+                + "m" * 2600
+                + " turn reasoning ending"
+            ),
+        )
+
+        base_prompt = build_brain_context(
+            context,
+            runtime_actions={
+                "CAN_WEB_SEARCH": False,
+            },
+            include_previous_chat_messages=False,
+            include_previous_reasoning=True,
+            include_turn_reasoning=True,
+            crop_previous_reasoning=False,
+        )
+        prompt = BrainNode.build_followup_system_prompt(
+            base_prompt,
+            "continue with search result",
+            context=context,
+            latest_action="web_search",
+        )
+
+        self.assertIn(
+            "<PREVIOUS_REASONING_CONTENT>",
+            prompt,
+        )
+        self.assertIn(
+            "previous reasoning &lt;note&gt;",
+            prompt,
+        )
+        self.assertIn(
+            "turn reasoning opening",
+            prompt,
+        )
+        self.assertIn(
+            "turn reasoning ending",
+            prompt,
+        )
+        self.assertNotIn(
+            "---------------------------- CUTTED ",
+            prompt,
+        )
+        self.assertLess(
+            prompt.index("<TOOLS_RESULTS>"),
+            prompt.index("<PREVIOUS_REASONING_CONTENT>"),
+        )
+        self.assertLess(
+            prompt.index("</PREVIOUS_REASONING_CONTENT>"),
+            prompt.index("I identify myself as JIN"),
+        )
+
+    async def test_reasoning_loop_followup_keeps_loop_reasoning_rules_separate(self):
+
+        context = SimpleNamespace(
+            runtime_memory="",
+            runtime_recent_turns=[],
+            runtime_session_action_history=[],
+            runtime_loaded_delayed_memory={},
+            runtime_previous_reasoning_content="ordinary previous reasoning",
+            runtime_turn_reasoning_content="ordinary turn reasoning",
+            runtime_previous_reasoning_loop_contents=[
+                "loop reasoning opening "
+                + "m" * 1200
+                + " loop reasoning ending",
+            ],
+        )
+
+        base_prompt = build_brain_context(
+            context,
+            runtime_actions={
+                "CAN_WEB_SEARCH": False,
+            },
+            include_previous_chat_messages=False,
+            include_previous_reasoning=True,
+            include_turn_reasoning=True,
+            crop_previous_reasoning=False,
+        )
+        prompt = BrainNode.build_followup_system_prompt(
+            base_prompt,
+            "recover from reasoning loop",
+            context=context,
+            latest_action="stuck in a reasoning loop",
+        )
+
+        self.assertNotIn(
+            "<PREVIOUS_REASONING_CONTENT>",
+            prompt,
+        )
+        self.assertIn(
+            "<PREVIOUS_REASONING_LOOP_CONTENT>",
+            prompt,
+        )
+        self.assertIn(
+            "loop reasoning opening",
+            prompt,
+        )
+        self.assertNotIn(
+            "ordinary turn reasoning",
             prompt,
         )
 

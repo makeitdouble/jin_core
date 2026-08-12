@@ -11,8 +11,10 @@ from unittest.mock import (
 )
 from rules.brain_context_builder import (
     PREVIOUS_REASONING_EDGE_PERCENT,
+    PREVIOUS_REASONING_CONTEXT_MIN_CROP_CHARS,
     PREVIOUS_REASONING_MIN_CROP_CHARS,
     build_brain_context,
+    build_previous_reasoning_context,
     crop_previous_reasoning_text,
 )
 from utils.context.context_exports import (
@@ -487,6 +489,78 @@ class BrainPromptMemoryTests(
                 + "---------------------------- CUTTED 600 chars ----------------------------"
                 + "\n"
                 + suffix[-edge_chars:],
+            )
+
+    def test_previous_reasoning_context_uses_larger_crop_minimum(self):
+
+            reasoning = (
+                "x"
+                * (
+                    PREVIOUS_REASONING_MIN_CROP_CHARS
+                    + 500
+                )
+            )
+
+            self.assertIn(
+                (
+                    "---------------------------- CUTTED "
+                ),
+                crop_previous_reasoning_text(
+                    reasoning
+                ),
+            )
+            self.assertNotIn(
+                (
+                    "---------------------------- CUTTED "
+                ),
+                build_previous_reasoning_context(
+                    SimpleNamespace(
+                        runtime_previous_reasoning_content=reasoning,
+                    )
+                ),
+            )
+            self.assertEqual(
+                PREVIOUS_REASONING_CONTEXT_MIN_CROP_CHARS,
+                PREVIOUS_REASONING_MIN_CROP_CHARS
+                + 1000,
+            )
+
+    def test_previous_reasoning_context_can_include_turn_reasoning_uncropped(self):
+
+            reasoning = (
+                "turn opening "
+                + "m" * (
+                    PREVIOUS_REASONING_CONTEXT_MIN_CROP_CHARS
+                    + 500
+                )
+                + " turn ending"
+            )
+            prompt = build_previous_reasoning_context(
+                SimpleNamespace(
+                    runtime_previous_reasoning_content=(
+                        "previous & private"
+                    ),
+                    runtime_turn_reasoning_content=reasoning,
+                ),
+                include_turn_reasoning=True,
+                crop=False,
+            )
+
+            self.assertIn(
+                "previous &amp; private",
+                prompt,
+            )
+            self.assertIn(
+                "turn opening",
+                prompt,
+            )
+            self.assertIn(
+                "turn ending",
+                prompt,
+            )
+            self.assertNotIn(
+                "---------------------------- CUTTED ",
+                prompt,
             )
 
     def test_previous_reasoning_can_be_excluded_for_followup_ticks(self):

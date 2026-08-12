@@ -2,6 +2,9 @@
 
   window.JinRuntime = window.JinRuntime || {};
 
+  const RUNTIME_MEMORY_VALUE_DISPLAY_MAX_CHARS = 100;
+
+
   function splitCompoundRuntimeMemoryLine(line) {
 
     const source =
@@ -855,7 +858,24 @@
   }
 
 
-  // Builds the UI value presentation while keeping raw hover data, e.g. value "Book" with lifecycle data -> text "Book [ created: 1s ago ]".
+  function truncateRuntimeMemoryValueForDisplay(value) {
+
+    const chars =
+        Array.from(String(value || ""));
+
+    if (chars.length <= RUNTIME_MEMORY_VALUE_DISPLAY_MAX_CHARS) {
+      return String(value || "");
+    }
+
+    return `${chars
+      .slice(0, RUNTIME_MEMORY_VALUE_DISPLAY_MAX_CHARS)
+      .join("")
+      .trimEnd()}...`;
+
+  }
+
+
+  // Builds the UI value presentation while keeping raw hover data, e.g. value "Book" with lifecycle data -> text "Book".
   function buildRuntimeMemoryValuePresentation(line) {
 
     const value =
@@ -895,32 +915,33 @@
         splitMemoryMeta(rawValue);
 
     let displayText =
-        presentation.text;
+        truncateRuntimeMemoryValueForDisplay(
+            presentation.text
+        );
 
     if (
         normalizeRuntimeMemoryKey(line && line.key) === "user_message"
     ) {
       displayText =
-          formatUserMessageValueForDisplay(
-              displayValue
+          truncateRuntimeMemoryValueForDisplay(
+              formatUserMessageValueForDisplay(
+                  presentation.text
+              )
           );
     } else if (
         isJinResponseRuntimeMemoryKey(line && line.key)
     ) {
       displayText =
-          formatJinResponseValueForDisplay(
-              displayText
+          truncateRuntimeMemoryValueForDisplay(
+              formatJinResponseValueForDisplay(
+                  presentation.text
+              )
           );
     }
 
     return {
       ...presentation,
-      text: lifecycleProperties.length
-        ? appendProperties(
-            displayText,
-            lifecycleProperties
-          )
-        : displayText,
+      text: displayText,
     };
 
   }
@@ -1046,17 +1067,12 @@
   }
 
 
-  // Truncates long displayed JIN answers for the runtime memory panel, e.g. 120 characters -> first 80 characters plus "...".
+  // Truncates long displayed JIN answers for the runtime memory panel, e.g. 120 characters -> first 100 characters plus "...".
   function truncateJinResponseForDisplay(value) {
 
-    const chars =
-        Array.from(String(value || ""));
-
-    if (chars.length <= 80) {
-      return String(value || "");
-    }
-
-    return `${chars.slice(0, 80).join("").trimEnd()}...`;
+    return truncateRuntimeMemoryValueForDisplay(
+        value
+    );
 
   }
 
