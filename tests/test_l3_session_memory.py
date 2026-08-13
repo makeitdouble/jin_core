@@ -594,7 +594,7 @@ class L3SessionMemoryTests(
                 service_client.calls[0]["user_prompt"],
             )
             self.assertIn(
-                "<USER_DATETIME>2026-06-05 13:38, Friday</USER_DATETIME>",
+                "<CURRENT_USER_DATETIME>2026-06-05 13:38, Friday</CURRENT_USER_DATETIME>",
                 service_client.calls[0]["user_prompt"],
             )
             self.assertLess(

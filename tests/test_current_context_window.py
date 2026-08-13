@@ -85,7 +85,7 @@ class CurrentContextWindowTests(
                 "<CURRENT_CONTEXT_WINDOW>"
             ),
             prepared.system_prompt.index(
-                "<JIN_COLOR>"
+                "<CURRENT_JIN_COLOR>"
             ),
         )
 

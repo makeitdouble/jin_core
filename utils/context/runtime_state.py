@@ -25,7 +25,6 @@ from runtime.runtime_context import (
     DEFAULT_JIN_COLOR,
 )
 from utils.actions import (
-    format_jin_size_payload,
     get_applied_jin_size,
     normalize_jin_size_dict,
     normalize_jin_color_payload,
@@ -90,6 +89,23 @@ def get_current_jin_color(
     return current_color
 
 
+def format_current_jin_size(
+    size,
+) -> str:
+
+    normalized_size = normalize_jin_size_dict(
+        size
+    )
+
+    if not normalized_size:
+        return ""
+
+    return (
+        f"width: {normalized_size['width']}px "
+        f"height: {normalized_size['height']}px"
+    )
+
+
 def get_current_jin_size_context(
     context=None,
 ) -> str:
@@ -116,14 +132,14 @@ def get_current_jin_size_context(
             context
         )
 
-    payload = format_jin_size_payload(
+    payload = format_current_jin_size(
         size
     )
 
     if not payload:
         return ""
 
-    return f"current jin size : {payload}"
+    return payload
 
 
 def build_runtime_xml(

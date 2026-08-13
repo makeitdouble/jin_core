@@ -138,7 +138,7 @@ class MemoryCitationLayersClientContractTests(unittest.TestCase):
         self.assertIn("/static/css/runtime-memory.css?v=l4-report-link-1", source)
         self.assertIn("/static/css/theme-win95.css?v=l4-fact-report-link-1", source)
         self.assertIn("/static/js/runtime/runtime-memory-view.js?v=l4-report-link-1", source)
-        self.assertIn("/static/js/runtime/runtime-avatar.js?v=jin-size-3", source)
+        self.assertIn("/static/js/runtime/runtime-avatar.js?v=jin-size-4", source)
         self.assertIn("/static/js/think-citations.js?v=think-citations-6", source)
         self.assertIn("/static/js/chat.js?v=jin-size-1", source)
 

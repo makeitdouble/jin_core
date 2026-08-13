@@ -1241,24 +1241,18 @@
 
   function setMemoryDashGlowVariables(
     dashGroup,
-    glowColor,
+    _glowColor,
     hoverWidth,
     dotRadius
   ) {
-    const glowRgb = hexToRgb(glowColor);
-
-    dashGroup.style.setProperty(
+    [
       "--jin-avatar-memory-glow-near",
-      `rgba(${glowRgb.r},${glowRgb.g},${glowRgb.b},0.92)`
-    );
-    dashGroup.style.setProperty(
       "--jin-avatar-memory-glow-mid",
-      `rgba(${glowRgb.r},${glowRgb.g},${glowRgb.b},0.54)`
-    );
-    dashGroup.style.setProperty(
       "--jin-avatar-memory-glow-far",
-      `rgba(${glowRgb.r},${glowRgb.g},${glowRgb.b},0.24)`
-    );
+    ].forEach(propertyName => (
+      dashGroup.style.removeProperty(propertyName)
+    ));
+
     dashGroup.style.setProperty(
       "--jin-avatar-memory-hover-width",
       `${Number(hoverWidth || 2).toFixed(2)}px`
@@ -1902,40 +1896,6 @@
   function appendDefs(svg, overallColor, currentCenterColor) {
     const defs = createSvgElement("defs");
 
-    const softGlow = createSvgElement("filter", {
-      id: "jin-avatar-soft-glow",
-      x: "-80%",
-      y: "-80%",
-      width: "260%",
-      height: "260%",
-    });
-    softGlow.appendChild(createSvgElement("feGaussianBlur", {
-      stdDeviation: "2.8",
-      result: "blur",
-    }));
-    const softMerge = createSvgElement("feMerge");
-    softMerge.appendChild(createSvgElement("feMergeNode", { in: "blur" }));
-    softMerge.appendChild(createSvgElement("feMergeNode", { in: "SourceGraphic" }));
-    softGlow.appendChild(softMerge);
-    defs.appendChild(softGlow);
-
-    const strongGlow = createSvgElement("filter", {
-      id: "jin-avatar-strong-glow",
-      x: "-120%",
-      y: "-120%",
-      width: "340%",
-      height: "340%",
-    });
-    strongGlow.appendChild(createSvgElement("feGaussianBlur", {
-      stdDeviation: "7.5",
-      result: "blur",
-    }));
-    const strongMerge = createSvgElement("feMerge");
-    strongMerge.appendChild(createSvgElement("feMergeNode", { in: "blur" }));
-    strongMerge.appendChild(createSvgElement("feMergeNode", { in: "SourceGraphic" }));
-    strongGlow.appendChild(strongMerge);
-    defs.appendChild(strongGlow);
-
     const halo = createSvgElement("radialGradient", {
       id: "jin-avatar-halo",
       cx: "50%",
@@ -2057,12 +2017,41 @@
     }));
   }
 
-  function appendLongFieldStripes(group, record, color) {
+  function appendLongFieldStripes(group, record, color, options = {}) {
     const random = record.random;
-    const stripeCount = Math.round(12 + random() * 24);
+    const diffRatio =
+      clamp(Number(options.diffPercent || 0) / 100, 0, 1);
+    const effectiveSpeed =
+      Math.max(0, Number(options.effectiveSpeed || 0));
+    const speedRatio =
+      clamp(effectiveSpeed / 48, 0, 1);
+    const energy =
+      clamp(diffRatio * 0.72 + speedRatio * 0.28, 0, 1);
+    const stripeCount = Math.round(10 + random() * 18);
     const startAngle = random() * 360;
     const arcSpan = 24 + random() * 48;
     const stripeHeight = 5 + random() * 9;
+    const activeStripeCount = energy > 0.32 ? 2 : 1;
+    const activeStripeIndexes = new Set();
+    const orbitDuration =
+      Number(options.duration || 0);
+    const baseStripeDuration =
+      Number.isFinite(orbitDuration)
+      && orbitDuration > 0
+      && orbitDuration < 999
+        ? clamp(orbitDuration * 0.55 + 14, 18, 64)
+        : 54;
+    const stripePlayState =
+      energy > 0.02 ? "running" : "paused";
+
+    while (
+      activeStripeIndexes.size < activeStripeCount
+      && activeStripeIndexes.size < stripeCount
+    ) {
+      activeStripeIndexes.add(
+        Math.floor(random() * stripeCount)
+      );
+    }
 
     for (let index = 0; index < stripeCount; index += 1) {
       const ratio = stripeCount <= 1 ? 0 : index / (stripeCount - 1);
@@ -2074,16 +2063,47 @@
       );
       const inner = polarPoint(innerRadius, angle);
       const outer = polarPoint(outerRadius, angle);
+      const activeStripe =
+        activeStripeIndexes.has(index);
+      const ghostOpacity =
+        0.008 + Math.pow(random(), 2.8) * 0.055;
+      const baseOpacity =
+        activeStripe
+          ? 0.055 + energy * 0.035 + random() * 0.025
+          : ghostOpacity;
+      const peakOpacity =
+        activeStripe
+          ? baseOpacity + 0.10 + energy * 0.13 + random() * 0.035
+          : baseOpacity;
+      const durationSeconds =
+        baseStripeDuration + random() * 14;
+      const mutedStripeColor =
+        mixColors(
+          mixColors(centerColor, color, 0.38 + random() * 0.18),
+          "#091114",
+          0.18
+        );
 
       group.appendChild(createSvgElement("line", {
+        class: [
+          "jin-avatar-field-stripe",
+          activeStripe ? "is-jin-avatar-stripe-breathing" : "",
+        ].filter(Boolean).join(" "),
         x1: inner.x,
         y1: inner.y,
         x2: outer.x,
         y2: outer.y,
-        stroke: color,
-        "stroke-width": 0.75 + random() * 0.8,
-        "stroke-opacity": 0.52 + random() * 0.34,
+        stroke: mutedStripeColor,
+        "stroke-width": 0.45 + random() * 0.65,
+        "stroke-opacity": "1",
         "stroke-linecap": "round",
+        style: [
+          `--jin-avatar-stripe-base-opacity:${baseOpacity.toFixed(3)}`,
+          `--jin-avatar-stripe-peak-opacity:${Math.min(0.32, peakOpacity).toFixed(3)}`,
+          `--jin-avatar-stripe-duration:${durationSeconds.toFixed(2)}s`,
+          `--jin-avatar-stripe-delay:${(-random() * durationSeconds).toFixed(2)}s`,
+          `--jin-avatar-stripe-play-state:${stripePlayState}`,
+        ].join(";"),
       }));
     }
   }
@@ -2178,7 +2198,6 @@
       );
     }
 
-    const ringRgb = hexToRgb(ringColor);
     const baseSpeed = 11 + random() * 36;
     const effectiveSpeed = baseSpeed * (diffPercent / 100);
     const duration = effectiveSpeed > 0.05 ? 360 / effectiveSpeed : 9999;
@@ -2189,12 +2208,6 @@
         `--jin-avatar-duration:${duration.toFixed(2)}s`,
         `--jin-avatar-direction:${direction}`,
         `--jin-avatar-play-state:${effectiveSpeed > 0.05 ? "running" : "paused"}`,
-        `--jin-avatar-cited-glow-near:rgba(${ringRgb.r},${ringRgb.g},${ringRgb.b},0.88)`,
-        `--jin-avatar-cited-glow-mid:rgba(${ringRgb.r},${ringRgb.g},${ringRgb.b},0.54)`,
-        `--jin-avatar-cited-glow-far:rgba(${ringRgb.r},${ringRgb.g},${ringRgb.b},0.24)`,
-        `--jin-avatar-runtime-glow-near:rgba(${ringRgb.r},${ringRgb.g},${ringRgb.b},1)`,
-        `--jin-avatar-runtime-glow-mid:rgba(${ringRgb.r},${ringRgb.g},${ringRgb.b},0.81)`,
-        `--jin-avatar-runtime-glow-far:rgba(${ringRgb.r},${ringRgb.g},${ringRgb.b},0.36)`,
       ].join(";"),
     });
 
@@ -2263,7 +2276,16 @@
     }
 
     if (record.isLong) {
-      appendLongFieldStripes(orbitGroup, record, ringColor);
+      appendLongFieldStripes(
+        orbitGroup,
+        record,
+        ringColor,
+        {
+          diffPercent,
+          duration,
+          effectiveSpeed,
+        }
+      );
     }
 
     appendRuntimeChangeMarker(

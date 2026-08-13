@@ -529,12 +529,12 @@ class ContextContract:
             )
 
         if self.jin_color:
-            fields["JIN_COLOR"] = self.jin_color
+            fields["CURRENT_JIN_COLOR"] = self.jin_color
 
         if self.jin_size_context:
             fields["CURRENT_JIN_SIZE"] = self.jin_size_context
 
-        fields["USER_DATETIME"] = format_user_datetime(
+        fields["CURRENT_USER_DATETIME"] = format_user_datetime(
             self.current_date,
             self.current_time,
             self.weekday,

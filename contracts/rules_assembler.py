@@ -462,6 +462,23 @@ def _context_has_active_memory(context=None) -> bool:
     )
 
 
+def _context_disables_jin_size(context=None) -> bool:
+    return (
+        context is not None
+        and hasattr(
+            context,
+            "runtime_avatar_panel_collapsed",
+        )
+        and not bool(
+            getattr(
+                context,
+                "runtime_avatar_panel_collapsed",
+                False,
+            )
+        )
+    )
+
+
 def build_allowed_markers(
     enabled_actions: tuple[str, ...],
     context=None,
@@ -469,6 +486,14 @@ def build_allowed_markers(
     markers: list[str] = []
     for action in enabled_actions:
         action_name = _normalize_action_name(action)
+
+        if (
+            action_name == "JIN_SIZE"
+            and _context_disables_jin_size(
+                context
+            )
+        ):
+            continue
 
         marker = get_runtime_action_private_marker(action_name)
         if marker:
@@ -500,6 +525,14 @@ def build_runtime_action_instructions(
 
     for action_name in enabled_actions:
         normalized_name = _normalize_action_name(action_name)
+
+        if (
+            normalized_name == "JIN_SIZE"
+            and _context_disables_jin_size(
+                context
+            )
+        ):
+            continue
 
         if normalized_name == "RESOLVE_ACTIVE_MEMORY" and not _context_has_active_memory(context):
             continue

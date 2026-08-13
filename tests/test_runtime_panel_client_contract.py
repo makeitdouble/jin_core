@@ -93,15 +93,15 @@ class RuntimePanelClientContractTests(unittest.TestCase):
             "pendingJinSizeResult.animated !== true",
             logger_source,
         )
-        self.assertIn(
+        self.assertNotIn(
             "function repaintRuntimeAvatarAfterResize()",
             logger_source,
         )
-        self.assertIn(
+        self.assertNotIn(
             "typeof avatar.repaint === \"function\"",
             logger_source,
         )
-        self.assertIn(
+        self.assertNotIn(
             "repaintRuntimeAvatarAfterResize();",
             logger_source,
         )
@@ -115,6 +115,22 @@ class RuntimePanelClientContractTests(unittest.TestCase):
         )
         self.assertIn(
             "#memory-panel.panel-avatar-size-changing #memory-drag-handle",
+            css_source,
+        )
+        self.assertNotIn(
+            "memoryGlowPulse",
+            css_source,
+        )
+        self.assertNotIn(
+            "memoryL2GlowPulse",
+            css_source,
+        )
+        self.assertNotIn(
+            "memoryL3GlowPulse",
+            css_source,
+        )
+        self.assertNotIn(
+            "factCheckGlowPulse",
             css_source,
         )
 

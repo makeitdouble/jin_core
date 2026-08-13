@@ -1695,32 +1695,6 @@ const consolePanel = document.getElementById("console-panel");
         );
     }
 
-    function repaintRuntimeAvatarAfterResize() {
-        const avatar =
-            window.JinRuntime
-            && window.JinRuntime.avatar;
-
-        const repaint =
-            avatar
-            && (
-                typeof avatar.repaint === "function"
-                    ? avatar.repaint
-                    : avatar.refresh
-            );
-
-        if (typeof repaint !== "function") {
-            return;
-        }
-
-        window.requestAnimationFrame(() => {
-            window.requestAnimationFrame(() => {
-                repaint.call(
-                    avatar
-                );
-            });
-        });
-    }
-
     function animateCollapsedAvatarSize(panel, width, height) {
         const resolved =
             resolveCollapsedAvatarSizeTargetGeometry(
@@ -1762,8 +1736,6 @@ const consolePanel = document.getElementById("console-panel");
                 panel,
                 targetGeometry
             );
-
-            repaintRuntimeAvatarAfterResize();
 
             return {
                 animated: false,
@@ -1846,8 +1818,6 @@ const consolePanel = document.getElementById("console-panel");
             panel.classList.remove(
                 "panel-avatar-size-changing"
             );
-
-            repaintRuntimeAvatarAfterResize();
         };
 
         collapsedAvatarSizeFrameId =
@@ -2612,8 +2582,6 @@ const consolePanel = document.getElementById("console-panel");
 
             document.body.style.userSelect =
                 "";
-
-            repaintRuntimeAvatarAfterResize();
         }
 
         function handleResizeMove(event) {

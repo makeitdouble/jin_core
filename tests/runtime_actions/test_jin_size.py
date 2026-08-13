@@ -3,7 +3,10 @@ import unittest
 from types import SimpleNamespace
 
 from clients.brain_client import apply_runtime_action_calls
-from contracts.rules_assembler import RUNTIME_ACTION_JIN_SIZE
+from contracts.rules_assembler import (
+    RUNTIME_ACTION_JIN_SIZE,
+    build_runtime_action_instructions,
+)
 from tests.helpers.runtime_actions import FakeEmitter, RuntimeActionTestCase
 from utils.actions import (
     RuntimeActionCall,
@@ -151,12 +154,22 @@ class RuntimeJinSizeActionTests(RuntimeActionTestCase):
         )
 
         self.assertIn(
-            "<CURRENT_JIN_SIZE>current jin size : w:220px h:440px</CURRENT_JIN_SIZE>",
+            "<CURRENT_JIN_SIZE>width: 220px height: 440px</CURRENT_JIN_SIZE>",
             build_runtime_xml(
                 context,
                 runtime_actions={
                     "CAN_JIN_SIZE": True,
                 },
+            ),
+        )
+
+        self.assertIn(
+            "<JIN_SIZE: 120px 120px >",
+            build_runtime_action_instructions(
+                (
+                    RUNTIME_ACTION_JIN_SIZE,
+                ),
+                context,
             ),
         )
 
@@ -169,6 +182,15 @@ class RuntimeJinSizeActionTests(RuntimeActionTestCase):
                 runtime_actions={
                     "CAN_JIN_SIZE": True,
                 },
+            ),
+        )
+        self.assertNotIn(
+            "<JIN_SIZE:",
+            build_runtime_action_instructions(
+                (
+                    RUNTIME_ACTION_JIN_SIZE,
+                ),
+                context,
             ),
         )
 

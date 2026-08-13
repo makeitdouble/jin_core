@@ -118,7 +118,7 @@ WHAT_TO_PRESERVE = (
 # или «недавно». Временные предпочтения кодируются с явной датой истечения.
 # -----------------------------------------------------------------------------
 TIME_NORMALIZATION = (
-    "Treat CURRENT_TRUSTED_RUNTIME_VARIABLES USER_DATETIME as the source of truth for current time.\n"
+    "Treat CURRENT_TRUSTED_RUNTIME_VARIABLES CURRENT_USER_DATETIME as the source of truth for current time.\n"
     "Convert relative temporal phrases from L1 snapshots into absolute or "
     "session-relative phrases before preserving them.\n"
     "Session handoff memory must not contain ambiguous standalone words like "

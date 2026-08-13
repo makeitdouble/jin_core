@@ -3134,7 +3134,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
-            f"<JIN_COLOR>{DEFAULT_JIN_COLOR}</JIN_COLOR>",
+            f"<CURRENT_JIN_COLOR>{DEFAULT_JIN_COLOR}</CURRENT_JIN_COLOR>",
             runtime_xml,
         )
 
@@ -3160,7 +3160,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "<JIN_COLOR>#ff00aa</JIN_COLOR>",
+            "<CURRENT_JIN_COLOR>#ff00aa</CURRENT_JIN_COLOR>",
             runtime_xml,
         )
 
@@ -3914,7 +3914,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "<USER_DATETIME>",
+            "<CURRENT_USER_DATETIME>",
             prompt,
         )
 

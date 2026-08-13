@@ -1356,7 +1356,7 @@ class BrainPromptMemoryTests(
             )
             self.assertLess(
                 prompt.index(
-                    "<USER_DATETIME>"
+                    "<CURRENT_USER_DATETIME>"
                 ),
                 prompt.index(
                     "<CONVERSATION_ACTIVITY>"
