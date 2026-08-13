@@ -117,6 +117,23 @@
     text-align: right;
 }
 
+.runtime-memory-l4-row .runtime-memory-fact-report-link {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    color: rgba(244, 244, 245, 0.96);
+    cursor: pointer;
+    font: inherit;
+    padding: 0;
+    text-decoration: none;
+}
+
+.runtime-memory-l4-row .runtime-memory-fact-report-link:hover,
+.runtime-memory-l4-row .runtime-memory-fact-report-link:focus-visible {
+    color: rgba(191, 219, 254, 0.95);
+    outline: none;
+}
+
 .runtime-memory-l4-row .runtime-memory-fact-separator {
     display: inline-block;
     width: 1.4em;

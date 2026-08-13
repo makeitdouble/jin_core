@@ -1061,6 +1061,43 @@
 
     return factIds;
   }
+
+  function reportReferencesLongTermFactId(report, factId) {
+    const normalizedFactId =
+        normalizeDelayedMemoryFactId(factId);
+
+    if (
+        !normalizedFactId
+        || !report
+        || typeof report !== "object"
+        || Array.isArray(report)
+    ) {
+      return false;
+    }
+
+    return normalizeDelayedMemoryFactIds([
+      report.anchor_fact_ids,
+      report.facts_ids,
+      report.absorbed_fact_ids,
+      report.long_term_facts_ids,
+    ]).includes(normalizedFactId);
+  }
+
+  function getDelayedMemoryReportForLongTermFactId(factId) {
+    const normalizedFactId =
+        normalizeDelayedMemoryFactId(factId);
+
+    if (!normalizedFactId) {
+      return null;
+    }
+
+    return getDelayedMemoryReportRecords()
+      .find(report => reportReferencesLongTermFactId(
+        report,
+        normalizedFactId
+      )) || null;
+  }
+
   function setActiveMemoryRecordTexts(records) {
     if (typeof setActiveMemoryRecords === "function") {
       setActiveMemoryRecords(
@@ -2419,8 +2456,12 @@
               : null;
 
         if (factNumber !== null) {
+          const linkedDelayedMemoryReport =
+              line && line.linked_delayed_memory_report;
           const numberSpan =
-              document.createElement("span");
+              linkedDelayedMemoryReport
+                ? document.createElement("button")
+                : document.createElement("span");
           const separatorSpan =
               document.createElement("span");
 
@@ -2428,6 +2469,37 @@
               "runtime-memory-fact-number";
           numberSpan.textContent =
               String(factNumber);
+
+          if (linkedDelayedMemoryReport) {
+            const reportTitle =
+                String(
+                    linkedDelayedMemoryReport.title
+                    || linkedDelayedMemoryReport.summary
+                    || linkedDelayedMemoryReport.id
+                    || linkedDelayedMemoryReport._storage_key
+                    || ""
+                ).trim();
+
+            numberSpan.type =
+                "button";
+            numberSpan.classList.add(
+                "runtime-memory-fact-report-link"
+            );
+            numberSpan.title =
+                reportTitle
+                  ? `Open delayed memory report: ${reportTitle}`
+                  : "Open delayed memory report";
+            numberSpan.addEventListener("pointerdown", (event) => {
+              event.stopPropagation();
+            });
+            numberSpan.addEventListener("click", (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              openDelayedMemoryReportModal(
+                  linkedDelayedMemoryReport
+              );
+            });
+          }
 
           separatorSpan.className =
               "runtime-memory-fact-separator";
@@ -5062,6 +5134,8 @@
       String(fact.key || "").trim();
     const value =
       String(fact.value || "").trim();
+    const linkedDelayedMemoryReport =
+        getDelayedMemoryReportForLongTermFactId(id);
 
     return {
       id,
@@ -5087,6 +5161,8 @@
         contextLoadedFactIds.has(
           normalizeDelayedMemoryFactId(id)
         ),
+      linked_delayed_memory_report:
+        linkedDelayedMemoryReport,
       status: "same",
       key_status: "same",
       value_status: "same",

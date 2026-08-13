@@ -820,7 +820,6 @@
 
   function computeRingRecords(lines, snapshotSeed, changeMarkers = new Map()) {
     const lengths = lines.map(line => line.length);
-    const minLength = Math.min(...lengths);
     const maxLength = Math.max(...lengths);
     const averageLength = lengths.reduce((sum, value) => sum + value, 0) / lengths.length;
     const variance = lengths.reduce(
@@ -828,14 +827,16 @@
       0
     ) / lengths.length;
     const deviation = Math.sqrt(variance);
-    const lengthRange = Math.max(1, maxLength - minLength);
+    const radiusRange = MAX_RING_RADIUS - MIN_RING_RADIUS;
 
     const records = lines.map((line, index) => {
       const random = createRandom(`${snapshotSeed}:${line.key}:${line.value}:${index}`);
-      const normalizedLength = (line.length - minLength) / lengthRange;
+      const sourceOrderRatio =
+        lines.length <= 1
+          ? 0.5
+          : 1 - index / (lines.length - 1);
       const radius = MIN_RING_RADIUS
-        + normalizedLength * (MAX_RING_RADIUS - MIN_RING_RADIUS)
-        + (random() - 0.5) * 2.6;
+        + sourceOrderRatio * radiusRange;
 
       return {
         ...line,
@@ -850,7 +851,7 @@
       };
     });
 
-    records.sort((first, second) => first.radius - second.radius);
+    records.sort((first, second) => first.index - second.index);
 
     records.forEach((record, index) => {
       if (index === 0) {
@@ -858,10 +859,10 @@
       }
 
       const previous = records[index - 1];
-      const minimumRadius = previous.radius + Math.max(1.7, 4.4 - records.length * 0.08);
+      const maximumRadius = previous.radius - Math.max(1.7, 4.4 - records.length * 0.08);
 
-      if (record.radius < minimumRadius) {
-        record.radius = Math.min(MAX_RING_RADIUS, minimumRadius);
+      if (record.radius > maximumRadius) {
+        record.radius = Math.max(MIN_RING_RADIUS, maximumRadius);
       }
     });
 
@@ -2191,8 +2192,16 @@
         `--jin-avatar-cited-glow-near:rgba(${ringRgb.r},${ringRgb.g},${ringRgb.b},0.88)`,
         `--jin-avatar-cited-glow-mid:rgba(${ringRgb.r},${ringRgb.g},${ringRgb.b},0.54)`,
         `--jin-avatar-cited-glow-far:rgba(${ringRgb.r},${ringRgb.g},${ringRgb.b},0.24)`,
+        `--jin-avatar-runtime-glow-near:rgba(${ringRgb.r},${ringRgb.g},${ringRgb.b},1)`,
+        `--jin-avatar-runtime-glow-mid:rgba(${ringRgb.r},${ringRgb.g},${ringRgb.b},0.81)`,
+        `--jin-avatar-runtime-glow-far:rgba(${ringRgb.r},${ringRgb.g},${ringRgb.b},0.36)`,
       ].join(";"),
     });
+
+    if (record.changeMarker) {
+      orbitGroup.classList.add("has-runtime-change-marker");
+    }
+
     const shouldAnimate = Boolean(options.animate);
     const entryGroup = createSvgElement("g", shouldAnimate ? {
       class: "jin-avatar-orbit-entry",
@@ -2471,6 +2480,7 @@
         )
       );
     });
+
   }
 
   function applyMemoryRowAvatarHoverGlow() {
@@ -2627,6 +2637,7 @@
         Boolean(cited)
       );
     });
+
   }
 
   function getActiveMemoryReferenceText() {
@@ -2688,6 +2699,7 @@
           matched
         );
       });
+
   }
 
   function handleMemoryReferenceHighlight(event) {

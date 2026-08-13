@@ -74,6 +74,9 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
         self.assertIn("function getMemoryDotRadius(layout)", source)
         self.assertIn("options.arcDegrees,\n        0.8,", source)
         self.assertIn("degreesFromArcPixels(\n        layout.arcTrimPixels,", source)
+        self.assertNotIn("MEMORY_DASH_LENS_", source)
+        self.assertNotIn("syncMemoryDashEmphasisGeometry", source)
+        self.assertNotIn("requestAnimationFrame", source)
 
         css_source = AVATAR_CSS.read_text(encoding="utf-8")
         self.assertIn(".jin-avatar-memory-dash-l4", css_source)
@@ -94,6 +97,53 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
 
         self.assertLess(delayed_index, l4_index)
         self.assertLess(l4_index, active_index)
+
+    def test_runtime_orbit_radii_follow_snapshot_line_order(self):
+        source = AVATAR_JS.read_text(encoding="utf-8")
+
+        self.assertIn("const sourceOrderRatio =", source)
+        self.assertIn(": 1 - index / (lines.length - 1);", source)
+        self.assertIn(
+            "records.sort((first, second) => first.index - second.index);",
+            source,
+        )
+        self.assertIn("const maximumRadius = previous.radius -", source)
+        self.assertNotIn(
+            "records.sort((first, second) => first.radius - second.radius);",
+            source,
+        )
+
+    def test_runtime_orbit_highlight_uses_current_ring_color(self):
+        source = AVATAR_JS.read_text(encoding="utf-8")
+        css_source = AVATAR_CSS.read_text(encoding="utf-8")
+
+        self.assertIn("--jin-avatar-runtime-glow-near", source)
+        self.assertIn("--jin-avatar-runtime-glow-mid", source)
+        self.assertIn("--jin-avatar-runtime-glow-far", source)
+        self.assertIn('orbitGroup.classList.add("has-runtime-change-marker")', source)
+        self.assertIn(".jin-avatar-orbit.is-memory-hover-hit", css_source)
+        self.assertIn("brightness(1.5)", css_source)
+        self.assertIn(
+            "var(--jin-avatar-runtime-glow-near, var(--jin-avatar-cited-glow-near",
+            css_source,
+        )
+        self.assertIn(
+            ".jin-avatar-memory-dash.is-memory-hover-hit {\n    filter:",
+            css_source,
+        )
+
+    def test_inactive_runtime_orbit_opacity_skips_nested_dots(self):
+        css_source = AVATAR_CSS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            ".jin-avatar-orbit:not(.has-runtime-change-marker):not(.is-runtime-cited):not(.is-memory-reference-hit):not(.is-memory-hover-hit) > circle[fill=\"none\"]",
+            css_source,
+        )
+        self.assertIn("opacity: 0.5;", css_source)
+        self.assertNotIn(
+            ".jin-avatar-orbit:not(.is-runtime-cited):not(.is-memory-reference-hit):not(.is-memory-hover-hit) circle[fill]:not([fill=\"none\"])",
+            css_source,
+        )
 
     def test_memory_ring_changes_can_sync_without_avatar_refresh(self):
         source = RUNTIME_JS.read_text(encoding="utf-8")
@@ -202,11 +252,11 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            "/static/css/runtime-avatar.css?v=collapsed-avatar-resize-1",
+            "/static/css/runtime-avatar.css?v=runtime-ring-opacity-4",
             source,
         )
         self.assertIn(
-            "/static/js/runtime/runtime-avatar.js?v=memory-ring-sizing-4",
+            "/static/js/runtime/runtime-avatar.js?v=runtime-avatar-lite-2",
             source,
         )
         self.assertIn(

@@ -173,16 +173,25 @@
         opacity 0.38s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
+.jin-avatar-orbit:not(.has-runtime-change-marker):not(.is-runtime-cited):not(.is-memory-reference-hit):not(.is-memory-hover-hit) > circle[fill="none"],
+.jin-avatar-counter-orbit:not(.has-runtime-change-marker):not(.is-runtime-cited):not(.is-memory-reference-hit):not(.is-memory-hover-hit) > circle[fill="none"],
+.jin-avatar-orbit:not(.has-runtime-change-marker):not(.is-runtime-cited):not(.is-memory-reference-hit):not(.is-memory-hover-hit) > line,
+.jin-avatar-counter-orbit:not(.has-runtime-change-marker):not(.is-runtime-cited):not(.is-memory-reference-hit):not(.is-memory-hover-hit) > line {
+    opacity: 0.5;
+}
+
 .jin-avatar-orbit.is-runtime-cited,
 .jin-avatar-counter-orbit.is-runtime-cited,
 .jin-avatar-orbit.is-memory-reference-hit,
-.jin-avatar-counter-orbit.is-memory-reference-hit {
+.jin-avatar-counter-orbit.is-memory-reference-hit,
+.jin-avatar-orbit.is-memory-hover-hit,
+.jin-avatar-counter-orbit.is-memory-hover-hit {
     filter:
-        brightness(1.48)
+        brightness(1.5)
         saturate(1.72)
-        drop-shadow(0 0 5px var(--jin-avatar-cited-glow-near, rgba(190, 252, 255, 0.88)))
-        drop-shadow(0 0 15px var(--jin-avatar-cited-glow-mid, rgba(52, 211, 222, 0.54)))
-        drop-shadow(0 0 28px var(--jin-avatar-cited-glow-far, rgba(34, 211, 238, 0.24)));
+        drop-shadow(0 0 5px var(--jin-avatar-runtime-glow-near, var(--jin-avatar-cited-glow-near, rgba(190, 252, 255, 0.88))))
+        drop-shadow(0 0 15px var(--jin-avatar-runtime-glow-mid, var(--jin-avatar-cited-glow-mid, rgba(52, 211, 222, 0.54))))
+        drop-shadow(0 0 28px var(--jin-avatar-runtime-glow-far, var(--jin-avatar-cited-glow-far, rgba(34, 211, 238, 0.24))));
 }
 
 .jin-avatar-orbit.is-runtime-cited circle,
@@ -192,7 +201,11 @@
 .jin-avatar-orbit.is-memory-reference-hit circle,
 .jin-avatar-orbit.is-memory-reference-hit line,
 .jin-avatar-counter-orbit.is-memory-reference-hit circle,
-.jin-avatar-counter-orbit.is-memory-reference-hit line {
+.jin-avatar-counter-orbit.is-memory-reference-hit line,
+.jin-avatar-orbit.is-memory-hover-hit circle,
+.jin-avatar-orbit.is-memory-hover-hit line,
+.jin-avatar-counter-orbit.is-memory-hover-hit circle,
+.jin-avatar-counter-orbit.is-memory-hover-hit line {
     opacity: 1;
     stroke-opacity: 0.96 !important;
 }
@@ -200,7 +213,9 @@
 .jin-avatar-orbit.is-runtime-cited circle[fill]:not([fill="none"]),
 .jin-avatar-counter-orbit.is-runtime-cited circle[fill]:not([fill="none"]),
 .jin-avatar-orbit.is-memory-reference-hit circle[fill]:not([fill="none"]),
-.jin-avatar-counter-orbit.is-memory-reference-hit circle[fill]:not([fill="none"]) {
+.jin-avatar-counter-orbit.is-memory-reference-hit circle[fill]:not([fill="none"]),
+.jin-avatar-orbit.is-memory-hover-hit circle[fill]:not([fill="none"]),
+.jin-avatar-counter-orbit.is-memory-hover-hit circle[fill]:not([fill="none"]) {
     fill-opacity: 1 !important;
 }
 
@@ -322,8 +337,6 @@
     r: var(--jin-avatar-memory-hover-dot-radius, 2.45px);
 }
 
-.jin-avatar-orbit.is-memory-hover-hit,
-.jin-avatar-counter-orbit.is-memory-hover-hit,
 .jin-avatar-memory-dash.is-memory-hover-hit {
     filter:
         brightness(1.95)

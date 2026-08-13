@@ -375,6 +375,51 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
             source,
         )
 
+    def test_l4_fact_id_opens_linked_delayed_report_only_when_available(self):
+        source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
+        css_source = RUNTIME_MEMORY_CSS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "function getDelayedMemoryReportForLongTermFactId(factId)",
+            source,
+        )
+        self.assertIn(
+            "function reportReferencesLongTermFactId(report, factId)",
+            source,
+        )
+        self.assertIn(
+            "linked_delayed_memory_report:",
+            source,
+        )
+        self.assertIn(
+            'document.createElement("button")',
+            source,
+        )
+        self.assertIn(
+            '"runtime-memory-fact-report-link"',
+            source,
+        )
+        self.assertIn(
+            "Open delayed memory report:",
+            source,
+        )
+        self.assertIn(
+            'numberSpan.addEventListener("pointerdown"',
+            source,
+        )
+        self.assertIn(
+            "event.stopPropagation();",
+            source,
+        )
+        self.assertIn(
+            "openDelayedMemoryReportModal(\n                  linkedDelayedMemoryReport",
+            source,
+        )
+        self.assertIn(
+            "color: rgba(244, 244, 245, 0.96);",
+            css_source,
+        )
+
     def test_delayed_memory_fact_ids_render_inline_with_fact_titles(self):
         source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
         runtime_source = RUNTIME_JS.read_text(encoding="utf-8")
@@ -752,11 +797,11 @@ if (!userMessagePresentation.raw.includes("[ repeated: 3 ]")) {
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            '/static/css/runtime-memory.css?v=memory-row-sort-transition-1',
+            '/static/css/runtime-memory.css?v=l4-report-link-1',
             source,
         )
         self.assertIn(
-            '/static/js/runtime/runtime-memory-view.js?v=memory-row-sort-transition-1',
+            '/static/js/runtime/runtime-memory-view.js?v=l4-report-link-1',
             source,
         )
         self.assertIn(
