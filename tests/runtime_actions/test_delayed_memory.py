@@ -97,7 +97,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             (
                 "title: Radius of Influence Specs\n"
                 "summary: Three-zone data priority model for Kowloon Sandbox simulation.\n"
-                "tags: kowloon_sandbox, simulation, world_state, radius_of_influence\n"
+                "tags: kowloon_sandbox, simulation, world_state, radius_of_influence, Kowloon, radius of influence\n"
                 "body:\n"
                 "### Radius of Influence Specs\n"
                 "\n"
@@ -130,6 +130,8 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                     "simulation",
                     "world_state",
                     "radius_of_influence",
+                    "Kowloon",
+                    "radius of influence",
                 ],
                 "body": (
                     "### Radius of Influence Specs\n\n"

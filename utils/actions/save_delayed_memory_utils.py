@@ -186,6 +186,55 @@ def collect_anchor_fact_report_ids(
     return report_ids_by_fact
 
 
+def normalize_delayed_memory_tags(value) -> list[str]:
+
+    source = value if isinstance(value, list) else [value]
+    candidates = []
+
+    for item in source:
+        if isinstance(item, list):
+            candidates.extend(
+                normalize_delayed_memory_tags(item)
+            )
+            continue
+
+        text = str(item or "").strip()
+
+        if text.startswith("[") and text.endswith("]"):
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                parsed = None
+
+            if isinstance(parsed, list):
+                candidates.extend(
+                    normalize_delayed_memory_tags(parsed)
+                )
+                continue
+
+        candidates.extend(
+            part.strip()
+            for part in text.split(",")
+        )
+
+    tags = []
+    seen = set()
+
+    for candidate in candidates:
+        tag = str(candidate or "").strip().strip(
+            "\"'"
+        )
+        identity = tag.casefold()
+
+        if not tag or identity in seen:
+            continue
+
+        seen.add(identity)
+        tags.append(tag)
+
+    return tags
+
+
 def parse_delayed_memory_content_payload(
     payload: str,
     *,
@@ -279,17 +328,12 @@ def parse_delayed_memory_content_payload(
     if not title:
         return {}
 
-    tags = [
-        tag.strip()
-        for tag in str(
-            fields.get(
-                "tags",
-                "",
-            )
-            or ""
-        ).split(",")
-        if tag.strip()
-    ]
+    tags = normalize_delayed_memory_tags(
+        fields.get(
+            "tags",
+            [],
+        )
+    )
 
     anchor_fact_ids, fact_ids = normalize_delayed_memory_fact_ids(
         fields.get("anchor_fact_ids", []),

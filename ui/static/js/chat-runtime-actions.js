@@ -133,6 +133,11 @@ const runtimeActionIconDefinitions = {
     tone: "memory",
     svg: '<path d="M5 5h14v14H5z"></path><path d="M8 8h8"></path><path d="M12 8v8"></path><path d="m9 13 3 3 3-3"></path>',
   },
+  append_delayed_memory: {
+    title: "append delayed memory",
+    tone: "memory",
+    svg: '<path d="M5 5h14v14H5z"></path><path d="M8 8h8"></path><path d="M12 8v8"></path><path d="m9 13 3 3 3-3"></path>',
+  },
   unload_delayed_memory: {
     title: "unload delayed memory",
     tone: "delete",
@@ -2053,6 +2058,7 @@ function updateRuntimeActionRow(
     [
       "save_delayed_memory_content",
       "load_delayed_memory",
+      "append_delayed_memory",
     ].includes(action)
   ) {
     if (
@@ -2708,6 +2714,7 @@ function appendRuntimeAction(
     [
       "save_delayed_memory_content",
       "load_delayed_memory",
+      "append_delayed_memory",
     ].includes(action)
   ) {
     if (

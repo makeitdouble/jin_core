@@ -1,6 +1,6 @@
 {
   "save_delayed_memory": {
-    "version": 2,
+    "version": 3,
     "description": "Allows the model to save a delayed memory report.",
     "runtime_action": "SAVE_DELAYED_MEMORY_CONTENT",
     "private_marker": "<SAVE_DELAYED_MEMORY_CONTENT>",
@@ -27,6 +27,10 @@
       "facts_ids:",
       "</SAVE_DELAYED_MEMORY_CONTENT>",
       "You must fulfill title, summary, tags, and body so the report is valid for runtime processing.",
+      "tags are the report's only retrieval/indexing tag list. Every tag can trigger this delayed memory when the USER literally uses the same word or phrase in a future message.",
+      "Write both ordinary stable semantic/indexing tags (topic, project, architecture area, etc.) and personal lexical retrieval hooks into tags. Keep tags concise and comma-separated.",
+      "For lexical hooks, prefer words or short phrases the USER actually used when referring to this subject: memorable wording, nicknames, analogies, unusual terms, project shorthand, names, or repeated phrases. Avoid broad/common words that would pull this report into unrelated conversations.",
+      "Store multiple surface forms only when the user actually used those forms. Runtime matching is case-insensitive but lexical: a tag should be expected to occur as the same word or phrase in a future user message.",
       "When the report consolidates facts from <LONG_TERM_MEMORY>, list every referenced F<number> id in facts_ids.",
       "anchor_fact_ids are the most important/key facts among facts_ids. Choose from 1 to 3 anchor facts. They remain directly visible in <LONG_TERM_MEMORY>; while the report exists they receive a [ delayed_memory_id: ... ] suffix.",
       "facts_ids is the full set of L4 facts attached to the report, including every anchor_fact_ids entry. Non-anchor facts_ids are represented by the report and are hidden from <LONG_TERM_MEMORY> while the report exists.",

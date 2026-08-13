@@ -1153,7 +1153,10 @@ function handleRuntimeAction(
   }
 
   if (
-    action === "load_delayed_memory"
+    (
+      action === "load_delayed_memory"
+      || action === "append_delayed_memory"
+    )
     && data.delayed_memory_result
     && data.delayed_memory_result.report
     && data.delayed_memory_result.id
@@ -1179,7 +1182,10 @@ function handleRuntimeAction(
     && typeof window.JinRuntime.runtime.markDelayedMemoryReportLoaded
       === "function"
   ) {
-    if (action === "load_delayed_memory") {
+    if (
+      action === "load_delayed_memory"
+      || action === "append_delayed_memory"
+    ) {
       window.JinRuntime.runtime.markDelayedMemoryReportLoaded(
         delayedMemoryPreview.reportId,
         true

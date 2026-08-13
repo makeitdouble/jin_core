@@ -102,12 +102,12 @@ for (const [input, expected] of cases) {
         )
 
         self.assertIn(
-            '/static/js/chat-runtime-actions.js?v=runtime-action-icons-2',
+            '/static/js/chat-runtime-actions.js?v=runtime-action-icons-3',
             source,
         )
 
         self.assertIn(
-            '/static/js/socket/runtime-actions.js?v=deep-search-bubbles-1',
+            '/static/js/socket/runtime-actions.js?v=delayed-tag-trigger-1',
             source,
         )
         self.assertIn(
@@ -124,6 +124,7 @@ for (const [input, expected] of cases) {
             "web_search",
             "deep_web_search",
             "save_delayed_memory_content",
+            "append_delayed_memory",
             "save_active_memory",
             "resolve_active_memory",
             "unload_delayed_memory",
