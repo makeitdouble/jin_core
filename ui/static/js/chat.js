@@ -2,6 +2,10 @@ const chatHistory =
   document.getElementById(
     "chat-history"
   );
+const chatInputShell =
+  document.getElementById(
+    "chat-input-shell"
+  );
 
 const streamMessages =
   new Map();
@@ -357,12 +361,51 @@ function getChatHistoryTopGap() {
 
 }
 
+function getChatInputOverlaySpace() {
+
+  if (!chatInputShell) {
+    return 0;
+  }
+
+  return Math.ceil(
+    chatInputShell.getBoundingClientRect().height
+    || 0
+  );
+
+}
+
+
+function updateChatInputOverlaySpace() {
+
+  if (!chatHistory) {
+    return;
+  }
+
+  const overlaySpace =
+    getChatInputOverlaySpace();
+
+  if (!overlaySpace) {
+    chatHistory.style.removeProperty(
+      "--chat-input-overlay-space"
+    );
+    return;
+  }
+
+  chatHistory.style.setProperty(
+    "--chat-input-overlay-space",
+    `${overlaySpace}px`
+  );
+
+}
+
 
 function updateLiveUserTurnBottomSpace() {
 
   if (!chatHistory) {
     return;
   }
+
+  updateChatInputOverlaySpace();
 
   if (
     !liveUserTurnAnchor
@@ -415,6 +458,7 @@ function updateLiveUserTurnBottomSpace() {
       chatHistory.clientHeight
       - edgeGap
       - edgeGap
+      - getChatInputOverlaySpace()
     );
 
   const bottomSpace =
@@ -588,6 +632,7 @@ window.addEventListener(
 window.addEventListener(
   "resize",
   () => {
+    updateChatInputOverlaySpace();
     updateLiveUserTurnBottomSpace();
 
     if (keepLiveUserTurnAtTop) {
@@ -595,6 +640,24 @@ window.addEventListener(
     }
   }
 );
+
+if (chatInputShell && typeof ResizeObserver !== "undefined") {
+  const chatInputShellObserver =
+    new ResizeObserver(() => {
+      updateChatInputOverlaySpace();
+      updateLiveUserTurnBottomSpace();
+
+      if (keepLiveUserTurnAtTop) {
+        scrollLiveUserTurnToTop();
+      }
+    });
+
+  chatInputShellObserver.observe(
+    chatInputShell
+  );
+}
+
+updateChatInputOverlaySpace();
 
 
 function appendTextNodeData(

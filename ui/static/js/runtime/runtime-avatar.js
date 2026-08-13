@@ -26,23 +26,24 @@
   const STATIC_RADIAL_LINE_OUTER_RADIUS = 166 * INNER_RING_SCALE;
   const MEMORY_RING_LAYOUT = Object.freeze({
     l4: Object.freeze({
-      radius: 166,
+      radius: 168,
       strokeWidth: 1.05,
       minArcDegrees: 3.2,
       maxArcDegrees: 8.8,
       arcRatio: 0.42,
+      arcTrimPixels: 4,
       startAngle: -6,
     }),
     delayed: Object.freeze({
-      radius: 156,
-      strokeWidth: 1.10,
+      radius: 158,
+      strokeWidth: 3.10,
       minArcDegrees: 3.4,
       maxArcDegrees: 9.4,
       arcRatio: 0.45,
       startAngle: -3,
     }),
     active: Object.freeze({
-      radius: 176,
+      radius: 178,
       strokeWidth: 1.35,
       minArcDegrees: 3.8,
       maxArcDegrees: 10.8,
@@ -121,6 +122,56 @@
 
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, Number(value) || 0));
+  }
+
+  function degreesFromArcPixels(pixels, radius) {
+    const normalizedPixels =
+      Number(pixels || 0);
+    const normalizedRadius =
+      Number(radius || 0);
+
+    if (
+      normalizedPixels <= 0
+      || normalizedRadius <= 0
+    ) {
+      return 0;
+    }
+
+    return (
+      normalizedPixels
+      / normalizedRadius
+      * (180 / Math.PI)
+    );
+  }
+
+  function getMemoryDashArcDegrees(layout, slotDegrees) {
+    const baseArcDegrees =
+      clamp(
+        slotDegrees * layout.arcRatio,
+        layout.minArcDegrees,
+        layout.maxArcDegrees
+      );
+    const trimDegrees =
+      degreesFromArcPixels(
+        layout.arcTrimPixels,
+        layout.radius
+      );
+
+    if (!trimDegrees) {
+      return baseArcDegrees;
+    }
+
+    return Math.max(
+      0.8,
+      baseArcDegrees - trimDegrees
+    );
+  }
+
+  function getMemoryDotRadius(layout) {
+    const baseRadius =
+      Math.max(layout.strokeWidth * 1.45, 1.35);
+
+    return Math.max(baseRadius - 1, 0.6);
   }
 
   function setAvatarMemoryReferenceAliases(node, aliases) {
@@ -1091,7 +1142,7 @@
     const arcDegrees =
       clamp(
         options.arcDegrees,
-        layout.minArcDegrees,
+        0.8,
         layout.maxArcDegrees
       );
     const startAngle = options.angle - arcDegrees / 2;
@@ -1101,7 +1152,7 @@
     const isDot = Boolean(options.dot);
     const dotRadius =
       isDot
-        ? Math.max(layout.strokeWidth * 1.45, 1.35)
+        ? getMemoryDotRadius(layout)
         : 0;
     const classNames = [
       "jin-avatar-memory-dash",
@@ -1278,10 +1329,9 @@
     });
     const slotDegrees = 360 / records.length;
     const arcDegrees =
-      clamp(
-        slotDegrees * layout.arcRatio,
-        layout.minArcDegrees,
-        layout.maxArcDegrees
+      getMemoryDashArcDegrees(
+        layout,
+        slotDegrees
       );
 
     records.forEach((record, index) => {
@@ -1595,10 +1645,7 @@
         0.08
       );
     const dotRadius =
-      Math.max(
-        MEMORY_RING_LAYOUT.l4.strokeWidth * 1.45,
-        1.35
-      );
+      getMemoryDotRadius(MEMORY_RING_LAYOUT.l4);
     const angle =
       Number(dashGroup.dataset.avatarMemoryAngle);
 

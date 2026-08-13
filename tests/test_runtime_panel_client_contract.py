@@ -55,7 +55,7 @@ class RuntimePanelClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            "/static/js/socket/input.js?v=socket-input-memory-layer-toggle-brain-tab-1",
+            "/static/js/socket/input.js?v=socket-input-memory-layer-toggle-brain-tab-1-live-turn-top-1",
             source,
         )
 

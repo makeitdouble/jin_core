@@ -123,6 +123,67 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
             source,
         )
 
+    def test_memory_highlight_reorder_transition_is_light_and_bounded(self):
+        source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
+        css_source = RUNTIME_MEMORY_CSS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "const MEMORY_ROW_REORDER_TRANSITION_MAX_ROWS = 10;",
+            source,
+        )
+        self.assertIn(
+            "function shouldAnimateHighlightedMemoryRowSort(rows)",
+            source,
+        )
+        self.assertIn(
+            "function applyMemoryReferenceHighlights(options = {})",
+            source,
+        )
+        self.assertIn(
+            "function applyThinkMemoryCitationHighlights(options = {})",
+            source,
+        )
+        self.assertIn(
+            "function sortHighlightedMemoryRows(options = {})",
+            source,
+        )
+        self.assertIn(
+            "rows.length <= MEMORY_ROW_REORDER_TRANSITION_MAX_ROWS",
+            source,
+        )
+        self.assertIn(
+            "options.animateSort !== false\n        && shouldAnimateHighlightedMemoryRowSort(rows)",
+            source,
+        )
+        self.assertIn(
+            "function captureRuntimeMemoryRowTops(rows)",
+            source,
+        )
+        self.assertIn(
+            "function animateRuntimeMemoryRowReorder(rows, previousTops)",
+            source,
+        )
+        self.assertIn(
+            "animateRuntimeMemoryRowReorder(\n        sortedRows,\n        previousTops",
+            source,
+        )
+        self.assertIn(
+            "const renderHighlightOptions = {\n      animateSort: false,",
+            source,
+        )
+        self.assertIn(
+            "applyMemoryReferenceHighlights(renderHighlightOptions)",
+            source,
+        )
+        self.assertIn(
+            "#runtime-memory-text .runtime-memory-line.runtime-memory-sort-transition",
+            css_source,
+        )
+        self.assertIn(
+            "transform 0.15s cubic-bezier(0.22, 0.61, 0.36, 1)",
+            css_source,
+        )
+
     def test_collapsed_memory_panel_detaches_scroll_body_after_transition(self):
         source = LOGGER_JS.read_text(encoding="utf-8")
 
@@ -691,11 +752,11 @@ if (!userMessagePresentation.raw.includes("[ repeated: 3 ]")) {
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            '/static/css/runtime-memory.css?v=memory-highlight-text-1',
+            '/static/css/runtime-memory.css?v=memory-row-sort-transition-1',
             source,
         )
         self.assertIn(
-            '/static/js/runtime/runtime-memory-view.js?v=memory-panel-rename-1',
+            '/static/js/runtime/runtime-memory-view.js?v=memory-row-sort-transition-1',
             source,
         )
         self.assertIn(
@@ -707,7 +768,7 @@ if (!userMessagePresentation.raw.includes("[ repeated: 3 ]")) {
             source,
         )
         self.assertIn(
-            '/static/js/chat.js?v=deep-search-marker-strip-2',
+            '/static/js/chat.js?v=chat-input-overlay-1',
             source,
         )
 

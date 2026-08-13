@@ -128,12 +128,12 @@ class MemoryCitationLayersClientContractTests(unittest.TestCase):
     def test_cache_versions_are_bumped_for_citation_sync_assets(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertIn("/static/css/runtime-memory.css?v=memory-highlight-text-1", source)
-        self.assertIn("/static/css/theme-win95.css?v=memory-highlight-text-1", source)
-        self.assertIn("/static/js/runtime/runtime-memory-view.js?v=delayed-fact-link-1", source)
-        self.assertIn("/static/js/runtime/runtime-avatar.js?v=runtime-change-markers-24", source)
+        self.assertIn("/static/css/runtime-memory.css?v=memory-row-sort-transition-1", source)
+        self.assertIn("/static/css/theme-win95.css?v=memory-panel-rename-2", source)
+        self.assertIn("/static/js/runtime/runtime-memory-view.js?v=memory-row-sort-transition-1", source)
+        self.assertIn("/static/js/runtime/runtime-avatar.js?v=memory-ring-sizing-4", source)
         self.assertIn("/static/js/think-citations.js?v=think-citations-6", source)
-        self.assertIn("/static/js/chat.js?v=deep-search-marker-strip-2", source)
+        self.assertIn("/static/js/chat.js?v=chat-input-overlay-1", source)
 
 
 if __name__ == "__main__":

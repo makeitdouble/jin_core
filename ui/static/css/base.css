@@ -49,6 +49,9 @@
     --chat-action-adjacent-gap: 0.82rem;
     --chat-question-gap: 2.55rem;
     --chat-history-edge-gap: 1.9rem;
+    --chat-input-overlay-space: 5.35rem;
+    --chat-input-overlay-bottom-gap: 1.05rem;
+    --chat-input-overlay-side-gap: clamp(0.85rem, 3.2vw, 2.65rem);
 }
 
 body {
@@ -540,6 +543,7 @@ main.panels-collapsed-2 #scene-shade {
 #chat-drop-zone {
     min-width: 0;
     border-right: 0;
+    overflow: hidden;
 }
 
 #chat-drop-zone.jin-drop-zone-active {
@@ -553,10 +557,14 @@ main.panels-collapsed-2 #scene-shade {
     padding-top: var(--chat-history-edge-gap) !important;
     padding-bottom: calc(
             var(--chat-history-edge-gap)
+            + var(--chat-input-overlay-space)
             + var(--jin-live-turn-bottom-space, 0px)
     ) !important;
     scroll-padding-top: var(--chat-history-edge-gap);
-    scroll-padding-bottom: calc(var(--chat-history-edge-gap) + 0.5rem);
+    scroll-padding-bottom: calc(
+            var(--chat-history-edge-gap)
+            + var(--chat-input-overlay-space)
+    );
 }
 
 #chat-history > :not([hidden]) ~ :not([hidden]) {
@@ -597,21 +605,64 @@ main.panels-collapsed-2 #scene-shade {
 }
 
 #chat-input-shell {
-    padding-left: 0;
-    padding-right: 0;
+    position: absolute;
+    z-index: 22;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    padding: 2.35rem var(--chat-input-overlay-side-gap) var(--chat-input-overlay-bottom-gap);
+    pointer-events: none;
+}
+
+#chat-input-shell::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+            linear-gradient(
+                    to bottom,
+                    rgba(3, 7, 18, 0) 0%,
+                    rgba(3, 7, 18, 0.18) 34%,
+                    rgba(3, 7, 18, 0.62) 72%,
+                    rgba(3, 7, 18, 0.82) 100%
+            );
+    backdrop-filter: blur(1.5px);
+    -webkit-backdrop-filter: blur(1.5px);
+    mask-image:
+            linear-gradient(
+                    to bottom,
+                    rgba(0, 0, 0, 0) 0,
+                    rgba(0, 0, 0, 0.22) 18px,
+                    rgba(0, 0, 0, 1) 52px
+            );
+    -webkit-mask-image:
+            linear-gradient(
+                    to bottom,
+                    rgba(0, 0, 0, 0) 0,
+                    rgba(0, 0, 0, 0.22) 18px,
+                    rgba(0, 0, 0, 1) 52px
+            );
 }
 
 #chat-form {
+    position: relative;
     width: min(100%, var(--chat-max-width));
     min-width: var(--chat-min-width);
 
     margin-left: auto;
     margin-right: auto;
+    pointer-events: auto;
 }
 
 #attached-files {
+    position: relative;
     width: min(100%, var(--chat-max-width));
     min-width: var(--chat-min-width);
+    margin-left: auto;
+    margin-right: auto;
+    pointer-events: auto;
 }
 
 #user-input {

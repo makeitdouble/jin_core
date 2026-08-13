@@ -54,12 +54,30 @@ class ChatReasoningSpacingClientContractTests(unittest.TestCase):
             source,
         )
 
+    def test_chat_input_overlays_history_without_cropping_messages(self):
+        css = BASE_CSS.read_text(encoding="utf-8")
+        source = CHAT_JS.read_text(encoding="utf-8")
+
+        self.assertIn("--chat-input-overlay-space: 5.35rem;", css)
+        self.assertIn("+ var(--chat-input-overlay-space)", css)
+        self.assertIn("#chat-input-shell::before", css)
+        self.assertIn("position: absolute;", css)
+        self.assertIn("pointer-events: none;", css)
+        self.assertIn("backdrop-filter: blur(1.5px);", css)
+        self.assertIn("mask-image:", css)
+        self.assertIn("rgba(0, 0, 0, 0.22) 18px", css)
+        self.assertIn("rgba(0, 0, 0, 1) 52px", css)
+        self.assertIn("const chatInputShell =", source)
+        self.assertIn("function updateChatInputOverlaySpace()", source)
+        self.assertIn("new ResizeObserver", source)
+        self.assertIn("- getChatInputOverlaySpace()", source)
+
     def test_cache_versions_are_bumped_for_reasoning_spacing_assets(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertIn("/static/css/base.css?v=reasoning-gap-1", source)
+        self.assertIn("/static/css/base.css?v=chat-input-overlay-2", source)
         self.assertIn("/static/css/chat.css?v=reasoning-gap-1", source)
-        self.assertIn("/static/js/chat.js?v=reasoning-gap-1", source)
+        self.assertIn("/static/js/chat.js?v=chat-input-overlay-1", source)
 
 
 if __name__ == "__main__":

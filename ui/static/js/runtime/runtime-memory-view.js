@@ -31,6 +31,8 @@
   const MEMORY_ROW_AVATAR_HOVER_EVENT = "jin:memory-row-avatar-hover";
   const DELAYED_MEMORY_REPORT_ACTIVE_EVENT =
       "jin:delayed-memory-report-active";
+  const MEMORY_ROW_REORDER_TRANSITION_MAX_ROWS = 10;
+  const MEMORY_ROW_REORDER_TRANSITION_FALLBACK_MS = 230;
   const normalizeRuntimeCitationIdentity =
       window.JinRuntime.normalizeCitationIdentity;
   const buildCitationRecordIdentity =
@@ -50,6 +52,7 @@
   };
   const activeThinkMemoryCitationSources = new Map();
   let memoryReferenceEventsBound = false;
+  let runtimeMemorySortTransitionSequence = 0;
 
 
   const pinnedRuntimeMemorySnapshotIndexes = new Set();
@@ -434,12 +437,15 @@
     if (pendingRuntimeMemoryRender) {
       pendingRuntimeMemoryRender = false;
       renderRuntimeMemorySnapshot({
+        animateSort: false,
         flashMode: "none",
       });
       return;
     }
 
-    applyMemoryReferenceHighlights();
+    applyMemoryReferenceHighlights({
+        animateSort: false,
+    });
   }
 
   function bindRuntimeMemoryPanelVisibilityEvents() {
@@ -492,7 +498,7 @@
     return usage;
   }
 
-  function applyMemoryReferenceHighlights() {
+  function applyMemoryReferenceHighlights(options = {}) {
     if (!runtimeMemoryText) {
       return;
     }
@@ -538,10 +544,160 @@
         );
       });
 
-    applyThinkMemoryCitationHighlights();
+    applyThinkMemoryCitationHighlights(options);
   }
 
-  function sortHighlightedMemoryRows() {
+  function shouldReduceRuntimeMemoryMotion() {
+    return Boolean(
+      typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    );
+  }
+
+  function shouldAnimateHighlightedMemoryRowSort(rows) {
+    return Boolean(
+      Array.isArray(rows)
+      && rows.length > 1
+      && rows.length <= MEMORY_ROW_REORDER_TRANSITION_MAX_ROWS
+      && typeof window.requestAnimationFrame === "function"
+      && !shouldReduceRuntimeMemoryMotion()
+    );
+  }
+
+  function clearRuntimeMemoryRowSortTransition(row) {
+    if (!row) {
+      return;
+    }
+
+    const timer =
+        Number(row.dataset.runtimeMemorySortTransitionTimer || 0);
+
+    if (timer) {
+      window.clearTimeout(timer);
+      delete row.dataset.runtimeMemorySortTransitionTimer;
+    }
+
+    delete row.dataset.runtimeMemorySortTransitionToken;
+    row.classList.remove(
+        "runtime-memory-sort-transition"
+    );
+    row.style.removeProperty(
+        "transform"
+    );
+    row.style.removeProperty(
+        "transition"
+    );
+  }
+
+  function captureRuntimeMemoryRowTops(rows) {
+    const tops = new Map();
+
+    rows.forEach((row) => {
+      tops.set(
+          row,
+          row.getBoundingClientRect().top
+      );
+    });
+
+    return tops;
+  }
+
+  function animateRuntimeMemoryRowReorder(rows, previousTops) {
+    if (
+        !runtimeMemoryText
+        || !previousTops
+        || !previousTops.size
+    ) {
+      return;
+    }
+
+    const movingRows = [];
+
+    rows.forEach((row) => {
+      const previousTop =
+          previousTops.get(row);
+
+      if (typeof previousTop !== "number") {
+        return;
+      }
+
+      const deltaY =
+          previousTop - row.getBoundingClientRect().top;
+
+      if (Math.abs(deltaY) < 0.5) {
+        return;
+      }
+
+      clearRuntimeMemoryRowSortTransition(row);
+      row.style.transition =
+          "none";
+      row.style.transform =
+          `translateY(${deltaY}px)`;
+      movingRows.push(row);
+    });
+
+    if (!movingRows.length) {
+      return;
+    }
+
+    void runtimeMemoryText.offsetHeight;
+
+    window.requestAnimationFrame(() => {
+      movingRows.forEach((row) => {
+        runtimeMemorySortTransitionSequence += 1;
+        const transitionToken =
+            String(runtimeMemorySortTransitionSequence);
+
+        row.dataset.runtimeMemorySortTransitionToken =
+            transitionToken;
+        row.style.removeProperty(
+            "transition"
+        );
+        row.classList.add(
+            "runtime-memory-sort-transition"
+        );
+        row.style.transform =
+            "translateY(0)";
+
+        const cleanup = (event) => {
+          if (
+              row.dataset.runtimeMemorySortTransitionToken
+              !== transitionToken
+          ) {
+            return;
+          }
+
+          if (
+              event
+              && event.propertyName
+              && event.propertyName !== "transform"
+          ) {
+            return;
+          }
+
+          clearRuntimeMemoryRowSortTransition(row);
+        };
+
+        row.addEventListener(
+            "transitionend",
+            cleanup,
+            {
+              once: true,
+            }
+        );
+
+        row.dataset.runtimeMemorySortTransitionTimer =
+            String(
+                window.setTimeout(
+                    cleanup,
+                    MEMORY_ROW_REORDER_TRANSITION_FALLBACK_MS
+                )
+            );
+      });
+    });
+  }
+
+  function sortHighlightedMemoryRows(options = {}) {
     if (!runtimeMemoryText) {
       return;
     }
@@ -597,6 +753,12 @@
       return;
     }
 
+    const previousTops =
+        options.animateSort !== false
+        && shouldAnimateHighlightedMemoryRowSort(rows)
+          ? captureRuntimeMemoryRowTops(rows)
+          : null;
+
     sortedRows.forEach(
       row => runtimeMemoryText.appendChild(row)
     );
@@ -607,6 +769,11 @@
     if (userIdleRow) {
       runtimeMemoryText.appendChild(userIdleRow);
     }
+
+    animateRuntimeMemoryRowReorder(
+        sortedRows,
+        previousTops
+    );
   }
 
   function getActiveThinkMemoryCitationIdentitySets() {
@@ -627,7 +794,7 @@
     };
   }
 
-  function applyThinkMemoryCitationHighlights() {
+  function applyThinkMemoryCitationHighlights(options = {}) {
     if (!runtimeMemoryText) {
       return;
     }
@@ -698,7 +865,7 @@
       );
     });
 
-    sortHighlightedMemoryRows();
+    sortHighlightedMemoryRows(options);
   }
 
   function handleThinkMemoryCitationHighlight(event) {
@@ -1572,28 +1739,31 @@
 
     ensureRuntimeMemoryDisplayModeAvailable();
     updateRuntimeMemoryTitleState();
+    const renderHighlightOptions = {
+      animateSort: false,
+    };
 
     if (getRuntimeMemoryDisplayMode() === "active") {
       renderActiveMemoryRecords();
-      applyMemoryReferenceHighlights();
+      applyMemoryReferenceHighlights(renderHighlightOptions);
       return;
     }
 
     if (getRuntimeMemoryDisplayMode() === "delayed") {
       renderDelayedMemoryReports();
-      applyMemoryReferenceHighlights();
+      applyMemoryReferenceHighlights(renderHighlightOptions);
       return;
     }
 
     if (getRuntimeMemoryDisplayMode() === "facts") {
       renderFactsMemoryFields();
-      applyMemoryReferenceHighlights();
+      applyMemoryReferenceHighlights(renderHighlightOptions);
       return;
     }
 
     if (getRuntimeMemoryDisplayMode() === "long_term") {
       renderLongTermMemoryFacts();
-      applyMemoryReferenceHighlights();
+      applyMemoryReferenceHighlights(renderHighlightOptions);
       return;
     }
 
@@ -1617,7 +1787,7 @@
       updateRuntimeMemoryPinGlow();
       updateRuntimeMemoryTitleState();
       dispatchRuntimeAvatarSnapshot(null);
-      applyMemoryReferenceHighlights();
+      applyMemoryReferenceHighlights(renderHighlightOptions);
       return;
     }
 
@@ -1659,7 +1829,7 @@
     updateRuntimeMemoryPinGlow();
     updateRuntimeMemoryTitleState();
     dispatchRuntimeAvatarSnapshot(sourceSnapshot);
-    applyMemoryReferenceHighlights();
+    applyMemoryReferenceHighlights(renderHighlightOptions);
   }
 
   function isLatestRuntimeMemorySnapshot() {

@@ -97,7 +97,7 @@ for (const [input, expected] of cases) {
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            '/static/js/chat.js?v=deep-search-marker-strip-2',
+            '/static/js/chat.js?v=chat-input-overlay-1',
             source,
         )
 

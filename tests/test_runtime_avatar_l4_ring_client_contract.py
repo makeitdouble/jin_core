@@ -15,7 +15,7 @@ INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
 class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
 
-    def test_memory_rings_have_evenly_spaced_l4_delayed_active_radii(self):
+    def test_memory_rings_have_evenly_spaced_delayed_l4_active_radii(self):
         source = AVATAR_JS.read_text(encoding="utf-8")
 
         radii = {}
@@ -27,8 +27,11 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
             self.assertIsNotNone(match, kind)
             radii[kind] = int(match.group(1))
 
-        self.assertEqual(radii["delayed"] - radii["l4"], 10)
-        self.assertEqual(radii["active"] - radii["delayed"], 10)
+        self.assertEqual(radii["l4"] - radii["delayed"], 10)
+        self.assertEqual(radii["active"] - radii["l4"], 10)
+        self.assertEqual(radii["delayed"], 158)
+        self.assertEqual(radii["l4"], 168)
+        self.assertEqual(radii["active"], 178)
         self.assertGreater(radii["l4"], 151)
 
     def test_l4_facts_are_rendered_as_reference_aware_memory_dashes(self):
@@ -64,6 +67,13 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
         self.assertIn("syncL4MemoryState,", source)
         self.assertIn("applyDelayedMemoryFactLinkGlow()", source)
         self.assertIn("is-delayed-memory-linked-hit", source)
+        self.assertIn("strokeWidth: 1.05", source)
+        self.assertIn("strokeWidth: 3.10", source)
+        self.assertIn("arcTrimPixels: 4", source)
+        self.assertIn("function getMemoryDashArcDegrees(layout, slotDegrees)", source)
+        self.assertIn("function getMemoryDotRadius(layout)", source)
+        self.assertIn("options.arcDegrees,\n        0.8,", source)
+        self.assertIn("degreesFromArcPixels(\n        layout.arcTrimPixels,", source)
 
         css_source = AVATAR_CSS.read_text(encoding="utf-8")
         self.assertIn(".jin-avatar-memory-dash-l4", css_source)
@@ -72,7 +82,7 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
         self.assertIn("@keyframes jin-avatar-memory-absorb-dot", css_source)
         self.assertIn("rgba(147, 197, 253, 0.30)", css_source)
 
-    def test_l4_ring_is_rendered_inside_delayed_and_active_rings(self):
+    def test_l4_ring_is_rendered_between_delayed_and_active_rings(self):
         source = AVATAR_JS.read_text(encoding="utf-8")
         start = source.index("function appendMemorySignalRings(")
         end = source.index("\n  function appendDefs(", start)
@@ -82,8 +92,8 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
         delayed_index = body.index('"delayed"')
         active_index = body.index('"active"')
 
-        self.assertLess(l4_index, delayed_index)
-        self.assertLess(delayed_index, active_index)
+        self.assertLess(delayed_index, l4_index)
+        self.assertLess(l4_index, active_index)
 
     def test_memory_ring_changes_can_sync_without_avatar_refresh(self):
         source = RUNTIME_JS.read_text(encoding="utf-8")
@@ -192,15 +202,15 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            "/static/css/runtime-avatar.css?v=memory-rings-9",
+            "/static/css/runtime-avatar.css?v=collapsed-avatar-resize-1",
             source,
         )
         self.assertIn(
-            "/static/js/runtime/runtime-avatar.js?v=runtime-change-markers-24",
+            "/static/js/runtime/runtime-avatar.js?v=memory-ring-sizing-4",
             source,
         )
         self.assertIn(
-            "/static/js/socket/input.js?v=socket-input-memory-layer-toggle-brain-tab-1",
+            "/static/js/socket/input.js?v=socket-input-memory-layer-toggle-brain-tab-1-live-turn-top-1",
             source,
         )
 

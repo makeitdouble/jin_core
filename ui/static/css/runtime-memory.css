@@ -9,6 +9,12 @@
     margin-bottom: 0;
 }
 
+#runtime-memory-text .runtime-memory-line.runtime-memory-sort-transition {
+    transition:
+            transform 0.15s cubic-bezier(0.22, 0.61, 0.36, 1);
+    will-change: transform;
+}
+
 .runtime-memory-active-row,
 .runtime-memory-removable-row {
     cursor: pointer;
@@ -48,6 +54,13 @@
     border-radius: 4px;
     padding: 2px 3px;
     transition:
+            background-color 0.18s ease,
+            color 0.18s ease;
+}
+
+#runtime-memory-text .runtime-memory-delayed-row.runtime-memory-sort-transition {
+    transition:
+            transform 0.15s cubic-bezier(0.22, 0.61, 0.36, 1),
             background-color 0.18s ease,
             color 0.18s ease;
 }
