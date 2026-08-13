@@ -125,11 +125,18 @@ class MemoryCitationLayersClientContractTests(unittest.TestCase):
         self.assertIn(".runtime-memory-context-loaded-hit {", css)
         self.assertIn(".runtime-memory-citation-hit .runtime-memory-key", css)
 
+    def test_win95_l4_fact_report_links_are_blue_and_bold(self):
+        css = WIN95_CSS.read_text(encoding="utf-8")
+
+        self.assertIn(".runtime-memory-l4-row .runtime-memory-fact-report-link", css)
+        self.assertIn("color: #0000ee !important;", css)
+        self.assertIn("font-weight: 700 !important;", css)
+
     def test_cache_versions_are_bumped_for_citation_sync_assets(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn("/static/css/runtime-memory.css?v=l4-report-link-1", source)
-        self.assertIn("/static/css/theme-win95.css?v=memory-panel-rename-2", source)
+        self.assertIn("/static/css/theme-win95.css?v=l4-fact-report-link-1", source)
         self.assertIn("/static/js/runtime/runtime-memory-view.js?v=l4-report-link-1", source)
         self.assertIn("/static/js/runtime/runtime-avatar.js?v=runtime-avatar-lite-2", source)
         self.assertIn("/static/js/think-citations.js?v=think-citations-6", source)
