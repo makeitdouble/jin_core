@@ -28,6 +28,7 @@ from runtime.L1_memory_utils import record_runtime_memory_reasoning_quotes
 from runtime.state_sync import refresh_runtime_state
 from utils.brain_client_utils import (
     get_brain_runtime_config,
+    should_execute_save_session_directly,
     should_prearm_save_session,
 )
 from utils.chat_log import append_chat_log_entry
@@ -1095,10 +1096,16 @@ async def process_message(
         context.runtime_context_limit_stage = ""
         context.runtime_context_limit_kind = ""
         context.runtime_context_limit_finish_reason = ""
+        direct_save_session = False
         if (
             not is_idle_followup
             and not is_action_guard_retry
         ):
+            direct_save_session = (
+                should_execute_save_session_directly(
+                    user_text,
+                )
+            )
             await arm_save_session_from_user_text(
                 context,
                 user_text,
@@ -1139,6 +1146,8 @@ async def process_message(
         state = AgentState(
             user_input=user_text
         )
+        if direct_save_session:
+            state.metadata["direct_save_session"] = True
         if is_idle_followup:
             state.metadata["idle_followup"] = idle_followup
 

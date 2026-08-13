@@ -31,6 +31,7 @@ from rules.runtime import (
 from contracts.rules_assembler import (
     RUNTIME_ACTION_DEEP_WEB_SEARCH,
     RUNTIME_ACTION_IDLE,
+    RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
 )
 from contracts.rules_assembler import (
@@ -45,6 +46,7 @@ from clients.search_client import (
 )
 
 from utils.brain_client_utils import (
+    apply_runtime_action_calls,
     get_brain_runtime_config,
 )
 from utils.current_context_window import (
@@ -52,6 +54,10 @@ from utils.current_context_window import (
 )
 from utils.runtime_action_abort import (
     mark_runtime_action_completed,
+)
+
+from utils.actions import (
+    RuntimeActionCall,
 )
 
 from utils.actions.action_counter_utils import (
@@ -1720,18 +1726,60 @@ class BrainNode(BaseNode):
             or []
         )
 
-        text, reasoning = await self.run_brain_stream(
-            state=state,
-            context=context,
-            brain_runtime=brain_runtime,
-            brain_client=brain_client,
-            system_prompt=system_prompt,
-            brain_payload=brain_payload,
-            runtime_actions=runtime_actions,
-            emit_content_to_chat=(
-                not state.translate_response
-            ),
+        direct_save_session = bool(
+            state.metadata.get(
+                "direct_save_session",
+                False,
+            )
+            and runtime_actions.get(
+                "CAN_SAVE_SESSION",
+                False,
+            )
         )
+
+        if direct_save_session:
+            # A bare trigger from contracts/save_session.json is a
+            # deterministic command. Skip the first Brain inference entirely:
+            # emit the action bubble immediately, perform L3, then let the
+            # existing generic follow-up loop give JIN one normal response
+            # tick with the trusted SAVE_SESSION result in context.
+            applied_count = await apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name=RUNTIME_ACTION_SAVE_SESSION,
+                    ),
+                ),
+                user_message=sequence_user_request,
+            )
+
+            if applied_count:
+                await complete_save_session_memory_before_follow_up(
+                    context=context,
+                    state=state,
+                    response_text="",
+                )
+                # The direct path has already consumed this command. If the
+                # follow-up model echoes <SAVE_SESSION>, do not start L3 twice.
+                context.runtime_save_session_memory_committed_this_turn = True
+                text = ""
+                reasoning = ""
+            else:
+                direct_save_session = False
+
+        if not direct_save_session:
+            text, reasoning = await self.run_brain_stream(
+                state=state,
+                context=context,
+                brain_runtime=brain_runtime,
+                brain_client=brain_client,
+                system_prompt=system_prompt,
+                brain_payload=brain_payload,
+                runtime_actions=runtime_actions,
+                emit_content_to_chat=(
+                    not state.translate_response
+                ),
+            )
 
         if getattr(
             context,

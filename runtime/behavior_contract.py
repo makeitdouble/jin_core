@@ -189,6 +189,45 @@ def action_guard_has_trigger_match(
     )
 
 
+def action_guard_has_exact_trigger_match(
+    name: str,
+    user_text: str,
+) -> bool:
+    """Match only a bare configured trigger, ignoring outer whitespace.
+
+    This is intentionally stricter than ``action_guard_has_trigger_match``:
+    surrounding prose, punctuation, attachments, or any extra text must fall
+    through to the normal model-driven path.
+    """
+
+    normalized_text = _normalize_guard_text(
+        user_text
+    ).strip()
+
+    if not normalized_text:
+        return False
+
+    if action_guard_has_blocker_match(
+        name,
+        user_text,
+    ):
+        return False
+
+    return any(
+        normalized_text
+        == _normalize_guard_text(
+            trigger
+        ).strip()
+        for trigger in get_action_guard_triggers(
+            name
+        )
+        if str(
+            trigger
+            or ""
+        ).strip()
+    )
+
+
 def should_pause_action_guard_for_confirmation(
     name: str,
     user_text: str,

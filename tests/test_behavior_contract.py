@@ -13,6 +13,7 @@ from contracts.rules_assembler import (
     build_runtime_action_instructions,
 )
 from runtime.behavior_contract import (
+    action_guard_has_exact_trigger_match,
     get_action_guard,
     get_action_guard_blockers,
     get_action_guard_name_for_runtime_action,
@@ -345,6 +346,31 @@ class BehaviorContractTests(unittest.TestCase):
             should_execute_action_guard(
                 "save_session",
                 save_session_triggers[0],
+            )
+        )
+
+    def test_exact_trigger_match_requires_bare_contract_trigger(self):
+
+        trigger = get_action_guard_triggers(
+            "save_session"
+        )[0]
+
+        self.assertTrue(
+            action_guard_has_exact_trigger_match(
+                "save_session",
+                f"  {trigger}  ",
+            )
+        )
+        self.assertFalse(
+            action_guard_has_exact_trigger_match(
+                "save_session",
+                f"{trigger}!",
+            )
+        )
+        self.assertFalse(
+            action_guard_has_exact_trigger_match(
+                "save_session",
+                f"пожалуйста, {trigger}",
             )
         )
 

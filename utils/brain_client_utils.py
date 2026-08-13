@@ -177,6 +177,19 @@ def should_prearm_save_session(
     )
 
 
+def should_execute_save_session_directly(
+    user_message: str,
+) -> bool:
+    from runtime.behavior_contract import (
+        action_guard_has_exact_trigger_match,
+    )
+
+    return action_guard_has_exact_trigger_match(
+        "save_session",
+        user_message,
+    )
+
+
 def should_execute_save_delayed_memory(
     user_message: str,
 ) -> bool:

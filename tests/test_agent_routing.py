@@ -265,6 +265,39 @@ class AgentRoutingTests(
             ],
         )
 
+    async def test_direct_save_session_skips_translation_model(self):
+
+        state = AgentState(
+            user_input="сохрани сессию"
+        )
+        state.metadata["direct_save_session"] = True
+
+        with patch(
+                "agent.nodes.planner.config.TRANSLATION_ENABLED",
+                True,
+        ), patch(
+                "agent.nodes.planner.config.TRANSLATE_RESPONSE",
+                True,
+        ):
+            await PlannerNode().run(
+                state,
+                context=None,
+            )
+
+        self.assertFalse(
+            state.translate_input
+        )
+        self.assertFalse(
+            state.translate_response
+        )
+        self.assertEqual(
+            state.current_plan,
+            [
+                "brain",
+                "validator",
+            ],
+        )
+
     async def test_non_cyrillic_input_routes_directly_to_brain(self):
 
         state = AgentState(
