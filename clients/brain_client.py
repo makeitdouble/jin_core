@@ -12,6 +12,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
+    RUNTIME_ACTION_JIN_SIZE,
     RUNTIME_ACTION_UPDATE_L4_FACTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
@@ -78,6 +79,7 @@ from utils.actions import (
     extract_active_memory_resolve_slot_id,
     extract_runtime_actions,
     normalize_jin_color_payload,
+    normalize_jin_size_payload,
 )
 from utils.runtime_todo import (
     has_active_runtime_todo,
@@ -933,6 +935,74 @@ async def ask_brain_stream(
 
         return colors
 
+    def get_applied_jin_sizes() -> list[str]:
+
+        current_turn_id = str(
+            getattr(
+                context,
+                "runtime_current_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
+        sizes = []
+        events = getattr(
+            context,
+            "runtime_action_events",
+            [],
+        ) or []
+
+        for event in events[
+            runtime_action_event_start:
+        ]:
+            if not isinstance(
+                event,
+                dict,
+            ):
+                continue
+
+            if str(
+                event.get("name")
+                or event.get("action")
+                or ""
+            ).strip().casefold() != "jin_size":
+                continue
+
+            if (
+                str(
+                    event.get("status")
+                    or ""
+                ).strip().casefold()
+                == "failed"
+                or event.get("error")
+            ):
+                continue
+
+            event_turn_id = str(
+                event.get("runtime_turn_id")
+                or ""
+            ).strip()
+
+            if (
+                current_turn_id
+                and event_turn_id
+                and event_turn_id != current_turn_id
+            ):
+                continue
+
+            size = normalize_jin_size_payload(
+                event.get("size")
+                or event.get("payload")
+                or ""
+            )
+
+            if size:
+                sizes.append(
+                    size
+                )
+
+        return sizes
+
     def get_resolve_active_memory_display_payload(
         payload,
     ) -> str:
@@ -994,6 +1064,13 @@ async def ask_brain_stream(
             display_payloads[
                 RUNTIME_ACTION_JIN_COLOR
             ] = applied_colors
+
+        applied_sizes = get_applied_jin_sizes()
+
+        if applied_sizes:
+            display_payloads[
+                RUNTIME_ACTION_JIN_SIZE
+            ] = applied_sizes
 
         for resolve_entry in action_counter.entries():
             if (

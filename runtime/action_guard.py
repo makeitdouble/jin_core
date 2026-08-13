@@ -6,6 +6,7 @@ from typing import Any
 
 from contracts.rules_assembler import (
     RUNTIME_ACTION_JIN_COLOR,
+    RUNTIME_ACTION_JIN_SIZE,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     build_runtime_action_display_text,
     get_runtime_action_display_name,
@@ -27,6 +28,10 @@ from utils.actions.common_action_utils import (
 )
 from utils.actions.jin_color_utils import (
     normalize_jin_color_payload,
+)
+from utils.actions.jin_size_utils import (
+    format_jin_size_payload,
+    normalize_jin_size_dict,
 )
 
 
@@ -146,6 +151,30 @@ def get_action_guard_display_id(
 
         return action_id
 
+    if action.name == RUNTIME_ACTION_JIN_SIZE:
+        action_id = str(
+            display_state.get("jin_size_action_id", "")
+            or ""
+        ).strip()
+
+        if not action_id:
+            sequence = int(
+                getattr(
+                    context,
+                    "runtime_jin_size_action_sequence",
+                    0,
+                )
+                or 0
+            ) + 1
+            context.runtime_jin_size_action_sequence = sequence
+            action_id = build_runtime_action_id(
+                RUNTIME_ACTION_JIN_SIZE,
+                sequence,
+            )
+            display_state["jin_size_action_id"] = action_id
+
+        return action_id
+
     if action.name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT:
         pending_ids = getattr(
             context,
@@ -229,6 +258,15 @@ async def wait_for_action_guard_confirmation(
         if color:
             payload["color"] = color
             payload["payload"] = color
+
+    if action.name == RUNTIME_ACTION_JIN_SIZE:
+        size = normalize_jin_size_dict(action.payload)
+        size_payload = format_jin_size_payload(size)
+        if size and size_payload:
+            payload["size"] = size_payload
+            payload["width"] = size["width"]
+            payload["height"] = size["height"]
+            payload["payload"] = size_payload
 
     if isinstance(context_snapshot, dict) and context_snapshot:
         payload["context"] = dict(context_snapshot)

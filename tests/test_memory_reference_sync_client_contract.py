@@ -842,7 +842,7 @@ if (!userMessagePresentation.raw.includes("[ repeated: 3 ]")) {
             source,
         )
         self.assertIn(
-            '/static/js/chat.js?v=chat-input-overlay-1',
+            '/static/js/chat.js?v=jin-size-1',
             source,
         )
 

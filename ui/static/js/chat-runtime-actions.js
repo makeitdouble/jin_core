@@ -198,6 +198,11 @@ const runtimeActionIconDefinitions = {
     tone: "color",
     svg: '<path d="M12 3C8 7.2 6 10.4 6 13.5A6 6 0 0 0 18 13.5C18 10.4 16 7.2 12 3z"></path><path d="M9.5 14.5c.7 1 1.6 1.5 2.5 1.5s1.8-.5 2.5-1.5"></path>',
   },
+  jin_size: {
+    title: "jin size",
+    tone: "size",
+    svg: '<path d="M4 8V4h4"></path><path d="M20 8V4h-4"></path><path d="M4 16v4h4"></path><path d="M20 16v4h-4"></path>',
+  },
   update_l4_facts: {
     title: "update L4 facts",
     tone: "update",
@@ -914,6 +919,103 @@ function extractRuntimeActionColorFromText(text) {
 
 }
 
+function normalizeRuntimeActionSize(value) {
+
+  if (
+    value
+    && typeof value === "object"
+  ) {
+    const width =
+      Number.parseInt(
+        value.width || value.w || 0,
+        10
+      );
+    const height =
+      Number.parseInt(
+        value.height || value.h || width || 0,
+        10
+      );
+
+    if (
+      Number.isFinite(width)
+      && Number.isFinite(height)
+      && width > 0
+      && height > 0
+    ) {
+      return width === height
+        ? `${width}px`
+        : `w:${width}px h:${height}px`;
+    }
+  }
+
+  if (
+    window.JinResponseFormatter
+    && typeof window.JinResponseFormatter.normalizeJinSizeMarker === "function"
+  ) {
+    return window.JinResponseFormatter.normalizeJinSizeMarker(
+      value
+    );
+  }
+
+  const text =
+    String(
+      value || ""
+    ).trim();
+  const single =
+    text.match(/^(\d+)(?:px)?$/i);
+
+  if (single) {
+    return `${Number.parseInt(single[1], 10)}px`;
+  }
+
+  const pair =
+    text.match(/^(\d+)(?:px)?\s+(\d+)(?:px)?$/i);
+
+  if (pair) {
+    const width =
+      Number.parseInt(pair[1], 10);
+    const height =
+      Number.parseInt(pair[2], 10);
+
+    return width === height
+      ? `${width}px`
+      : `w:${width}px h:${height}px`;
+  }
+
+  const labeled =
+    text.match(/^w\s*:\s*(\d+)(?:px)?\s+h\s*:\s*(\d+)(?:px)?$/i);
+
+  if (labeled) {
+    const width =
+      Number.parseInt(labeled[1], 10);
+    const height =
+      Number.parseInt(labeled[2], 10);
+
+    return width === height
+      ? `${width}px`
+      : `w:${width}px h:${height}px`;
+  }
+
+  return "";
+
+}
+
+function readRuntimeActionAggregateSizes(
+  row
+) {
+
+  if (!row) {
+    return [];
+  }
+
+  return String(
+    row.dataset.runtimeActionSizes || ""
+  ).split(",").map(
+    normalizeRuntimeActionSize
+  ).filter(Boolean);
+
+}
+
 function shouldAggregateRuntimeAction(
   _action,
   options = {}
@@ -1036,12 +1138,32 @@ function applyRuntimeActionAggregateState(
     || extractRuntimeActionColorFromText(
       text
     );
+  const explicitSizes = Array.isArray(
+    options.sizes
+  )
+    ? options.sizes
+        .map(normalizeRuntimeActionSize)
+        .filter(Boolean)
+    : [];
+  const incomingSize =
+    normalizeRuntimeActionSize(
+      options.size
+      || (
+        action === "jin_size"
+          ? options.payload || options.detail || text
+          : ""
+      )
+    );
   const markerCount = Math.max(
     currentMarkerCount,
     explicitMarkerCount
   );
   let storedColors =
     readRuntimeActionAggregateColors(
+      row
+    );
+  let storedSizes =
+    readRuntimeActionAggregateSizes(
       row
     );
 
@@ -1058,6 +1180,19 @@ function applyRuntimeActionAggregateState(
     );
   }
 
+  if (explicitSizes.length) {
+    storedSizes = explicitSizes;
+  } else if (
+    incomingSize
+    && options.counterOnly !== true
+    && storedSizes[storedSizes.length - 1]
+      !== incomingSize
+  ) {
+    storedSizes.push(
+      incomingSize
+    );
+  }
+
   if (markerCount > 0) {
     row.dataset.runtimeActionMarkerCount =
       String(markerCount);
@@ -1070,6 +1205,13 @@ function applyRuntimeActionAggregateState(
     delete row.dataset.runtimeActionColors;
   }
 
+  if (storedSizes.length) {
+    row.dataset.runtimeActionSizes =
+      storedSizes.join(",");
+  } else {
+    delete row.dataset.runtimeActionSizes;
+  }
+
   delete row.dataset.runtimeActionPendingColor;
 
   return {
@@ -1077,6 +1219,7 @@ function applyRuntimeActionAggregateState(
     aggregateMarkers: true,
     markerCount,
     colors: storedColors,
+    sizes: storedSizes,
   };
 
 }
@@ -1344,6 +1487,72 @@ function renderRuntimeActionLabel(
         "jin-runtime-action-payload";
       payload.textContent =
         `: ${payloadColor}`;
+
+      label.appendChild(
+        payload
+      );
+    }
+
+    appendRuntimeActionMarkerCount(
+      label,
+      options.markerCount
+    );
+    return;
+  }
+
+  if (action === "jin_size") {
+    const explicitSizes = Array.isArray(
+      options.sizes
+    )
+      ? options.sizes
+          .map(normalizeRuntimeActionSize)
+          .filter(Boolean)
+      : [];
+    const sizes = explicitSizes.length
+      ? explicitSizes
+      : [
+          normalizeRuntimeActionSize(
+            options.size
+            || options.payload
+            || options.detail
+            || text
+          ),
+        ].filter(Boolean);
+
+    const name =
+      document.createElement("span");
+
+    name.className =
+      "jin-runtime-action-name";
+    name.textContent =
+      String(
+        options.displayName
+        || "JIN_SIZE"
+      ).trim()
+      || "JIN_SIZE";
+
+    label.appendChild(
+      name
+    );
+
+    const payloadSize =
+      sizes.length
+        ? sizes[sizes.length - 1]
+        : normalizeRuntimeActionSize(
+          options.size
+          || options.payload
+          || options.detail
+          || text
+        );
+
+    if (payloadSize) {
+      const payload =
+        document.createElement("span");
+
+      payload.className =
+        "jin-runtime-action-payload";
+      payload.textContent =
+        `: ${payloadSize}`;
 
       label.appendChild(
         payload
@@ -2558,6 +2767,12 @@ function appendRuntimeAction(
   if (action === "jin_color") {
     row.classList.add(
       "jin-runtime-action-color-row"
+    );
+  }
+
+  if (action === "jin_size") {
+    row.classList.add(
+      "jin-runtime-action-size-row"
     );
   }
 

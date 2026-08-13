@@ -14,6 +14,9 @@ from .common_action_utils import (
 from .jin_color_utils import (
     normalize_jin_color_payload,
 )
+from .jin_size_utils import (
+    normalize_jin_size_payload,
+)
 @dataclass(frozen=True)
 class RuntimeActionCount:
     name: str
@@ -50,8 +53,11 @@ class RuntimeActionCounter:
         payload: str,
     ) -> tuple[str, str]:
 
-        # JIN_COLOR intentionally remains one ordered aggregate sequence.
-        if name == "JIN_COLOR":
+        # Visual JIN markers intentionally remain ordered aggregate sequences.
+        if name in {
+            "JIN_COLOR",
+            "JIN_SIZE",
+        }:
             return (
                 name,
                 "",
@@ -261,13 +267,19 @@ def normalize_runtime_action_counter_payloads(
         if str(payload or "").strip()
     ]
 
-    if entry.name != "JIN_COLOR":
+    if entry.name not in {
+        "JIN_COLOR",
+        "JIN_SIZE",
+    }:
         return normalized_payloads
 
-    color_payloads = [
-        normalize_jin_color_payload(
-            payload
-        )
+    normalizer = (
+        normalize_jin_color_payload
+        if entry.name == "JIN_COLOR"
+        else normalize_jin_size_payload
+    )
+    visual_payloads = [
+        normalizer(payload)
         for payload in (
             normalized_payloads
             or list(entry.payloads)
@@ -275,9 +287,9 @@ def normalize_runtime_action_counter_payloads(
     ]
 
     return [
-        color
-        for color in color_payloads
-        if color
+        payload
+        for payload in visual_payloads
+        if payload
     ]
 
 
@@ -430,6 +442,12 @@ async def emit_runtime_action_counter_updates(
 
             if normalized_payloads:
                 event["color"] = normalized_payloads[-1]
+
+        if entry.name == "JIN_SIZE":
+            event["sizes"] = normalized_payloads
+
+            if normalized_payloads:
+                event["size"] = normalized_payloads[-1]
 
         if payload:
             event["payload"] = payload

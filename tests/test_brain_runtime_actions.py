@@ -94,6 +94,11 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
             "JIN_COLOR"
         )
 
+    if bool(runtime_actions.get("CAN_JIN_SIZE", False)):
+        expected_actions.append(
+            "JIN_SIZE"
+        )
+
     if bool(runtime_actions.get("CAN_UPDATE_L4_FACTS", False)):
         expected_actions.append(
             "UPDATE_L4_FACTS"

@@ -46,8 +46,17 @@ function handleRuntimeActionGuardConfirmation(
           data.color
           || data.payload
           || "",
+        size:
+          data.size
+          || data.payload
+          || "",
+        width:
+          data.width,
+        height:
+          data.height,
         reuseCompleted:
-          action === "jin_color",
+          action === "jin_color"
+          || action === "jin_size",
         aggregateMarkers: true,
         contextSnapshot:
           data.context || null,
@@ -1105,6 +1114,143 @@ function handleRuntimeAction(
               sceneEffect,
               fallbackToLatestActive:
                 colorApplied,
+            }
+          );
+        },
+        60
+      );
+    }
+
+    return;
+  }
+
+  if (action === "jin_size") {
+    const size =
+      String(
+        data.size
+        || data.payload
+        || ""
+      );
+    const width =
+      Number.parseInt(
+        data.width || 0,
+        10
+      );
+    const height =
+      Number.parseInt(
+        data.height || 0,
+        10
+      );
+    const actionId =
+      actionDisplayId;
+    const sizeApplied =
+      (
+        status === "completed"
+        || status === "complete"
+        || status === "done"
+      )
+      && Boolean(
+        size
+        || width
+      );
+
+    if (
+      displayText.trim()
+      && window.appendRuntimeAction
+    ) {
+      window.appendRuntimeAction(
+        action,
+        displayText,
+        {
+          id: actionId,
+          runtimeTurnId,
+          runtimeMessageId,
+          size,
+          width,
+          height,
+          payload: size,
+          detail: size,
+          displayName,
+          sceneEffect,
+          closeTag,
+          reuseCompleted: true,
+          reviveCompleted:
+            !counterFinal,
+          aggregateMarkers: true,
+          counterOnly:
+            displayCounterOnly,
+          markerCount:
+            displayMarkerCount,
+          sizes:
+            Array.isArray(data.sizes)
+              ? data.sizes
+              : counterPayloads,
+          contextSnapshot:
+            data.context || null,
+          guardConfirmationId,
+          cancelled:
+            (
+              cancelledByUser
+              || abortedByUser
+            )
+              ? true
+              : undefined,
+          preserveLabel:
+            cancelledByUser,
+          fallbackToLatestActive:
+            abortedByUser,
+        }
+      );
+    }
+
+    if (
+      sizeApplied
+      && window.JinPanels
+      && typeof window.JinPanels.setPendingJinSize === "function"
+    ) {
+      window.JinPanels.setPendingJinSize({
+        size,
+        width,
+        height,
+      });
+    }
+
+    if (
+      shouldLogRuntimeAction
+      && window.log_internal_action
+    ) {
+      window.log_internal_action(
+        action,
+        data
+      );
+    }
+
+    if (
+      (
+        sizeApplied
+        || counterFinal
+        || (
+          !aggregateMarkers
+          && (
+            status === "failed"
+            || status === "interrupted"
+            || status === "aborted"
+          )
+        )
+      )
+      && window.fadeRuntimeAction
+    ) {
+      window.setTimeout(
+        () => {
+          window.fadeRuntimeAction(
+            action,
+            {
+              id: actionId,
+              runtimeTurnId,
+              runtimeMessageId,
+              sceneEffect,
+              fallbackToLatestActive:
+                sizeApplied,
             }
           );
         },

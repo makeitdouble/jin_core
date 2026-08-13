@@ -5,6 +5,7 @@
   const STARTUP_AUTO_COLLAPSE_MS = 5_000;
   const TRANSIENT_SCROLLBAR_HIDE_MS = 650;
   const INACTIVE_CLASS = "panel-inactive";
+  const PANEL_ACTIVITY_EVENT = "jin:panel-activity";
   const STARTUP_COLLAPSE_CLASS = "panel-startup-collapse-active";
   const TRANSIENT_SCROLLBAR_CLASS = "jin-scrollbar-active";
   const PANEL_IDS = [
@@ -443,6 +444,7 @@
     });
 
     [
+      PANEL_ACTIVITY_EVENT,
       "pointerdown",
       "click",
       "wheel",

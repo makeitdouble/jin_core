@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 RECENT_MESSAGES_MAX_PAIRS = 3
 RECENT_MESSAGE_MAX_CHARS = 220
 DEFAULT_JIN_COLOR = "#1f4f8f"
+DEFAULT_JIN_SIZE_TEXT = "120px"
 
 
 class RuntimeEmitter:
@@ -371,6 +372,12 @@ class RuntimeContext:
 
     runtime_last_response_feedback: dict | None = None
 
+    runtime_avatar_panel_collapsed: bool = False
+
+    runtime_avatar_current_size: dict = field(
+        default_factory=dict
+    )
+
 
 def format_xml_field(
     tag: str,
@@ -481,6 +488,7 @@ class ContextContract:
     brain_model_uid: str = ""
     current_context_window: str = ""
     jin_color: str = DEFAULT_JIN_COLOR
+    jin_size_context: str = ""
     can_web_search: bool = True
     can_use_assets: bool = False
     can_save_session: bool = False
@@ -522,6 +530,9 @@ class ContextContract:
 
         if self.jin_color:
             fields["JIN_COLOR"] = self.jin_color
+
+        if self.jin_size_context:
+            fields["CURRENT_JIN_SIZE"] = self.jin_size_context
 
         fields["USER_DATETIME"] = format_user_datetime(
             self.current_date,

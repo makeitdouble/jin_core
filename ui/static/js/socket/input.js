@@ -292,6 +292,14 @@ chatForm.addEventListener(
       text: text,
     };
 
+    if (
+      window.JinPanels
+      && typeof window.JinPanels.getRuntimeAvatarSnapshot === "function"
+    ) {
+      payload.runtime_avatar =
+        window.JinPanels.getRuntimeAvatarSnapshot();
+    }
+
     if (attachments.length) {
       payload.attachments =
         attachments;

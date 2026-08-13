@@ -5,6 +5,8 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_PANEL_JS = ROOT / "ui" / "static" / "js" / "runtime" / "runtime-panel.js"
 SOCKET_INPUT_JS = ROOT / "ui" / "static" / "js" / "socket" / "input.js"
+LOGGER_JS = ROOT / "ui" / "static" / "js" / "logger" / "logger.js"
+BASE_CSS = ROOT / "ui" / "static" / "css" / "base.css"
 INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
 
@@ -47,6 +49,63 @@ class RuntimePanelClientContractTests(unittest.TestCase):
             input_source,
         )
 
+    def test_jin_size_collapsed_avatar_resize_animates_inside_viewport(self):
+        logger_source = LOGGER_JS.read_text(encoding="utf-8")
+        css_source = BASE_CSS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "const COLLAPSED_AVATAR_SIZE_ANIMATION_MS = 320;",
+            logger_source,
+        )
+        self.assertIn(
+            "function resolveCollapsedAvatarSizeTargetGeometry(",
+            logger_source,
+        )
+        self.assertIn(
+            "bounds.parentRect.width - targetWidth - bounds.gap",
+            logger_source,
+        )
+        self.assertIn(
+            "bounds.parentRect.height - targetHeight - bounds.gap",
+            logger_source,
+        )
+        self.assertIn(
+            "function animateCollapsedAvatarSize(panel, width, height)",
+            logger_source,
+        )
+        self.assertIn(
+            "setPanelFreeDock(panel);",
+            logger_source,
+        )
+        self.assertNotIn(
+            "COLLAPSED_AVATAR_EDGE_BUMP_DISTANCE",
+            logger_source,
+        )
+        self.assertNotIn(
+            "bumpProgress",
+            logger_source,
+        )
+        self.assertNotIn(
+            "edgeBump",
+            logger_source,
+        )
+        self.assertIn(
+            "pendingJinSizeResult.animated !== true",
+            logger_source,
+        )
+        self.assertIn(
+            "#memory-panel.panel-collapsed.panel-avatar-size-changing",
+            css_source,
+        )
+        self.assertIn(
+            "opacity: 1 !important;",
+            css_source,
+        )
+        self.assertIn(
+            "#memory-panel.panel-avatar-size-changing #memory-drag-handle",
+            css_source,
+        )
+
     def test_cache_versions_are_bumped(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
@@ -55,7 +114,7 @@ class RuntimePanelClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            "/static/js/socket/input.js?v=socket-input-memory-layer-toggle-brain-tab-1-live-turn-top-1",
+            "/static/js/socket/input.js?v=jin-size-1",
             source,
         )
 

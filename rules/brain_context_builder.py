@@ -27,6 +27,7 @@ SERVICE_AS_BRAIN_RUNTIME_ACTIONS = {
     "CAN_CLEAN_TOOL_RESULTS": True,
     "CAN_IDLE": True,
     "CAN_JIN_COLOR": True,
+    "CAN_JIN_SIZE": True,
     "CAN_UPDATE_L4_FACTS": True,
 }
 
@@ -41,6 +42,7 @@ BRAIN_RUNTIME_ACTIONS = {
     "CAN_CLEAN_TOOL_RESULTS": True,
     "CAN_IDLE": True,
     "CAN_JIN_COLOR": True,
+    "CAN_JIN_SIZE": True,
     "CAN_UPDATE_L4_FACTS": True,
 }
 

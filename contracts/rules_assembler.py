@@ -23,6 +23,7 @@ ACTION_CONFIG_KEYS = (
     ("CLEAN_TOOL_RESULTS", "CAN_CLEAN_TOOL_RESULTS"),
     ("IDLE", "CAN_IDLE"),
     ("JIN_COLOR", "CAN_JIN_COLOR"),
+    ("JIN_SIZE", "CAN_JIN_SIZE"),
     ("UPDATE_L4_FACTS", "CAN_UPDATE_L4_FACTS"),
     ("LOAD_SKILL", "CAN_USE_ASSETS"),
     ("UNLOAD_SKILL", "CAN_USE_ASSETS"),
@@ -550,4 +551,5 @@ RUNTIME_ACTION_RESOLVE_TODO = get_runtime_action_name("resolve_todo")
 RUNTIME_ACTION_CHECK_TODO = get_runtime_action_name("check_todo")
 RUNTIME_ACTION_IDLE = get_runtime_action_name("idle")
 RUNTIME_ACTION_JIN_COLOR = get_runtime_action_name("jin_color")
+RUNTIME_ACTION_JIN_SIZE = get_runtime_action_name("jin_size")
 RUNTIME_ACTION_UPDATE_L4_FACTS = get_runtime_action_name("update_l4_facts")

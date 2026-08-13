@@ -248,19 +248,48 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
 
         self.assertNotIn("avatar.refresh", click_block)
 
+    def test_avatar_svg_keeps_circular_rings_inside_resized_panel_box(self):
+        avatar_source = AVATAR_JS.read_text(encoding="utf-8")
+        css_source = AVATAR_CSS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'preserveAspectRatio: "xMidYMid meet"',
+            avatar_source,
+        )
+        self.assertNotIn(
+            'preserveAspectRatio: "none"',
+            avatar_source,
+        )
+        self.assertIn(
+            "aspect-ratio: 1;",
+            css_source,
+        )
+        self.assertIn(
+            "height: auto;",
+            css_source,
+        )
+        self.assertIn(
+            "align-self: center;",
+            css_source,
+        )
+        self.assertNotIn(
+            "--runtime-avatar-panel-width",
+            css_source,
+        )
+
     def test_avatar_cache_versions_are_bumped(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            "/static/css/runtime-avatar.css?v=runtime-ring-opacity-4",
+            "/static/css/runtime-avatar.css?v=jin-size-2",
             source,
         )
         self.assertIn(
-            "/static/js/runtime/runtime-avatar.js?v=runtime-avatar-lite-2",
+            "/static/js/runtime/runtime-avatar.js?v=jin-size-2",
             source,
         )
         self.assertIn(
-            "/static/js/socket/input.js?v=socket-input-memory-layer-toggle-brain-tab-1-live-turn-top-1",
+            "/static/js/socket/input.js?v=jin-size-1",
             source,
         )
 

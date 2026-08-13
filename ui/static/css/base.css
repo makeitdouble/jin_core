@@ -289,15 +289,23 @@ main.panels-collapsed-2 #scene-shade {
     transition: opacity 0.35s ease !important;
 }
 
-#memory-panel.panel-avatar-resetting #memory-drag-handle {
+#memory-panel.panel-collapsed.panel-avatar-size-changing {
+    opacity: 1 !important;
     transition: none !important;
 }
 
-#memory-panel.panel-avatar-resetting .jin-runtime-avatar-shell {
+#memory-panel.panel-avatar-resetting #memory-drag-handle,
+#memory-panel.panel-avatar-size-changing #memory-drag-handle {
     transition: none !important;
 }
 
-#memory-panel.panel-avatar-resetting .jin-runtime-avatar-core-button {
+#memory-panel.panel-avatar-resetting .jin-runtime-avatar-shell,
+#memory-panel.panel-avatar-size-changing .jin-runtime-avatar-shell {
+    transition: none !important;
+}
+
+#memory-panel.panel-avatar-resetting .jin-runtime-avatar-core-button,
+#memory-panel.panel-avatar-size-changing .jin-runtime-avatar-core-button {
     transition:
             box-shadow 0.18s ease,
             transform 0.18s ease,

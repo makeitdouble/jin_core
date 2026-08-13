@@ -97,21 +97,21 @@ for (const [input, expected] of cases) {
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            '/static/js/chat.js?v=chat-input-overlay-1',
+            '/static/js/chat.js?v=jin-size-1',
             source,
         )
 
         self.assertIn(
-            '/static/js/chat-runtime-actions.js?v=runtime-action-icons-3',
+            '/static/js/chat-runtime-actions.js?v=jin-size-1',
             source,
         )
 
         self.assertIn(
-            '/static/js/socket/runtime-actions.js?v=delayed-tag-trigger-1',
+            '/static/js/socket/runtime-actions.js?v=jin-size-1',
             source,
         )
         self.assertIn(
-            '/static/css/chat-runtime-action.css?v=runtime-action-icons-2',
+            '/static/css/chat-runtime-action.css?v=jin-size-1',
             source,
         )
 

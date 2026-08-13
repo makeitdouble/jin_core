@@ -7,6 +7,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
+    RUNTIME_ACTION_JIN_SIZE,
     RUNTIME_ACTION_UPDATE_L4_FACTS,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
@@ -31,6 +32,8 @@ from utils.actions import (
     extract_search_query,
     generate_active_memory_slot_key,
     normalize_jin_color_payload,
+    normalize_jin_size_dict,
+    normalize_jin_size_payload,
     parse_idle_seconds,
 )
 from utils.skills_asset_utils import (
@@ -62,6 +65,9 @@ from utils.actions.update_l4_facts_actions import schedule_update_l4_facts_actio
 from utils.actions.jin_color_actions import (
     apply_idle_actions,
     emit_jin_color_actions,
+)
+from utils.actions.jin_size_actions import (
+    emit_jin_size_actions,
 )
 from utils.actions.skill_actions import (
     apply_skill_actions,
@@ -253,7 +259,8 @@ async def apply_runtime_action_calls(
         RUNTIME_ACTION_DEEP_WEB_SEARCH,
         RUNTIME_ACTION_WEB_SEARCH,
         RUNTIME_ACTION_JIN_COLOR,
-    RUNTIME_ACTION_UPDATE_L4_FACTS,
+        RUNTIME_ACTION_JIN_SIZE,
+        RUNTIME_ACTION_UPDATE_L4_FACTS,
     }
     todo_action_names = {
         RUNTIME_ACTION_CREATE_TODO_LIST,
@@ -357,6 +364,10 @@ async def apply_runtime_action_calls(
                 )
             elif action_name == RUNTIME_ACTION_JIN_COLOR:
                 payload_identity = normalize_jin_color_payload(
+                    action.payload
+                )
+            elif action_name == RUNTIME_ACTION_JIN_SIZE:
+                payload_identity = normalize_jin_size_payload(
                     action.payload
                 )
             elif action_name in {
@@ -466,6 +477,57 @@ async def apply_runtime_action_calls(
             "",
         )
     )
+    jin_size_message_scope = (
+        resolved_runtime_message_id
+        or "__unscoped__"
+    )
+    jin_size_dedup_state = getattr(
+        context,
+        "runtime_jin_size_apply_dedup_state",
+        None,
+    )
+
+    if (
+        not isinstance(
+            jin_size_dedup_state,
+            dict,
+        )
+        or jin_size_dedup_state.get("turn_id") != current_turn_id
+    ):
+        jin_size_dedup_state = {
+            "turn_id": current_turn_id,
+            "last_size_by_message": {},
+        }
+        context.runtime_jin_size_apply_dedup_state = (
+            jin_size_dedup_state
+        )
+    elif not isinstance(
+        jin_size_dedup_state.get("last_size_by_message"),
+        dict,
+    ):
+        legacy_last_size = normalize_jin_size_payload(
+            jin_size_dedup_state.get(
+                "last_size",
+                "",
+            )
+        )
+        jin_size_dedup_state["last_size_by_message"] = {}
+
+        if legacy_last_size:
+            jin_size_dedup_state["last_size_by_message"][
+                "__unscoped__"
+            ] = legacy_last_size
+
+    jin_size_last_by_message = jin_size_dedup_state[
+        "last_size_by_message"
+    ]
+
+    current_jin_size = normalize_jin_size_payload(
+        jin_size_last_by_message.get(
+            jin_size_message_scope,
+            "",
+        )
+    )
 
     if (
         has_skill_state_action
@@ -491,6 +553,8 @@ async def apply_runtime_action_calls(
     for action in actions:
 
         jin_color = ""
+        jin_size = ""
+        jin_size_dict = None
 
         if action.name == RUNTIME_ACTION_JIN_COLOR:
             jin_color = normalize_jin_color_payload(
@@ -500,6 +564,21 @@ async def apply_runtime_action_calls(
             if (
                 not jin_color
                 or jin_color == current_jin_color
+            ):
+                continue
+
+        if action.name == RUNTIME_ACTION_JIN_SIZE:
+            jin_size = normalize_jin_size_payload(
+                action.payload
+            )
+            jin_size_dict = normalize_jin_size_dict(
+                action.payload
+            )
+
+            if (
+                not jin_size
+                or not jin_size_dict
+                or jin_size == current_jin_size
             ):
                 continue
 
@@ -652,6 +731,19 @@ async def apply_runtime_action_calls(
             jin_color_last_by_message[
                 jin_color_message_scope
             ] = jin_color
+            accepted_action_names.add(
+                action_event_name
+            )
+            filtered_actions.append(
+                action
+            )
+            continue
+
+        if action.name == RUNTIME_ACTION_JIN_SIZE:
+            current_jin_size = jin_size
+            jin_size_last_by_message[
+                jin_size_message_scope
+            ] = jin_size
             accepted_action_names.add(
                 action_event_name
             )
@@ -1116,6 +1208,19 @@ async def apply_runtime_action_calls(
                 action_event["color"] = color
                 action_event["payload"] = color
 
+        elif action.name == RUNTIME_ACTION_JIN_SIZE:
+            size = normalize_jin_size_dict(
+                action.payload
+            )
+            payload = normalize_jin_size_payload(
+                action.payload
+            )
+            if size and payload:
+                action_event["size"] = payload
+                action_event["width"] = size["width"]
+                action_event["height"] = size["height"]
+                action_event["payload"] = payload
+
         elif action.payload:
             action_event_payload = action.payload
 
@@ -1271,6 +1376,18 @@ async def apply_runtime_action_calls(
                     if color:
                         payload["color"] = color
                         payload["payload"] = color
+                if action.name == RUNTIME_ACTION_JIN_SIZE:
+                    size = normalize_jin_size_dict(
+                        action.payload
+                    )
+                    size_payload = normalize_jin_size_payload(
+                        action.payload
+                    )
+                    if size and size_payload:
+                        payload["size"] = size_payload
+                        payload["width"] = size["width"]
+                        payload["height"] = size["height"]
+                        payload["payload"] = size_payload
                 confirmation_id = str(
                     rejected_event.get(
                         "confirmation_id",
@@ -1356,6 +1473,12 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_JIN_COLOR
     ]
 
+    jin_size_actions = [
+        action
+        for action in filtered_actions
+        if action.name == RUNTIME_ACTION_JIN_SIZE
+    ]
+
     load_skill_actions = [
         action
         for action in filtered_actions
@@ -1430,6 +1553,14 @@ async def apply_runtime_action_calls(
     await emit_jin_color_actions(
         context,
         jin_color_actions,
+        action_display_ids=action_display_ids,
+        log_runtime=log_runtime,
+        with_action_context=with_action_context,
+    )
+
+    await emit_jin_size_actions(
+        context,
+        jin_size_actions,
         action_display_ids=action_display_ids,
         log_runtime=log_runtime,
         with_action_context=with_action_context,
@@ -1647,6 +1778,9 @@ async def apply_runtime_action_calls(
         )
         + len(
             jin_color_actions
+        )
+        + len(
+            jin_size_actions
         )
         + len(
             update_l4_facts_actions

@@ -159,7 +159,7 @@ function renderChatTextHtml(text) {
       text || ""
     );
   const markerPattern =
-    /<JIN_COLOR:\s*(#?(?:[0-9a-f]{6}|[0-9a-f]{3}))\s*\/?>/gi;
+    /<(?:(JIN_COLOR):\s*(#?(?:[0-9a-f]{6}|[0-9a-f]{3}))|(JIN_SIZE):\s*([^>\r\n]*?))\s*\/?>/gi;
   let rendered = "";
   let lastIndex = 0;
   let match = null;
@@ -171,16 +171,27 @@ function renderChatTextHtml(text) {
         match.index
       )
     );
-    rendered += (
-      window.JinResponseFormatter
+    if (
+      match[1]
+      && window.JinResponseFormatter
       && typeof window.JinResponseFormatter.buildJinColorMarkerHtml === "function"
-    )
-      ? window.JinResponseFormatter.buildJinColorMarkerHtml(
-          match[1]
-        )
-      : escapeHtml(
-          match[0]
-        );
+    ) {
+      rendered += window.JinResponseFormatter.buildJinColorMarkerHtml(
+        match[2]
+      );
+    } else if (
+      match[3]
+      && window.JinResponseFormatter
+      && typeof window.JinResponseFormatter.buildJinSizeMarkerHtml === "function"
+    ) {
+      rendered += window.JinResponseFormatter.buildJinSizeMarkerHtml(
+        match[4]
+      );
+    } else {
+      rendered += escapeHtml(
+        match[0]
+      );
+    }
     lastIndex =
       markerPattern.lastIndex;
   }
@@ -1539,6 +1550,10 @@ function stripInternalActionMarkers(
     )
     .replace(
       /(^|\n)[^\S\r\n]*<WEB_SEARCH:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
+      "$1"
+    )
+    .replace(
+      /(^|\n)[^\S\r\n]*<JIN_SIZE:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(

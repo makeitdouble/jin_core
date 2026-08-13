@@ -5,6 +5,9 @@ import time
 from utils.actions.action_counter_utils import (
     format_runtime_action_count,
 )
+from utils.actions.jin_size_utils import (
+    normalize_jin_size_payload,
+)
 
 
 MAX_SESSION_ACTION_HISTORY_ITEMS = 200
@@ -59,6 +62,42 @@ def _normalize_session_action_display_colors(
         )
 
     return normalized_colors
+
+
+def _normalize_session_action_display_sizes(
+    sizes,
+) -> list[str]:
+
+    if isinstance(
+        sizes,
+        (str, bytes),
+    ):
+        raw_sizes = [
+            sizes,
+        ]
+    elif isinstance(
+        sizes,
+        (list, tuple, set),
+    ):
+        raw_sizes = list(
+            sizes
+        )
+    else:
+        raw_sizes = []
+
+    normalized_sizes = []
+
+    for raw_size in raw_sizes:
+        size = normalize_jin_size_payload(
+            raw_size
+        )
+
+        if size:
+            normalized_sizes.append(
+                size
+            )
+
+    return normalized_sizes
 
 
 def get_current_action_sequence_turn_id(
@@ -604,6 +643,12 @@ def _normalize_session_action_display_parts(
                     [],
                 )
             )
+            sizes = _normalize_session_action_display_sizes(
+                part.get(
+                    "sizes",
+                    [],
+                )
+            )
             try:
                 count = max(
                     0,
@@ -628,6 +673,7 @@ def _normalize_session_action_display_parts(
             detail = ""
             part_id = ""
             colors = []
+            sizes = []
             count = 0
 
         if not part_text:
@@ -645,6 +691,9 @@ def _normalize_session_action_display_parts(
 
         if colors:
             normalized_part["colors"] = colors
+
+        if sizes:
+            normalized_part["sizes"] = sizes
 
         if count > 1:
             normalized_part["count"] = count
@@ -1250,6 +1299,7 @@ def _build_formatted_session_action_marker_parts(
         marker_identity_payloads = []
         marker_identity_aware = False
         marker_colors = []
+        marker_sizes = []
 
         if isinstance(
             marker_action,
@@ -1277,6 +1327,12 @@ def _build_formatted_session_action_marker_parts(
             marker_colors = _normalize_session_action_display_colors(
                 marker_action.get(
                     "colors",
+                    [],
+                )
+            )
+            marker_sizes = _normalize_session_action_display_sizes(
+                marker_action.get(
+                    "sizes",
                     [],
                 )
             )
@@ -1397,6 +1453,7 @@ def _build_formatted_session_action_marker_parts(
                 "payload_entries": [],
                 "payload_identity_aware": False,
                 "colors": [],
+                "sizes": [],
                 "details": [],
             },
         )
@@ -1434,6 +1491,21 @@ def _build_formatted_session_action_marker_parts(
         if marker_colors:
             group["colors"].extend(
                 marker_colors
+            )
+
+        if (
+            not marker_sizes
+            and normalized_name == "JIN_SIZE"
+        ):
+            marker_sizes = (
+                _normalize_session_action_display_sizes(
+                    marker_payloads
+                )
+            )
+
+        if marker_sizes:
+            group["sizes"].extend(
+                marker_sizes
             )
 
         for payload in marker_payloads:
@@ -1497,6 +1569,7 @@ def _build_formatted_session_action_marker_parts(
                     ) is True
                     and payload_identity_count > 1
                     and action_name != "JIN_COLOR"
+                    and action_name != "JIN_SIZE"
                 )
             )
             else []
@@ -1518,6 +1591,9 @@ def _build_formatted_session_action_marker_parts(
         colors = _normalize_session_action_display_colors(
             group["colors"]
         )
+        sizes = _normalize_session_action_display_sizes(
+            group["sizes"]
+        )
 
         part = {
             "text": action_name,
@@ -1525,6 +1601,11 @@ def _build_formatted_session_action_marker_parts(
 
         if colors:
             part["colors"] = colors
+        elif sizes:
+            part["sizes"] = sizes
+            part["detail"] = ", ".join(
+                sizes
+            )
         else:
             if (
                 action_name == "ASSET_ACTION"

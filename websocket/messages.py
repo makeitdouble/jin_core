@@ -36,6 +36,7 @@ from utils.delayed_memory_triggers import (
     append_delayed_memory_by_tags,
 )
 from utils.session_actions_history import emit_session_actions_update
+from utils.actions import normalize_jin_size_dict
 from utils.token_usage import (
     format_token_usage_summary,
     get_runtime_token_estimate_scale,
@@ -750,6 +751,45 @@ def apply_runtime_pattern_context(
     )
 
 
+def apply_runtime_avatar_context(
+    context,
+    message_data: dict,
+):
+
+    avatar_context = message_data.get(
+        "runtime_avatar",
+        {},
+    )
+
+    if not isinstance(
+        avatar_context,
+        dict,
+    ):
+        avatar_context = {}
+
+    collapsed = bool(
+        avatar_context.get(
+            "collapsed",
+            False,
+        )
+    )
+    size = normalize_jin_size_dict({
+        "width": avatar_context.get(
+            "width",
+        ),
+        "height": avatar_context.get(
+            "height",
+        ),
+    })
+
+    context.runtime_avatar_panel_collapsed = collapsed
+    context.runtime_avatar_current_size = (
+        size
+        if size
+        else {}
+    )
+
+
 def append_runtime_recent_turn(
     context,
     *,
@@ -1094,6 +1134,8 @@ async def process_message(
         context.runtime_turn_interruption_quote = ""
         context.runtime_save_session_memory_committed_this_turn = False
         context.runtime_turn_memory_user_message = ""
+        context.runtime_avatar_panel_collapsed = False
+        context.runtime_avatar_current_size = {}
         context.runtime_reasoning_recovery_pending = False
         context.runtime_context_limit_recovery_pending = False
         context.runtime_context_limit_stage = ""
@@ -1122,6 +1164,10 @@ async def process_message(
                 message_data,
             )
             apply_runtime_pattern_context(
+                context,
+                message_data,
+            )
+            apply_runtime_avatar_context(
                 context,
                 message_data,
             )

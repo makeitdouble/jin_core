@@ -25,6 +25,9 @@ from runtime.runtime_context import (
     DEFAULT_JIN_COLOR,
 )
 from utils.actions import (
+    format_jin_size_payload,
+    get_applied_jin_size,
+    normalize_jin_size_dict,
     normalize_jin_color_payload,
 )
 
@@ -87,6 +90,42 @@ def get_current_jin_color(
     return current_color
 
 
+def get_current_jin_size_context(
+    context=None,
+) -> str:
+
+    if not bool(
+        getattr(
+            context,
+            "runtime_avatar_panel_collapsed",
+            False,
+        )
+    ):
+        return ""
+
+    size = normalize_jin_size_dict(
+        getattr(
+            context,
+            "runtime_avatar_current_size",
+            {},
+        )
+    )
+
+    if not size:
+        size = get_applied_jin_size(
+            context
+        )
+
+    payload = format_jin_size_payload(
+        size
+    )
+
+    if not payload:
+        return ""
+
+    return f"current jin size : {payload}"
+
+
 def build_runtime_xml(
     context=None,
     runtime_actions=None,
@@ -116,6 +155,9 @@ def build_runtime_xml(
                 "",
             ),
             jin_color=get_current_jin_color(
+                context
+            ),
+            jin_size_context=get_current_jin_size_context(
                 context
             ),
             can_web_search=(

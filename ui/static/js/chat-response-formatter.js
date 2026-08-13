@@ -6,7 +6,7 @@
     || {};
 
   const markerPattern =
-    /<JIN_COLOR:\s*(#?(?:[0-9a-f]{6}|[0-9a-f]{3}))\s*\/?>/gi;
+    /<(?:(JIN_COLOR):\s*(#?(?:[0-9a-f]{6}|[0-9a-f]{3}))|(JIN_SIZE):\s*([^>\r\n]*?))\s*\/?>/gi;
 
   function escapeHtml(text) {
 
@@ -183,6 +183,153 @@
 
   }
 
+  function normalizeChatJinSizeMarker(value) {
+
+    const source =
+      String(
+        value || ""
+      ).trim();
+
+    if (!source) {
+      return "";
+    }
+
+    const numberPattern =
+      /^(\d+)(?:px)?$/i;
+    const labeledPattern =
+      /([wh])\s*:\s*(\d+)(?:px)?/gi;
+    const labeled = {};
+    const spans = [];
+    let match = null;
+
+    while ((match = labeledPattern.exec(source)) !== null) {
+      const label =
+        match[1].toLowerCase();
+      const size =
+        Number.parseInt(
+          match[2],
+          10
+        );
+
+      if (
+        !Number.isFinite(size)
+        || size <= 0
+        || labeled[label]
+      ) {
+        return "";
+      }
+
+      labeled[label] = size;
+      spans.push([
+        match.index,
+        labeledPattern.lastIndex,
+      ]);
+    }
+
+    if (spans.length) {
+      let cursor = 0;
+      const remainder = [];
+
+      spans.forEach(([start, end]) => {
+        remainder.push(
+          source.slice(cursor, start)
+        );
+        cursor = end;
+      });
+
+      remainder.push(
+        source.slice(cursor)
+      );
+
+      if (remainder.join("").trim()) {
+        return "";
+      }
+
+      const values =
+        Object.values(labeled);
+
+      if (values.length === 1) {
+        return `${values[0]}px`;
+      }
+
+      if (
+        labeled.w
+        && labeled.h
+      ) {
+        return labeled.w === labeled.h
+          ? `${labeled.w}px`
+          : `w:${labeled.w}px h:${labeled.h}px`;
+      }
+
+      return "";
+    }
+
+    const parts =
+      source.split(/\s+/);
+
+    if (
+      parts.length < 1
+      || parts.length > 2
+    ) {
+      return "";
+    }
+
+    const numbers =
+      parts.map((part) => {
+        const numberMatch =
+          part.match(numberPattern);
+
+        if (!numberMatch) {
+          return 0;
+        }
+
+        return Number.parseInt(
+          numberMatch[1],
+          10
+        );
+      });
+
+    if (
+      numbers.some((number) => (
+        !Number.isFinite(number)
+        || number <= 0
+      ))
+    ) {
+      return "";
+    }
+
+    if (numbers.length === 1) {
+      return `${numbers[0]}px`;
+    }
+
+    return numbers[0] === numbers[1]
+      ? `${numbers[0]}px`
+      : `w:${numbers[0]}px h:${numbers[1]}px`;
+
+  }
+
+  function buildChatJinSizeMarkerHtml(size) {
+
+    const normalizedSize =
+      normalizeChatJinSizeMarker(
+        size
+      );
+
+    if (!normalizedSize) {
+      return escapeHtml(
+        `<JIN_SIZE: ${size}>`
+      );
+    }
+
+    return (
+      `<span class="jin-chat-runtime-marker jin-chat-jin-size-marker" title="${escapeAttribute(normalizedSize)}">`
+      + "<span>JIN_SIZE</span>"
+      + `<span class="jin-chat-jin-size-value">${escapeHtml(normalizedSize)}</span>`
+      + "</span>"
+    );
+
+  }
+
   function renderInlinePlain(text) {
 
     const source =
@@ -206,9 +353,13 @@
           )
         )
       );
-      rendered += buildChatJinColorMarkerHtml(
-        match[1]
-      );
+      rendered += match[1]
+        ? buildChatJinColorMarkerHtml(
+          match[2]
+        )
+        : buildChatJinSizeMarkerHtml(
+          match[4]
+        );
       lastIndex =
         markerPattern.lastIndex;
     }
@@ -612,6 +763,10 @@
     normalizeChatJinColorMarker;
   root.buildJinColorMarkerHtml =
     buildChatJinColorMarkerHtml;
+  root.normalizeJinSizeMarker =
+    normalizeChatJinSizeMarker;
+  root.buildJinSizeMarkerHtml =
+    buildChatJinSizeMarkerHtml;
   root.normalizeArrowTokens =
     normalizeArrowTokens;
   root.render =

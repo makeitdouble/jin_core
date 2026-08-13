@@ -34,6 +34,9 @@ from utils.actions import (
     is_delayed_memory_report_id,
     RuntimeActionCounter,
     normalize_jin_color_payload,
+    normalize_jin_size_dict,
+    normalize_jin_size_payload,
+    format_jin_size_payload,
     RuntimeActionRepetitionGuard,
     RuntimeActionStreamFilter,
 )
@@ -49,6 +52,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
+    RUNTIME_ACTION_JIN_SIZE,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_UPDATE_L4_FACTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
@@ -176,8 +180,10 @@ class RuntimeStream:
         self.rejected_action_guard_names = set()
         self.action_guard_confirmation_ids = {}
         self.jin_color_action_id = ""
+        self.jin_size_action_id = ""
         self.update_l4_facts_action_ids = {}
         self.last_jin_color_action_color = ""
+        self.last_jin_size_action_size = ""
         self.runtime_action_event_offset = 0
         self.session_action_history_start = 0
         self.delayed_memory_action_payload = ""
@@ -884,6 +890,53 @@ class RuntimeStream:
             filtered_actions
         )
 
+    def filter_noop_jin_size_sequence(
+        self,
+        actions,
+        *,
+        remember: bool = True,
+    ):
+
+        current_size = self.last_jin_size_action_size
+        filtered_actions = []
+
+        for action in actions or ():
+            if getattr(
+                action,
+                "name",
+                "",
+            ) != RUNTIME_ACTION_JIN_SIZE:
+                filtered_actions.append(
+                    action
+                )
+                continue
+
+            size = normalize_jin_size_payload(
+                getattr(
+                    action,
+                    "payload",
+                    "",
+                )
+            )
+
+            if (
+                not size
+                or size == current_size
+            ):
+                continue
+
+            current_size = size
+            filtered_actions.append(
+                action
+            )
+
+        if remember:
+            self.last_jin_size_action_size = current_size
+
+        return tuple(
+            filtered_actions
+        )
+
     def get_applied_runtime_action_markers(
         self,
     ) -> list[dict]:
@@ -975,7 +1028,10 @@ class RuntimeStream:
                 or ""
             ).strip().upper()
 
-            if action_name != RUNTIME_ACTION_JIN_COLOR:
+            if action_name not in {
+                RUNTIME_ACTION_JIN_COLOR,
+                RUNTIME_ACTION_JIN_SIZE,
+            }:
                 continue
 
             payload = str(
@@ -1111,12 +1167,19 @@ class RuntimeStream:
             ),
             remember=False,
         )
+        started_actions = self.filter_noop_jin_size_sequence(
+            started_actions,
+            remember=False,
+        )
         actions = self.filter_noop_jin_color_sequence(
             getattr(
                 result,
                 "actions",
                 (),
             )
+        )
+        actions = self.filter_noop_jin_size_sequence(
+            actions
         )
 
         for action in actions:
@@ -1353,6 +1416,24 @@ class RuntimeStream:
                 )
 
             return self.jin_color_action_id
+
+        if action.name == RUNTIME_ACTION_JIN_SIZE:
+            if not self.jin_size_action_id:
+                sequence = int(
+                    getattr(
+                        self.context,
+                        "runtime_jin_size_action_sequence",
+                        0,
+                    )
+                    or 0
+                ) + 1
+                self.context.runtime_jin_size_action_sequence = sequence
+                self.jin_size_action_id = build_runtime_action_id(
+                    RUNTIME_ACTION_JIN_SIZE,
+                    sequence,
+                )
+
+            return self.jin_size_action_id
 
         if action.name == RUNTIME_ACTION_UPDATE_L4_FACTS:
             payload_key = str(action.payload or "").strip()
@@ -1885,6 +1966,19 @@ class RuntimeStream:
                 payload["color"] = color
                 payload["payload"] = color
 
+        if action.name == RUNTIME_ACTION_JIN_SIZE:
+            size = normalize_jin_size_dict(
+                action.payload
+            )
+            size_payload = format_jin_size_payload(
+                size
+            )
+            if size and size_payload:
+                payload["size"] = size_payload
+                payload["width"] = size["width"]
+                payload["height"] = size["height"]
+                payload["payload"] = size_payload
+
         if action_context_snapshot:
             payload["context"] = action_context_snapshot
 
@@ -2165,6 +2259,32 @@ class RuntimeStream:
                     "close_tag": has_close_tag,
                     "color": color,
                     "payload": color,
+                }
+            elif action.name == RUNTIME_ACTION_JIN_SIZE:
+                size = normalize_jin_size_dict(
+                    action.payload
+                )
+                size_payload = format_jin_size_payload(
+                    size
+                )
+                if not size or not size_payload:
+                    continue
+
+                payload = {
+                    "type": "runtime_action",
+                    "runtime_message_id": self.stream.message_id,
+                    "action": "jin_size",
+                    "id": self.get_runtime_action_display_id(
+                        action
+                    ),
+                    "status": "started",
+                    "display_name": display_name,
+                    "text": display_text,
+                    "close_tag": has_close_tag,
+                    "size": size_payload,
+                    "width": size["width"],
+                    "height": size["height"],
+                    "payload": size_payload,
                 }
             else:
                 payload = {
