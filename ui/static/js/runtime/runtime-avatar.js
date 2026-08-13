@@ -1241,18 +1241,24 @@
 
   function setMemoryDashGlowVariables(
     dashGroup,
-    _glowColor,
+    glowColor,
     hoverWidth,
     dotRadius
   ) {
-    [
-      "--jin-avatar-memory-glow-near",
-      "--jin-avatar-memory-glow-mid",
-      "--jin-avatar-memory-glow-far",
-    ].forEach(propertyName => (
-      dashGroup.style.removeProperty(propertyName)
-    ));
+    const glowRgb = hexToRgb(glowColor);
 
+    dashGroup.style.setProperty(
+      "--jin-avatar-memory-glow-near",
+      `rgba(${glowRgb.r},${glowRgb.g},${glowRgb.b},0.92)`
+    );
+    dashGroup.style.setProperty(
+      "--jin-avatar-memory-glow-mid",
+      `rgba(${glowRgb.r},${glowRgb.g},${glowRgb.b},0.54)`
+    );
+    dashGroup.style.setProperty(
+      "--jin-avatar-memory-glow-far",
+      `rgba(${glowRgb.r},${glowRgb.g},${glowRgb.b},0.24)`
+    );
     dashGroup.style.setProperty(
       "--jin-avatar-memory-hover-width",
       `${Number(hoverWidth || 2).toFixed(2)}px`
@@ -2043,6 +2049,8 @@
         : 54;
     const stripePlayState =
       energy > 0.02 ? "running" : "paused";
+    const sharedPhaseOffset =
+      random();
 
     while (
       activeStripeIndexes.size < activeStripeCount
@@ -2065,29 +2073,47 @@
       const outer = polarPoint(outerRadius, angle);
       const activeStripe =
         activeStripeIndexes.has(index);
+      const opacitySeed =
+        random();
       const ghostOpacity =
-        0.008 + Math.pow(random(), 2.8) * 0.055;
+        0.004 + Math.pow(opacitySeed, 3.1) * (0.018 + energy * 0.014);
+      const activeBaseOpacity =
+        0.016 + energy * 0.014 + random() * 0.014;
       const baseOpacity =
         activeStripe
-          ? 0.055 + energy * 0.035 + random() * 0.025
+          ? activeBaseOpacity
           : ghostOpacity;
+      const softOpacity =
+        baseOpacity + (
+          activeStripe
+            ? 0.010 + energy * 0.014
+            : Math.pow(random(), 2.4) * 0.010
+        );
+      const midOpacity =
+        baseOpacity + (
+          activeStripe
+            ? 0.026 + energy * 0.036 + random() * 0.010
+            : Math.pow(random(), 3.4) * 0.020
+        );
       const peakOpacity =
         activeStripe
-          ? baseOpacity + 0.10 + energy * 0.13 + random() * 0.035
-          : baseOpacity;
+          ? baseOpacity + 0.054 + energy * 0.078 + random() * 0.014
+          : baseOpacity + Math.pow(random(), 4.2) * 0.026;
       const durationSeconds =
-        baseStripeDuration + random() * 14;
+        baseStripeDuration + random() * 18;
+      const phaseRatio =
+        (ratio + sharedPhaseOffset + random() * 0.08) % 1;
       const mutedStripeColor =
         mixColors(
-          mixColors(centerColor, color, 0.38 + random() * 0.18),
-          "#091114",
-          0.18
+          mixColors(centerColor, color, 0.28 + random() * 0.18),
+          "#071012",
+          0.38 + (1 - energy) * 0.12
         );
 
       group.appendChild(createSvgElement("line", {
         class: [
           "jin-avatar-field-stripe",
-          activeStripe ? "is-jin-avatar-stripe-breathing" : "",
+          "is-jin-avatar-stripe-breathing",
         ].filter(Boolean).join(" "),
         x1: inner.x,
         y1: inner.y,
@@ -2099,9 +2125,11 @@
         "stroke-linecap": "round",
         style: [
           `--jin-avatar-stripe-base-opacity:${baseOpacity.toFixed(3)}`,
-          `--jin-avatar-stripe-peak-opacity:${Math.min(0.32, peakOpacity).toFixed(3)}`,
+          `--jin-avatar-stripe-soft-opacity:${Math.min(0.060, softOpacity).toFixed(3)}`,
+          `--jin-avatar-stripe-mid-opacity:${Math.min(activeStripe ? 0.105 : 0.052, midOpacity).toFixed(3)}`,
+          `--jin-avatar-stripe-peak-opacity:${Math.min(activeStripe ? 0.165 : 0.058, peakOpacity).toFixed(3)}`,
           `--jin-avatar-stripe-duration:${durationSeconds.toFixed(2)}s`,
-          `--jin-avatar-stripe-delay:${(-random() * durationSeconds).toFixed(2)}s`,
+          `--jin-avatar-stripe-delay:${(-phaseRatio * durationSeconds).toFixed(2)}s`,
           `--jin-avatar-stripe-play-state:${stripePlayState}`,
         ].join(";"),
       }));
@@ -2198,6 +2226,7 @@
       );
     }
 
+    const ringRgb = hexToRgb(ringColor);
     const baseSpeed = 11 + random() * 36;
     const effectiveSpeed = baseSpeed * (diffPercent / 100);
     const duration = effectiveSpeed > 0.05 ? 360 / effectiveSpeed : 9999;
@@ -2208,6 +2237,12 @@
         `--jin-avatar-duration:${duration.toFixed(2)}s`,
         `--jin-avatar-direction:${direction}`,
         `--jin-avatar-play-state:${effectiveSpeed > 0.05 ? "running" : "paused"}`,
+        `--jin-avatar-cited-glow-near:rgba(${ringRgb.r},${ringRgb.g},${ringRgb.b},0.88)`,
+        `--jin-avatar-cited-glow-mid:rgba(${ringRgb.r},${ringRgb.g},${ringRgb.b},0.54)`,
+        `--jin-avatar-cited-glow-far:rgba(${ringRgb.r},${ringRgb.g},${ringRgb.b},0.24)`,
+        `--jin-avatar-runtime-glow-near:rgba(${ringRgb.r},${ringRgb.g},${ringRgb.b},1)`,
+        `--jin-avatar-runtime-glow-mid:rgba(${ringRgb.r},${ringRgb.g},${ringRgb.b},0.81)`,
+        `--jin-avatar-runtime-glow-far:rgba(${ringRgb.r},${ringRgb.g},${ringRgb.b},0.36)`,
       ].join(";"),
     });
 

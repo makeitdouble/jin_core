@@ -83,7 +83,7 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
         self.assertIn(".jin-avatar-memory-dash.is-memory-dot", css_source)
         self.assertIn(".is-delayed-memory-linked-hit", css_source)
         self.assertIn("@keyframes jin-avatar-memory-absorb-dot", css_source)
-        self.assertIn("opacity: 0.70;", css_source)
+        self.assertIn("rgba(147, 197, 253, 0.30)", css_source)
 
     def test_l4_ring_is_rendered_between_delayed_and_active_rings(self):
         source = AVATAR_JS.read_text(encoding="utf-8")
@@ -113,19 +113,25 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
             source,
         )
 
-    def test_runtime_orbit_highlight_stays_muted_without_filters(self):
+    def test_runtime_orbit_highlight_uses_current_ring_color_glow(self):
         source = AVATAR_JS.read_text(encoding="utf-8")
         css_source = AVATAR_CSS.read_text(encoding="utf-8")
 
         self.assertIn('orbitGroup.classList.add("has-runtime-change-marker")', source)
         self.assertIn(".jin-avatar-orbit.is-memory-hover-hit", css_source)
-        self.assertIn("opacity: 0.88;", css_source)
-        self.assertIn("opacity: 0.96;", css_source)
-        self.assertNotIn("--jin-avatar-runtime-glow-near", source)
-        self.assertNotIn("--jin-avatar-cited-glow-near", source)
+        self.assertIn("const ringRgb = hexToRgb(ringColor);", source)
+        self.assertIn("--jin-avatar-runtime-glow-near", source)
+        self.assertIn("--jin-avatar-cited-glow-near", source)
+        self.assertIn("brightness(1.5)", css_source)
+        self.assertIn(
+            "var(--jin-avatar-runtime-glow-near, var(--jin-avatar-cited-glow-near",
+            css_source,
+        )
+        self.assertIn(
+            ".jin-avatar-memory-dash.is-memory-hover-hit {\n    filter:",
+            css_source,
+        )
         self.assertNotIn("feGaussianBlur", source)
-        self.assertNotIn("drop-shadow", css_source)
-        self.assertNotIn("filter:", css_source)
 
     def test_long_field_stripes_are_muted_and_diff_driven(self):
         source = AVATAR_JS.read_text(encoding="utf-8")
@@ -134,22 +140,37 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
         self.assertIn("function appendLongFieldStripes(group, record, color, options = {})", source)
         self.assertIn("const energy =", source)
         self.assertIn("const activeStripeCount = energy > 0.32 ? 2 : 1;", source)
+        self.assertIn("const sharedPhaseOffset =", source)
         self.assertIn("is-jin-avatar-stripe-breathing", source)
         self.assertIn("diffPercent,", source)
         self.assertIn("effectiveSpeed,", source)
+        self.assertIn("--jin-avatar-stripe-soft-opacity", source)
+        self.assertIn("--jin-avatar-stripe-mid-opacity", source)
+        self.assertIn("activeStripe ? 0.165 : 0.058", source)
         self.assertIn(".jin-avatar-field-stripe", css_source)
         self.assertIn("@keyframes jin-avatar-field-stripe-breathe", css_source)
         self.assertIn("--jin-avatar-stripe-base-opacity", css_source)
+        self.assertIn("--jin-avatar-stripe-soft-opacity", css_source)
+        self.assertIn("--jin-avatar-stripe-mid-opacity", css_source)
 
-    def test_avatar_shell_aura_uses_jin_color_without_filters(self):
+    def test_avatar_shell_aura_uses_jin_color(self):
         css_source = AVATAR_CSS.read_text(encoding="utf-8")
 
         self.assertIn(".jin-runtime-avatar-shell::before", css_source)
         self.assertIn("@keyframes jin-avatar-shell-aura-breathe", css_source)
         self.assertIn("var(--jin-color, #1f4f8f)", css_source)
         self.assertIn("color-mix(in srgb, var(--jin-color, #1f4f8f)", css_source)
-        self.assertNotIn("drop-shadow", css_source)
-        self.assertNotIn("filter:", css_source)
+
+    def test_avatar_depth_and_enter_softness_are_restored_without_collapsed_glow(self):
+        css_source = AVATAR_CSS.read_text(encoding="utf-8")
+
+        self.assertIn(".jin-runtime-avatar-shell::after", css_source)
+        self.assertNotIn("#memory-panel.panel-collapsed .jin-runtime-avatar-shell::before", css_source)
+        self.assertNotIn("#memory-panel.panel-collapsed .jin-runtime-avatar-shell::after", css_source)
+        self.assertNotIn("--jin-avatar-aura-opacity-high: 0.66;", css_source)
+        self.assertIn("animation: jin-avatar-orbit-enter 0.92s cubic-bezier(0.16, 0.84, 0.22, 1) forwards;", css_source)
+        self.assertIn("transform: scale(0.82);", css_source)
+        self.assertIn("transform: scale(1.012);", css_source)
 
     def test_inactive_runtime_orbit_opacity_skips_nested_dots(self):
         css_source = AVATAR_CSS.read_text(encoding="utf-8")
@@ -316,11 +337,11 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            "/static/css/runtime-avatar.css?v=jin-size-4",
+            "/static/css/runtime-avatar.css?v=jin-glow-2",
             source,
         )
         self.assertIn(
-            "/static/js/runtime/runtime-avatar.js?v=jin-size-4",
+            "/static/js/runtime/runtime-avatar.js?v=jin-glow-1",
             source,
         )
         self.assertIn(

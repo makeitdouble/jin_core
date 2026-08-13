@@ -876,7 +876,20 @@ def build_brain_context(
             tool_results_context
         )
 
-    # Skill inventory is always visible directly below tool results.
+    # Delayed memory inventory stays directly below tool results so available
+    # reports are visible before the rest of the runtime state.
+    delayed_memory_inventory_context = (
+        build_delayed_memory_inventory_context(
+            context
+        )
+    )
+
+    if delayed_memory_inventory_context:
+        prompt_parts.append(
+            delayed_memory_inventory_context
+        )
+
+    # Skill inventory is always visible near the top of the prompt.
     # The inventory is context state, not a runtime action.
     prompt_parts.append(
         build_skills_inventory_context(
@@ -920,19 +933,6 @@ def build_brain_context(
         runtime_context_parts,
         context,
     )
-
-    # Delayed memory inventory block: exposes every available report directly
-    # below CURRENT_SESSION_STATE, so no separate list action is needed.
-    delayed_memory_inventory_context = (
-        build_delayed_memory_inventory_context(
-            context
-        )
-    )
-
-    if delayed_memory_inventory_context:
-        runtime_context_parts.append(
-            delayed_memory_inventory_context
-        )
 
     # Current runtime todo block: keeps active task checklist state in view.
     _append_current_runtime_todo(

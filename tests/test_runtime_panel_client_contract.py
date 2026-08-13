@@ -117,20 +117,40 @@ class RuntimePanelClientContractTests(unittest.TestCase):
             "#memory-panel.panel-avatar-size-changing #memory-drag-handle",
             css_source,
         )
-        self.assertNotIn(
-            "memoryGlowPulse",
+        self.assertIn(
+            "НИКОГДА НЕ ТРОГАТЬ ЭТИ АУРЫ",
             css_source,
         )
-        self.assertNotIn(
-            "memoryL2GlowPulse",
+        self.assertIn(
+            "@keyframes memoryGlowPulse",
             css_source,
         )
-        self.assertNotIn(
-            "memoryL3GlowPulse",
+        self.assertIn(
+            "@keyframes memoryL2GlowPulse",
             css_source,
         )
-        self.assertNotIn(
-            "factCheckGlowPulse",
+        self.assertIn(
+            "@keyframes memoryL3GlowPulse",
+            css_source,
+        )
+        self.assertIn(
+            "@keyframes factCheckGlowPulse",
+            css_source,
+        )
+        self.assertIn(
+            "#memory-panel.memory-updating.memory-pulse",
+            css_source,
+        )
+        self.assertIn(
+            "#memory-panel.memory-l2-updating.memory-l2-pulse",
+            css_source,
+        )
+        self.assertIn(
+            "#memory-panel.memory-l3-updating.memory-l3-pulse",
+            css_source,
+        )
+        self.assertIn(
+            "#memory-panel.fact-check-running.fact-check-pulse",
             css_source,
         )
 

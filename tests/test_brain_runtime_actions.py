@@ -3443,7 +3443,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             loaded_block,
         )
 
-    def test_prompt_lists_available_delayed_memory_below_session_state(self):
+    def test_prompt_lists_available_delayed_memory_below_tool_results(self):
 
         empty_context = SimpleNamespace(
             runtime_memory="session_status: active",
@@ -3528,9 +3528,17 @@ class BrainRuntimeActionTests(unittest.TestCase):
             1,
         )
         self.assertIn(
-            "</CURRENT_SESSION_STATE>\n"
+            "</TOOLS_RESULTS>\n\n"
             + expected_inventory,
             prompt,
+        )
+        self.assertLess(
+            prompt.index(
+                expected_inventory
+            ),
+            prompt.index(
+                "<SKILLS>"
+            ),
         )
         self.assertLess(
             prompt.index(

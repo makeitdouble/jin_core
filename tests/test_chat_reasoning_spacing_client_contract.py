@@ -103,7 +103,7 @@ class ChatReasoningSpacingClientContractTests(unittest.TestCase):
     def test_cache_versions_are_bumped_for_reasoning_spacing_assets(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertIn("/static/css/base.css?v=jin-size-4", source)
+        self.assertIn("/static/css/base.css?v=jin-size-5", source)
         self.assertIn("/static/css/chat.css?v=reasoning-gap-1", source)
         self.assertIn("/static/js/chat.js?v=jin-size-1", source)
         self.assertIn(
