@@ -90,7 +90,7 @@ class L4LoggerCardsClientContractTests(unittest.TestCase):
 
         self.assertIn('/static/css/runtime-memory.css?v=l4-report-link-1', source)
         self.assertIn('/static/js/runtime/runtime-l4-memory.js?v=delayed-loaded-facts-1', source)
-        self.assertIn('/static/js/logger/logger.js?v=jin-size-3', source)
+        self.assertIn('/static/js/logger/logger.js?v=jin-size-4', source)
         self.assertIn('/static/js/logger/trace-modal.js?v=context-copy-1', source)
         self.assertIn('/static/js/logger/log-entries.js?v=delayed-fact-unlink-1', source)
         self.assertIn('/static/js/socket/event-handlers.js?v=l4-restore-2', source)

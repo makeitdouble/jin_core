@@ -173,6 +173,22 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
             source,
         )
 
+    def test_avatar_can_repaint_without_changing_geometry_seed(self):
+        source = AVATAR_JS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "function repaintAvatar()",
+            source,
+        )
+        self.assertIn(
+            "seedNonce: avatarRefreshNonce",
+            source,
+        )
+        self.assertIn(
+            "repaint: repaintAvatar,",
+            source,
+        )
+
     def test_open_delayed_report_keeps_avatar_fact_links_highlighted(self):
         source = AVATAR_JS.read_text(encoding="utf-8")
 
@@ -285,7 +301,7 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            "/static/js/runtime/runtime-avatar.js?v=jin-size-2",
+            "/static/js/runtime/runtime-avatar.js?v=jin-size-3",
             source,
         )
         self.assertIn(

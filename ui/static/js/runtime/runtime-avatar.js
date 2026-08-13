@@ -2999,6 +2999,13 @@
     });
   }
 
+  function repaintAvatar() {
+    renderAvatar(getLatestSnapshot(), {
+      seedNonce: avatarRefreshNonce,
+      snapshotIndex: getLatestSnapshotIndex(),
+    });
+  }
+
   function getLatestSnapshot() {
     const runtime = window.JinRuntime && window.JinRuntime.runtime;
 
@@ -3215,6 +3222,7 @@
   window.JinRuntime.avatar = {
     render: renderAvatar,
     refresh: reinitializeAvatar,
+    repaint: repaintAvatar,
     setCenterColor,
     setMemoryLayersHidden,
     toggleMemoryLayers,

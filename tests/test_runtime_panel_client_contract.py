@@ -94,6 +94,18 @@ class RuntimePanelClientContractTests(unittest.TestCase):
             logger_source,
         )
         self.assertIn(
+            "function repaintRuntimeAvatarAfterResize()",
+            logger_source,
+        )
+        self.assertIn(
+            "typeof avatar.repaint === \"function\"",
+            logger_source,
+        )
+        self.assertIn(
+            "repaintRuntimeAvatarAfterResize();",
+            logger_source,
+        )
+        self.assertIn(
             "#memory-panel.panel-collapsed.panel-avatar-size-changing",
             css_source,
         )
