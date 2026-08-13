@@ -324,6 +324,7 @@ const consolePanel = document.getElementById("console-panel");
     const COLLAPSED_AVATAR_MIN_RUNTIME_SIZE = 132;
     const COLLAPSED_AVATAR_RESET_ANIMATION_MS = 320;
     const COLLAPSED_AVATAR_RESET_EXPAND_DELAY_MS = 420;
+    const COLLAPSED_AVATAR_RESET_GEOMETRY_EPSILON = 1;
     const COLLAPSED_AVATAR_RESIZE_EDGES = [
         "n",
         "s",
@@ -339,6 +340,28 @@ const consolePanel = document.getElementById("console-panel");
     let startupCollapsePreviousDuration = null;
     let collapsedAvatarResetTimer = null;
     let collapsedAvatarResetFrameId = null;
+
+    function clearCollapsedAvatarResetTimer() {
+        if (collapsedAvatarResetTimer === null) {
+            return;
+        }
+
+        window.clearTimeout(
+            collapsedAvatarResetTimer
+        );
+        collapsedAvatarResetTimer = null;
+    }
+
+    function cancelCollapsedAvatarResetFrame() {
+        if (collapsedAvatarResetFrameId === null) {
+            return;
+        }
+
+        window.cancelAnimationFrame(
+            collapsedAvatarResetFrameId
+        );
+        collapsedAvatarResetFrameId = null;
+    }
 
     function getDefaultPanelDock(panel) {
         if (panel === consolePanel) {
@@ -402,6 +425,22 @@ const consolePanel = document.getElementById("console-panel");
                 safeMax
             )
         );
+    }
+
+    function collapsedAvatarGeometryMatches(
+        currentGeometry,
+        targetGeometry
+    ) {
+        return [
+            "left",
+            "top",
+            "width",
+            "height",
+        ].every((key) => (
+            Math.abs(
+                currentGeometry[key] - targetGeometry[key]
+            ) <= COLLAPSED_AVATAR_RESET_GEOMETRY_EPSILON
+        ));
     }
 
     function parseCssPixelValue(value, fallback) {
@@ -1330,7 +1369,7 @@ const consolePanel = document.getElementById("console-panel");
             !isCollapsedMemoryAvatarPanel(panel)
             || !panel.parentElement
         ) {
-            return;
+            return false;
         }
 
         const parentRect =
@@ -1345,16 +1384,7 @@ const consolePanel = document.getElementById("console-panel");
         const centerY =
             panelRect.top - parentRect.top + (panelRect.height / 2);
 
-        if (collapsedAvatarResetFrameId !== null) {
-            window.cancelAnimationFrame(
-                collapsedAvatarResetFrameId
-            );
-            collapsedAvatarResetFrameId = null;
-        }
-
-        panel.classList.add(
-            "panel-avatar-resetting"
-        );
+        cancelCollapsedAvatarResetFrame();
 
         const defaultRuntimeAvatarSize =
             getDefaultRuntimeAvatarSize();
@@ -1428,6 +1458,23 @@ const consolePanel = document.getElementById("console-panel");
             height: targetHeight,
         };
 
+        if (
+            collapsedAvatarGeometryMatches(
+                startGeometry,
+                targetGeometry
+            )
+        ) {
+            applyCollapsedAvatarGeometry(
+                panel,
+                targetGeometry
+            );
+            return false;
+        }
+
+        panel.classList.add(
+            "panel-avatar-resetting"
+        );
+
         const startTime =
             window.performance.now();
 
@@ -1499,6 +1546,49 @@ const consolePanel = document.getElementById("console-panel");
             window.requestAnimationFrame(
                 animateReset
             );
+
+        return true;
+    }
+
+    function finishCollapsedAvatarResetAndExpand(panel) {
+        if (!panel) {
+            return;
+        }
+
+        clearCollapsedAvatarResetTimer();
+
+        const bounds =
+            panel.parentElement
+                ? getCollapsedAvatarResizeBounds(panel)
+                : null;
+
+        const defaultWidth =
+            getDefaultPanelWidth();
+
+        cancelCollapsedAvatarResetFrame();
+
+        if (
+            !bounds
+            || defaultWidth <= bounds.maxWidth
+        ) {
+            panel.style.removeProperty(
+                "width"
+            );
+        }
+
+        panel.style.removeProperty(
+            "--runtime-avatar-panel-size"
+        );
+
+        panel.classList.remove(
+            "panel-avatar-resetting"
+        );
+
+        setPanelCollapsed(
+            panel,
+            false
+        );
+        syncSceneShadeToPanelCollapse();
     }
 
     function getCollapsedAvatarResizeCursor(edge) {
@@ -2575,54 +2665,22 @@ memoryDragHandle.addEventListener("dblclick", (event) => {
         event.preventDefault();
         finishStartupCollapseAnimation();
 
-        if (collapsedAvatarResetTimer !== null) {
-            window.clearTimeout(
-                collapsedAvatarResetTimer
-            );
+        clearCollapsedAvatarResetTimer();
+
+        const avatarResetStarted =
+            resetCollapsedAvatarToDefault(memoryPanel);
+
+        if (!avatarResetStarted) {
+            finishCollapsedAvatarResetAndExpand(memoryPanel);
+            return;
         }
 
-        resetCollapsedAvatarToDefault(memoryPanel);
         syncSceneShadeToPanelCollapse();
 
         collapsedAvatarResetTimer =
             window.setTimeout(
                 () => {
-                    collapsedAvatarResetTimer =
-                        null;
-
-                    const bounds =
-                        getCollapsedAvatarResizeBounds(memoryPanel);
-
-                    const defaultWidth =
-                        getDefaultPanelWidth();
-
-                    if (collapsedAvatarResetFrameId !== null) {
-                        window.cancelAnimationFrame(
-                            collapsedAvatarResetFrameId
-                        );
-                        collapsedAvatarResetFrameId =
-                            null;
-                    }
-
-                    if (defaultWidth <= bounds.maxWidth) {
-                        memoryPanel.style.removeProperty(
-                            "width"
-                        );
-                    }
-
-                    memoryPanel.style.removeProperty(
-                        "--runtime-avatar-panel-size"
-                    );
-
-                    memoryPanel.classList.remove(
-                        "panel-avatar-resetting"
-                    );
-
-                    setPanelCollapsed(
-                        memoryPanel,
-                        false
-                    );
-                    syncSceneShadeToPanelCollapse();
+                    finishCollapsedAvatarResetAndExpand(memoryPanel);
                 },
                 COLLAPSED_AVATAR_RESET_EXPAND_DELAY_MS
             );

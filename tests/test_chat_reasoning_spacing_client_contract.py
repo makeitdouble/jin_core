@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BASE_CSS = ROOT / "ui" / "static" / "css" / "base.css"
 CHAT_CSS = ROOT / "ui" / "static" / "css" / "chat.css"
 CHAT_JS = ROOT / "ui" / "static" / "js" / "chat.js"
+PANEL_INACTIVITY_JS = ROOT / "ui" / "static" / "js" / "panel-inactivity.js"
 INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
 
@@ -72,12 +73,43 @@ class ChatReasoningSpacingClientContractTests(unittest.TestCase):
         self.assertIn("new ResizeObserver", source)
         self.assertIn("- getChatInputOverlaySpace()", source)
 
+    def test_chat_scrollbar_only_appears_while_scrolling(self):
+        css = BASE_CSS.read_text(encoding="utf-8")
+        source = PANEL_INACTIVITY_JS.read_text(encoding="utf-8")
+
+        self.assertIn("width: 1px;", css)
+        self.assertIn("#chat-history::-webkit-scrollbar", css)
+        self.assertIn("scrollbar-color: transparent transparent;", css)
+        self.assertIn(
+            "scrollbar-color: rgba(39, 39, 42, 0.90) transparent;",
+            css,
+        )
+        self.assertIn("#chat-history.jin-scrollbar-active", css)
+        self.assertIn(".jin-scrollbar-active::-webkit-scrollbar-thumb", css)
+        self.assertIn(
+            'const TRANSIENT_SCROLLBAR_CLASS = "jin-scrollbar-active";',
+            source,
+        )
+        self.assertIn('"#chat-history"', source)
+        self.assertIn("const SCROLL_KEYS = new Set(", source)
+        self.assertIn("transientScrollbarElements.add(element);", source)
+        self.assertIn("markKnownTransientScrollbarsActive", source)
+        self.assertIn('"wheel"', source)
+        self.assertIn('"touchmove"', source)
+        self.assertIn('"keydown"', source)
+        self.assertIn('"scroll"', source)
+        self.assertIn("TRANSIENT_SCROLLBAR_HIDE_MS", source)
+
     def test_cache_versions_are_bumped_for_reasoning_spacing_assets(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertIn("/static/css/base.css?v=chat-input-overlay-2", source)
+        self.assertIn("/static/css/base.css?v=transient-scrollbar-5", source)
         self.assertIn("/static/css/chat.css?v=reasoning-gap-1", source)
         self.assertIn("/static/js/chat.js?v=chat-input-overlay-1", source)
+        self.assertIn(
+            "/static/js/panel-inactivity.js?v=transient-scrollbar-2",
+            source,
+        )
 
 
 if __name__ == "__main__":

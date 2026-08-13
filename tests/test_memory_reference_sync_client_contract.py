@@ -264,6 +264,35 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
             free_body,
         )
 
+    def test_default_collapsed_avatar_expands_without_reset_delay(self):
+        source = LOGGER_JS.read_text(encoding="utf-8")
+        reset_start = source.index("function resetCollapsedAvatarToDefault(panel)")
+        reset_end = source.index("function finishCollapsedAvatarResetAndExpand", reset_start)
+        reset_body = source[reset_start:reset_end]
+        handler_start = source.index(
+            'memoryDragHandle.addEventListener("dblclick"'
+        )
+        handler_end = source.index(
+            "togglePanelCollapseFromHeader(",
+            handler_start,
+        )
+        handler_body = source[handler_start:handler_end]
+
+        self.assertIn("function collapsedAvatarGeometryMatches(", source)
+        self.assertIn("return false;", reset_body)
+        self.assertIn(
+            "const avatarResetStarted =\n            resetCollapsedAvatarToDefault(memoryPanel);",
+            handler_body,
+        )
+        self.assertIn(
+            "if (!avatarResetStarted) {\n            finishCollapsedAvatarResetAndExpand(memoryPanel);\n            return;\n        }",
+            handler_body,
+        )
+        self.assertLess(
+            handler_body.index("if (!avatarResetStarted)"),
+            handler_body.index("collapsedAvatarResetTimer ="),
+        )
+
     def test_open_delayed_report_dispatches_avatar_active_state(self):
         source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
         css_source = RUNTIME_MEMORY_CSS.read_text(encoding="utf-8")

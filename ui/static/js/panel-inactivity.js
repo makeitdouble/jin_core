@@ -3,21 +3,143 @@
 
   const PANEL_INACTIVITY_MS = 30_000;
   const STARTUP_AUTO_COLLAPSE_MS = 5_000;
+  const TRANSIENT_SCROLLBAR_HIDE_MS = 650;
   const INACTIVE_CLASS = "panel-inactive";
   const STARTUP_COLLAPSE_CLASS = "panel-startup-collapse-active";
+  const TRANSIENT_SCROLLBAR_CLASS = "jin-scrollbar-active";
   const PANEL_IDS = [
     "console-panel",
     "memory-panel",
   ];
+  const TRANSIENT_SCROLLBAR_SELECTORS = [
+    "#chat-history",
+  ];
+  const SCROLL_KEYS = new Set([
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+    "ArrowUp",
+    "End",
+    "Home",
+    "PageDown",
+    "PageUp",
+    " ",
+  ]);
   let startupAutoCollapseTimerId = null;
   let startupAutoCollapseCancelled = false;
   let startupFallbackCleanupTimerId = null;
   let startupFallbackPreviousDuration = null;
+  const transientScrollbarElements = new Set();
+  const transientScrollbarTimers = new WeakMap();
 
   function getPanels() {
     return PANEL_IDS
       .map((panelId) => document.getElementById(panelId))
       .filter(Boolean);
+  }
+
+  function markTransientScrollbarActive(element) {
+    if (!element || !element.classList) {
+      return;
+    }
+
+    const activeTimerId =
+      transientScrollbarTimers.get(element);
+
+    if (activeTimerId) {
+      window.clearTimeout(activeTimerId);
+    }
+
+    element.classList.add(
+      TRANSIENT_SCROLLBAR_CLASS
+    );
+
+    transientScrollbarTimers.set(
+      element,
+      window.setTimeout(
+        () => {
+          element.classList.remove(
+            TRANSIENT_SCROLLBAR_CLASS
+          );
+          transientScrollbarTimers.delete(element);
+        },
+        TRANSIENT_SCROLLBAR_HIDE_MS
+      )
+    );
+  }
+
+  function markDocumentScrollbarActive() {
+    markTransientScrollbarActive(
+      document.documentElement
+    );
+
+    markTransientScrollbarActive(
+      document.body
+    );
+  }
+
+  function markKnownTransientScrollbarsActive() {
+    transientScrollbarElements.forEach(
+      markTransientScrollbarActive
+    );
+  }
+
+  function bindTransientScrollbar(element) {
+    if (!element) {
+      return;
+    }
+
+    transientScrollbarElements.add(element);
+
+    const markElementScrollbarActive = () => {
+      markTransientScrollbarActive(element);
+    };
+
+    [
+      "wheel",
+      "touchmove",
+      "scroll",
+    ].forEach((eventName) => {
+      element.addEventListener(
+        eventName,
+        markElementScrollbarActive,
+        { passive: true }
+      );
+    });
+  }
+
+  function bindTransientScrollbars() {
+    TRANSIENT_SCROLLBAR_SELECTORS.forEach((selector) => {
+      document.querySelectorAll(selector)
+        .forEach(bindTransientScrollbar);
+    });
+
+    document.addEventListener(
+      "wheel",
+      markKnownTransientScrollbarsActive,
+      { passive: true }
+    );
+
+    document.addEventListener(
+      "touchmove",
+      markKnownTransientScrollbarsActive,
+      { passive: true }
+    );
+
+    document.addEventListener(
+      "keydown",
+      (event) => {
+        if (SCROLL_KEYS.has(event.key)) {
+          markKnownTransientScrollbarsActive();
+        }
+      }
+    );
+
+    window.addEventListener(
+      "scroll",
+      markDocumentScrollbarActive,
+      { passive: true }
+    );
   }
 
   function clearStartupAutoCollapseTimer() {
@@ -347,6 +469,8 @@
   getPanels().forEach((panel) => {
     bindPanelInactivity(panel);
   });
+
+  bindTransientScrollbars();
 
   window.addEventListener(
     "blur",
