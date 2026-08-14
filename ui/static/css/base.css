@@ -49,9 +49,10 @@ body.jin-scrollbar-active,
 
 :root {
     --panel-gap: 8px;
-    --panel-width: 330px;
+    --panel-width: 333px;
+    --memory-panel-width: 333px;
     --panel-collapsed-title-height: 40px;
-    --runtime-avatar-panel-size: clamp(278px, 30vh, 286px);
+    --runtime-avatar-panel-size: 333px;
     --memory-avatar-collapsed-frame-size: 2px;
     --panel-collapse-duration: 0.22s;
     --panel-startup-collapse-duration: 5s;
@@ -195,7 +196,6 @@ main.panels-collapsed-2 #scene-shade {
 
 #console-panel,
 #memory-panel {
-    width: var(--panel-width);
     max-height: 100%;
     opacity: 1;
     transition:
@@ -383,12 +383,14 @@ main.panels-collapsed-2 #scene-shade {
 
 #console-panel {
     left: var(--panel-gap);
+    width: var(--panel-width);
     top: var(--panel-gap);
     height: calc(100% - (var(--panel-gap) * 2));
 }
 
 #memory-panel {
     right: var(--panel-gap);
+    width: var(--memory-panel-width);
     top: var(--panel-gap);
     height: calc(100% - (var(--panel-gap) * 2));
 }

@@ -53,7 +53,7 @@
     position: relative;
     isolation: isolate;
     display: grid;
-    width: min(100%, var(--runtime-avatar-panel-size), 278px);
+    width: min(100%, var(--runtime-avatar-panel-size));
     height: auto;
     aspect-ratio: 1;
     align-self: center;
@@ -558,7 +558,7 @@ body.theme-win95 #memory-drag-handle {
 }
 
 body.theme-win95 .jin-runtime-avatar-shell {
-    width: min(100%, 278px);
+    width: min(100%, var(--runtime-avatar-panel-size));
 }
 
 body.theme-win95 .jin-runtime-avatar-core-button {

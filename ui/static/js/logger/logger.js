@@ -322,7 +322,7 @@ const consolePanel = document.getElementById("console-panel");
     const STARTUP_COLLAPSE_CLASS = "panel-startup-collapse-active";
     const COLLAPSED_AVATAR_MIN_PANEL_WIDTH = 96;
     const COLLAPSED_AVATAR_MIN_RUNTIME_SIZE = 96;
-    const DEFAULT_JIN_AVATAR_SIZE = 120;
+    const DEFAULT_JIN_AVATAR_SIZE = 333;
     const COLLAPSED_AVATAR_RESET_ANIMATION_MS = 320;
     const COLLAPSED_AVATAR_SIZE_ANIMATION_MS = 320;
     const COLLAPSED_AVATAR_RESET_EXPAND_DELAY_MS = 420;
@@ -707,7 +707,7 @@ const consolePanel = document.getElementById("console-panel");
         const fallback =
             memoryDragHandle
                 ? memoryDragHandle.getBoundingClientRect().height
-                : 278;
+                : 333;
 
         return resolveCssLengthPixels(
             rawSize,
@@ -718,12 +718,12 @@ const consolePanel = document.getElementById("console-panel");
     function getDefaultPanelWidth() {
         const rawWidth =
             getComputedStyle(document.documentElement)
-                .getPropertyValue("--panel-width")
+                .getPropertyValue("--memory-panel-width")
                 .trim();
 
         return resolveCssLengthPixels(
             rawWidth,
-            330
+            333
         );
     }
 
@@ -888,6 +888,17 @@ const consolePanel = document.getElementById("console-panel");
             }
         );
         syncCollapsedPanelBodies();
+
+        if (panel === consolePanel && consoleStream) {
+            window.requestAnimationFrame(() => {
+                window.requestAnimationFrame(() => {
+                    consoleStream.scrollTo({
+                        top: consoleStream.scrollHeight,
+                        behavior: "smooth",
+                    });
+                });
+            });
+        }
     }
 
     function restorePanelDimension(panel, styleName, datasetName) {
