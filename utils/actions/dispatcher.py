@@ -1165,9 +1165,12 @@ async def apply_runtime_action_calls(
 
         if deep_search_objective:
             deep_search_action_count += 1
-            tool_call_id = build_runtime_action_id(
-                action.name,
-                deep_search_action_count,
+            tool_call_id = (
+                action_display_id
+                or build_runtime_action_id(
+                    action.name,
+                    deep_search_action_count,
+                )
             )
             action_event["id"] = tool_call_id
             action_event["query"] = deep_search_objective
@@ -1179,9 +1182,12 @@ async def apply_runtime_action_calls(
 
         elif query:
             search_action_count += 1
-            tool_call_id = build_runtime_action_id(
-                action.name,
-                search_action_count,
+            tool_call_id = (
+                action_display_id
+                or build_runtime_action_id(
+                    action.name,
+                    search_action_count,
+                )
             )
             action_event["id"] = tool_call_id
             action_event["query"] = query
@@ -1272,23 +1278,67 @@ async def apply_runtime_action_calls(
         )
 
         if rejected_event is None:
+            runtime_action_display_name = (
+                get_runtime_action_display_name(
+                    action.name
+                )
+            )
+            runtime_action_display_text = (
+                build_runtime_action_display_text(
+                    action.name,
+                    action.payload,
+                )
+            )
+            runtime_action_id = str(
+                action_event.get(
+                    "id",
+                    action_display_id,
+                )
+                or ""
+            ).strip()
+
+            if deep_search_objective:
+                runtime_action_display_text = (
+                    f"{runtime_action_display_name}: "
+                    f"{deep_search_objective}"
+                )
+
+            deep_search_was_already_started = any(
+                isinstance(
+                    record,
+                    dict,
+                )
+                and str(
+                    record.get(
+                        "action",
+                        "",
+                    )
+                    or ""
+                ).strip().lower() == RUNTIME_ACTION_DEEP_WEB_SEARCH.lower()
+                and str(
+                    record.get(
+                        "id",
+                        "",
+                    )
+                    or ""
+                ).strip() == runtime_action_id
+                for record in getattr(
+                    context,
+                    "runtime_active_action_markers",
+                    [],
+                )
+                or []
+            )
+
             mark_runtime_action_started(
                 context,
                 action=action_event.get(
                     "name",
                     action.name.lower(),
                 ),
-                action_id=action_event.get(
-                    "id",
-                    action_display_id,
-                ),
-                display_name=get_runtime_action_display_name(
-                    action.name
-                ),
-                text=build_runtime_action_display_text(
-                    action.name,
-                    action.payload,
-                ),
+                action_id=runtime_action_id,
+                display_name=runtime_action_display_name,
+                text=runtime_action_display_text,
                 payload=(
                     action_event.get(
                         "payload",
@@ -1305,6 +1355,37 @@ async def apply_runtime_action_calls(
                 ),
                 context_snapshot=action_context_snapshot,
             )
+
+            if (
+                deep_search_objective
+                and not deep_search_was_already_started
+            ):
+                emitter = getattr(
+                    context,
+                    "emitter",
+                    None,
+                )
+                emit = getattr(
+                    emitter,
+                    "emit",
+                    None,
+                )
+
+                if emit is not None:
+                    await emit(with_action_context({
+                        "type": "runtime_action",
+                        "action": RUNTIME_ACTION_DEEP_WEB_SEARCH.lower(),
+                        "id": runtime_action_id,
+                        "status": "started",
+                        "display_name": runtime_action_display_name,
+                        "text": runtime_action_display_text,
+                        "query": deep_search_objective,
+                        "scene_effect": "search",
+                        "deep_search_parent": True,
+                        "close_tag": runtime_action_has_close_tag(
+                            action.name
+                        ),
+                    }))
 
     if rejected_action_events:
         emitter = getattr(

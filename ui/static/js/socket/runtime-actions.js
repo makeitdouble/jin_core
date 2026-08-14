@@ -874,6 +874,21 @@ function handleRuntimeAction(
   const deepSearchChild =
     data.deep_search_child === true
     || data.deepSearchChild === true;
+  const deepSearchParent =
+    data.deep_search_parent === true
+    || data.deepSearchParent === true;
+  const deepSearchParentId =
+    String(
+      data.deep_search_parent_id
+      || data.deepSearchParentId
+      || ""
+    ).trim();
+  const deepSearchObjective =
+    String(
+      data.deep_search_objective
+      || data.deepSearchObjective
+      || ""
+    ).trim();
 
   const closeTag =
     isRuntimeActionCloseTag(
@@ -1325,12 +1340,17 @@ function handleRuntimeAction(
     && delayedMemoryPreview.reportId
     && window.JinRuntime
     && window.JinRuntime.runtime
-    && typeof window.JinRuntime.runtime.markDelayedMemoryReportLoaded
-      === "function"
+    && (
+      typeof window.JinRuntime.runtime.markDelayedMemoryReportLoaded
+        === "function"
+      || typeof window.JinRuntime.runtime.markDelayedMemoryReportAppended
+        === "function"
+    )
   ) {
     if (
       action === "load_delayed_memory"
-      || action === "append_delayed_memory"
+      && typeof window.JinRuntime.runtime.markDelayedMemoryReportLoaded
+        === "function"
     ) {
       window.JinRuntime.runtime.markDelayedMemoryReportLoaded(
         delayedMemoryPreview.reportId,
@@ -1338,7 +1358,32 @@ function handleRuntimeAction(
       );
     }
 
-    if (action === "unload_delayed_memory") {
+    if (
+      action === "append_delayed_memory"
+      && typeof window.JinRuntime.runtime.markDelayedMemoryReportAppended
+        === "function"
+    ) {
+      window.JinRuntime.runtime.markDelayedMemoryReportAppended(
+        delayedMemoryPreview.reportId,
+        true
+      );
+    }
+
+    if (
+      action === "unload_delayed_memory"
+      && typeof window.JinRuntime.runtime.markDelayedMemoryReportAppended
+        === "function"
+    ) {
+      window.JinRuntime.runtime.markDelayedMemoryReportAppended(
+        delayedMemoryPreview.reportId,
+        false,
+        { unload: true }
+      );
+    } else if (
+      action === "unload_delayed_memory"
+      && typeof window.JinRuntime.runtime.markDelayedMemoryReportLoaded
+        === "function"
+    ) {
       window.JinRuntime.runtime.markDelayedMemoryReportLoaded(
         delayedMemoryPreview.reportId,
         false
@@ -1382,7 +1427,10 @@ function handleRuntimeAction(
           displayName,
           sceneEffect,
           status,
+          deepSearchParent,
           deepSearchChild,
+          deepSearchParentId,
+          deepSearchObjective,
           closeTag,
           pendingUntilL3,
           forceCompletePendingL3,
@@ -1414,7 +1462,10 @@ function handleRuntimeAction(
           runtimeTurnId,
           runtimeMessageId,
           sceneEffect,
+          deepSearchParent,
           deepSearchChild,
+          deepSearchParentId,
+          deepSearchObjective,
           forceCompletePendingL3,
         }
       );
@@ -1480,7 +1531,10 @@ function handleRuntimeAction(
       displayName,
       sceneEffect,
       status,
+      deepSearchParent,
       deepSearchChild,
+      deepSearchParentId,
+      deepSearchObjective,
       closeTag,
       pendingUntilL3,
       forceCompletePendingL3,
@@ -1512,7 +1566,10 @@ function handleRuntimeAction(
         runtimeTurnId,
         runtimeMessageId,
         sceneEffect,
+        deepSearchParent,
         deepSearchChild,
+        deepSearchParentId,
+        deepSearchObjective,
         forceCompletePendingL3,
         fallbackToLatestActive:
           terminalFailure,

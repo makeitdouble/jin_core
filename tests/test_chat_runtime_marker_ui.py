@@ -102,16 +102,16 @@ for (const [input, expected] of cases) {
         )
 
         self.assertIn(
-            '/static/js/chat-runtime-actions.js?v=jin-size-1',
+            '/static/js/chat-runtime-actions.js?v=deep-search-stack-2',
             source,
         )
 
         self.assertIn(
-            '/static/js/socket/runtime-actions.js?v=jin-size-1',
+            '/static/js/socket/runtime-actions.js?v=deep-search-stack-2',
             source,
         )
         self.assertIn(
-            '/static/css/chat-runtime-action.css?v=jin-size-1',
+            '/static/css/chat-runtime-action.css?v=deep-search-stack-2',
             source,
         )
 
@@ -161,11 +161,20 @@ for (const [input, expected] of cases) {
             ),
         )
 
-    def test_deep_search_child_runtime_actions_stay_visible(self):
+    def test_deep_search_runtime_actions_use_stacked_child_bubbles(self):
         chat_runtime_source = CHAT_RUNTIME_ACTIONS_JS.read_text(
             encoding="utf-8"
         )
         socket_runtime_source = SOCKET_RUNTIME_ACTIONS_JS.read_text(
+            encoding="utf-8"
+        )
+        runtime_action_css = (
+            ROOT
+            / "ui"
+            / "static"
+            / "css"
+            / "chat-runtime-action.css"
+        ).read_text(
             encoding="utf-8"
         )
 
@@ -174,19 +183,63 @@ for (const [input, expected] of cases) {
             chat_runtime_source,
         )
         self.assertIn(
-            'row.dataset.runtimeActionDeepSearch =\n    "true";',
+            "function isDeepSearchChildRuntimeAction(",
             chat_runtime_source,
         )
         self.assertIn(
-            "row.dataset.runtimeActionDeepSearch === \"true\"",
+            "jin-runtime-action-deep-search-parent",
             chat_runtime_source,
         )
         self.assertIn(
-            '"jin-runtime-action-search-active"',
+            "jin-runtime-action-deep-search-child",
             chat_runtime_source,
+        )
+        self.assertIn(
+            "icon.remove();",
+            chat_runtime_source,
+        )
+        self.assertNotIn(
+            "jin-runtime-action-search-active",
+            chat_runtime_source,
+        )
+        self.assertNotIn(
+            "jin-runtime-action-search-active",
+            runtime_action_css,
+        )
+        self.assertIn(
+            "jin-runtime-action-deep-search-stack-expanded",
+            runtime_action_css,
+        )
+        self.assertIn(
+            "margin-top: -1.35rem",
+            runtime_action_css,
+        )
+        self.assertIn(
+            "function insertRuntimeActionRow(",
+            chat_runtime_source,
+        )
+        self.assertIn(
+            'parentRow.insertAdjacentElement(',
+            chat_runtime_source,
+        )
+        self.assertIn(
+            '"afterend",',
+            chat_runtime_source,
+        )
+        self.assertIn(
+            "margin-top 240ms cubic-bezier(0, 0, 0.2, 1)",
+            runtime_action_css,
+        )
+        self.assertIn(
+            "transition-timing-function: cubic-bezier(0.4, 0, 1, 1)",
+            runtime_action_css,
         )
         self.assertIn(
             "const deepSearchChild =",
+            socket_runtime_source,
+        )
+        self.assertIn(
+            "const deepSearchParentId =",
             socket_runtime_source,
         )
         self.assertIn(
@@ -194,7 +247,15 @@ for (const [input, expected] of cases) {
             socket_runtime_source,
         )
         self.assertIn(
+            "data.deep_search_parent_id",
+            socket_runtime_source,
+        )
+        self.assertIn(
             "deepSearchChild,",
+            socket_runtime_source,
+        )
+        self.assertIn(
+            "deepSearchParentId,",
             socket_runtime_source,
         )
 

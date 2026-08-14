@@ -216,7 +216,7 @@ def test_stream_validator_stops_repeated_sentence_sequence_with_markers():
 
     repeated_block = (
         "* *Actually*, I'll do:\n"
-        "- `<SAVE_ACTIVE_MEMORY: Experiment timer>`\n"
+        "- `<SAVE_ACTIVE_MEMORY> Experiment timer </SAVE_ACTIVE_MEMORY>`\n"
         "- `<WEB_SEARCH: fusion energy>`\n"
         "\n"
         "* *Wait*, I'll just do the search.\n"

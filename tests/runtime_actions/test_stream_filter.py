@@ -556,11 +556,6 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 }),
             ),
             (
-                "<SAVE_ACTIVE_MEMORY: remember tea/>",
-                "SAVE_ACTIVE_MEMORY",
-                "remember tea",
-            ),
-            (
                 "<LOAD_SKILL: file_manager/>",
                 "LOAD_SKILL",
                 "file_manager",
@@ -604,12 +599,9 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 )
 
         self.assertEqual(
-            get_save_active_memory_marker_fields(
-                "<SAVE_ACTIVE_MEMORY: one | two/>"
-            ),
+            get_save_active_memory_marker_fields(),
             (
-                "one",
-                "two",
+                "conditions",
             ),
         )
 
@@ -675,9 +667,9 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             (
                 (
                     "Before "
-                    "<SAVE_ACTIVE_MEMORY: Remind to drink coffee>"
+                    "<SAVE_ACTIVE_MEMORY>Remind to drink coffee</SAVE_ACTIVE_MEMORY>"
                     " middle "
-                    "<SAVE_ACTIVE_MEMORY: Remind to drink coffee>"
+                    "<SAVE_ACTIVE_MEMORY>Remind to drink coffee</SAVE_ACTIVE_MEMORY>"
                     " after"
                 ),
                 [
@@ -712,8 +704,8 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             (
                 (
                     "Before\n"
-                    "<SAVE_ACTIVE_MEMORY: Remind to drink coffee>\n"
-                    "<SAVE_ACTIVE_MEMORY: Remind to drink coffee>\n"
+                    "<SAVE_ACTIVE_MEMORY>Remind to drink coffee</SAVE_ACTIVE_MEMORY>\n"
+                    "<SAVE_ACTIVE_MEMORY>Remind to drink coffee</SAVE_ACTIVE_MEMORY>\n"
                     "After"
                 ),
                 [
@@ -827,7 +819,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 ],
             )
             memory_result = extract_runtime_actions(
-                "<SAVE_ACTIVE_MEMORY: active_memory_id|status>",
+                "<SAVE_ACTIVE_MEMORY> CONDITIONS </SAVE_ACTIVE_MEMORY>",
                 enabled_actions=[
                     "CAN_SAVE_ACTIVE_MEMORY",
                 ],
@@ -1266,8 +1258,8 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
         marker_text = (
             "<WEB_SEARCH: latest breakthroughs in fusion energy 2026>\n"
-            "<SAVE_ACTIVE_MEMORY: experiment_start_time: "
-            "2026-07-12 23:55>"
+            "<SAVE_ACTIVE_MEMORY>experiment_start_time: "
+            "2026-07-12 23:55</SAVE_ACTIVE_MEMORY>"
         )
         expected_actions = (
             RuntimeActionCall(
@@ -1326,10 +1318,10 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
         first = stream_filter.filter(
-            "<SAVE_ACTIVE_MEMORY: Remind to drink coffee>"
+            "<SAVE_ACTIVE_MEMORY>Remind to drink coffee</SAVE_ACTIVE_MEMORY>"
         )
         second = stream_filter.filter(
-            "<SAVE_ACTIVE_MEMORY: Remind to drink coffee>"
+            "<SAVE_ACTIVE_MEMORY>Remind to drink coffee</SAVE_ACTIVE_MEMORY>"
         )
 
         self.assertEqual(

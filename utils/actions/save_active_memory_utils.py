@@ -2,6 +2,7 @@ import re
 
 from contracts.rules_assembler import (
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
+    get_runtime_action_body_placeholder,
     get_runtime_action_private_marker,
 )
 
@@ -34,19 +35,33 @@ def normalize_active_memory_marker_field(
     return normalized_field
 
 
+def _get_save_active_memory_placeholder_source(
+    marker: str | None = None,
+) -> str:
+
+    if marker is None:
+        body_placeholder = get_runtime_action_body_placeholder(
+            RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
+        )
+        if body_placeholder:
+            return body_placeholder
+
+        marker = get_runtime_action_private_marker(
+            RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
+        )
+
+    _, marker_fields = extract_private_marker_parts(
+        marker
+    )
+
+    return marker_fields
+
+
 def get_save_active_memory_marker_fields(
     marker: str | None = None,
 ) -> tuple[str, ...]:
 
-    marker = (
-        marker
-        if marker is not None
-        else get_runtime_action_private_marker(
-            RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
-        )
-    )
-
-    _, marker_fields = extract_private_marker_parts(
+    marker_fields = _get_save_active_memory_placeholder_source(
         marker
     )
 
@@ -77,15 +92,7 @@ def get_save_active_memory_placeholder_payload(
     marker: str | None = None,
 ) -> str:
 
-    marker = (
-        marker
-        if marker is not None
-        else get_runtime_action_private_marker(
-            RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
-        )
-    )
-
-    _, marker_fields = extract_private_marker_parts(
+    marker_fields = _get_save_active_memory_placeholder_source(
         marker
     )
 
@@ -104,7 +111,21 @@ def build_save_active_memory_payload(
     placeholder_payloads=(),
 ) -> str | None:
 
+    canonical_placeholder = (
+        get_save_active_memory_placeholder_payload()
+    )
+    placeholders = tuple(placeholder_payloads)
+
+    if (
+        canonical_placeholder
+        and canonical_placeholder not in placeholders
+    ):
+        placeholders = (
+            *placeholders,
+            canonical_placeholder,
+        )
+
     return _build_internal_action_payload(
         query,
-        placeholder_payloads,
+        placeholders,
     )

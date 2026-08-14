@@ -44,8 +44,10 @@ RUNTIME_ACTION_INJECTION_RULES = (
     "Runtime markers or actions can trigger follow up tick.\n"
     "You can emit any amount of markers in one message.\n"
 )
+DELAYED_MEMORY_PROTOCOL = "JIN must proactively scan the `delayed_memory` during the reasoning phase. If a report is identified as contextually relevant to the current topic, JIN must load it immediately to ensure readiness for the next turn. If a report is identified but deemed irrelevant or redundant to the current topic, JIN must ensure it is NOT loaded to maintain context density and prevent noise. This is the 'Proactive Context Management Protocol'."
 RUNTIME_ACTIONS_RULES = (
 #    f"{RUNTIME_ACTION_INJECTION_RULES}\n"
+    f"{DELAYED_MEMORY_PROTOCOL}\n"
     "RUNTIME ACTION EXECUTION RULES:\n"
     "Use follow-up system ticks in sequence for multi-step tasks.\n"
     "In case of conflict, ignore PREVIOUS_CHAT_MESSAGES and accept the original <USER> request inside CURRENT_SEQUENCE already in progress.\n"

@@ -913,6 +913,25 @@ class SearchFlowTests(
             if message.get("type") == "runtime_action"
             and message.get("action") == "web_search"
         ]
+        deep_search_events = [
+            message
+            for message in (
+                context.emitter.payloads
+                + get_fake_websocket(
+                    context
+                ).messages
+            )
+            if message.get("type") == "runtime_action"
+            and message.get("action") == "deep_web_search"
+        ]
+        deep_search_lifecycle_events = [
+            event
+            for event in deep_search_events
+            if event.get("status") in {
+                "started",
+                "completed",
+            }
+        ]
         started = [
             event
             for event in runtime_events
@@ -945,6 +964,34 @@ class SearchFlowTests(
             ],
         )
         self.assertEqual(
+            [
+                event.get("status")
+                for event in deep_search_lifecycle_events
+            ],
+            [
+                "started",
+                "completed",
+            ],
+        )
+        self.assertEqual(
+            len(deep_search_events),
+            2,
+        )
+        self.assertFalse(
+            any(
+                event.get("counter_only")
+                for event in deep_search_events
+            )
+        )
+        self.assertEqual(
+            deep_search_lifecycle_events[0].get("text"),
+            "DEEP_WEB_SEARCH: Research blue tomato varieties.",
+        )
+        self.assertEqual(
+            deep_search_lifecycle_events[0].get("id"),
+            deep_search_lifecycle_events[1].get("id"),
+        )
+        self.assertEqual(
             [event.get("query") for event in started],
             search_provider.queries,
         )
@@ -955,6 +1002,13 @@ class SearchFlowTests(
         self.assertTrue(
             all(
                 event.get("deep_search_child") is True
+                for event in runtime_events
+            )
+        )
+        self.assertTrue(
+            all(
+                event.get("deep_search_parent_id")
+                == deep_search_lifecycle_events[0].get("id")
                 for event in runtime_events
             )
         )

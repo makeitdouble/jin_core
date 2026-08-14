@@ -44,8 +44,9 @@ class RuntimeActionRegexpUtilsTests(unittest.TestCase):
 
     def test_concrete_regexp_rejects_internal_action_prefix(self):
         regexp = compile_runtime_action_regexp(
-            "<SAVE_ACTIVE_MEMORY: CONDITIONS >",
+            "<SAVE_ACTIVE_MEMORY>",
             "SAVE_ACTIVE_MEMORY",
+            close_tag=True,
         )
 
         matches = match_regexp(

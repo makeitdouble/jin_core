@@ -591,6 +591,7 @@
             0 0 24px rgba(16, 185, 129, 0.12);
 }
 
+
 .delayed-memory-modal-actions {
     display: flex;
     align-items: center;
@@ -616,6 +617,13 @@
     outline: none;
     color: rgba(244, 244, 245, 0.98);
 }
+.delayed-memory-modal-pin{
+    margin-top: 4px;
+}
+.delayed-memory-modal-pin:hover,
+.delayed-memory-modal-pin:focus-visible {
+    color: rgba(196, 196, 198, 0.96);
+}
 
 .delayed-memory-modal-pin svg {
     width: 18px;
@@ -637,6 +645,15 @@
 
 .delayed-memory-modal-pin-active {
     color: rgba(240, 253, 250, 0.98);
+}
+
+.delayed-memory-modal-pin-active:hover,
+.delayed-memory-modal-pin-active:focus-visible {
+    color: rgba(240, 253, 250, 0.98);
+}
+
+.delayed-memory-modal-pin-appended {
+    color: rgba(196, 196, 198, 0.96);
 }
 
 .delayed-memory-modal-pin-active svg {
@@ -683,6 +700,54 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
 }
+
+
+.runtime-memory-delayed-row:hover .runtime-memory-key,
+.runtime-memory-delayed-row:hover .runtime-memory-value,
+.runtime-memory-delayed-row:focus-visible .runtime-memory-key,
+.runtime-memory-delayed-row:focus-visible .runtime-memory-value,
+.runtime-memory-delayed-row:hover .runtime-memory-delayed-pin,
+.runtime-memory-delayed-row:focus-visible .runtime-memory-delayed-pin {
+    color: rgba(196, 196, 198, 0.96);
+}
+
+.runtime-memory-delayed-row-pinned:hover .runtime-memory-key,
+.runtime-memory-delayed-row-pinned:hover .runtime-memory-value,
+.runtime-memory-delayed-row-pinned:focus-visible .runtime-memory-key,
+.runtime-memory-delayed-row-pinned:focus-visible .runtime-memory-value {
+    color: rgba(244, 244, 245, 0.92);
+}
+
+.runtime-memory-delayed-row-pinned .runtime-memory-delayed-pin,
+.runtime-memory-delayed-row-pinned:hover .runtime-memory-delayed-pin,
+.runtime-memory-delayed-row-pinned:focus-visible .runtime-memory-delayed-pin {
+    color: rgba(240, 253, 250, 0.98);
+}
+
+.runtime-memory-delayed-pin {
+    width: 15px;
+    height: 0;
+    margin: 0 -4px -0 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    vertical-align: -4px;
+}
+
+.runtime-memory-delayed-pin svg {
+    width: 13px;
+    height: 13px;
+}
+
+.runtime-memory-delayed-separator {
+    display: inline-block;
+    width: 1.25em;
+    color: rgba(161, 161, 170, 0.48);
+    text-align: center;
+}
+
+
+
 
 /* Structured context-window viewer inside the shared trace modal. */
 .jin-context-trace-modal .delayed-memory-modal-panel {
@@ -955,7 +1020,27 @@
 .jin-context-delayed-row:focus-visible {
     outline: none;
     background: rgba(39, 39, 42, 0.46);
-    color: rgba(244, 244, 245, 0.94);
+    color: rgba(196, 196, 198, 0.96);
+}
+
+.jin-context-delayed-row:hover .jin-context-delayed-pin,
+.jin-context-delayed-row:focus-visible .jin-context-delayed-pin {
+    color: rgba(196, 196, 198, 0.96);
+}
+
+.jin-context-delayed-row.is-pinned,
+.jin-context-delayed-row.is-pinned:hover,
+.jin-context-delayed-row.is-pinned:focus-visible {
+    color: rgba(240, 253, 250, 0.98);
+    text-shadow:
+            0 0 7px rgba(240, 253, 250, 0.26),
+            0 0 15px rgba(153, 246, 228, 0.16);
+}
+
+.jin-context-delayed-row.is-pinned .jin-context-delayed-pin,
+.jin-context-delayed-row.is-pinned:hover .jin-context-delayed-pin,
+.jin-context-delayed-row.is-pinned:focus-visible .jin-context-delayed-pin {
+    color: rgba(240, 253, 250, 0.98);
 }
 
 .jin-context-delayed-pin {

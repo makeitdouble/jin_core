@@ -429,7 +429,30 @@ function runtimeActionRowIsTerminal(
 
 }
 
-function isDeepSearchRuntimeActionRow(
+function runtimeActionBooleanOption(
+  options,
+  camelName,
+  snakeName
+) {
+
+  return (
+    options[camelName] === true
+    || options[snakeName] === true
+  );
+
+}
+
+function normalizeRuntimeActionDataValue(
+  value
+) {
+
+  return String(
+    value || ""
+  ).trim();
+
+}
+
+function isDeepSearchParentRuntimeAction(
   action,
   options = {}
 ) {
@@ -441,13 +464,267 @@ function isDeepSearchRuntimeActionRow(
 
   return (
     normalizedAction === "deep_web_search"
-    || (
-      normalizedAction === "web_search"
-      && (
-        options.deepSearchChild === true
-        || options.deep_search_child === true
-      )
+    || runtimeActionBooleanOption(
+      options,
+      "deepSearchParent",
+      "deep_search_parent"
     )
+  );
+
+}
+
+function isDeepSearchChildRuntimeAction(
+  action,
+  options = {}
+) {
+
+  const normalizedAction =
+    String(
+      action || ""
+    ).trim().toLowerCase();
+
+  return (
+    normalizedAction === "web_search"
+    && runtimeActionBooleanOption(
+      options,
+      "deepSearchChild",
+      "deep_search_child"
+    )
+  );
+
+}
+
+function isDeepSearchRuntimeActionRow(
+  action,
+  options = {}
+) {
+
+  return (
+    isDeepSearchParentRuntimeAction(
+      action,
+      options
+    )
+    || isDeepSearchChildRuntimeAction(
+      action,
+      options
+    )
+  );
+
+}
+
+function readDeepSearchGroupId(
+  row
+) {
+
+  if (!row) {
+    return "";
+  }
+
+  return normalizeRuntimeActionDataValue(
+    row.dataset.runtimeActionDeepSearchGroup
+  );
+
+}
+
+function findDeepSearchGroupRows(
+  groupId
+) {
+
+  const normalizedGroupId =
+    normalizeRuntimeActionDataValue(
+      groupId
+    );
+
+  if (!normalizedGroupId) {
+    return [];
+  }
+
+  return Array.from(
+    chatHistory.querySelectorAll(
+      ".jin-runtime-action-deep-search-parent,"
+      + ".jin-runtime-action-deep-search-child"
+    )
+  ).filter((row) => (
+    readDeepSearchGroupId(
+      row
+    ) === normalizedGroupId
+  ));
+
+}
+
+function setDeepSearchStackExpanded(
+  row,
+  expanded
+) {
+
+  const groupRows = findDeepSearchGroupRows(
+    readDeepSearchGroupId(
+      row
+    )
+  );
+
+  groupRows.forEach((groupRow) => {
+    groupRow.classList.toggle(
+      "jin-runtime-action-deep-search-stack-expanded",
+      expanded
+    );
+  });
+
+}
+
+function bindDeepSearchStackHover(
+  row
+) {
+
+  if (
+      !row
+      || row.dataset.runtimeActionDeepSearchHoverBound === "true"
+  ) {
+    return;
+  }
+
+  row.dataset.runtimeActionDeepSearchHoverBound =
+    "true";
+
+  row.addEventListener(
+    "mouseenter",
+    () => {
+      setDeepSearchStackExpanded(
+        row,
+        true
+      );
+    }
+  );
+
+  row.addEventListener(
+    "mouseleave",
+    (event) => {
+      const nextRow =
+        event.relatedTarget
+        && event.relatedTarget.closest
+          ? event.relatedTarget.closest(
+            ".jin-runtime-action-row"
+          )
+          : null;
+
+      if (
+          nextRow
+          && readDeepSearchGroupId(
+            nextRow
+          ) === readDeepSearchGroupId(
+            row
+          )
+      ) {
+        return;
+      }
+
+      setDeepSearchStackExpanded(
+        row,
+        false
+      );
+    }
+  );
+
+}
+
+function syncDeepSearchChildStack(
+  row
+) {
+
+  const groupId =
+    readDeepSearchGroupId(
+      row
+    );
+
+  if (!groupId) {
+    return;
+  }
+
+  findDeepSearchGroupRows(
+    groupId
+  ).filter((groupRow) => (
+    groupRow.classList.contains(
+      "jin-runtime-action-deep-search-child"
+    )
+  )).forEach((childRow, index) => {
+    childRow.dataset.runtimeActionDeepSearchIndex =
+      String(index + 1);
+    childRow.style.setProperty(
+      "--jin-deep-search-stack-order",
+      String(index)
+    );
+    childRow.style.setProperty(
+      "--jin-deep-search-stack-z",
+      String(30 - index)
+    );
+  });
+
+}
+
+function insertRuntimeActionRow(
+  row,
+  action,
+  options = {}
+) {
+
+  if (
+      !row
+      || !isDeepSearchChildRuntimeAction(
+        action,
+        options
+      )
+  ) {
+    chatHistory.appendChild(
+      row
+    );
+    return;
+  }
+
+  const groupId =
+    readDeepSearchGroupId(
+      row
+    );
+  const groupRows =
+    findDeepSearchGroupRows(
+      groupId
+    );
+  const parentRow =
+    groupRows.find((groupRow) => (
+      groupRow.classList.contains(
+        "jin-runtime-action-deep-search-parent"
+      )
+    ));
+  const firstChildRow =
+    groupRows.find((groupRow) => (
+      groupRow.classList.contains(
+        "jin-runtime-action-deep-search-child"
+      )
+    ));
+
+  if (
+      parentRow
+      && parentRow.parentElement === chatHistory
+  ) {
+    parentRow.insertAdjacentElement(
+      "afterend",
+      row
+    );
+  } else if (
+      firstChildRow
+      && firstChildRow.parentElement === chatHistory
+  ) {
+    chatHistory.insertBefore(
+      row,
+      firstChildRow
+    );
+  } else {
+    chatHistory.appendChild(
+      row
+    );
+  }
+
+  syncDeepSearchChildStack(
+    row
   );
 
 }
@@ -467,13 +744,28 @@ function syncRuntimeActionSearchState(
       action,
       options
     );
+  const isDeepSearchParent =
+    isDeepSearchParentRuntimeAction(
+      action,
+      options
+    );
+  const isDeepSearchChild =
+    isDeepSearchChildRuntimeAction(
+      action,
+      options
+    );
 
   if (!isDeepSearch) {
     delete row.dataset.runtimeActionDeepSearch;
+    delete row.dataset.runtimeActionDeepSearchGroup;
+    delete row.dataset.runtimeActionDeepSearchParent;
+    delete row.dataset.runtimeActionDeepSearchObjective;
     delete row.dataset.runtimeActionStatus;
     row.classList.remove(
       "jin-runtime-action-deep-search",
-      "jin-runtime-action-search-active"
+      "jin-runtime-action-deep-search-parent",
+      "jin-runtime-action-deep-search-child",
+      "jin-runtime-action-deep-search-stack-expanded"
     );
     return;
   }
@@ -495,23 +787,82 @@ function syncRuntimeActionSearchState(
   row.classList.add(
     "jin-runtime-action-deep-search"
   );
-
-  const terminalStatus = [
-    "completed",
-    "complete",
-    "done",
-    "failed",
-    "interrupted",
-    "aborted",
-    "counter_final",
-  ].includes(status);
-
   row.classList.toggle(
-    "jin-runtime-action-search-active",
-    !terminalStatus
-    && options.completed !== true
-    && options.cancelled !== true
+    "jin-runtime-action-deep-search-parent",
+    isDeepSearchParent
   );
+  row.classList.toggle(
+    "jin-runtime-action-deep-search-child",
+    isDeepSearchChild
+  );
+
+  const parentId =
+    normalizeRuntimeActionDataValue(
+      options.deepSearchParentId
+      || options.deep_search_parent_id
+    );
+  const objective =
+    normalizeRuntimeActionDataValue(
+      options.deepSearchObjective
+      || options.deep_search_objective
+      || options.query
+      || options.detail
+    );
+  const ownId =
+    normalizeRuntimeActionDataValue(
+      row.dataset.runtimeActionId
+      || options.id
+    );
+  const groupId =
+    parentId
+    || (
+      isDeepSearchParent
+        ? ownId
+        : ""
+    )
+    || (
+      objective
+        ? `objective:${objective}`
+        : ""
+    );
+
+  if (groupId) {
+    row.dataset.runtimeActionDeepSearchGroup =
+      groupId;
+  }
+
+  if (parentId) {
+    row.dataset.runtimeActionDeepSearchParent =
+      parentId;
+  }
+
+  if (objective) {
+    row.dataset.runtimeActionDeepSearchObjective =
+      objective;
+  }
+
+  if (isDeepSearchChild) {
+    row
+      .querySelectorAll(
+        ":scope > .jin-runtime-action-icon"
+      )
+      .forEach((icon) => {
+        icon.remove();
+      });
+    bindDeepSearchStackHover(
+      row
+    );
+    syncDeepSearchChildStack(
+      row
+    );
+    return;
+  }
+
+  if (isDeepSearchParent) {
+    bindDeepSearchStackHover(
+      row
+    );
+  }
 
 }
 
@@ -2435,14 +2786,6 @@ function markRuntimeActionRowCompleted(
   row.dataset.runtimeActionCompleted =
     "true";
 
-  if (row.dataset.runtimeActionDeepSearch === "true") {
-    row.classList.remove(
-      "opacity-45",
-      "jin-runtime-action-search-active"
-    );
-    return;
-  }
-
   delete row.dataset.runtimeActionPendingL3;
   delete row.dataset.runtimeActionCompletionDeferred;
   row.classList.remove(
@@ -2818,64 +3161,72 @@ function appendRuntimeAction(
     );
   }
 
-  const icon =
-    document.createElement(
+  const omitIcon =
+    isDeepSearchChildRuntimeAction(
+      action,
+      options
+    );
+  let icon = null;
+
+  if (!omitIcon) {
+    icon = document.createElement(
       options.contextSnapshot
         ? "button"
         : "div"
     );
 
-  if (options.contextSnapshot) {
-    icon.type =
-      "button";
-  }
+    if (options.contextSnapshot) {
+      icon.type =
+        "button";
+    }
 
-  icon.className =
-    "h-6 w-6 rounded bg-cyan-950/70 border border-cyan-700 flex items-center justify-center shrink-0";
+    icon.className =
+      "h-6 w-6 rounded bg-cyan-950/70 border border-cyan-700 flex items-center justify-center shrink-0";
 
-  const iconDefinition =
-    appendRuntimeActionIconGlyph(
-      icon,
-      action
-    );
+    const iconDefinition =
+      appendRuntimeActionIconGlyph(
+        icon,
+        action
+      );
 
-  if (options.contextSnapshot) {
-    icon.className +=
-      " cursor-help hover:bg-cyan-900/70 transition";
+    if (options.contextSnapshot) {
+      icon.className +=
+        " cursor-help hover:bg-cyan-900/70 transition";
 
-    icon.title =
-      "show action context";
-    icon.setAttribute(
-      "aria-label",
-      `show action context: ${iconDefinition.title}`
-    );
+      icon.title =
+        "show action context";
+      icon.setAttribute(
+        "aria-label",
+        `show action context: ${iconDefinition.title}`
+      );
 
-    icon.addEventListener(
-      "click",
-      function () {
-        if (!window.showTrace) {
-          return;
+      icon.addEventListener(
+        "click",
+        function () {
+          if (!window.showTrace) {
+            return;
+          }
+
+          window.showTrace(
+            formatContextSnapshot(
+              "action",
+              options.contextSnapshot
+            ),
+            formatRuntimeActionContextTitle(
+              action,
+              options.contextSnapshot
+            )
+          );
         }
-
-        window.showTrace(
-          formatContextSnapshot(
-            "action",
-            options.contextSnapshot
-          ),
-          formatRuntimeActionContextTitle(
-            action,
-            options.contextSnapshot
-          )
-        );
-      }
-    );
-  } else {
-    icon.title =
-      iconDefinition.title;
-    icon.setAttribute(
-      "aria-hidden",
-      "true"
-    );
+      );
+    } else {
+      icon.title =
+        iconDefinition.title;
+      icon.setAttribute(
+        "aria-hidden",
+        "true"
+      );
+    }
   }
 
   const label =
@@ -2954,9 +3305,11 @@ function appendRuntimeAction(
     );
   }
 
-  row.appendChild(
-    icon
-  );
+  if (icon) {
+    row.appendChild(
+      icon
+    );
+  }
 
   row.appendChild(
     label
@@ -2969,8 +3322,10 @@ function appendRuntimeAction(
     );
   }
 
-  chatHistory.appendChild(
-    row
+  insertRuntimeActionRow(
+    row,
+    action,
+    options
   );
 
   removeDuplicateRuntimeActionRows(

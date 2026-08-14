@@ -12,6 +12,8 @@
   let deleteRuntimeMemoryLine = null;
   let getDelayedMemoryReports = null;
   let isDelayedMemoryReportLoaded = null;
+  let isDelayedMemoryReportAppended = null;
+  let handleDelayedMemoryReportPinClick = null;
   let setDelayedMemoryReportPinned = null;
   let updateDelayedMemoryReportFields = null;
   let setDelayedMemoryReportAnchorFactIds = null;
@@ -3128,6 +3130,68 @@
           )
         );
 
+        const pinButton =
+            document.createElement("button");
+        pinButton.type = "button";
+        pinButton.className =
+            "delayed-memory-modal-icon-button delayed-memory-modal-pin runtime-memory-delayed-pin";
+        pinButton.innerHTML =
+            '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 3.3 20.7 9.3 18.6 11.4 16.9 9.7 13.7 12.9 14.4 15.7 12.9 17.2 9.4 13.7 5.3 17.8 4.2 16.7 8.3 12.6 4.8 9.1 6.3 7.6 9.1 8.3 12.3 5.1 10.6 3.4 12.7 1.3Z"/></svg>';
+        syncDelayedMemoryPinButtonState(
+          pinButton,
+          report
+        );
+
+        const separatorSpan =
+            document.createElement("span");
+        separatorSpan.className =
+            "runtime-memory-delayed-separator";
+        separatorSpan.textContent = "·";
+
+        pinButton.addEventListener(
+          "pointerdown",
+          (event) => {
+            event.stopPropagation();
+          }
+        );
+
+        pinButton.addEventListener(
+          "click",
+          (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+
+            if (!reportId) {
+              return;
+            }
+
+            const changed =
+                typeof handleDelayedMemoryReportPinClick === "function"
+                  ? handleDelayedMemoryReportPinClick(reportId)
+                  : (
+                      typeof setDelayedMemoryReportPinned === "function"
+                        ? setDelayedMemoryReportPinned(
+                            reportId,
+                            !Boolean(report.pinned)
+                          )
+                        : false
+                    );
+
+            if (!changed) {
+              syncDelayedMemoryPinButtonState(
+                pinButton,
+                report
+              );
+            }
+          }
+        );
+
+        row.appendChild(
+            pinButton
+        );
+        row.appendChild(
+            separatorSpan
+        );
         row.appendChild(
             keySpan
         );
@@ -4035,19 +4099,67 @@
       return;
     }
 
+    syncDelayedMemoryPinButtonState(
+      delayedMemoryModalPinButton,
+      report
+    );
+  }
+
+  function isDelayedMemoryReportAutoAppended(report) {
+    const reportId =
+        getDelayedMemoryReportId(report);
+
+    return Boolean(
+      reportId
+      && typeof isDelayedMemoryReportAppended === "function"
+      && isDelayedMemoryReportAppended(reportId)
+    );
+  }
+
+  function syncDelayedMemoryPinButtonState(
+    button,
+    report
+  ) {
+    if (!button) {
+      return;
+    }
+
     const pinned =
         Boolean(report && report.pinned);
+    const appended =
+        !pinned
+        && isDelayedMemoryReportAutoAppended(report);
 
-    delayedMemoryModalPinButton.classList.toggle(
+    button.classList.toggle(
         "delayed-memory-modal-pin-active",
         pinned
     );
-    delayedMemoryModalPinButton.setAttribute(
+    button.classList.toggle(
+        "delayed-memory-modal-pin-appended",
+        appended
+    );
+    button.setAttribute(
         "aria-pressed",
         pinned ? "true" : "false"
     );
-    delayedMemoryModalPinButton.title =
-        pinned ? "Unpin delayed memory" : "Pin delayed memory";
+    button.setAttribute(
+        "aria-label",
+        appended
+          ? "Remove appended delayed memory"
+          : (
+              pinned
+                ? "Unpin delayed memory"
+                : "Pin delayed memory"
+            )
+    );
+    button.title =
+        appended
+          ? "Remove appended delayed memory from next turn"
+          : (
+              pinned
+                ? "Unpin delayed memory"
+                : "Pin delayed memory"
+            );
   }
 
   function clearDelayedMemoryModalEditSaveTimer() {
@@ -4428,27 +4540,34 @@
         () => {
           if (
               !delayedMemoryModalReport
-              || typeof setDelayedMemoryReportPinned !== "function"
+              || (
+                typeof handleDelayedMemoryReportPinClick !== "function"
+                && typeof setDelayedMemoryReportPinned !== "function"
+              )
           ) {
             return;
           }
 
-          const nextPinned =
-              !Boolean(delayedMemoryModalReport.pinned);
-          const changed =
-              setDelayedMemoryReportPinned(
-                  delayedMemoryModalReport._storage_key,
-                  nextPinned
+          const reportId =
+              getDelayedMemoryReportId(
+                delayedMemoryModalReport
               );
+          const changed =
+              typeof handleDelayedMemoryReportPinClick === "function"
+                ? handleDelayedMemoryReportPinClick(reportId)
+                : setDelayedMemoryReportPinned(
+                    reportId,
+                    !Boolean(delayedMemoryModalReport.pinned)
+                  );
 
           if (!changed) {
             return;
           }
 
-          delayedMemoryModalReport = {
-            ...delayedMemoryModalReport,
-            pinned: nextPinned,
-          };
+          delayedMemoryModalReport =
+              resolveDelayedMemoryReportForModal(
+                delayedMemoryModalReport
+              );
           updateDelayedMemoryModalPinState(
               delayedMemoryModalReport
           );
@@ -5517,6 +5636,10 @@
     getDelayedMemoryReports = options.getDelayedMemoryReports || null;
     isDelayedMemoryReportLoaded =
         options.isDelayedMemoryReportLoaded || null;
+    isDelayedMemoryReportAppended =
+        options.isDelayedMemoryReportAppended || null;
+    handleDelayedMemoryReportPinClick =
+        options.handleDelayedMemoryReportPinClick || null;
     setDelayedMemoryReportPinned = options.setDelayedMemoryReportPinned || null;
     updateDelayedMemoryReportFields =
         options.updateDelayedMemoryReportFields || null;

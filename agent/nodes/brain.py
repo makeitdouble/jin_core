@@ -2102,8 +2102,28 @@ class BrainNode(BaseNode):
                     context=context,
                     objective=objective,
                     context_snapshot=deep_search_call.get("context"),
+                    parent_action_id=tool_call_id,
                 )
 
+                deep_search_display_name = (
+                    get_runtime_action_display_name(
+                        RUNTIME_ACTION_DEEP_WEB_SEARCH
+                    )
+                )
+                await context.websocket.send_json({
+                    "type": "runtime_action",
+                    "action": RUNTIME_ACTION_DEEP_WEB_SEARCH.lower(),
+                    "display_name": deep_search_display_name,
+                    "id": tool_call_id,
+                    "status": "completed",
+                    "text": (
+                        f"{deep_search_display_name}: {objective}"
+                    ),
+                    "query": objective,
+                    "scene_effect": "search",
+                    "context": deep_search_call.get("context"),
+                    "deep_search_parent": True,
+                })
                 mark_runtime_action_completed(
                     context,
                     action=RUNTIME_ACTION_DEEP_WEB_SEARCH,

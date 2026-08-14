@@ -10,6 +10,7 @@
       "emit_followup": false
     },
     "rules": [
+      "JIN can update or create facts, user has ability in ui to delete them entirely.",
       "Use this marker only when a durable L4 fact needs an update, two or more durable L4 facts should be merged, or a genuinely new durable fact became clear.",
       "Do not use it for harmless repetition between L4 and loaded delayed memory, stylistic rewording with no change of meaning, temporary session details, weak suspicions, or issues unrelated to durable memory.",
       "Do not interrupt an unrelated conversation only to clean memory. Raise the issue when it affects the current answer or can be resolved naturally in the current topic.",

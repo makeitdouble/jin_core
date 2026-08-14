@@ -116,6 +116,14 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_appended_delayed_memory_ids: list[str] = field(
+        default_factory=list
+    )
+
+    runtime_suppressed_delayed_memory_append_ids: list[str] = field(
+        default_factory=list
+    )
+
     runtime_pinned_delayed_memory_turns: dict[str, str] = field(
         default_factory=dict
     )

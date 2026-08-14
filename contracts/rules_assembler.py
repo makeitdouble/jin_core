@@ -215,11 +215,15 @@ def build_runtime_action_display_text(
         name_or_runtime_action
     )
     normalized_payload = str(payload or "").strip()
+    _, contract = get_action_contract_for_runtime_action(
+        name_or_runtime_action
+    )
+    hide_close_tag_payload = (
+        runtime_action_has_close_tag(name_or_runtime_action)
+        and not bool(contract.get("display_payload", False))
+    )
 
-    if (
-        not normalized_payload
-        or runtime_action_has_close_tag(name_or_runtime_action)
-    ):
+    if not normalized_payload or hide_close_tag_payload:
         return display_name
 
     return f"{display_name}: {normalized_payload}"
@@ -320,6 +324,11 @@ def get_runtime_action_private_marker(runtime_action: str) -> str:
     return str(contract.get("private_marker", "") or "").strip()
 
 
+def get_runtime_action_body_placeholder(runtime_action: str) -> str:
+    _, contract = get_action_contract_for_runtime_action(runtime_action)
+    return str(contract.get("body_placeholder", "") or "").strip()
+
+
 def get_runtime_action_rules(runtime_action: str) -> tuple[str, ...]:
     _, contract = get_action_contract_for_runtime_action(runtime_action)
     return tuple(
@@ -341,6 +350,12 @@ def build_runtime_action_marker_schema(contract: dict[str, Any]) -> str:
     marker_name = extract_private_marker_name(marker)
     if not marker_name:
         return marker
+
+    body_placeholder = str(
+        contract.get("body_placeholder", "") or ""
+    ).strip()
+    if body_placeholder:
+        return f"{marker} {body_placeholder} </{marker_name}>"
 
     return f"{marker}</{marker_name}>"
 
@@ -496,6 +511,11 @@ def build_allowed_markers(
             continue
 
         marker = get_runtime_action_private_marker(action_name)
+        if get_runtime_action_body_placeholder(action_name):
+            _, contract = get_action_contract_for_runtime_action(
+                action_name
+            )
+            marker = build_runtime_action_marker_schema(contract)
         if marker:
             markers.append(marker)
 

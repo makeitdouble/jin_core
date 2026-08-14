@@ -31,6 +31,7 @@ from utils.tokens import (
 from utils.actions import (
     build_runtime_action_id,
     emit_runtime_action_counter_updates,
+    extract_search_query,
     is_delayed_memory_report_id,
     RuntimeActionCounter,
     normalize_jin_color_payload,
@@ -181,6 +182,7 @@ class RuntimeStream:
         self.action_guard_confirmation_ids = {}
         self.jin_color_action_id = ""
         self.jin_size_action_id = ""
+        self.deep_web_search_action_ids = {}
         self.update_l4_facts_action_ids = {}
         self.last_jin_color_action_color = ""
         self.last_jin_size_action_size = ""
@@ -1435,6 +1437,77 @@ class RuntimeStream:
 
             return self.jin_size_action_id
 
+        if action.name == RUNTIME_ACTION_DEEP_WEB_SEARCH:
+            payload_key = str(
+                action.payload
+                or ""
+            ).strip()
+            deep_search_action_ids = getattr(
+                self,
+                "deep_web_search_action_ids",
+                None,
+            )
+
+            if not isinstance(
+                deep_search_action_ids,
+                dict,
+            ):
+                deep_search_action_ids = {}
+                self.deep_web_search_action_ids = (
+                    deep_search_action_ids
+                )
+
+            action_id = (
+                deep_search_action_ids.get(
+                    payload_key,
+                    "",
+                )
+                if payload_key
+                else ""
+            )
+
+            if not action_id:
+                existing_count = len([
+                    event
+                    for event in getattr(
+                        self.context,
+                        "runtime_action_events",
+                        [],
+                    )
+                    if isinstance(
+                        event,
+                        dict,
+                    )
+                    and event.get(
+                        "name"
+                    ) == RUNTIME_ACTION_DEEP_WEB_SEARCH.lower()
+                ])
+                sequence = max(
+                    int(
+                        getattr(
+                            self.context,
+                            "runtime_deep_web_search_action_sequence",
+                            0,
+                        )
+                        or 0
+                    ),
+                    existing_count,
+                ) + 1
+                self.context.runtime_deep_web_search_action_sequence = (
+                    sequence
+                )
+                action_id = build_runtime_action_id(
+                    RUNTIME_ACTION_DEEP_WEB_SEARCH,
+                    sequence,
+                )
+
+                if payload_key:
+                    deep_search_action_ids[payload_key] = (
+                        action_id
+                    )
+
+            return action_id
+
         if action.name == RUNTIME_ACTION_UPDATE_L4_FACTS:
             payload_key = str(action.payload or "").strip()
             action_id = (
@@ -2038,11 +2111,6 @@ class RuntimeStream:
         )
 
         for action in actions:
-            # DEEP_WEB_SEARCH is an orchestration marker, not a visible chat
-            # event. Its child WEB_SEARCH calls are the visible runtime bubbles.
-            if action.name == RUNTIME_ACTION_DEEP_WEB_SEARCH:
-                continue
-
             display_name = get_runtime_action_display_name(
                 action.name
             )
@@ -2050,6 +2118,16 @@ class RuntimeStream:
                 action.name,
                 action.payload,
             )
+            search_query = ""
+
+            if action.name == RUNTIME_ACTION_DEEP_WEB_SEARCH:
+                search_query = extract_search_query(
+                    action.payload
+                )
+
+                if search_query:
+                    display_text = f"{display_name}: {search_query}"
+
             (
                 delayed_memory_report_id,
                 delayed_memory_report,
@@ -2299,6 +2377,13 @@ class RuntimeStream:
                     "text": display_text,
                     "close_tag": has_close_tag,
                 }
+
+                if action.name == RUNTIME_ACTION_DEEP_WEB_SEARCH:
+                    payload["deep_search_parent"] = True
+                    payload["scene_effect"] = "search"
+
+                    if search_query:
+                        payload["query"] = search_query
 
                 if action.payload and not has_close_tag:
                     payload["payload"] = action.payload

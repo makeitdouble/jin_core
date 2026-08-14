@@ -64,7 +64,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         result = extract_runtime_actions(
             (
                 "before "
-                "<SAVE_ACTIVE_MEMORY:remind later | tomorrow | coffee>"
+                "<SAVE_ACTIVE_MEMORY>remind later | tomorrow | coffee</SAVE_ACTIVE_MEMORY>"
                 " after"
             ),
             enabled_actions=[
@@ -111,13 +111,13 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_extracts_save_active_memory_marker_closed_with_short_end_tag(self):
+    def test_extracts_save_active_memory_marker_body(self):
 
         result = extract_runtime_actions(
             (
                 "before "
-                "<SAVE_ACTIVE_MEMORY: remember the word coffee "
-                "and ask for a guess later.</>"
+                "<SAVE_ACTIVE_MEMORY>remember the word coffee "
+                "and ask for a guess later.</SAVE_ACTIVE_MEMORY>"
                 " after"
             ),
             enabled_actions=[
@@ -161,24 +161,17 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         self.assertEqual(result.actions, ())
         self.assertEqual(result.removed_markers, ())
 
-    def test_save_active_memory_marker_helpers_accept_bare_marker(self):
-
-        marker = "SAVE_ACTIVE_MEMORY: PURPOSE | CONDITIONS"
+    def test_save_active_memory_marker_helpers_use_body_placeholder(self):
 
         self.assertEqual(
-            get_save_active_memory_marker_fields(
-                marker
-            ),
+            get_save_active_memory_marker_fields(),
             (
-                "purpose",
                 "conditions",
             ),
         )
         self.assertEqual(
-            get_save_active_memory_placeholder_payload(
-                marker
-            ),
-            "PURPOSE | CONDITIONS",
+            get_save_active_memory_placeholder_payload(),
+            "CONDITIONS",
         )
 
 
@@ -271,18 +264,12 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
 
     def test_ignores_placeholder_save_active_memory_marker(self):
 
-        with patch(
-            "utils.actions.action_payload_utils.get_internal_actions_with_payload",
-            return_value=(
-                "<SAVE_ACTIVE_MEMORY: DETAILS | PURPOSE | VALUE >",
-            ),
-        ):
-            result = extract_runtime_actions(
-                "<SAVE_ACTIVE_MEMORY: details|purpose|value >",
-                enabled_actions=[
-                    "CAN_SAVE_ACTIVE_MEMORY",
-                ],
-            )
+        result = extract_runtime_actions(
+            "<SAVE_ACTIVE_MEMORY> CONDITIONS </SAVE_ACTIVE_MEMORY>",
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
 
         self.assertEqual(
             result.text,
@@ -294,7 +281,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_stream_filter_handles_short_end_tag_closed_active_memory_marker(self):
+    def test_stream_filter_handles_split_active_memory_block(self):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=[
@@ -303,13 +290,13 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
         first = stream_filter.filter(
-            "<SAVE_ACTIVE_MEMORY: remember"
+            "<SAVE_ACTIVE_MEMORY>"
         )
         middle = stream_filter.filter(
-            " the word coffee and ask for a guess later.</"
+            "remember the word coffee and ask for a guess later."
         )
         final = stream_filter.filter(
-            ">"
+            "</SAVE_ACTIVE_MEMORY>"
         )
 
         self.assertEqual(
@@ -444,7 +431,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.emitter.events[0]["display_name"],
             "SAVE_ACTIVE_MEMORY",
         )
-        self.assertFalse(
+        self.assertTrue(
             context.emitter.events[0]["close_tag"],
         )
         self.assertEqual(
@@ -485,7 +472,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 "id": "save_active_memory_001",
                 "status": "completed",
                 "display_name": "SAVE_ACTIVE_MEMORY",
-                "close_tag": False,
+                "close_tag": True,
                 "active_memory_id": (
                     context.emitter.events[0]["active_memory_id"]
                 ),
@@ -744,7 +731,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.emitter.events[0]["display_name"],
             "SAVE_ACTIVE_MEMORY",
         )
-        self.assertFalse(
+        self.assertTrue(
             context.emitter.events[0]["close_tag"],
         )
         self.assertEqual(
@@ -816,7 +803,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     "display_name": "SAVE_ACTIVE_MEMORY",
                     "text": "SAVE_ACTIVE_MEMORY: remember cuckoo",
                     "payload": "remember cuckoo",
-                    "close_tag": False,
+                    "close_tag": True,
                 },
                 {
                     "type": "runtime_action",
@@ -824,7 +811,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     "id": "save_active_memory_001",
                     "status": "completed",
                     "display_name": "SAVE_ACTIVE_MEMORY",
-                    "close_tag": False,
+                    "close_tag": True,
                 },
             ],
         )
@@ -890,7 +877,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     "display_name": "SAVE_ACTIVE_MEMORY",
                     "text": "SAVE_ACTIVE_MEMORY: remember cuckoo",
                     "payload": "remember cuckoo",
-                    "close_tag": False,
+                    "close_tag": True,
                 },
                 {
                     "type": "runtime_action",
@@ -898,7 +885,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     "id": "save_active_memory_001",
                     "status": "completed",
                     "display_name": "SAVE_ACTIVE_MEMORY",
-                    "close_tag": False,
+                    "close_tag": True,
                 },
             ],
         )

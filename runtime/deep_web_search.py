@@ -60,6 +60,7 @@ class DeepSearchPool:
     objective: str
     max_queries: int
     queries_per_worker: int
+    parent_action_id: str = ""
     runtime_snapshot: str = ""
     searches: list[dict] = field(default_factory=list)
     reports: list[dict] = field(default_factory=list)
@@ -355,6 +356,8 @@ async def _run_pool_search(
     }
     if isinstance(context_snapshot, dict):
         payload["context"] = context_snapshot
+    if pool.parent_action_id:
+        payload["deep_search_parent_id"] = pool.parent_action_id
 
     mark_runtime_action_started(
         context,
@@ -374,7 +377,7 @@ async def _run_pool_search(
     )
     compact = compact_search_result(search_result)
 
-    await context.websocket.send_json({
+    completed_payload = {
         "type": "runtime_action",
         "action": RUNTIME_ACTION_WEB_SEARCH.lower(),
         "display_name": display_name,
@@ -386,7 +389,12 @@ async def _run_pool_search(
         "deep_search_objective": pool.objective,
         "detail": f"DEEP_WEB_SEARCH: {pool.objective}",
         "scene_effect": "search",
-    })
+    }
+    if pool.parent_action_id:
+        completed_payload["deep_search_parent_id"] = pool.parent_action_id
+
+    await context.websocket.send_json(completed_payload)
+
     mark_runtime_action_completed(
         context,
         action=RUNTIME_ACTION_WEB_SEARCH,
@@ -404,6 +412,9 @@ async def _run_pool_search(
         "deep_search_child": True,
         "deferred_follow_up": True,
     }
+    if pool.parent_action_id:
+        action_event["deep_search_parent_id"] = pool.parent_action_id
+
     if runtime_turn_id:
         action_event["runtime_turn_id"] = runtime_turn_id
     context.runtime_action_events.append(action_event)
@@ -527,6 +538,7 @@ async def run_deep_web_search(
     context,
     objective: str,
     context_snapshot: dict | None = None,
+    parent_action_id: str = "",
 ) -> str:
     normalized_objective = _normalize_text(objective)
     max_queries = max(1, int(getattr(config, "DEEP_WEB_SEARCH_MAX_QUERIES", 10) or 10))
@@ -544,6 +556,7 @@ async def run_deep_web_search(
         objective=normalized_objective,
         max_queries=max_queries,
         queries_per_worker=queries_per_worker,
+        parent_action_id=_normalize_text(parent_action_id),
         runtime_snapshot=build_compact_runtime_snapshot(
             context_snapshot
         ),

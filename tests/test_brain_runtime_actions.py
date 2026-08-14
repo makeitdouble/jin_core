@@ -1009,10 +1009,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 for content in (
                     "<WEB_SEARCH: Latest astronomical news 2026>",
                     "\n",
-                    (
-                        "<SAVE_ACTIVE_MEMORY: "
-                        "astronomical news tracker>"
-                    ),
+                    "<SAVE_ACTIVE_MEMORY>astronomical news tracker</SAVE_ACTIVE_MEMORY>",
                     "\n",
                     "<LOAD_SKILL: wildcards>",
                 ):
@@ -3668,7 +3665,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "SAVE_ACTIVE_MEMORY:",
+            "<SAVE_ACTIVE_MEMORY> CONDITIONS </SAVE_ACTIVE_MEMORY>",
         )
         assert_contains_text(
             self,
@@ -3877,7 +3874,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "SAVE_ACTIVE_MEMORY:",
+            "<SAVE_ACTIVE_MEMORY> CONDITIONS </SAVE_ACTIVE_MEMORY>",
         )
         assert_not_contains_text(
             self,
@@ -4087,7 +4084,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "SAVE_ACTIVE_MEMORY:",
+            "<SAVE_ACTIVE_MEMORY> CONDITIONS </SAVE_ACTIVE_MEMORY>",
         )
         self.assertIn(
             "SAVE_ACTIVE_MEMORY",

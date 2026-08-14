@@ -49,6 +49,7 @@
       attachFirstUserIdleToInitialRuntimeSnapshot,
       rememberStableRuntimeSnapshot: rememberStableRuntimeSnapshotCallback,
       getLoadedDelayedMemoryReportIds,
+      getAppendedDelayedMemoryReportIds,
     } = deps;
 
     const {
@@ -617,6 +618,10 @@
         loaded_memory_ids:
           typeof getLoadedDelayedMemoryReportIds === "function"
             ? getLoadedDelayedMemoryReportIds()
+            : [],
+        appended_memory_ids:
+          typeof getAppendedDelayedMemoryReportIds === "function"
+            ? getAppendedDelayedMemoryReportIds()
             : [],
         session_memory: sessionMemory,
         session_memory_updates:
@@ -1197,6 +1202,15 @@
             && Array.isArray(sessionMemory.loaded_memory_ids)
           )
             ? sessionMemory.loaded_memory_ids
+                .map(item => String(item || "").trim())
+                .filter(Boolean)
+            : [],
+        appended_memory_ids:
+          (
+            sessionMemory
+            && Array.isArray(sessionMemory.appended_memory_ids)
+          )
+            ? sessionMemory.appended_memory_ids
                 .map(item => String(item || "").trim())
                 .filter(Boolean)
             : [],

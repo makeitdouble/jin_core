@@ -1,9 +1,9 @@
 {
   "save_active_memory": {
-    "version": 1,
+    "version": 2,
     "description": "Allows the model to autonomously save active memory.",
     "runtime_action": "SAVE_ACTIVE_MEMORY",
-    "private_marker": "<SAVE_ACTIVE_MEMORY: CONDITIONS >",
+    "private_marker": "<SAVE_ACTIVE_MEMORY>",
     "triggers": [],
     "blockers": [],
     "effects": {
@@ -13,10 +13,15 @@
       "Use SAVE_ACTIVE_MEMORY when a clear, concrete unresolved intention, promise, condition, reminder, live rule, or future checkpoint appears and keeping it pending would help the current or near-future conversation.",
       "Do not wait for explicit confirmation when the save candidate is clear; active memory is an autonomous runtime action.",
       "Ask before saving only when the candidate is ambiguous, sensitive, broad, identity-like, or better suited to long-term memory or delayed memory.",
+      "Emit using exactly this schema:",
+      "<SAVE_ACTIVE_MEMORY> CONDITIONS </SAVE_ACTIVE_MEMORY>",
       "CONDITIONS is a placeholder word; replace it with the concrete pending item to preserve.",
+      "Write the concrete pending item as plain text inside the tag body. Do not put the payload in the opening tag and do not use the legacy <SAVE_ACTIVE_MEMORY: ...> form.",
       "After emitting the marker, briefly notify the user in natural text that the active memory was saved; never expose marker syntax in visible text.",
       "Do not save trivial exchanges, unstable ideas, identity anchors, broad user preferences, core project rules, or facts that should remain useful across unrelated topics as active memory."
     ],
-    "close_tag": false
+    "close_tag": true,
+    "body_placeholder": "CONDITIONS",
+    "display_payload": true
   }
 }

@@ -99,6 +99,19 @@ async def append_delayed_memory_by_tags(
     loaded_reports = get_loaded_delayed_memory_reports(
         context
     )
+    suppressed_ids = {
+        str(item or "").strip().casefold()
+        for item in (
+            getattr(
+                context,
+                "runtime_suppressed_delayed_memory_append_ids",
+                [],
+            )
+            or []
+        )
+        if str(item or "").strip()
+    }
+    context.runtime_suppressed_delayed_memory_append_ids = []
     appended_results = []
 
     for report_id, report in reports.items():
@@ -108,6 +121,7 @@ async def append_delayed_memory_by_tags(
 
         if (
             normalized_report_id in loaded_reports
+            or normalized_report_id in suppressed_ids
             or not isinstance(report, dict)
         ):
             continue
@@ -133,6 +147,17 @@ async def append_delayed_memory_by_tags(
             result,
         ):
             continue
+
+        appended_ids = getattr(
+            context,
+            "runtime_appended_delayed_memory_ids",
+            None,
+        )
+        if not isinstance(appended_ids, list):
+            appended_ids = []
+            context.runtime_appended_delayed_memory_ids = appended_ids
+        if normalized_report_id not in appended_ids:
+            appended_ids.append(normalized_report_id)
 
         result = {
             **result,

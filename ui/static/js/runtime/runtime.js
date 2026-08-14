@@ -175,6 +175,7 @@ const runtimeMemoryHistory = {
 let runtimeMemoryDisplayMode = "runtime";
 let restoredSessionMemorySnapshot = null;
 const loadedDelayedMemoryReportIds = new Set();
+const appendedDelayedMemoryReportIds = new Set();
 
 feedback.init({
   memoryModel,
@@ -579,6 +580,7 @@ session.init({
   persistRuntimeMemorySnapshot,
   attachFirstUserIdleToInitialRuntimeSnapshot,
   getLoadedDelayedMemoryReportIds,
+  getAppendedDelayedMemoryReportIds,
 });
 
 panel.init();
@@ -593,6 +595,8 @@ memoryView.init({
   deleteRuntimeMemoryLine: deleteRuntimeMemoryLineAndRender,
   getDelayedMemoryReports: readDelayedMemoryReports,
   isDelayedMemoryReportLoaded,
+  isDelayedMemoryReportAppended,
+  handleDelayedMemoryReportPinClick,
   setDelayedMemoryReportPinned,
   updateDelayedMemoryReportFields,
   setDelayedMemoryReportAnchorFactIds,
@@ -702,6 +706,12 @@ function getLoadedDelayedMemoryReportIds() {
     .sort();
 }
 
+function getAppendedDelayedMemoryReportIds() {
+  return Array.from(appendedDelayedMemoryReportIds)
+    .filter(reportId => loadedDelayedMemoryReportIds.has(reportId))
+    .sort();
+}
+
 function replaceLoadedDelayedMemoryReportIds(
   reportIds,
   options = {}
@@ -711,11 +721,16 @@ function replaceLoadedDelayedMemoryReportIds(
       .map(normalizeRuntimeDelayedMemoryReportId)
       .filter(Boolean)
   );
+  const appendedStateChanged =
+    Array.from(appendedDelayedMemoryReportIds).some(
+      reportId => !nextIds.has(reportId)
+    );
   const changed =
     nextIds.size !== loadedDelayedMemoryReportIds.size
     || Array.from(nextIds).some(
       reportId => !loadedDelayedMemoryReportIds.has(reportId)
-    );
+    )
+    || appendedStateChanged;
 
   if (!changed) {
     return getLoadedDelayedMemoryReportIds();
@@ -724,6 +739,13 @@ function replaceLoadedDelayedMemoryReportIds(
   loadedDelayedMemoryReportIds.clear();
   nextIds.forEach(
     reportId => loadedDelayedMemoryReportIds.add(reportId)
+  );
+  Array.from(appendedDelayedMemoryReportIds).forEach(
+    reportId => {
+      if (!loadedDelayedMemoryReportIds.has(reportId)) {
+        appendedDelayedMemoryReportIds.delete(reportId);
+      }
+    }
   );
 
   if (options.render !== false) {
@@ -734,7 +756,56 @@ function replaceLoadedDelayedMemoryReportIds(
     }
   }
 
+  if (appendedStateChanged) {
+    dispatchDelayedMemoryStoreChanged(
+      "append-state",
+      ""
+    );
+  }
+
   return getLoadedDelayedMemoryReportIds();
+}
+
+function replaceAppendedDelayedMemoryReportIds(
+  reportIds,
+  options = {}
+) {
+  const nextIds = new Set(
+    (Array.isArray(reportIds) ? reportIds : [])
+      .map(normalizeRuntimeDelayedMemoryReportId)
+      .filter(
+        reportId => reportId && loadedDelayedMemoryReportIds.has(reportId)
+      )
+  );
+  const changed =
+    nextIds.size !== appendedDelayedMemoryReportIds.size
+    || Array.from(nextIds).some(
+      reportId => !appendedDelayedMemoryReportIds.has(reportId)
+    );
+
+  if (!changed) {
+    return getAppendedDelayedMemoryReportIds();
+  }
+
+  appendedDelayedMemoryReportIds.clear();
+  nextIds.forEach(
+    reportId => appendedDelayedMemoryReportIds.add(reportId)
+  );
+
+  if (options.render !== false) {
+    renderRuntimeMemorySnapshot();
+
+    if (!syncDelayedMemoryStateToAvatar()) {
+      refreshRuntimeAvatar();
+    }
+  }
+
+  dispatchDelayedMemoryStoreChanged(
+    "append-state",
+    ""
+  );
+
+  return getAppendedDelayedMemoryReportIds();
 }
 
 function isDelayedMemoryReportLoaded(reportId) {
@@ -744,6 +815,17 @@ function isDelayedMemoryReportLoaded(reportId) {
   return Boolean(
     normalizedId
     && loadedDelayedMemoryReportIds.has(normalizedId)
+  );
+}
+
+function isDelayedMemoryReportAppended(reportId) {
+  const normalizedId =
+      normalizeRuntimeDelayedMemoryReportId(reportId);
+
+  return Boolean(
+    normalizedId
+    && loadedDelayedMemoryReportIds.has(normalizedId)
+    && appendedDelayedMemoryReportIds.has(normalizedId)
   );
 }
 
@@ -760,6 +842,8 @@ function markDelayedMemoryReportLoaded(
 
   const wasLoaded =
       loadedDelayedMemoryReportIds.has(normalizedId);
+  const wasAppended =
+      appendedDelayedMemoryReportIds.has(normalizedId);
 
   if (loaded) {
     loadedDelayedMemoryReportIds.add(
@@ -769,11 +853,16 @@ function markDelayedMemoryReportLoaded(
     loadedDelayedMemoryReportIds.delete(
       normalizedId
     );
+    appendedDelayedMemoryReportIds.delete(
+      normalizedId
+    );
   }
 
   if (
       wasLoaded
       === loadedDelayedMemoryReportIds.has(normalizedId)
+      && wasAppended
+      === appendedDelayedMemoryReportIds.has(normalizedId)
   ) {
     return true;
   }
@@ -784,7 +873,128 @@ function markDelayedMemoryReportLoaded(
     refreshRuntimeAvatar();
   }
 
+  if (
+      wasAppended
+      && !appendedDelayedMemoryReportIds.has(normalizedId)
+  ) {
+    dispatchDelayedMemoryStoreChanged(
+      "unappend",
+      normalizedId
+    );
+  }
+
   return true;
+}
+
+function markDelayedMemoryReportAppended(
+  reportId,
+  appended = true,
+  options = {}
+) {
+  const normalizedId =
+      normalizeRuntimeDelayedMemoryReportId(reportId);
+
+  if (!normalizedId) {
+    return false;
+  }
+
+  const wasAppended =
+      appendedDelayedMemoryReportIds.has(normalizedId);
+  const wasLoaded =
+      loadedDelayedMemoryReportIds.has(normalizedId);
+
+  if (appended) {
+    loadedDelayedMemoryReportIds.add(normalizedId);
+    appendedDelayedMemoryReportIds.add(normalizedId);
+  } else {
+    appendedDelayedMemoryReportIds.delete(normalizedId);
+
+    if (options.unload !== false) {
+      loadedDelayedMemoryReportIds.delete(normalizedId);
+    }
+  }
+
+  const changed =
+      wasAppended !== appendedDelayedMemoryReportIds.has(normalizedId)
+      || wasLoaded !== loadedDelayedMemoryReportIds.has(normalizedId);
+
+  if (changed && options.render !== false) {
+    renderRuntimeMemorySnapshot();
+
+    if (!syncDelayedMemoryStateToAvatar()) {
+      refreshRuntimeAvatar();
+    }
+  }
+
+  if (changed) {
+    dispatchDelayedMemoryStoreChanged(
+      appended ? "append" : "unappend",
+      normalizedId
+    );
+  }
+
+  if (options.sync === true) {
+    syncDelayedMemoryReportsToServer({
+      suppressedAppendIds:
+        options.suppressNextTurn === true
+          ? [normalizedId]
+          : [],
+    });
+  }
+
+  return true;
+}
+
+function handleDelayedMemoryReportPinClick(reportId) {
+  const normalizedId =
+      normalizeRuntimeDelayedMemoryReportId(reportId);
+  const report =
+      normalizedId
+      ? readDelayedMemoryReports()[normalizedId]
+      : null;
+
+  if (
+      !normalizedId
+      || !report
+      || typeof report !== "object"
+      || Array.isArray(report)
+  ) {
+    return false;
+  }
+
+  if (isDelayedMemoryReportAppended(normalizedId)) {
+    markDelayedMemoryReportAppended(
+      normalizedId,
+      false,
+      {
+        unload: true,
+        sync: true,
+        suppressNextTurn: true,
+      }
+    );
+
+    return {
+      action: "unappend",
+      pinned: Boolean(report.pinned),
+      reportId: normalizedId,
+    };
+  }
+
+  const nextPinned = !Boolean(report.pinned);
+  const changed = setDelayedMemoryReportPinned(
+    normalizedId,
+    nextPinned
+  );
+
+  if (!changed) {
+    return false;
+  }
+
+  return {
+    action: nextPinned ? "pin" : "unpin",
+    pinned: nextPinned,
+    reportId: normalizedId,
+  };
 }
 
 function buildDeletedDelayedMemoryReportPayload(
@@ -2275,8 +2485,13 @@ window.JinRuntime.runtime = {
   getDelayedMemoryReports: readDelayedMemoryReports,
   getLoadedDelayedMemoryReportIds,
   replaceLoadedDelayedMemoryReportIds,
+  getAppendedDelayedMemoryReportIds,
+  replaceAppendedDelayedMemoryReportIds,
   isDelayedMemoryReportLoaded,
+  isDelayedMemoryReportAppended,
   markDelayedMemoryReportLoaded,
+  markDelayedMemoryReportAppended,
+  handleDelayedMemoryReportPinClick,
   setDelayedMemoryReportPinned,
   updateDelayedMemoryReportFields,
   setDelayedMemoryReportAnchorFactIds,

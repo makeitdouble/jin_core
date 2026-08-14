@@ -486,12 +486,31 @@ function syncDelayedMemoryReportsToRuntime(options = {}) {
     typeof window.JinRuntime.runtime.getLoadedDelayedMemoryReportIds === "function"
       ? window.JinRuntime.runtime.getLoadedDelayedMemoryReportIds()
       : [];
+  const appendedDelayedMemoryIds =
+    typeof window.JinRuntime.runtime.getAppendedDelayedMemoryReportIds === "function"
+      ? window.JinRuntime.runtime.getAppendedDelayedMemoryReportIds()
+      : [];
+  const suppressedAppendIds =
+    normalizeDelayedMemoryReportIds(
+      options.suppressedAppendIds
+      || options.suppressed_delayed_memory_append_ids
+      || []
+    );
 
   return sendSocketMessage({
     type: "delayed_memory_store_sync",
     delayed_memory_reports: delayedMemoryReports,
     deleted_delayed_memory_report_ids: deletedReportIds,
     loaded_delayed_memory_ids: loadedDelayedMemoryIds,
+    appended_delayed_memory_ids: appendedDelayedMemoryIds,
+    ...(
+      suppressedAppendIds.length
+        ? {
+          suppressed_delayed_memory_append_ids:
+            suppressedAppendIds,
+        }
+        : {}
+    ),
   });
 }
 
@@ -527,6 +546,15 @@ function handleDelayedMemoryStoreSnapshot(
     window.JinRuntime.runtime.replaceLoadedDelayedMemoryReportIds(
       data.loaded_delayed_memory_ids || [],
       { render: false }
+    );
+  }
+
+  if (
+      typeof window.JinRuntime.runtime.replaceAppendedDelayedMemoryReportIds
+        === "function"
+  ) {
+    window.JinRuntime.runtime.replaceAppendedDelayedMemoryReportIds(
+      data.appended_delayed_memory_ids || []
     );
   }
 

@@ -1656,6 +1656,41 @@ class RuntimeActionStreamFilter:
         )
 
         if not self.pending:
+            # Block actions must win over a trailing ``<`` prefix. When a
+            # chunk ends at the first character of a closing tag, the generic
+            # prefix detector would otherwise emit the still-open block body
+            # as visible text and keep only ``<`` pending.
+            unclosed_start = _unclosed_internal_action_request_start(
+                combined,
+                enabled_actions=self.enabled_actions,
+            )
+
+            if unclosed_start is not None:
+                pending_start, ready_text = _split_pending_marker_prefix(
+                    combined,
+                    unclosed_start,
+                )
+                self.pending = combined[
+                    pending_start:
+                ]
+                self.pending_is_action = True
+                started_actions = self._find_started_actions(
+                    combined
+                )
+                result = _extract_runtime_actions_if_needed(
+                    ready_text,
+                    enabled_actions=self.enabled_actions,
+                    preserve_action_text=self.preserve_action_text,
+                    seen_action_keys=self.seen_action_keys,
+                    preserve_action_marker=self.preserve_action_marker,
+                    repetition_guard=self.repetition_guard,
+                )
+
+                return self._attach_started_actions(
+                    result,
+                    started_actions,
+                )
+
             hold_length = _trailing_marker_prefix_length(
                 combined,
                 enabled_actions=self.enabled_actions,

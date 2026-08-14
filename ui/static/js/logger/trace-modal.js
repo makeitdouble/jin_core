@@ -1548,9 +1548,14 @@ function syncContextDelayedMemoryRow(row) {
   if (missing) {
     row.removeAttribute("role");
     row.removeAttribute("tabindex");
+    row.classList.remove("is-pinned");
 
     if (pinButton) {
       pinButton.disabled = true;
+      pinButton.classList.remove(
+        "delayed-memory-modal-pin-active",
+        "delayed-memory-modal-pin-appended"
+      );
       pinButton.title =
         "Delayed memory report deleted";
     }
@@ -1571,13 +1576,29 @@ function syncContextDelayedMemoryRow(row) {
     return;
   }
 
+  const runtime =
+    window.JinRuntime
+    && window.JinRuntime.runtime;
   const pinned =
     Boolean(report.pinned);
+  const appended =
+    !pinned
+    && runtime
+    && typeof runtime.isDelayedMemoryReportAppended === "function"
+    && runtime.isDelayedMemoryReportAppended(reportId);
 
   pinButton.disabled = false;
+  row.classList.toggle(
+    "is-pinned",
+    pinned
+  );
   pinButton.classList.toggle(
     "delayed-memory-modal-pin-active",
     pinned
+  );
+  pinButton.classList.toggle(
+    "delayed-memory-modal-pin-appended",
+    Boolean(appended)
   );
   pinButton.setAttribute(
     "aria-pressed",
@@ -1585,14 +1606,22 @@ function syncContextDelayedMemoryRow(row) {
   );
   pinButton.setAttribute(
     "aria-label",
-    pinned
-      ? "Unpin delayed memory"
-      : "Pin delayed memory"
+    appended
+      ? "Remove appended delayed memory"
+      : (
+          pinned
+            ? "Unpin delayed memory"
+            : "Pin delayed memory"
+        )
   );
   pinButton.title =
-    pinned
-      ? "Unpin delayed memory"
-      : "Pin delayed memory";
+    appended
+      ? "Remove appended delayed memory from next turn"
+      : (
+          pinned
+            ? "Unpin delayed memory"
+            : "Pin delayed memory"
+        );
 }
 
 function syncContextDelayedMemoryRows(reportId = "") {
@@ -1778,16 +1807,25 @@ function renderContextDelayedMemoryBody(
         if (
             !report
             || !runtime
-            || typeof runtime.setDelayedMemoryReportPinned !== "function"
+            || (
+              typeof runtime.handleDelayedMemoryReportPinClick !== "function"
+              && typeof runtime.setDelayedMemoryReportPinned !== "function"
+            )
         ) {
           syncContextDelayedMemoryRow(row);
           return;
         }
 
-        runtime.setDelayedMemoryReportPinned(
-          reportId,
-          !Boolean(report.pinned)
-        );
+        if (typeof runtime.handleDelayedMemoryReportPinClick === "function") {
+          runtime.handleDelayedMemoryReportPinClick(
+            reportId
+          );
+        } else {
+          runtime.setDelayedMemoryReportPinned(
+            reportId,
+            !Boolean(report.pinned)
+          );
+        }
         syncContextDelayedMemoryRow(row);
       }
     );

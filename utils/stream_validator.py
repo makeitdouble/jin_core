@@ -156,6 +156,12 @@ EXCLUDED_MARKER_NAMES = frozenset(
     if marker_name
 )
 
+EXCLUDED_BLOCK_MARKER_NAMES = frozenset(
+    extract_marker_name(marker)
+    for marker in STREAM_VALIDATOR_EXCLUDED_MARKERS
+    if str(marker or "").lstrip().startswith("</")
+)
+
 EXCLUDED_MARKER_STARTS = tuple(
     marker_start
     for marker_name in EXCLUDED_MARKER_NAMES
@@ -208,6 +214,7 @@ class StreamValidator:
         # repeated ``F`` words.
         self.word_fragment = ""
         self.validation_marker_buffer = ""
+        self.validation_excluded_block_name = ""
 
         self.last_failure_reason: str | None = None
         self.last_failure_preview = ""
@@ -789,12 +796,14 @@ class StreamValidator:
             marker_start = text.find("<", offset)
 
             if marker_start < 0:
-                output.append(text[offset:])
+                if not self.validation_excluded_block_name:
+                    output.append(text[offset:])
                 break
 
-            output.append(
-                text[offset:marker_start]
-            )
+            if not self.validation_excluded_block_name:
+                output.append(
+                    text[offset:marker_start]
+                )
 
             marker_end = text.find(
                 ">",
@@ -808,7 +817,7 @@ class StreamValidator:
                     candidate
                 ):
                     self.validation_marker_buffer = candidate
-                else:
+                elif not self.validation_excluded_block_name:
                     output.append(candidate)
 
                 break
@@ -816,8 +825,27 @@ class StreamValidator:
             marker = text[
                 marker_start:marker_end + 1
             ]
+            marker_name = extract_marker_name(marker)
+            is_closing = str(marker).lstrip().startswith("</")
 
-            if self.is_excluded_marker(marker):
+            if self.validation_excluded_block_name:
+                if (
+                    is_closing
+                    and marker_name == self.validation_excluded_block_name
+                ):
+                    self.validation_excluded_block_name = ""
+                    output.append(" ")
+
+                offset = marker_end + 1
+                continue
+
+            if (
+                marker_name in EXCLUDED_BLOCK_MARKER_NAMES
+                and not is_closing
+            ):
+                self.validation_excluded_block_name = marker_name
+                output.append(" ")
+            elif self.is_excluded_marker(marker):
                 output.append(" ")
             else:
                 output.append(marker)
