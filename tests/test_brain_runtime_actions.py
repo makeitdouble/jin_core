@@ -110,6 +110,9 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
                 "LOAD_SKILL",
                 "UNLOAD_SKILL",
                 "ASSET_ACTION",
+                "LIST_FILES",
+                "LOAD_ATTACHMENT",
+                "UNLOAD_ATTACHMENT",
             )
         )
 
@@ -224,12 +227,9 @@ class BrainRuntimeActionTests(unittest.TestCase):
             }
         ]
 
-        self.assertGreaterEqual(len(lifecycle), 2)
+        self.assertEqual(len(lifecycle), 1)
         self.assertEqual(lifecycle[0]["status"], "started")
-        self.assertEqual(lifecycle[1]["status"], "completed")
-        self.assertEqual(lifecycle[0]["id"], lifecycle[1]["id"])
         self.assertEqual(lifecycle[0]["text"], "UPDATE_L4_FACTS")
-        self.assertEqual(lifecycle[1]["text"], "UPDATE_L4_FACTS")
 
         self.assertEqual(len(applied), 1)
         actions, kwargs = applied[0]

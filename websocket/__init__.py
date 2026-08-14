@@ -70,6 +70,11 @@ from utils.delayed_memory_file_store import (
     delete_delayed_memory_report_files,
     persist_delayed_memory_reports,
 )
+from utils.attached_files_store import (
+    hydrate_attachment_ids,
+    public_file_snapshot,
+    sync_pinned_file_ids,
+)
 
 
 websocket_router = APIRouter()
@@ -270,6 +275,31 @@ async def websocket_endpoint(
                     context,
                     message_data,
                 )
+                continue
+
+            if message_type == "attachment_context_sync":
+                file_ids = sync_pinned_file_ids(
+                    message_data.get(
+                        "ids",
+                        [],
+                    )
+                )
+                attachments = hydrate_attachment_ids(
+                    file_ids
+                )
+                context.runtime_attached_file_ids = list(
+                    file_ids
+                )
+                context.runtime_turn_attachments = list(
+                    attachments
+                )
+                context.runtime_current_sequence_attachments = list(
+                    attachments
+                )
+                await websocket.send_json({
+                    "type": "attached_files_update",
+                    **public_file_snapshot(),
+                })
                 continue
 
             if message_type == "delayed_memory_store_sync":

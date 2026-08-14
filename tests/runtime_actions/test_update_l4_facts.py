@@ -214,6 +214,12 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
             and event.get("action") == "update_l4_facts"
         ]
         self.assertTrue(any(event.get("status") == "completed" for event in lifecycle))
+        completed_event = next(
+            event
+            for event in lifecycle
+            if event.get("status") == "completed"
+        )
+        self.assertEqual(completed_event.get("text"), "UPDATE_L4_FACTS")
         self.assertTrue(any(
             event.get("l4_result", {}).get("change", {}).get("action") == "merge"
             for event in lifecycle

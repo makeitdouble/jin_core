@@ -44,7 +44,11 @@ from utils.token_usage import (
 from utils.tokens import estimate_stream_input_tokens
 from utils.urls import join_url
 from utils.ws_errors import handle_fatal_runtime_error
-from .attachments import build_user_text_with_attachments
+from .attachments import (
+    attachment_ids_from_message_data,
+    build_user_text_with_attachments,
+    hydrate_message_attachments,
+)
 from .bootstrap import (
     apply_active_memory_records,
     attach_user_idle_to_initial_runtime_snapshot,
@@ -1004,6 +1008,28 @@ async def process_message(
             action_guard_retry
         )
 
+        if is_idle_followup or is_action_guard_retry:
+            active_attachment_ids = list(
+                getattr(
+                    context,
+                    "runtime_attached_file_ids",
+                    [],
+                )
+                or []
+            )
+        else:
+            active_attachment_ids = attachment_ids_from_message_data(
+                message_data
+            )
+            context.runtime_attached_file_ids = list(
+                active_attachment_ids
+            )
+
+        hydrated_active_attachments = hydrate_message_attachments(
+            message_data,
+            active_attachment_ids,
+        )
+
         user_text = (
             str(
                 idle_followup.get(
@@ -1065,60 +1091,25 @@ async def process_message(
                 context.runtime_turn_started_at
             )
         if is_idle_followup:
-            idle_attachments = idle_followup.get(
-                "attachments",
-            )
-            sequence_attachment_turn_id = str(
-                getattr(
-                    context,
-                    "runtime_current_sequence_attachments_turn_id",
-                    "",
-                )
-                or ""
-            ).strip()
-            sequence_attachments = getattr(
-                context,
-                "runtime_current_sequence_attachments",
-                [],
-            )
             context.runtime_turn_attachments = deepcopy(
-                idle_attachments
-                if (
-                    isinstance(
-                        idle_attachments,
-                        list,
-                    )
-                    and idle_attachments
-                )
-                else (
-                    sequence_attachments
-                    if (
-                        sequence_attachment_turn_id
-                        == context.runtime_current_sequence_turn_id
-                        and isinstance(
-                            sequence_attachments,
-                            list,
-                        )
-                    )
-                    else []
-                )
-            )
-        elif is_action_guard_retry:
-            context.runtime_turn_attachments = []
-        else:
-            message_attachments = message_data.get(
-                "attachments",
-            )
-            context.runtime_turn_attachments = deepcopy(
-                message_attachments
-                if isinstance(
-                    message_attachments,
-                    list,
-                )
-                else []
+                hydrated_active_attachments
             )
             context.runtime_current_sequence_attachments = deepcopy(
-                context.runtime_turn_attachments
+                hydrated_active_attachments
+            )
+            context.runtime_current_sequence_attachments_turn_id = (
+                context.runtime_current_sequence_turn_id
+            )
+        elif is_action_guard_retry:
+            context.runtime_turn_attachments = deepcopy(
+                hydrated_active_attachments
+            )
+        else:
+            context.runtime_turn_attachments = deepcopy(
+                hydrated_active_attachments
+            )
+            context.runtime_current_sequence_attachments = deepcopy(
+                hydrated_active_attachments
             )
             context.runtime_current_sequence_attachments_turn_id = (
                 context.runtime_current_sequence_turn_id

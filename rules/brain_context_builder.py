@@ -858,6 +858,9 @@ def build_brain_context(
     from utils.context.skills import (
         build_skills_inventory_context,
     )
+    from websocket.attachments import (
+        build_attached_files_inventory_context,
+    )
 
     prompt_parts = []
     runtime_context_parts = []
@@ -876,7 +879,17 @@ def build_brain_context(
             tool_results_context
         )
 
-    # Delayed memory inventory stays directly below tool results so available
+    # Persistent pinned files are a compact inventory between tool results and
+    # delayed memory. Omit the block completely when no files are attached.
+    attached_files_context = build_attached_files_inventory_context(
+        context
+    )
+    if attached_files_context:
+        prompt_parts.append(
+            attached_files_context
+        )
+
+    # Delayed memory inventory stays directly below attached files so available
     # reports are visible before the rest of the runtime state.
     delayed_memory_inventory_context = (
         build_delayed_memory_inventory_context(

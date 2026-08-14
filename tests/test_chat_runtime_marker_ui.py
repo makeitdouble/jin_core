@@ -102,17 +102,42 @@ for (const [input, expected] of cases) {
         )
 
         self.assertIn(
-            '/static/js/chat-runtime-actions.js?v=deep-search-stack-2',
+            '/static/js/chat-runtime-actions.js?v=live-active-perf-1',
             source,
         )
 
         self.assertIn(
-            '/static/js/socket/runtime-actions.js?v=deep-search-stack-2',
+            '/static/js/socket/runtime-actions.js?v=live-active-perf-1',
             source,
         )
         self.assertIn(
             '/static/css/chat-runtime-action.css?v=deep-search-stack-2',
             source,
+        )
+
+    def test_live_active_memory_progress_does_not_force_stream_flush(self):
+        chat_runtime_source = CHAT_RUNTIME_ACTIONS_JS.read_text(
+            encoding="utf-8"
+        )
+        socket_runtime_source = SOCKET_RUNTIME_ACTIONS_JS.read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            "options.flushStreamFrame !== false",
+            chat_runtime_source,
+        )
+        self.assertIn(
+            'action === "save_active_memory"',
+            socket_runtime_source,
+        )
+        self.assertIn(
+            'status === "running"',
+            socket_runtime_source,
+        )
+        self.assertIn(
+            "flushStreamFrame:\n        !liveActiveMemoryProgress",
+            socket_runtime_source,
         )
 
     def test_runtime_action_icons_cover_core_actions(self):

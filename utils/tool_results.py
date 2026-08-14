@@ -9,6 +9,7 @@ TOOL_RESULT_KIND_ASSET = "asset"
 TOOL_RESULT_KIND_ACTIVE_MEMORY = "active_memory"
 TOOL_RESULT_KIND_DELAYED_MEMORY = "delayed_memory"
 TOOL_RESULT_KIND_SESSION = "session"
+TOOL_RESULT_KIND_FILES = "files"
 
 RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES = (
     "runtime_asset_results",

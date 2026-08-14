@@ -429,8 +429,8 @@
     position: fixed;
     z-index: 80;
     pointer-events: none;
-    max-width: 200px;
-    max-height: 200px;
+    max-width: var(--jin-attachment-preview-max-px, 200px);
+    max-height: var(--jin-attachment-preview-max-px, 200px);
     overflow: hidden;
     border: 1px solid rgba(125, 211, 252, 0.46);
     border-radius: 4px;
@@ -444,8 +444,8 @@
     display: block;
     width: auto;
     height: auto;
-    max-width: 200px;
-    max-height: 200px;
+    max-width: var(--jin-attachment-preview-max-px, 200px);
+    max-height: var(--jin-attachment-preview-max-px, 200px);
     object-fit: contain;
 }
 
@@ -652,7 +652,13 @@
     color: rgba(240, 253, 250, 0.98);
 }
 
-.delayed-memory-modal-pin-appended {
+.delayed-memory-modal-pin-appended,
+.delayed-memory-modal-pin-loaded {
+    color: rgba(196, 196, 198, 0.96);
+}
+
+.delayed-memory-modal-pin-loaded:hover,
+.delayed-memory-modal-pin-loaded:focus-visible {
     color: rgba(196, 196, 198, 0.96);
 }
 

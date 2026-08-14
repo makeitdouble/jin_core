@@ -123,6 +123,7 @@
   let pendingRuntimeMemoryRender = false;
   let memoryHighlightsSuspended = false;
   let memoryPanelVisibilityEventsBound = false;
+  let filesStoreEventsBound = false;
 
   function requireRuntimeMemoryHistory() {
     if (!runtimeMemoryHistory) {
@@ -1234,6 +1235,28 @@
       });
   }
 
+  function getPersistentFileRecords() {
+    if (!window.JinFiles || typeof window.JinFiles.getFiles !== "function") {
+      return [];
+    }
+
+    return window.JinFiles.getFiles()
+      .filter((record) => record && record.id && record.name)
+      .sort((left, right) => {
+        const pinDifference = Number(Boolean(right.pinned)) - Number(Boolean(left.pinned));
+        if (pinDifference) return pinDifference;
+        if (left.pinned && right.pinned) {
+          const pinTimeDifference = Number(right.pinned_at || 0) - Number(left.pinned_at || 0);
+          if (pinTimeDifference) return pinTimeDifference;
+        }
+        const createdDifference = Number(right.created_at || 0) - Number(left.created_at || 0);
+        if (createdDifference) return createdDifference;
+        const idDifference = String(left.id || "").localeCompare(String(right.id || ""));
+        if (idDifference) return idDifference;
+        return String(left.name || "").localeCompare(String(right.name || ""));
+      });
+  }
+
   function getAvailableRuntimeMemoryDisplayModes() {
     const modes = [
       "runtime",
@@ -1260,6 +1283,12 @@
     if (getLongTermMemoryFactRecords().length > 0) {
       modes.push(
           "long_term"
+      );
+    }
+
+    if (getPersistentFileRecords().length > 0) {
+      modes.push(
+          "files"
       );
     }
 
@@ -1309,7 +1338,9 @@
               ? "[ facts memory ]"
               : displayMode === "long_term"
                 ? "[ long term memory ]"
-                : "[ runtime memory ]";
+                : displayMode === "files"
+                  ? "[ files ]"
+                  : "[ runtime memory ]";
 
     const hasAlternativeMemory =
         modes.length > 1;
@@ -1801,6 +1832,11 @@
     if (getRuntimeMemoryDisplayMode() === "long_term") {
       renderLongTermMemoryFacts();
       applyMemoryReferenceHighlights(renderHighlightOptions);
+      return;
+    }
+
+    if (getRuntimeMemoryDisplayMode() === "files") {
+      renderPersistentFiles();
       return;
     }
 
@@ -3019,6 +3055,99 @@
   }
 
 
+  function bindPersistentFileHoverPreview(element, record) {
+    if (!element || !record) return;
+
+    const bind = () => {
+      if (element.dataset.jinAttachmentHoverBound === "1") return true;
+      if (typeof window.bindJinAttachmentHoverPreview !== "function") return false;
+
+      window.bindJinAttachmentHoverPreview(element, record, {
+        hoverPreviewMaxPx: 100,
+      });
+      element.dataset.jinAttachmentHoverBound = "1";
+      return true;
+    };
+
+    if (!bind()) {
+      window.addEventListener("jin:attachment-ui-ready", bind, {once: true});
+    }
+  }
+
+  function renderPersistentFiles() {
+    if (!runtimeMemoryText) return;
+
+    const records = getPersistentFileRecords();
+
+    runtimeMemoryText.innerHTML = "";
+    runtimeMemoryText.classList.remove("runtime-memory-text-pinned");
+    runtimeMemoryText.removeAttribute("title");
+
+    if (runtimeMemoryPosition) {
+      runtimeMemoryPosition.textContent = String(records.length);
+    }
+
+    records.forEach((record, index) => {
+      const row = document.createElement("div");
+      row.className = "runtime-memory-line runtime-memory-delayed-row";
+      row.dataset.memoryHighlightSortIndex = String(index);
+      row.setAttribute("role", "button");
+      row.setAttribute("tabindex", "0");
+      row.title = String(record.name || "attachment");
+      if (record.pinned) {
+        row.classList.add("runtime-memory-delayed-row-pinned");
+      }
+
+      const pinButton = document.createElement("button");
+      pinButton.type = "button";
+      pinButton.className = "delayed-memory-modal-icon-button delayed-memory-modal-pin runtime-memory-delayed-pin";
+      pinButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 3.3 20.7 9.3 18.6 11.4 16.9 9.7 13.7 12.9 14.4 15.7 12.9 17.2 9.4 13.7 5.3 17.8 4.2 16.7 8.3 12.6 4.8 9.1 6.3 7.6 9.1 8.3 12.3 5.1 10.6 3.4 12.7 1.3Z"/></svg>';
+      pinButton.classList.toggle("delayed-memory-modal-pin-active", Boolean(record.pinned));
+      pinButton.setAttribute("aria-pressed", record.pinned ? "true" : "false");
+      pinButton.title = String(record.id || "");
+      pinButton.setAttribute(
+        "aria-label",
+        record.pinned
+          ? `Remove ${record.id || "file"} from JIN context`
+          : `Attach ${record.id || "file"} to JIN context`
+      );
+      pinButton.dataset.fileId = String(record.id || "");
+      bindPersistentFileHoverPreview(pinButton, record);
+      pinButton.addEventListener("pointerdown", (event) => event.stopPropagation());
+      pinButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (window.JinFiles && typeof window.JinFiles.setPinned === "function") {
+          void window.JinFiles.setPinned(record.id, !Boolean(record.pinned));
+        }
+      });
+
+      const separator = document.createElement("span");
+      separator.className = "runtime-memory-delayed-separator";
+      separator.textContent = "·";
+
+      const keySpan = document.createElement("span");
+      keySpan.className = "runtime-memory-key";
+      keySpan.textContent = String(record.name || "attachment");
+      bindPersistentFileHoverPreview(keySpan, record);
+
+      row.append(pinButton, separator, keySpan);
+
+      const openModal = () => {
+        if (typeof window.openJinAttachmentModal === "function") {
+          window.openJinAttachmentModal(record);
+        }
+      };
+      row.addEventListener("click", openModal);
+      row.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        openModal();
+      });
+      runtimeMemoryText.appendChild(row);
+    });
+  }
+
   function renderDelayedMemoryReports() {
     const reports =
         getDelayedMemoryReportRecords();
@@ -4127,6 +4256,9 @@
     const appended =
         !pinned
         && isDelayedMemoryReportAutoAppended(report);
+    const loaded =
+        !pinned
+        && isDelayedMemoryReportInContext(report);
 
     button.classList.toggle(
         "delayed-memory-modal-pin-active",
@@ -4136,14 +4268,18 @@
         "delayed-memory-modal-pin-appended",
         appended
     );
+    button.classList.toggle(
+        "delayed-memory-modal-pin-loaded",
+        loaded
+    );
     button.setAttribute(
         "aria-pressed",
         pinned ? "true" : "false"
     );
     button.setAttribute(
         "aria-label",
-        appended
-          ? "Remove appended delayed memory"
+        loaded
+          ? "Unload delayed memory"
           : (
               pinned
                 ? "Unpin delayed memory"
@@ -4154,9 +4290,13 @@
         appended
           ? "Remove appended delayed memory from next turn"
           : (
-              pinned
-                ? "Unpin delayed memory"
-                : "Pin delayed memory"
+              loaded
+                ? "Unload delayed memory from context"
+                : (
+                    pinned
+                      ? "Unpin delayed memory"
+                      : "Pin delayed memory"
+                  )
             );
   }
 
@@ -5684,6 +5824,14 @@
         );
       },
     });
+
+    if (!filesStoreEventsBound) {
+      window.addEventListener("jin:files-store-changed", () => {
+        ensureRuntimeMemoryDisplayModeAvailable();
+        renderRuntimeMemorySnapshot();
+      });
+      filesStoreEventsBound = true;
+    }
 
     bindRuntimeMemoryNavigation();
     renderRuntimeMemorySnapshot();

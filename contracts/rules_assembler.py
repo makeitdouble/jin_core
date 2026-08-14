@@ -28,6 +28,9 @@ ACTION_CONFIG_KEYS = (
     ("LOAD_SKILL", "CAN_USE_ASSETS"),
     ("UNLOAD_SKILL", "CAN_USE_ASSETS"),
     ("ASSET_ACTION", "CAN_USE_ASSETS"),
+    ("LIST_FILES", "CAN_USE_ASSETS"),
+    ("LOAD_ATTACHMENT", "CAN_USE_ASSETS"),
+    ("UNLOAD_ATTACHMENT", "CAN_USE_ASSETS"),
     ("CREATE_TODO_LIST", "CAN_RUNTIME_TODO"),
     ("RESOLVE_TODO", "CAN_RUNTIME_TODO"),
     ("CHECK_TODO", "CAN_RUNTIME_TODO"),
@@ -461,6 +464,12 @@ def _context_has_delayed_memory_reports(context=None) -> bool:
     return bool(isinstance(reports, dict) and reports)
 
 
+def _context_has_files(context=None) -> bool:
+    from utils.attached_files_store import list_file_records
+
+    return bool(list_file_records(limit=1))
+
+
 def _context_has_active_memory(context=None) -> bool:
     memory_texts = [
         getattr(context, "runtime_memory", ""),
@@ -508,6 +517,13 @@ def build_allowed_markers(
                 context
             )
         ):
+            continue
+
+        if action_name in {
+            "LIST_FILES",
+            "LOAD_ATTACHMENT",
+            "UNLOAD_ATTACHMENT",
+        } and not _context_has_files(context):
             continue
 
         marker = get_runtime_action_private_marker(action_name)
@@ -563,6 +579,13 @@ def build_runtime_action_instructions(
         } and not _context_has_delayed_memory_reports(context):
             continue
 
+        if normalized_name in {
+            "LIST_FILES",
+            "LOAD_ATTACHMENT",
+            "UNLOAD_ATTACHMENT",
+        } and not _context_has_files(context):
+            continue
+
         append_rules(normalized_name)
 
     if _action_enabled(enabled_actions, "LOAD_SKILL", "UNLOAD_SKILL"):
@@ -599,6 +622,9 @@ RUNTIME_ACTION_CLEAN_TOOL_RESULTS = get_runtime_action_name(
 RUNTIME_ACTION_LOAD_SKILL = get_runtime_action_name("load_skill")
 RUNTIME_ACTION_UNLOAD_SKILL = get_runtime_action_name("unload_skill")
 RUNTIME_ACTION_ASSET_ACTION = get_runtime_action_name("asset_action")
+RUNTIME_ACTION_LIST_FILES = get_runtime_action_name("list_files")
+RUNTIME_ACTION_LOAD_ATTACHMENT = get_runtime_action_name("load_attachment")
+RUNTIME_ACTION_UNLOAD_ATTACHMENT = get_runtime_action_name("unload_attachment")
 RUNTIME_ACTION_CREATE_TODO_LIST = get_runtime_action_name("create_todo_list")
 RUNTIME_ACTION_RESOLVE_TODO = get_runtime_action_name("resolve_todo")
 RUNTIME_ACTION_CHECK_TODO = get_runtime_action_name("check_todo")

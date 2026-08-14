@@ -4,6 +4,7 @@ import asyncio
 
 from contracts.rules_assembler import (
     RUNTIME_ACTION_UPDATE_L4_FACTS,
+    build_runtime_action_display_text,
     get_runtime_action_display_name,
     runtime_action_has_close_tag,
 )
@@ -49,6 +50,9 @@ async def _emit_update_l4_facts_result(
         "id": action_id,
         "status": "completed" if completed else "failed",
         "display_name": get_runtime_action_display_name(
+            RUNTIME_ACTION_UPDATE_L4_FACTS
+        ),
+        "text": build_runtime_action_display_text(
             RUNTIME_ACTION_UPDATE_L4_FACTS
         ),
         "close_tag": runtime_action_has_close_tag(

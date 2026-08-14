@@ -12,6 +12,8 @@ let traceModalL1StreamFrame = null;
 
 const CONTEXT_DELAYED_MEMORY_STORE_CHANGED_EVENT =
   "jin:delayed-memory-store-changed";
+const CONTEXT_FILES_STORE_CHANGED_EVENT =
+  "jin:files-store-changed";
 
 function ensureTraceModal() {
   if (traceModal) {
@@ -314,6 +316,13 @@ function ensureTraceModal() {
       syncContextDelayedMemoryRows(
         detail.reportId || ""
       );
+    }
+  );
+
+  window.addEventListener(
+    CONTEXT_FILES_STORE_CHANGED_EVENT,
+    function () {
+      syncContextAttachedFileRows();
     }
   );
 }
@@ -1554,7 +1563,8 @@ function syncContextDelayedMemoryRow(row) {
       pinButton.disabled = true;
       pinButton.classList.remove(
         "delayed-memory-modal-pin-active",
-        "delayed-memory-modal-pin-appended"
+        "delayed-memory-modal-pin-appended",
+        "delayed-memory-modal-pin-loaded"
       );
       pinButton.title =
         "Delayed memory report deleted";
@@ -1586,6 +1596,11 @@ function syncContextDelayedMemoryRow(row) {
     && runtime
     && typeof runtime.isDelayedMemoryReportAppended === "function"
     && runtime.isDelayedMemoryReportAppended(reportId);
+  const loaded =
+    !pinned
+    && runtime
+    && typeof runtime.isDelayedMemoryReportLoaded === "function"
+    && runtime.isDelayedMemoryReportLoaded(reportId);
 
   pinButton.disabled = false;
   row.classList.toggle(
@@ -1600,14 +1615,18 @@ function syncContextDelayedMemoryRow(row) {
     "delayed-memory-modal-pin-appended",
     Boolean(appended)
   );
+  pinButton.classList.toggle(
+    "delayed-memory-modal-pin-loaded",
+    Boolean(loaded)
+  );
   pinButton.setAttribute(
     "aria-pressed",
     pinned ? "true" : "false"
   );
   pinButton.setAttribute(
     "aria-label",
-    appended
-      ? "Remove appended delayed memory"
+    loaded
+      ? "Unload delayed memory"
       : (
           pinned
             ? "Unpin delayed memory"
@@ -1618,9 +1637,13 @@ function syncContextDelayedMemoryRow(row) {
     appended
       ? "Remove appended delayed memory from next turn"
       : (
-          pinned
-            ? "Unpin delayed memory"
-            : "Pin delayed memory"
+          loaded
+            ? "Unload delayed memory from context"
+            : (
+                pinned
+                  ? "Unpin delayed memory"
+                  : "Pin delayed memory"
+              )
         );
 }
 
@@ -1837,6 +1860,94 @@ function renderContextDelayedMemoryBody(
   parent.appendChild(list);
 }
 
+function parseContextAttachedFileLine(line) {
+  const text = String(line || "").trim();
+  const match = text.match(/^(.*?)\s*\[\s*id\s*:\s*([a-z0-9]{6})\s*\]\s*$/i);
+  if (!match) return null;
+  return {
+    name: String(match[1] || "").trim(),
+    id: String(match[2] || "").toLowerCase(),
+  };
+}
+
+function syncContextAttachedFileRows() {
+  if (!traceModalContent) return;
+  traceModalContent.querySelectorAll(".jin-context-attached-file-row").forEach((row) => {
+    const fileId = String(row.dataset.attachedFileId || "").toLowerCase();
+    const record = window.JinFiles && typeof window.JinFiles.getFile === "function"
+      ? window.JinFiles.getFile(fileId)
+      : null;
+    const pin = row.querySelector(".jin-context-attached-file-pin");
+    const pinned = Boolean(record && record.pinned);
+    row.classList.toggle("is-pinned", pinned);
+    row.classList.toggle("opacity-50", !record);
+    if (pin) {
+      pin.disabled = !record;
+      pin.classList.toggle("delayed-memory-modal-pin-active", pinned);
+      pin.setAttribute("aria-pressed", pinned ? "true" : "false");
+      pin.title = pinned ? "Remove file from JIN context" : "Attach file to JIN context";
+    }
+  });
+}
+
+function renderContextAttachedFilesBody(parent, content) {
+  const records = String(content || "")
+    .split("\n")
+    .map(parseContextAttachedFileLine)
+    .filter(Boolean);
+
+  if (!records.length) return;
+
+  const list = contextElement("div", "jin-context-delayed-list");
+  records.forEach((item) => {
+    const row = contextElement("div", "jin-context-delayed-row jin-context-attached-file-row");
+    row.dataset.attachedFileId = item.id;
+    row.setAttribute("role", "button");
+    row.setAttribute("tabindex", "0");
+
+    const pin = contextElement(
+      "button",
+      "delayed-memory-modal-icon-button delayed-memory-modal-pin jin-context-delayed-pin jin-context-attached-file-pin"
+    );
+    pin.type = "button";
+    pin.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 3.3 20.7 9.3 18.6 11.4 16.9 9.7 13.7 12.9 14.4 15.7 12.9 17.2 9.4 13.7 5.3 17.8 4.2 16.7 8.3 12.6 4.8 9.1 6.3 7.6 9.1 8.3 12.3 5.1 10.6 3.4 12.7 1.3Z"/></svg>';
+    const label = contextElement(
+      "span",
+      "jin-context-delayed-label",
+      `${item.name} [ id: ${item.id} ]`
+    );
+
+    pin.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const record = window.JinFiles && window.JinFiles.getFile(item.id);
+      if (!record || !window.JinFiles) return;
+      void window.JinFiles.setPinned(item.id, !Boolean(record.pinned));
+    });
+
+    const open = () => {
+      const record = window.JinFiles && window.JinFiles.getFile(item.id);
+      if (record && typeof window.openJinAttachmentModal === "function") {
+        window.openJinAttachmentModal(record);
+      }
+    };
+    row.addEventListener("click", (event) => {
+      if (event.target && event.target.closest(".jin-context-attached-file-pin")) return;
+      open();
+    });
+    row.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      open();
+    });
+
+    row.append(pin, label);
+    list.appendChild(row);
+  });
+  parent.appendChild(list);
+  syncContextAttachedFileRows();
+}
+
 function renderContextBody(parent, content) {
   const text =
     String(content || "").trim();
@@ -2035,12 +2146,17 @@ function appendContextCard(
   header.appendChild(meta);
   card.appendChild(header);
   card.appendChild(body);
-  if (
-      String(block.title || "")
-        .trim()
-        .toUpperCase() === "DELAYED_MEMORY"
-  ) {
+  const normalizedBlockTitle = String(block.title || "")
+    .trim()
+    .toUpperCase();
+
+  if (normalizedBlockTitle === "DELAYED_MEMORY") {
     renderContextDelayedMemoryBody(
+      body,
+      block.content
+    );
+  } else if (normalizedBlockTitle === "ATTACHED_FILES") {
+    renderContextAttachedFilesBody(
       body,
       block.content
     );

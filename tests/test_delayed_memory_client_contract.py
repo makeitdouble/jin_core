@@ -169,6 +169,15 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             runtime_actions_source,
         )
 
+        self.assertIn(
+            "options.forceRender !== true",
+            runtime_source,
+        )
+        self.assertIn(
+            "{ forceRender: true }",
+            runtime_actions_source,
+        )
+
     def test_context_loaded_delayed_memory_highlights_report_and_linked_l4(self):
 
         runtime_source = (

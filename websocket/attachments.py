@@ -152,8 +152,28 @@ def format_attachment_context(
                 f"{width}x{height}"
             )
 
+        context_path = str(
+            attachment.get(
+                "context_path",
+                name,
+            )
+            or name
+        )
+        file_id = str(
+            attachment.get(
+                "id",
+                "",
+            )
+            or ""
+        ).strip()
+        id_suffix = (
+            f" [ id: {file_id} ]"
+            if file_id
+            else ""
+        )
+
         lines.append(
-            f"- {name}: {', '.join(detail_parts)}"
+            f"- {context_path}: {', '.join(detail_parts)}{id_suffix}"
         )
 
         if kind.strip().lower() != "text":
@@ -290,3 +310,52 @@ def build_user_text_with_attachments(
         user_text,
         attachment_context,
     ])
+
+
+def attachment_ids_from_message_data(message_data: dict) -> list[str]:
+    from utils.attached_files_store import FILE_ID_RE, MAX_ATTACHED_FILES
+
+    ids = []
+    attachments = message_data.get("attachments", [])
+    if not isinstance(attachments, list):
+        return ids
+    for attachment in attachments:
+        if not isinstance(attachment, dict):
+            continue
+        file_id = str(attachment.get("id") or "").strip().lower()
+        if FILE_ID_RE.fullmatch(file_id) and file_id not in ids:
+            ids.append(file_id)
+        if len(ids) >= MAX_ATTACHED_FILES:
+            break
+    return ids
+
+
+def hydrate_message_attachments(message_data: dict, file_ids=None) -> list[dict]:
+    from utils.attached_files_store import hydrate_attachment_ids
+
+    ids = list(file_ids) if file_ids is not None else attachment_ids_from_message_data(message_data)
+    attachments = hydrate_attachment_ids(ids)
+    if attachments:
+        message_data["attachments"] = attachments
+    else:
+        message_data.pop("attachments", None)
+    return attachments
+
+
+def build_attached_files_inventory_context(context=None) -> str:
+    from utils.attached_files_store import get_file_record
+
+    if context is None:
+        return ""
+    file_ids = getattr(context, "runtime_attached_file_ids", [])
+    if not isinstance(file_ids, list) or not file_ids:
+        return ""
+    lines = []
+    for file_id in file_ids:
+        record = get_file_record(file_id)
+        if not record:
+            continue
+        lines.append(f"    {record['name']} [ id: {record['id']} ]")
+    if not lines:
+        return ""
+    return "<ATTACHED_FILES>\n" + "\n".join(lines) + "\n</ATTACHED_FILES>"

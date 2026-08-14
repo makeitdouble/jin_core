@@ -1,5 +1,7 @@
 from contracts.rules_assembler import (
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
+    RUNTIME_ACTION_LOAD_ATTACHMENT,
+    RUNTIME_ACTION_LIST_FILES,
     RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_CHECK_TODO,
@@ -11,6 +13,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_UPDATE_L4_FACTS,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
+    RUNTIME_ACTION_UNLOAD_ATTACHMENT,
     RUNTIME_ACTION_UNLOAD_SKILL,
     RUNTIME_ACTION_RESOLVE_TODO,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
@@ -60,6 +63,9 @@ from utils.actions.delayed_memory_actions import (
     apply_delayed_memory_actions,
     apply_save_delayed_memory_actions,
     emit_delayed_memory_results,
+)
+from utils.actions.attachment_actions import (
+    apply_attachment_actions,
 )
 from utils.actions.update_l4_facts_actions import schedule_update_l4_facts_actions
 from utils.actions.jin_color_actions import (
@@ -850,6 +856,18 @@ async def apply_runtime_action_calls(
             )
             continue
 
+        if action.name in {
+            RUNTIME_ACTION_LIST_FILES,
+            RUNTIME_ACTION_LOAD_ATTACHMENT,
+            RUNTIME_ACTION_UNLOAD_ATTACHMENT,
+        }:
+            if not accept_runtime_action_once_per_message(action):
+                continue
+
+            accepted_action_names.add(action_event_name)
+            filtered_actions.append(action)
+            continue
+
         if action.name == RUNTIME_ACTION_SAVE_ACTIVE_MEMORY:
             active_memory_line = build_active_memory_runtime_line(
                 action.payload,
@@ -1530,6 +1548,22 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY
     ]
 
+    list_file_actions = [
+        action
+        for action in filtered_actions
+        if action.name == RUNTIME_ACTION_LIST_FILES
+    ]
+    load_attachment_actions = [
+        action
+        for action in filtered_actions
+        if action.name == RUNTIME_ACTION_LOAD_ATTACHMENT
+    ]
+    unload_attachment_actions = [
+        action
+        for action in filtered_actions
+        if action.name == RUNTIME_ACTION_UNLOAD_ATTACHMENT
+    ]
+
     update_l4_facts_actions = [
         action
         for action in filtered_actions
@@ -1729,6 +1763,15 @@ async def apply_runtime_action_calls(
         )
     )
 
+    attachment_results = await apply_attachment_actions(
+        context,
+        list_actions=list_file_actions,
+        load_actions=load_attachment_actions,
+        unload_actions=unload_attachment_actions,
+        log_runtime=log_runtime,
+        with_action_context=with_action_context,
+    )
+
     delayed_memory_results = await apply_delayed_memory_actions(
         context,
         load_delayed_memory_actions=load_delayed_memory_actions,
@@ -1878,6 +1921,9 @@ async def apply_runtime_action_calls(
         )
         + len(
             delayed_memory_results
+        )
+        + len(
+            attachment_results
         )
         + resolved_active_memory_count
     )

@@ -17,6 +17,7 @@ from utils.tool_results import (
     TOOL_RESULT_KIND_DEEP_SEARCH,
     TOOL_RESULT_KIND_SEARCH,
     TOOL_RESULT_KIND_SESSION,
+    TOOL_RESULT_KIND_FILES,
     get_runtime_tool_result_created_at,
     get_runtime_tool_results,
 )
@@ -327,6 +328,28 @@ def _append_recorded_tool_results(
                 )
             parts.extend(
                 blocks
+            )
+            appended = True
+            continue
+
+        if kind == TOOL_RESULT_KIND_FILES:
+            if not isinstance(result, dict):
+                continue
+            lines = result.get("lines", [])
+            if not isinstance(lines, list):
+                lines = []
+            payload = "\n".join(
+                str(line or "").strip()
+                for line in lines
+                if str(line or "").strip()
+            )
+            if not payload:
+                payload = "No files."
+            attrs = 'name="LIST_FILES"'
+            parts.append(
+                f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
+                f"{indent_xml(escape(payload))}\n"
+                "    </TOOL_RESULT>"
             )
             appended = True
             continue

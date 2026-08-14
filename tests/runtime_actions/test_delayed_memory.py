@@ -41,6 +41,7 @@ from utils.brain_client_utils import (
     build_delayed_memory_report,
     flush_pending_active_memory_resolve_failure_history,
     include_pinned_delayed_memory_reports,
+    load_delayed_memory_report,
 )
 from utils.context.context_exports import build_tool_results_context
 from utils.file_manager_asset_utils import read_asset_text_preview
@@ -908,6 +909,68 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                     ]
                 ),
             },
+        )
+
+
+    def test_load_delayed_memory_prunes_missing_l4_fact_links(self):
+
+        context = SimpleNamespace(
+            delayed_memory_reports={
+                "abc123": {
+                    "title": "Architecture",
+                    "anchor_fact_ids": ["F1", "F9"],
+                    "facts_ids": ["F1", "F2", "F9"],
+                    "long_term_facts_ids": ["F10"],
+                },
+            },
+            runtime_long_term_memory_store={
+                "facts": [
+                    {"id": "F1"},
+                    {"id": "F2"},
+                ],
+            },
+            runtime_loaded_delayed_memory={
+                "abc123": {
+                    "id": "abc123",
+                    "title": "Architecture",
+                    "facts_ids": ["F1", "F2", "F9", "F10"],
+                },
+            },
+            runtime_loaded_delayed_memory_ids=[],
+            session_id="session-now",
+            timestamp="2026-08-15T00:06:00",
+            delayed_memory_file_store_enabled=False,
+        )
+
+        result = load_delayed_memory_report(
+            context,
+            "abc123",
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(
+            result["report"]["anchor_fact_ids"],
+            ["F1"],
+        )
+        self.assertEqual(
+            result["report"]["facts_ids"],
+            ["F1", "F2"],
+        )
+        self.assertEqual(
+            result["pruned_fact_ids"],
+            ["F9", "F10"],
+        )
+        self.assertNotIn(
+            "long_term_facts_ids",
+            result["report"],
+        )
+        self.assertEqual(
+            context.delayed_memory_reports["abc123"]["facts_ids"],
+            ["F1", "F2"],
+        )
+        self.assertEqual(
+            context.runtime_loaded_delayed_memory["abc123"]["facts_ids"],
+            ["F1", "F2"],
         )
 
 

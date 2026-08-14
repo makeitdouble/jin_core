@@ -830,7 +830,7 @@ if (!userMessagePresentation.raw.includes("[ repeated: 3 ]")) {
             source,
         )
         self.assertIn(
-            '/static/js/runtime/runtime-memory-view.js?v=l4-report-link-1',
+            '/static/js/runtime/runtime-memory-view.js?v=files-panel-1',
             source,
         )
         self.assertIn(
@@ -838,7 +838,7 @@ if (!userMessagePresentation.raw.includes("[ repeated: 3 ]")) {
             source,
         )
         self.assertIn(
-            '/static/js/runtime/runtime.js?v=delayed-fact-link-1',
+            '/static/js/runtime/runtime.js?v=delayed-load-highlight-1',
             source,
         )
         self.assertIn(

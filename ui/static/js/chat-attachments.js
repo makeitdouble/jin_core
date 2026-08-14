@@ -7,6 +7,9 @@ let attachmentHoverPreviewImage = null;
 let attachmentModal = null;
 let attachmentModalTitle = null;
 let attachmentModalContent = null;
+let attachmentModalPinButton = null;
+let attachmentModalDeleteButton = null;
+let activeAttachmentModalRecord = null;
 
 function normalizeAttachmentValue(value) {
   return String(
@@ -193,9 +196,26 @@ function ensureAttachmentHoverPreview() {
   return attachmentHoverPreview;
 }
 
-function positionAttachmentHoverPreview(event) {
+function normalizeAttachmentPreviewMaxPx(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : ATTACHMENT_IMAGE_PREVIEW_MAX_PX;
+}
+
+function positionAttachmentHoverPreview(
+  event,
+  maxPx = ATTACHMENT_IMAGE_PREVIEW_MAX_PX
+) {
   const preview =
     ensureAttachmentHoverPreview();
+  const previewMaxPx =
+    normalizeAttachmentPreviewMaxPx(maxPx);
+
+  preview.style.setProperty(
+    "--jin-attachment-preview-max-px",
+    `${previewMaxPx}px`
+  );
 
   if (!event) {
     return;
@@ -205,9 +225,9 @@ function positionAttachmentHoverPreview(event) {
   const rect =
     preview.getBoundingClientRect();
   const width =
-    rect.width || ATTACHMENT_IMAGE_PREVIEW_MAX_PX;
+    rect.width || previewMaxPx;
   const height =
-    rect.height || ATTACHMENT_IMAGE_PREVIEW_MAX_PX;
+    rect.height || previewMaxPx;
   const viewportWidth =
     window.innerWidth || document.documentElement.clientWidth || width;
   const viewportHeight =
@@ -230,7 +250,11 @@ function positionAttachmentHoverPreview(event) {
     `${Math.max(offset, top)}px`;
 }
 
-function showAttachmentHoverPreview(attachment, event) {
+function showAttachmentHoverPreview(
+  attachment,
+  event,
+  maxPx = ATTACHMENT_IMAGE_PREVIEW_MAX_PX
+) {
   if (
       getAttachmentKind(attachment) !== "image"
   ) {
@@ -253,7 +277,8 @@ function showAttachmentHoverPreview(attachment, event) {
     source;
 
   positionAttachmentHoverPreview(
-    event
+    event,
+    maxPx
   );
 
   preview.classList.remove(
@@ -317,6 +342,29 @@ function ensureJinAttachmentModal() {
   attachmentModalTitle.className =
     "min-w-0 truncate text-[12px] font-semibold uppercase tracking-[0.16em] text-zinc-100";
 
+  const headerActions =
+    document.createElement("div");
+  headerActions.className =
+    "flex shrink-0 items-center gap-2";
+
+  attachmentModalPinButton =
+    document.createElement("button");
+  attachmentModalPinButton.type = "button";
+  attachmentModalPinButton.className =
+    "delayed-memory-modal-icon-button delayed-memory-modal-pin";
+  attachmentModalPinButton.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 3.3 20.7 9.3 18.6 11.4 16.9 9.7 13.7 12.9 14.4 15.7 12.9 17.2 9.4 13.7 5.3 17.8 4.2 16.7 8.3 12.6 4.8 9.1 6.3 7.6 9.1 8.3 12.3 5.1 10.6 3.4 12.7 1.3Z"/></svg>';
+
+  attachmentModalDeleteButton =
+    document.createElement("button");
+  attachmentModalDeleteButton.type = "button";
+  attachmentModalDeleteButton.className =
+    "delayed-memory-modal-icon-button delayed-memory-modal-delete";
+  attachmentModalDeleteButton.setAttribute("aria-label", "Delete file");
+  attachmentModalDeleteButton.title = "Delete file";
+  attachmentModalDeleteButton.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 6h2v9h-2V9Zm4 0h2v9h-2V9ZM7 9h2l.7 10h4.6L15 9h2l-.8 11.1A2 2 0 0 1 14.2 22H9.8a2 2 0 0 1-2-1.9L7 9Z"/></svg>';
+
   const closeButton =
     document.createElement("button");
   closeButton.type =
@@ -335,6 +383,40 @@ function ensureJinAttachmentModal() {
     closeJinAttachmentModal
   );
 
+  attachmentModalPinButton.addEventListener("click", async () => {
+    const record = activeAttachmentModalRecord;
+    if (!record || !record.id || !window.JinFiles) return;
+    await window.JinFiles.setPinned(record.id, !Boolean(record.pinned));
+    const refreshed = window.JinFiles.getFile(record.id);
+    if (refreshed) {
+      activeAttachmentModalRecord = refreshed;
+      attachmentModalPinButton.classList.toggle(
+        "delayed-memory-modal-pin-active",
+        Boolean(refreshed.pinned)
+      );
+      attachmentModalPinButton.setAttribute(
+        "aria-pressed",
+        refreshed.pinned ? "true" : "false"
+      );
+      attachmentModalPinButton.title = refreshed.pinned
+        ? "Remove file from JIN context"
+        : "Attach file to JIN context";
+    }
+  });
+
+  attachmentModalDeleteButton.addEventListener("click", async () => {
+    const record = activeAttachmentModalRecord;
+    if (!record || !record.id || !window.JinFiles) return;
+    const deleted = await window.JinFiles.deleteFile(record.id);
+    if (deleted) closeJinAttachmentModal();
+  });
+
+  headerActions.append(
+    attachmentModalPinButton,
+    attachmentModalDeleteButton,
+    closeButton
+  );
+
   attachmentModalContent =
     document.createElement("div");
   attachmentModalContent.className =
@@ -344,7 +426,7 @@ function ensureJinAttachmentModal() {
     attachmentModalTitle
   );
   header.appendChild(
-    closeButton
+    headerActions
   );
   panel.appendChild(
     header
@@ -484,6 +566,15 @@ async function resolveAttachmentForModal(attachment) {
     return attachment.resolve_modal_attachment();
   }
 
+  if (
+      attachment
+      && attachment.id
+      && window.JinFiles
+      && typeof window.JinFiles.resolveAttachment === "function"
+  ) {
+    return window.JinFiles.resolveAttachment(attachment);
+  }
+
   return attachment;
 }
 
@@ -494,6 +585,30 @@ async function openJinAttachmentModal(attachment) {
     );
 
   ensureJinAttachmentModal();
+
+  activeAttachmentModalRecord =
+    resolvedAttachment && resolvedAttachment.id && window.JinFiles
+      ? (window.JinFiles.getFile(resolvedAttachment.id) || resolvedAttachment)
+      : resolvedAttachment;
+
+  const isPersistentFile = Boolean(
+    activeAttachmentModalRecord && activeAttachmentModalRecord.id && window.JinFiles
+  );
+  attachmentModalPinButton.classList.toggle("hidden", !isPersistentFile);
+  attachmentModalDeleteButton.classList.toggle("hidden", !isPersistentFile);
+  if (isPersistentFile) {
+    attachmentModalPinButton.classList.toggle(
+      "delayed-memory-modal-pin-active",
+      Boolean(activeAttachmentModalRecord.pinned)
+    );
+    attachmentModalPinButton.setAttribute(
+      "aria-pressed",
+      activeAttachmentModalRecord.pinned ? "true" : "false"
+    );
+    attachmentModalPinButton.title = activeAttachmentModalRecord.pinned
+      ? "Remove file from JIN context"
+      : "Attach file to JIN context";
+  }
 
   attachmentModalTitle.textContent =
     getAttachmentName(
@@ -528,7 +643,57 @@ async function openJinAttachmentModal(attachment) {
   );
 }
 
-function bindJinAttachmentBubble(element, attachment) {
+function bindJinAttachmentHoverPreview(
+  element,
+  attachment,
+  options = {}
+) {
+  if (!element || !attachment) {
+    return;
+  }
+
+  const hoverPreviewMaxPx =
+    normalizeAttachmentPreviewMaxPx(
+      options && options.hoverPreviewMaxPx
+    );
+
+  element.addEventListener(
+    "mouseenter",
+    (event) => {
+      showAttachmentHoverPreview(
+        attachment,
+        event,
+        hoverPreviewMaxPx
+      );
+    }
+  );
+
+  element.addEventListener(
+    "mousemove",
+    (event) => {
+      if (
+          attachmentHoverPreview
+          && !attachmentHoverPreview.classList.contains("hidden")
+      ) {
+        positionAttachmentHoverPreview(
+          event,
+          hoverPreviewMaxPx
+        );
+      }
+    }
+  );
+
+  element.addEventListener(
+    "mouseleave",
+    hideAttachmentHoverPreview
+  );
+}
+
+function bindJinAttachmentBubble(
+  element,
+  attachment,
+  options = {}
+) {
   if (!element || !attachment) {
     return;
   }
@@ -552,33 +717,10 @@ function bindJinAttachmentBubble(element, attachment) {
     );
   }
 
-  element.addEventListener(
-    "mouseenter",
-    (event) => {
-      showAttachmentHoverPreview(
-        attachment,
-        event
-      );
-    }
-  );
-
-  element.addEventListener(
-    "mousemove",
-    (event) => {
-      if (
-          attachmentHoverPreview
-          && !attachmentHoverPreview.classList.contains("hidden")
-      ) {
-        positionAttachmentHoverPreview(
-          event
-        );
-      }
-    }
-  );
-
-  element.addEventListener(
-    "mouseleave",
-    hideAttachmentHoverPreview
+  bindJinAttachmentHoverPreview(
+    element,
+    attachment,
+    options
   );
 
   element.addEventListener(
@@ -1100,9 +1242,14 @@ function bindDelayedMemoryReportPreview(
 
 window.bindJinAttachmentBubble =
   bindJinAttachmentBubble;
+window.bindJinAttachmentHoverPreview =
+  bindJinAttachmentHoverPreview;
 window.openJinAttachmentModal =
   openJinAttachmentModal;
 window.formatJinAttachmentChipLabel =
   formatAttachmentChipLabel;
 window.syncDelayedMemoryReportPreviewState =
   syncDelayedMemoryReportPreviewState;
+window.dispatchEvent(
+  new CustomEvent("jin:attachment-ui-ready")
+);

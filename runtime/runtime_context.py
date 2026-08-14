@@ -340,6 +340,10 @@ class RuntimeContext:
         default_factory=dict
     )
 
+    runtime_attached_file_ids: list[str] = field(
+        default_factory=list
+    )
+
     runtime_turn_attachments: list[dict] = field(
         default_factory=list
     )

@@ -831,7 +831,8 @@ function isDelayedMemoryReportAppended(reportId) {
 
 function markDelayedMemoryReportLoaded(
   reportId,
-  loaded = true
+  loaded = true,
+  options = {}
 ) {
   const normalizedId =
       normalizeRuntimeDelayedMemoryReportId(reportId);
@@ -858,11 +859,16 @@ function markDelayedMemoryReportLoaded(
     );
   }
 
-  if (
+  const stateUnchanged = (
       wasLoaded
       === loadedDelayedMemoryReportIds.has(normalizedId)
       && wasAppended
       === appendedDelayedMemoryReportIds.has(normalizedId)
+  );
+
+  if (
+      stateUnchanged
+      && options.forceRender !== true
   ) {
     return true;
   }
@@ -881,6 +887,15 @@ function markDelayedMemoryReportLoaded(
       "unappend",
       normalizedId
     );
+  }
+
+  if (options.sync === true) {
+    syncDelayedMemoryReportsToServer({
+      suppressedAppendIds:
+        options.suppressNextTurn === true
+          ? [normalizedId]
+          : [],
+    });
   }
 
   return true;
@@ -962,25 +977,50 @@ function handleDelayedMemoryReportPinClick(reportId) {
     return false;
   }
 
-  if (isDelayedMemoryReportAppended(normalizedId)) {
-    markDelayedMemoryReportAppended(
-      normalizedId,
-      false,
-      {
-        unload: true,
-        sync: true,
-        suppressNextTurn: true,
-      }
-    );
+  const pinned = Boolean(report.pinned);
+  const appended =
+      isDelayedMemoryReportAppended(normalizedId);
+  const loaded =
+      isDelayedMemoryReportLoaded(normalizedId);
+
+  if (!pinned && loaded) {
+    if (appended) {
+      markDelayedMemoryReportAppended(
+        normalizedId,
+        false,
+        {
+          unload: true,
+          sync: true,
+          suppressNextTurn: true,
+        }
+      );
+    } else {
+      markDelayedMemoryReportLoaded(
+        normalizedId,
+        false,
+        {
+          sync: true,
+          suppressNextTurn: true,
+        }
+      );
+    }
+
+    if (appended) {
+      return {
+        action: "unappend",
+        pinned: false,
+        reportId: normalizedId,
+      };
+    }
 
     return {
-      action: "unappend",
-      pinned: Boolean(report.pinned),
+      action: "unload",
+      pinned: false,
       reportId: normalizedId,
     };
   }
 
-  const nextPinned = !Boolean(report.pinned);
+  const nextPinned = !pinned;
   const changed = setDelayedMemoryReportPinned(
     normalizedId,
     nextPinned

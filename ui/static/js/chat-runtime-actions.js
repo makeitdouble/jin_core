@@ -2823,9 +2823,14 @@ function appendRuntimeAction(
 ) {
 
   // A preceding reasoning/answer chunk can still be waiting for a paused RAF
-  // when the browser is in the background. Flush it before inserting or
-  // updating the action row, otherwise the row can jump above its reasoning.
-  if (typeof window.flushStreamFrame === "function") {
+  // when the browser is in the background. Flush before structural action
+  // inserts, but never for high-frequency live payload updates: forcing the
+  // answer renderer to flush on every SAVE_ACTIVE_MEMORY token defeats its
+  // requestAnimationFrame batching and causes visible stream stutter.
+  if (
+    options.flushStreamFrame !== false
+    && typeof window.flushStreamFrame === "function"
+  ) {
     window.flushStreamFrame();
   }
 

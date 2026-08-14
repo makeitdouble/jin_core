@@ -1,0 +1,18 @@
+{
+  "load_attachment": {
+    "version": 1,
+    "description": "Loads one persistent file into the JIN context.",
+    "runtime_action": "LOAD_ATTACHMENT",
+    "private_marker": "<LOAD_ATTACHMENT: id >",
+    "triggers": [],
+    "blockers": [],
+    "effects": {"emit_followup": true},
+    "rules": [
+      "Emit one marker per file id to attach that saved file to context.",
+      "id is a placeholder; replace it with the 6-character id shown in <ATTACHED_FILES> or LIST_FILES.",
+      "At most 3 files may be attached at once. Loading a fourth file is rejected deterministically.",
+      "Text files are inserted as text context; image/document files are provided through the existing attachment pipeline."
+    ],
+    "close_tag": false
+  }
+}

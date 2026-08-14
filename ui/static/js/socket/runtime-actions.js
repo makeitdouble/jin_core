@@ -1008,6 +1008,9 @@ function handleRuntimeAction(
     ].includes(
       status
     );
+  const liveActiveMemoryProgress =
+    action === "save_active_memory"
+    && status === "running";
 
   if (
     counterOnly
@@ -1354,7 +1357,8 @@ function handleRuntimeAction(
     ) {
       window.JinRuntime.runtime.markDelayedMemoryReportLoaded(
         delayedMemoryPreview.reportId,
-        true
+        true,
+        { forceRender: true }
       );
     }
 
@@ -1411,7 +1415,8 @@ function handleRuntimeAction(
             displayCounterOnly,
           markerCount:
             displayMarkerCount,
-          reuseCompleted: false,
+          reuseCompleted:
+            action === "update_l4_facts",
           contextSnapshot:
             data.context || null,
           assetResult:
@@ -1538,6 +1543,8 @@ function handleRuntimeAction(
       closeTag,
       pendingUntilL3,
       forceCompletePendingL3,
+      flushStreamFrame:
+        !liveActiveMemoryProgress,
     }
   );
 

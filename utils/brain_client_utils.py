@@ -259,6 +259,70 @@ def get_runtime_l4_fact_ids(
     return fact_ids
 
 
+def prune_missing_delayed_memory_fact_ids(
+    context,
+    report: dict,
+) -> tuple[dict, list[str]]:
+
+    if not isinstance(report, dict):
+        return {}, []
+
+    store = getattr(
+        context,
+        "runtime_long_term_memory_store",
+        None,
+    )
+
+    # A missing/uninitialised L4 store must not erase delayed-memory links.
+    # Once the store exists, its facts list is the source of truth.
+    if (
+        not isinstance(store, dict)
+        or not isinstance(store.get("facts"), list)
+    ):
+        return dict(report), []
+
+    anchor_fact_ids, facts_ids = normalize_delayed_memory_fact_ids(
+        report.get("anchor_fact_ids", []),
+        report.get("facts_ids", []),
+        legacy_absorbed_fact_ids=report.get("absorbed_fact_ids", []),
+        legacy_long_term_fact_ids=report.get("long_term_facts_ids", []),
+    )
+    available_fact_ids = get_runtime_l4_fact_ids(context)
+    referenced_fact_ids = list(dict.fromkeys([
+        *anchor_fact_ids,
+        *facts_ids,
+    ]))
+    removed_fact_ids = [
+        fact_id
+        for fact_id in referenced_fact_ids
+        if fact_id not in available_fact_ids
+    ]
+    clean_anchor_fact_ids = [
+        fact_id
+        for fact_id in anchor_fact_ids
+        if fact_id in available_fact_ids
+    ]
+    clean_facts_ids = [
+        fact_id
+        for fact_id in facts_ids
+        if fact_id in available_fact_ids
+    ]
+    clean_anchor_fact_ids, clean_facts_ids = normalize_delayed_memory_fact_ids(
+        clean_anchor_fact_ids,
+        clean_facts_ids,
+    )
+
+    updated_report = {
+        **report,
+        "anchor_fact_ids": clean_anchor_fact_ids,
+        "facts_ids": clean_facts_ids,
+    }
+    updated_report.pop("absorbed_fact_ids", None)
+    updated_report.pop("long_term_facts_ids", None)
+
+    return updated_report, removed_fact_ids
+
+
 def build_delayed_memory_report(
     context,
     payload: str,
@@ -1986,7 +2050,26 @@ def load_delayed_memory_report(
         context,
         report,
     )
+    updated_report, pruned_fact_ids = prune_missing_delayed_memory_fact_ids(
+        context,
+        updated_report,
+    )
     reports[report_id] = updated_report
+
+    loaded_reports = getattr(
+        context,
+        "runtime_loaded_delayed_memory",
+        None,
+    )
+    if (
+        isinstance(loaded_reports, dict)
+        and report_id in loaded_reports
+    ):
+        loaded_reports[report_id] = {
+            **updated_report,
+            "id": report_id,
+        }
+
     record_loaded_delayed_memory_id(
         context,
         report_id,
@@ -2024,6 +2107,7 @@ def load_delayed_memory_report(
             **updated_report,
             "id": report_id,
         },
+        "pruned_fact_ids": pruned_fact_ids,
         "file_saved": not file_errors,
         "file_errors": file_errors,
     }

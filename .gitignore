@@ -32,3 +32,8 @@ logs/*
 !memory/**/.gitkeep
 # Atomic memory write leftovers
 memory/**/*.tmp
+
+# JIN persistent attachment library (runtime data)
+!assets/files/
+assets/files/*
+!assets/files/.gitkeep

@@ -719,6 +719,19 @@ def attach_websocket_to_context(
     context.clients = websocket.app.state.clients
 
 
+def hydrate_attached_files_from_store(context) -> None:
+    from utils.attached_files_store import (
+        get_pinned_file_ids,
+        hydrate_attachment_ids,
+    )
+
+    file_ids = get_pinned_file_ids()
+    attachments = hydrate_attachment_ids(file_ids)
+    context.runtime_attached_file_ids = list(file_ids)
+    context.runtime_turn_attachments = list(attachments)
+    context.runtime_current_sequence_attachments = list(attachments)
+
+
 def get_or_create_connection_context(
     websocket: WebSocket,
     logger: WebSocketLogger,
@@ -741,6 +754,9 @@ def get_or_create_connection_context(
             clients=websocket.app.state.clients,
         )
         hydrate_delayed_memory_reports_from_files(
+            context
+        )
+        hydrate_attached_files_from_store(
             context
         )
 
@@ -767,6 +783,9 @@ def get_or_create_connection_context(
         hydrate_delayed_memory_reports_from_files(
             existing_context
         )
+        hydrate_attached_files_from_store(
+            existing_context
+        )
         return existing_context, True
 
     context = RuntimeContext(
@@ -779,6 +798,9 @@ def get_or_create_connection_context(
         session_id=client_id,
     )
     hydrate_delayed_memory_reports_from_files(
+        context
+    )
+    hydrate_attached_files_from_store(
         context
     )
 

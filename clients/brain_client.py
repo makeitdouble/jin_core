@@ -1465,21 +1465,10 @@ async def ask_brain_stream(
                 payload
             )
 
-    async def complete_update_l4_facts_bubbles(
+    def assign_update_l4_facts_bubble_ids(
         actions,
         action_display_ids,
     ):
-
-        emitter = getattr(
-            context,
-            "emitter",
-            None,
-        )
-        emit = getattr(
-            emitter,
-            "emit",
-            None,
-        )
 
         for action in actions:
             if action.name != RUNTIME_ACTION_UPDATE_L4_FACTS:
@@ -1494,33 +1483,6 @@ async def ask_brain_stream(
             if action_id:
                 action_display_ids[id(action)] = action_id
 
-            if emit is None or not action_id:
-                continue
-
-            payload = {
-                "type": "runtime_action",
-                "action": "update_l4_facts",
-                "id": action_id,
-                "status": "completed",
-                "runtime_message_id": runtime_message_id,
-                "display_name": get_runtime_action_display_name(
-                    RUNTIME_ACTION_UPDATE_L4_FACTS
-                ),
-                "text": build_runtime_action_display_text(
-                    RUNTIME_ACTION_UPDATE_L4_FACTS
-                ),
-                "detail": str(action.payload or "").strip(),
-                "close_tag": runtime_action_has_close_tag(
-                    RUNTIME_ACTION_UPDATE_L4_FACTS
-                ),
-            }
-
-            if action_context_snapshot:
-                payload["context"] = action_context_snapshot
-
-            await emit(
-                payload
-            )
 
     async def emit_asset_action_bubble_started(
         result=None,
@@ -1890,7 +1852,7 @@ async def ask_brain_stream(
                 display_state=action_guard_display_state,
             )
 
-            await complete_update_l4_facts_bubbles(
+            assign_update_l4_facts_bubble_ids(
                 immediate_action_calls,
                 action_display_ids,
             )

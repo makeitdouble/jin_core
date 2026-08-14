@@ -67,6 +67,15 @@ function registerSocketMessageHandler(
 window.registerSocketMessageHandler =
   registerSocketMessageHandler;
 
+registerSocketMessageHandler(
+  "attached_files_update",
+  function (data) {
+    if (window.JinFiles && typeof window.JinFiles.applySnapshot === "function") {
+      window.JinFiles.applySnapshot(data || {});
+    }
+  }
+);
+
 function buildWebSocketUrl() {
 
   const params =
@@ -479,6 +488,10 @@ async function handleSocketOpen() {
     "[SYSTEM]",
     "WebSocket connected."
   );
+
+  if (window.JinFiles && typeof window.JinFiles.syncContext === "function") {
+    window.JinFiles.syncContext();
+  }
 
   if (isSoftReconnect) {
     if (window.getSoftReconnectRuntimeResume) {

@@ -2,9 +2,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import (
     FastAPI,
+    File,
+    Form,
     HTTPException,
     Query,
     Request,
+    UploadFile,
 )
 
 from fastapi.responses import (
@@ -49,6 +52,15 @@ from utils.rule_citations import (
 from utils.file_manager_asset_utils import (
     read_asset_text_preview,
 )
+from utils.attached_files_store import (
+    FILES_DIR,
+    delete_file_record,
+    ensure_files_dir,
+    get_file_record,
+    public_file_snapshot,
+    set_file_pinned,
+    store_uploaded_file,
+)
 
 STATUS_CHECK_TIMEOUT = getattr(
     config,
@@ -63,6 +75,8 @@ STATUS_CHECK_TIMEOUT = getattr(
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
+
+    ensure_files_dir()
 
     # -----------------------------------------------------
     # SHARED HTTP CLIENT
@@ -111,9 +125,90 @@ app.mount(
     name="static",
 )
 
+ensure_files_dir()
+app.mount(
+    "/assets/files",
+    StaticFiles(directory=str(FILES_DIR)),
+    name="attached_files",
+)
+
 app.include_router(
     websocket_router
 )
+
+
+@app.get("/api/files")
+async def api_list_files():
+    return public_file_snapshot()
+
+
+@app.post("/api/files/upload")
+async def api_upload_file(
+    file: UploadFile = File(...),
+    width: str = Form(""),
+    height: str = Form(""),
+):
+    content = await file.read()
+
+    def parse_dimension(value):
+        try:
+            number = int(str(value or "").strip())
+        except (TypeError, ValueError):
+            return None
+        return number if number > 0 else None
+
+    record, created, pin_error = store_uploaded_file(
+        name=file.filename or "attachment",
+        content=content,
+        mime_type=file.content_type or "",
+        width=parse_dimension(width),
+        height=parse_dimension(height),
+        pin=True,
+    )
+    return {
+        "file": record,
+        "created": created,
+        "pin_error": pin_error,
+        **public_file_snapshot(),
+    }
+
+
+@app.post("/api/files/{file_id}/pin")
+async def api_pin_file(
+    file_id: str,
+    pinned: bool = Query(True),
+):
+    record, error = set_file_pinned(file_id, pinned)
+    if record is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    if error == "max_attached_files":
+        raise HTTPException(status_code=409, detail="Maximum 3 attached files")
+    return {
+        "file": record,
+        **public_file_snapshot(),
+    }
+
+
+@app.delete("/api/files/{file_id}")
+async def api_delete_file(file_id: str):
+    if not delete_file_record(file_id):
+        raise HTTPException(status_code=404, detail="File not found")
+    return public_file_snapshot()
+
+
+@app.get("/api/files/{file_id}/preview")
+async def api_preview_file(file_id: str):
+    record = get_file_record(file_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    payload = {"file": record}
+    if record.get("kind") == "text":
+        path = FILES_DIR / record["stored_name"]
+        try:
+            payload["text_content"] = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            payload["text_content"] = ""
+    return payload
 
 
 @app.get(
