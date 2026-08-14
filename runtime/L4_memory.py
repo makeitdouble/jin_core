@@ -23,6 +23,7 @@ from runtime.L4_memory_utils import (
     extract_l4_json_payload,
     format_l4_merge_operation_details,
     format_long_term_memory_context,
+    infer_l4_jin_note_action,
     mark_facts_memory_fields_analyzed,
     merge_l4_store_snapshots,
     normalize_facts_memory_records,
@@ -1214,6 +1215,98 @@ async def run_l4_extraction_phase(
     }
 
 
+def get_runtime_l4_explicit_edit_fact_ids(context) -> list[str]:
+    current_turn_id = str(
+        getattr(context, "runtime_current_turn_id", "")
+        or ""
+    ).strip()
+    protected_turn_id = str(
+        getattr(context, "runtime_l4_explicit_edit_turn_id", "")
+        or ""
+    ).strip()
+
+    if not current_turn_id or protected_turn_id != current_turn_id:
+        return []
+
+    return normalize_long_term_fact_ids(
+        list(
+            getattr(context, "runtime_l4_explicit_edit_fact_ids", set())
+            or []
+        )
+    )
+
+
+def mark_runtime_l4_explicit_edit(
+    context,
+    fact_ids,
+) -> None:
+    current_turn_id = str(
+        getattr(context, "runtime_current_turn_id", "")
+        or ""
+    ).strip()
+    normalized_ids = set(
+        normalize_long_term_fact_ids(fact_ids)
+    )
+
+    if not current_turn_id or not normalized_ids:
+        return
+
+    protected_turn_id = str(
+        getattr(context, "runtime_l4_explicit_edit_turn_id", "")
+        or ""
+    ).strip()
+    existing_ids = (
+        set(
+            getattr(context, "runtime_l4_explicit_edit_fact_ids", set())
+            or set()
+        )
+        if protected_turn_id == current_turn_id
+        else set()
+    )
+
+    context.runtime_l4_explicit_edit_turn_id = current_turn_id
+    context.runtime_l4_explicit_edit_fact_ids = (
+        existing_ids | normalized_ids
+    )
+
+
+def protect_explicit_l4_edits_from_merge(
+    operations: list[dict],
+    protected_fact_ids,
+) -> tuple[list[dict], list[str]]:
+    protected_ids = set(
+        normalize_long_term_fact_ids(protected_fact_ids)
+    )
+    if not protected_ids:
+        return operations, []
+
+    protected_pending_ids = []
+    next_operations = []
+
+    for operation in operations:
+        if not isinstance(operation, dict):
+            continue
+
+        if (
+            operation.get("action") in {"update", "reinforce"}
+            and operation.get("target_id") in protected_ids
+        ):
+            pending_id = str(
+                operation.get("pending_id") or ""
+            ).strip()
+            if pending_id:
+                protected_pending_ids.append(pending_id)
+            next_operations.append({
+                "action": "ignore",
+                "pending_id": pending_id,
+            })
+            continue
+
+        next_operations.append(operation)
+
+    return next_operations, protected_pending_ids
+
+
 async def run_l4_merge_phase(*, context, service_client) -> dict:
     base_store = clone_l4_store(ensure_runtime_l4_state(context))
     pending_queue = list(base_store.get("pending_facts") or [])
@@ -1253,6 +1346,7 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
         getattr(config, "RUNTIME_OUTPUT_TOKEN_RESERVE", 256)
     )
 
+    protected_fact_ids = get_runtime_l4_explicit_edit_fact_ids(context)
     batch_plan = build_l4_merge_batch_plan(
         existing_facts=base_store.get("facts") or [],
         pending_facts=pending_queue,
@@ -1260,6 +1354,7 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
         runtime_context_window=runtime_context_window,
         requested_max_tokens=None,
         runtime_output_reserve=runtime_output_reserve,
+        protected_fact_ids=protected_fact_ids,
     )
     pending_facts = batch_plan["pending_facts"]
     if not pending_facts:
@@ -1358,11 +1453,19 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
         )
 
     operations = normalize_l4_merge_operations(payload)
+    operations, protected_pending_ids = protect_explicit_l4_edits_from_merge(
+        operations,
+        protected_fact_ids,
+    )
     next_store, merge_change = apply_l4_merge_operations(
         base_store,
         operations,
         pending_ids=pending_ids,
     )
+    if merge_change.get("valid") and protected_pending_ids:
+        merge_change["protected_pending_ids"] = sorted(
+            set(protected_pending_ids)
+        )
     if not merge_change.get("valid"):
         return await log_l4_skip_event(
             context,
@@ -1436,11 +1539,16 @@ async def run_l4_jin_note(
     message = " ".join(
         str(note.get("message", "") if isinstance(note, dict) else "").split()
     ).strip()
+    requested_action = infer_l4_jin_note_action(
+        selected_fact_ids=selected_fact_ids,
+        message=message,
+    )
     base_store = clone_l4_store(ensure_runtime_l4_state(context))
     existing_ids = {fact.get("id") for fact in base_store.get("facts", [])}
 
     if (
         not message
+        or not requested_action
         or any(fact_id not in existing_ids for fact_id in selected_fact_ids)
     ):
         return await log_l4_skip_event(
@@ -1458,6 +1566,7 @@ async def run_l4_jin_note(
         existing_facts=base_store.get("facts") or [],
         selected_fact_ids=selected_fact_ids,
         message=message,
+        requested_action=requested_action,
     )
     response = await ask_l4_model(
         context=context,
@@ -1515,6 +1624,7 @@ async def run_l4_jin_note(
         base_store,
         selected_fact_ids=selected_fact_ids,
         result=payload,
+        expected_action=requested_action,
     )
     if not change.get("valid"):
         return await log_l4_skip_event(
@@ -1526,6 +1636,15 @@ async def run_l4_jin_note(
                 "selected_fact_ids": selected_fact_ids,
             },
         )
+
+    mark_runtime_l4_explicit_edit(
+        context,
+        [
+            *selected_fact_ids,
+            *(change.get("replacement_fact_ids", []) or []),
+            *(change.get("added_ids", []) or []),
+        ],
+    )
 
     if not change.get("changed"):
         await log_memory_event(

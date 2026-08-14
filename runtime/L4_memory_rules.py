@@ -69,7 +69,11 @@ queue. Work only with the pending_id values present in this request and return
 exactly one operation for each of them.
 
 Both existing facts and pending candidates are provisional. Existing memory is
-not evidence merely because it already exists.
+not evidence merely because it already exists. The input may also contain
+protected_fact_ids: committed facts explicitly edited by JIN in the current
+turn. Never update or reinforce those IDs during this merge pass. If a pending
+candidate overlaps a protected fact, ignore that pending candidate instead of
+rewriting the protected fact or creating a duplicate.
 
 ID convention:
 - F<number> is a committed L4 fact (for example F1, F27, F255).
@@ -150,15 +154,20 @@ The input contains:
   pending fact and is never valid in selected_fact_ids;
 - message: a concise plain-text instruction from JIN.
 
-The note is a trusted clarification signal, but it is not an edit command. Decide
-how L4 should represent the clarified meaning while keeping memory minimal,
-accurate, atomic, useful, and free of semantic duplicates.
+The note is a trusted edit instruction. Execute requested_action exactly while
+keeping memory minimal, accurate, atomic, useful, and free of semantic
+duplicates. The service may normalize wording, key, and category, but it must
+not silently change an update into a merge/create or a merge into a create.
 
 Rules:
-- For updates and merges, change only the selected facts. Unselected facts are
-  read-only context.
-- Create new facts only when the note clearly introduces durable information not
-  already represented by existing facts.
+- requested_action is authoritative: update edits exactly one selected F<number>;
+  merge combines only the selected F<number> facts; create adds a new fact only
+  when selected_fact_ids is empty.
+- For update, preserve the selected committed fact ID exactly.
+- For merge, preserve the first selected committed fact ID as the replacement ID;
+  only the other explicitly selected IDs may be retired.
+- For update and merge, return no new_facts.
+- Unselected facts are read-only context.
 - Preserve all supported, non-conflicting meaning from the selected facts and the
   note. Keep compatible relationships, roles, constraints, and distinctions.
 - Do not invent missing details or broaden the note.

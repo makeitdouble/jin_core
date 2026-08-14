@@ -52,7 +52,7 @@
 .runtime-memory-delayed-row {
     cursor: pointer;
     border-radius: 4px;
-    padding: 2px 3px;
+    padding: 0;
     transition:
             background-color 0.18s ease,
             color 0.18s ease;

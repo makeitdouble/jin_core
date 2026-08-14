@@ -45,6 +45,47 @@ L4_ALLOWED_MERGE_ACTIONS = {
     "reinforce",
     "ignore",
 }
+L4_JIN_NOTE_ACTIONS = {
+    "update",
+    "merge",
+    "create",
+}
+
+
+def infer_l4_jin_note_action(
+    *,
+    selected_fact_ids,
+    message: str,
+) -> str:
+    selected_ids = [
+        fact_id
+        for fact_id in normalize_l4_string_list(selected_fact_ids)
+        if normalize_l4_id(fact_id, pending=False)
+    ]
+    normalized_message = normalize_l4_text(message)
+    explicit_match = re.match(
+        r"^(update|merge|create)\b",
+        normalized_message,
+        flags=re.IGNORECASE,
+    )
+
+    if explicit_match:
+        action = explicit_match.group(1).casefold()
+    elif not selected_ids:
+        action = "create"
+    elif len(selected_ids) == 1:
+        action = "update"
+    else:
+        action = "merge"
+
+    if action == "create" and selected_ids:
+        return ""
+    if action == "update" and len(selected_ids) != 1:
+        return ""
+    if action == "merge" and len(selected_ids) < 2:
+        return ""
+
+    return action
 
 
 def build_l4_extraction_system_prompt() -> str:
@@ -77,6 +118,7 @@ def build_l4_jin_note_user_prompt(
     existing_facts: list[dict],
     selected_fact_ids: list[str],
     message: str,
+    requested_action: str = "",
 ) -> str:
     return (
         "Resolve this focused conversational clarification against the current "
@@ -94,6 +136,7 @@ def build_l4_jin_note_user_prompt(
                     if isinstance(fact, dict)
                 ],
                 "selected_fact_ids": selected_fact_ids,
+                "requested_action": normalize_l4_key(requested_action),
                 "message": normalize_l4_text(message),
             },
             ensure_ascii=False,
@@ -107,6 +150,7 @@ def build_l4_merge_user_prompt(
     *,
     existing_facts: list[dict],
     pending_facts: list[dict],
+    protected_fact_ids=(),
 ) -> str:
     model_existing_facts = [
         build_l4_merge_model_fact(fact)
@@ -126,6 +170,11 @@ def build_l4_merge_user_prompt(
             {
                 "existing_facts": model_existing_facts,
                 "pending_facts": model_pending_facts,
+                "protected_fact_ids": [
+                    fact_id
+                    for fact_id in normalize_l4_string_list(protected_fact_ids)
+                    if normalize_l4_id(fact_id, pending=False)
+                ],
             },
             ensure_ascii=False,
             separators=(",", ":"),
@@ -181,6 +230,7 @@ def build_l4_merge_batch_plan(
     runtime_context_window: int,
     requested_max_tokens: int | None,
     runtime_output_reserve: int = 256,
+    protected_fact_ids=(),
 ) -> dict:
     """Select the largest FIFO pending slice that fits the live LM Studio budget.
 
@@ -231,6 +281,7 @@ def build_l4_merge_batch_plan(
         candidate_prompt = build_l4_merge_user_prompt(
             existing_facts=existing_facts,
             pending_facts=candidate_batch,
+            protected_fact_ids=protected_fact_ids,
         )
         prompt_tokens = estimate_runtime_tokens(
             system_prompt=system_prompt,
@@ -279,6 +330,7 @@ def build_l4_merge_batch_plan(
             first_prompt = build_l4_merge_user_prompt(
                 existing_facts=existing_facts,
                 pending_facts=[queue[0]],
+                protected_fact_ids=protected_fact_ids,
             )
             first_prompt_tokens = estimate_runtime_tokens(
                 system_prompt=system_prompt,
@@ -674,37 +726,46 @@ def merge_l4_snapshot_fact_lists(
         normalized_existing
     )
 
-    facts = []
-    for fact in normalized_existing:
-        existing_index = next(
-            (
-                index
-                for index, existing_fact in enumerate(facts)
-                if existing_fact.get("key") == fact.get("key")
-            ),
-            None,
-        )
-        if existing_index is None:
-            facts.append(
-                dict(fact)
+    # Committed F<number> IDs are durable identities. Never collapse two
+    # committed records merely because their keys happen to match; an explicit
+    # L4 merge is the only operation allowed to retire a committed ID. Pending
+    # PF records may still coalesce by key while they are provisional.
+    if pending:
+        facts = []
+        for fact in normalized_existing:
+            existing_index = next(
+                (
+                    index
+                    for index, existing_fact in enumerate(facts)
+                    if existing_fact.get("key") == fact.get("key")
+                ),
+                None,
             )
-            continue
+            if existing_index is None:
+                facts.append(dict(fact))
+                continue
 
-        facts[existing_index] = merge_l4_snapshot_fact(
-            facts[existing_index],
-            fact,
-            pending=pending,
-            now=now,
-        )
+            facts[existing_index] = merge_l4_snapshot_fact(
+                facts[existing_index],
+                fact,
+                pending=pending,
+                now=now,
+            )
+    else:
+        facts = [dict(fact) for fact in normalized_existing]
 
     by_id = {
         fact["id"]: index
         for index, fact in enumerate(facts)
     }
-    by_key = {
-        fact["key"]: index
-        for index, fact in enumerate(facts)
-    }
+    by_key = (
+        {
+            fact["key"]: index
+            for index, fact in enumerate(facts)
+        }
+        if pending
+        else {}
+    )
 
     incoming = deduplicate_l4_facts(
         incoming_facts if isinstance(incoming_facts, list) else [],
@@ -716,14 +777,15 @@ def merge_l4_snapshot_fact_lists(
         existing_index = by_id.get(
             fact["id"]
         )
-        if existing_index is None:
+        if existing_index is None and pending:
             existing_index = by_key.get(
                 fact["key"]
             )
 
         if existing_index is None:
             by_id[fact["id"]] = len(facts)
-            by_key[fact["key"]] = len(facts)
+            if pending:
+                by_key[fact["key"]] = len(facts)
             facts.append(
                 fact
             )
@@ -742,12 +804,14 @@ def merge_l4_snapshot_fact_lists(
             previous_id,
             None,
         )
-        by_key.pop(
-            previous_key,
-            None,
-        )
+        if pending:
+            by_key.pop(
+                previous_key,
+                None,
+            )
         by_id[merged["id"]] = existing_index
-        by_key[merged["key"]] = existing_index
+        if pending:
+            by_key[merged["key"]] = existing_index
 
     return facts, facts != original
 
@@ -1478,6 +1542,20 @@ def validate_l4_merge_operations(
             if operation.get("target_id") not in fact_ids:
                 return False, "unknown_target_id"
 
+        if action == "update":
+            final_key = normalize_l4_key(operation.get("key"))
+            final_value = normalize_l4_text(operation.get("value"))
+            if not final_key or not final_value:
+                return False, "update_requires_canonical_fact"
+
+            target_id = operation.get("target_id")
+            if any(
+                fact.get("id") != target_id
+                and fact.get("key") == final_key
+                for fact in normalized_store["facts"]
+            ):
+                return False, "update_key_matches_other_fact"
+
     if seen != expected_pending_ids:
         return False, "missing_pending_operation"
 
@@ -1817,6 +1895,7 @@ def apply_l4_jin_note_result(
     *,
     selected_fact_ids: list[str],
     result: dict,
+    expected_action: str = "",
     now: str | None = None,
 ) -> tuple[dict, dict]:
     current_time = now or utc_now_iso()
@@ -1839,7 +1918,25 @@ def apply_l4_jin_note_result(
             "changed": False,
         }
 
-    if normalized_result["action"] == "keep":
+    requested_action = normalize_l4_key(expected_action)
+    if requested_action and requested_action not in L4_JIN_NOTE_ACTIONS:
+        return base_store, {
+            "valid": False,
+            "reason": "invalid_expected_jin_note_action",
+            "changed": False,
+        }
+
+    normalized_action = normalized_result["action"]
+    if normalized_action == "replace":
+        normalized_action = "merge" if len(selected_ids) > 1 else "update"
+
+    if normalized_action == "keep":
+        if requested_action:
+            return base_store, {
+                "valid": False,
+                "reason": "jin_note_action_mismatch",
+                "changed": False,
+            }
         return base_store, {
             "valid": True,
             "changed": False,
@@ -1848,11 +1945,22 @@ def apply_l4_jin_note_result(
             "replacement_fact_ids": [],
         }
 
-    action = normalized_result["action"]
-    if action == "replace":
-        action = "merge" if len(selected_ids) > 1 else "update"
+    action = normalized_action
+    if requested_action and action != requested_action:
+        return base_store, {
+            "valid": False,
+            "reason": "jin_note_action_mismatch",
+            "changed": False,
+        }
+
     replacement_specs = normalized_result["replacement_facts"]
     new_fact_specs = normalized_result["new_facts"]
+    if requested_action in {"update", "merge"} and new_fact_specs:
+        return base_store, {
+            "valid": False,
+            "reason": "jin_note_unrequested_new_fact",
+            "changed": False,
+        }
     has_replacements = bool(replacement_specs)
     if has_replacements and not selected_ids:
         return base_store, {

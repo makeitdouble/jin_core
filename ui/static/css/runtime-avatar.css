@@ -367,6 +367,43 @@
     }
 }
 
+.jin-avatar-scaffold-ray {
+    opacity: var(--jin-avatar-ray-base-opacity, 0.02);
+    transition: opacity 1.6s ease, stroke-opacity 1.6s ease;
+}
+
+.jin-avatar-scaffold-ray.is-jin-avatar-ray-breathing {
+    animation: jin-avatar-scaffold-ray-breathe var(--jin-avatar-ray-duration, 30s) cubic-bezier(0.43, 0, 0.57, 1) infinite;
+    animation-delay: var(--jin-avatar-ray-delay, 0s);
+    animation-play-state: var(--jin-avatar-ray-play-state, running);
+}
+
+@keyframes jin-avatar-scaffold-ray-breathe {
+    0%, 100% {
+        opacity: var(--jin-avatar-ray-base-opacity, 0.02);
+    }
+
+    22% {
+        opacity: var(--jin-avatar-ray-soft-opacity, 0.032);
+    }
+
+    44% {
+        opacity: var(--jin-avatar-ray-mid-opacity, 0.05);
+    }
+
+    52% {
+        opacity: var(--jin-avatar-ray-peak-opacity, 0.075);
+    }
+
+    60% {
+        opacity: var(--jin-avatar-ray-mid-opacity, 0.05);
+    }
+
+    78% {
+        opacity: var(--jin-avatar-ray-soft-opacity, 0.032);
+    }
+}
+
 @keyframes jin-avatar-memory-absorb-dash {
     0% {
         stroke-opacity: var(--jin-avatar-memory-dot-opacity, 0.26);
@@ -557,6 +594,11 @@ body.theme-win95 #memory-drag-handle {
     background: var(--win95-title);
 }
 
+body.theme-win95 #memory-drag-handle::after,
+body.theme-win95 .jin-runtime-avatar-shell::after {
+    display: none;
+}
+
 body.theme-win95 .jin-runtime-avatar-shell {
     width: min(100%, var(--runtime-avatar-panel-size));
 }
@@ -595,7 +637,8 @@ body.theme-win95 #memory-panel.panel-collapsed .jin-runtime-avatar-core-button {
     .jin-avatar-orbit,
     .jin-avatar-counter-orbit,
     .jin-avatar-orbit-entry,
-    .jin-avatar-field-stripe {
+    .jin-avatar-field-stripe,
+    .jin-avatar-scaffold-ray {
         animation: none !important;
     }
 }

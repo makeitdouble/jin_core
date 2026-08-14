@@ -1509,6 +1509,7 @@ async def ask_brain_stream(
                 "text": build_runtime_action_display_text(
                     RUNTIME_ACTION_UPDATE_L4_FACTS
                 ),
+                "detail": str(action.payload or "").strip(),
                 "close_tag": runtime_action_has_close_tag(
                     RUNTIME_ACTION_UPDATE_L4_FACTS
                 ),

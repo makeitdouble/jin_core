@@ -355,7 +355,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 ["F1"],
             )
 
-    def test_store_snapshot_merge_keeps_one_fact_per_key_with_sources(self):
+    def test_store_snapshot_merge_preserves_distinct_committed_ids_on_key_collision(self):
         merged, change = merge_l4_store_snapshots(
             {
                 "revision": 4,
@@ -385,18 +385,16 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertTrue(change["changed"])
-        self.assertEqual(len(merged["facts"]), 1)
         self.assertEqual(
-            merged["facts"][0]["value"],
-            "Anya is associated with newer relationship context.",
+            [fact["id"] for fact in merged["facts"]],
+            ["F1", "F2"],
         )
         self.assertEqual(
-            merged["facts"][0]["source_session_ids"],
-            ["session-a", "session-b"],
-        )
-        self.assertEqual(
-            merged["facts"][0]["source_fact_ids"],
-            ["F2"],
+            [fact["value"] for fact in merged["facts"]],
+            [
+                "Anya is associated with known cohabitation data.",
+                "Anya is associated with newer relationship context.",
+            ],
         )
 
     def test_store_normalization_prunes_processed_pending_fact(self):
@@ -534,6 +532,56 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(change["reason"], "operation_count_mismatch")
         self.assertEqual(after["facts"], before["facts"])
         self.assertEqual(after["pending_facts"], before["pending_facts"])
+
+    def test_sparse_merge_update_cannot_rekey_and_destroy_target_id(self):
+        store = normalize_l4_store({
+            "facts": [
+                {"id": "F100", "key": "jin_identity", "value": "Existing identity."},
+                {"id": "F167", "key": "user.identity", "value": "JIN persists across model substrates."},
+            ],
+            "pending_facts": [
+                {"id": "PF354", "key": "jin_identity", "value": "Pending identity restatement."},
+            ],
+        })
+
+        after, change = apply_l4_merge_operations(
+            store,
+            [{"action": "update", "pending_id": "PF354", "target_id": "F167"}],
+            pending_ids=["PF354"],
+            now="2026-08-14T17:00:00Z",
+        )
+
+        self.assertFalse(change["valid"])
+        self.assertEqual(change["reason"], "update_requires_canonical_fact")
+        self.assertEqual([fact["id"] for fact in after["facts"]], ["F100", "F167"])
+
+    def test_merge_update_rejects_key_collision_with_other_committed_fact(self):
+        store = normalize_l4_store({
+            "facts": [
+                {"id": "F100", "key": "jin_identity", "value": "Existing identity."},
+                {"id": "F167", "key": "user.identity", "value": "JIN persists across model substrates."},
+            ],
+            "pending_facts": [
+                {"id": "PF354", "key": "jin_identity", "value": "Pending identity restatement."},
+            ],
+        })
+
+        after, change = apply_l4_merge_operations(
+            store,
+            [{
+                "action": "update",
+                "pending_id": "PF354",
+                "target_id": "F167",
+                "key": "jin_identity",
+                "value": "Pending identity restatement.",
+            }],
+            pending_ids=["PF354"],
+            now="2026-08-14T17:00:00Z",
+        )
+
+        self.assertFalse(change["valid"])
+        self.assertEqual(change["reason"], "update_key_matches_other_fact")
+        self.assertEqual([fact["id"] for fact in after["facts"]], ["F100", "F167"])
 
     def test_merge_prompt_uses_slim_model_view_without_provenance_metadata(self):
         prompt = build_l4_merge_user_prompt(
@@ -816,6 +864,43 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 pending["id"],
             ],
         )
+
+    async def test_same_turn_explicit_update_is_not_rewritten_by_idle_merge(self):
+        store = normalize_l4_store({
+            "facts": [
+                {"id": "F167", "key": "user.identity", "value": "JIN persists across model substrates."},
+            ],
+            "pending_facts": [
+                {"id": "PF354", "key": "jin_identity", "value": "A redundant identity restatement."},
+            ],
+        })
+        service_client = FakeServiceClient(json.dumps({
+            "operations": [
+                {"action": "update", "pending_id": "PF354", "target_id": "F167"},
+            ],
+        }))
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={"service": service_client},
+        )
+        context.runtime_l4_file_store_enabled = False
+        context.runtime_long_term_memory_store = store
+        context.runtime_current_turn_id = "turn-167"
+        context.runtime_l4_explicit_edit_turn_id = "turn-167"
+        context.runtime_l4_explicit_edit_fact_ids = {"F167"}
+
+        result = await maybe_update_runtime_l4_memory(context=context, user_idle_seconds=61)
+
+        self.assertEqual(result["phase"], "merge")
+        self.assertEqual(result["merge_change"]["protected_pending_ids"], ["PF354"])
+        self.assertEqual(context.runtime_long_term_memory_store["pending_facts"], [])
+        self.assertEqual(
+            [fact["id"] for fact in context.runtime_long_term_memory_store["facts"]],
+            ["F167"],
+        )
+        self.assertEqual(context.runtime_long_term_memory_store["facts"][0]["key"], "user.identity")
 
     async def test_merge_phase_logs_concrete_operation_details(self):
         existing = normalize_l4_store({
@@ -1250,6 +1335,29 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             next_store["facts"][0]["value"],
             "The user prefers concise Russian replies.",
         )
+
+    def test_jin_note_update_cannot_turn_into_create(self):
+        store = normalize_l4_store({
+            "facts": [
+                {"id": "F167", "key": "user.identity", "value": "JIN persists across model substrates."},
+            ],
+        })
+
+        next_store, change = apply_l4_jin_note_result(
+            store,
+            selected_fact_ids=["F167"],
+            expected_action="update",
+            result={
+                "action": "create",
+                "replacement_facts": [],
+                "new_facts": [{"key": "jin_identity", "value": "Second identity fact."}],
+            },
+            now="2026-08-14T17:00:00Z",
+        )
+
+        self.assertEqual(next_store, store)
+        self.assertFalse(change["valid"])
+        self.assertEqual(change["reason"], "jin_note_action_mismatch")
 
     def test_jin_note_create_can_run_without_selected_facts(self):
         store = normalize_l4_store({

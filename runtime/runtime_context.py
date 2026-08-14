@@ -210,6 +210,12 @@ class RuntimeContext:
         default_factory=set
     )
 
+    runtime_l4_explicit_edit_turn_id: str = ""
+
+    runtime_l4_explicit_edit_fact_ids: set[str] = field(
+        default_factory=set
+    )
+
     runtime_l4_memory_update_task: object | None = None
 
     runtime_usage_events: list[dict] = field(

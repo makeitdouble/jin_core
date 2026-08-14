@@ -33,7 +33,6 @@
   const MEMORY_ROW_AVATAR_HOVER_EVENT = "jin:memory-row-avatar-hover";
   const DELAYED_MEMORY_REPORT_ACTIVE_EVENT =
       "jin:delayed-memory-report-active";
-  const MEMORY_ROW_REORDER_TRANSITION_MAX_ROWS = 10;
   const MEMORY_ROW_REORDER_TRANSITION_FALLBACK_MS = 230;
   const normalizeRuntimeCitationIdentity =
       window.JinRuntime.normalizeCitationIdentity;
@@ -560,7 +559,6 @@
     return Boolean(
       Array.isArray(rows)
       && rows.length > 1
-      && rows.length <= MEMORY_ROW_REORDER_TRANSITION_MAX_ROWS
       && typeof window.requestAnimationFrame === "function"
       && !shouldReduceRuntimeMemoryMotion()
     );

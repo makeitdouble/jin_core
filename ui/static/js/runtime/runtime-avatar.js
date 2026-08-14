@@ -1960,12 +1960,29 @@
     svg.appendChild(defs);
   }
 
-  function appendStaticScaffold(svg, overallColor, random) {
+  function appendStaticScaffold(svg, overallColor, currentCenterColor, diffPercent, random) {
     const scaffold = createSvgElement("g", {
       class: "jin-avatar-scaffold",
       fill: "none",
       "pointer-events": "none",
     });
+    const diffRatio =
+      clamp(Number(diffPercent || 0) / 100, 0, 1);
+    const rayEnergy =
+      clamp(0.18 + diffRatio * 0.82, 0.18, 1);
+    const rayCount = 16;
+    const activeRayCount =
+      Math.max(3, Math.min(7, 3 + Math.round(rayEnergy * 4)));
+    const activeRayIndexes = new Set();
+
+    while (
+      activeRayIndexes.size < activeRayCount
+      && activeRayIndexes.size < rayCount
+    ) {
+      activeRayIndexes.add(
+        Math.floor(random() * rayCount)
+      );
+    }
 
     scaffold.appendChild(createSvgElement("circle", {
       cx: CENTER,
@@ -1986,19 +2003,67 @@
       }));
     });
 
-    for (let index = 0; index < 16; index += 1) {
+    for (let index = 0; index < rayCount; index += 1) {
       const angle = index * 22.5 + (random() - 0.5) * 2;
       const inner = polarPoint(STATIC_RADIAL_LINE_INNER_RADIUS, angle);
       const outer = polarPoint(STATIC_RADIAL_LINE_OUTER_RADIUS, angle);
+      const activeRay =
+        activeRayIndexes.has(index);
+      const visibilitySeed = random();
+      const baseOpacity =
+        activeRay
+          ? 0.018 + rayEnergy * 0.022 + random() * 0.008
+          : 0.002 + Math.pow(visibilitySeed, 3.2) * (0.012 + rayEnergy * 0.010);
+      const softOpacity =
+        baseOpacity + (
+          activeRay
+            ? 0.012 + rayEnergy * 0.016
+            : Math.pow(random(), 2.5) * 0.008
+        );
+      const midOpacity =
+        baseOpacity + (
+          activeRay
+            ? 0.026 + rayEnergy * 0.028 + random() * 0.008
+            : Math.pow(random(), 3.3) * 0.012
+        );
+      const peakOpacity =
+        activeRay
+          ? baseOpacity + 0.050 + rayEnergy * 0.048 + random() * 0.010
+          : baseOpacity + Math.pow(random(), 4.0) * 0.014;
+      const durationSeconds =
+        24 + random() * 24 + (1 - rayEnergy) * 8;
+      const phaseRatio =
+        (index / rayCount + random() * 0.22) % 1;
+      const rayColor =
+        mixColors(
+          mixColors(currentCenterColor, overallColor, 0.36 + random() * 0.24),
+          "#081018",
+          activeRay
+            ? 0.42 + (1 - rayEnergy) * 0.08
+            : 0.54 + (1 - rayEnergy) * 0.10
+        );
 
       scaffold.appendChild(createSvgElement("line", {
+        class: [
+          "jin-avatar-scaffold-ray",
+          "is-jin-avatar-ray-breathing",
+        ].join(" "),
         x1: inner.x,
         y1: inner.y,
         x2: outer.x,
         y2: outer.y,
-        stroke: index % 5 === 0 ? AMBER_ACCENT : overallColor,
-        "stroke-width": index % 4 === 0 ? 0.7 : 0.35,
-        "stroke-opacity": index % 5 === 0 ? 0.13 : 0.055,
+        stroke: rayColor,
+        "stroke-width": activeRay ? 0.42 + random() * 0.34 : 0.30 + random() * 0.22,
+        "stroke-opacity": "1",
+        style: [
+          `--jin-avatar-ray-base-opacity:${Math.min(activeRay ? 0.058 : 0.018, baseOpacity).toFixed(3)}`,
+          `--jin-avatar-ray-soft-opacity:${Math.min(activeRay ? 0.088 : 0.026, softOpacity).toFixed(3)}`,
+          `--jin-avatar-ray-mid-opacity:${Math.min(activeRay ? 0.118 : 0.038, midOpacity).toFixed(3)}`,
+          `--jin-avatar-ray-peak-opacity:${Math.min(activeRay ? 0.165 : 0.050, peakOpacity).toFixed(3)}`,
+          `--jin-avatar-ray-duration:${durationSeconds.toFixed(2)}s`,
+          `--jin-avatar-ray-delay:${(-phaseRatio * durationSeconds).toFixed(2)}s`,
+          "--jin-avatar-ray-play-state:running",
+        ].join(";"),
       }));
     }
 
@@ -2870,7 +2935,7 @@
     });
 
     appendDefs(svg, overallColor, centerColor);
-    appendStaticScaffold(svg, overallColor, random);
+    appendStaticScaffold(svg, overallColor, centerColor, diffPercent, random);
 
     records.forEach((record, index) => {
       appendOrbit(svg, record, records, overallColor, diffPercent, {

@@ -1,7 +1,7 @@
 {
   "update_l4_facts": {
     "version": 1,
-    "description": "Lets JIN pass a focused plain-text clarification to the L4 maintainer without directly editing long-term memory.",
+    "description": "Lets JIN send a focused update, merge, or create instruction to the L4 maintainer.",
     "runtime_action": "UPDATE_L4_FACTS",
     "private_marker": "<UPDATE_L4_FACTS>",
     "triggers": [],
@@ -10,7 +10,7 @@
       "emit_followup": false
     },
     "rules": [
-      "JIN can update or create facts, user has ability in ui to delete them entirely.",
+      "JIN can update, merge, or create durable facts through this marker.",
       "Use this marker only when a durable L4 fact needs an update, two or more durable L4 facts should be merged, or a genuinely new durable fact became clear.",
       "Do not use it for harmless repetition between L4 and loaded delayed memory, stylistic rewording with no change of meaning, temporary session details, weak suspicions, or issues unrelated to durable memory.",
       "Do not interrupt an unrelated conversation only to clean memory. Raise the issue when it affects the current answer or can be resolved naturally in the current topic.",
@@ -21,9 +21,9 @@
       "<UPDATE_L4_FACTS>",
       "Concise instruction for the L4 maintainer.",
       "</UPDATE_L4_FACTS>",
-      "For updates, name the exact F<number> ID and the final clarified formulation.",
-      "For merges, name every exact F<number> ID involved and the single final meaning.",
-      "For creations, describe the new durable fact; omit IDs when no existing fact is involved.",
+      "For updates, name the exact F<number> ID and the final clarified formulation. The maintainer must preserve that exact committed ID.",
+      "For merges, name every exact F<number> ID involved and the single final meaning. Only an explicit merge may retire absorbed committed IDs.",
+      "For creations, describe the new durable fact; omit IDs when no existing fact is involved. Create is the only operation that allocates a new committed ID.",
       "Use only exact fact IDs shown inside <LONG_TERM_MEMORY>. F<number> means a committed L4 fact; PF<number> means a pending fact and must never be used here.",
       "Express the request only as update, merge, or create. Keep it direct, concise, and in English.",
       "Do not emit any extra hidden instructions inside the marker and do not repeat the same note after it has been sent."
