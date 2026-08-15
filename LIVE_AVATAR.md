@@ -10,8 +10,6 @@ It is intentionally not a full architecture document. The goal is practical: if 
 
 The live avatar is a memory radar with a persistent-file perimeter. The inner moving rings represent the current runtime memory snapshot. The three outer memory-signal rings represent delayed reports, L4 long-term facts, and active memory. A fourth, farther-out ring is made of file dots and represents the persistent files known to `window.JinFiles`. The center is the JIN accent light; it also feeds the scene tint.
 
-The avatar in the chat stream is a separate presentation layer. It reuses the normal JIN role avatar, but its position and pulse communicate generation state: waiting/processing, reasoning, then settled answer.
-
 Read the radar like this:
 
 | Visual cue | Meaning |
@@ -47,12 +45,6 @@ Use this file for runtime rings, memory rings, the file-dot ring, radii, colors,
 The radar glow, shell aura, depth layer, entry softness, and reduced-motion behavior live in:
 
 `ui/static/css/runtime-avatar.css`
-
-The chat-stream avatar is controlled separately:
-
-- `ui/static/js/chat.js` — creates the pre-token avatar, moves it with reasoning, hands it to the answer row, and settles/releases it.
-- `ui/static/css/chat.css` — processing pulse, position transitions, and reduced-motion behavior.
-- `ui/static/js/socket.js` and `ui/static/js/socket/event-handlers.js` — stop/release the processing avatar on abort, disconnect, error, and runtime end paths.
 
 Other visual/state knobs:
 
@@ -683,55 +675,6 @@ For runtime, active, and delayed records, matching can fall back to exact normal
 
 Persistent file dots participate in the same reference layer. Their aliases include id/name/stored path variants, so JIN mentioning a unique file id or file name can light the corresponding dot. File SVG text identity is normalized from `name · contextPath`.
 
-## Live Chat Stream Avatar
-
-The small avatar shown beside a model response is not the radar SVG. It is the normal role avatar placed in a movable stream slot so the UI shows model activity before and during streamed output.
-
-Files:
-
-- `ui/static/js/chat.js`
-- `ui/static/css/chat.css`
-- release paths in `ui/static/js/socket.js` and `ui/static/js/socket/event-handlers.js`
-
-### Before The First Token
-
-`startStreamMessage()` immediately creates the stream group and calls `activateStreamAvatar()`. The wrapper gets `is-awaiting-model`, and `.jin-stream-avatar-slot` appears at the response position before reasoning or answer text exists.
-
-The avatar itself receives:
-
-```text
-jin-stream-avatar is-processing
-```
-
-The slot keeps the avatar clickable even though the slot container itself has `pointer-events: none`; the child `.jin-chat-avatar` restores `pointer-events: auto`.
-
-Processing pulse:
-
-- `1.18s` ease-in-out loop;
-- opacity roughly `0.48 -> 0.96 -> 0.48`;
-- scale roughly `0.90 -> 1.00 -> 0.90`;
-- reduced-motion disables the pulse and leaves a stable `0.82` opacity.
-
-### During Reasoning
-
-When reasoning exists, `syncStreamAvatarPosition()` moves the slot to the reasoning block.
-
-- collapsed reasoning: avatar stays at the top of the reasoning wrapper;
-- expanded reasoning: avatar follows the bottom edge of the growing reasoning content, offset by its own `28px` size;
-- `ResizeObserver` watches reasoning height while no answer exists;
-- collapse/expand triggers a short requestAnimationFrame tracking window so the avatar follows the layout transition rather than teleporting.
-
-The slot's normal `left`/`top` transitions are `0.24s`; handoff transform is `0.26s`.
-
-### Answer Handoff And Settle
-
-As soon as an answer row exists, the avatar moves to that row, `setStreamAvatarProcessing(false)` switches it to `is-settled`, and the reasoning resize observer is disconnected. A hidden `jin-stream-avatar-spacer` reserves the normal avatar width in the answer row so the absolute slot lands cleanly without shifting the bubble.
-
-If a new/retry stream takes over while a previous stream still has no answer, `activateStreamAvatar()` measures the old slot, removes it, and animates the new slot from the old screen position. This makes the avatar handoff continuous instead of spawning two processing avatars.
-
-### Abort / End / Disconnect
-
-`releaseActiveStreamAvatar()` is called from runtime-end, abort, disconnect, and error paths. If no visible reasoning/answer content exists, the placeholder avatar/wrapper is removed. If content already exists, the avatar stays with that content but stops processing pulse.
 
 ## Central Button
 
@@ -895,18 +838,6 @@ Edit:
 
 Then verify circular geometry, collapsed mode, and Win95 theme. The shell keeps `aspect-ratio: 1`, and the SVG uses `preserveAspectRatio: "xMidYMid meet"`.
 
-### Change chat processing pulse
-
-File: `ui/static/css/chat.css`
-
-Edit:
-
-```css
-.jin-stream-avatar.is-processing
-@keyframes jin-chat-avatar-processing
-```
-
-Positioning/travel belongs in `chat.js`, especially `syncStreamAvatarPosition()` and the stream-avatar timing constants.
 
 ## Visual QA Checklist
 
@@ -939,15 +870,9 @@ Use this after avatar visual/state changes.
 | Unpin file while loaded report references it | Dot falls back to the softer indirect-context accent |
 | Unpin file with no loaded-report link | Dot returns to normal blue state |
 | Switch away from `[runtime]`, then receive L1 update | Visible tab stays put, but radar still updates to newest L1 snapshot |
-| Before first model token | Chat response position already shows a clickable pulsing avatar |
-| Expanded reasoning grows | Chat avatar follows the bottom of reasoning smoothly |
-| Collapse reasoning | Chat avatar returns to the reasoning wrapper top instead of disappearing |
-| Answer begins | Chat avatar moves to answer row, stops pulsing, stays settled |
-| Retry/next unfinished stream | Processing avatar hands off from previous slot rather than duplicating |
-| Abort/runtime end/disconnect | Processing pulse stops; empty placeholder is removed when appropriate |
 | Collapsed memory panel | Radar keeps stable size |
 | Win95 theme | Radar still fits |
-| Reduced motion | Orbit/scaffold/pulse/entry animations are suppressed appropriately |
+| Reduced motion | Orbit/scaffold/entry animations are suppressed appropriately |
 
 ## Final Rule Of Thumb
 
@@ -960,7 +885,5 @@ If the change is about **whether a row/plaque and an avatar mark glow together**
 If a file is directly pinned versus merely inherited through a loaded delayed report, preserve that distinction: direct = bright white; indirect = half-accent.
 
 If an ordinary L4 fact belongs to a report, loading that report should change emphasis, not archive semantics. Anchor ids are the structural exception at the archive-id level; for merged facts, remember that `source_fact_ids` also participate in the final archived match.
-
-If the change is about the **small avatar travelling through a streamed response**, use `chat.js` / `chat.css`, not the radar SVG code.
 
 If the browser still shows an old visual after reload, bump the relevant script/stylesheet query string in `ui/templates/index.html`.
