@@ -1,4 +1,4 @@
-LIVE_AVATAR v1.0
+LIVE_AVATAR v1.1
 
 # Live Avatar Visual Manual
 
@@ -8,65 +8,80 @@ It is intentionally not a full architecture document. The goal is practical: if 
 
 ## The Mental Picture
 
-The live avatar is a memory radar. The inner moving rings represent the current runtime memory snapshot. The outer signal rings represent memory systems around that snapshot: delayed reports, L4 long-term facts, and active memory. The center is the JIN accent light; it also feeds the scene tint.
+The live avatar is a memory radar with a persistent-file perimeter. The inner moving rings represent the current runtime memory snapshot. The three outer memory-signal rings represent delayed reports, L4 long-term facts, and active memory. A fourth, farther-out ring is made of file dots and represents the persistent files known to `window.JinFiles`. The center is the JIN accent light; it also feeds the scene tint.
 
-Read it like this:
+The avatar in the chat stream is a separate presentation layer. It reuses the normal JIN role avatar, but its position and pulse communicate generation state: waiting/processing, reasoning, then settled answer.
 
-| Visual cue                  | Meaning |
-|-----------------------------|---|
-| Inner moving rings          | Current runtime memory lines |
-| Faster inner motion         | Larger runtime memory diff |
+Read the radar like this:
+
+| Visual cue | Meaning |
+|---|---|
+| Inner moving rings | Current runtime memory lines |
+| Faster inner motion | Larger runtime memory diff |
 | Color shifts in inner rings | Keyword/emotional content in runtime memory |
-| Runtime change markers      | Last real runtime transition: filled = new line, hollow = changed line |
-| Delayed report dashes       | Stored delayed memory reports |
-| Loaded delayed glow         | Delayed report is currently loaded into runtime context |
-| Bright delayed dashes       | Pinned delayed memory reports |
-| L4 blue dashes              | Long-term facts |
-| Dim L4 dots                 | L4 facts archived behind delayed reports |
-| Bright outer dashes         | Active memory records |
-| Center color                | JIN accent color and scene tint |
-| Glow on hover/citation      | A memory item is being pointed at right now |
+| Vertical stripes on a runtime ring | That runtime value contains `?` or `!` |
+| Runtime change markers | Last real runtime transition: filled = new line, hollow = changed line |
+| Breathing scaffold rays | Ambient runtime activity; ray energy follows snapshot diff |
+| Delayed report dashes | Stored delayed memory reports |
+| Bright delayed dash | Report is pinned or currently loaded into runtime context |
+| Half-accent delayed dash | A loaded report hides an ordinary fact that another report keeps as an anchor |
+| L4 blue dashes | Long-term facts that stay directly visible |
+| Dim L4 dots | Ordinary report-covered L4 facts; archived, not deleted |
+| Bright outer memory dashes | Active memory records |
+| Outer file dots | Persistent files in `/assets/files` / `window.JinFiles` |
+| Bright white file dot | File is directly pinned/attached to context |
+| Half-accent file dot | File is indirectly present through a loaded delayed report |
+| Center color | JIN accent color and scene tint |
+| Glow on hover/citation/reference | A runtime, memory, or file item is being pointed at right now |
+
+The important distinction is **representation versus activation**. A dim L4 dot or normal file dot still represents a real stored item. Loading, pinning, hovering, citing, or linking changes emphasis without changing that item's identity or angular slot.
 
 ## Main Files To Touch
 
-Most visual changes happen in one file:
+Most radar-avatar behavior lives in:
 
 `ui/static/js/runtime/runtime-avatar.js`
 
-Use this file for rings, radii, colors, speed, dash opacity, seeded random texture, center rendering, and avatar-level event reactions.
+Use this file for runtime rings, memory rings, the file-dot ring, radii, colors, speed, punctuation stripes, seeded geometry, center rendering, delayed/L4/file link state, and avatar-level hover/reference/citation reactions.
 
-The CSS glow and panel presentation live here:
+The radar glow, shell aura, depth layer, entry softness, and reduced-motion behavior live in:
 
 `ui/static/css/runtime-avatar.css`
 
-Use this file for hover glow, citation glow, memory dash glow, panel collapsed behavior, and reduced-motion behavior.
+The chat-stream avatar is controlled separately:
 
-A few visual knobs are outside those two files:
+- `ui/static/js/chat.js` — creates the pre-token avatar, moves it with reasoning, hands it to the answer row, and settles/releases it.
+- `ui/static/css/chat.css` — processing pulse, position transitions, and reduced-motion behavior.
+- `ui/static/js/socket.js` and `ui/static/js/socket/event-handlers.js` — stop/release the processing avatar on abort, disconnect, error, and runtime end paths.
+
+Other visual/state knobs:
 
 | Need | File | Change |
 |---|---|---|
 | Avatar panel size | `ui/static/css/base.css` | `--runtime-avatar-panel-size` |
 | Center color tint applied to scene | `ui/static/js/runtime/runtime-avatar.js` | `setCenterColor()`, `JIN_SCENE_COLOR_INTENSITY` |
-| L4 archived/visible classification | `ui/static/js/runtime/runtime-l4-memory.js` | `getVisibleFacts()`, `getFactsWithArchiveState()` |
+| L4 archived/visible classification | `ui/static/js/runtime/runtime-l4-memory.js` | `getArchivedFactIdSet()`, `getVisibleFacts()`, `getFactsWithArchiveState()` |
 | Long-term facts panel visibility | `ui/static/js/runtime/runtime.js` | `getVisibleLongTermMemoryFacts()` |
-| Memory row hover dispatch | `ui/static/js/runtime/runtime-memory-view.js` | `dispatchRuntimeMemoryLineAvatarHover()`, `dispatchLongTermFactAvatarHover()`, `dispatchDelayedMemoryAvatarHover()` |
+| Runtime/L4/delayed/active/file row hover dispatch | `ui/static/js/runtime/runtime-memory-view.js` | row hover dispatch helpers and `data-avatar-memory-hover-id` |
+| Attached-files plaque hover dispatch | `ui/static/js/dragdrop.js` | persistent file hover bindings |
+| Persistent file source/state | `ui/static/js/dragdrop.js` + `window.JinFiles` | file store, pin state, `jin:files-store-changed` |
+| Delayed report attachment links | `ui/static/js/runtime/runtime-storage.js`, `runtime-memory-view.js` | `attachments_ids` |
 | Center button click wiring | `ui/static/js/socket/input.js` | `toggleRuntimeAvatarMemoryLayers()` |
 | Browser cache after visual edits | `ui/templates/index.html` | bump query string for changed CSS/JS |
 
 ## Visual Stack
 
-The avatar is drawn as a single SVG inside `#jin-runtime-avatar`. Each render replaces the old SVG with a fresh one.
-
-Some memory signal updates avoid a full avatar refresh. Delayed, L4, and active memory can sync their own rings in place through `syncDelayedMemoryState()`, `syncL4MemoryState()`, `syncActiveMemoryState()`, and `syncMemorySignalLayer()`.
+The radar avatar is drawn as a single SVG inside `#jin-runtime-avatar`. A full render replaces the old SVG, but state-only changes are deliberately synchronized in place where possible so a pin/load transition does not unnecessarily reshuffle or restart visual geometry.
 
 The stack is built in this order:
 
 1. SVG definitions: gradients and glow filters.
-2. Static scaffold: faint background circles and radial guide lines.
+2. Static scaffold: halo, concentric radar circles, and breathing radial rays.
 3. Runtime rings: one moving orbit per runtime memory line.
 4. Memory signal rings: delayed, L4, active.
-5. Center core: the central light and glow.
-6. Runtime/citation/reference/hover classes are reapplied.
+5. Persistent file ring: one dot per file, outside active memory.
+6. Center core: the central light and glow.
+7. Runtime/citation/reference/hover/link classes are reapplied.
 
 The main render function is:
 
@@ -74,34 +89,59 @@ The main render function is:
 renderAvatar(snapshot, options = {})
 ```
 
-File:
-
-`ui/static/js/runtime/runtime-avatar.js`
-
 Important helpers:
 
 | Helper | Role |
 |---|---|
 | `appendDefs()` | SVG filters and gradients |
-| `appendStaticScaffold()` | background radar structure |
+| `appendStaticScaffold()` | background radar structure and diff-reactive rays |
 | `computeRingRecords()` | turns runtime lines into orbit records |
 | `appendOrbit()` | draws one runtime memory orbit |
-| `appendMemorySignalRings()` | draws delayed, L4, active memory signal rings |
+| `appendMemorySignalRings()` | draws delayed, L4, active memory rings |
+| `appendFileRing()` / `appendFileSignalRing()` | draws the persistent-file perimeter |
 | `appendCenter()` | draws center core |
-| `applyThinkRuntimeCitationGlow()` | applies citation glow |
-| `applyMemoryReferenceGlow()` | applies reference glow |
-| `applyMemoryRowAvatarHoverGlow()` | applies hover glow |
+| `applyThinkRuntimeCitationGlow()` | applies think-citation glow |
+| `applyMemoryReferenceGlow()` | applies response/reference glow |
+| `applyMemoryRowAvatarHoverGlow()` | applies row/plaque hover glow and cross-layer links |
+| `applyDelayedMemoryFactLinkGlow()` | delayed-report <-> L4 highlighting plus secondary-report state |
+| `applyDelayedMemoryFileLinkGlow()` | focused delayed-report <-> attachment-dot highlighting |
 | `syncMemorySignalLayer()` | rebuilds one memory signal ring in place when possible |
+| `syncDelayedMemoryState()` | resyncs delayed state, L4 archive/link state, and file-link state |
+| `syncFilesState()` | updates file-dot state without restarting the orbit when the file set is unchanged |
+
+### Live Sync Rules
+
+Several interactions intentionally avoid a full `avatar.refresh()`:
+
+- delayed, L4, and active memory use their dedicated sync functions;
+- `repaintAvatar()` performs a full redraw with the current `avatarRefreshNonce`, so the seeded geometry stays the same; `reinitializeAvatar()` / public `refresh()` increments the nonce when an intentional reseed is wanted;
+- file pin/context-link changes update existing file dots in place when the set of file ids did not change;
+- the file ring is rebuilt only when the persistent file set itself changes;
+- file records are sorted by file id, so changing pin/load state never changes a file's angular slot;
+- `jin:files-store-changed` triggers file-state synchronization;
+- delayed-memory state synchronization also refreshes related L4 and file-link states.
+
+The memory panel may stay on `[active]`, `[delayed]`, `[facts]`, `[long_term]`, or `[files]` while L1 updates. `renderRuntimeMemorySnapshot()` now still dispatches the newest runtime snapshot to the avatar when the visible panel mode is not `[runtime]`. This prevents the radar from freezing merely because the user is looking at another memory tab.
 
 ## Static Scaffold
 
-The scaffold is the quiet radar structure behind the live memory rings. It does not represent a memory item directly. It gives the avatar depth and makes the active rings easier to read.
+The scaffold is the quiet radar structure behind the live memory rings. It is not a memory item. It gives the avatar depth and now carries a very slow activity signal from the current runtime diff.
 
 It is drawn by:
 
 ```js
-appendStaticScaffold(svg, overallColor, random)
+appendStaticScaffold(svg, overallColor, currentCenterColor, diffPercent, random)
 ```
+
+Current behavior:
+
+- the concentric circles remain faint and structural;
+- there are `16` radial rays;
+- only a seeded subset of roughly `3..7` rays receives stronger breathing energy;
+- `diffPercent` controls `rayEnergy`, so a larger runtime diff makes the active rays somewhat more visible;
+- ray color mixes the current center color, overall runtime color, and a dark base;
+- each ray receives a long seeded duration/phase, so the effect reads as ambient breathing rather than a busy equalizer;
+- `prefers-reduced-motion` disables the breathing animation.
 
 Change these when you want the background to feel denser, cleaner, brighter, or more technical:
 
@@ -109,15 +149,12 @@ Change these when you want the background to feel denser, cleaner, brighter, or 
 |---|---|
 | Concentric scaffold circles | `STATIC_SCAFFOLD_RADII` |
 | Radial guide line range | `STATIC_RADIAL_LINE_INNER_RADIUS`, `STATIC_RADIAL_LINE_OUTER_RADIUS` |
-| Scaffold circle opacity | `appendStaticScaffold()` circle attributes |
-| Radial line opacity | `appendStaticScaffold()` line attributes |
-| Warm radial accents | `AMBER_ACCENT` and `index % 5` logic |
+| Number of rays | `rayCount` in `appendStaticScaffold()` |
+| Diff response | `rayEnergy`, `activeRayCount` |
+| Ray color/opacity/duration | `appendStaticScaffold()` |
+| Breathing curve | `.jin-avatar-scaffold-ray.is-jin-avatar-ray-breathing`, `@keyframes jin-avatar-scaffold-ray-breathe` in `runtime-avatar.css` |
 
-Good edit examples:
-
-- To make the avatar calmer, lower scaffold `stroke-opacity`.
-- To make it more technical, add more scaffold radii or increase dash visibility.
-- To make it less noisy, reduce radial guide lines or their opacity.
+The inner scaffold/ring geometry is globally compressed with `INNER_RING_SCALE = 0.90`. The SVG itself also renders at `transform: scale(0.90)` so the new outer file perimeter has breathing room inside the square avatar shell.
 
 ## Runtime Rings
 
@@ -134,7 +171,8 @@ These rings are the most "alive" part of the avatar: they change radius, speed, 
 | Ring speed | Snapshot diff intensity |
 | Ring direction | Seeded random direction |
 | Ring color | Keyword palette plus emotional/alert influence |
-| Extra stripes | The line is long compared to the others |
+| Runtime highlight glow | Uses that ring's current color rather than a fixed generic glow |
+| Vertical stripes | The runtime **value** contains `?` or `!` |
 | Filled change marker | The line was added in the last real runtime transition |
 | Hollow change marker | The line changed in the last real runtime transition |
 | Change marker size | Magnitude of the line change |
@@ -148,10 +186,12 @@ These rings are the most "alive" part of the avatar: they change radius, speed, 
 | Speed | `runtime-avatar.js` | `appendOrbit()` -> `baseSpeed`, `effectiveSpeed`, `duration` |
 | Dash texture | `runtime-avatar.js` | `appendOrbit()` -> `dashLength`, `gapLength`, `strokeWidth` |
 | Arc fragments | `runtime-avatar.js` | `appendOrbit()` -> `arcCount`, `appendArcCircle()` |
-| Long-line stripes | `runtime-avatar.js` | `appendLongFieldStripes()` |
+| Punctuation-triggered stripes | `runtime-avatar.js` | `appendOrbit()` condition + `appendLongFieldStripes()` |
 | Runtime change markers | `runtime-avatar.js` | `appendRuntimeChangeMarker()`, `resolveRuntimeChangeMarkers()` |
 
-`computeRingRecords()` uses `sourceOrderRatio`, not line length, for the base radius. Line length is still used to decide whether a line gets extra long-field stripes.
+`computeRingRecords()` uses `sourceOrderRatio`, not line length, for the base radius. `record.isLong` may still exist as record metadata, but it no longer controls the stripe visual. Stripes are appended only when `String(record.value || "")` matches `/[!?]/`. The old stripe geometry itself is preserved: seeded count, height, arc span, color, width, and opacity.
+
+Runtime hover/citation/reference glow variables are derived from the orbit's current `ringColor`, so a highlighted orbit keeps its own semantic color instead of flattening every highlight to cyan. Idle-opacity CSS targets only direct structural circles/lines; nested filled change markers are not accidentally dimmed with the base orbit.
 
 ### Runtime Ring Speed
 
@@ -237,52 +277,56 @@ To add a warning theme:
 
 ## Memory Signal Rings
 
-The memory signal rings are the outer dash/dot rings. They are not runtime memory lines. They represent separate memory systems around the current runtime state.
+The memory signal rings are the outer dash/dot rings. They are not runtime memory lines. They represent separate memory systems around the current runtime state. The persistent-file perimeter sits one step farther out and uses dots instead of memory dashes.
 
-They are configured in:
+Memory dashes are configured in:
 
 ```js
 MEMORY_RING_LAYOUT
 ```
 
-File:
+The file perimeter is configured separately in:
 
-`ui/static/js/runtime/runtime-avatar.js`
+```js
+FILE_RING_LAYOUT
+```
 
-| Ring | Radius | Stroke width | Meaning |
+| Ring | Radius | Stroke / dot size | Meaning |
 |---|---:|---:|---|
 | Delayed | `158` | `3.10` | Delayed memory reports |
 | L4 | `168` | `1.05` | Long-term facts |
 | Active | `178` | `1.35` | Active memory records |
+| Files | `188` | dot radius `2.7` | Persistent files |
 
-The render and sync insertion order is `delayed`, then `l4`, then `active`. L4 intentionally sits between delayed reports and active memory.
+The memory-ring render order is `delayed`, then `l4`, then `active`; the file ring is inserted after those and before the center. L4 intentionally sits between delayed reports and active memory.
 
-Each item becomes one memory dash record. Delayed and active records stay dashes; archived L4 records use the same record path but visually settle into dots. So 10 L4 facts means 10 L4 memory records, some of which may appear as dots. 3 delayed reports means 3 delayed dashes.
+Each delayed/active item becomes one dash record. L4 always keeps one avatar record per fact, but archived L4 facts settle into dots instead of disappearing from the radar. The file ring uses one stable dot per persistent file.
 
 ### Memory Ring Layout Controls
 
 | Field | Meaning |
 |---|---|
 | `radius` | How far from center the ring sits |
-| `strokeWidth` | Thickness of dash stroke |
+| `strokeWidth` | Thickness of a memory dash |
 | `minArcDegrees` | Smallest dash length |
 | `maxArcDegrees` | Largest dash length |
 | `arcRatio` | How much of each item slot is filled |
 | `arcTrimPixels` | Optional pixel trim before arc degrees are finalized; currently used by L4 |
-| `startAngle` | Where the first dash starts |
+| `startAngle` | Where the first dash/dot slot starts |
+| `FILE_RING_LAYOUT.dotRadius` | Persistent-file dot size |
 
-Use these fields when you want to move a ring inward/outward or change how dense the dashes feel.
+Use these fields when you want to move a ring inward/outward or change how dense its records feel. Keep enough separation between radii for hover/link glows to remain visually distinct.
 
 ## L4 Facts Ring
 
-The L4 ring shows long-term facts. Each visible L4 fact becomes one memory dash record. Archived facts use the same record identity, but render as a dim dot state.
+The L4 ring shows all stored long-term facts. A directly exposed fact renders as a blue dash. A report-covered ordinary fact keeps the same avatar identity but renders as a dim dot.
 
-There are two visual states:
+There are two base visual states:
 
 | L4 state | Meaning | Avatar |
 |---|---|---|
-| Visible fact | Fact is directly available in long-term context | normal blue dash |
-| Archived fact | Fact is covered by a delayed report and is not currently anchored or loaded | dim blue dot; the dash arc fades away |
+| Visible / anchor fact | Fact stays directly available in long-term context | normal blue dash |
+| Archived ordinary fact | Fact is listed by a delayed report as ordinary report content | dim blue dot; dash arc fades away |
 
 Current opacity:
 
@@ -300,36 +344,50 @@ File:
 
 `ui/static/js/runtime/runtime-avatar.js`
 
-Place:
-
-L4 branch inside `appendMemorySignalRing()`.
+Place: L4 branch inside `appendMemorySignalRing()`.
 
 ### L4 Archived Meaning
 
-Archived does not mean deleted. It means the fact is already covered by a delayed report and should not be shown as a direct long-term context line right now.
+Archived does **not** mean deleted. It means the fact has been absorbed into delayed-memory report content and should not occupy a normal direct L4 line in context or the long-term panel.
 
-Visual behavior:
+Current classification is intentionally simple and global:
 
-- It stays represented in the avatar as a dim dot.
-- Its dash arc is animated away by the `is-memory-dot` CSS state.
-- It disappears from the long-term facts panel while archived.
+1. collect archive candidates from every report's `facts_ids`, legacy `absorbed_fact_ids`, and legacy `long_term_facts_ids`;
+2. collect every report's `anchor_fact_ids`;
+3. remove all anchor ids from the archived set.
 
-Archive ids are collected from delayed report `facts_ids`, legacy `absorbed_fact_ids`, and legacy `long_term_facts_ids`.
+So the important direct-id rule is:
 
-Anchor and loaded facts are the exceptions. If a delayed report lists a fact in `anchor_fact_ids`, or if a report is loaded into runtime context and lists the fact in `facts_ids`, that fact remains visible and is not dimmed. Pinned delayed reports count as loaded for this classification.
+**Anchor ids are removed globally from the archived-id set. Loaded/pinned does not remove an ordinary `facts_ids` id from that set.**
+
+`factMatchesArchivedIds()` then checks both `fact.id` and `source_fact_ids`. That matters for merged/derived L4 records: even when the record's own id is anchored, an archived source id can still make the combined record classify as archived.
+
+A report being loaded or pinned can make its linked archived L4 dot glow through `is-delayed-memory-linked-hit`, but load state by itself never changes archive classification.
+
+This distinction prevents a report load from rewriting the structural meaning of L4. Load/pin is context emphasis; `anchor_fact_ids` is the structural exception that keeps an L4 fact exposed.
+
+### Cross-Report Anchor Signal
+
+A loaded/pinned report can contain an ordinary fact that is archived behind it while another report uses the same fact in `anchor_fact_ids`. In that case the **other delayed report** receives the softer class:
+
+```text
+is-delayed-memory-secondary-linked
+```
+
+That half-accent says: "this loaded report contains a hidden fact whose exposed anchor lives in another report." The delayed-memory panel mirrors this relation, and the report modal can surface the other report under `anchored_to` for the fact.
 
 ### L4 Visual Edit Guide
 
 | Desired change | File | Edit |
 |---|---|---|
-| Make archived dots dimmer | `runtime-avatar.js` | lower `0.26` |
-| Make archived dots brighter | `runtime-avatar.js` | raise `0.26` |
-| Make all L4 facts brighter | `runtime-avatar.js` | raise `0.52` |
+| Make archived dots dimmer/brighter | `runtime-avatar.js` | change archived opacity `0.26` |
+| Make visible L4 facts brighter | `runtime-avatar.js` | change `0.52` |
 | Change L4 color | `runtime-avatar.js` | `L4_MEMORY_RING_COLOR` |
 | Move L4 ring | `runtime-avatar.js` | `MEMORY_RING_LAYOUT.l4.radius` |
 | Make L4 dashes longer | `runtime-avatar.js` | `MEMORY_RING_LAYOUT.l4.arcRatio` or `maxArcDegrees` |
 | Change archived dot transition | `runtime-avatar.css` | `.jin-avatar-memory-dash.is-memory-dot`, `jin-avatar-memory-absorb-dot` |
-| Hide archived facts from avatar entirely | `runtime-avatar.js` | use `getVisibleFacts()` instead of `getFactsWithArchiveState()` in `getL4MemoryAvatarRecords()` |
+| Change archive semantics | `runtime-l4-memory.js` | `getArchivedFactIdSet()` |
+| Hide archived facts from avatar entirely | `runtime-avatar.js` | use visible facts instead of `getFactsWithArchiveState()` in `getL4MemoryAvatarRecords()` |
 
 The archived/visible classification itself is in:
 
@@ -339,47 +397,52 @@ Important functions:
 
 | Function | Role |
 |---|---|
-| `getArchivedFactIdSet()` | Collects hidden fact ids from delayed reports, then removes anchored and loaded fact ids |
+| `getArchivedFactIdSet()` | Collects report-covered fact ids, then removes every globally anchored fact id |
 | `factMatchesArchivedIds()` | Checks direct id and `source_fact_ids` |
-| `getVisibleFacts()` | Returns only facts visible in long-term panel |
+| `getVisibleFacts()` | Returns only facts visible in the long-term panel |
 | `getFactsWithArchiveState()` | Returns all facts with `archived` flag for avatar |
 
 ## Delayed Reports Ring
 
 The delayed ring shows delayed memory reports. Each dash is one report.
 
-Normal reports are dimmer. Loaded reports get a context glow through CSS. Pinned reports are much brighter, almost white.
+`getDelayedMemoryAvatarRecords()` treats a report as loaded when it is either pinned or present in the runtime's loaded delayed-memory id set. Both direct pinning and runtime loading therefore use the same strong base visual; the classes remain separate so interaction logic can still distinguish them.
 
 | Report state | Avatar opacity | Color / class |
 |---|---:|---|
-| Normal | `0.36` | `DELAYED_MEMORY_RING_COLOR` mixed with overall avatar color |
-| Loaded | base `0.36`, visually boosted by CSS | `is-context-loaded` |
-| Pinned | `0.82` | `PINNED_DELAYED_MEMORY_RING_COLOR`, `is-memory-pinned`; also treated as loaded |
+| Normal | `0.36` | delayed color mixed with overall avatar color |
+| Runtime-loaded, not pinned | `0.82` | bright `PINNED_DELAYED_MEMORY_RING_COLOR`, `is-context-loaded` |
+| Pinned | `0.82` | bright `PINNED_DELAYED_MEMORY_RING_COLOR`, `is-memory-pinned` and loaded semantics |
+| Secondary-linked | base state plus softer half-accent | `is-delayed-memory-secondary-linked` |
 
-File:
+The stronger generic reference/citation/link selector intentionally does not treat a merely context-loaded delayed dash as a generic `is-context-loaded` memory hit. Its normal loaded/pinned brightness is handled by the dedicated delayed selector, preventing accidental overboost.
 
-`ui/static/js/runtime/runtime-avatar.js`
+Files:
+
+- `ui/static/js/runtime/runtime-avatar.js`
+- `ui/static/css/runtime-avatar.css`
 
 Places:
 
-- delayed branch inside `appendMemorySignalRing()`
-- live pin update in `setDelayedMemoryDashPinned()`
-- live loaded/link update in `syncDelayedMemoryDashState()` and `applyDelayedMemoryFactLinkGlow()`
+- delayed branch inside `appendMemorySignalRing()`;
+- live pin update in `setDelayedMemoryDashPinned()`;
+- loaded/link update in `syncDelayedMemoryDashState()` and `applyDelayedMemoryFactLinkGlow()`;
+- cross-report relation in `getSecondaryLinkedDelayedMemoryReportIds()`.
 
-Use this section when you want reports to feel more or less present.
+Delayed reports also expose `attachments_ids`. Those ids feed the persistent file ring: a loaded report gives each non-pinned attached file a softer indirect-context accent, while focusing/hovering that report can give the linked file dot the stronger relational glow.
 
 | Desired change | Edit |
 |---|---|
-| Make normal reports more visible | raise `0.36` |
-| Make loaded reports less intense | edit `.jin-avatar-memory-dash.is-context-loaded` |
-| Make pinned reports less intense | lower `0.82` |
-| Make pinned color less white | change `PINNED_DELAYED_MEMORY_RING_COLOR` |
+| Make normal reports more visible | raise normal `0.36` |
+| Make loaded/pinned reports less intense | lower active `0.82` and/or edit dedicated delayed CSS |
+| Make active report color less white | change `PINNED_DELAYED_MEMORY_RING_COLOR` |
+| Change secondary-link intensity | edit `.is-delayed-memory-secondary-linked` |
 | Move delayed ring | change `MEMORY_RING_LAYOUT.delayed.radius` |
 | Make report dashes thicker | change `MEMORY_RING_LAYOUT.delayed.strokeWidth` |
 
 ## Active Memory Ring
 
-The active ring shows active memory records. This is the outermost memory signal ring and is intentionally bright.
+The active ring shows active memory records. It is the outermost **memory-dash** ring and is intentionally bright; the file-dot perimeter sits beyond it.
 
 Current behavior:
 
@@ -395,9 +458,9 @@ File:
 
 Places:
 
-- `getActiveMemoryAvatarRecords()`
-- active branch inside `appendMemorySignalRing()`
-- `MEMORY_RING_LAYOUT.active`
+- `getActiveMemoryAvatarRecords()`;
+- active branch inside `appendMemorySignalRing()`;
+- `MEMORY_RING_LAYOUT.active`.
 
 Active memory records come from strings like:
 
@@ -410,9 +473,65 @@ For hover identity, active records use `[active_memory_id: abc123]` embedded in 
 
 If you want active memory to feel less dominant, lower opacity or move the ring inward.
 
+## Persistent Files Ring
+
+The outermost signal layer is a slow counter-orbit of persistent file dots. It is sourced from `window.JinFiles.getFiles()` and uses one dot per valid persistent file.
+
+Configuration:
+
+```js
+FILE_RING_LAYOUT = {
+  radius: 188,
+  dotRadius: 2.7,
+  baseColor: "#7ab8d8",
+  glowColor: "#7ab8d8",
+  startAngle: -12,
+}
+```
+
+The ring duration is seeded from the file-id set and falls in roughly `92..176s`. File records are sorted by id before assigning slots, so pinning/unpinning or delayed-context changes alter only appearance, never the dot's angular position.
+
+### File Dot States
+
+| State | Base appearance | Class / source |
+|---|---|---|
+| Stored, inactive | blue dot, opacity `0.36` | normal file record |
+| Directly pinned/attached | bright white dot, opacity `0.96` | `is-memory-pinned`, `is-context-loaded` |
+| Indirectly in context through loaded delayed report | half-accent, not white | `is-delayed-memory-context-linked` |
+| Hovered in file UI | same half-accent as indirect context link | `is-memory-hover-hit` |
+| Referenced by JIN / relation-focused | stronger cyan relation glow | `is-memory-reference-hit` / `is-delayed-memory-linked-hit` |
+
+A crucial distinction in `getPersistentFileAvatarRecords()`:
+
+- `contextLoaded` means the file itself is pinned;
+- `contextLinked` means the file is **not pinned**, but at least one loaded delayed report lists its id in `attachments_ids`.
+
+Indirect context deliberately stays weaker than direct attachment. A pinned file keeps the stronger white state even while hovered or indirectly linked.
+
+### File Identity And Matching
+
+File hover identity is:
+
+```text
+file:<file_id>
+```
+
+Reference aliases include the six-character file id, original name, stored name, `/assets/files/...` context path, URL when available, and the stored name with the generated id prefix stripped. The SVG node also carries the linked delayed-report ids so `applyDelayedMemoryFileLinkGlow()` can light attachment dots when a delayed report is focused.
+
+File hover sources include the `[ files ]` memory panel, delayed-report attachment chips/picker options, and the fixed attached-files plaque. Pin/name/attachment hover can therefore target the same dot without duplicating identity logic.
+
+### File Ring Sync
+
+`syncFilesState()` compares the current file-id set with the rendered file ring:
+
+- same ids: update classes/data/colors in place and keep the current orbit animation;
+- changed ids: rebuild the file ring;
+- `jin:files-store-changed`: trigger sync;
+- delayed-memory sync also triggers file sync because `attachments_ids` may change indirect context state.
+
 ## Center Core
 
-The center is a visual anchor. It is drawn after all rings and sits on top.
+The center is a visual anchor. It is drawn after all signal layers and sits on top.
 
 It is made of:
 
@@ -446,9 +565,22 @@ Main places:
 
 Lower `JIN_SCENE_COLOR_INTENSITY` if the center color affects the page too much.
 
+## Ambient Shell, Depth, And Entry Softness
+
+The avatar shell now has two CSS-only depth layers outside the SVG:
+
+- `.jin-runtime-avatar-shell::before` — a soft radial aura colored from `--jin-color`, breathing on a `9s` cycle;
+- `.jin-runtime-avatar-shell::after` — a dark radial/vignette depth layer that makes the radar feel embedded rather than flat.
+
+These layers are deliberately ambient. They do not represent memory records and they do not become stronger just because the memory panel is collapsed.
+
+Freshly redrawn runtime orbit entries use `jin-avatar-orbit-enter` for about `0.92s`, moving through a soft scale-in (`0.82` -> near full size -> slight `1.012` overshoot -> settled). This restores entry softness without changing the seeded orbit geometry.
+
+Reduced-motion rules disable the breathing/rotation/entry animations where appropriate.
+
 ## Glow States
 
-Glow is mostly CSS. JavaScript only decides which class to apply.
+Glow is mostly CSS. JavaScript decides which semantic class to apply; CSS decides intensity, saturation, drop-shadow, stroke width, dot radius, and transition feel.
 
 File:
 
@@ -456,20 +588,30 @@ File:
 
 | Class | Trigger | Meaning |
 |---|---|---|
-| `is-memory-hover-hit` | Hovering the matching memory row | "User is pointing at this memory item" |
-| `is-runtime-cited` | Hovering or activating a think citation | "This memory item is cited" |
-| `is-memory-reference-hit` | JIN response text references a unique alias | "This memory item was mentioned" |
-| `is-memory-pinned` | Delayed report is pinned | "This report is important" |
-| `is-context-loaded` | Delayed report is loaded into runtime context | "This report is active in context" |
-| `is-delayed-memory-linked-hit` | Delayed report and L4 fact are linked through fact ids | "These memory layers refer to the same fact" |
-| `is-memory-archived` | L4 fact is archived by report | Marker for hidden-from-context facts |
-| `is-memory-dot` | Archived L4 fact dot state | Dash arc fades away and the dot remains |
+| `is-memory-hover-hit` | Hovering the matching runtime/memory/file row | "User is pointing at this item" |
+| `is-runtime-cited` | Hovering or activating a think citation | "This runtime/memory item is cited" |
+| `is-memory-reference-hit` | JIN text references a unique alias | "This item was mentioned" |
+| `is-memory-pinned` | Delayed report or file is pinned | direct strong context importance |
+| `is-context-loaded` | Delayed report is runtime-loaded; on file dot, file itself is pinned | direct context presence |
+| `is-delayed-memory-linked-hit` | Focused delayed report links to an L4 fact or file | strong cross-layer relation |
+| `is-delayed-memory-secondary-linked` | Loaded report's hidden ordinary fact is anchored by another report | softer delayed-report relation |
+| `is-delayed-memory-context-linked` | Non-pinned file is attached to a loaded delayed report | softer indirect file context |
+| `is-memory-archived` | L4 fact is structurally archived behind report content | hidden-from-direct-context marker |
+| `is-memory-dot` | Archived L4 dot state | dash arc fades and dot remains |
 
-Use CSS for brightness, drop-shadow, stroke-width, and transition feel. Use JS only if the matching logic changes.
+### Visual Priority
+
+Direct active states should read stronger than inferred relations:
+
+1. pinned/direct context and explicit reference/link hits;
+2. ordinary row hover / secondary delayed link / indirect file context;
+3. normal stored state.
+
+For files specifically, ordinary hover and indirect delayed context intentionally share the same half-accent. They must not become the bright white used for a directly pinned file.
 
 ## Hover Matching
 
-Hover matching connects rows in the memory panel to shapes in the avatar.
+Hover matching connects rows and plaques to shapes in the radar avatar.
 
 The shared identity is:
 
@@ -481,11 +623,12 @@ Identity helper:
 
 `ui/static/js/runtime/runtime-core.js`
 
-Row event dispatch:
+Major dispatch sources:
 
-`ui/static/js/runtime/runtime-memory-view.js`
+- `ui/static/js/runtime/runtime-memory-view.js` — runtime/L4/delayed/active/files rows plus delayed-report attachment chips/picker options;
+- `ui/static/js/dragdrop.js` — attached-files plaque.
 
-Avatar-side glow application:
+Avatar-side application:
 
 `ui/static/js/runtime/runtime-avatar.js`
 
@@ -497,18 +640,24 @@ Shapes:
 | L4 fact | `l4:<fact_id>` |
 | Delayed report | `delayed:<report_id>` |
 | Active memory | `active:<active_memory_id>` or `active:record-<index>` |
+| Persistent file | `file:<file_id>` |
 
-L4 and delayed memory also cross-highlight through their fact links. Hovering an L4 fact lights any delayed report that lists the fact in `anchor_fact_ids`. Hovering a delayed report lights the related L4 dots or dashes from its `facts_ids`, if the report has linked facts.
+Cross-layer behavior is separate from same-id hover:
 
-Pinned or currently loaded delayed reports also keep their linked L4 facts highlighted through `is-delayed-memory-linked-hit`, even without row hover.
+- hover/focus an L4 fact -> delayed reports whose `anchor_fact_ids` contain it can glow;
+- hover/focus a delayed report -> its linked L4 facts from `facts_ids` can glow, including archived dots;
+- loaded/pinned delayed reports keep linked L4 facts highlighted without row hover;
+- if one of those hidden ordinary facts is an anchor in another report, that other report gets the softer secondary-link accent;
+- hover/focus a delayed report -> attached file dots from `attachments_ids` can receive the stronger relation glow;
+- a non-pinned file that belongs to any loaded delayed report keeps the softer indirect-context accent even without hover.
 
-If hover glow stops working, check that the row and the SVG node have the same `data-avatar-memory-hover-id`.
+If hover glow stops working, first check that the source row/plaque and the SVG node agree on `data-avatar-memory-hover-id`, then check whether the expected effect is a direct hover or a cross-layer relation class.
 
 ## Citation Matching
 
-Citation matching connects think citations to avatar shapes.
+Citation/reference matching connects think citations and JIN output text to radar shapes.
 
-For visual changes, edit CSS:
+For visual changes, edit:
 
 `ui/static/css/runtime-avatar.css`
 
@@ -516,7 +665,7 @@ For matching logic, edit:
 
 `ui/static/js/runtime/runtime-avatar.js`
 
-Function:
+Main function:
 
 ```js
 applyThinkRuntimeCitationGlow()
@@ -530,11 +679,63 @@ buildCitationRecordIdentity(id, key, value)
 
 This prevents two facts with the same key from glowing incorrectly.
 
-For runtime, active, and delayed records, citation matching falls back to exact normalized line text or a unique normalized key when no strict identity is present.
+For runtime, active, and delayed records, matching can fall back to exact normalized line text or a unique normalized key when no strict identity is present.
+
+Persistent file dots participate in the same reference layer. Their aliases include id/name/stored path variants, so JIN mentioning a unique file id or file name can light the corresponding dot. File SVG text identity is normalized from `name · contextPath`.
+
+## Live Chat Stream Avatar
+
+The small avatar shown beside a model response is not the radar SVG. It is the normal role avatar placed in a movable stream slot so the UI shows model activity before and during streamed output.
+
+Files:
+
+- `ui/static/js/chat.js`
+- `ui/static/css/chat.css`
+- release paths in `ui/static/js/socket.js` and `ui/static/js/socket/event-handlers.js`
+
+### Before The First Token
+
+`startStreamMessage()` immediately creates the stream group and calls `activateStreamAvatar()`. The wrapper gets `is-awaiting-model`, and `.jin-stream-avatar-slot` appears at the response position before reasoning or answer text exists.
+
+The avatar itself receives:
+
+```text
+jin-stream-avatar is-processing
+```
+
+The slot keeps the avatar clickable even though the slot container itself has `pointer-events: none`; the child `.jin-chat-avatar` restores `pointer-events: auto`.
+
+Processing pulse:
+
+- `1.18s` ease-in-out loop;
+- opacity roughly `0.48 -> 0.96 -> 0.48`;
+- scale roughly `0.90 -> 1.00 -> 0.90`;
+- reduced-motion disables the pulse and leaves a stable `0.82` opacity.
+
+### During Reasoning
+
+When reasoning exists, `syncStreamAvatarPosition()` moves the slot to the reasoning block.
+
+- collapsed reasoning: avatar stays at the top of the reasoning wrapper;
+- expanded reasoning: avatar follows the bottom edge of the growing reasoning content, offset by its own `28px` size;
+- `ResizeObserver` watches reasoning height while no answer exists;
+- collapse/expand triggers a short requestAnimationFrame tracking window so the avatar follows the layout transition rather than teleporting.
+
+The slot's normal `left`/`top` transitions are `0.24s`; handoff transform is `0.26s`.
+
+### Answer Handoff And Settle
+
+As soon as an answer row exists, the avatar moves to that row, `setStreamAvatarProcessing(false)` switches it to `is-settled`, and the reasoning resize observer is disconnected. A hidden `jin-stream-avatar-spacer` reserves the normal avatar width in the answer row so the absolute slot lands cleanly without shifting the bubble.
+
+If a new/retry stream takes over while a previous stream still has no answer, `activateStreamAvatar()` measures the old slot, removes it, and animates the new slot from the old screen position. This makes the avatar handoff continuous instead of spawning two processing avatars.
+
+### Abort / End / Disconnect
+
+`releaseActiveStreamAvatar()` is called from runtime-end, abort, disconnect, and error paths. If no visible reasoning/answer content exists, the placeholder avatar/wrapper is removed. If content already exists, the avatar stays with that content but stops processing pulse.
 
 ## Central Button
 
-The center button is visually part of the avatar. It toggles the visibility of the avatar's memory layers without refreshing the SVG data.
+The center button is visually part of the radar avatar. It toggles the visibility of the original radar memory layers without refreshing the SVG data.
 
 DOM id:
 
@@ -554,15 +755,22 @@ Current click behavior:
 window.JinRuntime.avatar.toggleMemoryLayers()
 ```
 
-The click toggles `is-memory-layers-hidden` on `#jin-runtime-avatar`. CSS hides the scaffold, runtime orbit entries, memory rings/dashes, and thin center rings, while the central light remains visible. The old manual fact-check WebSocket path still exists separately, but the center click does not start fact-check and does not call `avatar.refresh()`.
+The click toggles `is-memory-layers-hidden` on `#jin-runtime-avatar`. Current CSS hides:
+
+- scaffold;
+- runtime orbit entries;
+- delayed/L4/active memory rings and dashes;
+- thin center rings.
+
+The central light remains visible. The **file ring currently also remains visible**, because `.jin-avatar-file-ring` / `.jin-avatar-file-dot` are not part of the `is-memory-layers-hidden` selector. Treat that as current behavior when changing the toggle; do not assume "memory layers" automatically includes files.
+
+The old manual fact-check WebSocket path still exists separately, but center click does not start fact-check and does not call `avatar.refresh()`.
 
 ## Edit Recipes
 
 ### Make archived L4 dots almost invisible
 
-File:
-
-`ui/static/js/runtime/runtime-avatar.js`
+File: `ui/static/js/runtime/runtime-avatar.js`
 
 Change:
 
@@ -572,55 +780,66 @@ opacity: record.archived ? 0.12 : 0.52
 
 ### Make normal delayed reports stronger
 
-File:
-
-`ui/static/js/runtime/runtime-avatar.js`
-
-Change:
+Change the inactive branch in `appendMemorySignalRing()`:
 
 ```js
-opacity: pinned ? 0.82 : 0.50
+opacity: active ? 0.82 : 0.50
 ```
+
+Do not change the active `0.82` unless you also want runtime-loaded and pinned reports to become weaker/stronger together.
+
+### Change the secondary delayed-report accent
+
+File: `ui/static/css/runtime-avatar.css`
+
+Edit:
+
+```css
+.jin-avatar-memory-dash-delayed.is-delayed-memory-secondary-linked
+```
+
+Keep it visibly below the direct loaded/pinned white state.
 
 ### Make active memory less dominant
 
-File:
-
-`ui/static/js/runtime/runtime-avatar.js`
-
-Change active opacity:
+Change active opacity in `runtime-avatar.js`, for example:
 
 ```js
 opacity: 0.58
 ```
 
-Or move the ring inward:
+Or move `MEMORY_RING_LAYOUT.active.radius` inward.
 
-```js
-MEMORY_RING_LAYOUT.active.radius
-```
+### Move all memory/file signal layers outward
 
-### Move all memory dashes outward
-
-File:
-
-`ui/static/js/runtime/runtime-avatar.js`
-
-Increase:
+Adjust:
 
 ```js
 MEMORY_RING_LAYOUT.delayed.radius
 MEMORY_RING_LAYOUT.l4.radius
 MEMORY_RING_LAYOUT.active.radius
+FILE_RING_LAYOUT.radius
 ```
 
-Keep spacing between rings so hover glow does not visually merge.
+Keep spacing so hover and link glows do not visually merge.
+
+### Change file-dot size or base visibility
+
+File: `ui/static/js/runtime/runtime-avatar.js`
+
+Use:
+
+```js
+FILE_RING_LAYOUT.dotRadius
+```
+
+and the `record.pinned ? 0.96 : 0.36` opacity branch inside `appendFileSignalRing()`.
+
+For hover/indirect-context intensity, edit the file selectors in `runtime-avatar.css`, not the dot geometry.
 
 ### Make runtime rings calmer
 
-File:
-
-`ui/static/js/runtime/runtime-avatar.js`
+File: `ui/static/js/runtime/runtime-avatar.js`
 
 Change:
 
@@ -628,11 +847,19 @@ Change:
 const baseSpeed = 6 + random() * 18;
 ```
 
+### Change punctuation stripes
+
+The trigger is in `appendOrbit()`:
+
+```js
+if (/[!?]/.test(String(record.value || ""))) {
+  appendLongFieldStripes(orbitGroup, record, ringColor);
+}
+```
+
+Change the regexp if you want different semantic punctuation. Change `appendLongFieldStripes()` only if you want different stripe count/height/span/opacity.
+
 ### Make memory signal rings rotate faster
-
-File:
-
-`ui/static/js/runtime/runtime-avatar.js`
 
 Change `getMemoryRingAnimation()`:
 
@@ -642,41 +869,23 @@ delayed: [40, 80],
 l4: [34, 70],
 ```
 
-Lower duration means faster rotation.
+Lower duration means faster rotation. File-ring duration is separate in `appendFileSignalRing()`.
 
 ### Change hover glow intensity
 
-File:
+File: `ui/static/css/runtime-avatar.css`
 
-`ui/static/css/runtime-avatar.css`
+Edit the runtime/memory/file `is-memory-hover-hit` selectors. Remember that non-pinned file hover intentionally shares the secondary/indirect half-accent level.
 
-Edit:
+### Change citation/reference glow intensity
 
-```css
-.jin-avatar-orbit.is-memory-hover-hit,
-.jin-avatar-counter-orbit.is-memory-hover-hit,
-.jin-avatar-memory-dash.is-memory-hover-hit
-```
+File: `ui/static/css/runtime-avatar.css`
 
-### Change citation glow intensity
-
-File:
-
-`ui/static/css/runtime-avatar.css`
-
-Edit:
-
-```css
-.jin-avatar-memory-dash.is-runtime-cited,
-.jin-avatar-orbit.is-runtime-cited,
-.jin-avatar-counter-orbit.is-runtime-cited
-```
+Edit the `is-runtime-cited`, `is-memory-reference-hit`, and relation-hit selectors for the relevant shape family.
 
 ### Change avatar panel size
 
-File:
-
-`ui/static/css/base.css`
+File: `ui/static/css/base.css`
 
 Edit:
 
@@ -684,36 +893,74 @@ Edit:
 --runtime-avatar-panel-size
 ```
 
-Then check collapsed mode and win95 theme.
+Then verify circular geometry, collapsed mode, and Win95 theme. The shell keeps `aspect-ratio: 1`, and the SVG uses `preserveAspectRatio: "xMidYMid meet"`.
+
+### Change chat processing pulse
+
+File: `ui/static/css/chat.css`
+
+Edit:
+
+```css
+.jin-stream-avatar.is-processing
+@keyframes jin-chat-avatar-processing
+```
+
+Positioning/travel belongs in `chat.js`, especially `syncStreamAvatarPosition()` and the stream-avatar timing constants.
 
 ## Visual QA Checklist
 
-Use this after avatar visual changes.
+Use this after avatar visual/state changes.
 
 | Check | Expected result |
 |---|---|
-| Page reload | Avatar appears in the runtime panel |
-| Center click | Memory layers hide/show without avatar refresh; central light remains visible |
+| Page reload | Radar avatar appears centered and circular in the runtime panel |
+| Shell aura | Soft `--jin-color` aura breathes without turning into a harsh collapsed-state glow |
+| Runtime update | Inner orbits refresh; entry animation is soft rather than a hard pop |
+| Runtime value contains `?` or `!` | That orbit gets the legacy vertical stripe texture |
+| Long runtime value without `?`/`!` | Length alone does not create stripes |
+| Runtime diff changes | Ring speed and scaffold-ray energy respond without becoming noisy |
+| Center click | Scaffold/runtime/memory dash layers hide without refresh; central light and current file ring remain visible |
 | Runtime memory row hover | Matching inner orbit glows |
-| Long-term fact row hover | Matching L4 dash or dot glows |
-| Delayed report row hover | Matching delayed dash glows, and linked L4 facts glow when fact links exist |
+| L4 row hover | Matching L4 dash or archived dot glows |
+| Delayed row hover | Matching delayed dash glows and linked L4 facts/file attachments react |
 | Active memory row hover | Matching active dash glows |
-| Think citation hover | Matching orbit or dash gets citation glow |
-| Pinned delayed report | Dash becomes brighter and whiter |
-| Unpinned delayed report | Dash returns to normal delayed color unless it is still context-loaded |
-| Loaded delayed report | Dash gets context glow and linked L4 facts are not archived by that report |
-| Archived L4 fact | Dash arc fades away and the dim dot remains |
-| Long-term facts panel | Archived L4 facts are not listed; anchored or loaded facts remain listed |
-| Collapsed panel | Avatar keeps stable size |
-| Win95 theme | Avatar still fits |
-| Reduced motion | Orbit animations stop |
+| File row/plaque hover | Matching non-pinned file dot gets the softer half-accent |
+| Think citation/reference | Matching orbit, dash, dot, or uniquely named file gets the stronger citation/reference glow |
+| Normal delayed report | Dim base dash at `0.36` |
+| Runtime-loaded delayed report | Bright active dash at `0.82` even when not pinned |
+| Pinned delayed report | Same strong active family, with pin state retained |
+| Loaded report with ordinary `facts_ids` fact | Fact remains archived as a dot; load does not turn it back into a dash |
+| Direct fact id used as any `anchor_fact_id` | That id is removed from the archive-id set; merged `source_fact_ids` can still affect final classification |
+| Loaded report ordinary fact anchored by another report | Other report gets softer secondary-linked accent |
+| Long-term facts panel | Archived ordinary report facts stay hidden; globally anchored facts stay listed |
+| Persistent files | One outer dot per file, stable slot order by id |
+| Pin a file | Same dot becomes bright white without jumping/restarting solely because of pin state |
+| Unpin file while loaded report references it | Dot falls back to the softer indirect-context accent |
+| Unpin file with no loaded-report link | Dot returns to normal blue state |
+| Switch away from `[runtime]`, then receive L1 update | Visible tab stays put, but radar still updates to newest L1 snapshot |
+| Before first model token | Chat response position already shows a clickable pulsing avatar |
+| Expanded reasoning grows | Chat avatar follows the bottom of reasoning smoothly |
+| Collapse reasoning | Chat avatar returns to the reasoning wrapper top instead of disappearing |
+| Answer begins | Chat avatar moves to answer row, stops pulsing, stays settled |
+| Retry/next unfinished stream | Processing avatar hands off from previous slot rather than duplicating |
+| Abort/runtime end/disconnect | Processing pulse stops; empty placeholder is removed when appropriate |
+| Collapsed memory panel | Radar keeps stable size |
+| Win95 theme | Radar still fits |
+| Reduced motion | Orbit/scaffold/pulse/entry animations are suppressed appropriately |
 
 ## Final Rule Of Thumb
 
-If the change is about what the avatar means, edit the record collectors or L4 visibility helpers.
+If the change is about **what a radar mark means**, edit the record collectors, delayed/L4/file link logic, or L4 archive helper.
 
-If the change is about how the avatar looks, edit `runtime-avatar.js` constants/functions or `runtime-avatar.css`.
+If the change is about **how the radar looks**, edit `runtime-avatar.js` constants/render helpers or `runtime-avatar.css`.
 
-If the change is about whether a row and a dash glow together, check `buildAvatarMemoryHoverId()` and `data-avatar-memory-hover-id`.
+If the change is about **whether a row/plaque and an avatar mark glow together**, check `buildAvatarMemoryHoverId()`, `data-avatar-memory-hover-id`, and then the cross-layer relation functions.
 
-If the change is visible in browser but not after reload, bump the script or stylesheet query string in `ui/templates/index.html`.
+If a file is directly pinned versus merely inherited through a loaded delayed report, preserve that distinction: direct = bright white; indirect = half-accent.
+
+If an ordinary L4 fact belongs to a report, loading that report should change emphasis, not archive semantics. Anchor ids are the structural exception at the archive-id level; for merged facts, remember that `source_fact_ids` also participate in the final archived match.
+
+If the change is about the **small avatar travelling through a streamed response**, use `chat.js` / `chat.css`, not the radar SVG code.
+
+If the browser still shows an old visual after reload, bump the relevant script/stylesheet query string in `ui/templates/index.html`.
