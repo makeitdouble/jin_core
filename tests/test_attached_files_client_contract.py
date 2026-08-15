@@ -67,6 +67,8 @@ def test_attached_files_plaque_reuses_attachment_modal_and_100px_image_hover():
     assert "options.hoverPreviewMaxPx" in attachments
     assert "--jin-attachment-preview-max-px" in memory_css
     assert ".jin-attached-files-name.jin-attachment-bubble:hover" in base_css
+    assert "background: transparent;" in base_css
+    assert ".jin-attached-delayed-memory-name" in base_css
 
 def test_files_panel_shows_file_count_and_reuses_100px_image_hover_preview():
     runtime_view = (ROOT / "ui/static/js/runtime/runtime-memory-view.js").read_text(encoding="utf-8")

@@ -168,8 +168,7 @@ async function uploadFile(file) {
     dispatchStoreChanged();
     syncAttachmentContext();
     if (
-      pinned
-      && window.JinPanels
+      window.JinPanels
       && typeof window.JinPanels.expandConsolePanelForContextAttachment === "function"
     ) {
       window.JinPanels.expandConsolePanelForContextAttachment();

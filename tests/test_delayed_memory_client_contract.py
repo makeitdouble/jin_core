@@ -178,6 +178,36 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             runtime_actions_source,
         )
 
+    def test_console_loaded_delayed_memory_titles_open_report_modal(self):
+
+        logger_source = (
+            ROOT / "ui" / "static" / "js" / "logger" / "logger.js"
+        ).read_text(encoding="utf-8")
+        index_source = (
+            ROOT / "ui" / "templates" / "index.html"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "function openConsoleDelayedMemoryReport(report)",
+            logger_source,
+        )
+        self.assertIn(
+            "memoryView.openDelayedMemoryReportModal(report)",
+            logger_source,
+        )
+        self.assertIn(
+            '"jin-attached-files-name jin-attached-delayed-memory-name"',
+            logger_source,
+        )
+        self.assertIn(
+            'name.addEventListener("click", openReport)',
+            logger_source,
+        )
+        self.assertIn(
+            '/static/js/logger/logger.js?v=delayed-context-plaque-3',
+            index_source,
+        )
+
     def test_context_loaded_delayed_memory_highlights_report_and_linked_l4(self):
 
         runtime_source = (

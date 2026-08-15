@@ -10,6 +10,9 @@ from utils.chat_log import (
     append_chat_log_entry,
     build_chat_log_entry,
     extract_active_memory_ids,
+    migrate_legacy_chat_logs,
+    save_chat_context_snapshot,
+    save_turn_reasoning,
     summarize_attachments,
 )
 
@@ -155,11 +158,25 @@ class ChatLogTests(unittest.TestCase):
             )
             self.assertEqual(
                 first_path.parent.name,
-                "2026-08-12-tab_one",
+                "tab_one",
+            )
+            self.assertEqual(
+                first_path.parent.parent.name,
+                "2026-08-12",
             )
             self.assertEqual(
                 first_path.name,
                 "165949.jsonl",
+            )
+            self.assertTrue(
+                (first_path.parent / "reasoning").is_dir()
+            )
+            self.assertFalse(
+                (
+                    first_path.parent
+                    / "reasoning"
+                    / ".gitkeep"
+                ).exists()
             )
             entries = [
                 json.loads(line)
@@ -195,6 +212,275 @@ class ChatLogTests(unittest.TestCase):
                 "48ggds",
             ],
         )
+
+    def test_context_snapshot_is_saved_beside_dialog_and_overwritten(self):
+
+        context = SimpleNamespace(
+            session_id="session-a",
+            runtime_turn_counter=1,
+            runtime_current_turn_id="turn_000001",
+        )
+        now = datetime(
+            2026,
+            8,
+            13,
+            14,
+            33,
+            31,
+            tzinfo=timezone.utc,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            first = save_chat_context_snapshot(
+                context,
+                context_snapshot={
+                    "system_prompt": "PRIVATE RULES",
+                    "visible_system_prompt": "VISIBLE CONTEXT",
+                    "hide_internal_action_rules": True,
+                    "user_prompt": "first user payload",
+                },
+                now=now,
+                root=root,
+            )
+            second = save_chat_context_snapshot(
+                context,
+                context_snapshot={
+                    "system_prompt": "PRIVATE RULES 2",
+                    "visible_system_prompt": "VISIBLE CONTEXT 2",
+                    "hide_internal_action_rules": True,
+                    "user_prompt": "latest user payload",
+                },
+                now=now,
+                root=root,
+            )
+
+            self.assertEqual(first, second)
+            self.assertEqual(
+                first,
+                root / "2026-08-13" / "session-a" / "143331.txt",
+            )
+            saved = first.read_text(encoding="utf-8")
+
+        self.assertIn("VISIBLE CONTEXT 2", saved)
+        self.assertIn("latest user payload", saved)
+        self.assertNotIn("PRIVATE RULES 2", saved)
+        self.assertNotIn("first user payload", saved)
+
+    def test_reasoning_trace_links_back_to_dialog_and_jin_log_entry(self):
+
+        context = SimpleNamespace(
+            session_id="5fa84aef-0537-4e56-9cb3-3d341bc7b93e",
+            runtime_turn_counter=3,
+            runtime_current_turn_id="turn_000003",
+        )
+        now = datetime(
+            2026,
+            8,
+            13,
+            14,
+            33,
+            31,
+            tzinfo=timezone.utc,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            save_chat_context_snapshot(
+                context,
+                system_prompt="system context",
+                user_prompt="user payload",
+                now=now,
+                root=root,
+            )
+            reasoning_path = save_turn_reasoning(
+                context,
+                "Tried again. Ugh, I keep miscounting. Switched strategy.",
+                now=now,
+                root=root,
+            )
+            dialog_path = append_chat_log_entry(
+                context,
+                role="jin",
+                text="done",
+                now=now,
+                root=root,
+            )
+            reasoning_text = reasoning_path.read_text(encoding="utf-8")
+            entry = json.loads(
+                dialog_path.read_text(encoding="utf-8").splitlines()[-1]
+            )
+
+        self.assertEqual(
+            reasoning_path.parent.name,
+            "reasoning",
+        )
+        self.assertEqual(
+            reasoning_path.parent.parent.name,
+            "5fa84aef-0537-4e56-9cb3-3d341bc7b93e",
+        )
+        self.assertEqual(
+            reasoning_path.parent.parent.parent.name,
+            "2026-08-13",
+        )
+        self.assertIn("dialog_path:", reasoning_text)
+        self.assertIn("143331.jsonl", reasoning_text)
+        self.assertIn("Ugh, I keep miscounting", reasoning_text)
+        self.assertIn("reasoning_path", entry)
+        self.assertIn("context_path", entry)
+        self.assertIn("dialog_path", entry)
+
+    def test_legacy_log_directories_are_collapsed_under_date(self):
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            first_legacy = (
+                root
+                / "2026-08-13-5fa84aef-0537-4e56-9cb3-3d341bc7b93e"
+            )
+            second_legacy = (
+                root
+                / "2026-08-13-session-two"
+            )
+            first_legacy.mkdir(parents=True)
+            second_legacy.mkdir(parents=True)
+            (first_legacy / "143331.jsonl").write_text(
+                "first\n",
+                encoding="utf-8",
+            )
+            (second_legacy / "170000.jsonl").write_text(
+                "second\n",
+                encoding="utf-8",
+            )
+
+            moved = migrate_legacy_chat_logs(
+                root=root
+            )
+
+            self.assertEqual(len(moved), 2)
+            self.assertFalse(first_legacy.exists())
+            self.assertFalse(second_legacy.exists())
+            self.assertEqual(
+                (
+                    root
+                    / "2026-08-13"
+                    / "5fa84aef-0537-4e56-9cb3-3d341bc7b93e"
+                    / "143331.jsonl"
+                ).read_text(encoding="utf-8"),
+                "first\n",
+            )
+            self.assertEqual(
+                (
+                    root
+                    / "2026-08-13"
+                    / "session-two"
+                    / "170000.jsonl"
+                ).read_text(encoding="utf-8"),
+                "second\n",
+            )
+            reasoning_directory = (
+                root
+                / "2026-08-13"
+                / "5fa84aef-0537-4e56-9cb3-3d341bc7b93e"
+                / "reasoning"
+            )
+            self.assertTrue(
+                reasoning_directory.is_dir()
+            )
+            self.assertFalse(
+                (reasoning_directory / ".gitkeep").exists()
+            )
+            resumed_context = SimpleNamespace(
+                session_id="5fa84aef-0537-4e56-9cb3-3d341bc7b93e",
+            )
+            resumed_context_path = save_chat_context_snapshot(
+                resumed_context,
+                system_prompt="restored current JIN context",
+                now=datetime(
+                    2026,
+                    8,
+                    13,
+                    18,
+                    0,
+                    0,
+                    tzinfo=timezone.utc,
+                ),
+                root=root,
+            )
+            self.assertEqual(
+                resumed_context_path.name,
+                "143331.txt",
+            )
+            self.assertTrue(
+                resumed_context_path.with_suffix(".jsonl").exists()
+            )
+            self.assertEqual(
+                migrate_legacy_chat_logs(root=root),
+                [],
+            )
+
+    def test_wrong_date_reasoning_directory_is_folded_into_sessions(self):
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            date_directory = root / "2026-08-15"
+            session_id = "f78fce15-8933-495f-b304-8ac27d0f87cb"
+            session_directory = date_directory / session_id
+            wrong_reasoning = date_directory / "reasoning"
+            session_directory.mkdir(parents=True)
+            wrong_reasoning.mkdir(parents=True)
+            (session_directory / "193900.jsonl").write_text(
+                "dialog\n",
+                encoding="utf-8",
+            )
+            source = (
+                wrong_reasoning
+                / f"{session_id}_193900_turn_000003.txt"
+            )
+            source.write_text(
+                "\n".join([
+                    "captured_at: 2026-08-15T19:39:00+03:00",
+                    f"session_id: {session_id}",
+                    "turn: 3",
+                    "turn_id: turn_000003",
+                    "",
+                    "--- REASONING ---",
+                    "Ugh, I keep miscounting.",
+                ]),
+                encoding="utf-8",
+            )
+            (wrong_reasoning / ".gitkeep").touch()
+
+            moved = migrate_legacy_chat_logs(
+                root=root
+            )
+            target = (
+                session_directory
+                / "reasoning"
+                / "193900_turn_000003.txt"
+            )
+
+            self.assertEqual(
+                moved,
+                [(source, target)],
+            )
+            self.assertFalse(
+                wrong_reasoning.exists()
+            )
+            self.assertTrue(
+                target.exists()
+            )
+            self.assertIn(
+                "Ugh, I keep miscounting.",
+                target.read_text(encoding="utf-8"),
+            )
+            self.assertFalse(
+                (
+                    session_directory
+                    / "reasoning"
+                    / ".gitkeep"
+                ).exists()
+            )
 
     def test_build_chat_log_entry_includes_empty_arrays(self):
 

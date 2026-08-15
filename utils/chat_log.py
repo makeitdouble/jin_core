@@ -1,6 +1,7 @@
 import json
 import re
 import secrets
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -14,6 +15,9 @@ CHAT_LOG_ROOT = PROJECT_ROOT / "logs"
 CHAT_LOG_SESSION_ID_MAX_CHARS = 80
 CHAT_LOG_SESSION_ID_RE = re.compile(
     r"[^a-zA-Z0-9_.-]"
+)
+LEGACY_CHAT_LOG_DIR_RE = re.compile(
+    r"^(?P<date>\d{4}-\d{2}-\d{2})-(?P<session>.+)$"
 )
 ACTIVE_MEMORY_ID_SUFFIX_RE = re.compile(
     r"\[\s*active_memory_id\s*:\s*([^\]\s]+)\s*\]",
@@ -90,6 +94,44 @@ def _context_session_id(
     return generated
 
 
+def _public_project_path(
+    path: Path | str,
+) -> str:
+
+    resolved = Path(path).resolve()
+
+    try:
+        relative = resolved.relative_to(
+            PROJECT_ROOT.resolve()
+        )
+    except ValueError:
+        return resolved.as_posix()
+
+    return "/" + relative.as_posix().lstrip("/")
+
+
+def _ensure_reasoning_directory(
+    session_directory: Path,
+) -> Path:
+
+    reasoning_directory = session_directory / "reasoning"
+    reasoning_directory.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    stale_gitkeep = reasoning_directory / ".gitkeep"
+
+    try:
+        stale_gitkeep.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass
+
+    return reasoning_directory
+
+
 def get_chat_log_path(
     context,
     *,
@@ -120,15 +162,558 @@ def get_chat_log_path(
     session_id = _context_session_id(
         context
     )
-    directory = root_path / (
-        f"{timestamp:%Y-%m-%d}-{session_id}"
+    date_directory = root_path / f"{timestamp:%Y-%m-%d}"
+    directory = date_directory / session_id
+    existing_logs = sorted(
+        path
+        for path in directory.glob(
+            "*.jsonl"
+        )
+        if path.is_file()
     )
-    path = directory / f"{timestamp:%H%M%S}.jsonl"
+    path = (
+        existing_logs[-1]
+        if existing_logs
+        else directory / f"{timestamp:%H%M%S}.jsonl"
+    )
     context.runtime_chat_log_path = str(
         path
     )
 
+    _ensure_reasoning_directory(
+        directory
+    )
+
     return path
+
+
+def get_chat_context_path(
+    context,
+    *,
+    now: datetime | None = None,
+    root: Path | str | None = None,
+) -> Path:
+
+    return get_chat_log_path(
+        context,
+        now=now,
+        root=root,
+    ).with_suffix(
+        ".txt"
+    )
+
+
+def _context_snapshot_text(
+    context_snapshot: dict | None = None,
+    *,
+    system_prompt: str = "",
+    user_prompt: str = "",
+) -> str:
+
+    snapshot = (
+        context_snapshot
+        if isinstance(
+            context_snapshot,
+            dict,
+        )
+        else {}
+    )
+
+    if snapshot:
+        hidden = bool(
+            snapshot.get(
+                "hide_internal_action_rules"
+            )
+        )
+        visible_system_prompt = str(
+            snapshot.get(
+                "visible_system_prompt",
+                "",
+            )
+            or ""
+        )
+        raw_system_prompt = str(
+            snapshot.get(
+                "system_prompt",
+                "",
+            )
+            or ""
+        )
+        system_prompt = (
+            visible_system_prompt
+            if hidden and visible_system_prompt
+            else raw_system_prompt
+        )
+        user_prompt = str(
+            snapshot.get(
+                "user_prompt",
+                "",
+            )
+            or ""
+        )
+
+    return "\n\n".join(
+        str(part or "").strip()
+        for part in (
+            system_prompt,
+            user_prompt,
+        )
+        if str(part or "").strip()
+    ).strip()
+
+
+def save_chat_context_snapshot(
+    context,
+    *,
+    context_snapshot: dict | None = None,
+    system_prompt: str = "",
+    user_prompt: str = "",
+    now: datetime | None = None,
+    root: Path | str | None = None,
+) -> Path | None:
+
+    if not chat_logging_enabled():
+        return None
+
+    text = _context_snapshot_text(
+        context_snapshot,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+    )
+
+    if not text:
+        return None
+
+    path = get_chat_context_path(
+        context,
+        now=now,
+        root=root,
+    )
+    path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    path.write_text(
+        text + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    context.runtime_chat_context_path = str(
+        path
+    )
+
+    return path
+
+
+def save_current_runtime_context_snapshot(
+    context,
+    *,
+    user_prompt: str = "",
+    now: datetime | None = None,
+    root: Path | str | None = None,
+) -> Path | None:
+
+    if not chat_logging_enabled():
+        return None
+
+    from rules.brain_context_builder import (
+        build_brain_context,
+    )
+    from utils.brain_client_utils import (
+        get_brain_runtime_config,
+    )
+
+    brain_runtime = get_brain_runtime_config()
+    system_prompt = build_brain_context(
+        context,
+        brain_runtime.get(
+            "runtime_actions",
+            {},
+        ),
+        user_input=str(
+            user_prompt
+            or ""
+        ),
+    )
+
+    return save_chat_context_snapshot(
+        context,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        now=now,
+        root=root,
+    )
+
+
+def save_turn_reasoning(
+    context,
+    reasoning: str,
+    *,
+    now: datetime | None = None,
+    root: Path | str | None = None,
+) -> Path | None:
+
+    if not chat_logging_enabled():
+        return None
+
+    cleaned_reasoning = str(
+        reasoning
+        or ""
+    ).strip()
+
+    if not cleaned_reasoning:
+        return None
+
+    timestamp = now or _now()
+    chat_log_path = get_chat_log_path(
+        context,
+        now=timestamp,
+        root=root,
+    )
+    reasoning_directory = _ensure_reasoning_directory(
+        chat_log_path.parent
+    )
+    session_id = _context_session_id(
+        context
+    )
+    turn_id = _clean_session_id(
+        getattr(
+            context,
+            "runtime_current_turn_id",
+            "",
+        )
+    ) or f"turn_{int(getattr(context, 'runtime_turn_counter', 0) or 0):06d}"
+    reasoning_path = (
+        reasoning_directory
+        / f"{chat_log_path.stem}_{turn_id}.txt"
+    )
+    context_path = chat_log_path.with_suffix(
+        ".txt"
+    )
+    reasoning_path.write_text(
+        "\n".join([
+            f"captured_at: {timestamp.isoformat(timespec='seconds')}",
+            f"session_id: {session_id}",
+            f"turn: {int(getattr(context, 'runtime_turn_counter', 0) or 0)}",
+            f"turn_id: {getattr(context, 'runtime_current_turn_id', '') or ''}",
+            f"dialog_path: {_public_project_path(chat_log_path)}",
+            f"context_path: {_public_project_path(context_path)}",
+            "",
+            "--- REASONING ---",
+            cleaned_reasoning,
+            "",
+        ]),
+        encoding="utf-8",
+        newline="\n",
+    )
+    context.runtime_turn_reasoning_log_path = str(
+        reasoning_path
+    )
+
+    return reasoning_path
+
+
+def _merge_directory_contents(
+    source: Path,
+    target: Path,
+) -> None:
+
+    target.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    for source_item in sorted(
+        source.iterdir(),
+        key=lambda item: item.name,
+    ):
+        target_item = target / source_item.name
+
+        if source_item.is_dir():
+            _merge_directory_contents(
+                source_item,
+                target_item,
+            )
+            try:
+                source_item.rmdir()
+            except OSError:
+                pass
+            continue
+
+        if not target_item.exists():
+            shutil.move(
+                str(source_item),
+                str(target_item),
+            )
+            continue
+
+        try:
+            if source_item.read_bytes() == target_item.read_bytes():
+                source_item.unlink()
+                continue
+        except OSError:
+            pass
+
+        suffix_index = 1
+
+        while True:
+            candidate = target / (
+                f"{target_item.stem}.migrated-{suffix_index}"
+                f"{target_item.suffix}"
+            )
+
+            if not candidate.exists():
+                shutil.move(
+                    str(source_item),
+                    str(candidate),
+                )
+                break
+
+            suffix_index += 1
+
+
+def _move_file_without_overwrite(
+    source: Path,
+    target: Path,
+) -> Path:
+
+    target.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    if not target.exists():
+        shutil.move(
+            str(source),
+            str(target),
+        )
+        return target
+
+    try:
+        if source.read_bytes() == target.read_bytes():
+            source.unlink()
+            return target
+    except OSError:
+        pass
+
+    suffix_index = 1
+
+    while True:
+        candidate = target.with_name(
+            f"{target.stem}.migrated-{suffix_index}{target.suffix}"
+        )
+
+        if not candidate.exists():
+            shutil.move(
+                str(source),
+                str(candidate),
+            )
+            return candidate
+
+        suffix_index += 1
+
+
+def _reasoning_session_id(
+    path: Path,
+    date_directory: Path,
+) -> str:
+
+    try:
+        head = path.read_text(
+            encoding="utf-8",
+            errors="replace",
+        )[:4096]
+    except OSError:
+        head = ""
+
+    match = re.search(
+        r"(?m)^session_id:\s*(.+?)\s*$",
+        head,
+    )
+
+    if match:
+        session_id = _clean_session_id(
+            match.group(1)
+        )
+
+        if session_id:
+            return session_id
+
+    session_directories = sorted(
+        (
+            item
+            for item in date_directory.iterdir()
+            if item.is_dir()
+            and item.name != "reasoning"
+        ),
+        key=lambda item: len(item.name),
+        reverse=True,
+    )
+
+    for session_directory in session_directories:
+        if path.name.startswith(
+            session_directory.name + "_"
+        ):
+            return session_directory.name
+
+    return ""
+
+
+def _migrate_date_reasoning_directory(
+    date_directory: Path,
+) -> list[tuple[Path, Path]]:
+
+    source_directory = date_directory / "reasoning"
+
+    if not source_directory.is_dir():
+        return []
+
+    moved: list[tuple[Path, Path]] = []
+
+    for source in sorted(
+        source_directory.iterdir(),
+        key=lambda item: item.name,
+    ):
+        if not source.is_file():
+            continue
+
+        if source.name == ".gitkeep":
+            try:
+                source.unlink()
+            except OSError:
+                pass
+            continue
+
+        session_id = _reasoning_session_id(
+            source,
+            date_directory,
+        )
+
+        if not session_id:
+            continue
+
+        target_directory = _ensure_reasoning_directory(
+            date_directory / session_id
+        )
+        prefix = session_id + "_"
+        target_name = (
+            source.name[len(prefix):]
+            if source.name.startswith(prefix)
+            else source.name
+        )
+        target = _move_file_without_overwrite(
+            source,
+            target_directory / target_name,
+        )
+        moved.append(
+            (
+                source,
+                target,
+            )
+        )
+
+    try:
+        source_directory.rmdir()
+    except OSError:
+        pass
+
+    return moved
+
+
+def migrate_legacy_chat_logs(
+    *,
+    root: Path | str | None = None,
+) -> list[tuple[Path, Path]]:
+
+    if not chat_logging_enabled():
+        return []
+
+    root_path = Path(
+        root
+        if root is not None
+        else CHAT_LOG_ROOT
+    )
+    root_path.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    moved: list[tuple[Path, Path]] = []
+
+    for source in sorted(
+        root_path.iterdir(),
+        key=lambda item: item.name,
+    ):
+        if not source.is_dir():
+            continue
+
+        match = LEGACY_CHAT_LOG_DIR_RE.fullmatch(
+            source.name
+        )
+
+        if not match:
+            continue
+
+        session_id = _clean_session_id(
+            match.group(
+                "session"
+            )
+        )
+
+        if not session_id:
+            continue
+
+        date_directory = root_path / match.group(
+            "date"
+        )
+        target = date_directory / session_id
+
+        if target.exists():
+            _merge_directory_contents(
+                source,
+                target,
+            )
+            try:
+                source.rmdir()
+            except OSError:
+                pass
+        else:
+            date_directory.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+            shutil.move(
+                str(source),
+                str(target),
+            )
+
+        _ensure_reasoning_directory(
+            target
+        )
+        moved.append(
+            (
+                source,
+                target,
+            )
+        )
+
+    for date_directory in sorted(
+        root_path.iterdir(),
+        key=lambda item: item.name,
+    ):
+        if (
+            date_directory.is_dir()
+            and re.fullmatch(
+                r"\d{4}-\d{2}-\d{2}",
+                date_directory.name,
+            )
+        ):
+            moved.extend(
+                _migrate_date_reasoning_directory(
+                    date_directory
+                )
+            )
+
+    return moved
 
 
 def _clean_string_list(
@@ -387,6 +972,38 @@ def append_chat_log_entry(
         text=text,
         now=timestamp,
     )
+    entry["dialog_path"] = _public_project_path(
+        path
+    )
+    context_path = get_chat_context_path(
+        context,
+        now=timestamp,
+        root=root,
+    )
+
+    if context_path.exists():
+        entry["context_path"] = _public_project_path(
+            context_path
+        )
+
+    reasoning_path = str(
+        getattr(
+            context,
+            "runtime_turn_reasoning_log_path",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if (
+        str(role or "").casefold() == "jin"
+        and reasoning_path
+        and Path(reasoning_path).exists()
+    ):
+        entry["reasoning_path"] = _public_project_path(
+            Path(reasoning_path)
+        )
+
     path.parent.mkdir(
         parents=True,
         exist_ok=True,

@@ -35,6 +35,9 @@ from config_loader import (
 from utils.urls import (
     join_url,
 )
+from utils.chat_log import (
+    migrate_legacy_chat_logs,
+)
 
 from websocket import (
     websocket_router,
@@ -77,6 +80,7 @@ STATUS_CHECK_TIMEOUT = getattr(
 async def lifespan(application: FastAPI):
 
     ensure_files_dir()
+    migrate_legacy_chat_logs()
 
     # -----------------------------------------------------
     # SHARED HTTP CLIENT

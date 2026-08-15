@@ -285,16 +285,29 @@ def redacted_message_data_for_log(
     return redacted
 
 
-def build_user_text_with_attachments(
+def get_message_user_text(
     message_data: dict,
 ) -> str:
 
-    user_text = str(
+    if not isinstance(message_data, dict):
+        return ""
+
+    return str(
         message_data.get(
             "text",
             "",
         )
+        or ""
     ).strip()
+
+
+def build_user_text_with_attachments(
+    message_data: dict,
+) -> str:
+
+    user_text = get_message_user_text(
+        message_data
+    )
 
     attachment_context = format_attachment_context(
         message_data,

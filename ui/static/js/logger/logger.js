@@ -3110,10 +3110,19 @@ if (memoryPanel && typeof MutationObserver !== "undefined") {
 syncCollapsedPanelBodies();
 
 function expandConsolePanelForContextAttachment() {
-    if (
-        !consolePanel
-        || !consolePanel.classList.contains("panel-collapsed")
-    ) {
+    if (!consolePanel) {
+        return false;
+    }
+
+    const needsExpand =
+        consolePanel.classList.contains("panel-collapsed")
+        || Boolean(consolePanel.dataset.expandedHeight);
+
+    // An attachment is explicit activity: do not let an in-flight startup
+    // collapse finish after the file arrives and fold the console back up.
+    finishStartupCollapseAnimation();
+
+    if (!needsExpand) {
         return false;
     }
 
@@ -3127,7 +3136,9 @@ function delayedMemoryPlaquePinSvg() {
 }
 
 function getConsoleAttachedDelayedMemoryRecords() {
-    const runtime = window.JinRuntime;
+    const runtime =
+        window.JinRuntime
+        && window.JinRuntime.runtime;
     if (
         !runtime
         || typeof runtime.getDelayedMemoryReports !== "function"
@@ -3168,7 +3179,9 @@ function getConsoleAttachedDelayedMemoryRecords() {
 }
 
 function unloadConsoleDelayedMemoryReport(reportId) {
-    const runtime = window.JinRuntime;
+    const runtime =
+        window.JinRuntime
+        && window.JinRuntime.runtime;
     const normalizedId = String(reportId || "").trim().toLowerCase();
     if (!runtime || !normalizedId) {
         return false;
@@ -3208,6 +3221,23 @@ function unloadConsoleDelayedMemoryReport(reportId) {
     return true;
 }
 
+function openConsoleDelayedMemoryReport(report) {
+    const memoryView =
+        window.JinRuntime
+        && window.JinRuntime.memoryView;
+
+    if (
+        !report
+        || !memoryView
+        || typeof memoryView.openDelayedMemoryReportModal !== "function"
+    ) {
+        return false;
+    }
+
+    memoryView.openDelayedMemoryReportModal(report);
+    return true;
+}
+
 function renderAttachedDelayedMemoryPlaque() {
     if (!attachedDelayedMemory) {
         return;
@@ -3226,7 +3256,7 @@ function renderAttachedDelayedMemoryPlaque() {
 
     const title = document.createElement("div");
     title.className = "jin-attached-files-title";
-    title.textContent = "[ DELAYED_MEMORY ]";
+    title.textContent = "[ LOADED_DELAYED_MEMORY ]";
     attachedDelayedMemory.appendChild(title);
 
     const list = document.createElement("div");
@@ -3255,9 +3285,26 @@ function renderAttachedDelayedMemoryPlaque() {
         });
 
         const name = document.createElement("span");
-        name.className = "jin-attached-files-name";
+        name.className =
+            "jin-attached-files-name jin-attached-delayed-memory-name";
         name.textContent = String(report.title || reportId);
         name.title = String(report.title || reportId);
+        name.setAttribute("role", "button");
+        name.tabIndex = 0;
+
+        const openReport = (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openConsoleDelayedMemoryReport(report);
+        };
+
+        name.addEventListener("click", openReport);
+        name.addEventListener("keydown", (event) => {
+            if (event.key !== "Enter" && event.key !== " ") {
+                return;
+            }
+            openReport(event);
+        });
 
         row.append(pin, name);
         list.appendChild(row);

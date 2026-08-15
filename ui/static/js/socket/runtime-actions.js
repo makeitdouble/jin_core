@@ -732,6 +732,60 @@ function getDelayedMemoryRuntimeActionPreview(
 
 }
 
+function getDelayedMemoryTriggeredByTags(
+  data
+) {
+
+  const values = [];
+  const seen = new Set();
+  const push = function (value) {
+    const tag = String(value || "").trim();
+    const key = tag.toLocaleLowerCase();
+
+    if (!tag || seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    values.push(tag);
+  };
+
+  if (
+    data
+    && Array.isArray(data.triggered_by_tags)
+  ) {
+    data.triggered_by_tags.forEach(push);
+  }
+
+  if (data) {
+    push(data.triggered_by_tag);
+  }
+
+  return values;
+
+}
+
+function formatDelayedMemoryTriggeredByTags(
+  data
+) {
+
+  const tags =
+    getDelayedMemoryTriggeredByTags(data);
+
+  if (!tags.length) {
+    return "";
+  }
+
+  const rendered = tags
+    .map((tag) => `"${tag.replaceAll('"', '\\\"')}"`)
+    .join(", ");
+
+  return tags.length === 1
+    ? `triggered_by_tag: ${rendered}`
+    : `triggered_by_tags: ${rendered}`;
+
+}
+
 function handleRuntimeAction(
   data
 ) {
@@ -851,12 +905,24 @@ function handleRuntimeAction(
         }
       );
 
+  const delayedMemoryTriggerDetail =
+    action === "load_delayed_memory"
+      ? formatDelayedMemoryTriggeredByTags(
+        data
+      )
+      : "";
+
   const displayText =
     reportScopedDelayedAction
     && delayedMemoryPreview.title
       ? (
         `${getRuntimeActionDisplayName(data, action)}: `
         + delayedMemoryPreview.title
+        + (
+          delayedMemoryTriggerDetail
+            ? ` - ${delayedMemoryTriggerDetail}`
+            : ""
+        )
       )
       : baseDisplayText;
 

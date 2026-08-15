@@ -371,13 +371,15 @@ function getInternalActionLogKey(
     normalizeInternalActionName(
       actionName
     );
-  const keepSkillMarkerSeparate = [
+  const keepActionInstanceSeparate = [
     "LOAD_SKILL",
     "LOAD_SKILLS",
     "UNLOAD_SKILL",
     "UNLOAD_SKILLS",
+    "LOAD_DELAYED_MEMORY",
+    "UNLOAD_DELAYED_MEMORY",
   ].includes(normalizedActionName);
-  const instanceKey = keepSkillMarkerSeparate
+  const instanceKey = keepActionInstanceSeparate
     ? String(
       data.id
       || data.runtime_action_id

@@ -74,6 +74,9 @@ from utils.attached_files_store import (
     public_file_snapshot,
     sync_pinned_file_ids,
 )
+from utils.chat_log import (
+    save_current_runtime_context_snapshot,
+)
 
 
 websocket_router = APIRouter()
@@ -251,6 +254,16 @@ async def websocket_endpoint(
                     await logger.log_system(
                         "[WS] runtime resumed from browser memory"
                     )
+
+                    try:
+                        save_current_runtime_context_snapshot(
+                            context
+                        )
+                    except Exception as error:
+                        await logger.log_system(
+                            "[CHAT_LOG] resumed context snapshot save failed: "
+                            + str(error)
+                        )
 
                     if message_data.get(
                         "emit_after_restore"
@@ -467,6 +480,16 @@ async def websocket_endpoint(
                     await logger.log_system(
                         "[WS] browser session memory restored"
                     )
+
+                    try:
+                        save_current_runtime_context_snapshot(
+                            context
+                        )
+                    except Exception as error:
+                        await logger.log_system(
+                            "[CHAT_LOG] bootstrap context snapshot save failed: "
+                            + str(error)
+                        )
 
                     await emit_current_runtime_memory(
                         context

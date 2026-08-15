@@ -52,6 +52,9 @@ from utils.brain_client_utils import (
 from utils.current_context_window import (
     prepare_current_context_window_prompt,
 )
+from utils.chat_log import (
+    save_chat_context_snapshot,
+)
 from utils.runtime_action_abort import (
     mark_runtime_action_completed,
 )
@@ -1441,6 +1444,17 @@ class BrainNode(BaseNode):
                 **context_snapshot,
                 "preserve_runtime_action_markers": True,
             }
+
+        try:
+            save_chat_context_snapshot(
+                context,
+                context_snapshot=context_snapshot,
+            )
+        except Exception as error:
+            await logger.log_system(
+                "[CHAT_LOG] context snapshot save failed: "
+                + str(error)
+            )
 
         state.visible_response_context = (
             context_snapshot

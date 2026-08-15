@@ -680,8 +680,8 @@ main.panels-collapsed-2 #scene-shade {
 #attached-files {
     flex: 0 0 auto;
     margin: 0 8px 8px;
-    max-height: 136px;
-    overflow: auto;
+    max-height: none;
+    overflow: visible;
     border: 1px solid rgba(63, 63, 70, 0.78);
     border-radius: 6px;
     background: rgba(9, 9, 11, 0.78);
@@ -736,10 +736,23 @@ main.panels-collapsed-2 #scene-shade {
 }
 
 .jin-attached-files-name.jin-attachment-bubble:hover {
-    background: rgba(255, 255, 255, 0.045);
+    background: transparent;
     color: rgba(228, 228, 231, 0.92);
 }
 
+.jin-attached-delayed-memory-name {
+    cursor: pointer;
+    transition: color 120ms ease;
+}
+
+.jin-attached-delayed-memory-name:hover {
+    color: rgba(228, 228, 231, 0.92);
+}
+
+.jin-attached-delayed-memory-name:focus-visible {
+    outline: 1px solid rgba(161, 161, 170, 0.48);
+    outline-offset: 1px;
+}
 
 .jin-attached-files-row.jin-attached-files-row-avatar-hover,
 .jin-attached-files-row:hover {

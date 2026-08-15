@@ -27,6 +27,9 @@ assets/*
 memory/**/*.json
 logs/*
 !logs/.gitkeep
+logs/**/*
+!logs/**/
+!logs/**/.gitkeep
 
 # Keep empty memory directory structure
 !memory/**/.gitkeep

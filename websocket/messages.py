@@ -31,7 +31,10 @@ from utils.brain_client_utils import (
     should_execute_save_session_directly,
     should_prearm_save_session,
 )
-from utils.chat_log import append_chat_log_entry
+from utils.chat_log import (
+    append_chat_log_entry,
+    save_turn_reasoning,
+)
 from utils.delayed_memory_triggers import (
     load_delayed_memory_by_tags,
 )
@@ -47,6 +50,7 @@ from utils.ws_errors import handle_fatal_runtime_error
 from .attachments import (
     attachment_ids_from_message_data,
     build_user_text_with_attachments,
+    get_message_user_text,
     hydrate_message_attachments,
 )
 from .bootstrap import (
@@ -1115,6 +1119,7 @@ async def process_message(
                 context.runtime_current_sequence_turn_id
             )
         context.runtime_turn_assistant_response = ""
+        context.runtime_turn_reasoning_log_path = ""
         context.runtime_active_action_markers = []
         context.runtime_turn_aborted_actions = []
         context.runtime_turn_abort_requested = False
@@ -1169,9 +1174,14 @@ async def process_message(
                 )
             )
             context.user_message_count += 1
+            # Tag auto-load is driven only by the text the user typed.
+            # Attachment text still stays in ``user_text`` and reaches JIN as
+            # context, but it must never behave like a tag command.
             await load_delayed_memory_by_tags(
                 context,
-                user_text,
+                get_message_user_text(
+                    message_data
+                ),
             )
 
         if not is_action_guard_retry:
@@ -1214,6 +1224,21 @@ async def process_message(
             state,
             context,
         )
+
+        try:
+            save_turn_reasoning(
+                context,
+                getattr(
+                    context,
+                    "runtime_turn_reasoning_content",
+                    "",
+                ),
+            )
+        except Exception as error:
+            await logger.log_system(
+                "[CHAT_LOG] reasoning save failed: "
+                + str(error)
+            )
 
         if (
             action_guard_retry
