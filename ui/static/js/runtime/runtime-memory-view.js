@@ -73,6 +73,7 @@
   let delayedMemoryModalBodyEditor = null;
   let delayedMemoryModalEditSaveTimer = null;
   let activeDelayedMemoryFactPicker = null;
+  let activeDelayedMemoryAttachmentPicker = null;
   let activeDelayedMemoryReportId = "";
 
   const runtimeDiffHistory = {
@@ -1046,6 +1047,58 @@
     );
   }
 
+  function getSecondaryLinkedDelayedMemoryReportIds(reports) {
+    const records = Array.isArray(reports) ? reports : [];
+    const linkedReportIds = new Set();
+
+    records
+      .filter(isDelayedMemoryReportInContext)
+      .forEach((sourceReport) => {
+        const sourceId = normalizeDelayedMemoryReportId(
+          sourceReport._storage_key || sourceReport.id
+        );
+        const hiddenFactIds = new Set(
+          normalizeDelayedMemoryFactIds(sourceReport.facts_ids)
+        );
+
+        normalizeDelayedMemoryFactIds(
+          sourceReport.anchor_fact_ids
+        ).forEach((factId) => hiddenFactIds.delete(factId));
+
+        if (!hiddenFactIds.size) {
+          return;
+        }
+
+        records.forEach((targetReport) => {
+          const targetId = normalizeDelayedMemoryReportId(
+            targetReport && (
+              targetReport._storage_key || targetReport.id
+            )
+          );
+
+          if (!targetId || targetId === sourceId) {
+            return;
+          }
+
+          const targetAnchorIds = new Set(
+            normalizeDelayedMemoryFactIds(
+              targetReport.anchor_fact_ids
+            )
+          );
+
+          if (
+            Array.from(hiddenFactIds).some(
+              factId => targetAnchorIds.has(factId)
+            )
+          ) {
+            linkedReportIds.add(targetId);
+          }
+        });
+      });
+
+    return linkedReportIds;
+  }
+
   function getContextLoadedDelayedMemoryFactIds() {
     const factIds = new Set();
 
@@ -1810,33 +1863,45 @@
     const renderHighlightOptions = {
       animateSort: false,
     };
+    const displayMode =
+        getRuntimeMemoryDisplayMode();
 
-    if (getRuntimeMemoryDisplayMode() === "active") {
+    // Alternate memory views should stay open, but they must not freeze the
+    // avatar on the previous L1 snapshot. The runtime update handler already
+    // advances history.index to the newest snapshot before calling render.
+    if (displayMode !== "runtime") {
+      dispatchRuntimeAvatarSnapshot(
+        getCurrentRuntimeAvatarSourceSnapshot()
+      );
+    }
+
+    if (displayMode === "active") {
       renderActiveMemoryRecords();
       applyMemoryReferenceHighlights(renderHighlightOptions);
       return;
     }
 
-    if (getRuntimeMemoryDisplayMode() === "delayed") {
+    if (displayMode === "delayed") {
       renderDelayedMemoryReports();
       applyMemoryReferenceHighlights(renderHighlightOptions);
       return;
     }
 
-    if (getRuntimeMemoryDisplayMode() === "facts") {
+    if (displayMode === "facts") {
       renderFactsMemoryFields();
       applyMemoryReferenceHighlights(renderHighlightOptions);
       return;
     }
 
-    if (getRuntimeMemoryDisplayMode() === "long_term") {
+    if (displayMode === "long_term") {
       renderLongTermMemoryFacts();
       applyMemoryReferenceHighlights(renderHighlightOptions);
       return;
     }
 
-    if (getRuntimeMemoryDisplayMode() === "files") {
+    if (displayMode === "files") {
       renderPersistentFiles();
+      applyMemoryReferenceHighlights(renderHighlightOptions);
       return;
     }
 
@@ -3074,10 +3139,79 @@
     }
   }
 
+
+  function getPersistentFileReferenceAliases(record) {
+    if (!record || typeof record !== "object") {
+      return [];
+    }
+
+    return normalizeMemoryReferenceAliases([
+      record.id,
+      record.name,
+      record.stored_name,
+      record.context_path,
+      record.url,
+    ]);
+  }
+
+  function getPersistentFileContextLinkMap() {
+    const linkedState = new Map();
+
+    getDelayedMemoryReportRecords()
+      .forEach((report) => {
+        const fileIds = normalizeDelayedMemoryAttachmentIds(
+          report && report.attachments_ids
+        );
+
+        if (!fileIds.length) {
+          return;
+        }
+
+        const reportId = normalizeDelayedMemoryReportId(
+          report && (report._storage_key || report.id)
+        );
+        const inContext = isDelayedMemoryReportInContext(report);
+
+        fileIds.forEach((fileId) => {
+          const current = linkedState.get(fileId) || {
+            reportIds: new Set(),
+            contextLoaded: false,
+          };
+
+          if (reportId) {
+            current.reportIds.add(reportId);
+          }
+
+          if (inContext) {
+            current.contextLoaded = true;
+          }
+
+          linkedState.set(fileId, current);
+        });
+      });
+
+    return linkedState;
+  }
+
+  function bindPersistentFileAvatarHoverTarget(target, row) {
+    if (!target || !row) {
+      return;
+    }
+
+    const activate = () => dispatchRuntimeMemoryLineAvatarHover(row, true);
+    const deactivate = () => dispatchRuntimeMemoryLineAvatarHover(row, false);
+
+    target.addEventListener("mouseenter", activate);
+    target.addEventListener("mouseleave", deactivate);
+    target.addEventListener("focus", activate);
+    target.addEventListener("blur", deactivate);
+  }
+
   function renderPersistentFiles() {
     if (!runtimeMemoryText) return;
 
     const records = getPersistentFileRecords();
+    const linkedStateByFileId = getPersistentFileContextLinkMap();
 
     runtimeMemoryText.innerHTML = "";
     runtimeMemoryText.classList.remove("runtime-memory-text-pinned");
@@ -3089,13 +3223,43 @@
 
     records.forEach((record, index) => {
       const row = document.createElement("div");
+      const fileId = String(record.id || "").trim().toLowerCase();
+      const linkedState = linkedStateByFileId.get(fileId) || null;
+      const linkedReportIds = linkedState
+        ? Array.from(linkedState.reportIds)
+        : [];
+      const inContext = Boolean(record.pinned) || Boolean(linkedState && linkedState.contextLoaded);
+      const avatarMemoryHoverId = buildAvatarMemoryHoverId(
+        "file",
+        fileId
+      );
       row.className = "runtime-memory-line runtime-memory-delayed-row";
       row.dataset.memoryHighlightSortIndex = String(index);
       row.setAttribute("role", "button");
       row.setAttribute("tabindex", "0");
       row.title = String(record.name || "attachment");
+      row.dataset.fileId = fileId;
+      if (avatarMemoryHoverId) {
+        row.dataset.avatarMemoryHoverId = avatarMemoryHoverId;
+      }
+      if (fileId) {
+        row.dataset.runtimeMemoryLineKey = normalizeRuntimeCitationIdentity(fileId);
+      }
+      row.dataset.runtimeMemoryLineText = normalizeRuntimeCitationIdentity(
+        [record.name, record.stored_name, record.context_path].filter(Boolean).join(" · ")
+      );
+      setMemoryReferenceAliases(
+        row,
+        getPersistentFileReferenceAliases(record)
+      );
       if (record.pinned) {
         row.classList.add("runtime-memory-delayed-row-pinned");
+      }
+      if (inContext) {
+        row.classList.add("runtime-memory-context-loaded-hit");
+      }
+      if (linkedReportIds.length) {
+        row.dataset.linkedDelayedMemoryIds = linkedReportIds.join(",");
       }
 
       const pinButton = document.createElement("button");
@@ -3113,6 +3277,7 @@
       );
       pinButton.dataset.fileId = String(record.id || "");
       bindPersistentFileHoverPreview(pinButton, record);
+      bindPersistentFileAvatarHoverTarget(pinButton, row);
       pinButton.addEventListener("pointerdown", (event) => event.stopPropagation());
       pinButton.addEventListener("click", (event) => {
         event.preventDefault();
@@ -3130,8 +3295,11 @@
       keySpan.className = "runtime-memory-key";
       keySpan.textContent = String(record.name || "attachment");
       bindPersistentFileHoverPreview(keySpan, record);
+      bindPersistentFileAvatarHoverTarget(keySpan, row);
 
       row.append(pinButton, separator, keySpan);
+
+      bindPersistentFileAvatarHoverTarget(row, row);
 
       const openModal = () => {
         if (typeof window.openJinAttachmentModal === "function") {
@@ -3146,11 +3314,20 @@
       });
       runtimeMemoryText.appendChild(row);
     });
+
+    applyMemoryReferenceHighlights({
+      animateSort: false,
+    });
+    sortHighlightedMemoryRows({
+      animateSort: false,
+    });
   }
 
   function renderDelayedMemoryReports() {
     const reports =
         getDelayedMemoryReportRecords();
+    const secondaryLinkedReportIds =
+        getSecondaryLinkedDelayedMemoryReportIds(reports);
 
 
     if (runtimeMemoryText) {
@@ -3206,6 +3383,12 @@
         if (Boolean(report.pinned)) {
           row.classList.add(
               "runtime-memory-delayed-row-pinned"
+          );
+        }
+
+        if (secondaryLinkedReportIds.has(reportId)) {
+          row.classList.add(
+              "runtime-memory-delayed-row-secondary-linked"
           );
         }
 
@@ -3529,9 +3712,83 @@
     return lookup;
   }
 
+  function getDelayedMemoryFactAnchoredElsewhereTitles(factId) {
+    const normalizedFactId =
+        normalizeDelayedMemoryFactId(factId);
+    const currentReportId =
+        normalizeDelayedMemoryReportId(
+            delayedMemoryModalReport
+            && (
+                delayedMemoryModalReport._storage_key
+                || delayedMemoryModalReport.id
+            )
+        );
+    const reports =
+        typeof getDelayedMemoryReports === "function"
+          ? getDelayedMemoryReports()
+          : {};
+
+    if (
+        !normalizedFactId
+        || !reports
+        || typeof reports !== "object"
+        || Array.isArray(reports)
+    ) {
+      return [];
+    }
+
+    const titles = [];
+    const seen = new Set();
+
+    Object.entries(reports).forEach(([reportKey, report]) => {
+      if (
+          !report
+          || typeof report !== "object"
+          || Array.isArray(report)
+      ) {
+        return;
+      }
+
+      const reportId =
+          normalizeDelayedMemoryReportId(
+              report.id || reportKey
+          );
+
+      if (currentReportId && reportId === currentReportId) {
+        return;
+      }
+
+      const anchorIds =
+          new Set(
+              normalizeDelayedMemoryFactIds(
+                  report.anchor_fact_ids
+              )
+          );
+
+      if (!anchorIds.has(normalizedFactId)) {
+        return;
+      }
+
+      const title =
+          normalizeDelayedMemoryTooltipText(report.title)
+          || reportId
+          || String(reportKey || "").trim();
+
+      if (!title || seen.has(title)) {
+        return;
+      }
+
+      seen.add(title);
+      titles.push(title);
+    });
+
+    return titles;
+  }
+
   function buildDelayedMemoryFactIdTitle(
     factId,
-    factLookup
+    factLookup,
+    anchoredToTitles = []
   ) {
     const fact =
         factLookup.get(factId);
@@ -3547,11 +3804,18 @@
             fact.value || fact.content
         );
 
-    if (key && value) {
-      return `${key}: ${value}`;
-    }
+    const factTitle =
+        key && value
+          ? `${key}: ${value}`
+          : key || value || `Fact ${factId}`;
+    const anchorTitles =
+        (Array.isArray(anchoredToTitles) ? anchoredToTitles : [])
+            .map((title) => normalizeDelayedMemoryTooltipText(title))
+            .filter(Boolean);
 
-    return key || value || `Fact ${factId}`;
+    return anchorTitles.length
+      ? `${factTitle}\nanchored_to: ${anchorTitles.join(", ")}`
+      : factTitle;
   }
 
   function trimDelayedMemoryFactPreview(
@@ -3889,6 +4153,8 @@
     }
 
     function openPicker() {
+      closeActiveDelayedMemoryAttachmentPicker();
+
       if (
           activeDelayedMemoryFactPicker
           && activeDelayedMemoryFactPicker.close !== closePicker
@@ -4737,25 +5003,26 @@
     });
 
     document.addEventListener("click", (event) => {
-      if (
-          !activeDelayedMemoryFactPicker
-          || !activeDelayedMemoryFactPicker.container
-      ) {
-        return;
-      }
+      const target = event.target;
+      const insideFactPicker =
+        activeDelayedMemoryFactPicker
+        && activeDelayedMemoryFactPicker.container
+        && target
+        && typeof activeDelayedMemoryFactPicker.container.contains === "function"
+        && activeDelayedMemoryFactPicker.container.contains(target);
+      const insideAttachmentPicker =
+        activeDelayedMemoryAttachmentPicker
+        && activeDelayedMemoryAttachmentPicker.container
+        && target
+        && typeof activeDelayedMemoryAttachmentPicker.container.contains === "function"
+        && activeDelayedMemoryAttachmentPicker.container.contains(target);
 
-      const target =
-          event.target;
-
-      if (
-          target
-          && typeof activeDelayedMemoryFactPicker.container.contains === "function"
-          && activeDelayedMemoryFactPicker.container.contains(target)
-      ) {
+      if (insideFactPicker || insideAttachmentPicker) {
         return;
       }
 
       closeActiveDelayedMemoryFactPicker();
+      closeActiveDelayedMemoryAttachmentPicker();
     });
 
     document.addEventListener("keydown", (event) => {
@@ -4926,10 +5193,17 @@
       const isAnchorFactId =
           anchorFactIds.has(factId);
 
+      const anchoredElsewhereTitles =
+          getDelayedMemoryFactAnchoredElsewhereTitles(
+              factId
+          );
+      const isAnchoredElsewhere =
+          anchoredElsewhereTitles.length > 0;
       const title =
           buildDelayedMemoryFactIdTitle(
               factId,
-              factLookup
+              factLookup,
+              anchoredElsewhereTitles
           );
 
       item.className =
@@ -4937,6 +5211,10 @@
       item.classList.toggle(
           "delayed-memory-modal-fact-id-anchor",
           isAnchorFactId
+      );
+      item.classList.toggle(
+          "delayed-memory-modal-fact-id-anchored-elsewhere",
+          isAnchoredElsewhere
       );
       item.textContent =
           factId;
@@ -5030,6 +5308,542 @@
     );
   }
 
+  function normalizeDelayedMemoryAttachmentIds(value) {
+    const source = Array.isArray(value) ? value : [value];
+    const ids = [];
+    const seen = new Set();
+
+    source.flat(Infinity).forEach((item) => {
+      String(item || "")
+        .split(/[,;\s]+/)
+        .map((id) => id.trim().replace(/^[\[\]"']+|[\[\]"']+$/g, "").toLowerCase())
+        .filter(Boolean)
+        .forEach((id) => {
+          if (!/^[a-z0-9]{6}$/.test(id) || seen.has(id)) {
+            return;
+          }
+          seen.add(id);
+          ids.push(id);
+        });
+    });
+
+    return ids;
+  }
+
+  function getDelayedMemoryAttachmentLookup() {
+    return new Map(
+      getPersistentFileRecords().map((record) => [
+        String(record.id || "").trim().toLowerCase(),
+        record,
+      ])
+    );
+  }
+
+  function getDelayedMemoryAttachmentRecords(value) {
+    const recordById = getDelayedMemoryAttachmentLookup();
+
+    return normalizeDelayedMemoryAttachmentIds(value)
+      .map((fileId) => ({
+        fileId,
+        record: recordById.get(fileId) || null,
+      }));
+  }
+
+  function matchesDelayedMemoryAttachmentQuery(
+    fileId,
+    record,
+    query
+  ) {
+    const normalizedQuery =
+      normalizeDelayedMemoryDisplayText(query)
+        .toLowerCase();
+
+    if (!normalizedQuery) {
+      return true;
+    }
+
+    return [
+      fileId,
+      record && record.name,
+      record && record.stored_name,
+      record && record.context_path,
+      record && record.url,
+      record && record.mime_type,
+    ].some((value) => (
+      normalizeDelayedMemoryDisplayText(value)
+        .toLowerCase()
+        .includes(normalizedQuery)
+    ));
+  }
+
+  function getDelayedMemoryAttachmentOptions(
+    currentFileIds,
+    query = ""
+  ) {
+    return getPersistentFileRecords()
+      .map((record) => {
+        const fileId =
+          normalizeDelayedMemoryAttachmentIds(
+            record && record.id
+          )[0] || "";
+
+        return fileId
+          ? {
+            fileId,
+            record,
+          }
+          : null;
+      })
+      .filter((entry) => (
+        entry
+        && !currentFileIds.has(entry.fileId)
+        && matchesDelayedMemoryAttachmentQuery(
+          entry.fileId,
+          entry.record,
+          query
+        )
+      ));
+  }
+
+  function dispatchDelayedMemoryAttachmentAvatarHover(
+    fileId,
+    active
+  ) {
+    const avatarMemoryHoverId =
+      buildAvatarMemoryHoverId(
+        "file",
+        fileId
+      );
+
+    dispatchMemoryRowAvatarHover(
+      active && avatarMemoryHoverId
+        ? {
+          active: true,
+          avatarMemoryHoverId,
+        }
+        : {
+          active: false,
+        }
+    );
+  }
+
+  function updateDelayedMemoryModalAttachmentIds(
+    nextAttachmentIds
+  ) {
+    if (
+        !delayedMemoryModalReport
+        || typeof updateDelayedMemoryReportFields !== "function"
+    ) {
+      return false;
+    }
+
+    const updatedReport =
+      updateDelayedMemoryReportFields(
+        delayedMemoryModalReport._storage_key,
+        {
+          attachments_ids: nextAttachmentIds,
+        }
+      );
+
+    if (
+        !updatedReport
+        || typeof updatedReport !== "object"
+        || Array.isArray(updatedReport)
+    ) {
+      return false;
+    }
+
+    openDelayedMemoryReportModal(updatedReport);
+    return true;
+  }
+
+  function linkAttachmentToDelayedMemoryModal(fileId) {
+    const normalizedFileId =
+      normalizeDelayedMemoryAttachmentIds(fileId)[0] || "";
+
+    if (!normalizedFileId || !delayedMemoryModalReport) {
+      return false;
+    }
+
+    if (
+        window.JinFiles
+        && typeof window.JinFiles.getFile === "function"
+        && !window.JinFiles.getFile(normalizedFileId)
+    ) {
+      return false;
+    }
+
+    const current =
+      normalizeDelayedMemoryAttachmentIds(
+        delayedMemoryModalReport.attachments_ids
+      );
+
+    if (current.includes(normalizedFileId)) {
+      return true;
+    }
+
+    return updateDelayedMemoryModalAttachmentIds([
+      ...current,
+      normalizedFileId,
+    ]);
+  }
+
+  function unlinkAttachmentFromDelayedMemoryModal(fileId) {
+    const normalizedFileId =
+      normalizeDelayedMemoryAttachmentIds(fileId)[0] || "";
+
+    if (!normalizedFileId || !delayedMemoryModalReport) {
+      return false;
+    }
+
+    const current =
+      normalizeDelayedMemoryAttachmentIds(
+        delayedMemoryModalReport.attachments_ids
+      );
+
+    return updateDelayedMemoryModalAttachmentIds(
+      current.filter((item) => item !== normalizedFileId)
+    );
+  }
+
+  function closeActiveDelayedMemoryAttachmentPicker(options = {}) {
+    if (
+        !activeDelayedMemoryAttachmentPicker
+        || typeof activeDelayedMemoryAttachmentPicker.close !== "function"
+    ) {
+      return;
+    }
+
+    activeDelayedMemoryAttachmentPicker.close(options);
+  }
+
+  function appendDelayedMemoryAttachmentPicker(
+    container,
+    currentFileIds
+  ) {
+    const picker = document.createElement("div");
+    picker.className =
+      "delayed-memory-modal-fact-picker hidden";
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className =
+      "delayed-memory-modal-fact-input";
+    input.setAttribute("aria-label", "Search files");
+    input.setAttribute("autocomplete", "off");
+    input.setAttribute("spellcheck", "false");
+
+    const dropdown = document.createElement("div");
+    dropdown.className =
+      "delayed-memory-modal-fact-dropdown";
+
+    function updatePickerInputWidth() {
+      const queryLength = String(input.value || "").length;
+      input.style.width =
+        queryLength > 0
+          ? `${Math.min(queryLength + 1, 28)}ch`
+          : "";
+    }
+
+    function closePicker(options = {}) {
+      // Hovered attachment options may disappear without mouseleave when
+      // the dropdown closes. Detach the shared preview before hiding it.
+      if (typeof window.hideJinAttachmentHoverPreview === "function") {
+        window.hideJinAttachmentHoverPreview();
+      }
+
+      picker.classList.add("hidden");
+      container.classList.remove(
+        "delayed-memory-modal-fact-ids-active"
+      );
+      input.value = "";
+      updatePickerInputWidth();
+      dropdown.innerHTML = "";
+
+      if (options.blur !== false) {
+        input.blur();
+      }
+
+      if (
+          activeDelayedMemoryAttachmentPicker
+          && activeDelayedMemoryAttachmentPicker.close === closePicker
+      ) {
+        activeDelayedMemoryAttachmentPicker = null;
+      }
+    }
+
+    function renderOptions() {
+      dropdown.innerHTML = "";
+      const options =
+        getDelayedMemoryAttachmentOptions(
+          currentFileIds,
+          input.value
+        );
+
+      if (!options.length) {
+        const empty = document.createElement("div");
+        empty.className =
+          "delayed-memory-modal-fact-empty";
+        empty.textContent = "no files";
+        dropdown.appendChild(empty);
+        return;
+      }
+
+      options.forEach((option) => {
+        const optionButton = document.createElement("button");
+        const id = document.createElement("span");
+        const separator = document.createElement("span");
+        const text = document.createElement("span");
+
+        optionButton.type = "button";
+        optionButton.className =
+          "delayed-memory-modal-fact-option delayed-memory-modal-attachment-option";
+        optionButton.title =
+          `${option.record.name || "attachment"} · ${option.fileId}`;
+
+        id.className =
+          "delayed-memory-modal-fact-option-id";
+        id.textContent = option.fileId;
+        separator.className =
+          "delayed-memory-modal-fact-option-separator";
+        separator.textContent = ".";
+        text.className =
+          "delayed-memory-modal-fact-option-text";
+        text.textContent = String(
+          option.record.name || option.record.stored_name || "attachment"
+        );
+
+        optionButton.append(id, separator, text);
+        bindPersistentFileHoverPreview(
+          optionButton,
+          option.record
+        );
+        optionButton.addEventListener("mouseenter", () => {
+          dispatchDelayedMemoryAttachmentAvatarHover(
+            option.fileId,
+            true
+          );
+        });
+        optionButton.addEventListener("mouseleave", () => {
+          dispatchDelayedMemoryAttachmentAvatarHover(
+            option.fileId,
+            false
+          );
+        });
+        optionButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          closePicker();
+          linkAttachmentToDelayedMemoryModal(option.fileId);
+        });
+        dropdown.appendChild(optionButton);
+      });
+    }
+
+    function openPicker() {
+      closeActiveDelayedMemoryFactPicker();
+
+      if (
+          activeDelayedMemoryAttachmentPicker
+          && activeDelayedMemoryAttachmentPicker.close !== closePicker
+      ) {
+        closeActiveDelayedMemoryAttachmentPicker();
+      }
+
+      activeDelayedMemoryAttachmentPicker = {
+        close: closePicker,
+        container,
+      };
+      picker.classList.remove("hidden");
+      container.classList.add(
+        "delayed-memory-modal-fact-ids-active"
+      );
+      updatePickerInputWidth();
+      renderOptions();
+      input.focus({ preventScroll: true });
+    }
+
+    container.addEventListener("click", (event) => {
+      const target = event.target;
+
+      if (
+          target
+          && typeof target.closest === "function"
+          && (
+            target.closest(".delayed-memory-modal-attachment")
+            || target.closest(".delayed-memory-modal-attachment-option")
+          )
+      ) {
+        return;
+      }
+
+      openPicker();
+    });
+
+    input.addEventListener("input", () => {
+      updatePickerInputWidth();
+      renderOptions();
+    });
+
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closePicker();
+        return;
+      }
+
+      if (event.key !== "Enter") {
+        return;
+      }
+
+      event.preventDefault();
+      const typedFileId =
+        normalizeDelayedMemoryAttachmentIds(
+          input.value
+        )[0] || "";
+      const options =
+        getDelayedMemoryAttachmentOptions(
+          currentFileIds,
+          input.value
+        );
+      const exact =
+        typedFileId
+        && options.find(
+          option => option.fileId === typedFileId
+        );
+      const nextFileId =
+        (exact && exact.fileId)
+        || (options[0] && options[0].fileId)
+        || "";
+
+      if (nextFileId) {
+        closePicker();
+        linkAttachmentToDelayedMemoryModal(nextFileId);
+      }
+    });
+
+    picker.append(input, dropdown);
+    container.appendChild(picker);
+  }
+
+  function bindDelayedMemoryAttachmentPreview(element, record) {
+    if (!element || !record) {
+      return;
+    }
+
+    const bind = () => {
+      if (element.dataset.jinAttachmentBound === "1") {
+        return true;
+      }
+      if (typeof window.bindJinAttachmentBubble !== "function") {
+        return false;
+      }
+
+      window.bindJinAttachmentBubble(
+        element,
+        record,
+        {
+          hoverPreviewMaxPx: 100,
+        }
+      );
+      element.dataset.jinAttachmentBound = "1";
+      return true;
+    };
+
+    if (!bind()) {
+      window.addEventListener(
+        "jin:attachment-ui-ready",
+        bind,
+        { once: true }
+      );
+    }
+  }
+
+  function appendDelayedMemoryAttachmentIdsField(
+    parent,
+    label,
+    value
+  ) {
+    const attachmentIds =
+      normalizeDelayedMemoryAttachmentIds(value);
+    const currentFileIds = new Set(attachmentIds);
+    const records = getDelayedMemoryAttachmentRecords(value);
+    const list = document.createElement("div");
+    list.className =
+      "delayed-memory-modal-value delayed-memory-modal-fact-ids delayed-memory-modal-attachments";
+
+    if (!attachmentIds.length) {
+      const empty = document.createElement("span");
+      empty.className =
+        "delayed-memory-modal-fact-empty-inline";
+      empty.textContent = "[]";
+      list.appendChild(empty);
+    }
+
+    records.forEach(({ fileId, record }) => {
+      const item = document.createElement("span");
+      item.className = "delayed-memory-modal-attachment";
+      if (record) {
+        item.textContent = String(record.name || "attachment");
+      } else {
+        item.textContent = fileId;
+      }
+      item.title = record
+        ? `${record.name || "attachment"} · ${fileId}`
+        : `${fileId} · missing file`;
+      item.dataset.delayedMemoryAttachmentId = fileId;
+      item.setAttribute("tabindex", "0");
+
+      item.addEventListener("mouseenter", () => {
+        dispatchDelayedMemoryAttachmentAvatarHover(fileId, true);
+      });
+      item.addEventListener("mouseleave", () => {
+        dispatchDelayedMemoryAttachmentAvatarHover(fileId, false);
+      });
+      item.addEventListener("focus", () => {
+        dispatchDelayedMemoryAttachmentAvatarHover(fileId, true);
+      });
+      item.addEventListener("blur", () => {
+        dispatchDelayedMemoryAttachmentAvatarHover(fileId, false);
+      });
+      item.addEventListener("click", (event) => {
+        closeActiveDelayedMemoryAttachmentPicker();
+
+        if (item.dataset.delayedMemoryAttachmentHoldDeleted === "true") {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          item.dataset.delayedMemoryAttachmentHoldDeleted = "false";
+        }
+      });
+
+      if (record) {
+        bindDelayedMemoryAttachmentPreview(item, record);
+      }
+
+      configureRuntimeMemoryDeleteHold(
+        item,
+        () => {
+          item.dataset.delayedMemoryAttachmentHoldDeleted = "true";
+          unlinkAttachmentFromDelayedMemoryModal(fileId);
+        }
+      );
+
+      list.appendChild(item);
+    });
+
+    appendDelayedMemoryAttachmentPicker(
+      list,
+      currentFileIds
+    );
+
+    appendDelayedMemoryModalFieldNode(
+      parent,
+      label,
+      list
+    );
+  }
+
   function appendDelayedMemoryModalBody(parent, body) {
     const section =
         document.createElement("section");
@@ -5109,6 +5923,15 @@
             key,
             value,
             anchorFactIds
+        );
+        return;
+      }
+
+      if (key === "attachments_ids") {
+        appendDelayedMemoryAttachmentIdsField(
+            parent,
+            key,
+            value
         );
         return;
       }
@@ -5621,7 +6444,7 @@
     runtimeMemoryNext.classList.toggle("text-slate-600", !canGoNext);
   }
 
-  function toggleRuntimeMemoryDisplayMode() {
+  function toggleRuntimeMemoryDisplayMode(direction = 1) {
     const modes =
         getAvailableRuntimeMemoryDisplayModes();
 
@@ -5635,13 +6458,31 @@
     const currentIndex =
         modes.indexOf(currentMode);
 
+    const step = direction < 0 ? -1 : 1;
+    const nextIndex =
+        (currentIndex + step + modes.length) % modes.length;
+
     setRuntimeMemoryDisplayMode(
-        modes[
-            (currentIndex + 1) % modes.length
-        ]
+        modes[nextIndex]
     );
 
     renderRuntimeMemorySnapshot();
+  }
+
+  function isRuntimeMemoryTitleBackZone(event) {
+    if (!runtimeMemoryTitle) {
+      return false;
+    }
+
+    const rect = runtimeMemoryTitle.getBoundingClientRect();
+    const fontSize = parseFloat(
+        window.getComputedStyle(runtimeMemoryTitle).fontSize
+    ) || 11;
+
+    // Opening bracket acts as the backward navigation zone for every memory title.
+    const backZoneWidth = Math.max(12, fontSize * 1.35);
+
+    return (event.clientX - rect.left) <= backZoneWidth;
   }
 
   function bindRuntimeMemoryNavigation() {
@@ -5737,8 +6578,10 @@
       runtimeMemoryPosition.click();
     });
 
-    runtimeMemoryTitle?.addEventListener("click", () => {
-      toggleRuntimeMemoryDisplayMode();
+    runtimeMemoryTitle?.addEventListener("click", (event) => {
+      toggleRuntimeMemoryDisplayMode(
+          isRuntimeMemoryTitleBackZone(event) ? -1 : 1
+      );
     });
 
     runtimeMemoryTitle?.addEventListener("keydown", (event) => {

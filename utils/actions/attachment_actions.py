@@ -1,7 +1,7 @@
 from contracts.rules_assembler import (
     RUNTIME_ACTION_LIST_FILES,
-    RUNTIME_ACTION_LOAD_ATTACHMENT,
-    RUNTIME_ACTION_UNLOAD_ATTACHMENT,
+    RUNTIME_ACTION_ATTACH_FILE,
+    RUNTIME_ACTION_DETACH_FILE,
     get_runtime_action_display_name,
     runtime_action_has_close_tag,
 )
@@ -73,8 +73,8 @@ async def apply_attachment_actions(
     context,
     *,
     list_actions,
-    load_actions,
-    unload_actions,
+    attach_actions,
+    detach_actions,
     log_runtime=None,
     with_action_context=lambda payload: payload,
 ) -> list[dict]:
@@ -96,12 +96,12 @@ async def apply_attachment_actions(
         if log_runtime is not None:
             await log_runtime(f"[RUNTIME ACTION] list_files ({len(records)} files)")
 
-    for action in unload_actions:
+    for action in detach_actions:
         file_id = _clean_id(action.payload)
         record = get_file_record(file_id)
         if not file_id or record is None:
             results.append({
-                "action": "unload_attachment",
+                "action": "detach_file",
                 "ok": False,
                 "id": file_id or str(action.payload or "").strip(),
                 "error": "file_not_found",
@@ -111,19 +111,19 @@ async def apply_attachment_actions(
         active_ids = [value for value in active_ids if value != file_id]
         set_file_pinned(file_id, False)
         results.append({
-            "action": "unload_attachment",
+            "action": "detach_file",
             "ok": True,
             "id": file_id,
             "name": record["name"],
             "unloaded": was_loaded,
         })
 
-    for action in load_actions:
+    for action in attach_actions:
         file_id = _clean_id(action.payload)
         record = get_file_record(file_id)
         if not file_id or record is None:
             results.append({
-                "action": "load_attachment",
+                "action": "attach_file",
                 "ok": False,
                 "id": file_id or str(action.payload or "").strip(),
                 "error": "file_not_found",
@@ -131,7 +131,7 @@ async def apply_attachment_actions(
             continue
         if file_id in active_ids:
             results.append({
-                "action": "load_attachment",
+                "action": "attach_file",
                 "ok": True,
                 "id": file_id,
                 "name": record["name"],
@@ -143,7 +143,7 @@ async def apply_attachment_actions(
         updated, error = set_file_pinned(file_id, True)
         if error:
             results.append({
-                "action": "load_attachment",
+                "action": "attach_file",
                 "ok": False,
                 "id": file_id,
                 "name": record["name"],
@@ -157,7 +157,7 @@ async def apply_attachment_actions(
             if value not in active_ids
         ]
         result = {
-            "action": "load_attachment",
+            "action": "attach_file",
             "ok": True,
             "id": file_id,
             "name": updated["name"],
@@ -167,7 +167,7 @@ async def apply_attachment_actions(
             result["replaced_id"] = replaced_ids[0]
         results.append(result)
 
-    if load_actions or unload_actions:
+    if attach_actions or detach_actions:
         _apply_context_ids(context, active_ids)
         if log_runtime is not None:
             await log_runtime(
@@ -181,20 +181,40 @@ async def apply_attachment_actions(
         for result in results:
             action_name = {
                 "list_files": RUNTIME_ACTION_LIST_FILES,
-                "load_attachment": RUNTIME_ACTION_LOAD_ATTACHMENT,
-                "unload_attachment": RUNTIME_ACTION_UNLOAD_ATTACHMENT,
+                "attach_file": RUNTIME_ACTION_ATTACH_FILE,
+                "detach_file": RUNTIME_ACTION_DETACH_FILE,
             }.get(result.get("action"), result.get("action", ""))
-            text = result.get("name") or result.get("error") or (
-                f"{len(result.get('files', []))} files"
-                if result.get("action") == "list_files"
-                else "attachment updated"
+            display_name = get_runtime_action_display_name(
+                action_name
+            )
+            attachment_name = str(
+                result.get("name")
+                or ""
+            ).strip()
+            text = (
+                f"{display_name}: {attachment_name}"
+                if (
+                    attachment_name
+                    and result.get("action") in {
+                        "attach_file",
+                        "detach_file",
+                    }
+                )
+                else (
+                    result.get("error")
+                    or (
+                        f"{len(result.get('files', []))} files"
+                        if result.get("action") == "list_files"
+                        else "attachment updated"
+                    )
+                )
             )
             await emit(with_action_context({
                 "type": "runtime_action",
                 "action": result.get("action"),
                 "id": result.get("id") or result.get("action"),
                 "status": "completed" if result.get("ok") is not False else "failed",
-                "display_name": get_runtime_action_display_name(action_name),
+                "display_name": display_name,
                 "close_tag": runtime_action_has_close_tag(action_name),
                 "text": str(text),
                 "attachment_result": result,

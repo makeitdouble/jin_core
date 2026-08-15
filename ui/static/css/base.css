@@ -738,6 +738,21 @@ main.panels-collapsed-2 #scene-shade {
     color: rgba(228, 228, 231, 0.92);
 }
 
+
+.jin-attached-files-row.jin-attached-files-row-avatar-hover,
+.jin-attached-files-row:hover {
+    background: rgba(255, 255, 255, 0.045);
+}
+
+.jin-attached-files-row.jin-attached-files-row-avatar-hover .jin-attached-files-name,
+.jin-attached-files-row.jin-attached-files-row-avatar-hover .delayed-memory-modal-pin,
+.jin-attached-files-row.jin-attached-files-row-avatar-hover .delayed-memory-modal-pin svg {
+    color: rgba(244, 244, 245, 0.94);
+    filter:
+            drop-shadow(0 0 6px rgba(240, 253, 250, 0.30))
+            drop-shadow(0 0 14px rgba(45, 212, 191, 0.16));
+}
+
 #console-panel.panel-collapsed #attached-files {
     display: none !important;
 }

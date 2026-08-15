@@ -111,8 +111,8 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
                 "UNLOAD_SKILL",
                 "ASSET_ACTION",
                 "LIST_FILES",
-                "LOAD_ATTACHMENT",
-                "UNLOAD_ATTACHMENT",
+                "ATTACH_FILE",
+                "DETACH_FILE",
             )
         )
 
@@ -146,6 +146,111 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
 
 
 class BrainRuntimeActionTests(unittest.TestCase):
+
+    def test_stream_save_active_memory_bubble_starts_on_open_tag_and_reuses_id(self):
+
+        class FakeEmitter:
+
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, payload):
+                self.events.append(dict(payload))
+
+        class FakeBrainClient:
+
+            async def stream(self, **_kwargs):
+                yield {
+                    "type": "content",
+                    "content": "<SAVE_ACTIVE_MEMORY>",
+                }
+                yield {
+                    "type": "content",
+                    "content": "remember this test checkpoint",
+                }
+                yield {
+                    "type": "content",
+                    "content": "</SAVE_ACTIVE_MEMORY>",
+                }
+
+        async def fake_apply_runtime_action_calls(
+            _context,
+            actions,
+            **kwargs,
+        ):
+            applied.append((tuple(actions), dict(kwargs)))
+            return len(tuple(actions))
+
+        async def collect(context):
+            return [
+                chunk
+                async for chunk in ask_brain_stream(
+                    client=FakeBrainClient(),
+                    text="save this checkpoint",
+                    context=context,
+                    runtime_actions={
+                        "CAN_SAVE_ACTIVE_MEMORY": True,
+                    },
+                )
+            ]
+
+        emitter = FakeEmitter()
+        context = SimpleNamespace(
+            emitter=emitter,
+        )
+        applied = []
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            with patch(
+                "clients.brain_client.apply_runtime_action_calls",
+                new=fake_apply_runtime_action_calls,
+            ):
+                chunks = asyncio.run(
+                    collect(context)
+                )
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        started = [
+            event
+            for event in emitter.events
+            if event.get("action") == "save_active_memory"
+            and event.get("status") == "started"
+        ]
+
+        self.assertEqual(len(started), 1)
+        self.assertEqual(started[0]["text"], "SAVE_ACTIVE_MEMORY")
+        self.assertTrue(started[0]["id"])
+        self.assertTrue(started[0]["runtime_message_id"])
+
+        self.assertEqual(len(applied), 1)
+        actions, kwargs = applied[0]
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0].name, "SAVE_ACTIVE_MEMORY")
+        self.assertEqual(
+            kwargs["action_display_ids"][id(actions[0])],
+            started[0]["id"],
+        )
+
+        self.assertEqual(
+            [
+                event
+                for event in emitter.events
+                if event.get("action") == "save_active_memory"
+                and event.get("status") == "running"
+            ],
+            [],
+        )
+        self.assertEqual(
+            [
+                chunk
+                for chunk in chunks
+                if chunk.get("type") == "content"
+            ],
+            [],
+        )
 
     def test_stream_update_l4_facts_bubble_tracks_marker_write_lifecycle(self):
 

@@ -51,6 +51,7 @@ LOADED_DELAYED_MEMORY_CONTEXT_FIELDS = (
     "summary",
     "tags",
     "body",
+    "attachments_ids",
 )
 
 PREVIOUS_REASONING_EDGE_PERCENT = 25
@@ -594,6 +595,14 @@ def build_loaded_delayed_memory_context(
         for field_name in LOADED_DELAYED_MEMORY_CONTEXT_FIELDS:
             if field_name in report:
                 field_value = report[field_name]
+                if field_name == "attachments_ids":
+                    from utils.attached_files_store import filter_existing_file_ids
+
+                    field_value = filter_existing_file_ids(
+                        field_value
+                    )
+                    if not field_value:
+                        continue
                 if field_name == "title":
                     field_value = _append_delayed_memory_context_age(
                         str(

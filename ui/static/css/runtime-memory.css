@@ -1,5 +1,13 @@
 /* Runtime-memory, delayed memory и превью вложений. */
 
+/* Panel headers/counters are controls, not selectable text. Keep clicks on
+   titles and numeric counters from leaving the browser text-selection blue. */
+.runtime-memory-header,
+.runtime-memory-header * {
+    -webkit-user-select: none;
+    user-select: none;
+}
+
 .runtime-memory-line {
     margin: 0 0 10px 0;
     line-height: 1.5;
@@ -68,6 +76,12 @@
 .runtime-memory-delayed-row:hover,
 .runtime-memory-delayed-row:focus-visible {
     outline: none;
+}
+
+.runtime-memory-delayed-row-secondary-linked .runtime-memory-key,
+.runtime-memory-delayed-row-secondary-linked:not(.runtime-memory-kv-row) .runtime-memory-value,
+.runtime-memory-delayed-row-secondary-linked.runtime-memory-kv-row .runtime-memory-value {
+    color: rgba(226, 226, 231, 0.72);
 }
 
 .runtime-memory-delayed-row-active {
@@ -287,6 +301,10 @@
     text-decoration: none;
 }
 
+.delayed-memory-modal-fact-id-anchored-elsewhere {
+    color: rgba(244, 244, 245, 0.64);
+}
+
 .delayed-memory-modal-fact-id-anchor {
     color: rgba(255, 255, 255, 0.86);
     text-shadow:
@@ -306,6 +324,34 @@
 
 .delayed-memory-modal-fact-empty-inline {
     color: rgba(244, 244, 245, 0.38);
+}
+
+.delayed-memory-modal-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px 10px;
+    white-space: normal;
+}
+
+.delayed-memory-modal-attachment {
+    display: inline-flex;
+    min-width: 0;
+    max-width: 100%;
+    color: rgba(244, 244, 245, 0.62);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition:
+            color 0.16s ease,
+            text-shadow 0.16s ease;
+}
+
+.delayed-memory-modal-attachment:hover,
+.delayed-memory-modal-attachment:focus-visible {
+    color: rgba(244, 244, 245, 0.9);
+    text-shadow: 0 0 8px rgba(244, 244, 245, 0.12);
+    outline: none;
 }
 
 .delayed-memory-modal-fact-picker {

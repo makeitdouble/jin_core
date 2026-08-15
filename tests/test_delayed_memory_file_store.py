@@ -39,6 +39,10 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
                 "F1",
                 "F2",
             ],
+            "attachments_ids": [
+                "abc123",
+                "def456",
+            ],
             "created_session_id": "session-a",
             "created_time": "2026-07-19T16:14:14.628194",
             "created_date": "2026-07-19T16:14:14.628194",
@@ -97,6 +101,13 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
                     "F2",
                 ],
             )
+            self.assertEqual(
+                payload["attachments_ids"],
+                [
+                    "abc123",
+                    "def456",
+                ],
+            )
             self.assertNotIn(
                 "absorbed_fact_ids",
                 payload,
@@ -135,6 +146,13 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
                 [
                     "F1",
                     "F2",
+                ],
+            )
+            self.assertEqual(
+                reports["48ggds"]["attachments_ids"],
+                [
+                    "abc123",
+                    "def456",
                 ],
             )
 

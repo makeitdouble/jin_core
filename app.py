@@ -182,7 +182,7 @@ async def api_pin_file(
     if record is None:
         raise HTTPException(status_code=404, detail="File not found")
     if error == "max_attached_files":
-        raise HTTPException(status_code=409, detail="Maximum 3 attached files")
+        raise HTTPException(status_code=409, detail="Maximum 5 attached files")
     return {
         "file": record,
         **public_file_snapshot(),

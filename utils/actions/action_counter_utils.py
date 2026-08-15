@@ -214,7 +214,7 @@ class RuntimeActionCounter:
                 ),
             )
 
-            normalized_payloads = normalize_runtime_action_counter_payloads(
+            normalized_payloads = resolve_runtime_action_counter_display_payloads(
                 entry,
                 payloads,
             )
@@ -242,6 +242,43 @@ class RuntimeActionCounter:
             )
 
         return marker_actions
+
+
+def resolve_runtime_action_counter_display_payloads(
+    entry: RuntimeActionCount,
+    payloads,
+) -> list[str]:
+
+    normalized_payloads = normalize_runtime_action_counter_payloads(
+        entry,
+        payloads,
+    )
+
+    if entry.name not in {
+        "ATTACH_FILE",
+        "DETACH_FILE",
+    }:
+        return normalized_payloads
+
+    from utils.attached_files_store import get_file_record
+
+    display_payloads = []
+
+    for payload in normalized_payloads:
+        record = get_file_record(
+            payload
+        )
+        display_payloads.append(
+            str(
+                (record or {}).get(
+                    "name",
+                    "",
+                )
+                or payload
+            ).strip()
+        )
+
+    return display_payloads
 
 
 def normalize_runtime_action_counter_payloads(
@@ -392,7 +429,7 @@ async def emit_runtime_action_counter_updates(
             ),
         )
 
-        normalized_payloads = normalize_runtime_action_counter_payloads(
+        normalized_payloads = resolve_runtime_action_counter_display_payloads(
             entry,
             payloads,
         )

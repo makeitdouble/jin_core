@@ -4,6 +4,7 @@ const ASSET_TEXT_PREVIEW_MAX_CHARS = 60000;
 
 let attachmentHoverPreview = null;
 let attachmentHoverPreviewImage = null;
+let attachmentHoverPreviewOwner = null;
 let attachmentModal = null;
 let attachmentModalTitle = null;
 let attachmentModalContent = null;
@@ -273,6 +274,9 @@ function showAttachmentHoverPreview(
   const preview =
     ensureAttachmentHoverPreview();
 
+  attachmentHoverPreviewOwner = event && event.currentTarget
+    ? event.currentTarget
+    : null;
   attachmentHoverPreviewImage.src =
     source;
 
@@ -294,6 +298,7 @@ function hideAttachmentHoverPreview() {
   attachmentHoverPreview.classList.add(
     "hidden"
   );
+  attachmentHoverPreviewOwner = null;
 
   if (attachmentHoverPreviewImage) {
     attachmentHoverPreviewImage.removeAttribute(
@@ -686,6 +691,32 @@ function bindJinAttachmentHoverPreview(
   element.addEventListener(
     "mouseleave",
     hideAttachmentHoverPreview
+  );
+
+  // Preview lifecycle invariant: attachment controls can hide or detach
+  // themselves on interaction. mouseleave is not guaranteed in that case,
+  // so cleanup must happen before any attachment UI mutation as well.
+  const hideBeforeAttachmentMutation = () => {
+    if (
+        !attachmentHoverPreviewOwner
+        || attachmentHoverPreviewOwner === element
+        || !attachmentHoverPreviewOwner.isConnected
+    ) {
+      hideAttachmentHoverPreview();
+    }
+  };
+
+  element.addEventListener(
+    "pointerdown",
+    hideBeforeAttachmentMutation
+  );
+  element.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        hideBeforeAttachmentMutation();
+      }
+    }
   );
 }
 
@@ -1242,6 +1273,8 @@ function bindDelayedMemoryReportPreview(
 
 window.bindJinAttachmentBubble =
   bindJinAttachmentBubble;
+window.hideJinAttachmentHoverPreview =
+  hideAttachmentHoverPreview;
 window.bindJinAttachmentHoverPreview =
   bindJinAttachmentHoverPreview;
 window.openJinAttachmentModal =

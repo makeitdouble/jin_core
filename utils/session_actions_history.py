@@ -1101,6 +1101,8 @@ def _build_session_action_marker_detail(
         "IDLE",
         "LOAD_DELAYED_MEMORY",
         "UNLOAD_DELAYED_MEMORY",
+        "ATTACH_FILE",
+        "DETACH_FILE",
     }:
         return normalized_payload
 

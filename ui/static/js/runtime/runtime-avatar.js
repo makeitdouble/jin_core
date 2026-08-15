@@ -51,6 +51,13 @@
       startAngle: -9,
     }),
   });
+  const FILE_RING_LAYOUT = Object.freeze({
+    radius: 188,
+    dotRadius: 2.7,
+    baseColor: "#7ab8d8",
+    glowColor: "#7ab8d8",
+    startAngle: -12,
+  });
   const MEMORY_SIGNAL_KIND_ORDER =
     Object.freeze(["delayed", "l4", "active"]);
   const SNAPSHOT_GLOW_CLEAR_DELAY_MS = 360;
@@ -80,6 +87,8 @@
   const DELAYED_MEMORY_RING_COLOR = "#7ab8d8";
   const PINNED_DELAYED_MEMORY_RING_COLOR = "#efffff";
   const L4_MEMORY_RING_COLOR = "#93c5fd";
+  const FILE_RING_COLOR = DELAYED_MEMORY_RING_COLOR;
+  const FILE_RING_ACTIVE_COLOR = PINNED_DELAYED_MEMORY_RING_COLOR;
 
   const avatarRoot = document.getElementById("jin-runtime-avatar");
   const memoryLayersToggle = document.getElementById("memory-layers-toggle");
@@ -359,6 +368,59 @@
 
     for (const factId of left) {
       if (right.has(factId)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+
+  function normalizeShortRuntimeIds(value) {
+    const source = Array.isArray(value)
+      ? value
+      : [value];
+    const ids = [];
+    const seen = new Set();
+
+    source.flat(Infinity).forEach((item) => {
+      String(item || "")
+        .split(/[\s,;]+/)
+        .map((candidate) => (
+          String(candidate || "")
+            .trim()
+            .replace(/^[\[\]"']+|[\[\]"']+$/g, "")
+            .toLowerCase()
+        ))
+        .filter(Boolean)
+        .forEach((candidate) => {
+          if (!/^[a-z0-9]{6}$/.test(candidate) || seen.has(candidate)) {
+            return;
+          }
+
+          seen.add(candidate);
+          ids.push(candidate);
+        });
+    });
+
+    return ids;
+  }
+
+  function serializeShortRuntimeIds(value) {
+    const ids = normalizeShortRuntimeIds(value);
+
+    return ids.length
+      ? ids.join(",")
+      : null;
+  }
+
+  function shortRuntimeIdSetsIntersect(left, right) {
+    if (!left || !right || !left.size || !right.size) {
+      return false;
+    }
+
+    for (const id of left) {
+      if (right.has(id)) {
         return true;
       }
     }
@@ -1031,6 +1093,12 @@
             && typeof runtime.isDelayedMemoryReportLoaded === "function"
             && runtime.isDelayedMemoryReportLoaded(id)
           );
+        const appended =
+          Boolean(
+            runtime
+            && typeof runtime.isDelayedMemoryReportAppended === "function"
+            && runtime.isDelayedMemoryReportAppended(id)
+          );
 
         if (!id || !title) {
           return null;
@@ -1042,8 +1110,13 @@
           summary,
           pinned: Boolean(report.pinned),
           loaded,
+          appended,
           anchorFactIds,
           factIds,
+          attachmentIds:
+            normalizeShortRuntimeIds(
+              report.attachments_ids
+            ),
           avatarMemoryHoverId:
             buildAvatarMemoryHoverId(
               "delayed",
@@ -1133,6 +1206,108 @@
       })
       .filter(Boolean)
       .sort((left, right) => {
+        return String(left.id || "").localeCompare(
+          String(right.id || "")
+        );
+      });
+  }
+
+
+  function getPersistentFileAvatarRecords() {
+    const filesApi = window.JinFiles;
+    const delayedMemoryRecords = getDelayedMemoryAvatarRecords();
+    const linkedReportIdsByFileId = new Map();
+    const contextLinkedFileIds = new Set();
+
+    delayedMemoryRecords.forEach((report) => {
+      const attachmentIds = normalizeShortRuntimeIds(
+        report && report.attachmentIds
+      );
+
+      if (!attachmentIds.length) {
+        return;
+      }
+
+      attachmentIds.forEach((fileId) => {
+        const current =
+          linkedReportIdsByFileId.get(fileId)
+          || new Set();
+
+        current.add(report.id);
+        linkedReportIdsByFileId.set(fileId, current);
+
+        if (report.loaded) {
+          contextLinkedFileIds.add(fileId);
+        }
+      });
+    });
+
+    const records =
+      filesApi && typeof filesApi.getFiles === "function"
+        ? filesApi.getFiles()
+        : [];
+
+    return (Array.isArray(records) ? records : [])
+      .map((record) => {
+        if (
+          !record
+          || typeof record !== "object"
+          || Array.isArray(record)
+        ) {
+          return null;
+        }
+
+        const id =
+          normalizeShortRuntimeIds(record.id)[0] || "";
+        const name = String(record.name || "").trim();
+        const storedName = String(record.stored_name || "").trim();
+        const contextPath =
+          String(
+            record.context_path
+            || (storedName ? `/assets/files/${storedName}` : "")
+          ).trim();
+        const linkedReportIds = Array.from(
+          linkedReportIdsByFileId.get(id) || []
+        ).sort((left, right) => left.localeCompare(right));
+        const pinned = Boolean(record.pinned);
+        const contextLinked =
+          !pinned
+          && contextLinkedFileIds.has(id);
+        const contextLoaded = pinned;
+
+        if (!id || !name) {
+          return null;
+        }
+
+        return {
+          id,
+          name,
+          storedName,
+          contextPath,
+          pinned,
+          contextLoaded,
+          contextLinked,
+          linkedReportIds,
+          avatarMemoryHoverId:
+            buildAvatarMemoryHoverId(
+              "file",
+              id
+            ),
+          referenceAliases:
+            normalizeMemoryReferenceAliases([
+              id,
+              name,
+              storedName,
+              contextPath,
+              record.url,
+              storedName ? storedName.replace(/^([a-z0-9]{6}_)/i, "") : "",
+            ]),
+        };
+      })
+      .filter(Boolean)
+      .sort((left, right) => {
+        // Keep each file on a stable angular slot. Pin/context state must only
+        // change the dot appearance, never its position on the file ring.
         return String(left.id || "").localeCompare(
           String(right.id || "")
         );
@@ -1281,6 +1456,23 @@
     );
     dashGroup.style.removeProperty(
       "--jin-avatar-memory-hover-dot-radius"
+    );
+  }
+
+  function setFileDotGlowVariables(dotGroup, glowColor) {
+    const glowRgb = hexToRgb(glowColor || FILE_RING_ACTIVE_COLOR);
+
+    dotGroup.style.setProperty(
+      "--jin-avatar-file-glow-near",
+      `rgba(${glowRgb.r},${glowRgb.g},${glowRgb.b},0.98)`
+    );
+    dotGroup.style.setProperty(
+      "--jin-avatar-file-glow-mid",
+      `rgba(${glowRgb.r},${glowRgb.g},${glowRgb.b},0.62)`
+    );
+    dotGroup.style.setProperty(
+      "--jin-avatar-file-glow-far",
+      `rgba(${glowRgb.r},${glowRgb.g},${glowRgb.b},0.24)`
     );
   }
 
@@ -1433,6 +1625,95 @@
     });
 
     svg.appendChild(ring);
+  }
+
+  function appendFileSignalRing(svg, records) {
+    if (!records.length) {
+      return;
+    }
+
+    const random = createRandom(
+      `file-ring:${records.map(record => record.id).join("|")}`
+    );
+    const duration = 92 + random() * 84;
+    const direction = random() > 0.5 ? "normal" : "reverse";
+    const ring = createSvgElement("g", {
+      class: [
+        "jin-avatar-file-ring",
+        "jin-avatar-counter-orbit",
+      ].join(" "),
+      fill: "none",
+      "pointer-events": "none",
+      style: [
+        `--jin-avatar-duration:${duration.toFixed(2)}s`,
+        `--jin-avatar-direction:${direction}`,
+        "--jin-avatar-play-state:running",
+      ].join(";"),
+    });
+    const slotDegrees = 360 / records.length;
+
+    records.forEach((record, index) => {
+      const angle = FILE_RING_LAYOUT.startAngle + slotDegrees * index;
+      const point = polarPoint(FILE_RING_LAYOUT.radius, angle);
+      const opacity = record.pinned
+        ? 0.96
+        : 0.36;
+      const color = record.pinned
+        ? FILE_RING_ACTIVE_COLOR
+        : FILE_RING_COLOR;
+      const dotGroup = createSvgElement("g", {
+        class: "jin-avatar-file-dot",
+        "data-avatar-memory-hover-id": record.avatarMemoryHoverId || null,
+        "data-file-id": record.id,
+        "data-linked-delayed-memory-ids": serializeShortRuntimeIds(record.linkedReportIds),
+        "data-runtime-line-key": normalizeRuntimeCitationIdentity(record.id),
+        "data-runtime-line-text": normalizeRuntimeCitationIdentity([record.name, record.contextPath].filter(Boolean).join(" · ")),
+      });
+
+      if (record.pinned) {
+        dotGroup.classList.add("is-memory-pinned");
+      }
+
+      if (record.contextLoaded) {
+        dotGroup.classList.add("is-context-loaded");
+      }
+
+      if (record.contextLinked) {
+        dotGroup.classList.add("is-delayed-memory-context-linked");
+      }
+
+      setAvatarMemoryReferenceAliases(
+        dotGroup,
+        record.referenceAliases
+      );
+      setFileDotGlowVariables(
+        dotGroup,
+        record.pinned
+          ? FILE_RING_ACTIVE_COLOR
+          : FILE_RING_LAYOUT.glowColor
+      );
+      appendTitle(
+        dotGroup,
+        `${record.name} · ${record.id}`
+      );
+      dotGroup.appendChild(createSvgElement("circle", {
+        class: "jin-avatar-file-dot-core",
+        cx: point.x.toFixed(3),
+        cy: point.y.toFixed(3),
+        r: FILE_RING_LAYOUT.dotRadius,
+        fill: color,
+        "fill-opacity": opacity.toFixed(2),
+      }));
+      ring.appendChild(dotGroup);
+    });
+
+    const centerNode = svg.querySelector(".jin-avatar-center");
+
+    if (centerNode) {
+      svg.insertBefore(ring, centerNode);
+    } else {
+      svg.appendChild(ring);
+    }
   }
 
   function getMemorySignalRecords(kind) {
@@ -1856,6 +2137,7 @@
       return false;
     }
 
+    syncFilesState();
     applyAvatarReactiveGlows();
 
     return true;
@@ -1867,6 +2149,148 @@
 
   function syncL4MemoryState() {
     return syncMemorySignalLayer("l4");
+  }
+
+  function syncFileSignalRingState(svg, records) {
+    const ring = svg.querySelector(".jin-avatar-file-ring");
+
+    if (!records.length) {
+      return !ring;
+    }
+
+    if (!ring) {
+      return false;
+    }
+
+    const dotGroups = Array.from(
+      ring.querySelectorAll(".jin-avatar-file-dot")
+    );
+
+    if (dotGroups.length !== records.length) {
+      return false;
+    }
+
+    const dotsById = new Map();
+
+    for (const dotGroup of dotGroups) {
+      const fileId = normalizeShortRuntimeIds(
+        dotGroup && dotGroup.dataset
+          ? dotGroup.dataset.fileId
+          : ""
+      )[0];
+
+      if (!fileId || dotsById.has(fileId)) {
+        return false;
+      }
+
+      dotsById.set(fileId, dotGroup);
+    }
+
+    for (const record of records) {
+      const dotGroup = dotsById.get(record.id);
+
+      if (!dotGroup) {
+        return false;
+      }
+
+      const pinned = Boolean(record.pinned);
+      const contextLoaded = Boolean(record.contextLoaded);
+      const contextLinked = Boolean(record.contextLinked);
+      const active = pinned || contextLoaded;
+      const core = dotGroup.querySelector(
+        ".jin-avatar-file-dot-core"
+      );
+
+      dotGroup.classList.toggle(
+        "is-memory-pinned",
+        pinned
+      );
+      dotGroup.classList.toggle(
+        "is-context-loaded",
+        contextLoaded
+      );
+      dotGroup.classList.toggle(
+        "is-delayed-memory-context-linked",
+        contextLinked
+      );
+      dotGroup.dataset.avatarMemoryHoverId =
+        record.avatarMemoryHoverId || "";
+      dotGroup.dataset.linkedDelayedMemoryIds =
+        serializeShortRuntimeIds(record.linkedReportIds) || "";
+      dotGroup.dataset.runtimeLineKey =
+        normalizeRuntimeCitationIdentity(record.id);
+      dotGroup.dataset.runtimeLineText =
+        normalizeRuntimeCitationIdentity(
+          [record.name, record.contextPath]
+            .filter(Boolean)
+            .join(" · ")
+        );
+
+      setAvatarMemoryReferenceAliases(
+        dotGroup,
+        record.referenceAliases
+      );
+      setFileDotGlowVariables(
+        dotGroup,
+        active
+          ? FILE_RING_ACTIVE_COLOR
+          : FILE_RING_LAYOUT.glowColor
+      );
+
+      const title = dotGroup.querySelector("title");
+      if (title) {
+        title.textContent = `${record.name} · ${record.id}`;
+      }
+
+      if (core) {
+        core.setAttribute(
+          "fill",
+          active
+            ? FILE_RING_ACTIVE_COLOR
+            : FILE_RING_COLOR
+        );
+        core.setAttribute(
+          "fill-opacity",
+          (pinned
+            ? 0.96
+            : 0.36
+          ).toFixed(2)
+        );
+        core.setAttribute(
+          "r",
+          FILE_RING_LAYOUT.dotRadius
+        );
+      }
+    }
+
+    return true;
+  }
+
+  function syncFilesState() {
+    const svg = avatarRoot.querySelector("svg");
+
+    if (!svg) {
+      return false;
+    }
+
+    const records = getPersistentFileAvatarRecords();
+
+    // State-only changes stay in place so pinning cannot restart the rotating
+    // ring animation. Rebuild only when the actual file set changes.
+    if (!syncFileSignalRingState(svg, records)) {
+      svg.querySelectorAll(
+        ".jin-avatar-file-ring"
+      ).forEach((ring) => ring.remove());
+
+      if (records.length) {
+        appendFileSignalRing(svg, records);
+      }
+    }
+
+    applyAvatarReactiveGlows();
+    applyDelayedMemoryFileLinkGlow();
+
+    return true;
   }
 
   function appendMemorySignalRings(
@@ -1897,6 +2321,10 @@
       "active",
       overallColor
     );
+  }
+
+  function appendFileRing(svg, fileRecords) {
+    appendFileSignalRing(svg, fileRecords);
   }
 
   function appendDefs(svg, overallColor, currentCenterColor) {
@@ -2088,43 +2516,12 @@
     }));
   }
 
-  function appendLongFieldStripes(group, record, color, options = {}) {
+  function appendLongFieldStripes(group, record, color) {
     const random = record.random;
-    const diffRatio =
-      clamp(Number(options.diffPercent || 0) / 100, 0, 1);
-    const effectiveSpeed =
-      Math.max(0, Number(options.effectiveSpeed || 0));
-    const speedRatio =
-      clamp(effectiveSpeed / 48, 0, 1);
-    const energy =
-      clamp(diffRatio * 0.72 + speedRatio * 0.28, 0, 1);
-    const stripeCount = Math.round(10 + random() * 18);
+    const stripeCount = Math.round(12 + random() * 24);
     const startAngle = random() * 360;
     const arcSpan = 24 + random() * 48;
     const stripeHeight = 5 + random() * 9;
-    const activeStripeCount = energy > 0.32 ? 2 : 1;
-    const activeStripeIndexes = new Set();
-    const orbitDuration =
-      Number(options.duration || 0);
-    const baseStripeDuration =
-      Number.isFinite(orbitDuration)
-      && orbitDuration > 0
-      && orbitDuration < 999
-        ? clamp(orbitDuration * 0.55 + 14, 18, 64)
-        : 54;
-    const stripePlayState =
-      energy > 0.02 ? "running" : "paused";
-    const sharedPhaseOffset =
-      random();
-
-    while (
-      activeStripeIndexes.size < activeStripeCount
-      && activeStripeIndexes.size < stripeCount
-    ) {
-      activeStripeIndexes.add(
-        Math.floor(random() * stripeCount)
-      );
-    }
 
     for (let index = 0; index < stripeCount; index += 1) {
       const ratio = stripeCount <= 1 ? 0 : index / (stripeCount - 1);
@@ -2136,67 +2533,16 @@
       );
       const inner = polarPoint(innerRadius, angle);
       const outer = polarPoint(outerRadius, angle);
-      const activeStripe =
-        activeStripeIndexes.has(index);
-      const opacitySeed =
-        random();
-      const ghostOpacity =
-        0.004 + Math.pow(opacitySeed, 3.1) * (0.018 + energy * 0.014);
-      const activeBaseOpacity =
-        0.016 + energy * 0.014 + random() * 0.014;
-      const baseOpacity =
-        activeStripe
-          ? activeBaseOpacity
-          : ghostOpacity;
-      const softOpacity =
-        baseOpacity + (
-          activeStripe
-            ? 0.010 + energy * 0.014
-            : Math.pow(random(), 2.4) * 0.010
-        );
-      const midOpacity =
-        baseOpacity + (
-          activeStripe
-            ? 0.026 + energy * 0.036 + random() * 0.010
-            : Math.pow(random(), 3.4) * 0.020
-        );
-      const peakOpacity =
-        activeStripe
-          ? baseOpacity + 0.054 + energy * 0.078 + random() * 0.014
-          : baseOpacity + Math.pow(random(), 4.2) * 0.026;
-      const durationSeconds =
-        baseStripeDuration + random() * 18;
-      const phaseRatio =
-        (ratio + sharedPhaseOffset + random() * 0.08) % 1;
-      const mutedStripeColor =
-        mixColors(
-          mixColors(centerColor, color, 0.28 + random() * 0.18),
-          "#071012",
-          0.38 + (1 - energy) * 0.12
-        );
 
       group.appendChild(createSvgElement("line", {
-        class: [
-          "jin-avatar-field-stripe",
-          "is-jin-avatar-stripe-breathing",
-        ].filter(Boolean).join(" "),
         x1: inner.x,
         y1: inner.y,
         x2: outer.x,
         y2: outer.y,
-        stroke: mutedStripeColor,
-        "stroke-width": 0.45 + random() * 0.65,
-        "stroke-opacity": "1",
+        stroke: color,
+        "stroke-width": 0.75 + random() * 0.8,
+        "stroke-opacity": 0.52 + random() * 0.34,
         "stroke-linecap": "round",
-        style: [
-          `--jin-avatar-stripe-base-opacity:${baseOpacity.toFixed(3)}`,
-          `--jin-avatar-stripe-soft-opacity:${Math.min(0.060, softOpacity).toFixed(3)}`,
-          `--jin-avatar-stripe-mid-opacity:${Math.min(activeStripe ? 0.105 : 0.052, midOpacity).toFixed(3)}`,
-          `--jin-avatar-stripe-peak-opacity:${Math.min(activeStripe ? 0.165 : 0.058, peakOpacity).toFixed(3)}`,
-          `--jin-avatar-stripe-duration:${durationSeconds.toFixed(2)}s`,
-          `--jin-avatar-stripe-delay:${(-phaseRatio * durationSeconds).toFixed(2)}s`,
-          `--jin-avatar-stripe-play-state:${stripePlayState}`,
-        ].join(";"),
       }));
     }
   }
@@ -2375,17 +2721,8 @@
       );
     }
 
-    if (record.isLong) {
-      appendLongFieldStripes(
-        orbitGroup,
-        record,
-        ringColor,
-        {
-          diffPercent,
-          duration,
-          effectiveSpeed,
-        }
-      );
+    if (/[!?]/.test(String(record.value || ""))) {
+      appendLongFieldStripes(orbitGroup, record, ringColor);
     }
 
     appendRuntimeChangeMarker(
@@ -2564,6 +2901,45 @@
     return factIds;
   }
 
+  function getSecondaryLinkedDelayedMemoryReportIds() {
+    const records = getDelayedMemoryAvatarRecords();
+    const linkedReportIds = new Set();
+
+    records
+      .filter(record => Boolean(record && record.loaded))
+      .forEach((sourceRecord) => {
+        const hiddenFactIds = new Set(sourceRecord.factIds);
+
+        sourceRecord.anchorFactIds.forEach((factId) => {
+          hiddenFactIds.delete(factId);
+        });
+
+        if (!hiddenFactIds.size) {
+          return;
+        }
+
+        records.forEach((targetRecord) => {
+          if (
+            !targetRecord
+            || targetRecord.id === sourceRecord.id
+          ) {
+            return;
+          }
+
+          if (
+            l4FactIdSetsIntersect(
+              new Set(targetRecord.anchorFactIds),
+              hiddenFactIds
+            )
+          ) {
+            linkedReportIds.add(targetRecord.id);
+          }
+        });
+      });
+
+    return linkedReportIds;
+  }
+
   function applyDelayedMemoryFactLinkGlow() {
     const svg = avatarRoot.querySelector("svg");
 
@@ -2575,6 +2951,8 @@
       collectDelayedMemoryLinkedL4FactIds(svg);
     const hoveredL4FactIds =
       collectHoveredL4FactIds(svg);
+    const secondaryLinkedReportIds =
+      getSecondaryLinkedDelayedMemoryReportIds();
 
     Array.from(
       svg.querySelectorAll(".jin-avatar-memory-dash-l4")
@@ -2601,8 +2979,62 @@
           hoveredL4FactIds
         )
       );
+      node.classList.toggle(
+        "is-delayed-memory-secondary-linked",
+        secondaryLinkedReportIds.has(
+          String(node.dataset.delayedMemoryId || "")
+            .trim()
+            .toLowerCase()
+        )
+      );
     });
 
+  }
+
+
+  function collectFocusedDelayedMemoryIds(svg) {
+    const reportIds = new Set();
+
+    getFocusedMemoryDashNodes(svg)
+      .filter((node) => (
+        node.classList.contains(
+          "jin-avatar-memory-dash-delayed"
+        )
+      ))
+      .forEach((node) => {
+        normalizeShortRuntimeIds(
+          node.dataset.delayedMemoryId
+        ).forEach((reportId) => reportIds.add(reportId));
+      });
+
+    return reportIds;
+  }
+
+  function applyDelayedMemoryFileLinkGlow() {
+    const svg = avatarRoot.querySelector("svg");
+
+    if (!svg) {
+      return;
+    }
+
+    const focusedDelayedIds =
+      collectFocusedDelayedMemoryIds(svg);
+
+    Array.from(
+      svg.querySelectorAll(".jin-avatar-file-dot")
+    ).forEach((node) => {
+      node.classList.toggle(
+        "is-delayed-memory-linked-hit",
+        shortRuntimeIdSetsIntersect(
+          new Set(
+            normalizeShortRuntimeIds(
+              node.dataset.linkedDelayedMemoryIds
+            )
+          ),
+          focusedDelayedIds
+        )
+      );
+    });
   }
 
   function applyMemoryRowAvatarHoverGlow() {
@@ -2616,7 +3048,7 @@
       getActiveAvatarMemoryHoverIds();
 
     svg.querySelectorAll(
-      ".jin-avatar-orbit, .jin-avatar-counter-orbit, .jin-avatar-memory-dash"
+      ".jin-avatar-orbit, .jin-avatar-counter-orbit, .jin-avatar-memory-dash, .jin-avatar-file-dot"
     ).forEach((node) => {
       const matched = Boolean(
         node.dataset.avatarMemoryHoverId
@@ -2632,6 +3064,7 @@
     });
 
     applyDelayedMemoryFactLinkGlow();
+    applyDelayedMemoryFileLinkGlow();
   }
 
   function normalizeThinkRuntimeCitationHighlightDetail(detail) {
@@ -2706,7 +3139,7 @@
 
     const citationNodes = Array.from(
       svg.querySelectorAll(
-        ".jin-avatar-orbit[data-runtime-line-key], .jin-avatar-counter-orbit[data-runtime-line-key], .jin-avatar-memory-dash"
+        ".jin-avatar-orbit[data-runtime-line-key], .jin-avatar-counter-orbit[data-runtime-line-key], .jin-avatar-memory-dash, .jin-avatar-file-dot[data-runtime-line-key]"
       )
     );
     const lineKeyUsage = new Map();
@@ -2847,7 +3280,8 @@
     lines,
     activeMemoryRecords = [],
     delayedMemoryRecords = [],
-    l4MemoryRecords = []
+    l4MemoryRecords = [],
+    fileRecords = []
   ) {
     return [
       snapshot && snapshot.runtime_memory_id,
@@ -2877,6 +3311,13 @@
         record.value,
         record.archived ? "archived" : "visible",
         record.l4FactIds.join(","),
+      ].join("␟")).join("␞"),
+      fileRecords.map(record => [
+        record.id,
+        record.name,
+        record.pinned ? "pinned" : "idle",
+        record.contextLoaded ? "context" : "stored",
+        record.linkedReportIds.join(","),
       ].join("␟")).join("␞"),
     ].join("␝");
   }
@@ -2911,6 +3352,7 @@
     const activeMemoryRecords = getActiveMemoryAvatarRecords();
     const delayedMemoryRecords = getDelayedMemoryAvatarRecords();
     const l4MemoryRecords = getL4MemoryAvatarRecords();
+    const fileRecords = getPersistentFileAvatarRecords();
     const overallColor = lines.length
       ? computeOverallColor(lines, records)
       : DEFAULT_RING_COLOR;
@@ -2923,7 +3365,8 @@
         lines,
         activeMemoryRecords,
         delayedMemoryRecords,
-        l4MemoryRecords
+        l4MemoryRecords,
+        fileRecords
       ) + `:${options.seedNonce || avatarRefreshNonce}`;
     const shouldAnimate = Boolean(lastRenderSignature) && signature !== lastRenderSignature;
 
@@ -2950,6 +3393,10 @@
       delayedMemoryRecords,
       l4MemoryRecords,
       overallColor
+    );
+    appendFileRing(
+      svg,
+      fileRecords
     );
 
     appendCenter(svg, overallColor, centerColor);
@@ -3297,6 +3744,10 @@
     applyMemoryRowAvatarHoverGlow();
   });
 
+  window.addEventListener("jin:files-store-changed", () => {
+    syncFilesState();
+  });
+
   window.addEventListener(THINK_RUNTIME_CITATION_HIGHLIGHT_EVENT, (event) => {
     const detail = event && event.detail || {};
     const sourceId =
@@ -3352,6 +3803,7 @@
     syncActiveMemoryState,
     syncDelayedMemoryState,
     syncL4MemoryState,
+    syncFilesState,
     get aggressivePalette() {
       return AGGRESSIVE_PALETTE;
     },

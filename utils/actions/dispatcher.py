@@ -1,6 +1,6 @@
 from contracts.rules_assembler import (
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
-    RUNTIME_ACTION_LOAD_ATTACHMENT,
+    RUNTIME_ACTION_ATTACH_FILE,
     RUNTIME_ACTION_LIST_FILES,
     RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
@@ -13,7 +13,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_UPDATE_L4_FACTS,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
-    RUNTIME_ACTION_UNLOAD_ATTACHMENT,
+    RUNTIME_ACTION_DETACH_FILE,
     RUNTIME_ACTION_UNLOAD_SKILL,
     RUNTIME_ACTION_RESOLVE_TODO,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
@@ -858,8 +858,8 @@ async def apply_runtime_action_calls(
 
         if action.name in {
             RUNTIME_ACTION_LIST_FILES,
-            RUNTIME_ACTION_LOAD_ATTACHMENT,
-            RUNTIME_ACTION_UNLOAD_ATTACHMENT,
+            RUNTIME_ACTION_ATTACH_FILE,
+            RUNTIME_ACTION_DETACH_FILE,
         }:
             if not accept_runtime_action_once_per_message(action):
                 continue
@@ -1553,15 +1553,15 @@ async def apply_runtime_action_calls(
         for action in filtered_actions
         if action.name == RUNTIME_ACTION_LIST_FILES
     ]
-    load_attachment_actions = [
+    attach_file_actions = [
         action
         for action in filtered_actions
-        if action.name == RUNTIME_ACTION_LOAD_ATTACHMENT
+        if action.name == RUNTIME_ACTION_ATTACH_FILE
     ]
-    unload_attachment_actions = [
+    detach_file_actions = [
         action
         for action in filtered_actions
-        if action.name == RUNTIME_ACTION_UNLOAD_ATTACHMENT
+        if action.name == RUNTIME_ACTION_DETACH_FILE
     ]
 
     update_l4_facts_actions = [
@@ -1766,8 +1766,8 @@ async def apply_runtime_action_calls(
     attachment_results = await apply_attachment_actions(
         context,
         list_actions=list_file_actions,
-        load_actions=load_attachment_actions,
-        unload_actions=unload_attachment_actions,
+        attach_actions=attach_file_actions,
+        detach_actions=detach_file_actions,
         log_runtime=log_runtime,
         with_action_context=with_action_context,
     )

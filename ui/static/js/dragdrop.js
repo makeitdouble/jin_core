@@ -4,7 +4,9 @@
 const chatColumn = document.querySelector("#chat-drop-zone");
 const fileInput = document.querySelector("#file-input");
 const attachedFiles = document.querySelector("#attached-files");
-const MAX_JIN_ATTACHMENTS = 3;
+const MAX_JIN_ATTACHMENTS = 5;
+const MEMORY_ROW_AVATAR_HOVER_EVENT = "jin:memory-row-avatar-hover";
+
 
 let dragDepth = 0;
 let dropOverlay = null;
@@ -78,6 +80,32 @@ function dispatchStoreChanged() {
       pinned_ids: [...pinnedIds],
     },
   }));
+}
+
+function buildFileAvatarHoverId(fileId) {
+  if (!(window.JinRuntime && typeof window.JinRuntime.buildAvatarMemoryHoverId === "function")) {
+    return "";
+  }
+  return window.JinRuntime.buildAvatarMemoryHoverId("file", fileId);
+}
+
+function dispatchAttachedFileAvatarHover(fileId, active) {
+  const avatarMemoryHoverId = buildFileAvatarHoverId(fileId);
+  window.dispatchEvent(new CustomEvent(MEMORY_ROW_AVATAR_HOVER_EVENT, {
+    detail: active && avatarMemoryHoverId
+      ? {active: true, avatarMemoryHoverId}
+      : {active: false},
+  }));
+}
+
+function bindAttachedFilesPlaqueAvatarHover(element, fileId) {
+  if (!element || !fileId) return;
+  const activate = () => dispatchAttachedFileAvatarHover(fileId, true);
+  const deactivate = () => dispatchAttachedFileAvatarHover(fileId, false);
+  element.addEventListener("mouseenter", activate);
+  element.addEventListener("mouseleave", deactivate);
+  element.addEventListener("focus", activate);
+  element.addEventListener("blur", deactivate);
 }
 
 function syncAttachmentContext() {
@@ -245,9 +273,25 @@ function bindAttachedFilesPlaquePinPreview(element, record) {
   }
 }
 
+function clearAttachedFilesPlaqueHoverPreview() {
+  if (!attachedFiles) return;
+
+  // Removing a hovered attachment node does not fire a native mouseleave.
+  // Explicitly notify the existing hover bindings before the plaque is rebuilt
+  // so the shared image preview cannot remain orphaned after unpin/delete.
+  attachedFiles
+    .querySelectorAll(
+      '[data-jin-attachment-bound="1"], [data-jin-attachment-hover-bound="1"]'
+    )
+    .forEach((element) => {
+      element.dispatchEvent(new Event("mouseleave"));
+    });
+}
+
 function renderAttachedFilesPlaque() {
   if (!attachedFiles) return;
   const records = pinnedIds.map(getFileRecord).filter(Boolean);
+  clearAttachedFilesPlaqueHoverPreview();
   attachedFiles.replaceChildren();
   attachedFiles.classList.toggle("hidden", records.length === 0);
   if (!records.length) return;
@@ -261,7 +305,11 @@ function renderAttachedFilesPlaque() {
   list.className = "jin-attached-files-list";
   records.forEach((record) => {
     const row = document.createElement("div");
+    const fileId = String(record.id || "").toLowerCase();
     row.className = "jin-attached-files-row runtime-memory-delayed-row-pinned";
+    row.dataset.fileId = fileId;
+    row.dataset.avatarMemoryHoverId = buildFileAvatarHoverId(fileId);
+    bindAttachedFilesPlaqueAvatarHover(row, fileId);
     const pin = document.createElement("button");
     pin.type = "button";
     pin.className = "delayed-memory-modal-icon-button delayed-memory-modal-pin runtime-memory-delayed-pin is-pinned";
@@ -270,6 +318,7 @@ function renderAttachedFilesPlaque() {
     pin.setAttribute("aria-label", `Remove ${record.id || "file"} from JIN context`);
     pin.dataset.fileId = String(record.id || "");
     bindAttachedFilesPlaquePinPreview(pin, record);
+    bindAttachedFilesPlaqueAvatarHover(pin, fileId);
     pin.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -280,6 +329,7 @@ function renderAttachedFilesPlaque() {
     name.textContent = record.name || "attachment";
     name.title = `${record.name || "attachment"} · ${formatBytes(record.size_bytes)}`;
     bindAttachedFilesPlaqueName(name, record);
+    bindAttachedFilesPlaqueAvatarHover(name, fileId);
     row.append(pin, name);
     list.appendChild(row);
   });
@@ -384,3 +434,13 @@ window.JinFiles = {
 };
 
 void refreshFiles();
+
+
+window.addEventListener(MEMORY_ROW_AVATAR_HOVER_EVENT, (event) => {
+  const hoverId = String(event && event.detail && event.detail.avatarMemoryHoverId || "").trim();
+  const active = Boolean(event && event.detail && event.detail.active === true && hoverId);
+  if (!attachedFiles) return;
+  attachedFiles.querySelectorAll(".jin-attached-files-row[data-avatar-memory-hover-id]").forEach((row) => {
+    row.classList.toggle("jin-attached-files-row-avatar-hover", active && String(row.dataset.avatarMemoryHoverId || "").trim() === hoverId);
+  });
+});

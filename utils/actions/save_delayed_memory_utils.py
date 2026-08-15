@@ -5,10 +5,11 @@ from .delayed_memory_utils import generate_delayed_memory_report_id
 
 
 LONG_TERM_FACT_ID_RE = re.compile(r"^F[1-9]\d*$", re.IGNORECASE)
+ATTACHMENT_FILE_ID_RE = re.compile(r"^[a-z0-9]{6}$", re.IGNORECASE)
 
 DELAYED_MEMORY_FIELD_RE = re.compile(
     r"(?im)^[^\S\r\n]*(title|summary|tags|body|anchor_fact_ids|"
-    r"facts_ids|absorbed_fact_ids|long_term_facts_ids)"
+    r"facts_ids|attachments_ids|absorbed_fact_ids|long_term_facts_ids)"
     r"[^\S\r\n]*:[^\S\r\n]*(.*)$",
 )
 
@@ -103,6 +104,66 @@ def normalize_delayed_memory_fact_ids(
     ])
 
     return anchor_ids, fact_ids
+
+
+def normalize_delayed_memory_attachment_ids(value) -> list[str]:
+    """Normalize delayed-memory file references without imposing a count cap."""
+
+    source = value if isinstance(value, list) else [value]
+    candidates = []
+
+    for item in source:
+        if isinstance(item, list):
+            candidates.extend(
+                normalize_delayed_memory_attachment_ids(item)
+            )
+            continue
+
+        text = str(item or "").strip()
+
+        if text.startswith("[") and text.endswith("]"):
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                parsed = None
+
+            if isinstance(parsed, list):
+                candidates.extend(
+                    normalize_delayed_memory_attachment_ids(parsed)
+                )
+                continue
+
+        candidates.extend(
+            re.split(
+                r"[,;\s]+",
+                text,
+            )
+        )
+
+    attachment_ids = []
+    seen = set()
+
+    for candidate in candidates:
+        attachment_id = str(
+            candidate
+            or ""
+        ).strip().strip(
+            "\"'[]"
+        ).casefold()
+
+        if (
+            not attachment_id
+            or attachment_id in seen
+            or not ATTACHMENT_FILE_ID_RE.fullmatch(
+                attachment_id
+            )
+        ):
+            continue
+
+        seen.add(attachment_id)
+        attachment_ids.append(attachment_id)
+
+    return attachment_ids
 
 
 def normalize_delayed_memory_fact_roles(
@@ -312,6 +373,17 @@ def parse_delayed_memory_content_payload(
                     if part
                 )
             )
+        elif field_name == "attachments_ids":
+            value = normalize_delayed_memory_attachment_ids(
+                " ".join(
+                    part
+                    for part in (
+                        inline_value,
+                        block_value,
+                    )
+                    if part
+                )
+            )
         else:
             value = inline_value
 
@@ -341,6 +413,9 @@ def parse_delayed_memory_content_payload(
         legacy_absorbed_fact_ids=fields.get("absorbed_fact_ids", []),
         legacy_long_term_fact_ids=fields.get("long_term_facts_ids", []),
     )
+    attachment_ids = normalize_delayed_memory_attachment_ids(
+        fields.get("attachments_ids", [])
+    )
 
     report_id = generate_delayed_memory_report_id(
         ()
@@ -367,6 +442,7 @@ def parse_delayed_memory_content_payload(
             "pinned": False,
             "anchor_fact_ids": anchor_fact_ids,
             "facts_ids": fact_ids,
+            "attachments_ids": attachment_ids,
             "created_session_id": str(
                 created_session_id
                 or ""

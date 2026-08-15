@@ -17,6 +17,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
+    RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
     build_runtime_action_display_text,
@@ -714,6 +715,7 @@ async def ask_brain_stream(
     )
     stop_for_runtime_action = False
     delayed_memory_bubble_started = False
+    active_memory_pending_bubble_ids = []
     update_l4_facts_pending_bubble_ids = []
     asset_action_bubble_started = False
     asset_action_bubble_id = ""
@@ -1386,6 +1388,103 @@ async def ask_brain_stream(
             payload
         )
 
+    async def emit_active_memory_bubble_started(
+        result,
+    ):
+
+        started_actions = tuple(
+            getattr(
+                result,
+                "started_actions",
+                (),
+            )
+            or ()
+        )
+
+        started_count = sum(
+            1
+            for action in started_actions
+            if action.name == RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
+        )
+
+        if not started_count:
+            return
+
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is None:
+            return
+
+        for _ in range(started_count):
+            sequence = int(
+                getattr(
+                    context,
+                    "runtime_active_memory_action_sequence",
+                    0,
+                )
+                or 0
+            ) + 1
+            context.runtime_active_memory_action_sequence = sequence
+
+            action_id = build_runtime_action_id(
+                RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
+                sequence,
+            )
+            active_memory_pending_bubble_ids.append(
+                action_id
+            )
+
+            payload = {
+                "type": "runtime_action",
+                "action": "save_active_memory",
+                "id": action_id,
+                "status": "started",
+                "runtime_message_id": runtime_message_id,
+                "display_name": get_runtime_action_display_name(
+                    RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
+                ),
+                "text": build_runtime_action_display_text(
+                    RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
+                ),
+                "close_tag": runtime_action_has_close_tag(
+                    RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
+                ),
+            }
+
+            if action_context_snapshot:
+                payload["context"] = action_context_snapshot
+
+            await emit(
+                payload
+            )
+
+    def assign_active_memory_bubble_ids(
+        actions,
+        action_display_ids,
+    ):
+
+        for action in actions:
+            if action.name != RUNTIME_ACTION_SAVE_ACTIVE_MEMORY:
+                continue
+
+            action_id = (
+                active_memory_pending_bubble_ids.pop(0)
+                if active_memory_pending_bubble_ids
+                else ""
+            )
+
+            if action_id:
+                action_display_ids[id(action)] = action_id
+
     async def emit_update_l4_facts_bubble_started(
         result,
     ):
@@ -1690,6 +1789,9 @@ async def ask_brain_stream(
         )
 
         await emit_delayed_memory_bubble_started()
+        await emit_active_memory_bubble_started(
+            result
+        )
         await emit_update_l4_facts_bubble_started(
             result
         )
@@ -1852,6 +1954,10 @@ async def ask_brain_stream(
                 display_state=action_guard_display_state,
             )
 
+            assign_active_memory_bubble_ids(
+                immediate_action_calls,
+                action_display_ids,
+            )
             assign_update_l4_facts_bubble_ids(
                 immediate_action_calls,
                 action_display_ids,

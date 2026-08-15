@@ -10,6 +10,7 @@ from utils.actions.delayed_memory_utils import (
     is_delayed_memory_report_id,
 )
 from utils.actions.save_delayed_memory_utils import (
+    normalize_delayed_memory_attachment_ids,
     normalize_delayed_memory_fact_ids,
 )
 
@@ -161,6 +162,9 @@ def normalize_delayed_memory_report(
         legacy_absorbed_fact_ids=report.get("absorbed_fact_ids", []),
         legacy_long_term_fact_ids=report.get("long_term_facts_ids", []),
     )
+    attachments_ids = normalize_delayed_memory_attachment_ids(
+        report.get("attachments_ids", [])
+    )
 
     return normalized_id, {
         "title": title,
@@ -178,6 +182,7 @@ def normalize_delayed_memory_report(
         "pinned": bool(report.get("pinned", False)),
         "anchor_fact_ids": anchor_fact_ids,
         "facts_ids": facts_ids,
+        "attachments_ids": attachments_ids,
         "created_session_id": _clean_text(
             report.get("created_session_id", "")
             or report.get("session", ""),
@@ -284,6 +289,12 @@ def merge_delayed_memory_reports(
         )
         reports[report_id]["anchor_fact_ids"] = anchor_fact_ids
         reports[report_id]["facts_ids"] = facts_ids
+        reports[report_id]["attachments_ids"] = (
+            normalize_delayed_memory_attachment_ids([
+                *fallback_reports[report_id].get("attachments_ids", []),
+                *primary_reports[report_id].get("attachments_ids", []),
+            ])
+        )
         reports[report_id].pop("absorbed_fact_ids", None)
         reports[report_id].pop("long_term_facts_ids", None)
 
@@ -350,6 +361,9 @@ def build_delayed_memory_file_payload(
         ],
         "facts_ids": clean_report[
             "facts_ids"
+        ],
+        "attachments_ids": clean_report[
+            "attachments_ids"
         ],
         "loaded_times": clean_report["loaded_times"],
         "load_streak": clean_report["load_streak"],
@@ -534,6 +548,7 @@ def load_delayed_memory_reports_from_files(
 
     reports = {}
     report_sources = {}
+    report_has_attachments_field = {}
     warnings = []
 
     try:
@@ -577,9 +592,28 @@ def load_delayed_memory_reports_from_files(
             )
             continue
 
+        raw_is_single_report = (
+            isinstance(raw_value, dict)
+            and "title" in raw_value
+            and (
+                "id" in raw_value
+                or "body" in raw_value
+                or "summary" in raw_value
+            )
+        )
+
         for report_id, report in normalized_reports.items():
             previous_source = report_sources.get(
                 report_id
+            )
+
+            report_has_attachments_field[report_id] = (
+                bool(
+                    raw_is_single_report
+                    and "attachments_ids" in raw_value
+                )
+                if raw_is_single_report
+                else True
             )
 
             if previous_source:
@@ -591,5 +625,23 @@ def load_delayed_memory_reports_from_files(
 
             reports[report_id] = report
             report_sources[report_id] = path.name
+
+    for report_id, report in list(reports.items()):
+        if report_has_attachments_field.get(report_id, True):
+            continue
+
+        try:
+            migrated_path = persist_delayed_memory_report(
+                report_id,
+                report,
+                root=root_path,
+            )
+            report_sources[report_id] = migrated_path.name
+            report_has_attachments_field[report_id] = True
+        except (OSError, TypeError, ValueError) as error:
+            warnings.append(
+                "could not add attachments_ids to "
+                f"{report_sources.get(report_id, report_id)}: {error}"
+            )
 
     return reports, warnings

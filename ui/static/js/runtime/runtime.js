@@ -689,6 +689,28 @@ function normalizeRuntimeDelayedMemoryReportId(value) {
     : "";
 }
 
+function normalizeRuntimeDelayedMemoryAttachmentIds(value) {
+  const source = Array.isArray(value) ? value : [value];
+  const ids = [];
+  const seen = new Set();
+
+  source.flat(Infinity).forEach((item) => {
+    String(item || "")
+      .split(/[,;\s]+/)
+      .map((id) => id.trim().replace(/^[\[\]"']+|[\[\]"']+$/g, "").toLowerCase())
+      .filter(Boolean)
+      .forEach((id) => {
+        if (!/^[a-z0-9]{6}$/.test(id) || seen.has(id)) {
+          return;
+        }
+        seen.add(id);
+        ids.push(id);
+      });
+  });
+
+  return ids;
+}
+
 function syncDelayedMemoryReportsToServer(
   options = {}
 ) {
@@ -1371,20 +1393,43 @@ function updateDelayedMemoryReportFields(
     Object.prototype.hasOwnProperty.call(fields, "body")
       ? String(fields.body || "")
       : String(report.body || "");
+  const currentAttachmentIds =
+    normalizeRuntimeDelayedMemoryAttachmentIds(
+      report.attachments_ids
+    );
+  const nextAttachmentIds =
+    Object.prototype.hasOwnProperty.call(fields, "attachments_ids")
+      ? normalizeRuntimeDelayedMemoryAttachmentIds(
+          fields.attachments_ids
+        )
+      : currentAttachmentIds;
+  const attachmentsChanged =
+    nextAttachmentIds.join("|") !== currentAttachmentIds.join("|");
 
   reports[normalizedId] = {
     ...report,
     title: nextTitle,
     summary: nextSummary,
     body: nextBody,
+    attachments_ids: nextAttachmentIds,
   };
 
   writeDelayedMemoryReports(
     reports
   );
 
-  if (runtimeMemoryDisplayMode === "delayed") {
+  if (
+      runtimeMemoryDisplayMode === "delayed"
+      || (attachmentsChanged && runtimeMemoryDisplayMode === "files")
+  ) {
     renderRuntimeMemorySnapshot();
+  }
+
+  if (
+      attachmentsChanged
+      && !syncDelayedMemoryStateToAvatar()
+  ) {
+    refreshRuntimeAvatar();
   }
 
   syncDelayedMemoryReportsToServer();

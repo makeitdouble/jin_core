@@ -133,25 +133,18 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
         )
         self.assertNotIn("feGaussianBlur", source)
 
-    def test_long_field_stripes_are_muted_and_diff_driven(self):
+    def test_runtime_ring_stripes_follow_value_punctuation_and_keep_legacy_look(self):
         source = AVATAR_JS.read_text(encoding="utf-8")
-        css_source = AVATAR_CSS.read_text(encoding="utf-8")
 
-        self.assertIn("function appendLongFieldStripes(group, record, color, options = {})", source)
-        self.assertIn("const energy =", source)
-        self.assertIn("const activeStripeCount = energy > 0.32 ? 2 : 1;", source)
-        self.assertIn("const sharedPhaseOffset =", source)
-        self.assertIn("is-jin-avatar-stripe-breathing", source)
-        self.assertIn("diffPercent,", source)
-        self.assertIn("effectiveSpeed,", source)
-        self.assertIn("--jin-avatar-stripe-soft-opacity", source)
-        self.assertIn("--jin-avatar-stripe-mid-opacity", source)
-        self.assertIn("activeStripe ? 0.165 : 0.058", source)
-        self.assertIn(".jin-avatar-field-stripe", css_source)
-        self.assertIn("@keyframes jin-avatar-field-stripe-breathe", css_source)
-        self.assertIn("--jin-avatar-stripe-base-opacity", css_source)
-        self.assertIn("--jin-avatar-stripe-soft-opacity", css_source)
-        self.assertIn("--jin-avatar-stripe-mid-opacity", css_source)
+        self.assertIn("function appendLongFieldStripes(group, record, color)", source)
+        self.assertIn('if (/[!?]/.test(String(record.value || ""))) {', source)
+        self.assertIn("appendLongFieldStripes(orbitGroup, record, ringColor);", source)
+        self.assertIn("const stripeCount = Math.round(12 + random() * 24);", source)
+        self.assertIn('stroke: color,', source)
+        self.assertIn('"stroke-width": 0.75 + random() * 0.8,', source)
+        self.assertIn('"stroke-opacity": 0.52 + random() * 0.34,', source)
+        self.assertNotIn("if (record.isLong) {", source)
+        self.assertNotIn("is-jin-avatar-stripe-breathing", source)
 
     def test_avatar_shell_aura_uses_jin_color(self):
         css_source = AVATAR_CSS.read_text(encoding="utf-8")
@@ -341,7 +334,7 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            "/static/js/runtime/runtime-avatar.js?v=jin-glow-1",
+            "/static/js/runtime/runtime-avatar.js?v=punctuation-stripes-2",
             source,
         )
         self.assertIn(

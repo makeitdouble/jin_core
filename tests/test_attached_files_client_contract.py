@@ -14,14 +14,14 @@ def test_attached_files_plaque_is_a_fixed_console_footer():
     attached_files = source.index('id="attached-files"')
     console_end = source.index("</section>", console_stream)
     assert console_stream < attached_files < console_end
-    assert "/static/js/dragdrop.js?v=persistent-files-3" in source
+    assert "/static/js/dragdrop.js?v=persistent-files-3-max5-1" in source
 
 
-def test_dragdrop_uses_persistent_api_and_max_three_context_files():
+def test_dragdrop_uses_persistent_api_and_max_five_context_files():
     source = DRAGDROP.read_text(encoding="utf-8")
     assert 'fetch("/api/files"' in source
     assert 'fetch("/api/files/upload"' in source
-    assert "MAX_JIN_ATTACHMENTS = 3" in source
+    assert "MAX_JIN_ATTACHMENTS = 5" in source
     assert 'type: "attachment_context_sync"' in source
     assert "await uploadQueue" in source
     assert "jin:files-store-changed" in source
@@ -81,5 +81,19 @@ def test_files_panel_shows_file_count_and_reuses_100px_image_hover_preview():
     assert 'pinButton.title = String(record.id || "")' in runtime_view
     assert "hoverPreviewMaxPx: 100" in runtime_view
     assert "window.bindJinAttachmentHoverPreview" in attachments
-    assert "/static/js/runtime/runtime-memory-view.js?v=files-panel-hover-3" in index
+    assert "/static/js/runtime/runtime-memory-view.js?v=files-panel-hover-3-delayed-attachments-1-avatar-l1-sync-1" in index
     assert "/static/js/chat-attachments.js?v=attached-files-3" in index
+
+
+def test_delayed_memory_modal_links_existing_files_by_original_name():
+    runtime_view = MEMORY_VIEW.read_text(encoding="utf-8")
+    storage = (ROOT / "ui/static/js/runtime/runtime-storage.js").read_text(encoding="utf-8")
+    memory_css = (ROOT / "ui/static/css/runtime-memory.css").read_text(encoding="utf-8")
+
+    assert "attachments_ids" in storage
+    assert "appendDelayedMemoryAttachmentIdsField" in runtime_view
+    assert "getDelayedMemoryAttachmentRecords" in runtime_view
+    assert 'item.textContent = String(record.name || "attachment")' in runtime_view
+    assert "window.bindJinAttachmentBubble(" in runtime_view
+    assert "hoverPreviewMaxPx: 100" in runtime_view
+    assert ".delayed-memory-modal-attachment" in memory_css

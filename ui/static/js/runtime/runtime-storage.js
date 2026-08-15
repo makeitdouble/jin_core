@@ -1203,6 +1203,38 @@
       : fallbackValue;
   }
 
+  function normalizeDelayedMemoryAttachmentIds(
+    value
+  ) {
+
+    const source =
+      Array.isArray(value)
+        ? value
+        : [value];
+    const attachmentIds = [];
+    const seen = new Set();
+
+    source.flat(Infinity).forEach((item) => {
+      String(item || "")
+        .split(/[,;\s]+/)
+        .map((id) => id.trim().replace(/^[\[\]"']+|[\[\]"']+$/g, "").toLowerCase())
+        .filter(Boolean)
+        .forEach((id) => {
+          if (
+              !/^[a-z0-9]{6}$/.test(id)
+              || seen.has(id)
+          ) {
+            return;
+          }
+
+          seen.add(id);
+          attachmentIds.push(id);
+        });
+    });
+
+    return attachmentIds;
+  }
+
   function normalizeDelayedMemoryReports(
     value
   ) {
@@ -1290,6 +1322,10 @@
                 report.absorbed_fact_ids,
                 report.long_term_facts_ids,
               ]
+            ),
+          attachments_ids:
+            normalizeDelayedMemoryAttachmentIds(
+              report.attachments_ids
             ),
           created_session_id:
             String(report.created_session_id || "").trim(),

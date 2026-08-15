@@ -15,7 +15,7 @@ FILES_DIR = Path("assets/files")
 INDEX_FILE = FILES_DIR / ".index.json"
 GITKEEP_FILE = FILES_DIR / ".gitkeep"
 MAX_FILE_RECORDS = 100
-MAX_ATTACHED_FILES = 3
+MAX_ATTACHED_FILES = 5
 FILE_ID_RE = re.compile(r"^[a-z0-9]{6}$", re.IGNORECASE)
 STORED_NAME_RE = re.compile(r"^([a-z0-9]{6})_(.+)$", re.IGNORECASE)
 
@@ -226,6 +226,29 @@ def get_file_record(file_id: str) -> dict | None:
         if record["id"] == normalized_id:
             return dict(record)
     return None
+
+
+def filter_existing_file_ids(file_ids: Iterable[str]) -> list[str]:
+    """Return valid file ids that still have a physical /assets/files entry."""
+    records_by_id = {
+        record["id"]: record
+        for record in _scan_or_reconcile()
+    }
+    filtered = []
+    seen = set()
+
+    for raw_id in file_ids or ():
+        file_id = str(raw_id or "").strip().casefold()
+        if (
+            not FILE_ID_RE.fullmatch(file_id)
+            or file_id in seen
+            or file_id not in records_by_id
+        ):
+            continue
+        seen.add(file_id)
+        filtered.append(file_id)
+
+    return filtered
 
 
 def get_pinned_file_ids() -> list[str]:

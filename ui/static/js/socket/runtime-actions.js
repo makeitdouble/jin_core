@@ -1008,13 +1008,13 @@ function handleRuntimeAction(
     ].includes(
       status
     );
-  const liveActiveMemoryProgress =
-    action === "save_active_memory"
-    && status === "running";
 
   if (
     counterOnly
-    && reportScopedDelayedAction
+    && (
+      reportScopedDelayedAction
+      || action === "attach_file"
+    )
   ) {
     return;
   }
@@ -1543,8 +1543,6 @@ function handleRuntimeAction(
       closeTag,
       pendingUntilL3,
       forceCompletePendingL3,
-      flushStreamFrame:
-        !liveActiveMemoryProgress,
     }
   );
 

@@ -141,6 +141,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 "pinned": False,
                 "anchor_fact_ids": [],
                 "facts_ids": [],
+                "attachments_ids": [],
                 "created_session_id": "session-1",
                 "created_time": "2026-06-29T12:00:00",
             },
@@ -216,6 +217,31 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         self.assertEqual(
             report_value["facts_ids"],
             ["F1", "F5", "F13", "F25", "F26"],
+        )
+
+    def test_parses_unbounded_attachment_ids_for_delayed_memory_report(self):
+
+        report = parse_delayed_memory_content_payload(
+            (
+                "title: Files context\n"
+                "summary: Linked files.\n"
+                "tags: files\n"
+                "body: Reusable summary.\n"
+                "attachments_ids: abc123, def456, ghi789, jkl012, mno345, pqr678, abc123, bad"
+            )
+        )
+        report_value = next(iter(report.values()))
+
+        self.assertEqual(
+            report_value["attachments_ids"],
+            [
+                "abc123",
+                "def456",
+                "ghi789",
+                "jkl012",
+                "mno345",
+                "pqr678",
+            ],
         )
 
     def test_build_report_keeps_only_existing_l4_fact_ids(self):

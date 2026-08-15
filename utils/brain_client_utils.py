@@ -111,6 +111,7 @@ from utils.actions import (
     parse_delayed_memory_content_payload,
     parse_idle_seconds,
     normalize_jin_color_payload,
+    normalize_delayed_memory_attachment_ids,
     normalize_delayed_memory_fact_ids,
     refresh_active_memory_runtime_metadata,
     strip_active_memory_runtime_metadata,
@@ -427,11 +428,19 @@ def build_delayed_memory_report(
             anchor_fact_ids,
             facts_ids,
         )
+        from utils.attached_files_store import filter_existing_file_ids
+
+        attachments_ids = filter_existing_file_ids(
+            normalize_delayed_memory_attachment_ids(
+                value.get("attachments_ids", [])
+            )
+        )
 
         enriched_report[report_id] = {
             **value,
             "anchor_fact_ids": anchor_fact_ids,
             "facts_ids": facts_ids,
+            "attachments_ids": attachments_ids,
             "pinned": bool(value.get("pinned", False)),
             "created_session_id": (
                 str(

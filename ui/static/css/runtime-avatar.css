@@ -131,6 +131,8 @@
     width: 100%;
     height: 100%;
     overflow: visible;
+    transform: scale(0.90);
+    transform-origin: center;
 }
 
 .jin-runtime-avatar-core-button {
@@ -455,6 +457,19 @@
         drop-shadow(0 0 4px var(--jin-avatar-memory-glow-mid, rgba(147, 197, 253, 0.30)));
 }
 
+.jin-avatar-memory-dash-delayed.is-delayed-memory-secondary-linked {
+    filter:
+        brightness(1.46)
+        saturate(1.32)
+        drop-shadow(0 0 4px var(--jin-avatar-memory-glow-near, rgba(210, 255, 255, 0.46)))
+        drop-shadow(0 0 10px var(--jin-avatar-memory-glow-mid, rgba(90, 235, 245, 0.27)))
+        drop-shadow(0 0 20px var(--jin-avatar-memory-glow-far, rgba(52, 211, 222, 0.12)));
+}
+
+.jin-avatar-memory-dash-delayed.is-delayed-memory-secondary-linked path {
+    stroke-opacity: 0.78;
+}
+
 .jin-avatar-memory-dash.is-runtime-cited,
 .jin-avatar-memory-dash.is-memory-reference-hit,
 .jin-avatar-memory-dash.is-context-loaded,
@@ -501,6 +516,78 @@
 .jin-avatar-memory-dash.is-memory-dot.is-memory-hover-hit circle {
     fill-opacity: 1 !important;
     r: var(--jin-avatar-memory-hover-dot-radius, 2.45px);
+}
+
+
+.jin-avatar-file-ring {
+    opacity: 0.96;
+}
+
+.jin-avatar-file-dot {
+    filter:
+        brightness(1.02)
+        saturate(1.08)
+        drop-shadow(0 0 3px rgba(122, 184, 216, 0.08));
+    transition: filter 0.18s ease, opacity 0.18s ease;
+}
+
+.jin-avatar-file-dot .jin-avatar-file-dot-core {
+    transition:
+        fill 0.16s ease,
+        fill-opacity 0.16s ease,
+        r 0.16s ease;
+}
+
+/* A directly attached/pinned file uses the same bright white accent as a
+   pinned delayed-memory dash. */
+.jin-avatar-file-dot.is-memory-pinned,
+.jin-avatar-file-dot.is-context-loaded {
+    filter:
+        brightness(1.18)
+        drop-shadow(0 0 4px var(--jin-avatar-file-glow-near, rgba(239, 255, 255, 0.92)))
+        drop-shadow(0 0 11px var(--jin-avatar-file-glow-mid, rgba(239, 255, 255, 0.54)));
+}
+
+/* File hover and an indirect delayed-memory -> attachment link use the
+   SAME half-accent as a secondary-linked delayed-memory dash. Do not turn
+   these states into the bright active/pinned white signal. A pinned file
+   always keeps the stronger white state even while it is hovered. */
+.jin-avatar-file-dot:not(.is-memory-pinned):not(.is-context-loaded).is-memory-hover-hit,
+.jin-avatar-file-dot:not(.is-memory-pinned):not(.is-context-loaded).is-delayed-memory-context-linked {
+    filter:
+        brightness(1.46)
+        saturate(1.32)
+        drop-shadow(0 0 4px var(--jin-avatar-file-glow-near, rgba(210, 255, 255, 0.46)))
+        drop-shadow(0 0 10px var(--jin-avatar-file-glow-mid, rgba(90, 235, 245, 0.27)))
+        drop-shadow(0 0 20px var(--jin-avatar-file-glow-far, rgba(52, 211, 222, 0.12)));
+}
+
+.jin-avatar-file-dot:not(.is-memory-pinned):not(.is-context-loaded).is-memory-hover-hit .jin-avatar-file-dot-core,
+.jin-avatar-file-dot:not(.is-memory-pinned):not(.is-context-loaded).is-delayed-memory-context-linked .jin-avatar-file-dot-core {
+    fill-opacity: 0.78 !important;
+}
+
+/* Runtime/reference hits are a separate stronger signal; keep their existing
+   emphasis. They are intentionally not reused for ordinary file hover. */
+.jin-avatar-file-dot:not(.is-memory-pinned):not(.is-context-loaded).is-memory-reference-hit,
+.jin-avatar-file-dot:not(.is-memory-pinned):not(.is-context-loaded).is-delayed-memory-linked-hit {
+    filter:
+        brightness(1.72)
+        saturate(1.65)
+        drop-shadow(0 0 5px var(--jin-avatar-file-glow-near, rgba(190, 252, 255, 0.92)))
+        drop-shadow(0 0 12px var(--jin-avatar-file-glow-mid, rgba(52, 211, 222, 0.54)))
+        drop-shadow(0 0 24px var(--jin-avatar-file-glow-far, rgba(34, 211, 238, 0.24)));
+}
+
+.jin-avatar-file-dot:not(.is-memory-pinned):not(.is-context-loaded).is-memory-reference-hit .jin-avatar-file-dot-core,
+.jin-avatar-file-dot:not(.is-memory-pinned):not(.is-context-loaded).is-delayed-memory-linked-hit .jin-avatar-file-dot-core {
+    fill-opacity: 1 !important;
+    r: 3.45px;
+}
+
+.jin-avatar-file-dot.is-memory-pinned .jin-avatar-file-dot-core,
+.jin-avatar-file-dot.is-context-loaded .jin-avatar-file-dot-core {
+    fill-opacity: 1 !important;
 }
 
 .jin-avatar-center-glow-fill,

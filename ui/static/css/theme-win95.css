@@ -984,3 +984,13 @@ body.theme-win95 .jin-think-content.has-rule-highlights .think-citation-session.
 body.theme-win95 .jin-think-content.has-rule-highlights .think-citation-session.compressed {
     color: #7950b8;
 }
+
+/* Secondary anchor link in the light/Win95 theme: deliberately subtle. */
+body.theme-win95 #memory-panel #runtime-memory-text
+.runtime-memory-delayed-row-secondary-linked:not(.runtime-memory-context-loaded-hit):not(.runtime-memory-delayed-row-pinned) .runtime-memory-key,
+body.theme-win95 #memory-panel #runtime-memory-text
+.runtime-memory-delayed-row-secondary-linked:not(.runtime-memory-context-loaded-hit):not(.runtime-memory-delayed-row-pinned) .runtime-memory-value {
+    color: #244f86 !important;
+    font-weight: 500;
+    text-shadow: none;
+}

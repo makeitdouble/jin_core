@@ -12,6 +12,10 @@ CHAT_RUNTIME_ACTIONS_JS = (
 SOCKET_RUNTIME_ACTIONS_JS = (
     ROOT / "ui" / "static" / "js" / "socket" / "runtime-actions.js"
 )
+RUNTIME_STREAM_PY = ROOT / "runtime" / "stream.py"
+COMMON_ACTION_UTILS_PY = (
+    ROOT / "utils" / "actions" / "common_action_utils.py"
+)
 INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
 
@@ -102,12 +106,12 @@ for (const [input, expected] of cases) {
         )
 
         self.assertIn(
-            '/static/js/chat-runtime-actions.js?v=live-active-perf-1',
+            '/static/js/chat-runtime-actions.js?v=active-hotpath-1',
             source,
         )
 
         self.assertIn(
-            '/static/js/socket/runtime-actions.js?v=live-active-perf-1',
+            '/static/js/socket/runtime-actions.js?v=active-hotpath-1',
             source,
         )
         self.assertIn(
@@ -115,7 +119,13 @@ for (const [input, expected] of cases) {
             source,
         )
 
-    def test_live_active_memory_progress_does_not_force_stream_flush(self):
+    def test_save_active_memory_does_not_add_second_token_hot_path_parser(self):
+        runtime_stream_source = RUNTIME_STREAM_PY.read_text(
+            encoding="utf-8"
+        )
+        common_action_source = COMMON_ACTION_UTILS_PY.read_text(
+            encoding="utf-8"
+        )
         chat_runtime_source = CHAT_RUNTIME_ACTIONS_JS.read_text(
             encoding="utf-8"
         )
@@ -123,21 +133,21 @@ for (const [input, expected] of cases) {
             encoding="utf-8"
         )
 
-        self.assertIn(
+        self.assertNotIn(
+            "emit_live_active_memory_progress",
+            runtime_stream_source,
+        )
+        self.assertNotIn(
+            "get_pending_close_tag_payload",
+            common_action_source,
+        )
+        self.assertNotIn(
+            "liveActiveMemoryProgress",
+            socket_runtime_source,
+        )
+        self.assertNotIn(
             "options.flushStreamFrame !== false",
             chat_runtime_source,
-        )
-        self.assertIn(
-            'action === "save_active_memory"',
-            socket_runtime_source,
-        )
-        self.assertIn(
-            'status === "running"',
-            socket_runtime_source,
-        )
-        self.assertIn(
-            "flushStreamFrame:\n        !liveActiveMemoryProgress",
-            socket_runtime_source,
         )
 
     def test_runtime_action_icons_cover_core_actions(self):

@@ -7,7 +7,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_DEEP_WEB_SEARCH,
     RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
-    RUNTIME_ACTION_LOAD_ATTACHMENT,
+    RUNTIME_ACTION_ATTACH_FILE,
     RUNTIME_ACTION_LIST_FILES,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
@@ -21,7 +21,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_UNLOAD_SKILL,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
-    RUNTIME_ACTION_UNLOAD_ATTACHMENT,
+    RUNTIME_ACTION_DETACH_FILE,
     RUNTIME_ACTION_RESOLVE_TODO,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
@@ -111,6 +111,7 @@ REPEATABLE_RUNTIME_ACTIONS = frozenset({
 })
 
 
+@lru_cache(maxsize=None)
 def _runtime_action_marker_config(
     action_name: str,
 ) -> tuple[str, bool]:
@@ -559,8 +560,8 @@ _ACTION_PAYLOAD_BUILDERS = {
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT: build_save_delayed_memory_payload,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY: build_load_delayed_memory_payload,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY: build_resolve_action_payload,
-    RUNTIME_ACTION_LOAD_ATTACHMENT: build_resolve_action_payload,
-    RUNTIME_ACTION_UNLOAD_ATTACHMENT: build_resolve_action_payload,
+    RUNTIME_ACTION_ATTACH_FILE: build_resolve_action_payload,
+    RUNTIME_ACTION_DETACH_FILE: build_resolve_action_payload,
     RUNTIME_ACTION_LOAD_SKILL: build_load_skill_payload,
     RUNTIME_ACTION_UNLOAD_SKILL: build_resolve_action_payload,
     RUNTIME_ACTION_ASSET_ACTION: build_asset_action_payload,
@@ -1614,50 +1615,6 @@ class RuntimeActionStreamFilter:
         return tuple(
             started_actions
         )
-
-    def get_pending_close_tag_payload(
-        self,
-        action_name: str,
-    ) -> str | None:
-
-        if not self.pending_is_action or not self.pending:
-            return None
-
-        normalized_name = str(action_name or "").strip().upper()
-        if normalized_name not in CLOSE_TAG_RUNTIME_ACTIONS:
-            return None
-
-        private_marker, _ = _runtime_action_marker_config(
-            normalized_name
-        )
-        start_pattern = compile_runtime_action_start_regexp(
-            private_marker,
-            normalized_name,
-        )
-        opening_match = start_pattern.search(self.pending)
-
-        if opening_match is None:
-            return None
-
-        body = self.pending[opening_match.end():]
-        close_marker = f"</{normalized_name}>"
-        upper_body = body.upper()
-        upper_close_marker = close_marker.upper()
-
-        # While the closing tag itself is arriving token-by-token, keep its
-        # partial prefix out of the live payload shown in the UI.
-        for prefix_length in range(
-            min(len(body), len(close_marker) - 1),
-            0,
-            -1,
-        ):
-            if upper_body.endswith(
-                upper_close_marker[:prefix_length]
-            ):
-                body = body[:-prefix_length]
-                break
-
-        return body
 
     @staticmethod
     def _attach_started_actions(

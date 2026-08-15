@@ -1,14 +1,14 @@
 {
-  "unload_attachment": {
+  "detach_file": {
     "version": 1,
     "description": "Removes one persistent file from the JIN context without deleting it.",
-    "runtime_action": "UNLOAD_ATTACHMENT",
-    "private_marker": "<UNLOAD_ATTACHMENT: id >",
+    "runtime_action": "DETACH_FILE",
+    "private_marker": "<DETACH_FILE: id >",
     "triggers": [],
     "blockers": [],
     "effects": {"emit_followup": false},
     "rules": [
-      "Emit <UNLOAD_ATTACHMENT: id > to remove one attached file from context. The saved file remains in FILES storage.",
+      "Emit <DETACH_FILE: id > to detach one file from context. The saved file remains in FILES storage.",
       "id is a placeholder; replace it with the 6-character id shown in <ATTACHED_FILES> or LIST_FILES."
     ],
     "close_tag": false

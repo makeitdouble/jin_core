@@ -44,10 +44,10 @@ def test_persistent_file_name_and_full_content_dedupe(monkeypatch, tmp_path):
     assert len([path for path in files_dir.iterdir() if not path.name.startswith(".")]) == 1
 
 
-def test_max_three_pinned_files_is_deterministic(monkeypatch, tmp_path):
+def test_max_five_pinned_files_is_deterministic(monkeypatch, tmp_path):
     _redirect_store(monkeypatch, tmp_path)
     records = []
-    for index in range(4):
+    for index in range(6):
         record, _created, error = store.store_uploaded_file(
             name=f"{index}.txt",
             content=f"content-{index}".encode(),
@@ -57,15 +57,15 @@ def test_max_three_pinned_files_is_deterministic(monkeypatch, tmp_path):
         assert error is None
 
     pinned_ids = store.get_pinned_file_ids()
-    assert len(pinned_ids) == 3
+    assert len(pinned_ids) == 5
     assert records[0]["id"] not in pinned_ids
-    assert {records[1]["id"], records[2]["id"], records[3]["id"]} == set(pinned_ids)
+    assert {record["id"] for record in records[1:]} == set(pinned_ids)
 
 
-def test_fourth_pin_replaces_oldest_pin_by_id_not_duplicate_title(monkeypatch, tmp_path):
+def test_sixth_pin_replaces_oldest_pin_by_id_not_duplicate_title(monkeypatch, tmp_path):
     _redirect_store(monkeypatch, tmp_path)
     records = []
-    for index in range(4):
+    for index in range(6):
         record, _created, error = store.store_uploaded_file(
             name="image.png",
             content=f"image-{index}".encode(),
@@ -75,21 +75,27 @@ def test_fourth_pin_replaces_oldest_pin_by_id_not_duplicate_title(monkeypatch, t
         assert error is None
         records.append(record)
 
-    clock = iter((100.0, 200.0, 300.0, 400.0))
+    clock = iter((100.0, 200.0, 300.0, 400.0, 500.0, 600.0))
     monkeypatch.setattr(store.time, "time", lambda: next(clock))
 
-    for index in (1, 0, 2):
+    for index in (1, 0, 2, 3, 4):
         updated, error = store.set_file_pinned(records[index]["id"], True)
         assert updated is not None
         assert error is None
 
-    fourth, error = store.set_file_pinned(records[3]["id"], True)
-    assert fourth is not None
+    sixth, error = store.set_file_pinned(records[5]["id"], True)
+    assert sixth is not None
     assert error is None
 
     pinned_ids = store.get_pinned_file_ids()
     assert records[1]["id"] not in pinned_ids
-    assert {records[0]["id"], records[2]["id"], records[3]["id"]} == set(pinned_ids)
+    assert {
+        records[0]["id"],
+        records[2]["id"],
+        records[3]["id"],
+        records[4]["id"],
+        records[5]["id"],
+    } == set(pinned_ids)
 
 
 def test_text_hydration_and_attachment_context_path(monkeypatch, tmp_path):

@@ -6,8 +6,6 @@ import uuid
 import httpx
 
 
-LIVE_ACTIVE_MEMORY_PROGRESS_INTERVAL_SECONDS = 0.05
-
 
 from runtime.state_sync import (
     refresh_runtime_state,
@@ -179,8 +177,6 @@ class RuntimeStream:
         self.action_guard_rejected_aborted = False
         self.context_limit_recovery_armed = False
         self.started_active_memory_action_ids = []
-        self.live_active_memory_payload = None
-        self.live_active_memory_last_emit_at = 0.0
         self.started_delayed_memory_action_ids = []
         self.started_update_l4_facts_action_ids = []
         self.confirmed_action_guard_names = set()
@@ -835,81 +831,6 @@ class RuntimeStream:
             ),
         )
 
-    async def emit_live_active_memory_progress(self) -> None:
-
-        # This method sits directly on the model-token hot path. The live
-        # SAVE_ACTIVE_MEMORY bubble only needs UI-rate updates; emitting one
-        # websocket event per token forces the browser to do synchronous DOM
-        # work and makes the answer stream visibly stutter.
-        if not self.started_active_memory_action_ids:
-            self.live_active_memory_payload = None
-            self.live_active_memory_last_emit_at = 0.0
-            return
-
-        payload = self.action_filter.get_pending_close_tag_payload(
-            RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
-        )
-
-        if payload is None:
-            self.live_active_memory_payload = None
-            self.live_active_memory_last_emit_at = 0.0
-            return
-
-        visible_payload = str(payload or "").lstrip()
-        previous_payload = self.live_active_memory_payload
-
-        if visible_payload == previous_payload:
-            return
-
-        now = asyncio.get_running_loop().time()
-        first_bubble_update = previous_payload is None
-        first_text_update = (
-            previous_payload == ""
-            and bool(visible_payload)
-        )
-
-        if (
-            not first_bubble_update
-            and not first_text_update
-            and self.live_active_memory_last_emit_at > 0.0
-            and (
-                now - self.live_active_memory_last_emit_at
-                < LIVE_ACTIVE_MEMORY_PROGRESS_INTERVAL_SECONDS
-            )
-        ):
-            return
-
-        emitter = getattr(self.context, "emitter", None)
-        emit = getattr(emitter, "emit", None)
-        if emit is None:
-            return
-
-        self.live_active_memory_payload = visible_payload
-        self.live_active_memory_last_emit_at = now
-
-        display_name = get_runtime_action_display_name(
-            RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
-        )
-        display_text = (
-            f"{display_name}: {visible_payload}"
-            if visible_payload
-            else display_name
-        )
-
-        await emit({
-            "type": "runtime_action",
-            "runtime_message_id": self.stream.message_id,
-            "action": "save_active_memory",
-            "id": self.started_active_memory_action_ids[-1],
-            "status": "running",
-            "display_name": display_name,
-            "text": display_text,
-            "payload": visible_payload,
-            "close_tag": runtime_action_has_close_tag(
-                RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
-            ),
-        })
-
     async def filter_runtime_action_content(
         self,
         content: str,
@@ -924,7 +845,6 @@ class RuntimeStream:
         filtered_content = await self.apply_runtime_action_filter_result(
             result,
         )
-        await self.emit_live_active_memory_progress()
 
         return filtered_content
 
