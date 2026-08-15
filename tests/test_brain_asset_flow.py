@@ -8,6 +8,7 @@ from unittest.mock import patch
 from agent.nodes.brain import (
     BrainNode,
     FOLLOWUP_SYSTEM_MESSAGE,
+    POTENTIAL_LOOP_FOLLOWUP_MESSAGE,
     action_batch_requires_follow_up,
     action_event_requires_follow_up,
     build_idle_followup_system_prompt,
@@ -229,6 +230,27 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 context
             ),
             "<TOOLS_RESULTS>\n</TOOLS_RESULTS>",
+        )
+
+    async def test_potential_loop_warning_is_first_followup_instruction(self):
+
+        context = _context()
+        context.runtime_potential_loop_detected_pending = True
+        context.runtime_action_failure_followup_messages = []
+        context.runtime_action_history = []
+
+        prompt = BrainNode.build_followup_system_prompt(
+            "system rules",
+            "save the report",
+            context=context,
+            latest_action="SAVE_DELAYED_MEMORY_CONTENT",
+        )
+
+        self.assertTrue(
+            prompt.startswith(POTENTIAL_LOOP_FOLLOWUP_MESSAGE)
+        )
+        self.assertFalse(
+            context.runtime_potential_loop_detected_pending
         )
 
     async def test_followup_always_contains_tool_results_block(self):

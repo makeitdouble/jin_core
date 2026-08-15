@@ -1339,6 +1339,10 @@
       classNames.push("is-memory-pinned");
     }
 
+    if (options.appended) {
+      classNames.push("is-memory-appended");
+    }
+
     if (options.contextLoaded) {
       classNames.push("is-context-loaded");
     }
@@ -1594,7 +1598,9 @@
       }
 
       const pinned = Boolean(record.pinned);
-      const color = pinned
+      const appended = Boolean(record.appended);
+      const active = pinned || appended;
+      const color = active
         ? PINNED_DELAYED_MEMORY_RING_COLOR
         : mixColors(DELAYED_MEMORY_RING_COLOR, overallColor, 0.12);
 
@@ -1606,11 +1612,12 @@
           angle,
           arcDegrees,
           color,
-          glowColor: pinned
+          glowColor: active
             ? PINNED_DELAYED_MEMORY_RING_COLOR
             : color,
-          opacity: pinned ? 0.82 : 0.36,
+          opacity: active ? 0.82 : 0.36,
           pinned,
+          appended,
           contextLoaded: Boolean(record.loaded),
           avatarMemoryHoverId: record.avatarMemoryHoverId,
           citationKey:
@@ -1818,7 +1825,7 @@
     return true;
   }
 
-  function setDelayedMemoryDashPinned(reportId, pinned) {
+  function setDelayedMemoryDashPinned(reportId, pinned, appended = false) {
     const delayedMemoryId =
       String(reportId || "").trim().toLowerCase();
 
@@ -1842,8 +1849,12 @@
       || DEFAULT_RING_COLOR;
     const nextPinned =
       Boolean(pinned);
+    const nextAppended =
+      Boolean(appended);
+    const nextActive =
+      nextPinned || nextAppended;
     const nextColor =
-      nextPinned
+      nextActive
         ? PINNED_DELAYED_MEMORY_RING_COLOR
         : mixColors(DELAYED_MEMORY_RING_COLOR, overallColor, 0.12);
 
@@ -1851,9 +1862,13 @@
       "is-memory-pinned",
       nextPinned
     );
+    dashGroup.classList.toggle(
+      "is-memory-appended",
+      nextAppended
+    );
     setMemoryDashGlowVariables(
       dashGroup,
-      nextPinned
+      nextActive
         ? PINNED_DELAYED_MEMORY_RING_COLOR
         : nextColor,
       MEMORY_RING_LAYOUT.delayed.strokeWidth + 0.75
@@ -1866,7 +1881,7 @@
       );
       path.setAttribute(
         "stroke-opacity",
-        nextPinned ? "0.82" : "0.36"
+        nextActive ? "0.82" : "0.36"
       );
     }
 
@@ -2048,7 +2063,8 @@
       if (
         !setDelayedMemoryDashPinned(
           record.id,
-          Boolean(record.pinned)
+          Boolean(record.pinned),
+          Boolean(record.appended)
         )
       ) {
         synced = false;

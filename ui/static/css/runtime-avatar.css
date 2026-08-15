@@ -444,7 +444,8 @@
         drop-shadow(0 0 10px var(--jin-avatar-memory-glow-mid, rgba(215, 255, 249, 0.54)));
 }
 
-.jin-avatar-memory-dash-delayed.is-memory-pinned {
+.jin-avatar-memory-dash-delayed.is-memory-pinned,
+.jin-avatar-memory-dash-delayed.is-memory-appended {
     filter:
         brightness(1.18)
         drop-shadow(0 0 4px var(--jin-avatar-memory-glow-near, rgba(239, 255, 255, 0.92)))

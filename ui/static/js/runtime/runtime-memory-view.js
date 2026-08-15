@@ -4487,11 +4487,52 @@
     };
   }
 
+  function hasStoredDelayedMemoryReport(report) {
+    const reportId =
+        getDelayedMemoryReportId(report);
+    const reports =
+        typeof getDelayedMemoryReports === "function"
+          ? getDelayedMemoryReports()
+          : null;
+
+    return Boolean(
+      reportId
+      && reports
+      && typeof reports === "object"
+      && !Array.isArray(reports)
+      && reports[reportId]
+      && typeof reports[reportId] === "object"
+      && !Array.isArray(reports[reportId])
+    );
+  }
+
+  function syncDelayedMemoryModalActionVisibility(report) {
+    const exists =
+        hasStoredDelayedMemoryReport(report);
+
+    if (delayedMemoryModalPinButton) {
+      delayedMemoryModalPinButton.classList.toggle(
+        "hidden",
+        !exists
+      );
+    }
+
+    if (delayedMemoryModalDeleteButton) {
+      delayedMemoryModalDeleteButton.classList.toggle(
+        "hidden",
+        !exists
+      );
+    }
+
+    return exists;
+  }
+
   function updateDelayedMemoryModalPinState(report) {
     if (!delayedMemoryModalPinButton) {
       return;
     }
 
+    syncDelayedMemoryModalActionVisibility(report);
     syncDelayedMemoryPinButtonState(
       delayedMemoryModalPinButton,
       report
@@ -4712,6 +4753,7 @@
   function deleteDelayedMemoryModalReport() {
     if (
         !delayedMemoryModalReport
+        || !hasStoredDelayedMemoryReport(delayedMemoryModalReport)
         || typeof deleteDelayedMemoryReport !== "function"
     ) {
       return;
@@ -4944,6 +4986,7 @@
         () => {
           if (
               !delayedMemoryModalReport
+              || !hasStoredDelayedMemoryReport(delayedMemoryModalReport)
               || (
                 typeof handleDelayedMemoryReportPinClick !== "function"
                 && typeof setDelayedMemoryReportPinned !== "function"

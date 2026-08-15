@@ -428,14 +428,18 @@ def remember_successful_previous_reasoning(
     context.runtime_previous_reasoning_loop_contents = []
 
 
+POTENTIAL_LOOP_FOLLOWUP_MESSAGE = (
+    "!!!POTENTIAL LOOP DETECTED - STOP EXECUTING AND ANALYZE!!!"
+)
+
+
 FOLLOWUP_SYSTEM_MESSAGE = (
-    "!!!USER IS WAITING!!!\n"
-    "!!!DO NOT START A NEW SEQUENCE!!!\n"
-    "!!!YOU MUST stop execute and notify user if the original user request is satisfied by CURRENT SEQUENCE steps!!!\n"
+    "!!!YOU MUST CHECK TOOL RESULTS ANS STOP execute and notify user if the original user request is satisfied by CURRENT SEQUENCE steps!!!\n"
     "YOU MUST USE CURRENT_SEQUENCE BLOCK AS THE SOLE SOURCE OF TRUTH FOR THE ACTION ORDER AND EXECUTION STATUS!\n"
     "DERIVE REMAINING STEPS FROM <INITIAL_SEQUENCE_USER_MESSAGE> AND CONTINUE FROM CURRENT_SEQUENCE OR STOP AND NOTIFY USER!\n"
     "\n"
     "If conditions are not met - continue without confirmation!\n"
+    "!!!DO NOT START A NEW SEQUENCE!!!\n"
     "\n"
 )
 
@@ -931,11 +935,28 @@ class BrainNode(BaseNode):
             )
         )
 
-        sections = [
+        potential_loop_detected = bool(
+            context is not None
+            and getattr(
+                context,
+                "runtime_potential_loop_detected_pending",
+                False,
+            )
+        )
+
+        sections = []
+
+        if potential_loop_detected:
+            sections.append(
+                POTENTIAL_LOOP_FOLLOWUP_MESSAGE
+            )
+            context.runtime_potential_loop_detected_pending = False
+
+        sections.append(
             build_followup_system_message(
                 latest_action
-            ),
-        ]
+            )
+        )
 
         if instruction.strip():
             sections.append(

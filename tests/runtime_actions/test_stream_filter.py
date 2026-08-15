@@ -17,6 +17,7 @@ from contracts.rules_assembler import (
     normalize_runtime_action_names,
 )
 from rules.brain_context_builder import build_loaded_delayed_memory_context
+from runtime.stream import RuntimeStream
 from tests.helpers.runtime_actions import (
     FakeContext,
     FakeEmitter,
@@ -60,6 +61,54 @@ from utils.tool_results import (
 
 
 class RuntimeStreamFilterTests(RuntimeActionTestCase):
+
+    def test_duplicate_delayed_memory_title_guard_matches_exact_title(self):
+
+        stream = RuntimeStream.__new__(RuntimeStream)
+        stream.context = SimpleNamespace(
+            delayed_memory_reports={
+                "abc123": {
+                    "title": "Experiment: Gemma substrate",
+                },
+            },
+        )
+        action = RuntimeActionCall(
+            name="SAVE_DELAYED_MEMORY_CONTENT",
+            payload=(
+                "title: Experiment: Gemma substrate\n"
+                "summary: duplicate\n"
+                "body: duplicate"
+            ),
+        )
+
+        self.assertEqual(
+            stream.get_duplicate_delayed_memory_title(action),
+            "Experiment: Gemma substrate",
+        )
+
+    def test_duplicate_delayed_memory_title_guard_is_exact_not_casefolded(self):
+
+        stream = RuntimeStream.__new__(RuntimeStream)
+        stream.context = SimpleNamespace(
+            delayed_memory_reports={
+                "abc123": {
+                    "title": "Experiment: Gemma substrate",
+                },
+            },
+        )
+        action = RuntimeActionCall(
+            name="SAVE_DELAYED_MEMORY_CONTENT",
+            payload=(
+                "title: experiment: Gemma substrate\n"
+                "summary: different title\n"
+                "body: allowed"
+            ),
+        )
+
+        self.assertEqual(
+            stream.get_duplicate_delayed_memory_title(action),
+            "",
+        )
 
     def test_extract_runtime_actions_handles_none_text(self):
 

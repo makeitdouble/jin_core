@@ -175,6 +175,7 @@ class RuntimeStream:
         self.action_counter = RuntimeActionCounter()
         self.marker_repetition_aborted = False
         self.action_guard_rejected_aborted = False
+        self.potential_loop_aborted = False
         self.context_limit_recovery_armed = False
         self.started_active_memory_action_ids = []
         self.started_delayed_memory_action_ids = []
@@ -1133,6 +1134,175 @@ class RuntimeStream:
         )
 
 
+    def get_duplicate_delayed_memory_title(
+        self,
+        action,
+    ) -> str:
+
+        if (
+            action.name
+            != RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+            or not action.payload
+        ):
+            return ""
+
+        from utils.brain_client_utils import (
+            build_delayed_memory_report,
+        )
+
+        candidate_report = build_delayed_memory_report(
+            self.context,
+            action.payload,
+        )
+        candidate_title = ""
+
+        for report_value in (
+            candidate_report.values()
+            if isinstance(candidate_report, dict)
+            else ()
+        ):
+            if not isinstance(report_value, dict):
+                continue
+            candidate_title = str(
+                report_value.get("title", "") or ""
+            ).strip()
+            if candidate_title:
+                break
+
+        if not candidate_title:
+            return ""
+
+        existing_reports = getattr(
+            self.context,
+            "delayed_memory_reports",
+            {},
+        )
+        if not isinstance(existing_reports, dict):
+            return ""
+
+        for report_value in existing_reports.values():
+            if not isinstance(report_value, dict):
+                continue
+            existing_title = str(
+                report_value.get("title", "") or ""
+            ).strip()
+            if existing_title == candidate_title:
+                return candidate_title
+
+        return ""
+
+    async def abort_duplicate_delayed_memory_save(
+        self,
+        action,
+        duplicate_title: str,
+    ) -> None:
+
+        duplicate_title = str(duplicate_title or "").strip()
+        if not duplicate_title:
+            return
+
+        self.potential_loop_aborted = True
+        self.context.runtime_turn_interrupted = True
+        self.context.runtime_reasoning_recovery_pending = True
+        self.context.runtime_potential_loop_detected_pending = True
+        self.context.runtime_turn_interruption_reason = (
+            "Potential delayed-memory save loop detected: "
+            f"duplicate title {duplicate_title!r}."
+        )
+        self.context.runtime_turn_interruption_quote = duplicate_title
+
+        action_id = self.get_runtime_action_display_id(action)
+        runtime_turn_id = str(
+            getattr(
+                self.context,
+                "runtime_current_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
+        failure_result = {
+            "ok": False,
+            "action": "save_delayed_memory_content",
+            "id": action_id,
+            "title": duplicate_title,
+            "error": "duplicate_delayed_memory_title",
+            "detail": (
+                "Potential loop detected. A delayed memory report with "
+                "the exact same title already exists; save was blocked."
+            ),
+        }
+        if runtime_turn_id:
+            failure_result["runtime_turn_id"] = runtime_turn_id
+
+        from utils.brain_client_utils import (
+            record_delayed_memory_runtime_result,
+        )
+
+        record_delayed_memory_runtime_result(
+            self.context,
+            failure_result,
+        )
+
+        action_events = getattr(
+            self.context,
+            "runtime_action_events",
+            None,
+        )
+        if not isinstance(action_events, list):
+            action_events = []
+            self.context.runtime_action_events = action_events
+
+        action_event = {
+            "name": "save_delayed_memory_content",
+            "status": "failed",
+            "id": action_id,
+            "title": duplicate_title,
+            "error": "duplicate_delayed_memory_title",
+        }
+        if runtime_turn_id:
+            action_event["runtime_turn_id"] = runtime_turn_id
+        action_events.append(action_event)
+
+        record_session_action_history(
+            self.context,
+            (
+                "SAVE_DELAYED_MEMORY_CONTENT - failed: "
+                f"{duplicate_title} "
+                "(duplicate delayed memory title; potential loop blocked)"
+            ),
+        )
+
+        emitter = getattr(self.context, "emitter", None)
+        emit = getattr(emitter, "emit", None)
+        if emit is not None:
+            await emit({
+                "type": "runtime_action",
+                "runtime_message_id": self.stream.message_id,
+                "action": "save_delayed_memory_content",
+                "id": action_id,
+                "status": "failed",
+                "display_name": get_runtime_action_display_name(
+                    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                ),
+                "close_tag": runtime_action_has_close_tag(
+                    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                ),
+                "text": duplicate_title,
+                "error": "duplicate_delayed_memory_title",
+                "detail": failure_result["detail"],
+                "context": (
+                    dict(self.context_snapshot)
+                    if isinstance(self.context_snapshot, dict)
+                    else None
+                ),
+            })
+
+        await self.logger.log_runtime(
+            "[RUNTIME ACTION] duplicate delayed memory title guard "
+            f"interrupted stream: {duplicate_title!r}"
+        )
+
+
     async def apply_runtime_action_filter_result(
         self,
         result,
@@ -1241,12 +1411,35 @@ class RuntimeStream:
             )
 
             if immediate_actions:
-                (
-                    confirmed_action_ids,
-                    rejected_action_ids,
-                ) = await self.confirm_unmatched_action_guards(
-                    immediate_actions
-                )
+                duplicate_detected = False
+
+                for action in immediate_actions:
+                    duplicate_title = (
+                        self.get_duplicate_delayed_memory_title(action)
+                    )
+                    if not duplicate_title:
+                        continue
+
+                    duplicate_detected = True
+                    await self.abort_duplicate_delayed_memory_save(
+                        action,
+                        duplicate_title,
+                    )
+                    break
+
+                if duplicate_detected:
+                    immediate_actions = ()
+
+                if not immediate_actions:
+                    confirmed_action_ids = set()
+                    rejected_action_ids = set()
+                else:
+                    (
+                        confirmed_action_ids,
+                        rejected_action_ids,
+                    ) = await self.confirm_unmatched_action_guards(
+                        immediate_actions
+                    )
 
                 for action in immediate_actions:
                     if (
@@ -2823,6 +3016,14 @@ class RuntimeStream:
                     ):
                         break
 
+                    if self.potential_loop_aborted:
+                        self.capture_runtime_turn_response()
+                        await self.close_active_streams()
+                        await self.close_generator(
+                            generator
+                        )
+                        break
+
                     if self.action_guard_rejected_aborted:
                         await self.close_active_streams()
                         await self.close_generator(
@@ -2872,6 +3073,7 @@ class RuntimeStream:
                 if (
                     self.marker_repetition_aborted
                     or self.action_guard_rejected_aborted
+                    or self.potential_loop_aborted
                 )
                 else await self.flush_runtime_action_content()
             )
