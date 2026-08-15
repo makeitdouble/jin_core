@@ -401,6 +401,10 @@ function abortGeneration() {
 
   clearInterruptedRuntimeGlow();
 
+  if (window.releaseActiveStreamAvatar) {
+    window.releaseActiveStreamAvatar();
+  }
+
   setGenerationState(
     false
   );
@@ -635,6 +639,10 @@ function handleSocketClose() {
   window.jinWebSocketConnected = false;
 
   clearInterruptedRuntimeGlow();
+
+  if (window.releaseActiveStreamAvatar) {
+    window.releaseActiveStreamAvatar();
+  }
 
   setGenerationState(
     false

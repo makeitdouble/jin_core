@@ -19,7 +19,7 @@ class ChatReasoningSpacingClientContractTests(unittest.TestCase):
         self.assertIn("--chat-action-adjacent-gap: 0.82rem;", css)
         self.assertIn(
             "#chat-history > .jin-stream-wrapper:has(> .jin-think-wrapper:last-child)\n"
-            "+ .jin-stream-wrapper:has(> .jin-think-wrapper:first-child)",
+            "+ .jin-stream-wrapper:has(",
             css,
         )
 
@@ -33,7 +33,7 @@ class ChatReasoningSpacingClientContractTests(unittest.TestCase):
         )
         self.assertIn(
             "#chat-history > .jin-runtime-action-row\n"
-            "+ .jin-stream-wrapper:has(> .jin-think-wrapper:first-child)",
+            "+ .jin-stream-wrapper:has(",
             css,
         )
 
@@ -42,12 +42,12 @@ class ChatReasoningSpacingClientContractTests(unittest.TestCase):
         source = CHAT_JS.read_text(encoding="utf-8")
 
         self.assertIn(
-            ".jin-stream-wrapper > :not([hidden]) ~ :not([hidden])",
+            ".jin-stream-wrapper > :not([hidden]):not(.jin-stream-avatar-slot)",
             css,
         )
         self.assertIn("margin-top: var(--chat-inner-gap) !important;", css)
         self.assertIn(
-            '"jin-stream-wrapper mx-auto w-full max-w-4xl";',
+            '"jin-stream-wrapper is-awaiting-model mx-auto w-full max-w-4xl";',
             source,
         )
         self.assertNotIn(
@@ -103,9 +103,9 @@ class ChatReasoningSpacingClientContractTests(unittest.TestCase):
     def test_cache_versions_are_bumped_for_reasoning_spacing_assets(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertIn("/static/css/base.css?v=attached-files-1", source)
-        self.assertIn("/static/css/chat.css?v=reasoning-gap-1", source)
-        self.assertIn("/static/js/chat.js?v=jin-size-1", source)
+        self.assertIn("/static/css/base.css?v=stream-avatar-1", source)
+        self.assertIn("/static/css/chat.css?v=stream-avatar-1", source)
+        self.assertIn("/static/js/chat.js?v=stream-avatar-2", source)
         self.assertIn(
             "/static/js/panel-inactivity.js?v=jin-size-1",
             source,

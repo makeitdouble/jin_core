@@ -76,6 +76,10 @@ function handleSocketError(
     false
   );
 
+  if (window.releaseActiveStreamAvatar) {
+    window.releaseActiveStreamAvatar();
+  }
+
   appendLog(
     "[ERROR]",
     data.message,
@@ -139,6 +143,10 @@ function handleAgentRuntimeStart() {
 }
 
 function handleAgentRuntimeEnd() {
+
+  if (window.releaseActiveStreamAvatar) {
+    window.releaseActiveStreamAvatar();
+  }
 
   if (window.flushRuntimeTelemetryRender) {
     window.flushRuntimeTelemetryRender({

@@ -46,7 +46,80 @@
     position: relative;
 }
 
-.jin-stream-wrapper > :not([hidden]) ~ :not([hidden]) {
+.jin-stream-wrapper.is-awaiting-model {
+    /* До первого токена держим место только под кликабельную BR/SV-аватарку. */
+    min-height: 28px;
+}
+
+.jin-stream-avatar-slot {
+    position: absolute;
+    left: 48px;
+    top: 0;
+    width: 28px;
+    height: 28px;
+    z-index: 3;
+    pointer-events: none;
+    transform: translate3d(0, 0, 0);
+    transition:
+            left 0.24s cubic-bezier(0.22, 0.72, 0.22, 1),
+            top 0.24s cubic-bezier(0.22, 0.72, 0.22, 1),
+            transform 0.26s cubic-bezier(0.22, 0.72, 0.22, 1);
+    will-change: left, top, transform;
+}
+
+.jin-stream-avatar-slot > .jin-chat-avatar {
+    pointer-events: auto;
+}
+
+.jin-stream-avatar-spacer {
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.jin-stream-avatar.is-processing {
+    transform-origin: 50% 50%;
+    animation: jin-chat-avatar-processing 1.18s ease-in-out infinite;
+    will-change: opacity, transform;
+}
+
+.jin-stream-avatar.is-settled {
+    opacity: 1;
+    transform: scale(1);
+    animation: none;
+    transition:
+            opacity 0.18s ease,
+            transform 0.18s ease;
+}
+
+@keyframes jin-chat-avatar-processing {
+    0%, 100% {
+        opacity: 0.48;
+        transform: scale(0.90);
+    }
+
+    50% {
+        opacity: 0.96;
+        transform: scale(1.00);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .jin-stream-avatar-slot {
+        transition: none;
+    }
+
+    .jin-stream-avatar.is-processing {
+        opacity: 0.82;
+        transform: none;
+        animation: none;
+    }
+}
+
+.jin-stream-wrapper > :not([hidden]):not(.jin-stream-avatar-slot)
+~ :not([hidden]):not(.jin-stream-avatar-slot) {
     margin-top: var(--chat-inner-gap) !important;
 }
 

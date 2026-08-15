@@ -10,6 +10,12 @@ const chatInputShell =
 const streamMessages =
   new Map();
 
+const STREAM_AVATAR_LEFT_PX = 48;
+const STREAM_AVATAR_SIZE_PX = 28;
+const STREAM_AVATAR_HANDOFF_MS = 260;
+const STREAM_AVATAR_LAYOUT_TRACK_MS = 340;
+let activeStreamAvatarStream = null;
+
 const STREAM_FRAME_WARNING_MS = 12;
 const STREAM_NEAR_BOTTOM_PX = 72;
 const MEMORY_REFERENCE_HIGHLIGHT_EVENT =
@@ -748,11 +754,17 @@ function flushStreamFrame() {
       stream
     );
 
+    let streamAvatarNeedsSync = false;
+
     if (stream.pendingThinking) {
 
       if (
         !stream.group.createdThinking
       ) {
+
+        stream.group.wrapper.classList.remove(
+          "is-awaiting-model"
+        );
 
         stream.group.wrapper.appendChild(
           stream.group.thinkWrapper
@@ -760,6 +772,7 @@ function flushStreamFrame() {
 
         stream.group.createdThinking =
           true;
+        streamAvatarNeedsSync = true;
 
       }
 
@@ -775,6 +788,7 @@ function flushStreamFrame() {
 
       stream.pendingThinking =
         "";
+      streamAvatarNeedsSync = true;
 
     }
 
@@ -784,12 +798,17 @@ function flushStreamFrame() {
         !stream.group.createdAnswer
       ) {
 
+        stream.group.wrapper.classList.remove(
+          "is-awaiting-model"
+        );
+
         stream.group.wrapper.appendChild(
           stream.group.messageRow
         );
 
         stream.group.createdAnswer =
           true;
+        streamAvatarNeedsSync = true;
 
       }
 
@@ -805,7 +824,14 @@ function flushStreamFrame() {
 
       stream.pendingAnswer =
         "";
+      streamAvatarNeedsSync = true;
 
+    }
+
+    if (streamAvatarNeedsSync) {
+      syncStreamAvatarPosition(
+        stream
+      );
     }
 
   });
@@ -1209,6 +1235,391 @@ function appendChatMessage(
 }
 // CREATE STREAM GROUP
 
+function setStreamAvatarProcessing(
+  stream,
+  active
+) {
+
+  const avatar =
+    stream
+    && stream.group
+    && stream.group.avatar;
+
+  if (!avatar) {
+    return;
+  }
+
+  avatar.classList.toggle(
+    "is-processing",
+    Boolean(active)
+  );
+  avatar.classList.toggle(
+    "is-settled",
+    !active
+  );
+
+}
+
+function disconnectStreamThinkResizeObserver(
+  stream
+) {
+
+  const observer =
+    stream
+    && stream.group
+    && stream.group.thinkResizeObserver;
+
+  if (!observer) {
+    return;
+  }
+
+  observer.disconnect();
+  stream.group.thinkResizeObserver = null;
+
+}
+
+function syncStreamAvatarPosition(
+  stream
+) {
+
+  if (
+    !stream
+    || !stream.group
+    || !stream.group.avatarSlot
+  ) {
+    return;
+  }
+
+  const group = stream.group;
+  const avatarSlot = group.avatarSlot;
+
+  let left = STREAM_AVATAR_LEFT_PX;
+  let top = 0;
+
+  if (
+    group.createdAnswer
+    && group.messageRow
+    && group.messageRow.isConnected
+  ) {
+    left =
+      group.messageRow.offsetLeft
+      + STREAM_AVATAR_LEFT_PX;
+    top = group.messageRow.offsetTop;
+
+    setStreamAvatarProcessing(
+      stream,
+      false
+    );
+    disconnectStreamThinkResizeObserver(
+      stream
+    );
+  } else if (
+    group.createdThinking
+    && group.thinkWrapper
+    && group.thinkContent
+    && group.thinkWrapper.isConnected
+  ) {
+    left = STREAM_AVATAR_LEFT_PX;
+    top = group.thinkWrapper.offsetTop;
+
+    if (
+      !group.thinkContent.classList.contains(
+        "is-collapsed"
+      )
+    ) {
+      top += Math.max(
+        0,
+        group.thinkContent.offsetHeight
+        - STREAM_AVATAR_SIZE_PX
+      );
+    }
+  }
+
+  avatarSlot.style.left =
+    `${Math.round(left)}px`;
+  avatarSlot.style.top =
+    `${Math.round(top)}px`;
+
+}
+
+function queueStreamAvatarPositionSync(
+  stream
+) {
+
+  requestAnimationFrame(
+    () => {
+      syncStreamAvatarPosition(
+        stream
+      );
+    }
+  );
+
+}
+
+function trackStreamAvatarLayoutTransition(
+  stream
+) {
+
+  if (
+    !stream
+    || !stream.group
+    || !stream.group.avatarSlot
+  ) {
+    return;
+  }
+
+  const group = stream.group;
+  const trackId =
+    (group.avatarLayoutTrackId || 0) + 1;
+  const startedAt = nowMs();
+
+  group.avatarLayoutTrackId =
+    trackId;
+
+  const tick = () => {
+
+    if (
+      group.avatarLayoutTrackId !== trackId
+      || !group.avatarSlot
+      || !group.avatarSlot.isConnected
+    ) {
+      return;
+    }
+
+    syncStreamAvatarPosition(
+      stream
+    );
+
+    if (
+      nowMs() - startedAt
+      < STREAM_AVATAR_LAYOUT_TRACK_MS
+    ) {
+      requestAnimationFrame(
+        tick
+      );
+      return;
+    }
+
+    syncStreamAvatarPosition(
+      stream
+    );
+
+  };
+
+  requestAnimationFrame(
+    tick
+  );
+
+}
+
+function installStreamThinkResizeObserver(
+  stream
+) {
+
+  if (
+    !stream
+    || !stream.group
+    || !stream.group.thinkContent
+    || typeof ResizeObserver !== "function"
+  ) {
+    return;
+  }
+
+  disconnectStreamThinkResizeObserver(
+    stream
+  );
+
+  const observer = new ResizeObserver(
+    () => {
+      if (
+        !stream.group.createdThinking
+        || stream.group.createdAnswer
+      ) {
+        return;
+      }
+
+      queueStreamAvatarPositionSync(
+        stream
+      );
+    }
+  );
+
+  observer.observe(
+    stream.group.thinkContent
+  );
+  stream.group.thinkResizeObserver =
+    observer;
+
+}
+
+function animateStreamAvatarHandoff(
+  stream,
+  fromRect
+) {
+
+  const slot =
+    stream
+    && stream.group
+    && stream.group.avatarSlot;
+
+  if (
+    !slot
+    || !fromRect
+    || !slot.isConnected
+  ) {
+    return;
+  }
+
+  syncStreamAvatarPosition(
+    stream
+  );
+
+  const toRect =
+    slot.getBoundingClientRect();
+  const deltaX =
+    fromRect.left - toRect.left;
+  const deltaY =
+    fromRect.top - toRect.top;
+
+  if (
+    Math.abs(deltaX) < 0.5
+    && Math.abs(deltaY) < 0.5
+  ) {
+    return;
+  }
+
+  slot.style.transition = "none";
+  slot.style.transform =
+    `translate3d(${deltaX}px, ${deltaY}px, 0)`;
+
+  // Force the origin transform to be painted before the handoff transition.
+  slot.getBoundingClientRect();
+
+  requestAnimationFrame(
+    () => {
+      slot.style.removeProperty(
+        "transition"
+      );
+      slot.style.transform =
+        "translate3d(0, 0, 0)";
+
+      window.setTimeout(
+        () => {
+          if (slot.isConnected) {
+            slot.style.removeProperty(
+              "transform"
+            );
+          }
+        },
+        STREAM_AVATAR_HANDOFF_MS + 40
+      );
+    }
+  );
+
+}
+
+function activateStreamAvatar(
+  stream
+) {
+
+  const previous =
+    activeStreamAvatarStream;
+  let previousRect = null;
+
+  if (
+    previous
+    && previous !== stream
+    && previous.group
+    && previous.group.avatarSlot
+    && !previous.group.createdAnswer
+  ) {
+    previousRect =
+      previous.group.avatarSlot.getBoundingClientRect();
+
+    previous.group.avatarSlot.remove();
+    previous.group.avatarSlot = null;
+    previous.group.avatar = null;
+    disconnectStreamThinkResizeObserver(
+      previous
+    );
+
+    if (previous.group.wrapper) {
+      previous.group.wrapper.classList.remove(
+        "is-awaiting-model"
+      );
+
+      if (
+        previous.group.wrapper.childElementCount === 0
+      ) {
+        previous.group.wrapper.remove();
+      }
+    }
+  }
+
+  activeStreamAvatarStream = stream;
+
+  setStreamAvatarProcessing(
+    stream,
+    true
+  );
+  syncStreamAvatarPosition(
+    stream
+  );
+
+  if (previousRect) {
+    animateStreamAvatarHandoff(
+      stream,
+      previousRect
+    );
+  }
+
+}
+
+function releaseActiveStreamAvatar() {
+
+  const stream =
+    activeStreamAvatarStream;
+
+  if (stream) {
+    const group = stream.group || {};
+    const hasVisibleStreamContent =
+      Boolean(
+        group.createdThinking
+        || group.createdAnswer
+      );
+
+    if (!hasVisibleStreamContent) {
+      disconnectStreamThinkResizeObserver(
+        stream
+      );
+
+      if (group.avatarSlot) {
+        group.avatarSlot.remove();
+        group.avatarSlot = null;
+        group.avatar = null;
+      }
+
+      if (group.wrapper) {
+        group.wrapper.classList.remove(
+          "is-awaiting-model"
+        );
+
+        if (group.wrapper.childElementCount === 0) {
+          group.wrapper.remove();
+        }
+      }
+    } else {
+      setStreamAvatarProcessing(
+        stream,
+        false
+      );
+    }
+  }
+
+  activeStreamAvatarStream = null;
+
+}
+
 function scrollCollapsedThinkToLatest(
   thinkContent
 ) {
@@ -1292,7 +1703,31 @@ function createStreamGroup(
     document.createElement("div");
 
   wrapper.className =
-    "jin-stream-wrapper mx-auto w-full max-w-4xl";
+    "jin-stream-wrapper is-awaiting-model mx-auto w-full max-w-4xl";
+
+  const avatarSlot =
+    document.createElement("div");
+
+  avatarSlot.className =
+    "jin-stream-avatar-slot";
+
+  const avatar =
+    createAvatarElement(
+      role,
+      contextSnapshot
+    );
+
+  avatar.classList.add(
+    "jin-stream-avatar",
+    "is-processing"
+  );
+
+  avatarSlot.appendChild(
+    avatar
+  );
+  wrapper.appendChild(
+    avatarSlot
+  );
 
   // THINKING
 
@@ -1357,6 +1792,13 @@ function createStreamGroup(
       );
     }
 
+    if (
+      typeof thinkContent.__jinStreamAvatarSync
+      === "function"
+    ) {
+      thinkContent.__jinStreamAvatarSync();
+    }
+
   };
 
   thinkContent.addEventListener(
@@ -1400,6 +1842,16 @@ function createStreamGroup(
   messageRow.className =
     "jin-message-row";
 
+  const avatarSpacer =
+    document.createElement("div");
+
+  avatarSpacer.className =
+    "jin-stream-avatar-spacer";
+  avatarSpacer.setAttribute(
+    "aria-hidden",
+    "true"
+  );
+
   const pre =
     document.createElement("pre");
 
@@ -1415,10 +1867,7 @@ function createStreamGroup(
   bubble.appendChild(pre);
 
   messageRow.appendChild(
-    createAvatarElement(
-      role,
-      contextSnapshot
-    )
+    avatarSpacer
   );
 
   messageRow.appendChild(
@@ -1433,6 +1882,8 @@ function createStreamGroup(
 
   return {
     wrapper,
+    avatarSlot,
+    avatar,
     thinkWrapper,
     thinkContent,
     messageRow,
@@ -1469,6 +1920,12 @@ function ensureStreamGroup(
   stream.group.wrapper =
     realGroup.wrapper;
 
+  stream.group.avatarSlot =
+    realGroup.avatarSlot;
+
+  stream.group.avatar =
+    realGroup.avatar;
+
   stream.group.thinkWrapper =
     realGroup.thinkWrapper;
 
@@ -1490,6 +1947,20 @@ function ensureStreamGroup(
   stream.group.createdAnswer =
     false;
 
+  stream.group.thinkContent.__jinStreamAvatarSync =
+    () => {
+      syncStreamAvatarPosition(
+        stream
+      );
+      trackStreamAvatarLayoutTransition(
+        stream
+      );
+    };
+
+  installStreamThinkResizeObserver(
+    stream
+  );
+
 }
 
 
@@ -1505,6 +1976,9 @@ function startStreamMessage(
     createdThinking: false,
     createdAnswer: false,
     wrapper: null,
+    avatarSlot: null,
+    avatar: null,
+    thinkResizeObserver: null,
     thinkWrapper: null,
     thinkContent: null,
     messageRow: null,
@@ -1531,6 +2005,10 @@ function startStreamMessage(
   // action rows emitted at the start of a stream will then stay below the
   // response while its content continues to grow.
   ensureStreamGroup(
+    stream
+  );
+
+  activateStreamAvatar(
     stream
   );
 
@@ -1740,6 +2218,26 @@ function finishStreamMessage(
 
     if (
       stream.group.wrapper
+      && !stream.thinking.trim()
+      && !stream.answer.trim()
+    ) {
+      disconnectStreamThinkResizeObserver(
+        stream
+      );
+
+      if (stream.group.avatarSlot) {
+        stream.group.avatarSlot.remove();
+        stream.group.avatarSlot = null;
+        stream.group.avatar = null;
+      }
+
+      stream.group.wrapper.classList.remove(
+        "is-awaiting-model"
+      );
+    }
+
+    if (
+      stream.group.wrapper
       && stream.group.wrapper.childElementCount === 0
     ) {
       stream.group.wrapper.remove();
@@ -1811,3 +2309,7 @@ window.appendThinkingChunk =
 
 window.flushStreamFrame =
   flushStreamFrame;
+window.releaseActiveStreamAvatar =
+  releaseActiveStreamAvatar;
+window.syncStreamAvatarPosition =
+  syncStreamAvatarPosition;

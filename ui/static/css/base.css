@@ -598,7 +598,10 @@ main.panels-collapsed-2 #scene-shade {
 }
 
 #chat-history > .jin-stream-wrapper:has(> .jin-think-wrapper:last-child)
-+ .jin-stream-wrapper:has(> .jin-think-wrapper:first-child) {
++ .jin-stream-wrapper:has(
+    > .jin-think-wrapper:first-child,
+    > .jin-stream-avatar-slot:first-child + .jin-think-wrapper
+) {
     margin-top: var(--chat-reasoning-gap) !important;
 }
 
@@ -610,7 +613,10 @@ main.panels-collapsed-2 #scene-shade {
 #chat-history > .jin-stream-wrapper:has(> .jin-think-wrapper:last-child)
 + .jin-runtime-action-row,
 #chat-history > .jin-runtime-action-row
-+ .jin-stream-wrapper:has(> .jin-think-wrapper:first-child) {
++ .jin-stream-wrapper:has(
+    > .jin-think-wrapper:first-child,
+    > .jin-stream-avatar-slot:first-child + .jin-think-wrapper
+) {
     margin-top: var(--chat-action-adjacent-gap) !important;
 }
 
