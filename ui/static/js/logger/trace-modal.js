@@ -2035,9 +2035,32 @@ function renderContextBody(parent, content) {
   );
 }
 
+function setContextCardCollapsed(
+  card,
+  collapsed,
+) {
+  card.classList.toggle(
+    "is-collapsed",
+    collapsed
+  );
+
+  const header =
+    card.querySelector(
+      ".jin-context-card-header"
+    );
+
+  if (header) {
+    header.setAttribute(
+      "aria-expanded",
+      collapsed ? "false" : "true"
+    );
+  }
+}
+
 function appendContextCard(
   parent,
   block,
+  onToggle = null,
 ) {
   const card =
     contextElement(
@@ -2066,7 +2089,9 @@ function appendContextCard(
     );
 
   header.title =
-    "Double-click to collapse / expand";
+    "Click to collapse / expand";
+  header.style.cursor =
+    "pointer";
   header.tabIndex = 0;
   header.setAttribute("role", "button");
   header.setAttribute("aria-expanded", "true");
@@ -2099,18 +2124,22 @@ function appendContextCard(
 
   const toggle = () => {
     const collapsed =
-      card.classList.toggle(
+      !card.classList.contains(
         "is-collapsed"
       );
 
-    header.setAttribute(
-      "aria-expanded",
-      collapsed ? "false" : "true"
+    setContextCardCollapsed(
+      card,
+      collapsed
     );
+
+    if (typeof onToggle === "function") {
+      onToggle();
+    }
   };
 
   header.addEventListener(
-    "dblclick",
+    "click",
     toggle
   );
   header.addEventListener(
@@ -2153,6 +2182,7 @@ function appendContextCard(
     );
   }
   parent.appendChild(card);
+  return card;
 }
 
 function renderContextSnapshotTrace(snapshot) {
@@ -2171,12 +2201,25 @@ function renderContextSnapshotTrace(snapshot) {
       "jin-context-overview-badges"
     );
 
-  overview.appendChild(
+  const collapseAllToggle =
     contextElement(
       "div",
       "jin-context-overview-title",
-      "CONTEXT WINDOW"
-    )
+      "COLLAPSE ALL"
+    );
+
+  collapseAllToggle.tabIndex = 0;
+  collapseAllToggle.setAttribute(
+    "role",
+    "button"
+  );
+  collapseAllToggle.style.cursor =
+    "pointer";
+  collapseAllToggle.style.userSelect =
+    "none";
+
+  overview.appendChild(
+    collapseAllToggle
   );
   badges.appendChild(
     contextBadge(`${blocks.length} blocks`)
@@ -2200,24 +2243,107 @@ function renderContextSnapshotTrace(snapshot) {
       "jin-context-stack"
     );
 
-  blocks.forEach((block) => {
-    appendContextCard(stack, block);
-  });
+  const getCards = () =>
+    Array.from(stack.children).filter(
+      (element) =>
+        element.classList.contains(
+          "jin-context-card"
+        )
+    );
 
-  appendContextCard(
-    stack,
-    {
-      title: "USER PROMPT / CONTEXT PAYLOAD",
-      content:
-        snapshot.userPrompt || "<empty>",
-      attributes: [],
-      xml: false,
+  const syncCollapseAllToggle = () => {
+    const cards =
+      getCards();
+    const allCollapsed =
+      cards.length > 0
+      && cards.every((card) =>
+        card.classList.contains(
+          "is-collapsed"
+        )
+      );
+    const label =
+      allCollapsed
+        ? "EXPAND ALL"
+        : "COLLAPSE ALL";
+
+    collapseAllToggle.textContent =
+      label;
+    collapseAllToggle.title =
+      allCollapsed
+        ? "Expand all context blocks"
+        : "Collapse all context blocks";
+    collapseAllToggle.setAttribute(
+      "aria-label",
+      collapseAllToggle.title
+    );
+  };
+
+  const toggleAllCards = () => {
+    const cards =
+      getCards();
+    const allCollapsed =
+      cards.length > 0
+      && cards.every((card) =>
+        card.classList.contains(
+          "is-collapsed"
+        )
+      );
+
+    cards.forEach((card) => {
+      setContextCardCollapsed(
+        card,
+        !allCollapsed
+      );
+    });
+
+    syncCollapseAllToggle();
+  };
+
+  collapseAllToggle.addEventListener(
+    "click",
+    toggleAllCards
+  );
+  collapseAllToggle.addEventListener(
+    "keydown",
+    function (event) {
+      if (
+          event.key !== "Enter"
+          && event.key !== " "
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      toggleAllCards();
     }
   );
-  stack.lastElementChild.classList.add(
+
+  blocks.forEach((block) => {
+    appendContextCard(
+      stack,
+      block,
+      syncCollapseAllToggle
+    );
+  });
+
+  const userCard =
+    appendContextCard(
+      stack,
+      {
+        title: "USER PROMPT / CONTEXT PAYLOAD",
+        content:
+          snapshot.userPrompt || "<empty>",
+        attributes: [],
+        xml: false,
+      },
+      syncCollapseAllToggle
+    );
+
+  userCard.classList.add(
     "jin-context-card-user"
   );
 
+  syncCollapseAllToggle();
   traceModalContent.appendChild(stack);
 }
 
