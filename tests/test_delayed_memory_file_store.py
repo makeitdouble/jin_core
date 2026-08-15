@@ -492,6 +492,104 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
             "session-a",
         )
 
+    def test_legacy_tag_formats_are_normalized_and_migrated_on_load(self):
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            legacy_path = root / "u2a98v_legacy.json"
+            legacy_path.write_text(
+                json.dumps({
+                    "id": "u2a98v",
+                    "title": "Legacy tags",
+                    "summary": "Summary",
+                    "tags": [
+                        "[burger",
+                        "waiting",
+                        "#sensory_experience",
+                        "human_moment]",
+                    ],
+                    "body": "Body",
+                    "attachments_ids": [],
+                }, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            reports, warnings = load_delayed_memory_reports_from_files(
+                root=root,
+            )
+
+            self.assertEqual(warnings, [])
+            self.assertEqual(
+                reports["u2a98v"]["tags"],
+                [
+                    "burger",
+                    "waiting",
+                    "sensory_experience",
+                    "human_moment",
+                ],
+            )
+
+            migrated_files = list(root.glob("u2a98v_*.json"))
+            self.assertEqual(len(migrated_files), 1)
+            migrated = json.loads(
+                migrated_files[0].read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                migrated["tags"],
+                [
+                    "burger",
+                    "waiting",
+                    "sensory_experience",
+                    "human_moment",
+                ],
+            )
+
+    def test_hashtag_string_keeps_all_tags_and_strips_hashes(self):
+
+        payload = build_delayed_memory_file_payload(
+            "f7jf9a",
+            {
+                "title": "Hashtag tags",
+                "tags": "#architecture #memory_model #bigmac_analogy #context_management бигмак",
+                "body": "Body",
+            },
+        )
+
+        self.assertEqual(
+            payload["tags"],
+            [
+                "architecture",
+                "memory_model",
+                "bigmac_analogy",
+                "context_management",
+                "бигмак",
+            ],
+        )
+
+    def test_proper_multiword_tags_are_preserved(self):
+
+        payload = build_delayed_memory_file_payload(
+            "3w3gnh",
+            {
+                "title": "Multiword tags",
+                "tags": [
+                    "Идентичность AI",
+                    "Эмоциональный Резонанс",
+                    "Архитектура Памяти",
+                ],
+                "body": "Body",
+            },
+        )
+
+        self.assertEqual(
+            payload["tags"],
+            [
+                "Идентичность AI",
+                "Эмоциональный Резонанс",
+                "Архитектура Памяти",
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

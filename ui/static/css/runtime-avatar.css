@@ -445,7 +445,7 @@
 }
 
 .jin-avatar-memory-dash-delayed.is-memory-pinned,
-.jin-avatar-memory-dash-delayed.is-memory-appended {
+.jin-avatar-memory-dash-delayed.is-context-loaded {
     filter:
         brightness(1.18)
         drop-shadow(0 0 4px var(--jin-avatar-memory-glow-near, rgba(239, 255, 255, 0.92)))
@@ -473,7 +473,7 @@
 
 .jin-avatar-memory-dash.is-runtime-cited,
 .jin-avatar-memory-dash.is-memory-reference-hit,
-.jin-avatar-memory-dash.is-context-loaded,
+.jin-avatar-memory-dash:not(.jin-avatar-memory-dash-delayed).is-context-loaded,
 .jin-avatar-memory-dash.is-delayed-memory-linked-hit {
     filter:
         brightness(1.72)
@@ -486,7 +486,7 @@
 
 .jin-avatar-memory-dash:not(.is-memory-dot).is-runtime-cited path,
 .jin-avatar-memory-dash:not(.is-memory-dot).is-memory-reference-hit path,
-.jin-avatar-memory-dash:not(.is-memory-dot).is-context-loaded path,
+.jin-avatar-memory-dash:not(.jin-avatar-memory-dash-delayed):not(.is-memory-dot).is-context-loaded path,
 .jin-avatar-memory-dash:not(.is-memory-dot).is-delayed-memory-linked-hit path {
     stroke-opacity: 1 !important;
     stroke-width: var(--jin-avatar-memory-hover-width, 2px);
@@ -494,7 +494,7 @@
 
 .jin-avatar-memory-dash.is-memory-dot.is-runtime-cited circle,
 .jin-avatar-memory-dash.is-memory-dot.is-memory-reference-hit circle,
-.jin-avatar-memory-dash.is-memory-dot.is-context-loaded circle,
+.jin-avatar-memory-dash:not(.jin-avatar-memory-dash-delayed).is-memory-dot.is-context-loaded circle,
 .jin-avatar-memory-dash.is-memory-dot.is-delayed-memory-linked-hit circle {
     fill-opacity: 1 !important;
     r: var(--jin-avatar-memory-hover-dot-radius, 2.45px);

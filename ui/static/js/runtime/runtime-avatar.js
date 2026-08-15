@@ -1093,12 +1093,6 @@
             && typeof runtime.isDelayedMemoryReportLoaded === "function"
             && runtime.isDelayedMemoryReportLoaded(id)
           );
-        const appended =
-          Boolean(
-            runtime
-            && typeof runtime.isDelayedMemoryReportAppended === "function"
-            && runtime.isDelayedMemoryReportAppended(id)
-          );
 
         if (!id || !title) {
           return null;
@@ -1110,7 +1104,6 @@
           summary,
           pinned: Boolean(report.pinned),
           loaded,
-          appended,
           anchorFactIds,
           factIds,
           attachmentIds:
@@ -1337,10 +1330,6 @@
 
     if (options.pinned) {
       classNames.push("is-memory-pinned");
-    }
-
-    if (options.appended) {
-      classNames.push("is-memory-appended");
     }
 
     if (options.contextLoaded) {
@@ -1598,8 +1587,8 @@
       }
 
       const pinned = Boolean(record.pinned);
-      const appended = Boolean(record.appended);
-      const active = pinned || appended;
+      const contextLoaded = Boolean(record.loaded);
+      const active = pinned || contextLoaded;
       const color = active
         ? PINNED_DELAYED_MEMORY_RING_COLOR
         : mixColors(DELAYED_MEMORY_RING_COLOR, overallColor, 0.12);
@@ -1617,8 +1606,7 @@
             : color,
           opacity: active ? 0.82 : 0.36,
           pinned,
-          appended,
-          contextLoaded: Boolean(record.loaded),
+          contextLoaded,
           avatarMemoryHoverId: record.avatarMemoryHoverId,
           citationKey:
             normalizeRuntimeCitationIdentity(record.id),
@@ -1825,7 +1813,7 @@
     return true;
   }
 
-  function setDelayedMemoryDashPinned(reportId, pinned, appended = false) {
+  function setDelayedMemoryDashPinned(reportId, pinned) {
     const delayedMemoryId =
       String(reportId || "").trim().toLowerCase();
 
@@ -1849,10 +1837,10 @@
       || DEFAULT_RING_COLOR;
     const nextPinned =
       Boolean(pinned);
-    const nextAppended =
-      Boolean(appended);
+    const nextContextLoaded =
+      dashGroup.classList.contains("is-context-loaded");
     const nextActive =
-      nextPinned || nextAppended;
+      nextPinned || nextContextLoaded;
     const nextColor =
       nextActive
         ? PINNED_DELAYED_MEMORY_RING_COLOR
@@ -1861,10 +1849,6 @@
     dashGroup.classList.toggle(
       "is-memory-pinned",
       nextPinned
-    );
-    dashGroup.classList.toggle(
-      "is-memory-appended",
-      nextAppended
     );
     setMemoryDashGlowVariables(
       dashGroup,

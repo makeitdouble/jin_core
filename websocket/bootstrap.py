@@ -249,88 +249,27 @@ def get_context_loaded_delayed_memory_ids(
     )
 
 
-def apply_appended_delayed_memory_ids(
+def apply_suppressed_delayed_memory_auto_load_ids(
     context,
     message_data: dict,
 ) -> list[str]:
 
-    if "appended_delayed_memory_ids" in message_data:
-        raw_ids = message_data.get(
-            "appended_delayed_memory_ids",
-            [],
-        )
-    elif "appended_memory_ids" in message_data:
-        raw_ids = message_data.get(
-            "appended_memory_ids",
-            [],
-        )
-    else:
-        raw_ids = getattr(
-            context,
-            "runtime_appended_delayed_memory_ids",
-            [],
-        )
-
-    loaded_ids = set(
-        get_context_loaded_delayed_memory_ids(
-            context
-        )
-    )
-    appended_ids = [
-        report_id
-        for report_id in clean_loaded_delayed_memory_report_ids(
-            raw_ids
-        )
-        if report_id in loaded_ids
-    ]
-
-    context.runtime_appended_delayed_memory_ids = appended_ids
-
-    return appended_ids
-
-
-def get_context_appended_delayed_memory_ids(
-    context,
-) -> list[str]:
-
-    loaded_ids = set(
-        get_context_loaded_delayed_memory_ids(
-            context
-        )
-    )
-
-    return [
-        report_id
-        for report_id in clean_loaded_delayed_memory_report_ids(
+    # Accept the old key only as a one-way migration path. Runtime state and
+    # outgoing protocol use LOAD terminology exclusively.
+    raw_ids = message_data.get(
+        "suppressed_delayed_memory_auto_load_ids",
+        message_data.get(
+            "suppressed_delayed_memory_" + "append_ids",
             getattr(
                 context,
-                "runtime_appended_delayed_memory_ids",
+                "runtime_suppressed_delayed_memory_auto_load_ids",
                 [],
-            )
-        )
-        if report_id in loaded_ids
-    ]
-
-
-def apply_suppressed_delayed_memory_append_ids(
-    context,
-    message_data: dict,
-) -> list[str]:
-
-    if "suppressed_delayed_memory_append_ids" not in message_data:
-        return clean_loaded_delayed_memory_report_ids(
-            getattr(
-                context,
-                "runtime_suppressed_delayed_memory_append_ids",
-                [],
-            )
-        )
+            ),
+        ),
+    )
 
     report_ids = clean_loaded_delayed_memory_report_ids(
-        message_data.get(
-            "suppressed_delayed_memory_append_ids",
-            [],
-        )
+        raw_ids
     )
     reports = getattr(
         context,
@@ -344,7 +283,7 @@ def apply_suppressed_delayed_memory_append_ids(
         if report_id in reports
     ]
 
-    context.runtime_suppressed_delayed_memory_append_ids = report_ids
+    context.runtime_suppressed_delayed_memory_auto_load_ids = report_ids
 
     return report_ids
 
@@ -1536,10 +1475,6 @@ def apply_session_bootstrap(
         context,
         message_data,
     )
-    apply_appended_delayed_memory_ids(
-        context,
-        message_data,
-    )
 
     session_memory = clean_bootstrap_memory(
         message_data.get(
@@ -1764,11 +1699,6 @@ async def emit_delayed_memory_store_snapshot(
         "delayed_memory_reports": reports,
         "loaded_delayed_memory_ids": (
             get_context_loaded_delayed_memory_ids(
-                context
-            )
-        ),
-        "appended_delayed_memory_ids": (
-            get_context_appended_delayed_memory_ids(
                 context
             )
         ),

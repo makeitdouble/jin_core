@@ -277,6 +277,58 @@
     position: relative;
 }
 
+.delayed-memory-modal-tags {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px 0;
+    min-height: 18px;
+    white-space: normal;
+    cursor: text;
+}
+
+.delayed-memory-modal-tag {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    color: rgba(244, 244, 245, 0.78);
+    cursor: pointer;
+    transition:
+            opacity 0.18s ease,
+            color 0.18s ease,
+            text-shadow 0.18s ease;
+}
+
+.delayed-memory-modal-tag:not(:last-of-type)::after {
+    content: ",";
+    margin-right: 0.55em;
+    color: rgba(244, 244, 245, 0.46);
+    pointer-events: none;
+}
+
+.delayed-memory-modal-tag:hover,
+.delayed-memory-modal-tag:focus-visible {
+    color: rgba(255, 255, 255, 0.96);
+    outline: none;
+}
+
+.delayed-memory-modal-tag-input {
+    min-width: 4ch;
+    max-width: 32ch;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    outline: none;
+    background: transparent;
+    color: rgba(244, 244, 245, 0.86);
+    font: inherit;
+    line-height: inherit;
+}
+
+.delayed-memory-modal-tag-input::placeholder {
+    color: rgba(244, 244, 245, 0.30);
+}
+
 .delayed-memory-modal-fact-ids-active {
     z-index: 2;
 }
@@ -698,7 +750,6 @@
     color: rgba(240, 253, 250, 0.98);
 }
 
-.delayed-memory-modal-pin-appended,
 .delayed-memory-modal-pin-loaded {
     color: rgba(196, 196, 198, 0.96);
 }
@@ -796,6 +847,7 @@
     width: 1.25em;
     color: rgba(161, 161, 170, 0.48);
     text-align: center;
+    cursor: pointer;
 }
 
 

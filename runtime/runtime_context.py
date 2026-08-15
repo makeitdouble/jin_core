@@ -116,11 +116,7 @@ class RuntimeContext:
         default_factory=list
     )
 
-    runtime_appended_delayed_memory_ids: list[str] = field(
-        default_factory=list
-    )
-
-    runtime_suppressed_delayed_memory_append_ids: list[str] = field(
+    runtime_suppressed_delayed_memory_auto_load_ids: list[str] = field(
         default_factory=list
     )
 

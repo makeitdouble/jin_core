@@ -1317,10 +1317,7 @@ function handleRuntimeAction(
   }
 
   if (
-    (
-      action === "load_delayed_memory"
-      || action === "append_delayed_memory"
-    )
+    action === "load_delayed_memory"
     && data.delayed_memory_result
     && data.delayed_memory_result.report
     && data.delayed_memory_result.id
@@ -1346,8 +1343,6 @@ function handleRuntimeAction(
     && (
       typeof window.JinRuntime.runtime.markDelayedMemoryReportLoaded
         === "function"
-      || typeof window.JinRuntime.runtime.markDelayedMemoryReportAppended
-        === "function"
     )
   ) {
     if (
@@ -1362,28 +1357,8 @@ function handleRuntimeAction(
       );
     }
 
-    if (
-      action === "append_delayed_memory"
-      && typeof window.JinRuntime.runtime.markDelayedMemoryReportAppended
-        === "function"
-    ) {
-      window.JinRuntime.runtime.markDelayedMemoryReportAppended(
-        delayedMemoryPreview.reportId,
-        true
-      );
-    }
 
     if (
-      action === "unload_delayed_memory"
-      && typeof window.JinRuntime.runtime.markDelayedMemoryReportAppended
-        === "function"
-    ) {
-      window.JinRuntime.runtime.markDelayedMemoryReportAppended(
-        delayedMemoryPreview.reportId,
-        false,
-        { unload: true }
-      );
-    } else if (
       action === "unload_delayed_memory"
       && typeof window.JinRuntime.runtime.markDelayedMemoryReportLoaded
         === "function"

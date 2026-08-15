@@ -159,7 +159,7 @@ for (const [input, expected] of cases) {
             "web_search",
             "deep_web_search",
             "save_delayed_memory_content",
-            "append_delayed_memory",
+            "load_delayed_memory",
             "save_active_memory",
             "resolve_active_memory",
             "unload_delayed_memory",

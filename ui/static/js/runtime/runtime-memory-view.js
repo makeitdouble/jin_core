@@ -12,7 +12,6 @@
   let deleteRuntimeMemoryLine = null;
   let getDelayedMemoryReports = null;
   let isDelayedMemoryReportLoaded = null;
-  let isDelayedMemoryReportAppended = null;
   let handleDelayedMemoryReportPinClick = null;
   let setDelayedMemoryReportPinned = null;
   let updateDelayedMemoryReportFields = null;
@@ -3278,18 +3277,22 @@
       pinButton.dataset.fileId = String(record.id || "");
       bindPersistentFileHoverPreview(pinButton, record);
       bindPersistentFileAvatarHoverTarget(pinButton, row);
-      pinButton.addEventListener("pointerdown", (event) => event.stopPropagation());
-      pinButton.addEventListener("click", (event) => {
+      const togglePinnedFile = (event) => {
         event.preventDefault();
         event.stopPropagation();
         if (window.JinFiles && typeof window.JinFiles.setPinned === "function") {
           void window.JinFiles.setPinned(record.id, !Boolean(record.pinned));
         }
-      });
+      };
+      pinButton.addEventListener("pointerdown", (event) => event.stopPropagation());
+      pinButton.addEventListener("click", togglePinnedFile);
 
       const separator = document.createElement("span");
       separator.className = "runtime-memory-delayed-separator";
       separator.textContent = "·";
+      separator.title = pinButton.title;
+      separator.addEventListener("pointerdown", (event) => event.stopPropagation());
+      separator.addEventListener("click", togglePinnedFile);
 
       const keySpan = document.createElement("span");
       keySpan.className = "runtime-memory-key";
@@ -3465,35 +3468,46 @@
           }
         );
 
+        const toggleDelayedMemoryPinned = (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+
+          if (!reportId) {
+            return;
+          }
+
+          const changed =
+              typeof handleDelayedMemoryReportPinClick === "function"
+                ? handleDelayedMemoryReportPinClick(reportId)
+                : (
+                    typeof setDelayedMemoryReportPinned === "function"
+                      ? setDelayedMemoryReportPinned(
+                          reportId,
+                          !Boolean(report.pinned)
+                        )
+                      : false
+                  );
+
+          if (!changed) {
+            syncDelayedMemoryPinButtonState(
+              pinButton,
+              report
+            );
+          }
+        };
+
         pinButton.addEventListener(
           "click",
-          (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-
-            if (!reportId) {
-              return;
-            }
-
-            const changed =
-                typeof handleDelayedMemoryReportPinClick === "function"
-                  ? handleDelayedMemoryReportPinClick(reportId)
-                  : (
-                      typeof setDelayedMemoryReportPinned === "function"
-                        ? setDelayedMemoryReportPinned(
-                            reportId,
-                            !Boolean(report.pinned)
-                          )
-                        : false
-                    );
-
-            if (!changed) {
-              syncDelayedMemoryPinButtonState(
-                pinButton,
-                report
-              );
-            }
-          }
+          toggleDelayedMemoryPinned
+        );
+        separatorSpan.title = pinButton.title;
+        separatorSpan.addEventListener(
+          "pointerdown",
+          (event) => event.stopPropagation()
+        );
+        separatorSpan.addEventListener(
+          "click",
+          toggleDelayedMemoryPinned
         );
 
         row.appendChild(
@@ -4539,17 +4553,6 @@
     );
   }
 
-  function isDelayedMemoryReportAutoAppended(report) {
-    const reportId =
-        getDelayedMemoryReportId(report);
-
-    return Boolean(
-      reportId
-      && typeof isDelayedMemoryReportAppended === "function"
-      && isDelayedMemoryReportAppended(reportId)
-    );
-  }
-
   function syncDelayedMemoryPinButtonState(
     button,
     report
@@ -4560,9 +4563,6 @@
 
     const pinned =
         Boolean(report && report.pinned);
-    const appended =
-        !pinned
-        && isDelayedMemoryReportAutoAppended(report);
     const loaded =
         !pinned
         && isDelayedMemoryReportInContext(report);
@@ -4570,10 +4570,6 @@
     button.classList.toggle(
         "delayed-memory-modal-pin-active",
         pinned
-    );
-    button.classList.toggle(
-        "delayed-memory-modal-pin-appended",
-        appended
     );
     button.classList.toggle(
         "delayed-memory-modal-pin-loaded",
@@ -4594,16 +4590,12 @@
             )
     );
     button.title =
-        appended
-          ? "Remove appended delayed memory from next turn"
+        loaded
+          ? "Unload delayed memory from context"
           : (
-              loaded
-                ? "Unload delayed memory from context"
-                : (
-                    pinned
-                      ? "Unpin delayed memory"
-                      : "Pin delayed memory"
-                  )
+              pinned
+                ? "Unpin delayed memory"
+                : "Pin delayed memory"
             );
   }
 
@@ -5172,6 +5164,160 @@
     );
 
     return text;
+  }
+
+  function normalizeDelayedMemoryTags(value) {
+    const storage =
+        window.JinRuntime
+        && window.JinRuntime.storage;
+
+    if (storage && typeof storage.normalizeDelayedMemoryTags === "function") {
+      return storage.normalizeDelayedMemoryTags(value);
+    }
+
+    return (Array.isArray(value) ? value : [value])
+      .flat(Infinity)
+      .map(tag => String(tag || "").trim())
+      .filter(Boolean);
+  }
+
+  function updateDelayedMemoryModalTags(nextTags) {
+    if (
+        !delayedMemoryModalReport
+        || typeof updateDelayedMemoryReportFields !== "function"
+    ) {
+      return false;
+    }
+
+    const updatedReport =
+        updateDelayedMemoryReportFields(
+            delayedMemoryModalReport._storage_key,
+            {
+              tags: normalizeDelayedMemoryTags(nextTags),
+            }
+        );
+
+    if (
+        !updatedReport
+        || typeof updatedReport !== "object"
+        || Array.isArray(updatedReport)
+    ) {
+      return false;
+    }
+
+    openDelayedMemoryReportModal(updatedReport);
+    return true;
+  }
+
+  function appendDelayedMemoryTagField(parent, label, value) {
+    const tags = normalizeDelayedMemoryTags(value);
+    const list = document.createElement("div");
+    const input = document.createElement("input");
+
+    list.className =
+        "delayed-memory-modal-value delayed-memory-modal-tags";
+
+    tags.forEach((tag) => {
+      const item = document.createElement("span");
+
+      item.className =
+          "delayed-memory-modal-tag";
+      item.textContent = tag;
+      item.title = "Hold to remove tag";
+      item.setAttribute("tabindex", "0");
+
+      configureRuntimeMemoryDeleteHold(
+          item,
+          () => {
+            updateDelayedMemoryModalTags(
+                tags.filter(current => current !== tag)
+            );
+          }
+      );
+
+      list.appendChild(item);
+    });
+
+    input.type = "text";
+    input.className =
+        "delayed-memory-modal-tag-input";
+    input.setAttribute("aria-label", "Add delayed memory tag");
+    input.setAttribute("autocomplete", "off");
+    input.setAttribute("spellcheck", "false");
+    input.placeholder = tags.length ? "" : "type tag";
+
+    function resizeInput() {
+      const length = String(input.value || input.placeholder || "").length;
+      input.style.width = `${Math.max(4, Math.min(length + 1, 32))}ch`;
+    }
+
+    function commitInput() {
+      const tag = String(input.value || "")
+        .replace(/,+$/g, "")
+        .trim();
+
+      if (!tag) {
+        input.value = "";
+        resizeInput();
+        return false;
+      }
+
+      const key = tag.toLocaleLowerCase();
+      const exists = tags.some(
+          current => current.toLocaleLowerCase() === key
+      );
+
+      input.value = "";
+      resizeInput();
+
+      if (exists) {
+        return false;
+      }
+
+      return updateDelayedMemoryModalTags([
+        ...tags,
+        tag,
+      ]);
+    }
+
+    input.addEventListener("input", () => {
+      resizeInput();
+
+      if (String(input.value || "").includes(",")) {
+        commitInput();
+      }
+    });
+
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== ",") {
+        return;
+      }
+
+      event.preventDefault();
+      commitInput();
+    });
+
+    input.addEventListener("blur", () => {
+      commitInput();
+    });
+
+    list.addEventListener("click", (event) => {
+      if (
+          event.target === list
+          || event.target === input
+      ) {
+        input.focus();
+      }
+    });
+
+    resizeInput();
+    list.appendChild(input);
+
+    appendDelayedMemoryModalFieldNode(
+        parent,
+        label,
+        list
+    );
   }
 
   function appendDelayedMemoryFactIdField(
@@ -6075,7 +6221,7 @@
         )
     );
 
-    appendDelayedMemoryModalField(
+    appendDelayedMemoryTagField(
         fields,
         "Tags",
         delayedMemoryModalReport.tags
@@ -6660,8 +6806,6 @@
     getDelayedMemoryReports = options.getDelayedMemoryReports || null;
     isDelayedMemoryReportLoaded =
         options.isDelayedMemoryReportLoaded || null;
-    isDelayedMemoryReportAppended =
-        options.isDelayedMemoryReportAppended || null;
     handleDelayedMemoryReportPinClick =
         options.handleDelayedMemoryReportPinClick || null;
     setDelayedMemoryReportPinned = options.setDelayedMemoryReportPinned || null;

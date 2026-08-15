@@ -33,7 +33,7 @@ from utils.brain_client_utils import (
 )
 from utils.chat_log import append_chat_log_entry
 from utils.delayed_memory_triggers import (
-    append_delayed_memory_by_tags,
+    load_delayed_memory_by_tags,
 )
 from utils.session_actions_history import emit_session_actions_update
 from utils.actions import normalize_jin_size_dict
@@ -1169,7 +1169,7 @@ async def process_message(
                 )
             )
             context.user_message_count += 1
-            await append_delayed_memory_by_tags(
+            await load_delayed_memory_by_tags(
                 context,
                 user_text,
             )

@@ -1563,7 +1563,6 @@ function syncContextDelayedMemoryRow(row) {
       pinButton.disabled = true;
       pinButton.classList.remove(
         "delayed-memory-modal-pin-active",
-        "delayed-memory-modal-pin-appended",
         "delayed-memory-modal-pin-loaded"
       );
       pinButton.title =
@@ -1591,11 +1590,6 @@ function syncContextDelayedMemoryRow(row) {
     && window.JinRuntime.runtime;
   const pinned =
     Boolean(report.pinned);
-  const appended =
-    !pinned
-    && runtime
-    && typeof runtime.isDelayedMemoryReportAppended === "function"
-    && runtime.isDelayedMemoryReportAppended(reportId);
   const loaded =
     !pinned
     && runtime
@@ -1610,10 +1604,6 @@ function syncContextDelayedMemoryRow(row) {
   pinButton.classList.toggle(
     "delayed-memory-modal-pin-active",
     pinned
-  );
-  pinButton.classList.toggle(
-    "delayed-memory-modal-pin-appended",
-    Boolean(appended)
   );
   pinButton.classList.toggle(
     "delayed-memory-modal-pin-loaded",
@@ -1634,16 +1624,12 @@ function syncContextDelayedMemoryRow(row) {
         )
   );
   pinButton.title =
-    appended
-      ? "Remove appended delayed memory from next turn"
+    loaded
+      ? "Unload delayed memory from context"
       : (
-          loaded
-            ? "Unload delayed memory from context"
-            : (
-                pinned
-                  ? "Unpin delayed memory"
-                  : "Pin delayed memory"
-              )
+          pinned
+            ? "Unpin delayed memory"
+            : "Pin delayed memory"
         );
 }
 

@@ -35,9 +35,8 @@ from .attachments import (
     redacted_message_data_for_log,
 )
 from .bootstrap import (
-    apply_appended_delayed_memory_ids,
     apply_delayed_memory_reports,
-    apply_suppressed_delayed_memory_append_ids,
+    apply_suppressed_delayed_memory_auto_load_ids,
     apply_loaded_delayed_memory_ids,
     apply_runtime_memory_slot_delete,
     apply_runtime_resume,
@@ -311,11 +310,7 @@ async def websocket_endpoint(
                     context,
                     message_data,
                 )
-                apply_appended_delayed_memory_ids(
-                    context,
-                    message_data,
-                )
-                apply_suppressed_delayed_memory_append_ids(
+                apply_suppressed_delayed_memory_auto_load_ids(
                     context,
                     message_data,
                 )

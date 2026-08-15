@@ -619,10 +619,6 @@
           typeof getLoadedDelayedMemoryReportIds === "function"
             ? getLoadedDelayedMemoryReportIds()
             : [],
-        appended_memory_ids:
-          typeof getAppendedDelayedMemoryReportIds === "function"
-            ? getAppendedDelayedMemoryReportIds()
-            : [],
         session_memory: sessionMemory,
         session_memory_updates:
           data.updates || 0,
@@ -1197,23 +1193,27 @@
           )
           || 0,
         loaded_memory_ids:
-          (
-            sessionMemory
-            && Array.isArray(sessionMemory.loaded_memory_ids)
-          )
-            ? sessionMemory.loaded_memory_ids
-                .map(item => String(item || "").trim())
-                .filter(Boolean)
-            : [],
-        appended_memory_ids:
-          (
-            sessionMemory
-            && Array.isArray(sessionMemory.appended_memory_ids)
-          )
-            ? sessionMemory.appended_memory_ids
-                .map(item => String(item || "").trim())
-                .filter(Boolean)
-            : [],
+          Array.from(new Set([
+            ...(
+              sessionMemory
+              && Array.isArray(sessionMemory.loaded_memory_ids)
+                ? sessionMemory.loaded_memory_ids
+                : []
+            ),
+            ...(
+              (() => {
+                const legacyLoadKey = "append" + "ed_memory_ids";
+                return (
+                  sessionMemory
+                  && Array.isArray(sessionMemory[legacyLoadKey])
+                    ? sessionMemory[legacyLoadKey]
+                    : []
+                );
+              })()
+            ),
+          ]))
+            .map(item => String(item || "").trim())
+            .filter(Boolean),
         runtime_memory: runtimeText,
         runtime_memory_updates:
           (

@@ -12,6 +12,7 @@ from utils.actions.delayed_memory_utils import (
 from utils.actions.save_delayed_memory_utils import (
     normalize_delayed_memory_attachment_ids,
     normalize_delayed_memory_fact_ids,
+    normalize_delayed_memory_tags,
 )
 
 
@@ -80,14 +81,9 @@ def _clean_session_ids(value) -> list[str]:
 
 def _clean_tags(value) -> list[str]:
 
-    source = (
-        value
-        if isinstance(value, list)
-        else str(value or "").split(",")
-    )
     tags = []
 
-    for item in source:
+    for item in normalize_delayed_memory_tags(value):
         tag = _clean_text(
             item,
             limit=MAX_DELAYED_MEMORY_TAG_CHARS,
@@ -549,6 +545,7 @@ def load_delayed_memory_reports_from_files(
     reports = {}
     report_sources = {}
     report_has_attachments_field = {}
+    report_tags_need_migration = {}
     warnings = []
 
     try:
@@ -615,6 +612,13 @@ def load_delayed_memory_reports_from_files(
                 if raw_is_single_report
                 else True
             )
+            if raw_is_single_report:
+                raw_tags = raw_value.get("tags", [])
+                report_tags_need_migration[report_id] = (
+                    raw_tags != report.get("tags", [])
+                )
+            else:
+                report_tags_need_migration[report_id] = False
 
             if previous_source:
                 warnings.append(
@@ -627,7 +631,16 @@ def load_delayed_memory_reports_from_files(
             report_sources[report_id] = path.name
 
     for report_id, report in list(reports.items()):
-        if report_has_attachments_field.get(report_id, True):
+        needs_attachments_migration = not report_has_attachments_field.get(
+            report_id,
+            True,
+        )
+        needs_tags_migration = report_tags_need_migration.get(
+            report_id,
+            False,
+        )
+
+        if not needs_attachments_migration and not needs_tags_migration:
             continue
 
         try:
@@ -638,9 +651,16 @@ def load_delayed_memory_reports_from_files(
             )
             report_sources[report_id] = migrated_path.name
             report_has_attachments_field[report_id] = True
+            report_tags_need_migration[report_id] = False
         except (OSError, TypeError, ValueError) as error:
+            reasons = []
+            if needs_attachments_migration:
+                reasons.append("attachments_ids")
+            if needs_tags_migration:
+                reasons.append("tags")
             warnings.append(
-                "could not add attachments_ids to "
+                "could not normalize "
+                f"{'+'.join(reasons)} in "
                 f"{report_sources.get(report_id, report_id)}: {error}"
             )
 

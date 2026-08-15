@@ -676,6 +676,7 @@ main.panels-collapsed-2 #scene-shade {
     pointer-events: auto;
 }
 
+#attached-delayed-memory,
 #attached-files {
     flex: 0 0 auto;
     margin: 0 8px 8px;
@@ -689,6 +690,7 @@ main.panels-collapsed-2 #scene-shade {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+#attached-delayed-memory.hidden,
 #attached-files.hidden {
     display: none !important;
 }
@@ -753,6 +755,7 @@ main.panels-collapsed-2 #scene-shade {
             drop-shadow(0 0 14px rgba(45, 212, 191, 0.16));
 }
 
+#console-panel.panel-collapsed #attached-delayed-memory,
 #console-panel.panel-collapsed #attached-files {
     display: none !important;
 }

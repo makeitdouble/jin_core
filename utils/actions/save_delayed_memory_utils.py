@@ -248,18 +248,25 @@ def collect_anchor_fact_report_ids(
 
 
 def normalize_delayed_memory_tags(value) -> list[str]:
+    """Return delayed-memory tags in one backwards-compatible format.
+
+    Historical reports contain a mix of proper JSON arrays, comma-separated
+    strings, hashtag lists and loose bracketed lists. Keep real multi-word
+    tags intact when they are already separate array items, while cleaning the
+    wrappers used by the legacy formats.
+    """
 
     source = value if isinstance(value, list) else [value]
     candidates = []
 
     for item in source:
-        if isinstance(item, list):
-            candidates.extend(
-                normalize_delayed_memory_tags(item)
-            )
+        if isinstance(item, (list, tuple, set)):
+            candidates.extend(normalize_delayed_memory_tags(list(item)))
             continue
 
         text = str(item or "").strip()
+        if not text:
+            continue
 
         if text.startswith("[") and text.endswith("]"):
             try:
@@ -268,26 +275,47 @@ def normalize_delayed_memory_tags(value) -> list[str]:
                 parsed = None
 
             if isinstance(parsed, list):
-                candidates.extend(
-                    normalize_delayed_memory_tags(parsed)
-                )
+                candidates.extend(normalize_delayed_memory_tags(parsed))
                 continue
 
-        candidates.extend(
+        explicit_parts = [
             part.strip()
-            for part in text.split(",")
-        )
+            for part in re.split(r"[,;\r\n]+", text)
+            if part.strip()
+        ]
+
+        for part in explicit_parts:
+            stripped = part.strip()
+            bracketed = stripped.startswith("[") and stripped.endswith("]")
+            hashtag_count = len(re.findall(r"(?<!\S)#", stripped))
+
+            if bracketed:
+                inner = stripped[1:-1].strip()
+                if inner and not any(ch in inner for ch in '"\''):
+                    candidates.extend(inner.split())
+                    continue
+
+            if hashtag_count >= 2:
+                candidates.extend(stripped.split())
+                continue
+
+            candidates.append(stripped)
 
     tags = []
     seen = set()
 
     for candidate in candidates:
-        tag = str(candidate or "").strip().strip(
-            "\"'"
-        )
-        identity = tag.casefold()
+        tag = str(candidate or "").strip()
+        tag = tag.strip("[]{}()\"'").strip()
+        tag = re.sub(r"^#+", "", tag).strip()
+        tag = re.sub(r"#+$", "", tag).strip()
+        tag = tag.strip("[]{}()\"'").strip()
 
-        if not tag or identity in seen:
+        if not tag:
+            continue
+
+        identity = tag.casefold()
+        if identity in seen:
             continue
 
         seen.add(identity)

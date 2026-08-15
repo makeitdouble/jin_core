@@ -1,5 +1,7 @@
 const consoleStream =
   document.getElementById("console-stream");
+const attachedDelayedMemory =
+  document.getElementById("attached-delayed-memory");
 
 function parseTraceJson(details) {
   try {
@@ -3107,11 +3109,190 @@ if (memoryPanel && typeof MutationObserver !== "undefined") {
 
 syncCollapsedPanelBodies();
 
+function expandConsolePanelForContextAttachment() {
+    if (
+        !consolePanel
+        || !consolePanel.classList.contains("panel-collapsed")
+    ) {
+        return false;
+    }
+
+    setPanelCollapsed(consolePanel, false);
+    syncSceneShadeToPanelCollapse();
+    return true;
+}
+
+function delayedMemoryPlaquePinSvg() {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 3.3 20.7 9.3 18.6 11.4 16.9 9.7 13.7 12.9 14.4 15.7 12.9 17.2 9.4 13.7 5.3 17.8 4.2 16.7 8.3 12.6 4.8 9.1 6.3 7.6 9.1 8.3 12.3 5.1 10.6 3.4 12.7 1.3Z"/></svg>';
+}
+
+function getConsoleAttachedDelayedMemoryRecords() {
+    const runtime = window.JinRuntime;
+    if (
+        !runtime
+        || typeof runtime.getDelayedMemoryReports !== "function"
+    ) {
+        return [];
+    }
+
+    const reports = runtime.getDelayedMemoryReports() || {};
+    const loadedIds = new Set(
+        typeof runtime.getLoadedDelayedMemoryReportIds === "function"
+            ? runtime.getLoadedDelayedMemoryReportIds()
+            : []
+    );
+
+    return Object.entries(reports)
+        .filter(([, report]) => (
+            report
+            && typeof report === "object"
+            && !Array.isArray(report)
+        ))
+        .map(([storageKey, report]) => {
+            const reportId = String(
+                report.id
+                || report._storage_key
+                || storageKey
+                || ""
+            ).trim().toLowerCase();
+
+            return {
+                reportId,
+                report,
+                attached:
+                    Boolean(report.pinned)
+                    || loadedIds.has(reportId),
+            };
+        })
+        .filter((item) => item.reportId && item.attached);
+}
+
+function unloadConsoleDelayedMemoryReport(reportId) {
+    const runtime = window.JinRuntime;
+    const normalizedId = String(reportId || "").trim().toLowerCase();
+    if (!runtime || !normalizedId) {
+        return false;
+    }
+
+    const reports =
+        typeof runtime.getDelayedMemoryReports === "function"
+            ? runtime.getDelayedMemoryReports()
+            : {};
+    const report = reports && reports[normalizedId];
+    if (!report) {
+        return false;
+    }
+
+    if (
+        Boolean(report.pinned)
+        && typeof runtime.setDelayedMemoryReportPinned === "function"
+    ) {
+        runtime.setDelayedMemoryReportPinned(normalizedId, false);
+    }
+
+    if (
+        typeof runtime.isDelayedMemoryReportLoaded === "function"
+        && runtime.isDelayedMemoryReportLoaded(normalizedId)
+        && typeof runtime.markDelayedMemoryReportLoaded === "function"
+    ) {
+        runtime.markDelayedMemoryReportLoaded(
+            normalizedId,
+            false,
+            {
+                sync: true,
+                suppressNextTurn: true,
+            }
+        );
+    }
+
+    return true;
+}
+
+function renderAttachedDelayedMemoryPlaque() {
+    if (!attachedDelayedMemory) {
+        return;
+    }
+
+    const records = getConsoleAttachedDelayedMemoryRecords();
+    attachedDelayedMemory.replaceChildren();
+    attachedDelayedMemory.classList.toggle(
+        "hidden",
+        records.length === 0
+    );
+
+    if (!records.length) {
+        return;
+    }
+
+    const title = document.createElement("div");
+    title.className = "jin-attached-files-title";
+    title.textContent = "[ DELAYED_MEMORY ]";
+    attachedDelayedMemory.appendChild(title);
+
+    const list = document.createElement("div");
+    list.className = "jin-attached-files-list";
+
+    records.forEach(({reportId, report}) => {
+        const row = document.createElement("div");
+        row.className =
+            "jin-attached-files-row runtime-memory-delayed-row-pinned";
+        row.dataset.reportId = reportId;
+
+        const pin = document.createElement("button");
+        pin.type = "button";
+        pin.className =
+            "delayed-memory-modal-icon-button delayed-memory-modal-pin runtime-memory-delayed-pin is-pinned";
+        pin.innerHTML = delayedMemoryPlaquePinSvg();
+        pin.title = `Unload delayed memory ${reportId}`;
+        pin.setAttribute(
+            "aria-label",
+            `Unload delayed memory ${reportId}`
+        );
+        pin.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            unloadConsoleDelayedMemoryReport(reportId);
+        });
+
+        const name = document.createElement("span");
+        name.className = "jin-attached-files-name";
+        name.textContent = String(report.title || reportId);
+        name.title = String(report.title || reportId);
+
+        row.append(pin, name);
+        list.appendChild(row);
+    });
+
+    attachedDelayedMemory.appendChild(list);
+}
+
+window.addEventListener(
+    "jin:delayed-memory-store-changed",
+    (event) => {
+        renderAttachedDelayedMemoryPlaque();
+        const reason = String(
+            event && event.detail && event.detail.reason || ""
+        );
+        if (
+            reason === "load"
+            || reason === "load-state"
+            || reason === "pin"
+        ) {
+            if (getConsoleAttachedDelayedMemoryRecords().length) {
+                expandConsolePanelForContextAttachment();
+            }
+        }
+    }
+);
+
+renderAttachedDelayedMemoryPlaque();
+
 window.JinPanels =
     Object.assign(
         window.JinPanels || {},
         {
             collapseAllPanels,
+            expandConsolePanelForContextAttachment,
             cancelStartupCollapseAnimation,
             getRuntimeAvatarSnapshot,
             refreshCollapsedPanelHeights,

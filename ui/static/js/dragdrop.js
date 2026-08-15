@@ -167,6 +167,13 @@ async function uploadFile(file) {
     normalizeSnapshot(await response.json());
     dispatchStoreChanged();
     syncAttachmentContext();
+    if (
+      pinned
+      && window.JinPanels
+      && typeof window.JinPanels.expandConsolePanelForContextAttachment === "function"
+    ) {
+      window.JinPanels.expandConsolePanelForContextAttachment();
+    }
     return true;
   } catch (_error) {
     return false;

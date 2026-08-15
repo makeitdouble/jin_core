@@ -1235,6 +1235,83 @@
     return attachmentIds;
   }
 
+  function normalizeDelayedMemoryTags(value) {
+    const source = Array.isArray(value) ? value : [value];
+    const candidates = [];
+    const tags = [];
+    const seen = new Set();
+
+    function collect(item) {
+      if (Array.isArray(item)) {
+        item.flat(Infinity).forEach(collect);
+        return;
+      }
+
+      const text = String(item || "").trim();
+      if (!text) {
+        return;
+      }
+
+      if (text.startsWith("[") && text.endsWith("]")) {
+        try {
+          const parsed = JSON.parse(text);
+          if (Array.isArray(parsed)) {
+            parsed.forEach(collect);
+            return;
+          }
+        } catch (_error) {
+          // Loose legacy bracket syntax is handled below.
+        }
+      }
+
+      text.split(/[,;\r\n]+/)
+        .map(part => part.trim())
+        .filter(Boolean)
+        .forEach((part) => {
+          const bracketed = part.startsWith("[") && part.endsWith("]");
+          const hashtagCount = (part.match(/(^|\s)#/g) || []).length;
+
+          if (bracketed) {
+            const inner = part.slice(1, -1).trim();
+            if (inner && !/["']/.test(inner)) {
+              candidates.push(...inner.split(/\s+/));
+              return;
+            }
+          }
+
+          if (hashtagCount >= 2) {
+            candidates.push(...part.split(/\s+/));
+            return;
+          }
+
+          candidates.push(part);
+        });
+    }
+
+    source.forEach(collect);
+
+    candidates.forEach((candidate) => {
+      let tag = String(candidate || "").trim();
+      tag = tag.replace(/^[\[\]{}()"']+|[\[\]{}()"']+$/g, "").trim();
+      tag = tag.replace(/^#+|#+$/g, "").trim();
+      tag = tag.replace(/^[\[\]{}()"']+|[\[\]{}()"']+$/g, "").trim();
+
+      if (!tag) {
+        return;
+      }
+
+      const key = tag.toLocaleLowerCase();
+      if (seen.has(key)) {
+        return;
+      }
+
+      seen.add(key);
+      tags.push(tag);
+    });
+
+    return tags;
+  }
+
   function normalizeDelayedMemoryReports(
     value
   ) {
@@ -1298,14 +1375,7 @@
           summary:
             String(report.summary || "").trim(),
           tags:
-            Array.isArray(report.tags)
-              ? report.tags
-                  .map(tag => String(tag || "").trim())
-                  .filter(Boolean)
-              : String(report.tags || "")
-                  .split(",")
-                  .map(tag => tag.trim())
-                  .filter(Boolean),
+            normalizeDelayedMemoryTags(report.tags),
           body:
             String(report.body || "").trim(),
           pinned:
@@ -1998,6 +2068,7 @@
     buildFactsMemoryContentHash,
     activateFactsMemorySession,
     removeFactsMemoryField,
+    normalizeDelayedMemoryTags,
     normalizeDelayedMemoryReports,
     readDelayedMemoryReports,
     writeDelayedMemoryReports,

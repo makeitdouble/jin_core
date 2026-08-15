@@ -266,10 +266,14 @@ function parseDelayedMemoryReportPayload(
       summary:
         String(fields.summary || "").trim(),
       tags:
-        String(fields.tags || "")
-          .split(",")
-          .map(tag => tag.trim())
-          .filter(Boolean),
+        window.JinRuntime
+        && window.JinRuntime.storage
+        && typeof window.JinRuntime.storage.normalizeDelayedMemoryTags === "function"
+          ? window.JinRuntime.storage.normalizeDelayedMemoryTags(fields.tags)
+          : String(fields.tags || "")
+              .split(",")
+              .map(tag => tag.trim())
+              .filter(Boolean),
       body:
         String(fields.body || "").trim(),
       anchor_fact_ids: anchorFactIds,
@@ -486,14 +490,10 @@ function syncDelayedMemoryReportsToRuntime(options = {}) {
     typeof window.JinRuntime.runtime.getLoadedDelayedMemoryReportIds === "function"
       ? window.JinRuntime.runtime.getLoadedDelayedMemoryReportIds()
       : [];
-  const appendedDelayedMemoryIds =
-    typeof window.JinRuntime.runtime.getAppendedDelayedMemoryReportIds === "function"
-      ? window.JinRuntime.runtime.getAppendedDelayedMemoryReportIds()
-      : [];
-  const suppressedAppendIds =
+  const suppressedAutoLoadIds =
     normalizeDelayedMemoryReportIds(
-      options.suppressedAppendIds
-      || options.suppressed_delayed_memory_append_ids
+      options.suppressedAutoLoadIds
+      || options.suppressed_delayed_memory_auto_load_ids
       || []
     );
 
@@ -502,12 +502,11 @@ function syncDelayedMemoryReportsToRuntime(options = {}) {
     delayed_memory_reports: delayedMemoryReports,
     deleted_delayed_memory_report_ids: deletedReportIds,
     loaded_delayed_memory_ids: loadedDelayedMemoryIds,
-    appended_delayed_memory_ids: appendedDelayedMemoryIds,
     ...(
-      suppressedAppendIds.length
+      suppressedAutoLoadIds.length
         ? {
-          suppressed_delayed_memory_append_ids:
-            suppressedAppendIds,
+          suppressed_delayed_memory_auto_load_ids:
+            suppressedAutoLoadIds,
         }
         : {}
     ),
@@ -549,14 +548,6 @@ function handleDelayedMemoryStoreSnapshot(
     );
   }
 
-  if (
-      typeof window.JinRuntime.runtime.replaceAppendedDelayedMemoryReportIds
-        === "function"
-  ) {
-    window.JinRuntime.runtime.replaceAppendedDelayedMemoryReportIds(
-      data.appended_delayed_memory_ids || []
-    );
-  }
 
   window.JinRuntime.runtime.replaceDelayedMemoryReports({
     ...localReports,

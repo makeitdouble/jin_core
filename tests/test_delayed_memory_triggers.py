@@ -3,8 +3,8 @@ import unittest
 from types import SimpleNamespace
 
 from utils.delayed_memory_triggers import (
-    RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
-    append_delayed_memory_by_tags,
+    RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
+    load_delayed_memory_by_tags,
     delayed_memory_trigger_matches,
 )
 
@@ -41,7 +41,7 @@ class DelayedMemoryTriggerTests(unittest.TestCase):
             )
         )
 
-    def test_auto_append_uses_tags_and_emits_sequence_action(self):
+    def test_auto_load_uses_tags_and_emits_sequence_action(self):
         emitter = FakeEmitter()
         logger = FakeLogger()
         context = SimpleNamespace(
@@ -85,7 +85,7 @@ class DelayedMemoryTriggerTests(unittest.TestCase):
         )
 
         results = asyncio.run(
-            append_delayed_memory_by_tags(
+            load_delayed_memory_by_tags(
                 context,
                 "The bigmac analogy fits this case.",
             )
@@ -96,12 +96,12 @@ class DelayedMemoryTriggerTests(unittest.TestCase):
         self.assertNotIn("abc123", context.runtime_loaded_delayed_memory)
         self.assertEqual(
             results[0]["action"],
-            RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
+            RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
         )
         self.assertEqual(results[0]["triggered_by_tag"], "bigmac")
         self.assertEqual(len(emitter.events), 1)
         event = emitter.events[0]
-        self.assertEqual(event["action"], RUNTIME_ACTION_APPEND_DELAYED_MEMORY)
+        self.assertEqual(event["action"], RUNTIME_ACTION_LOAD_DELAYED_MEMORY)
         self.assertEqual(event["runtime_turn_id"], "turn_000001")
         self.assertIn('triggered_by_tag: "bigmac"', event["text"])
         self.assertEqual(
@@ -134,7 +134,7 @@ class DelayedMemoryTriggerTests(unittest.TestCase):
         )
 
         results = asyncio.run(
-            append_delayed_memory_by_tags(
+            load_delayed_memory_by_tags(
                 context,
                 "Let's revisit the architecture here.",
             )
@@ -143,7 +143,7 @@ class DelayedMemoryTriggerTests(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["triggered_by_tag"], "architecture")
 
-    def test_already_loaded_report_is_not_appended_twice(self):
+    def test_already_loaded_report_is_not_loaded_twice(self):
         report = {
             "title": "Already loaded",
             "tags": [
@@ -167,7 +167,7 @@ class DelayedMemoryTriggerTests(unittest.TestCase):
         )
 
         results = asyncio.run(
-            append_delayed_memory_by_tags(
+            load_delayed_memory_by_tags(
                 context,
                 "bigmac",
             )

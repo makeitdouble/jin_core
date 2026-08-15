@@ -1949,20 +1949,6 @@ def clear_loaded_delayed_memory_report(
             != normalized_report_id
         ]
 
-    appended_ids = getattr(
-        context,
-        "runtime_appended_delayed_memory_ids",
-        None,
-    )
-
-    if isinstance(appended_ids, list):
-        appended_ids[:] = [
-            item
-            for item in appended_ids
-            if str(item or "").strip().casefold()
-            != normalized_report_id
-        ]
-
     return True
 
 def get_delayed_memory_reports(

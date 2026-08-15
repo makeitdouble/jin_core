@@ -4,7 +4,7 @@ import re
 import unicodedata
 
 
-RUNTIME_ACTION_APPEND_DELAYED_MEMORY = "append_delayed_memory"
+RUNTIME_ACTION_LOAD_DELAYED_MEMORY = "load_delayed_memory"
 MIN_DELAYED_MEMORY_TRIGGER_CHARS = 2
 
 
@@ -71,14 +71,14 @@ def find_delayed_memory_trigger_tag(
     return ""
 
 
-async def append_delayed_memory_by_tags(
+async def load_delayed_memory_by_tags(
     context,
     user_text: str,
 ) -> list[dict]:
-    """Append matching delayed reports before Brain sees the turn.
+    """Load matching delayed reports before Brain sees the turn.
 
     Delayed memory has one tag list: ``tags``. Each tag is both an index tag
-    and a lexical trigger hook. Auto-appended reports use the same loaded
+    and a lexical trigger hook. Tag-triggered reports use the exact same loaded
     memory state as LOAD_DELAYED_MEMORY, so Brain may later unload them with
     the normal UNLOAD_DELAYED_MEMORY action.
     """
@@ -104,15 +104,15 @@ async def append_delayed_memory_by_tags(
         for item in (
             getattr(
                 context,
-                "runtime_suppressed_delayed_memory_append_ids",
+                "runtime_suppressed_delayed_memory_auto_load_ids",
                 [],
             )
             or []
         )
         if str(item or "").strip()
     }
-    context.runtime_suppressed_delayed_memory_append_ids = []
-    appended_results = []
+    context.runtime_suppressed_delayed_memory_auto_load_ids = []
+    loaded_results = []
 
     for report_id, report in reports.items():
         normalized_report_id = str(
@@ -148,23 +148,12 @@ async def append_delayed_memory_by_tags(
         ):
             continue
 
-        appended_ids = getattr(
-            context,
-            "runtime_appended_delayed_memory_ids",
-            None,
-        )
-        if not isinstance(appended_ids, list):
-            appended_ids = []
-            context.runtime_appended_delayed_memory_ids = appended_ids
-        if normalized_report_id not in appended_ids:
-            appended_ids.append(normalized_report_id)
-
         result = {
             **result,
-            "action": RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
+            "action": RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
             "triggered_by_tag": trigger_tag,
         }
-        appended_results.append(result)
+        loaded_results.append(result)
 
         emitter = getattr(
             context,
@@ -188,13 +177,13 @@ async def append_delayed_memory_by_tags(
             )
             event = {
                 "type": "runtime_action",
-                "action": RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
+                "action": RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
                 "id": normalized_report_id,
                 "status": "completed",
-                "display_name": "APPENDED DELAYED MEMORY",
+                "display_name": "LOADED DELAYED MEMORY",
                 "close_tag": False,
                 "text": (
-                    f"APPENDED DELAYED MEMORY: {title} - "
+                    f"LOADED DELAYED MEMORY: {title} - "
                     f'triggered_by_tag: "{trigger_tag}"'
                 ),
                 "detail": (
@@ -236,8 +225,8 @@ async def append_delayed_memory_by_tags(
         )
         if log_runtime is not None:
             await log_runtime(
-                "[DELAYED MEMORY] appended by tag: "
+                "[DELAYED MEMORY] loaded by tag: "
                 f"{normalized_report_id} <- {trigger_tag}"
             )
 
-    return appended_results
+    return loaded_results
