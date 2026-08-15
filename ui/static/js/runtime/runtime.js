@@ -1334,13 +1334,10 @@ function setDelayedMemoryReportPinned(
     renderRuntimeMemorySnapshot();
   }
 
-  if (
-      !setDelayedMemoryPinnedOnAvatar(
-        normalizedId,
-        pinned
-      )
-      && !syncDelayedMemoryStateToAvatar()
-  ) {
+  // Pin state affects more than the delayed-memory dash itself: it also
+  // controls linked L4/attachment highlights. Re-sync the whole delayed
+  // avatar state so unpinning cannot leave stale context-loaded classes.
+  if (!syncDelayedMemoryStateToAvatar()) {
     refreshRuntimeAvatar();
   }
 

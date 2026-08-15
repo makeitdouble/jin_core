@@ -233,6 +233,37 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
         self.assertIn("loaded_delayed_memory_ids", socket_source)
         self.assertIn("replaceLoadedDelayedMemoryReportIds", socket_source)
 
+    def test_delayed_memory_unpin_resyncs_all_avatar_link_state(self):
+
+        runtime_source = (
+            ROOT / "ui" / "static" / "js" / "runtime" / "runtime.js"
+        ).read_text(encoding="utf-8")
+        index_source = (
+            ROOT / "ui" / "templates" / "index.html"
+        ).read_text(encoding="utf-8")
+
+        pin_start = runtime_source.index(
+            "function setDelayedMemoryReportPinned("
+        )
+        pin_end = runtime_source.index(
+            "function setDelayedMemoryReportAnchorFactIds(",
+            pin_start,
+        )
+        pin_block = runtime_source[pin_start:pin_end]
+
+        self.assertIn(
+            "if (!syncDelayedMemoryStateToAvatar())",
+            pin_block,
+        )
+        self.assertNotIn(
+            "!setDelayedMemoryPinnedOnAvatar(",
+            pin_block,
+        )
+        self.assertIn(
+            '/static/js/runtime/runtime.js?v=delayed-unpin-avatar-sync-1',
+            index_source,
+        )
+
     def test_loaded_delayed_memory_bubbles_open_their_own_reports(self):
 
         runtime_actions_source = (
