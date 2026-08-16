@@ -3433,19 +3433,19 @@ class BrainRuntimeActionTests(unittest.TestCase):
         self.assertTrue(prompt.startswith("<TOOLS_RESULTS>"))
         self.assertLess(
             prompt.index('<TOOL_RESULT name="ASSETS"'),
-            prompt.index("<SKILLS>"),
-        )
-        self.assertLess(
-            prompt.index("<SKILLS>"),
-            prompt.index("<LOADED_SKILLS_CONTENT>"),
-        )
-        self.assertLess(
-            prompt.index("<LOADED_SKILLS_CONTENT>"),
-            prompt.index("<RUNTIME_MEMORY>"),
-        )
-        self.assertLess(
-            prompt.index("<RUNTIME_MEMORY>"),
             prompt.index("<SESSION_ACTIONS_HISTORY>"),
+        )
+        self.assertLess(
+            prompt.index("</SESSION_ACTIONS_HISTORY>"),
+            prompt.index("<SKILLS>"),
+        )
+        self.assertLess(
+            prompt.index("<SKILLS>"),
+            prompt.index("<LOADED_SKILLS_CONTENT>"),
+        )
+        self.assertLess(
+            prompt.index("<LOADED_SKILLS_CONTENT>"),
+            prompt.index("<RUNTIME_MEMORY>"),
         )
         self.assertIn("asset result", prompt)
         self.assertIn("first line\n", prompt)

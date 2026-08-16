@@ -17,6 +17,7 @@
   let updateDelayedMemoryReportFields = null;
   let setDelayedMemoryReportAnchorFactIds = null;
   let linkDelayedMemoryReportFactId = null;
+  let linkDelayedMemoryReportFactIds = null;
   let unlinkDelayedMemoryReportFactId = null;
   let deleteDelayedMemoryReport = null;
   let getFactsMemoryFields = null;
@@ -3966,6 +3967,37 @@
     return true;
   }
 
+  function linkFactsToDelayedMemoryModal(
+    factIds
+  ) {
+    if (
+        !delayedMemoryModalReport
+        || typeof linkDelayedMemoryReportFactIds !== "function"
+    ) {
+      return false;
+    }
+
+    const updatedReport =
+        linkDelayedMemoryReportFactIds(
+            delayedMemoryModalReport._storage_key,
+            factIds
+        );
+
+    if (
+        !updatedReport
+        || typeof updatedReport !== "object"
+        || Array.isArray(updatedReport)
+    ) {
+      return false;
+    }
+
+    openDelayedMemoryReportModal(
+        updatedReport
+    );
+
+    return true;
+  }
+
   function unlinkFactFromDelayedMemoryModal(
     factId
   ) {
@@ -4214,6 +4246,29 @@
     input.addEventListener("input", () => {
       updatePickerInputWidth();
       renderOptions();
+    });
+
+    input.addEventListener("paste", (event) => {
+      const clipboardText =
+          event.clipboardData
+          && typeof event.clipboardData.getData === "function"
+            ? event.clipboardData.getData("text/plain")
+            : "";
+      const pastedFactIds =
+          normalizeDelayedMemoryFactIds(
+              clipboardText
+          );
+
+      if (!pastedFactIds.length) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      closePicker();
+      linkFactsToDelayedMemoryModal(
+          pastedFactIds
+      );
     });
 
     input.addEventListener("keydown", (event) => {
@@ -5263,15 +5318,20 @@
       }
 
       const key = tag.toLocaleLowerCase();
-      const exists = tags.some(
+      const duplicateIndex = tags.findIndex(
           current => current.toLocaleLowerCase() === key
       );
 
       input.value = "";
       resizeInput();
 
-      if (exists) {
-        return false;
+      if (duplicateIndex >= 0) {
+        const existingTag = tags[duplicateIndex];
+
+        return updateDelayedMemoryModalTags([
+          ...tags.filter((_, index) => index !== duplicateIndex),
+          existingTag,
+        ]);
       }
 
       return updateDelayedMemoryModalTags([
@@ -5279,6 +5339,12 @@
         tag,
       ]);
     }
+
+    input.addEventListener("focus", () => {
+      if (tags.length) {
+        list.classList.add("delayed-memory-modal-tags-editing");
+      }
+    });
 
     input.addEventListener("input", () => {
       resizeInput();
@@ -5298,6 +5364,7 @@
     });
 
     input.addEventListener("blur", () => {
+      list.classList.remove("delayed-memory-modal-tags-editing");
       commitInput();
     });
 
@@ -6033,21 +6100,108 @@
     );
   }
 
-  function appendDelayedMemoryModalBody(parent, body) {
-    const section =
+  function setDelayedMemoryModalCardCollapsed(
+    card,
+    collapsed
+  ) {
+    if (!card) {
+      return;
+    }
+
+    card.classList.toggle(
+        "is-collapsed",
+        collapsed
+    );
+
+    const header =
+        card.querySelector(
+            ".jin-context-card-header"
+        );
+
+    if (header) {
+      header.setAttribute(
+          "aria-expanded",
+          collapsed ? "false" : "true"
+      );
+    }
+  }
+
+  function createDelayedMemoryModalCard(title) {
+    const card =
         document.createElement("section");
-
-    section.className =
-        "delayed-memory-modal-section";
-
+    const header =
+        document.createElement("div");
     const heading =
         document.createElement("div");
+    const titleNode =
+        document.createElement("div");
+    const body =
+        document.createElement("div");
 
+    card.className =
+        "jin-context-card jin-context-card-plain delayed-memory-modal-card";
+    header.className =
+        "jin-context-card-header delayed-memory-modal-card-header";
     heading.className =
-        "delayed-memory-modal-section-title";
+        "jin-context-card-heading";
+    titleNode.className =
+        "jin-context-card-title delayed-memory-modal-card-title";
+    titleNode.textContent =
+        normalizeDelayedMemoryDisplayText(title);
+    body.className =
+        "jin-context-card-body delayed-memory-modal-card-body";
 
-    heading.textContent =
-        "Body";
+    header.title =
+        "Click to collapse / expand";
+    header.tabIndex = 0;
+    header.setAttribute("role", "button");
+    header.setAttribute("aria-expanded", "true");
+
+    const toggle = () => {
+      setDelayedMemoryModalCardCollapsed(
+          card,
+          !card.classList.contains("is-collapsed")
+      );
+    };
+
+    header.addEventListener("click", toggle);
+    header.addEventListener("keydown", (event) => {
+      if (event.target !== header) {
+        return;
+      }
+
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+
+      event.preventDefault();
+      toggle();
+    });
+
+    heading.appendChild(
+        titleNode
+    );
+    header.appendChild(
+        heading
+    );
+    card.appendChild(
+        header
+    );
+    card.appendChild(
+        body
+    );
+
+    return {
+      card,
+      header,
+      title: titleNode,
+      body,
+    };
+  }
+
+  function appendDelayedMemoryModalBody(parent, body) {
+    const bodyCard =
+        createDelayedMemoryModalCard("BODY");
 
     const pre =
         document.createElement("pre");
@@ -6062,16 +6216,12 @@
         pre
     );
 
-    section.appendChild(
-        heading
-    );
-
-    section.appendChild(
+    bodyCard.body.appendChild(
         pre
     );
 
     parent.appendChild(
-        section
+        bodyCard.card
     );
 
     return pre;
@@ -6189,6 +6339,11 @@
 
     delayedMemoryModalContent.innerHTML = "";
 
+    const detailsCard =
+        createDelayedMemoryModalCard(
+            delayedMemoryModalReport.title
+            || "Delayed memory"
+        );
     const fields =
         document.createElement("section");
 
@@ -6196,15 +6351,17 @@
         "delayed-memory-modal-fields";
 
     delayedMemoryModalTitleEditor =
-        appendDelayedMemoryModalEditableField(
-            fields,
-            "Title",
-            delayedMemoryModalReport.title,
-            {
-              title: true,
-              singleLine: true,
-            }
-        );
+        detailsCard.title;
+    delayedMemoryModalTitleEditor.classList.add(
+        "delayed-memory-modal-card-title-editor"
+    );
+    bindDelayedMemoryModalEditor(
+        delayedMemoryModalTitleEditor,
+        {
+          title: true,
+          singleLine: true,
+        }
+    );
 
     delayedMemoryModalSummaryEditor =
         appendDelayedMemoryModalEditableField(
@@ -6244,8 +6401,12 @@
         delayedMemoryModalReport
     );
 
-    delayedMemoryModalContent.appendChild(
+    detailsCard.body.appendChild(
         fields
+    );
+
+    delayedMemoryModalContent.appendChild(
+        detailsCard.card
     );
 
     delayedMemoryModalBodyEditor =
@@ -6815,6 +6976,8 @@
         options.setDelayedMemoryReportAnchorFactIds || null;
     linkDelayedMemoryReportFactId =
         options.linkDelayedMemoryReportFactId || null;
+    linkDelayedMemoryReportFactIds =
+        options.linkDelayedMemoryReportFactIds || null;
     unlinkDelayedMemoryReportFactId =
         options.unlinkDelayedMemoryReportFactId || null;
     deleteDelayedMemoryReport =

@@ -512,9 +512,9 @@ def build_current_runtime_context(
         )
 
     return (
-        f"<LATEST_USER_INPUT{elapsed_suffix}>\n"
+        f"<CURRENT_USER_INPUT{elapsed_suffix}>\n"
         f"user_message: {escape(message_text)}\n"
-        "</LATEST_USER_INPUT>"
+        "</CURREN_USER_INPUT>"
     )
 
 
@@ -529,7 +529,7 @@ def strip_actions_history_context(
 
     for tag_name in (
         "SESSION_ACTIONS_HISTORY",
-        "LATEST_USER_INPUT",
+        "CURREN_USER_INPUT",
         "CURRENT_RUNTIME",
         "CURRENT_SEQUENCE",
         "CURRENT_ACTIONS_HISTORY",

@@ -598,6 +598,7 @@ memoryView.init({
   updateDelayedMemoryReportFields,
   setDelayedMemoryReportAnchorFactIds,
   linkDelayedMemoryReportFactId,
+  linkDelayedMemoryReportFactIds,
   unlinkDelayedMemoryReportFactId,
   deleteDelayedMemoryReport: deleteDelayedMemoryReportAndRender,
   removeLongTermFactIdFromDelayedMemoryReports,
@@ -1654,14 +1655,30 @@ function linkDelayedMemoryReportFactId(
   options = {}
 ) {
 
+  return linkDelayedMemoryReportFactIds(
+    reportId,
+    [factId],
+    options
+  );
+
+}
+
+function linkDelayedMemoryReportFactIds(
+  reportId,
+  requestedFactIds,
+  options = {}
+) {
+
   const normalizedId =
     normalizeRuntimeDelayedMemoryReportId(
       reportId
     );
-  const normalizedFactId =
-    normalizeLongTermFactId(
-      factId
-    );
+  const normalizedFactIds =
+    normalizeRuntimeLongTermFactIds(
+      requestedFactIds
+    ).filter((factId) => (
+      Boolean(findLongTermMemoryFact(factId))
+    ));
   const reports =
     readDelayedMemoryReports();
   const report =
@@ -1669,7 +1686,7 @@ function linkDelayedMemoryReportFactId(
 
   if (
       !normalizedId
-      || !normalizedFactId
+      || !normalizedFactIds.length
       || !report
       || typeof report !== "object"
       || Array.isArray(report)
@@ -1677,7 +1694,7 @@ function linkDelayedMemoryReportFactId(
     return false;
   }
 
-  const factIds =
+  const currentFactIds =
     normalizeRuntimeLongTermFactIds(
       report.facts_ids
     );
@@ -1685,25 +1702,27 @@ function linkDelayedMemoryReportFactId(
     normalizeRuntimeLongTermFactIds(
       report.anchor_fact_ids
     );
-  const nextFactIds =
-    factIds.includes(normalizedFactId)
-      ? factIds
-      : sortRuntimeLongTermFactIds([
-        ...factIds,
-        normalizedFactId,
-      ]);
   const shouldAnchor =
     Boolean(options && options.anchor);
-  const nextAnchorFactIds =
-    shouldAnchor && !anchorFactIds.includes(normalizedFactId)
-      ? sortRuntimeLongTermFactIds([
-        ...anchorFactIds,
-        normalizedFactId,
+  const nextFactIds =
+    sortRuntimeLongTermFactIds(
+      normalizeRuntimeLongTermFactIds([
+        ...currentFactIds,
+        ...normalizedFactIds,
       ])
+    );
+  const nextAnchorFactIds =
+    shouldAnchor
+      ? sortRuntimeLongTermFactIds(
+        normalizeRuntimeLongTermFactIds([
+          ...anchorFactIds,
+          ...normalizedFactIds,
+        ])
+      )
       : anchorFactIds;
 
   if (
-      nextFactIds.length === factIds.length
+      nextFactIds.length === currentFactIds.length
       && nextAnchorFactIds.length === anchorFactIds.length
   ) {
     return {
@@ -2418,6 +2437,7 @@ window.JinRuntime.runtime = {
   updateDelayedMemoryReportFields,
   setDelayedMemoryReportAnchorFactIds,
   linkDelayedMemoryReportFactId,
+  linkDelayedMemoryReportFactIds,
   unlinkDelayedMemoryReportFactId,
   deleteDelayedMemoryReport: deleteDelayedMemoryReportAndRender,
   restoreDelayedMemoryReport: restoreDelayedMemoryReportAndRender,

@@ -759,16 +759,12 @@ async def apply_runtime_action_calls(
             continue
 
         if action.name == RUNTIME_ACTION_SAVE_SESSION:
-            if getattr(
-                context,
-                "runtime_save_session_memory_committed_this_turn",
-                False,
-            ):
-                # L3 already completed this turn. A SAVE_SESSION marker
-                # repeated by the deferred follow-up must not start a second
-                # memory pipeline.
-                continue
-
+            # SAVE_SESSION is repeatable across internal follow-up messages.
+            # Completing L3 clears runtime_save_session_requested, so a later
+            # model message may deliberately request another snapshot and
+            # receive another follow-up tick. Keep deduplication scoped to the
+            # current model message/batch instead of suppressing the action for
+            # the rest of the user turn.
             if save_session_seen:
                 if not save_session_action_emitted:
                     save_session_action_emitted = True

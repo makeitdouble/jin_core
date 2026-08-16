@@ -888,8 +888,23 @@ def build_brain_context(
             tool_results_context
         )
 
-    # Persistent pinned files are a compact inventory between tool results and
-    # delayed memory. Omit the block completely when no files are attached.
+    # Session actions history sits directly under tool results on ordinary
+    # turns. Follow-up sequence prompts replace it with CURRENT_SEQUENCE, so
+    # the context window always exposes the relevant action trail in one
+    # predictable place.
+    session_actions_history_context = (
+        build_session_actions_history_context(
+            context
+        )
+    )
+
+    if session_actions_history_context:
+        prompt_parts.append(
+            session_actions_history_context
+        )
+
+    # Persistent pinned files are a compact inventory between session actions
+    # and delayed memory. Omit the block completely when no files are attached.
     attached_files_context = build_attached_files_inventory_context(
         context
     )
@@ -1022,18 +1037,6 @@ def build_brain_context(
     if previous_chat_messages_context:
         prompt_parts.append(
             previous_chat_messages_context
-        )
-
-    # Session actions history block: keeps durable action breadcrumbs available.
-    session_actions_history_context = (
-        build_session_actions_history_context(
-            context
-        )
-    )
-
-    if session_actions_history_context:
-        prompt_parts.append(
-            session_actions_history_context
         )
 
     # Previous reasoning block: loop recovery keeps failed reasoning attempts

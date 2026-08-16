@@ -1159,7 +1159,7 @@ function splitContextPlainText(text) {
   let title = "SYSTEM RULES";
   let lines = [];
 
-  const flush = () => {
+  const flush = (runtimeActionMarker = false) => {
     const content =
       lines.join("\n").trim();
 
@@ -1169,6 +1169,7 @@ function splitContextPlainText(text) {
         content,
         attributes: [],
         xml: false,
+        runtimeActionMarker,
       });
     }
 
@@ -1206,7 +1207,7 @@ function splitContextPlainText(text) {
         lines.push(actionLine);
       }
 
-      flush();
+      flush(true);
       title = "SYSTEM RULES";
       continue;
     }
@@ -2055,6 +2056,33 @@ function setContextCardCollapsed(
       collapsed ? "false" : "true"
     );
   }
+
+  if (
+      !collapsed
+      && card.classList.contains(
+        "jin-context-card-action-markers"
+      )
+  ) {
+    const markerStack =
+      card.querySelector(
+        ".jin-context-action-markers-stack"
+      );
+
+    Array.from(
+      markerStack ? markerStack.children : []
+    ).forEach((markerCard) => {
+      if (
+          markerCard.classList.contains(
+            "jin-context-card"
+          )
+      ) {
+        setContextCardCollapsed(
+          markerCard,
+          false
+        );
+      }
+    });
+  }
 }
 
 function appendContextCard(
@@ -2096,18 +2124,18 @@ function appendContextCard(
   header.setAttribute("role", "button");
   header.setAttribute("aria-expanded", "true");
 
-  heading.appendChild(
-    contextElement(
-      "span",
-      "jin-context-card-chevron",
-      "▾"
-    )
-  );
+  const displayTitle =
+    String(block.title || "")
+      .trim()
+      .toUpperCase() === "SESSION_ACTIONS_HISTORY"
+      ? "SESSION_ACTIONS"
+      : block.title;
+
   heading.appendChild(
     contextElement(
       "div",
       "jin-context-card-title",
-      block.title
+      displayTitle
     )
   );
 
@@ -2118,7 +2146,8 @@ function appendContextCard(
   });
   meta.appendChild(
     contextBadge(
-      `${String(block.content || "").split("\n").filter((line) => line.trim()).length} lines`
+      block.metaLabel
+      || `${String(block.content || "").split("\n").filter((line) => line.trim()).length} lines`
     )
   );
 
@@ -2134,7 +2163,7 @@ function appendContextCard(
     );
 
     if (typeof onToggle === "function") {
-      onToggle();
+      onToggle(card, collapsed);
     }
   };
 
@@ -2165,7 +2194,9 @@ function appendContextCard(
     .trim()
     .toUpperCase();
 
-  if (normalizedBlockTitle === "DELAYED_MEMORY") {
+  if (typeof block.renderBody === "function") {
+    block.renderBody(body);
+  } else if (normalizedBlockTitle === "DELAYED_MEMORY") {
     renderContextDelayedMemoryBody(
       body,
       block.content
@@ -2183,6 +2214,52 @@ function appendContextCard(
   }
   parent.appendChild(card);
   return card;
+}
+
+function appendContextActionMarkersCard(
+  parent,
+  markerBlocks,
+  onToggle = null,
+) {
+  const markerStack =
+    contextElement(
+      "div",
+      "jin-context-stack jin-context-action-markers-stack"
+    );
+
+  const groupCard =
+    appendContextCard(
+      parent,
+      {
+        title: "ACTION MARKERS",
+        content: markerBlocks
+          .map((block) => block.content || "")
+          .join("\n"),
+        attributes: [],
+        xml: false,
+        metaLabel: `${markerBlocks.length} markers`,
+        renderBody: (body) => {
+          markerBlocks.forEach((block) => {
+            appendContextCard(
+              markerStack,
+              block
+            );
+          });
+          body.appendChild(markerStack);
+        },
+      },
+      onToggle
+    );
+
+  groupCard.classList.add(
+    "jin-context-card-action-markers"
+  );
+  setContextCardCollapsed(
+    groupCard,
+    true
+  );
+
+  return groupCard;
 }
 
 function renderContextSnapshotTrace(snapshot) {
@@ -2318,7 +2395,25 @@ function renderContextSnapshotTrace(snapshot) {
     }
   );
 
+  const actionMarkerBlocks =
+    blocks.filter((block) =>
+      block.runtimeActionMarker === true
+    );
+  let actionMarkersInserted = false;
+
   blocks.forEach((block) => {
+    if (block.runtimeActionMarker === true) {
+      if (!actionMarkersInserted) {
+        appendContextActionMarkersCard(
+          stack,
+          actionMarkerBlocks,
+          syncCollapseAllToggle
+        );
+        actionMarkersInserted = true;
+      }
+      return;
+    }
+
     appendContextCard(
       stack,
       block,

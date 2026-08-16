@@ -850,6 +850,88 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
+    async def test_followup_deduplicates_loaded_delayed_memory_from_base_prompt(self):
+
+        context = SimpleNamespace(
+            runtime_recent_turns=[],
+            runtime_memory="session_status: active",
+            runtime_memory_stable="session_status: active",
+            runtime_l2_memory="",
+            active_memory_records=[],
+            delayed_memory_reports={
+                "a1b2c3": {
+                    "title": "First report",
+                    "summary": "First summary",
+                },
+                "d4e5f6": {
+                    "title": "Second report",
+                    "summary": "Second summary",
+                },
+            },
+            runtime_loaded_delayed_memory={
+                "a1b2c3": {
+                    "id": "a1b2c3",
+                    "title": "First report",
+                    "summary": "First summary",
+                },
+                "d4e5f6": {
+                    "id": "d4e5f6",
+                    "title": "Second report",
+                    "summary": "Second summary",
+                },
+            },
+        )
+
+        base_prompt = build_brain_context(
+            context=context,
+            runtime_actions={
+                "CAN_SAVE_DELAYED_MEMORY": True,
+            },
+        )
+        self.assertEqual(
+            sum(
+                1
+                for line in base_prompt.splitlines()
+                if line.strip() == "<LOADED_DELAYED_MEMORY>"
+            ),
+            2,
+        )
+
+        prompt = BrainNode.build_followup_system_prompt(
+            base_prompt,
+            "continue with loaded reports",
+            context=context,
+        )
+
+        self.assertEqual(
+            sum(
+                1
+                for line in prompt.splitlines()
+                if line.strip() == "<LOADED_DELAYED_MEMORY>"
+            ),
+            2,
+        )
+        self.assertLess(
+            prompt.index(
+                "<LOADED_DELAYED_MEMORY>"
+            ),
+            prompt.index(
+                "<DELAYED_MEMORY>"
+            ),
+        )
+        self.assertEqual(
+            prompt.count(
+                '"title": "First report"'
+            ),
+            1,
+        )
+        self.assertEqual(
+            prompt.count(
+                '"title": "Second report"'
+            ),
+            1,
+        )
+
     async def test_followup_places_current_sequence_under_latest_request(self):
 
         context = SimpleNamespace(

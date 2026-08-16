@@ -1638,11 +1638,15 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
 
-    def test_save_session_marker_is_ignored_after_same_turn_l3_commit(self):
+    def test_save_session_marker_is_allowed_after_same_turn_l3_commit(self):
 
         Context = FakeContext
 
         context = Context()
+        # A previous SAVE_SESSION may already have completed earlier in the
+        # same user turn (for example via the deterministic direct trigger).
+        # A marker emitted by the next internal follow-up is a new model
+        # message and must be allowed to request a fresh snapshot.
         context.runtime_save_session_memory_committed_this_turn = True
         result = extract_runtime_actions(
             "<SAVE_SESSION>",
@@ -1656,14 +1660,15 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 context,
                 result.actions,
                 user_message="save session",
+                runtime_message_id="followup-2",
             )
         )
 
         self.assertEqual(
             applied_count,
-            0,
+            1,
         )
-        self.assertFalse(
+        self.assertTrue(
             getattr(
                 context,
                 "runtime_save_session_requested",

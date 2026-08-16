@@ -285,8 +285,28 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
             css_source,
         )
         self.assertIn(
+            ".jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-file-ring",
+            css_source,
+        )
+        self.assertIn(
+            ".jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-file-dot",
+            css_source,
+        )
+        self.assertIn(
             ".jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-center-ring",
             css_source,
+        )
+        self.assertIn(
+            ".jin-runtime-avatar-shell.is-memory-layers-hidden::before",
+            css_source,
+        )
+        self.assertIn(
+            'const avatarShell = avatarRoot?.closest(".jin-runtime-avatar-shell") || null;',
+            avatar_source,
+        )
+        self.assertIn(
+            "avatarShell.classList.toggle(",
+            avatar_source,
         )
         self.assertIn('class: "jin-avatar-scaffold"', avatar_source)
         self.assertIn('class: "jin-avatar-center-ring"', avatar_source)

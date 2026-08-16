@@ -633,6 +633,45 @@ def format_previous_runtime_memory_tag(
     )
 
 
+def strip_loaded_delayed_memory_context(
+        system_prompt: str,
+) -> str:
+
+    lines = str(
+        system_prompt
+        or ""
+    ).splitlines()
+    opening_tag = "<LOADED_DELAYED_MEMORY>"
+    closing_tag = "</LOADED_DELAYED_MEMORY>"
+    kept_lines = []
+    index = 0
+
+    while index < len(lines):
+        if lines[index].strip() != opening_tag:
+            kept_lines.append(
+                lines[index]
+            )
+            index += 1
+            continue
+
+        closing_index = index + 1
+        while (
+            closing_index < len(lines)
+            and lines[closing_index].strip() != closing_tag
+        ):
+            closing_index += 1
+
+        if closing_index >= len(lines):
+            kept_lines.extend(
+                lines[index:]
+            )
+            break
+
+        index = closing_index + 1
+
+    return "\n".join(kept_lines).strip()
+
+
 def rename_runtime_memory_for_followup(
         system_prompt: str,
         *,
@@ -1054,8 +1093,10 @@ class BrainNode(BaseNode):
 
         sections.append(
             rename_runtime_memory_for_followup(
-                strip_actions_history_context(
-                    system_prompt
+                strip_loaded_delayed_memory_context(
+                    strip_actions_history_context(
+                        system_prompt
+                    )
                 ),
                 sequence_started_at=sequence_started_at,
             )
@@ -1794,9 +1835,10 @@ class BrainNode(BaseNode):
                     state=state,
                     response_text="",
                 )
-                # The direct path has already consumed this command. If the
-                # follow-up model echoes <SAVE_SESSION>, do not start L3 twice.
-                context.runtime_save_session_memory_committed_this_turn = True
+                # The direct trigger owns only this first save. A later
+                # follow-up is a distinct model message; if JIN deliberately
+                # emits <SAVE_SESSION> there, let the normal stream boundary
+                # run L3 again and schedule the next follow-up.
                 text = ""
                 reasoning = ""
             else:

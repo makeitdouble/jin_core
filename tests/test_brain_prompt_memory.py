@@ -274,7 +274,7 @@ class BrainPromptMemoryTests(
                 prompt,
             )
 
-    def test_brain_prompt_places_runtime_state_before_session_actions_history(self):
+    def test_brain_prompt_places_session_actions_directly_after_tool_results(self):
 
             context = SimpleNamespace(
                 runtime_memory="",
@@ -324,23 +324,23 @@ class BrainPromptMemoryTests(
             )
             self.assertLess(
                 prompt.index("</TOOLS_RESULTS>"),
-                prompt.index("<RUNTIME_MEMORY>"),
+                prompt.index("<SESSION_ACTIONS_HISTORY>"),
             )
             self.assertLess(
-                prompt.index("<RUNTIME_MEMORY>"),
-                prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
-            )
-            self.assertLess(
-                prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
-                prompt.index("<CURRENT_SESSION_STATE>"),
+                prompt.index("</SESSION_ACTIONS_HISTORY>"),
+                prompt.index("<LOADED_SKILLS_CONTENT>"),
             )
             self.assertLess(
                 prompt.index("<LOADED_SKILLS_CONTENT>"),
                 prompt.index("<RUNTIME_MEMORY>"),
             )
             self.assertLess(
+                prompt.index("<RUNTIME_MEMORY>"),
+                prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
+            )
+            self.assertLess(
+                prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
                 prompt.index("<CURRENT_SESSION_STATE>"),
-                prompt.index("<SESSION_ACTIONS_HISTORY>"),
             )
             self.assertIn(
                 "Total messages count:         4",

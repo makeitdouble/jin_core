@@ -228,6 +228,12 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
+.delayed-memory-report-modal .delayed-memory-modal-panel {
+    height: 86vh;
+    min-height: 86vh;
+    max-height: 86vh;
+}
+
 .delayed-memory-modal-content {
     overflow-wrap: anywhere;
 }
@@ -306,6 +312,13 @@
     pointer-events: none;
 }
 
+.delayed-memory-modal-tags-editing .delayed-memory-modal-tag:last-of-type::after {
+    content: ",";
+    margin-right: 0.55em;
+    color: rgba(244, 244, 245, 0.46);
+    pointer-events: none;
+}
+
 .delayed-memory-modal-tag:hover,
 .delayed-memory-modal-tag:focus-visible {
     color: rgba(255, 255, 255, 0.96);
@@ -344,6 +357,14 @@
             color 0.18s ease,
             text-shadow 0.18s ease;
     text-decoration: none;
+}
+
+.delayed-memory-modal-fact-id:not(:last-of-type)::after {
+    content: ",";
+    margin-right: 0.1em;
+    color: rgba(244, 244, 245, 0.34);
+    text-shadow: none;
+    pointer-events: none;
 }
 
 .delayed-memory-modal-fact-id:hover,
@@ -502,6 +523,41 @@
     margin-top: 18px;
 }
 
+.delayed-memory-modal-card + .delayed-memory-modal-card {
+    margin-top: 10px;
+}
+
+.delayed-memory-modal-card .delayed-memory-modal-fields {
+    gap: 0;
+}
+
+.delayed-memory-modal-card .delayed-memory-modal-field {
+    padding: 8px 3px;
+}
+
+.delayed-memory-modal-card .delayed-memory-modal-field:first-child {
+    padding-top: 3px;
+}
+
+.delayed-memory-modal-card .delayed-memory-modal-field:last-child {
+    border-bottom: 0;
+    padding-bottom: 3px;
+}
+
+.delayed-memory-modal-card-header,
+.delayed-memory-modal-card-title-editor {
+    cursor: pointer;
+}
+
+.delayed-memory-modal-card .jin-context-card-title {
+    color: rgba(186, 230, 253, 0.90);
+}
+
+.delayed-memory-modal-card-title-editor {
+    min-width: 0;
+    max-width: 100%;
+}
+
 .delayed-memory-modal-body {
     margin-top: 8px;
     max-width: none;
@@ -511,6 +567,13 @@
     background: rgba(9, 9, 11, 0.55);
     padding: 14px;
     color: rgba(244, 244, 245, 0.88);
+}
+
+.delayed-memory-modal-card .delayed-memory-modal-body {
+    margin: 0;
+    border: 0;
+    background: transparent;
+    padding: 0;
 }
 
 .jin-attachment-bubble {
@@ -997,7 +1060,17 @@
 
 .jin-context-card-body {
     min-width: 0;
+    height: auto;
+    overflow: hidden;
     padding: 10px;
+    opacity: 1;
+    interpolate-size: allow-keywords;
+    transition:
+            height 0.18s ease,
+            padding-top 0.18s ease,
+            padding-bottom 0.18s ease,
+            opacity 0.14s ease;
+    will-change: height, padding, opacity;
 }
 
 .jin-context-card.is-collapsed .jin-context-card-header {
@@ -1005,7 +1078,11 @@
 }
 
 .jin-context-card.is-collapsed .jin-context-card-body {
-    display: none;
+    height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    opacity: 0;
+    pointer-events: none;
 }
 
 .jin-context-card.is-collapsed .jin-context-card-chevron {

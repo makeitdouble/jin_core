@@ -226,6 +226,12 @@
     to { transform: rotate(0deg); }
 }
 
+.jin-runtime-avatar-shell.is-memory-layers-hidden::before {
+    opacity: 0 !important;
+    visibility: hidden;
+    animation-play-state: paused;
+}
+
 @keyframes jin-avatar-shell-aura-breathe {
     0%, 100% {
         opacity: var(--jin-avatar-aura-opacity-low, 0.26);
@@ -304,6 +310,8 @@
 .jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-orbit-entry,
 .jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-memory-ring,
 .jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-memory-dash,
+.jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-file-ring,
+.jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-file-dot,
 .jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-center-ring {
     opacity: 0 !important;
     visibility: hidden;

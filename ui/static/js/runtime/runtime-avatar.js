@@ -91,6 +91,7 @@
   const FILE_RING_ACTIVE_COLOR = PINNED_DELAYED_MEMORY_RING_COLOR;
 
   const avatarRoot = document.getElementById("jin-runtime-avatar");
+  const avatarShell = avatarRoot?.closest(".jin-runtime-avatar-shell") || null;
   const memoryLayersToggle = document.getElementById("memory-layers-toggle");
   const memoryPanel = document.getElementById("memory-panel");
   const normalizeRuntimeCitationIdentity =
@@ -3539,6 +3540,16 @@
     );
     avatarRoot.dataset.memoryLayersHidden =
       nextHidden ? "true" : "false";
+
+    if (avatarShell) {
+      avatarShell.classList.toggle(
+        MEMORY_LAYERS_HIDDEN_CLASS,
+        nextHidden
+      );
+      avatarShell.dataset.memoryLayersHidden =
+        nextHidden ? "true" : "false";
+    }
+
     syncMemoryLayersToggleLabel(nextHidden);
 
     return nextHidden;
