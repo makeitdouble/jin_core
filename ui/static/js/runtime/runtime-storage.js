@@ -1387,8 +1387,11 @@
           facts_ids:
             normalizeLongTermFactIds(
               [
-                report.anchor_fact_ids,
+                // Keep the saved facts_ids order intact. Anchors are only
+                // highlighted in the modal; they must not be pulled to the
+                // front of the full fact list during normalization.
                 report.facts_ids,
+                report.anchor_fact_ids,
                 report.absorbed_fact_ids,
                 report.long_term_facts_ids,
               ]

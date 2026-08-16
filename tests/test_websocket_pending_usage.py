@@ -889,6 +889,135 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             1,
         )
 
+    async def test_runtime_resume_restores_persisted_session_and_turn_counter(self):
+
+        context = SimpleNamespace(
+            runtime_memory="session status: New session",
+            runtime_memory_stable="session status: New session",
+            runtime_memory_updates=0,
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
+            runtime_turn_counter=3,
+            turn_number=3,
+            user_message_count=3,
+            assistant_message_count=3,
+            session_memory="",
+            runtime_l3_session_memory="",
+            runtime_session_memory_updates=0,
+            runtime_l3_saved_runtime_snapshot_index=4,
+            session_memory_source="",
+            delayed_memory_reports={
+                "48ggds": {
+                    "id": "48ggds",
+                    "title": "Reconnect memory",
+                },
+            },
+        )
+
+        restored = apply_runtime_resume(
+            context,
+            {
+                "type": "runtime_resume",
+                "runtime_memory": "topic: live reconnect state",
+                "runtime_memory_updates": 9,
+                "runtime_snapshot": {
+                    "raw_memory": "topic: live reconnect state",
+                    "turn_number": 11,
+                    "runtime_turn_counter": 17,
+                    "user_message_count": 11,
+                    "assistant_message_count": 10,
+                },
+                "session_memory": "decision: keep reconnect persistence",
+                "session_memory_source": "browser_soft_reconnect",
+                "session_memory_updates": 5,
+                "loaded_memory_ids": [
+                    "48ggds",
+                ],
+            },
+        )
+
+        self.assertTrue(
+            restored
+        )
+        self.assertEqual(
+            context.runtime_turn_counter,
+            17,
+        )
+        self.assertEqual(
+            context.turn_number,
+            11,
+        )
+        self.assertEqual(
+            context.session_memory,
+            "decision: keep reconnect persistence",
+        )
+        self.assertEqual(
+            context.runtime_l3_session_memory,
+            "decision: keep reconnect persistence",
+        )
+        self.assertEqual(
+            context.runtime_session_memory_updates,
+            5,
+        )
+        self.assertIsNone(
+            context.runtime_l3_saved_runtime_snapshot_index
+        )
+        self.assertEqual(
+            context.session_memory_source,
+            "browser_soft_reconnect",
+        )
+        self.assertEqual(
+            context.runtime_loaded_delayed_memory_ids,
+            [
+                "48ggds",
+            ],
+        )
+
+    async def test_runtime_resume_can_restore_session_without_live_l1(self):
+
+        context = SimpleNamespace(
+            runtime_memory="session status: New session",
+            runtime_memory_stable="session status: New session",
+            runtime_memory_updates=0,
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
+            runtime_turn_counter=0,
+            turn_number=0,
+            user_message_count=0,
+            assistant_message_count=0,
+            session_memory="",
+            runtime_l3_session_memory="",
+            runtime_session_memory_updates=0,
+            runtime_l3_saved_runtime_snapshot_index=None,
+            session_memory_source="",
+            delayed_memory_reports={},
+        )
+
+        restored = apply_runtime_resume(
+            context,
+            {
+                "type": "runtime_resume",
+                "runtime_memory": "",
+                "session_memory": "decision: restore L3 only",
+                "session_memory_source": "browser_soft_reconnect",
+                "session_memory_updates": 2,
+            },
+        )
+
+        self.assertTrue(restored)
+        self.assertEqual(
+            context.session_memory,
+            "decision: restore L3 only",
+        )
+        self.assertEqual(
+            context.runtime_l3_session_memory,
+            "decision: restore L3 only",
+        )
+        self.assertEqual(
+            context.runtime_session_memory_updates,
+            2,
+        )
+
     async def test_runtime_resume_hydrates_active_memory_lifecycle_counters(self):
 
         context = SimpleNamespace(

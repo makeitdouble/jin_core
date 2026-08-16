@@ -3284,6 +3284,11 @@ def build_runtime_memory_snapshot(
         ),
         "index": len(snapshots),
         "turn_number": getattr(context, "turn_number", 0),
+        "runtime_turn_counter": getattr(
+            context,
+            "runtime_turn_counter",
+            0,
+        ),
         "user_message_count": getattr(context, "user_message_count", 0),
         "assistant_message_count": getattr(
             context,

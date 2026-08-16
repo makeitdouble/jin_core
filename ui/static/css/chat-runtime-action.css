@@ -2,13 +2,37 @@
     --jin-runtime-action-label-nudge: 8px;
     --jin-deep-search-stack-order: 0;
     --jin-deep-search-stack-z: 30;
+    --jin-runtime-action-rest-opacity: 1;
     position: relative;
     perspective: 520px;
     transform-style: preserve-3d;
 }
 
+.jin-runtime-action-row.jin-runtime-action-enter {
+    animation: jinRuntimeActionDropIn 250ms cubic-bezier(0.55, 0.055, 0.675, 0.19);
+}
+
 .jin-runtime-action-row[data-runtime-action-completed="true"] {
-    opacity: 0.45;
+    --jin-runtime-action-rest-opacity: 0.45;
+    opacity: var(--jin-runtime-action-rest-opacity);
+}
+
+@keyframes jinRuntimeActionDropIn {
+    0% {
+        opacity: 0;
+        transform: translate3d(0, -14px, 0);
+    }
+
+    100% {
+        opacity: var(--jin-runtime-action-rest-opacity);
+        transform: translate3d(0, 0, 0);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .jin-runtime-action-row.jin-runtime-action-enter {
+        animation: none;
+    }
 }
 
 .jin-runtime-action-label {

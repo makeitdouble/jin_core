@@ -132,6 +132,167 @@ def _ensure_reasoning_directory(
     return reasoning_directory
 
 
+def _existing_session_chat_logs(
+    context,
+    *,
+    root: Path | str | None = None,
+) -> list[Path]:
+
+    root_path = Path(
+        root
+        if root is not None
+        else CHAT_LOG_ROOT
+    )
+    session_id = _context_session_id(
+        context
+    )
+
+    if not root_path.is_dir():
+        return []
+
+    logs: list[Path] = []
+
+    for date_directory in root_path.iterdir():
+        if (
+            not date_directory.is_dir()
+            or not re.fullmatch(
+                r"\d{4}-\d{2}-\d{2}",
+                date_directory.name,
+            )
+        ):
+            continue
+
+        session_directory = (
+            date_directory / session_id
+        )
+
+        if not session_directory.is_dir():
+            continue
+
+        logs.extend(
+            path
+            for path in session_directory.glob(
+                "*.jsonl"
+            )
+            if path.is_file()
+        )
+
+    return sorted(
+        logs,
+        key=lambda path: (
+            path.parent.parent.name,
+            path.name,
+        ),
+    )
+
+
+def _chat_log_max_turn(
+    paths: list[Path],
+) -> int:
+
+    max_turn = 0
+
+    for path in paths:
+        try:
+            lines = path.read_text(
+                encoding="utf-8",
+                errors="replace",
+            ).splitlines()
+        except OSError:
+            continue
+
+        for line in lines:
+            try:
+                entry = json.loads(
+                    line
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                continue
+
+            if not isinstance(
+                entry,
+                dict,
+            ):
+                continue
+
+            try:
+                turn = int(
+                    entry.get(
+                        "turn",
+                        0,
+                    )
+                    or 0
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                continue
+
+            max_turn = max(
+                max_turn,
+                turn,
+            )
+
+    return max_turn
+
+
+def resume_chat_log_session(
+    context,
+    *,
+    root: Path | str | None = None,
+) -> Path | None:
+
+    if not chat_logging_enabled():
+        return None
+
+    existing_logs = _existing_session_chat_logs(
+        context,
+        root=root,
+    )
+
+    if not existing_logs:
+        return None
+
+    path = existing_logs[-1]
+    context.runtime_chat_log_path = str(
+        path
+    )
+
+    context_path = path.with_suffix(
+        ".txt"
+    )
+
+    if context_path.exists():
+        context.runtime_chat_context_path = str(
+            context_path
+        )
+
+    max_turn = _chat_log_max_turn(
+        existing_logs
+    )
+    current_turn = int(
+        getattr(
+            context,
+            "runtime_turn_counter",
+            0,
+        )
+        or 0
+    )
+
+    if max_turn > current_turn:
+        context.runtime_turn_counter = max_turn
+
+    _ensure_reasoning_directory(
+        path.parent
+    )
+
+    return path
+
+
 def get_chat_log_path(
     context,
     *,

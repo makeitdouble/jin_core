@@ -3605,25 +3605,33 @@
   }
 
   function normalizeDelayedMemoryFactIds(value) {
-    const candidates =
+    const source =
         Array.isArray(value)
-          ? value
-          : normalizeDelayedMemoryDisplayText(value)
-              .match(/\bF[1-9]\d*\b/gi) || [];
-
+          ? value.flat(Infinity)
+          : [value];
     const seen =
         new Set();
+    const factIds = [];
 
-    return candidates
-      .map(item => normalizeDelayedMemoryFactId(item))
-      .filter((factId) => {
+    source.forEach((item) => {
+      const matches =
+          normalizeDelayedMemoryDisplayText(item)
+            .match(/F[1-9]\d*/gi) || [];
+
+      matches.forEach((match) => {
+        const factId =
+            normalizeDelayedMemoryFactId(match);
+
         if (!factId || seen.has(factId)) {
-          return false;
+          return;
         }
 
         seen.add(factId);
-        return true;
+        factIds.push(factId);
       });
+    });
+
+    return factIds;
   }
 
   function getDelayedMemoryFactIdNumber(factId) {
@@ -5192,6 +5200,69 @@
     );
   }
 
+  function appendDelayedMemorySessionIdsField(parent, label, value) {
+    const source =
+        Array.isArray(value)
+          ? value.flat(Infinity)
+          : normalizeDelayedMemoryDisplayText(value).split(",");
+    const sessionIds =
+        source
+          .map((item) => normalizeDelayedMemoryDisplayText(item).trim())
+          .filter(Boolean);
+
+    if (!sessionIds.length) {
+      if (Array.isArray(value) && value.length < 1) {
+        appendDelayedMemoryModalField(
+            parent,
+            label,
+            "[]"
+        );
+      }
+
+      return;
+    }
+
+    const list =
+        document.createElement("div");
+
+    list.className =
+        "delayed-memory-modal-value delayed-memory-modal-session-ids";
+
+    sessionIds.forEach((sessionId, index) => {
+      if (index > 0) {
+        list.appendChild(
+            document.createTextNode(", ")
+        );
+      }
+
+      const item =
+          document.createElement("span");
+
+      item.className =
+          "delayed-memory-modal-session-id";
+      item.textContent =
+          sessionId.length > 9
+            ? `${sessionId.slice(0, 9)}...`
+            : sessionId;
+      item.title =
+          sessionId;
+      item.setAttribute(
+          "aria-label",
+          sessionId
+      );
+
+      list.appendChild(
+          item
+      );
+    });
+
+    appendDelayedMemoryModalFieldNode(
+        parent,
+        label,
+        list
+    );
+  }
+
   function appendDelayedMemoryModalEditableField(
     parent,
     label,
@@ -5395,12 +5466,8 @@
   ) {
     const fieldName =
         String(label || "").trim();
-    const normalizedFactIds =
-        normalizeDelayedMemoryFactIds(value);
     const factIds =
-        fieldName === "facts_ids"
-          ? sortDelayedMemoryFactIdsByNumber(normalizedFactIds)
-          : normalizedFactIds;
+        normalizeDelayedMemoryFactIds(value);
 
     if (
         !factIds.length
@@ -6253,6 +6320,18 @@
           || value === null
           || typeof value === "undefined"
       ) {
+        return;
+      }
+
+      if (
+          key === "last_loaded_session_id"
+          || key === "all_loaded_session_ids"
+      ) {
+        appendDelayedMemorySessionIdsField(
+            parent,
+            key,
+            value
+        );
         return;
       }
 

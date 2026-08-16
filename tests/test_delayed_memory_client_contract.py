@@ -81,6 +81,40 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             runtime_actions_source,
         )
 
+    def test_delayed_memory_modal_shortens_session_ids_with_full_hover_text(self):
+
+        source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "runtime"
+            / "runtime-memory-view.js"
+        ).read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            "function appendDelayedMemorySessionIdsField",
+            source,
+        )
+        self.assertIn(
+            'key === "last_loaded_session_id"',
+            source,
+        )
+        self.assertIn(
+            'key === "all_loaded_session_ids"',
+            source,
+        )
+        self.assertIn(
+            '`${sessionId.slice(0, 9)}...`',
+            source,
+        )
+        self.assertIn(
+            "item.title =\n          sessionId;",
+            source,
+        )
+
     def test_delayed_memory_delete_sync_and_loaded_state_are_registered(self):
 
         runtime_source = (
@@ -669,7 +703,19 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             batch_block,
         )
         self.assertIn(
-            "normalizeRuntimeLongTermFactIds([\n        ...currentFactIds,",
+            "const requestedFactIdSet =\n    new Set(normalizedFactIds);",
+            batch_block,
+        )
+        self.assertIn(
+            "factId => !requestedFactIdSet.has(factId)",
+            batch_block,
+        )
+        self.assertIn(
+            "normalizedFactIds,\n    ]);",
+            batch_block,
+        )
+        self.assertIn(
+            "factId !== currentFactIds[index]",
             batch_block,
         )
         self.assertEqual(
@@ -683,6 +729,14 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
         self.assertIn(
             "normalizeDelayedMemoryFactIds(",
             paste_block,
+        )
+        self.assertIn(
+            ".match(/F[1-9]\\d*/gi) || [];",
+            view_source,
+        )
+        self.assertIn(
+            "? value.flat(Infinity)",
+            view_source,
         )
         self.assertIn(
             "linkFactsToDelayedMemoryModal(",
@@ -701,11 +755,11 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             css_source,
         )
         self.assertIn(
-            "/static/js/runtime/runtime-memory-view.js?v=context-card-chevronless-1&delayed-fact-paste=1",
+            "/static/js/runtime/runtime-memory-view.js?v=context-card-chevronless-1&delayed-fact-paste=2",
             index_source,
         )
         self.assertIn(
-            "/static/js/runtime/runtime.js?v=delayed-unpin-avatar-sync-1&delayed-fact-paste=1",
+            "/static/js/runtime/runtime.js?v=delayed-unpin-avatar-sync-1&delayed-fact-paste=2",
             index_source,
         )
         self.assertIn(

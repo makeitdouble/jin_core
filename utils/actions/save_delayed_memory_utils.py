@@ -91,10 +91,13 @@ def normalize_delayed_memory_fact_ids(
         anchor_fact_ids or []
     )
     fact_ids = normalize_long_term_fact_ids([
-        *anchor_ids,
         *normalize_long_term_fact_ids(
             facts_ids or []
         ),
+        # Preserve the explicit facts_ids order. Anchors are a highlighted
+        # subset, not a sorting key; missing anchors are appended only so the
+        # subset invariant still holds.
+        *anchor_ids,
         *normalize_long_term_fact_ids(
             legacy_absorbed_fact_ids or []
         ),

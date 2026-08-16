@@ -108,53 +108,32 @@ function normalizeDelayedMemoryFactIds(
 
   const source =
     Array.isArray(value)
-      ? value
+      ? value.flat(Infinity)
       : [value];
   const seen = new Set();
-  const candidates = [];
+  const factIds = [];
 
   source.forEach(function (item) {
-    if (Array.isArray(item)) {
-      normalizeDelayedMemoryFactIds(item).forEach(
-        factId => candidates.push(factId)
-      );
-      return;
-    }
+    const matches =
+      String(item || "")
+        .match(/F[1-9]\d*/gi) || [];
 
-    const text =
-      String(item || "").trim();
+    matches.forEach(function (match) {
+      const factId =
+        String(match || "")
+          .trim()
+          .toUpperCase();
 
-    if (text.startsWith("[") && text.endsWith("]")) {
-      try {
-        const parsed = JSON.parse(text);
-
-        if (Array.isArray(parsed)) {
-          normalizeDelayedMemoryFactIds(parsed).forEach(
-            factId => candidates.push(factId)
-          );
-          return;
-        }
-      } catch (_error) {
-        // Fall through to token parsing.
+      if (seen.has(factId)) {
+        return;
       }
-    }
 
-    text.split(/[;,\s]+/).forEach(
-      candidate => candidates.push(candidate)
-    );
+      seen.add(factId);
+      factIds.push(factId);
+    });
   });
 
-  return candidates
-    .map(item => String(item || "").trim().replace(/^["'\[]+|["'\]]+$/g, "").toUpperCase())
-    .filter(
-      factId => {
-        if (!/^F[1-9]\d*$/.test(factId) || seen.has(factId)) {
-          return false;
-        }
-        seen.add(factId);
-        return true;
-      }
-    );
+  return factIds;
 
 }
 
@@ -254,8 +233,10 @@ function parseDelayedMemoryReportPayload(
     );
   const factsIds =
     normalizeDelayedMemoryFactIds([
-      ...anchorFactIds,
+      // Preserve the order emitted in facts_ids. Anchor ids remain in their
+      // original positions and are only appended when facts_ids omitted one.
       ...normalizeDelayedMemoryFactIds(fields.facts_ids),
+      ...anchorFactIds,
       ...normalizeDelayedMemoryFactIds(fields.absorbed_fact_ids),
       ...normalizeDelayedMemoryFactIds(fields.long_term_facts_ids),
     ]);

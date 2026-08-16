@@ -230,6 +230,7 @@ class L1MemoryTests(
             )
             context.runtime_memory = "topic: reconnect counters"
             context.turn_number = 14
+            context.runtime_turn_counter = 19
             context.user_message_count = 15
             context.assistant_message_count = 14
 
@@ -241,6 +242,10 @@ class L1MemoryTests(
             self.assertEqual(
                 snapshot["turn_number"],
                 14,
+            )
+            self.assertEqual(
+                snapshot["runtime_turn_counter"],
+                19,
             )
             self.assertEqual(
                 snapshot["user_message_count"],

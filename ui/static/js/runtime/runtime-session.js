@@ -648,6 +648,10 @@
     function getSoftReconnectRuntimeResume() {
       const runtimeMemory =
         getRuntimeMemoryForSoftReconnect();
+      const sessionBootstrap =
+        persistedSessionBootstrapCleared
+          ? null
+          : getPersistedSessionBootstrap();
 
       const runtimeText =
         (
@@ -655,8 +659,14 @@
           && runtimeMemory.runtime_memory
           && String(runtimeMemory.runtime_memory).trim()
         ) || "";
+      const sessionText =
+        (
+          sessionBootstrap
+          && sessionBootstrap.session_memory
+          && String(sessionBootstrap.session_memory).trim()
+        ) || "";
 
-      if (!runtimeText) {
+      if (!runtimeText && !sessionText) {
         return null;
       }
 
@@ -673,6 +683,21 @@
             runtimeMemory
             && runtimeMemory.runtime_snapshot
           ) || null,
+        session_memory: sessionText,
+        session_memory_source:
+          (
+            sessionBootstrap
+            && sessionBootstrap.session_memory_source
+          ) || "browser_soft_reconnect",
+        session_memory_updates:
+          (
+            sessionBootstrap
+            && sessionBootstrap.session_memory_updates
+          ) || 0,
+        loaded_memory_ids:
+          typeof getLoadedDelayedMemoryReportIds === "function"
+            ? getLoadedDelayedMemoryReportIds()
+            : [],
       };
     }
 

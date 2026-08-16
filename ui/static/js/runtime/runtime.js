@@ -1704,13 +1704,15 @@ function linkDelayedMemoryReportFactIds(
     );
   const shouldAnchor =
     Boolean(options && options.anchor);
+  const requestedFactIdSet =
+    new Set(normalizedFactIds);
   const nextFactIds =
-    sortRuntimeLongTermFactIds(
-      normalizeRuntimeLongTermFactIds([
-        ...currentFactIds,
-        ...normalizedFactIds,
-      ])
-    );
+    normalizeRuntimeLongTermFactIds([
+      currentFactIds.filter(
+        factId => !requestedFactIdSet.has(factId)
+      ),
+      normalizedFactIds,
+    ]);
   const nextAnchorFactIds =
     shouldAnchor
       ? sortRuntimeLongTermFactIds(
@@ -1720,10 +1722,20 @@ function linkDelayedMemoryReportFactIds(
         ])
       )
       : anchorFactIds;
+  const factsChanged =
+    nextFactIds.length !== currentFactIds.length
+    || nextFactIds.some(
+      (factId, index) => factId !== currentFactIds[index]
+    );
+  const anchorsChanged =
+    nextAnchorFactIds.length !== anchorFactIds.length
+    || nextAnchorFactIds.some(
+      (factId, index) => factId !== anchorFactIds[index]
+    );
 
   if (
-      nextFactIds.length === currentFactIds.length
-      && nextAnchorFactIds.length === anchorFactIds.length
+      !factsChanged
+      && !anchorsChanged
   ) {
     return {
       ...report,

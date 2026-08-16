@@ -11,6 +11,7 @@ from utils.chat_log import (
     build_chat_log_entry,
     extract_active_memory_ids,
     migrate_legacy_chat_logs,
+    resume_chat_log_session,
     save_chat_context_snapshot,
     save_turn_reasoning,
     summarize_attachments,
@@ -212,6 +213,142 @@ class ChatLogTests(unittest.TestCase):
                 "48ggds",
             ],
         )
+
+    def test_resume_chat_log_session_reuses_existing_log_and_turn_counter(self):
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            session_id = "reconnect-session"
+            session_directory = (
+                root
+                / "2026-08-15"
+                / session_id
+            )
+            session_directory.mkdir(
+                parents=True
+            )
+            log_path = (
+                session_directory
+                / "235959.jsonl"
+            )
+            log_path.write_text(
+                "\n".join([
+                    json.dumps({
+                        "turn": 7,
+                        "turn_id": "turn_000007",
+                        "role": "user",
+                    }),
+                    json.dumps({
+                        "turn": 7,
+                        "turn_id": "turn_000007",
+                        "role": "jin",
+                    }),
+                ]) + "\n",
+                encoding="utf-8",
+            )
+            context_path = log_path.with_suffix(
+                ".txt"
+            )
+            context_path.write_text(
+                "saved context\n",
+                encoding="utf-8",
+            )
+            context = SimpleNamespace(
+                session_id=session_id,
+                runtime_turn_counter=0,
+            )
+
+            resumed_path = resume_chat_log_session(
+                context,
+                root=root,
+            )
+
+            self.assertEqual(
+                resumed_path,
+                log_path,
+            )
+            self.assertEqual(
+                Path(context.runtime_chat_log_path),
+                log_path,
+            )
+            self.assertEqual(
+                Path(context.runtime_chat_context_path),
+                context_path,
+            )
+            self.assertEqual(
+                context.runtime_turn_counter,
+                7,
+            )
+            self.assertTrue(
+                (session_directory / "reasoning").is_dir()
+            )
+
+    def test_resume_chat_log_session_keeps_pre_restart_log_across_midnight(self):
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            session_id = "overnight-session"
+            old_directory = (
+                root
+                / "2026-08-15"
+                / session_id
+            )
+            old_directory.mkdir(
+                parents=True
+            )
+            old_log = old_directory / "235959.jsonl"
+            old_log.write_text(
+                json.dumps({
+                    "turn": 12,
+                    "turn_id": "turn_000012",
+                    "role": "jin",
+                }) + "\n",
+                encoding="utf-8",
+            )
+            context = SimpleNamespace(
+                session_id=session_id,
+                runtime_turn_counter=0,
+            )
+
+            resume_chat_log_session(
+                context,
+                root=root,
+            )
+            context.runtime_turn_counter += 1
+            context.runtime_current_turn_id = "turn_000013"
+            appended_path = append_chat_log_entry(
+                context,
+                role="user",
+                text="after restart",
+                now=datetime(
+                    2026,
+                    8,
+                    16,
+                    0,
+                    1,
+                    tzinfo=timezone.utc,
+                ),
+                root=root,
+            )
+
+            self.assertEqual(
+                appended_path,
+                old_log,
+            )
+            entries = [
+                json.loads(line)
+                for line in old_log.read_text(
+                    encoding="utf-8"
+                ).splitlines()
+            ]
+            self.assertEqual(
+                entries[-1]["turn"],
+                13,
+            )
+            self.assertEqual(
+                entries[-1]["turn_id"],
+                "turn_000013",
+            )
 
     def test_context_snapshot_is_saved_beside_dialog_and_overwritten(self):
 

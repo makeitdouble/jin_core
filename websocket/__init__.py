@@ -102,7 +102,14 @@ async def websocket_endpoint(
         logger,
     )
 
-    skip_initial_runtime_state = soft_resume
+    # A client can request a soft reconnect while the backend process has
+    # already restarted. Only skip bootstrap state when the server actually
+    # recovered the in-memory RuntimeContext; a fresh context needs the normal
+    # initial state so browser-side reconnect guards can reconcile it safely.
+    skip_initial_runtime_state = (
+        soft_resume
+        and resumed_context
+    )
 
     ensure_initial_runtime_snapshot(
         context

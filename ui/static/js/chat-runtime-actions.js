@@ -3099,7 +3099,7 @@ function appendRuntimeAction(
     document.createElement("div");
 
   row.className =
-    "jin-message-row jin-runtime-action-row mx-auto w-full max-w-4xl text-xs text-cyan-100 transition duration-500";
+    "jin-message-row jin-runtime-action-row jin-runtime-action-enter mx-auto w-full max-w-4xl text-xs text-cyan-100 transition duration-500";
 
   if (action === "jin_color") {
     row.classList.add(

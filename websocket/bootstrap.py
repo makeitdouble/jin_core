@@ -26,6 +26,9 @@ from utils.actions import (
     refresh_active_memory_runtime_metadata,
     remove_active_memory_entries,
 )
+from utils.chat_log import (
+    resume_chat_log_session,
+)
 from utils.delayed_memory_file_store import (
     load_delayed_memory_reports_from_files,
     merge_delayed_memory_reports,
@@ -736,6 +739,9 @@ def get_or_create_connection_context(
         clients=websocket.app.state.clients,
         session_id=client_id,
     )
+    resume_chat_log_session(
+        context
+    )
     hydrate_delayed_memory_reports_from_files(
         context
     )
@@ -1244,6 +1250,7 @@ def hydrate_runtime_counters_from_bootstrap_metadata(
 
     for field_name in (
         "turn_number",
+        "runtime_turn_counter",
         "user_message_count",
         "assistant_message_count",
     ):
@@ -1326,6 +1333,61 @@ def apply_runtime_resume(
         context,
         message_data,
     )
+    apply_loaded_delayed_memory_ids(
+        context,
+        message_data,
+    )
+
+    session_memory = clean_bootstrap_memory(
+        message_data.get(
+            "session_memory",
+            "",
+        )
+    )
+    session_memory_updates = parse_bootstrap_counter(
+        message_data.get(
+            "session_memory_updates",
+            0,
+        )
+    )
+    current_session_memory_updates = parse_bootstrap_counter(
+        getattr(
+            context,
+            "runtime_session_memory_updates",
+            0,
+        )
+    )
+    session_memory_restored = False
+
+    if (
+        session_memory
+        and (
+            not str(
+                getattr(
+                    context,
+                    "session_memory",
+                    "",
+                )
+                or ""
+            ).strip()
+            or session_memory_updates > current_session_memory_updates
+        )
+    ):
+        context.session_memory = session_memory
+        context.runtime_l3_session_memory = session_memory
+        context.runtime_session_memory_updates = max(
+            current_session_memory_updates,
+            session_memory_updates,
+        )
+        context.runtime_l3_saved_runtime_snapshot_index = None
+        context.session_memory_source = clean_bootstrap_memory(
+            message_data.get(
+                "session_memory_source",
+                "browser_soft_reconnect",
+            ),
+            limit=80,
+        ) or "browser_soft_reconnect"
+        session_memory_restored = True
 
     runtime_memory = clean_bootstrap_runtime_memory(
         message_data.get(
@@ -1362,7 +1424,7 @@ def apply_runtime_resume(
             runtime_memory
         )
     ):
-        return False
+        return session_memory_restored
 
     hydrate_runtime_counters_from_bootstrap_metadata(
         context,
@@ -1417,7 +1479,7 @@ def apply_runtime_resume(
         )
         and current_updates >= runtime_memory_updates
     ):
-        return False
+        return session_memory_restored
 
     restored_pheromone_snapshot = (
         build_restored_runtime_pheromone_snapshot(
