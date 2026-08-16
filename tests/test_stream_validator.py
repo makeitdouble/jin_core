@@ -11,6 +11,7 @@ import utils.stream_validator as stream_validator_module
 from utils.stream_validator import (
     INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON,
     MAX_REPEAT_SENTENCES,
+    SAME_ANSWER_OUTPUT_REASON,
     StreamValidator,
 )
 
@@ -28,6 +29,30 @@ def collect(validator, chunks):
     )
 
     return "".join(output)
+
+
+def test_stream_validator_same_answer_prefix_is_held_and_rejected():
+    validator = StreamValidator(
+        previous_output="abcdefghijklmno previous answer"
+    )
+
+    assert validator.filter_chunk("abcde") == ("", True)
+    assert validator.filter_chunk("fghij") == ("", True)
+    assert validator.filter_chunk("klmno rest") == ("", False)
+    assert validator.last_failure_reason == SAME_ANSWER_OUTPUT_REASON
+
+
+def test_stream_validator_same_answer_prefix_releases_on_first_mismatch():
+    validator = StreamValidator(
+        previous_output="abcdefghijklmno previous answer"
+    )
+
+    assert validator.filter_chunk("abcde") == ("", True)
+    assert validator.filter_chunk("fghij") == ("", True)
+    assert validator.filter_chunk("klmnX rest") == (
+        "abcdefghijklmnX rest",
+        True,
+    )
 
 
 def test_stream_validator_removes_trailing_blockquote_tag():

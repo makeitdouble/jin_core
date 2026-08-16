@@ -900,6 +900,86 @@ body.theme-win95 .jin-chat-bubble-brain .jin-chat-pre {
     text-shadow: none;
 }
 
+body.theme-win95 #attached-delayed-memory,
+body.theme-win95 #attached-files {
+    border-top: 2px solid var(--win95-light);
+    border-left: 2px solid var(--win95-light);
+    border-right: 2px solid var(--win95-shadow);
+    border-bottom: 2px solid var(--win95-shadow);
+    border-radius: 2px;
+    background: var(--win95-face);
+    box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.14);
+    color: var(--win95-text);
+}
+
+body.theme-win95 #attached-delayed-memory .jin-context-card,
+body.theme-win95 #attached-files .jin-context-card {
+    border-top: 2px solid var(--win95-light);
+    border-left: 2px solid var(--win95-light);
+    border-right: 2px solid var(--win95-shadow);
+    border-bottom: 2px solid var(--win95-shadow);
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.22);
+    box-shadow: none;
+}
+
+body.theme-win95 #attached-delayed-memory .jin-context-card-header,
+body.theme-win95 #attached-files .jin-context-card-header {
+    border-bottom: 1px solid rgba(108, 108, 108, 0.55);
+    background: rgba(255, 255, 255, 0.18);
+}
+
+body.theme-win95 #attached-delayed-memory .jin-context-card-header:hover,
+body.theme-win95 #attached-delayed-memory .jin-context-card-header:focus-visible,
+body.theme-win95 #attached-files .jin-context-card-header:hover,
+body.theme-win95 #attached-files .jin-context-card-header:focus-visible {
+    background: rgba(255, 255, 255, 0.28);
+    border-color: rgba(88, 88, 88, 0.60);
+}
+
+body.theme-win95 #attached-delayed-memory .jin-context-card-title,
+body.theme-win95 #attached-delayed-memory .jin-context-card-xml .jin-context-card-title,
+body.theme-win95 #attached-delayed-memory .jin-context-card-user .jin-context-card-title,
+body.theme-win95 #attached-files .jin-context-card-title {
+    color: var(--win95-text);
+    text-shadow: none;
+}
+
+body.theme-win95 #attached-delayed-memory .jin-context-card-chevron,
+body.theme-win95 #attached-files .jin-context-card-chevron {
+    color: rgba(48, 48, 48, 0.74);
+}
+
+body.theme-win95 .jin-attached-files-title {
+    border-bottom-color: rgba(108, 108, 108, 0.52);
+    color: rgba(44, 44, 44, 0.88);
+}
+
+body.theme-win95 .jin-attached-files-name,
+body.theme-win95 .jin-attached-delayed-memory-name {
+    color: rgba(32, 32, 32, 0.90);
+    text-shadow: none;
+}
+
+body.theme-win95 .jin-attached-files-name.jin-attachment-bubble:hover,
+body.theme-win95 .jin-attached-delayed-memory-name:hover {
+    color: #111;
+    background: rgba(0, 0, 0, 0.04);
+}
+
+body.theme-win95 .jin-attached-files-row.jin-attached-files-row-avatar-hover,
+body.theme-win95 .jin-attached-files-row:hover {
+    background: rgba(0, 0, 0, 0.06);
+}
+
+body.theme-win95 .jin-attached-files-row.jin-attached-files-row-avatar-hover .jin-attached-files-name,
+body.theme-win95 .jin-attached-files-row.jin-attached-files-row-avatar-hover .delayed-memory-modal-pin,
+body.theme-win95 .jin-attached-files-row.jin-attached-files-row-avatar-hover .delayed-memory-modal-pin svg {
+    color: rgba(16, 16, 16, 0.96);
+    filter: none;
+}
+
+
 body.theme-win95 .jin-chat-bubble .jin-chat-markdown strong,
 body.theme-win95 .jin-chat-bubble-service .jin-chat-markdown strong,
 body.theme-win95 .jin-chat-bubble-brain .jin-chat-markdown strong,

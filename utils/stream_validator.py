@@ -122,6 +122,8 @@ SENTENCE_HISTORY_SIZE = (
 )
 TRUNCATE = 160
 MAX_CONSECUTIVE_INVALID_L4_FACT_IDS = 5
+SAME_ANSWER_OUTPUT_PREFIX_LENGTH = 15
+SAME_ANSWER_OUTPUT_REASON = "same answer output"
 
 INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON = (
     "incorrect L4 facts ids hallucination"
@@ -210,6 +212,7 @@ class StreamValidator:
         self,
         *,
         valid_l4_fact_ids=None,
+        previous_output: str = "",
     ):
 
         self.current_sentence_parts = []
@@ -246,6 +249,14 @@ class StreamValidator:
         )
         self.l4_fact_id_fragment = ""
         self.consecutive_invalid_l4_fact_ids = []
+
+        previous_output = str(previous_output or "")
+        self.same_output_reference_prefix = (
+            previous_output[:SAME_ANSWER_OUTPUT_PREFIX_LENGTH]
+            if len(previous_output) >= SAME_ANSWER_OUTPUT_PREFIX_LENGTH
+            else ""
+        )
+        self.same_output_prefix_buffer = ""
 
         self.last_failure_reason: str | None = None
         self.last_failure_preview = ""
@@ -627,12 +638,24 @@ class StreamValidator:
         self,
     ) -> str:
 
+        prefix = ""
+
+        if self.same_output_reference_prefix:
+            prefix = self.same_output_prefix_buffer
+            self.same_output_prefix_buffer = ""
+            self.same_output_reference_prefix = ""
+
+            if prefix:
+                prefix = self.hold_trailing_artifact_candidate(
+                    prefix
+                )
+
         tail = self.trailing_artifact_buffer
 
         self.trailing_artifact_buffer = ""
 
         if not tail:
-            return ""
+            return prefix
 
         if tail in TRAILING_ARTIFACTS:
 
@@ -641,9 +664,9 @@ class StreamValidator:
                 "preview": tail,
             })
 
-            return ""
+            return prefix
 
-        return tail
+        return prefix + tail
 
     # -----------------------------------------------------
     # VALIDATE L4 FACT ID HALLUCINATION
@@ -1383,6 +1406,40 @@ class StreamValidator:
                 "",
                 True,
             )
+
+        if self.same_output_reference_prefix:
+            self.same_output_prefix_buffer += clean_chunk
+            compare_length = min(
+                len(self.same_output_prefix_buffer),
+                SAME_ANSWER_OUTPUT_PREFIX_LENGTH,
+            )
+
+            if (
+                self.same_output_prefix_buffer[:compare_length]
+                != self.same_output_reference_prefix[:compare_length]
+            ):
+                clean_chunk = self.same_output_prefix_buffer
+                self.same_output_prefix_buffer = ""
+                self.same_output_reference_prefix = ""
+            elif compare_length < SAME_ANSWER_OUTPUT_PREFIX_LENGTH:
+                return (
+                    "",
+                    True,
+                )
+            else:
+                preview = self.same_output_reference_prefix
+                self.last_failure_reason = SAME_ANSWER_OUTPUT_REASON
+                self.last_failure_preview = build_preview(preview)
+                self.last_failure_loop_preview = build_loop_preview(
+                    preview
+                )
+                self.same_output_prefix_buffer = ""
+                self.same_output_reference_prefix = ""
+
+                return (
+                    "",
+                    False,
+                )
 
         chunk = self.hold_trailing_artifact_candidate(
             clean_chunk

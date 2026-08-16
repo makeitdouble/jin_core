@@ -21,6 +21,7 @@ from utils.stream_handler import (
 )
 from utils.stream_validator import (
     INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON,
+    SAME_ANSWER_OUTPUT_REASON,
 )
 
 from utils.token_usage import (
@@ -213,6 +214,15 @@ class RuntimeStream:
             ),
             context_snapshot=(
                 context_snapshot
+            ),
+            previous_output=(
+                getattr(
+                    self.context,
+                    "runtime_turn_assistant_response",
+                    "",
+                )
+                if self.is_brain_context()
+                else ""
             ),
             thinking_valid_l4_fact_ids=(
                 self.get_reasoning_l4_fact_ids()
@@ -663,6 +673,26 @@ class RuntimeStream:
         if not self.is_brain_context():
             return
 
+        validator = getattr(
+            self.stream,
+            "validator",
+            None,
+        )
+
+        if validator and (
+            getattr(
+                validator,
+                "same_output_reference_prefix",
+                "",
+            )
+            or getattr(
+                validator,
+                "last_failure_reason",
+                "",
+            ) == SAME_ANSWER_OUTPUT_REASON
+        ):
+            return
+
         self.context.runtime_turn_assistant_response = (
             self.stream.response
         )
@@ -877,7 +907,10 @@ class RuntimeStream:
             or ""
         ).strip()
 
-        if reason == INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON:
+        if reason in {
+            INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON,
+            SAME_ANSWER_OUTPUT_REASON,
+        }:
             history_text = (
                 'stuck in a reasoning loop reason '
                 f'"{reason}"'

@@ -54,6 +54,7 @@
   const activeThinkMemoryCitationSources = new Map();
   let memoryReferenceEventsBound = false;
   let runtimeMemorySortTransitionSequence = 0;
+  let longTermMemoryAgeTimer = null;
 
 
   const pinnedRuntimeMemorySnapshotIndexes = new Set();
@@ -1236,6 +1237,107 @@
     return Number.isSafeInteger(number)
       ? number
       : null;
+  }
+
+  function parseLongTermFactTimestamp(value) {
+    if (typeof value === "number") {
+      return Number.isFinite(value) && value > 0
+        ? value
+        : null;
+    }
+
+    const text = String(value || "").trim();
+    if (!text) {
+      return null;
+    }
+
+    const numeric = Number(text);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      return numeric;
+    }
+
+    const milliseconds = Date.parse(text);
+    if (!Number.isFinite(milliseconds) || milliseconds <= 0) {
+      return null;
+    }
+
+    return milliseconds / 1000;
+  }
+
+  function getLongTermFactContextTimestamp(fact) {
+    if (
+        !fact
+        || typeof fact !== "object"
+        || Array.isArray(fact)
+    ) {
+      return null;
+    }
+
+    return (
+      parseLongTermFactTimestamp(fact.updated_at)
+      || parseLongTermFactTimestamp(fact.created_at)
+    );
+  }
+
+  function formatLongTermFactAgeSuffix(
+    timestamp,
+    now = Date.now() / 1000
+  ) {
+    const createdAt = Number(timestamp);
+    if (!Number.isFinite(createdAt) || createdAt <= 0) {
+      return "";
+    }
+
+    const seconds = Math.max(
+      1,
+      Math.floor(Number(now) - createdAt)
+    );
+
+    if (seconds < 60) {
+      return ` ( ${seconds}s ago )`;
+    }
+
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) {
+      return ` ( ${minutes}m ago )`;
+    }
+
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) {
+      return ` ( ${hours}h ago )`;
+    }
+
+    const days = Math.floor(hours / 24);
+    return ` ( ${days}d ago )`;
+  }
+
+  function refreshLongTermMemoryFactAges() {
+    if (!runtimeMemoryText) {
+      return;
+    }
+
+    const now = Date.now() / 1000;
+
+    runtimeMemoryText
+      .querySelectorAll("[data-l4-fact-age-timestamp]")
+      .forEach((node) => {
+        node.textContent =
+            formatLongTermFactAgeSuffix(
+                node.dataset.l4FactAgeTimestamp,
+                now
+            );
+      });
+  }
+
+  function startLongTermMemoryAgeTimer() {
+    if (longTermMemoryAgeTimer !== null) {
+      return;
+    }
+
+    longTermMemoryAgeTimer = window.setInterval(
+        refreshLongTermMemoryFactAges,
+        1000
+    );
   }
 
   function getLongTermMemoryFactRecords() {
@@ -2624,6 +2726,28 @@
           String(
               runtimeMemoryValueFontWeight(line)
           );
+
+      if (
+          options.interactiveLongTermMemory
+          && Number.isFinite(
+              Number(line && line.context_age_timestamp)
+          )
+          && Number(line.context_age_timestamp) > 0
+      ) {
+        const ageSpan =
+            document.createElement("span");
+
+        ageSpan.className =
+            "runtime-memory-l4-age";
+        ageSpan.dataset.l4FactAgeTimestamp =
+            String(line.context_age_timestamp);
+        ageSpan.textContent =
+            formatLongTermFactAgeSuffix(
+                line.context_age_timestamp
+            );
+
+        valueSpan.appendChild(ageSpan);
+      }
 
       const hoverTitle =
           formatRuntimeMemoryHoverTitle(fullRawLine);
@@ -6676,6 +6800,8 @@
         ),
       linked_delayed_memory_report:
         linkedDelayedMemoryReport,
+      context_age_timestamp:
+        getLongTermFactContextTimestamp(fact),
       status: "same",
       key_status: "same",
       value_status: "same",
@@ -7092,6 +7218,7 @@
 
     bindMemoryReferenceHighlightEvents();
     bindRuntimeMemoryPanelVisibilityEvents();
+    startLongTermMemoryAgeTimer();
 
     idle.configure({
       onIdleTextChanged(text) {

@@ -15,7 +15,7 @@ class PanelScrollTopClientContractTests(unittest.TestCase):
         js_source = SCROLL_TOP_JS.read_text(encoding="utf-8")
 
         self.assertIn(
-            'panel-scroll-top.js?v=2',
+            'panel-scroll-top.js?v=3',
             index_source,
         )
         self.assertIn(
@@ -73,6 +73,26 @@ class PanelScrollTopClientContractTests(unittest.TestCase):
             js_source,
         )
 
+    def test_affordance_only_reappears_for_three_seconds_after_scroll(self):
+        js_source = SCROLL_TOP_JS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'const SCROLL_REVEAL_DURATION_MS = 3000;',
+            js_source,
+        )
+        self.assertIn(
+            'revealFromScroll = true;',
+            js_source,
+        )
+        self.assertIn(
+            'revealFromScroll = false;',
+            js_source,
+        )
+        self.assertIn(
+            '}, SCROLL_REVEAL_DURATION_MS);',
+            js_source,
+        )
+
     def test_click_hides_control_and_scrolls_to_absolute_top(self):
         js_source = SCROLL_TOP_JS.read_text(encoding="utf-8")
 
@@ -101,7 +121,7 @@ class PanelScrollTopClientContractTests(unittest.TestCase):
             css_source,
         )
         self.assertIn(
-            'backdrop-filter: blur(10px) saturate(0.92);',
+            'backdrop-filter: blur(14px) saturate(0.92);',
             css_source,
         )
         self.assertIn(

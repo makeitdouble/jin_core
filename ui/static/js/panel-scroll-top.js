@@ -2,6 +2,7 @@
   "use strict";
 
   const SCROLL_THRESHOLD_PX = 300;
+  const SCROLL_REVEAL_DURATION_MS = 3000;
   const CONSOLE_SEAM_OVERLAP_PX = 2;
   const PANEL_CONFIGS = [
     {
@@ -23,7 +24,7 @@
     button.tabIndex = -1;
     button.innerHTML = [
       '<svg viewBox="0 0 24 16" aria-hidden="true" focusable="false">',
-      '<path d="M5.5 11.5 12 5l6.5 6.5"></path>',
+      '<path d="M12 3.5 20 12H4z"></path>',
       "</svg>",
     ].join("");
     return button;
@@ -46,6 +47,8 @@
     panel.appendChild(affordance);
 
     let suppressWhileReturning = false;
+    let revealFromScroll = false;
+    let revealTimerId = 0;
     let frameId = 0;
 
     function syncGeometry() {
@@ -76,7 +79,8 @@
         panelExpanded &&
         canScroll &&
         scroller.scrollTop > SCROLL_THRESHOLD_PX &&
-        !suppressWhileReturning;
+        !suppressWhileReturning &&
+        revealFromScroll;
 
       affordance.classList.toggle("is-visible", shouldShow);
       affordance.setAttribute("aria-hidden", shouldShow ? "false" : "true");
@@ -95,7 +99,26 @@
       });
     }
 
-    scroller.addEventListener("scroll", scheduleSync, { passive: true });
+    function revealTemporarily() {
+      revealFromScroll = true;
+
+      if (revealTimerId) {
+        window.clearTimeout(revealTimerId);
+      }
+
+      revealTimerId = window.setTimeout(() => {
+        revealTimerId = 0;
+        revealFromScroll = false;
+        syncVisibility();
+      }, SCROLL_REVEAL_DURATION_MS);
+    }
+
+    scroller.addEventListener("scroll", () => {
+      if (!suppressWhileReturning) {
+        revealTemporarily();
+      }
+      scheduleSync();
+    }, { passive: true });
 
     button.addEventListener("mouseenter", () => {
       affordance.classList.add("is-hovered");
@@ -119,6 +142,11 @@
       event.stopPropagation();
 
       suppressWhileReturning = true;
+      revealFromScroll = false;
+      if (revealTimerId) {
+        window.clearTimeout(revealTimerId);
+        revealTimerId = 0;
+      }
       affordance.classList.remove("is-visible", "is-hovered");
       affordance.setAttribute("aria-hidden", "true");
       button.tabIndex = -1;

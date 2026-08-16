@@ -512,9 +512,9 @@ def build_current_runtime_context(
         )
 
     return (
-        f"<CURRENT_USER_INPUT{elapsed_suffix}>\n"
+        f"<AWATING_INPUT{elapsed_suffix}>\n"
         f"user_message: {escape(message_text)}\n"
-        "</CURREN_USER_INPUT>"
+        "</AWAITING_INPUT>"
     )
 
 
