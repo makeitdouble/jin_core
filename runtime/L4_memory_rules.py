@@ -160,13 +160,17 @@ duplicates. The service may normalize wording, key, and category, but it must
 not silently change an update into a merge/create or a merge into a create.
 
 Rules:
-- requested_action is authoritative: update edits exactly one selected F<number>;
-  merge combines only the selected F<number> facts; create adds a new fact only
-  when selected_fact_ids is empty.
+- requested_action is authoritative for the selected facts: update edits exactly
+  one selected F<number>; merge combines only the selected F<number> facts;
+  create adds a new fact only when selected_fact_ids is empty.
+- An update or merge note may also explicitly request creation of an independent
+  new durable fact. Only do this when the message itself clearly says to create
+  that additional fact; never infer extra new facts on your own.
 - For update, preserve the selected committed fact ID exactly.
 - For merge, preserve the first selected committed fact ID as the replacement ID;
   only the other explicitly selected IDs may be retired.
-- For update and merge, return no new_facts.
+- For update and merge, return new_facts only when the message explicitly asks
+  for an additional new fact; otherwise return no new_facts.
 - Unselected facts are read-only context.
 - Preserve all supported, non-conflicting meaning from the selected facts and the
   note. Keep compatible relationships, roles, constraints, and distinctions.
@@ -233,7 +237,7 @@ or:
 
 For update and merge, replacement_facts becomes the complete current
 representation for the selected facts. For create, new_facts contains only
-independent new durable facts. If both are needed, use update or merge and
-include both replacement_facts and new_facts. Do not return IDs or fields outside
-this contract.
+independent new durable facts. If the note explicitly requests both an
+update/merge and creation, use update or merge and include both replacement_facts
+and new_facts. Do not return IDs or fields outside this contract.
 """.strip()

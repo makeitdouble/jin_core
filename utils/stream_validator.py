@@ -3,6 +3,8 @@ from contracts.rules_assembler import (
 )
 from config_loader import config
 
+import re
+
 # ---------------------------------------------------------
 # STREAM VALIDATOR
 # ---------------------------------------------------------
@@ -119,6 +121,17 @@ SENTENCE_HISTORY_SIZE = (
     + 1
 )
 TRUNCATE = 160
+MAX_CONSECUTIVE_INVALID_L4_FACT_IDS = 5
+
+INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON = (
+    "incorrect L4 facts ids hallucination"
+)
+L4_FACT_ID_PATTERN = re.compile(
+    r"(?i)(?<![A-Z0-9_])F\d+(?![A-Z0-9_])"
+)
+L4_FACT_ID_TRAILING_FRAGMENT_PATTERN = re.compile(
+    r"(?i)(?<![A-Z0-9_])F\d*$"
+)
 
 STREAM_VALIDATOR_EXCLUDED_MARKERS = list(
     get_stream_validator_excluded_markers()
@@ -193,7 +206,11 @@ def build_loop_preview(
 
 class StreamValidator:
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        valid_l4_fact_ids=None,
+    ):
 
         self.current_sentence_parts = []
         self.sentence_history = []
@@ -215,6 +232,20 @@ class StreamValidator:
         self.word_fragment = ""
         self.validation_marker_buffer = ""
         self.validation_excluded_block_name = ""
+
+        # ``None`` means the L4 store is not initialized for this stream.
+        # An empty set is an initialized store with zero existing facts.
+        self.valid_l4_fact_ids = (
+            None
+            if valid_l4_fact_ids is None
+            else {
+                str(fact_id or "").strip().upper()
+                for fact_id in valid_l4_fact_ids
+                if str(fact_id or "").strip()
+            }
+        )
+        self.l4_fact_id_fragment = ""
+        self.consecutive_invalid_l4_fact_ids = []
 
         self.last_failure_reason: str | None = None
         self.last_failure_preview = ""
@@ -615,6 +646,82 @@ class StreamValidator:
         return tail
 
     # -----------------------------------------------------
+    # VALIDATE L4 FACT ID HALLUCINATION
+    # -----------------------------------------------------
+
+    def validate_l4_fact_ids(
+        self,
+        chunk: str,
+    ) -> bool:
+
+        if self.valid_l4_fact_ids is None:
+            return True
+
+        working = (
+            self.l4_fact_id_fragment
+            + str(chunk or "")
+        )
+        self.l4_fact_id_fragment = ""
+
+        # Provider chunks may split one identifier as ``F`` + ``257``.
+        # Keep only an unfinished trailing ID until its delimiter arrives.
+        trailing_match = (
+            L4_FACT_ID_TRAILING_FRAGMENT_PATTERN.search(
+                working
+            )
+        )
+        if (
+            trailing_match is not None
+            and trailing_match.end() == len(working)
+        ):
+            scan_text = working[:trailing_match.start()]
+            self.l4_fact_id_fragment = working[trailing_match.start():]
+        else:
+            scan_text = working
+
+        for match in L4_FACT_ID_PATTERN.finditer(
+            scan_text
+        ):
+            fact_id = match.group(0).upper()
+
+            if fact_id in self.valid_l4_fact_ids:
+                self.consecutive_invalid_l4_fact_ids.clear()
+                continue
+
+            self.consecutive_invalid_l4_fact_ids.append(
+                fact_id
+            )
+
+            if (
+                len(self.consecutive_invalid_l4_fact_ids)
+                < MAX_CONSECUTIVE_INVALID_L4_FACT_IDS
+            ):
+                continue
+
+            invalid_ids = (
+                self.consecutive_invalid_l4_fact_ids[
+                    -MAX_CONSECUTIVE_INVALID_L4_FACT_IDS:
+                ]
+            )
+            preview = ", ".join(
+                invalid_ids
+            )
+
+            self.last_failure_reason = (
+                INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON
+            )
+            self.last_failure_preview = build_preview(
+                preview
+            )
+            self.last_failure_loop_preview = build_loop_preview(
+                preview
+            )
+
+            return False
+
+        return True
+
+    # -----------------------------------------------------
     # VALIDATE WORD LOOPS
     # -----------------------------------------------------
 
@@ -871,6 +978,11 @@ class StreamValidator:
 
         if not validation_chunk:
             return True
+
+        if not self.validate_l4_fact_ids(
+            validation_chunk
+        ):
+            return False
 
         if not self.validate_word_loops(
             validation_chunk

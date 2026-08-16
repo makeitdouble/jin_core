@@ -233,13 +233,14 @@ function parseDelayedMemoryReportPayload(
     );
   const factsIds =
     normalizeDelayedMemoryFactIds([
-      // Preserve the order emitted in facts_ids. Anchor ids remain in their
-      // original positions and are only appended when facts_ids omitted one.
       ...normalizeDelayedMemoryFactIds(fields.facts_ids),
       ...anchorFactIds,
       ...normalizeDelayedMemoryFactIds(fields.absorbed_fact_ids),
       ...normalizeDelayedMemoryFactIds(fields.long_term_facts_ids),
-    ]);
+    ]).sort(function (left, right) {
+      // Anchor ids are only highlighted; they never jump to the front.
+      return Number(left.slice(1)) - Number(right.slice(1));
+    });
 
   return {
     [key]: {

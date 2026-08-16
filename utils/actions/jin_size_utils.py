@@ -15,9 +15,8 @@ JIN_SIZE_NUMBER_RE = re.compile(
     re.IGNORECASE,
 )
 
-JIN_SIZE_LABELED_RE = re.compile(
-    r"(?P<label>[wh])\s*:\s*(?P<value>\d+)(?:px)?",
-    re.IGNORECASE,
+JIN_SIZE_VALUE_RE = re.compile(
+    r"[+-]?\d+",
 )
 
 
@@ -63,84 +62,32 @@ def parse_jin_size_payload(
     if not text:
         return None
 
-    labeled_values = {}
-    labeled_spans = []
-
-    for match in JIN_SIZE_LABELED_RE.finditer(text):
-        value = _parse_size_number(
-            match.group("value")
-        )
-
-        if value is None:
-            return None
-
-        label = match.group("label").lower()
-        if label in labeled_values:
-            return None
-
-        labeled_values[label] = value
-        labeled_spans.append(
-            match.span()
-        )
-
-    if labeled_values:
-        remainder_parts = []
-        cursor = 0
-
-        for start, end in labeled_spans:
-            remainder_parts.append(
-                text[cursor:start]
-            )
-            cursor = end
-
-        remainder_parts.append(
-            text[cursor:]
-        )
-        remainder = "".join(
-            remainder_parts
-        ).strip()
-
-        if remainder:
-            return None
-
-        if len(labeled_values) == 1:
-            size = next(
-                iter(labeled_values.values())
-            )
-            return {
-                "width": size,
-                "height": size,
-            }
-
-        return {
-            "width": labeled_values["w"],
-            "height": labeled_values["h"],
-        }
-
-    parts = text.split()
-
-    if len(parts) not in {
-        1,
-        2,
-    }:
-        return None
-
-    numbers = [
-        _parse_size_number(part)
-        for part in parts
+    raw_numbers = [
+        match.group(0)
+        for match in JIN_SIZE_VALUE_RE.finditer(text)
     ]
 
-    if any(
-        number is None
-        for number in numbers
-    ):
+    if not raw_numbers:
         return None
 
+    numbers = []
+
+    for raw_number in raw_numbers[:2]:
+        number = _parse_size_number(
+            raw_number
+        )
+
+        if number is None:
+            return None
+
+        numbers.append(
+            number
+        )
+
     if len(numbers) == 1:
-        size = numbers[0]
         return {
-            "width": size,
-            "height": size,
+            "width": numbers[0],
+            "height": numbers[0],
         }
 
     return {

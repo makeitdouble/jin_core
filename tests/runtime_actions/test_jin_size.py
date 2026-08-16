@@ -29,6 +29,14 @@ class RuntimeJinSizeActionTests(RuntimeActionTestCase):
             ("<JIN_SIZE: 120 >", "120px"),
             ("<JIN_SIZE: w:120 >", "120px"),
             ("<JIN_SIZE: h:120px >", "120px"),
+            (
+                "<JIN_SIZE: width: 500px height: 300px >",
+                "w:500px h:300px",
+            ),
+            (
+                "<JIN_SIZE: junk width=500px / height=300px ignore 777 >",
+                "w:500px h:300px",
+            ),
         )
 
         for marker, expected_size in cases:
@@ -72,15 +80,26 @@ class RuntimeJinSizeActionTests(RuntimeActionTestCase):
             normalize_jin_size_payload("w:120"),
             "120px",
         )
+        self.assertEqual(
+            normalize_jin_size_payload(
+                "width: 500px height: 300px ignored 777"
+            ),
+            "w:500px h:300px",
+        )
+        self.assertEqual(
+            normalize_jin_size_payload("120 140 160"),
+            "w:120px h:140px",
+        )
+        self.assertEqual(
+            normalize_jin_size_payload("120em"),
+            "120px",
+        )
 
         for payload in (
             "",
             "0",
             "-1",
-            "120 140 160",
-            "w:120 h:bad",
-            "w:120 w:140",
-            "120em",
+            "w:120 h:-1",
         ):
             with self.subTest(payload=payload):
                 self.assertEqual(

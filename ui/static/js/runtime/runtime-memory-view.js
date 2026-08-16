@@ -5466,8 +5466,12 @@
   ) {
     const fieldName =
         String(label || "").trim();
-    const factIds =
+    const normalizedFactIds =
         normalizeDelayedMemoryFactIds(value);
+    const factIds =
+        fieldName === "facts_ids"
+          ? sortDelayedMemoryFactIdsByNumber(normalizedFactIds)
+          : normalizedFactIds;
 
     if (
         !factIds.length

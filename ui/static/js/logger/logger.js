@@ -2801,7 +2801,15 @@ const consolePanel = document.getElementById("console-panel");
         document.body.style.userSelect = "";
     });
 
-    consoleDragHandle.addEventListener("dblclick", (event) => {
+    consoleDragHandle.addEventListener("click", (event) => {
+        if (
+            consoleHasMoved
+            || event.detail > 1
+        ) {
+            consoleHasMoved = false;
+            return;
+        }
+
         togglePanelCollapseFromHeader(
             event,
             consolePanel,
@@ -3427,7 +3435,25 @@ window.addEventListener("mouseup", () => {
     document.body.style.userSelect = "";
 });
 
-memoryDragHandle.addEventListener("dblclick", (event) => {
+memoryDragHandle.addEventListener("click", (event) => {
+    if (
+        memoryHasMoved
+        || event.detail > 1
+    ) {
+        memoryHasMoved = false;
+        return;
+    }
+
+    const memoryLayersToggle =
+        document.getElementById("memory-layers-toggle");
+
+    if (
+        memoryLayersToggle
+        && memoryLayersToggle.contains(event.target)
+    ) {
+        return;
+    }
+
     if (isCollapsedMemoryAvatarPanel(memoryPanel)) {
         event.preventDefault();
         finishStartupCollapseAnimation();
@@ -3460,8 +3486,7 @@ memoryDragHandle.addEventListener("dblclick", (event) => {
         memoryPanel,
         memoryDragHandle,
         {
-            ignoredTarget:
-                document.getElementById("memory-layers-toggle"),
+            ignoredTarget: memoryLayersToggle,
         }
     );
 });

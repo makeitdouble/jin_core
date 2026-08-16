@@ -16,7 +16,11 @@ function handleRuntimeActionGuardConfirmation(
     String(
       data.action || ""
     ).toLowerCase();
-  const text =
+  const updateL4FactsMessage =
+    action === "update_l4_facts"
+      ? getUpdateL4FactsMessage(data)
+      : "";
+  const baseText =
     buildRuntimeActionDisplayText(
       data,
       action,
@@ -25,6 +29,13 @@ function handleRuntimeActionGuardConfirmation(
         fallbackToName: true,
       }
     );
+  const text =
+    updateL4FactsMessage
+      ? (
+        `${getRuntimeActionDisplayName(data, action)}: `
+        + updateL4FactsMessage
+      )
+      : baseText;
 
   if (
     text.trim()
@@ -61,7 +72,9 @@ function handleRuntimeActionGuardConfirmation(
         contextSnapshot:
           data.context || null,
         detail:
-          data.detail || "",
+          updateL4FactsMessage
+          || data.detail
+          || "",
         displayName:
           getRuntimeActionDisplayName(
             data,
@@ -165,6 +178,74 @@ function tryParseRuntimeActionJson(value) {
   } catch (_error) {
     return value;
   }
+
+}
+
+function getUpdateL4FactsMessage(data) {
+
+  if (!data || typeof data !== "object") {
+    return "";
+  }
+
+  const directMessage =
+    String(
+      data.message || ""
+    ).trim();
+
+  if (directMessage) {
+    return directMessage;
+  }
+
+  const payloadCandidates = [
+    data.payload,
+    data.action_payload,
+    data.runtime_action_payload,
+  ];
+
+  for (const candidate of payloadCandidates) {
+    if (
+      candidate === undefined
+      || candidate === null
+      || candidate === ""
+    ) {
+      continue;
+    }
+
+    const parsed =
+      tryParseRuntimeActionJson(
+        candidate
+      );
+
+    if (
+      parsed
+      && typeof parsed === "object"
+      && !Array.isArray(parsed)
+    ) {
+      const message =
+        String(
+          parsed.message || ""
+        ).trim();
+
+      if (message) {
+        return message;
+      }
+
+      continue;
+    }
+
+    if (typeof parsed === "string") {
+      const message =
+        parsed
+          .replace(/\s+/g, " ")
+          .trim();
+
+      if (message) {
+        return message;
+      }
+    }
+  }
+
+  return "";
 
 }
 
@@ -912,9 +993,19 @@ function handleRuntimeAction(
       )
       : "";
 
+  const updateL4FactsMessage =
+    action === "update_l4_facts"
+      ? getUpdateL4FactsMessage(data)
+      : "";
+
   const displayText =
-    reportScopedDelayedAction
-    && delayedMemoryPreview.title
+    updateL4FactsMessage
+      ? (
+        `${getRuntimeActionDisplayName(data, action)}: `
+        + updateL4FactsMessage
+      )
+      : reportScopedDelayedAction
+      && delayedMemoryPreview.title
       ? (
         `${getRuntimeActionDisplayName(data, action)}: `
         + delayedMemoryPreview.title
@@ -962,10 +1053,11 @@ function handleRuntimeAction(
     );
 
   const runtimeDetail =
-    buildRuntimeActionDetail(
-      data,
-      closeTag
-    );
+    updateL4FactsMessage
+      || buildRuntimeActionDetail(
+        data,
+        closeTag
+      );
 
   const suppressMarkerCount = [
     "load_skill",

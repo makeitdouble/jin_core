@@ -11,6 +11,7 @@ from runtime.stream import RuntimeStream
 from runtime.client import LMStudioAPIError
 from runtime.registry import runtime_state
 from utils.stream_validator import (
+    INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON,
     MAX_REPEAT_SENTENCES,
 )
 from agent.nodes.brain import (
@@ -210,6 +211,17 @@ async def fake_thinking_sentence_loop_generator():
         yield {
             "type": "thinking",
             "content": repeated,
+        }
+
+
+async def fake_invalid_l4_fact_ids_thinking_generator():
+
+    for fact_id in range(257, 262):
+        yield {
+            "type": "thinking",
+            "content": (
+                f"* F{fact_id}: fabricated L4 fact.\n"
+            ),
         }
 
 
@@ -1010,6 +1022,109 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             len(errors),
             1,
+        )
+
+
+    async def test_thinking_invalid_l4_fact_id_streak_interrupts_and_arms_followup(self):
+
+        runtime_id = settings.SERVICE_MODEL_UID
+        active_stream = FakeActiveStream()
+        context = SimpleNamespace(
+            websocket=FakeWebSocket(),
+            logger=FakeLogger(),
+            emitter=FakeEmitter(),
+            active_streams={
+                1: active_stream,
+            },
+            runtime_action_events=[],
+            runtime_usage_events=[],
+            runtime_turn_assistant_response="",
+            runtime_turn_interrupted=False,
+            runtime_turn_interruption_reason="",
+            runtime_turn_interruption_quote="",
+            runtime_reasoning_recovery_pending=False,
+            runtime_long_term_memory_store={
+                "facts": [
+                    {
+                        "id": "F1",
+                    },
+                    {
+                        "id": "F190",
+                    },
+                ],
+            },
+            runtime_session_action_history=[],
+            runtime_current_turn_id="turn-l4-hallucination",
+            runtime_turn_started_at=0,
+            runtime_action_sequence_turn_ids=[
+                "turn-l4-hallucination",
+            ],
+        )
+
+        stream = RuntimeStream(
+            context=context,
+            runtime_id=runtime_id,
+            role="service",
+            context_window=(
+                settings.SERVICE_CONTEXT_WINDOW
+            ),
+            log_method=(
+                context.logger.log_service
+            ),
+            context_snapshot={
+                "context_role": "brain",
+                "system_prompt": "system prompt",
+                "user_prompt": "user payload",
+            },
+        )
+
+        result = await stream.run(
+            fake_invalid_l4_fact_ids_thinking_generator()
+        )
+
+        self.assertIsNone(
+            result
+        )
+        self.assertTrue(
+            context.runtime_turn_interrupted
+        )
+        self.assertTrue(
+            context.runtime_reasoning_recovery_pending
+        )
+        self.assertEqual(
+            context.runtime_turn_interruption_reason,
+            INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON,
+        )
+        self.assertEqual(
+            context.runtime_turn_interruption_quote,
+            "F257, F258, F259, F260, F261",
+        )
+        self.assertTrue(
+            active_stream.closed
+        )
+        self.assertEqual(
+            context.runtime_session_action_history[-1]["text"],
+            (
+                'stuck in a reasoning loop reason '
+                '"incorrect L4 facts ids hallucination"'
+            ),
+        )
+
+        followup_prompt = BrainNode.build_followup_system_prompt(
+            "system prompt",
+            "continue immediately",
+            context=context,
+        )
+        self.assertIn(
+            (
+                "<REASONING_RECOVERY_REASON>\n"
+                "incorrect L4 facts ids hallucination\n"
+                "</REASONING_RECOVERY_REASON>"
+            ),
+            followup_prompt,
+        )
+        self.assertFalse(
+            context.runtime_reasoning_recovery_pending
         )
 
 

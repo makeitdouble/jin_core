@@ -19,6 +19,9 @@ from runtime.client import (
 from utils.stream_handler import (
     StreamHandler,
 )
+from utils.stream_validator import (
+    INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON,
+)
 
 from utils.token_usage import (
     calibrate_runtime_token_estimate,
@@ -211,7 +214,47 @@ class RuntimeStream:
             context_snapshot=(
                 context_snapshot
             ),
+            thinking_valid_l4_fact_ids=(
+                self.get_reasoning_l4_fact_ids()
+                if self.is_brain_context()
+                else None
+            ),
         )
+
+    def get_reasoning_l4_fact_ids(self) -> set[str] | None:
+
+        store = getattr(
+            self.context,
+            "runtime_long_term_memory_store",
+            None,
+        )
+
+        if (
+            not isinstance(store, dict)
+            or not isinstance(store.get("facts"), list)
+        ):
+            return None
+
+        fact_ids = set()
+
+        for fact in store.get("facts", []) or []:
+            if not isinstance(fact, dict):
+                continue
+
+            fact_id = str(
+                fact.get(
+                    "id",
+                    "",
+                )
+                or ""
+            ).strip().upper()
+
+            if fact_id:
+                fact_ids.add(
+                    fact_id
+                )
+
+        return fact_ids
 
     def build_loaded_skill_name_set(self) -> set[str]:
 
@@ -825,11 +868,28 @@ class RuntimeStream:
             )
         )
 
+        reason = str(
+            getattr(
+                validator,
+                "last_failure_reason",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if reason == INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON:
+            history_text = (
+                'stuck in a reasoning loop reason '
+                f'"{reason}"'
+            )
+        else:
+            history_text = build_reasoning_loop_history_text(
+                quote
+            )
+
         record_session_action_history(
             self.context,
-            build_reasoning_loop_history_text(
-                quote
-            ),
+            history_text,
         )
 
     async def filter_runtime_action_content(

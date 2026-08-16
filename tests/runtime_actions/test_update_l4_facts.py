@@ -287,6 +287,85 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
             for event in lifecycle
         ))
 
+    async def test_runtime_action_can_update_and_create_in_one_explicit_note(self):
+        emitter = FakeEmitter()
+        logger = FakeLogger()
+        service_client = FakeServiceClient(json.dumps({
+            "action": "update",
+            "replacement_facts": [
+                {
+                    "key": "project_fact.jin_architecture",
+                    "value": (
+                        "Gemma 26B A4B is the current active brain and "
+                        "Qwen 3.8 27B is the night brain model."
+                    ),
+                    "category": "project_fact",
+                },
+            ],
+            "new_facts": [
+                {
+                    "key": "project_fact.model_test_goal",
+                    "value": "The current goal is to test Qwen 3.6 27B.",
+                    "category": "project_fact",
+                },
+            ],
+        }))
+        context = RuntimeContext(
+            websocket=None,
+            emitter=emitter,
+            logger=logger,
+            clients={"service": service_client},
+        )
+        context.runtime_l4_file_store_enabled = False
+        context.delayed_memory_file_store_enabled = False
+        context.runtime_long_term_memory_store = normalize_l4_store({
+            "facts": [
+                {
+                    "id": "F96",
+                    "key": "project_fact.jin_architecture",
+                    "value": "Qwen 3.8 27B is the current active brain.",
+                    "category": "project_fact",
+                },
+            ],
+        })
+        action = RuntimeActionCall(
+            name=RUNTIME_ACTION_UPDATE_L4_FACTS,
+            payload=json.dumps({
+                "fact_ids": ["F96"],
+                "message": (
+                    "Update F96: Gemma 26B A4B is the current active brain, "
+                    "and Qwen 3.8 27B is the night brain model. Create a new "
+                    "fact: the current developmental goal is to test Qwen "
+                    "3.6 27B."
+                ),
+            }),
+        )
+
+        applied = await apply_runtime_action_calls(
+            context,
+            (action,),
+            action_display_ids={id(action): "update_l4_facts_001"},
+        )
+
+        self.assertEqual(applied, 1)
+        tasks = list(getattr(context, "background_tasks", set()))
+        self.assertEqual(len(tasks), 1)
+        await asyncio.gather(*tasks)
+
+        facts = context.runtime_long_term_memory_store["facts"]
+        self.assertEqual([fact["id"] for fact in facts], ["F96", "F97"])
+        self.assertIn("current active brain", facts[0]["value"])
+        self.assertEqual(facts[1]["key"], "project_fact.model_test_goal")
+
+        lifecycle = [
+            event
+            for event in emitter.events
+            if event.get("type") == "runtime_action"
+            and event.get("action") == "update_l4_facts"
+        ]
+        self.assertTrue(any(event.get("status") == "completed" for event in lifecycle))
+        self.assertFalse(any(event.get("status") == "failed" for event in lifecycle))
+
 
 if __name__ == "__main__":
     unittest.main()

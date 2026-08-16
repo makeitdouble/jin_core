@@ -1176,6 +1176,18 @@
   }
 
 
+  function sortLongTermFactIdsByNumber(
+    factIds
+  ) {
+
+    return [...factIds].sort(function (left, right) {
+      return Number(String(left).slice(1))
+        - Number(String(right).slice(1));
+    });
+
+  }
+
+
   function readDelayedLoadMetadata(
     report,
     key,
@@ -1385,16 +1397,17 @@
               report.anchor_fact_ids
             ),
           facts_ids:
-            normalizeLongTermFactIds(
-              [
-                // Keep the saved facts_ids order intact. Anchors are only
-                // highlighted in the modal; they must not be pulled to the
-                // front of the full fact list during normalization.
-                report.facts_ids,
-                report.anchor_fact_ids,
-                report.absorbed_fact_ids,
-                report.long_term_facts_ids,
-              ]
+            sortLongTermFactIdsByNumber(
+              normalizeLongTermFactIds(
+                [
+                  // Anchors only affect highlighting. The full list keeps
+                  // normal numeric F-id order instead of promoting anchors.
+                  report.facts_ids,
+                  report.anchor_fact_ids,
+                  report.absorbed_fact_ids,
+                  report.long_term_facts_ids,
+                ]
+              )
             ),
           attachments_ids:
             normalizeDelayedMemoryAttachmentIds(

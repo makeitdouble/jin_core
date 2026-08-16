@@ -15,6 +15,7 @@ class StreamHandler:
         role: str,
         enable_validator: bool = False,
         context_snapshot: dict | None = None,
+        thinking_valid_l4_fact_ids=None,
     ):
 
         self.websocket = websocket
@@ -40,7 +41,9 @@ class StreamHandler:
             else None
         )
         self.thinking_validator = (
-            StreamValidator()
+            StreamValidator(
+                valid_l4_fact_ids=thinking_valid_l4_fact_ids,
+            )
             if enable_validator
             else None
         )

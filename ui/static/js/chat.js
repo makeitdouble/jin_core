@@ -1810,9 +1810,58 @@ function createStreamGroup(
 
   };
 
+  let thinkClickStart = null;
+
+  thinkContent.addEventListener(
+    "mousedown",
+    (event) => {
+      if (event.button !== 0) {
+        return;
+      }
+
+      thinkClickStart = {
+        x: event.clientX,
+        y: event.clientY,
+      };
+    }
+  );
+
   thinkContent.addEventListener(
     "click",
-    () => {
+    (event) => {
+      const selection =
+        typeof window.getSelection === "function"
+          ? window.getSelection()
+          : null;
+      const pointerMoved =
+        thinkClickStart
+        && (
+          Math.abs(event.clientX - thinkClickStart.x) > 3
+          || Math.abs(event.clientY - thinkClickStart.y) > 3
+        );
+      const selectionTouchesThink =
+        selection
+        && !selection.isCollapsed
+        && (
+          (
+            selection.anchorNode
+            && thinkContent.contains(selection.anchorNode)
+          )
+          || (
+            selection.focusNode
+            && thinkContent.contains(selection.focusNode)
+          )
+        );
+
+      thinkClickStart = null;
+
+      if (
+        pointerMoved
+        || selectionTouchesThink
+      ) {
+        return;
+      }
+
       setCollapsed(
         !collapsed
       );

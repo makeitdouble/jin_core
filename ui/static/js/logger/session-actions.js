@@ -196,6 +196,9 @@ function normalizeSessionActionParts(
           const detail =
             String(part.detail || "").trim();
 
+          const message =
+            String(part.message || "").trim();
+
           const colors = Array.isArray(part.colors)
             ? part.colors
                 .map((color) =>
@@ -217,6 +220,7 @@ function normalizeSessionActionParts(
           return {
             text,
             detail,
+            message,
             colors,
             count,
             cancelled:
@@ -249,6 +253,7 @@ function normalizeSessionActionParts(
     return [{
       text,
       detail: "",
+      message: "",
       colors: [],
       count: 0,
       cancelled: false,
@@ -270,6 +275,7 @@ function normalizeSessionActionParts(
   return [{
     text: visibleText || text,
     detail: visibleText ? detail : "",
+    message: "",
     colors: [],
     count: 0,
     cancelled: false,
@@ -470,6 +476,18 @@ function buildSessionActionRow(
       actionName
     );
 
+    if (part.message) {
+      const message =
+        document.createElement("span");
+
+      message.textContent =
+        `: ${part.message}`;
+
+      action.appendChild(
+        message
+      );
+    }
+
     if (part.count > 1) {
       const count =
         document.createElement("span");
@@ -486,9 +504,12 @@ function buildSessionActionRow(
       );
     }
 
-    if (part.detail) {
+    const hoverText =
+      part.message || part.detail;
+
+    if (hoverText) {
       action.title =
-        part.detail;
+        hoverText;
 
       action.classList.add(
         "cursor-help"
@@ -996,6 +1017,7 @@ function markSessionActionCancelled(
       parts: item.parts.map((part) => ({
         text: part.text,
         detail: part.detail,
+        message: part.message,
         colors: part.colors,
         count: part.count,
         cancelled: part.cancelled,

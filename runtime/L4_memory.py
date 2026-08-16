@@ -24,6 +24,7 @@ from runtime.L4_memory_utils import (
     format_l4_merge_operation_details,
     format_long_term_memory_context,
     infer_l4_jin_note_action,
+    l4_jin_note_requests_new_fact,
     mark_facts_memory_fields_analyzed,
     merge_l4_store_snapshots,
     normalize_facts_memory_records,
@@ -1625,6 +1626,7 @@ async def run_l4_jin_note(
         selected_fact_ids=selected_fact_ids,
         result=payload,
         expected_action=requested_action,
+        allow_new_facts=l4_jin_note_requests_new_fact(message),
     )
     if not change.get("valid"):
         return await log_l4_skip_event(

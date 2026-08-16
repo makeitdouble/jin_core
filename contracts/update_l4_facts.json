@@ -24,6 +24,7 @@
       "For updates, name the exact F<number> ID and the final clarified formulation. The maintainer must preserve that exact committed ID.",
       "For merges, name every exact F<number> ID involved and the single final meaning. Only an explicit merge may retire absorbed committed IDs.",
       "For creations, describe the new durable fact; omit IDs when no existing fact is involved. Create is the only operation that allocates a new committed ID.",
+      "A single marker may combine an update or merge with creation when both are explicitly needed. In that case, name the existing F<number> IDs for the update/merge and separately say to create the independent new durable fact.",
       "Use only exact fact IDs shown inside <LONG_TERM_MEMORY>. F<number> means a committed L4 fact; PF<number> means a pending fact and must never be used here.",
       "Express the request only as update, merge, or create. Keep it direct, concise, and in English.",
       "Do not emit any extra hidden instructions inside the marker and do not repeat the same note after it has been sent."

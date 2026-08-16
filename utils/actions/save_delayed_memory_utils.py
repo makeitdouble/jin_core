@@ -94,9 +94,9 @@ def normalize_delayed_memory_fact_ids(
         *normalize_long_term_fact_ids(
             facts_ids or []
         ),
-        # Preserve the explicit facts_ids order. Anchors are a highlighted
-        # subset, not a sorting key; missing anchors are appended only so the
-        # subset invariant still holds.
+        # Anchors are a highlighted subset, not a sorting key. Missing
+        # anchors are folded into the full list, then the full list is kept
+        # in normal numeric F-id order (F1, F15, ... F190).
         *anchor_ids,
         *normalize_long_term_fact_ids(
             legacy_absorbed_fact_ids or []
@@ -105,6 +105,9 @@ def normalize_delayed_memory_fact_ids(
             legacy_long_term_fact_ids or []
         ),
     ])
+    fact_ids.sort(
+        key=lambda fact_id: int(fact_id[1:])
+    )
 
     return anchor_ids, fact_ids
 

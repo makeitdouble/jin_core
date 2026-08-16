@@ -9,6 +9,7 @@ sys.path.insert(
 import utils.stream_validator as stream_validator_module
 
 from utils.stream_validator import (
+    INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON,
     MAX_REPEAT_SENTENCES,
     StreamValidator,
 )
@@ -310,6 +311,110 @@ def test_stream_validator_does_not_split_fact_ids_at_provider_chunk_edges():
     assert validator.last_failure_reason is None
     assert validator.last_failure_preview == ""
     assert validator.last_failure_loop_preview == ""
+
+
+def test_stream_validator_stops_after_five_consecutive_nonexistent_l4_fact_ids():
+    validator = StreamValidator(
+        valid_l4_fact_ids={
+            "F1",
+            "F190",
+        }
+    )
+
+    for index, fact_id in enumerate(
+        [
+            "F257",
+            "F258",
+            "F259",
+            "F260",
+            "F261",
+        ]
+    ):
+        is_valid = validator.validate_repetitions(
+            f"* {fact_id}: fabricated fact description.\n"
+        )
+
+        if index < 4:
+            assert is_valid
+            continue
+
+        assert not is_valid
+
+    assert validator.last_failure_reason == (
+        INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON
+    )
+    assert validator.last_failure_loop_preview == (
+        "F257, F258, F259, F260, F261"
+    )
+
+
+def test_stream_validator_l4_fact_id_guard_handles_provider_chunk_splits():
+    validator = StreamValidator(
+        valid_l4_fact_ids={
+            "F1",
+        }
+    )
+
+    chunks = []
+    for fact_id in range(257, 262):
+        chunks.extend([
+            "* F",
+            f"{fact_id}: fabricated.\n",
+        ])
+
+    for index, chunk in enumerate(chunks):
+        is_valid = validator.validate_repetitions(
+            chunk
+        )
+
+        if index < len(chunks) - 1:
+            assert is_valid
+            continue
+
+        assert not is_valid
+
+    assert validator.last_failure_loop_preview == (
+        "F257, F258, F259, F260, F261"
+    )
+
+
+def test_stream_validator_existing_l4_fact_resets_invalid_id_streak():
+    validator = StreamValidator(
+        valid_l4_fact_ids={
+            "F190",
+        }
+    )
+
+    for fact_id in [
+        "F257",
+        "F258",
+        "F190",
+        "F259",
+        "F260",
+        "F261",
+        "F262",
+    ]:
+        assert validator.validate_repetitions(
+            f"{fact_id}: item.\n"
+        )
+
+    assert not validator.validate_repetitions(
+        "F263: item.\n"
+    )
+    assert validator.last_failure_loop_preview == (
+        "F259, F260, F261, F262, F263"
+    )
+
+
+def test_stream_validator_l4_fact_id_guard_is_disabled_without_initialized_store():
+    validator = StreamValidator()
+
+    for fact_id in range(257, 267):
+        assert validator.validate_repetitions(
+            f"F{fact_id}: unknown because store is unavailable.\n"
+        )
+
+    assert validator.last_failure_reason is None
 
 
 def test_stream_validator_still_catches_words_split_from_whitespace_chunks():

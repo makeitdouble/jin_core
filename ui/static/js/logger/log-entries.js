@@ -46,6 +46,81 @@ function getInternalActionPayload(data) {
   return null;
 }
 
+function getInternalActionUpdateL4Message(data) {
+  if (!data || typeof data !== "object") {
+    return "";
+  }
+
+  const directMessage =
+    String(data.message || "").trim();
+
+  if (directMessage) {
+    return directMessage;
+  }
+
+  const payloadCandidates = [
+    data.payload,
+    data.action_payload,
+    data.runtime_action_payload,
+  ];
+
+  for (const candidate of payloadCandidates) {
+    if (
+      candidate === undefined
+      || candidate === null
+      || candidate === ""
+    ) {
+      continue;
+    }
+
+    let parsed = candidate;
+
+    if (typeof candidate === "string") {
+      const source = candidate.trim();
+
+      if (!source) {
+        continue;
+      }
+
+      if (source.startsWith("{")) {
+        try {
+          parsed = JSON.parse(source);
+        } catch (_error) {
+          parsed = source;
+        }
+      } else {
+        parsed = source;
+      }
+    }
+
+    if (
+      parsed
+      && typeof parsed === "object"
+      && !Array.isArray(parsed)
+    ) {
+      const message =
+        String(parsed.message || "").trim();
+
+      if (message) {
+        return message;
+      }
+
+      continue;
+    }
+
+    if (typeof parsed === "string") {
+      const message =
+        parsed.replace(/\s+/g, " ").trim();
+
+      if (message) {
+        return message;
+      }
+    }
+  }
+
+  return "";
+}
+
 function formatInternalActionPayload(payload) {
   if (typeof payload === "string") {
     return prettifyTraceDetails(
@@ -585,8 +660,15 @@ function log_internal_action(
 
   const title =
     `[ ACTION : ${prettifyInternalActionName(actionName)} ]`;
+  const updateL4Message =
+    actionName === "UPDATE_L4_FACTS"
+      ? getInternalActionUpdateL4Message(
+        data
+      )
+      : "";
   const text =
-    String(
+    updateL4Message
+    || String(
       data.text || data.query || ""
     ).trim();
   const payload =
@@ -651,6 +733,21 @@ function log_internal_action(
 
     consoleStream.appendChild(
       logDiv
+    );
+  }
+
+  if (updateL4Message) {
+    logDiv.title =
+      updateL4Message;
+    logDiv.classList.add(
+      "cursor-help"
+    );
+  } else {
+    logDiv.removeAttribute(
+      "title"
+    );
+    logDiv.classList.remove(
+      "cursor-help"
     );
   }
 

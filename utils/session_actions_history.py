@@ -8,6 +8,9 @@ from utils.actions.action_counter_utils import (
 from utils.actions.jin_size_utils import (
     normalize_jin_size_payload,
 )
+from utils.actions.update_l4_facts_utils import (
+    parse_update_l4_facts_payload,
+)
 
 
 MAX_SESSION_ACTION_HISTORY_ITEMS = 200
@@ -630,6 +633,13 @@ def _normalize_session_action_display_parts(
                 )
                 or ""
             ).strip()
+            message = str(
+                part.get(
+                    "message",
+                    "",
+                )
+                or ""
+            ).strip()
             part_id = str(
                 part.get(
                     "id",
@@ -671,6 +681,7 @@ def _normalize_session_action_display_parts(
                 or ""
             ).strip()
             detail = ""
+            message = ""
             part_id = ""
             colors = []
             sizes = []
@@ -685,6 +696,9 @@ def _normalize_session_action_display_parts(
 
         if detail:
             normalized_part["detail"] = detail
+
+        if message:
+            normalized_part["message"] = message
 
         if part_id:
             normalized_part["id"] = part_id
@@ -795,6 +809,10 @@ def _format_session_action_display_part(
         "detail",
         "",
     )
+    message = normalized_part.get(
+        "message",
+        "",
+    )
     count = int(
         normalized_part.get(
             "count",
@@ -803,7 +821,9 @@ def _format_session_action_display_part(
         or 0
     )
 
-    if detail:
+    if message:
+        text = f"{text}: {message}"
+    elif detail:
         text = f"{text} - {detail}"
 
     return format_runtime_action_count(
@@ -1095,6 +1115,19 @@ def _build_session_action_marker_detail(
             normalized_payload
         )
 
+    if normalized_name == "UPDATE_L4_FACTS":
+        parsed_payload = parse_update_l4_facts_payload(
+            normalized_payload
+        )
+
+        return str(
+            parsed_payload.get(
+                "message",
+                "",
+            )
+            or ""
+        ).strip()
+
     if normalized_name in {
         "SAVE_ACTIVE_MEMORY",
         "RESOLVE_ACTIVE_MEMORY",
@@ -1256,6 +1289,13 @@ def _build_payload_distinct_session_action_parts(
         if skill_marker_action:
             part["text"] = (
                 f"{action_name}: {display_payload}"
+            )
+        elif (
+            action_name == "UPDATE_L4_FACTS"
+            and details
+        ):
+            part["message"] = ", ".join(
+                details
             )
         elif details:
             part["detail"] = ", ".join(
@@ -1624,6 +1664,13 @@ def _build_formatted_session_action_marker_parts(
                         f"{action_name}: "
                         f"{', '.join(asset_action_names)}"
                     )
+            elif (
+                action_name == "UPDATE_L4_FACTS"
+                and details
+            ):
+                part["message"] = ", ".join(
+                    details
+                )
             elif details:
                 part["detail"] = ", ".join(
                     details

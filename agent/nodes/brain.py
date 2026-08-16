@@ -1012,6 +1012,22 @@ class BrainNode(BaseNode):
             sections.append(
                 build_reasoning_recovery_context()
             )
+
+            interruption_reason = str(
+                getattr(
+                    context,
+                    "runtime_turn_interruption_reason",
+                    "",
+                )
+                or ""
+            ).strip()
+            if interruption_reason:
+                sections.append(
+                    "<REASONING_RECOVERY_REASON>\n"
+                    f'{interruption_reason}\n'
+                    "</REASONING_RECOVERY_REASON>"
+                )
+
             context.runtime_reasoning_recovery_pending = False
             context.runtime_turn_interrupted = False
             context.runtime_turn_interruption_reason = ""

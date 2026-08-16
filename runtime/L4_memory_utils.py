@@ -88,6 +88,20 @@ def infer_l4_jin_note_action(
     return action
 
 
+def l4_jin_note_requests_new_fact(message: str) -> bool:
+    normalized_message = normalize_l4_text(message)
+    if not normalized_message:
+        return False
+
+    return bool(
+        re.search(
+            r"\bcreate\b[^.\n;:]{0,80}\bfact\b",
+            normalized_message,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
 def build_l4_extraction_system_prompt() -> str:
     return L4_EXTRACTION_SYSTEM_PROMPT
 
@@ -1896,6 +1910,7 @@ def apply_l4_jin_note_result(
     selected_fact_ids: list[str],
     result: dict,
     expected_action: str = "",
+    allow_new_facts: bool = False,
     now: str | None = None,
 ) -> tuple[dict, dict]:
     current_time = now or utc_now_iso()
@@ -1955,7 +1970,11 @@ def apply_l4_jin_note_result(
 
     replacement_specs = normalized_result["replacement_facts"]
     new_fact_specs = normalized_result["new_facts"]
-    if requested_action in {"update", "merge"} and new_fact_specs:
+    if (
+        requested_action in {"update", "merge"}
+        and new_fact_specs
+        and not allow_new_facts
+    ):
         return base_store, {
             "valid": False,
             "reason": "jin_note_unrequested_new_fact",
