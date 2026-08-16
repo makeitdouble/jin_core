@@ -306,6 +306,15 @@ function renderChatTextElement(
         text
       );
 
+  if (
+    window.JinChatReferenceIds
+    && typeof window.JinChatReferenceIds.decorate === "function"
+  ) {
+    window.JinChatReferenceIds.decorate(
+      element
+    );
+  }
+
 }
 
 function isStreamDebugEnabled() {

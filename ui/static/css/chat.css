@@ -778,3 +778,47 @@
             rgba(30, 35, 39, 0.94) calc(var(--JIN_BUBBLE_INVERT) * 100%)
     );
 }
+
+/* Resolved six-character JIN ids inside answer text. The id remains part of
+   the sentence, but reads as a live system reference. */
+.jin-chat-reference-id {
+    position: relative;
+    z-index: 1;
+    pointer-events: auto;
+    font-weight: 700;
+    color: color-mix(
+            in srgb,
+            rgba(244, 250, 252, 0.98) calc(var(--jin-bubble-invert-off) * 100%),
+            rgba(20, 24, 28, 0.96) calc(var(--JIN_BUBBLE_INVERT) * 100%)
+    );
+    text-shadow:
+            0 0 8px rgba(226, 247, 250, calc(var(--jin-bubble-invert-off) * 0.28)),
+            0 0 14px rgba(103, 232, 249, calc(var(--jin-bubble-invert-off) * 0.08));
+    cursor: help;
+    transition:
+            color 0.14s ease,
+            text-shadow 0.14s ease;
+}
+
+.jin-chat-reference-id:hover {
+    color: color-mix(
+            in srgb,
+            rgba(255, 255, 255, 1) calc(var(--jin-bubble-invert-off) * 100%),
+            rgba(8, 12, 16, 0.98) calc(var(--JIN_BUBBLE_INVERT) * 100%)
+    );
+}
+
+.jin-chat-bubble-rateable.jin-rating-disabled .jin-chat-reference-id,
+.jin-chat-bubble-rateable.jin-rating-committed .jin-chat-reference-id {
+    cursor: pointer;
+}
+
+body.theme-win95 .jin-chat-reference-id {
+    color: #171717;
+    text-shadow: 0 0 1px rgba(0, 0, 0, 0.20);
+}
+
+body.theme-win95 .jin-chat-reference-id:hover {
+    color: #000;
+    text-shadow: 0 0 1px rgba(0, 0, 0, 0.28);
+}

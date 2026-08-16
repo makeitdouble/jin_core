@@ -35,6 +35,19 @@ class AttachmentUiContractTests(unittest.TestCase):
             source,
         )
 
+    def test_attachment_modal_info_starts_with_system_id(self):
+        source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "chat-attachments.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("const systemId =", source)
+        self.assertIn("attachment && attachment.id", source)
+        self.assertIn("detailParts[0] = systemId;", source)
+
 
 if __name__ == "__main__":
     unittest.main()

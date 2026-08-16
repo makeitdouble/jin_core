@@ -371,3 +371,29 @@
 .jin-chat-bubble-rateable.jin-rating-selected-plus .jin-chat-pre {
     transform: translateX(2px) skewY(0.18deg);
 }
+
+/* Rating can be temporarily disabled on the latest JIN answer so the bubble
+   behaves like ordinary selectable text. Double-click restores rating. */
+.jin-chat-bubble-rateable.jin-rating-disabled {
+    cursor: text;
+    user-select: text;
+    -webkit-user-select: text;
+    filter: none;
+}
+
+.jin-chat-bubble-rateable.jin-rating-disabled .jin-rating-hover-zones {
+    display: none;
+    pointer-events: none;
+}
+
+/* While rating is active the three hit zones own normal text clicks, but
+   system-reference ids stay hoverable above them. */
+.jin-chat-bubble-rateable .jin-chat-pre {
+    z-index: 6;
+    pointer-events: none;
+}
+
+.jin-chat-bubble-rateable.jin-rating-disabled .jin-chat-pre,
+.jin-chat-bubble-rateable.jin-rating-committed .jin-chat-pre {
+    pointer-events: auto;
+}

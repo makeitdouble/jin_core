@@ -71,6 +71,40 @@ class AnswerRatingClientContractTests(unittest.TestCase):
             source,
         )
 
+
+    def test_center_zone_disables_rating_and_double_click_restores_latest_bubble(self):
+        source = ANSWER_RATING_JS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            '["jin-rating-zone jin-rating-zone-neutral", "disable", "disable rating"]',
+            source,
+        )
+        self.assertIn('bubble.classList.add("jin-rating-disabled");', source)
+        self.assertIn('bubble.dataset.ratingModeTitle = label;', source)
+        self.assertIn('bubble.addEventListener("dblclick"', source)
+        self.assertIn(
+            'if (!isLatestRateableBubble(bubble) || isBubbleLockedBelowCurrentGeneration(bubble))',
+            source,
+        )
+        self.assertIn('function clearBrowserTextSelection()', source)
+        self.assertIn('selection.removeAllRanges();', source)
+        self.assertIn('window.requestAnimationFrame(clearSelection);', source)
+        self.assertIn(
+            'if (enableBubbleRating(bubble)) {\n                clearBrowserTextSelection();',
+            source,
+        )
+
+    def test_disabled_rating_exposes_selectable_text_mode(self):
+        source = CHAT_RATING_CSS.read_text(encoding="utf-8")
+
+        self.assertIn(".jin-chat-bubble-rateable.jin-rating-disabled {", source)
+        self.assertIn("user-select: text;", source)
+        self.assertIn(
+            ".jin-chat-bubble-rateable.jin-rating-disabled .jin-rating-hover-zones",
+            source,
+        )
+        self.assertIn("display: none;", source)
+
     def test_cache_versions_are_bumped_for_rating_assets(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 

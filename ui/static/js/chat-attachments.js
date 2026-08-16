@@ -477,10 +477,24 @@ function createAttachmentInfoElement(attachment) {
 
   info.className =
     "jin-attachment-modal-info";
-  info.textContent =
+
+  const detailParts =
     getAttachmentDetailParts(
       attachment
-    ).join(" - ");
+    );
+  const systemId =
+    normalizeAttachmentValue(
+      attachment && attachment.id
+    ).trim();
+
+  if (systemId && detailParts.length) {
+    detailParts[0] = systemId;
+  } else if (systemId) {
+    detailParts.push(systemId);
+  }
+
+  info.textContent =
+    detailParts.join(" - ");
 
   return info;
 }
