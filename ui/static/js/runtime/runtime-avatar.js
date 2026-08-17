@@ -85,6 +85,7 @@
   const AMBER_ACCENT = "#e3a64e";
   const ACTIVE_MEMORY_RING_COLOR = "#d7fff9";
   const DELAYED_MEMORY_RING_COLOR = "#7ab8d8";
+  const DELAYED_MEMORY_RING_ACTIVE_COLOR = "#68dbff";
   const PINNED_DELAYED_MEMORY_RING_COLOR = "#efffff";
   const L4_MEMORY_RING_COLOR = "#93c5fd";
   const FILE_RING_COLOR = DELAYED_MEMORY_RING_COLOR;
@@ -1591,7 +1592,7 @@
       const contextLoaded = Boolean(record.loaded);
       const active = pinned || contextLoaded;
       const color = active
-        ? PINNED_DELAYED_MEMORY_RING_COLOR
+        ? DELAYED_MEMORY_RING_ACTIVE_COLOR
         : mixColors(DELAYED_MEMORY_RING_COLOR, overallColor, 0.12);
 
       appendMemoryDashSegment(
@@ -1603,7 +1604,7 @@
           arcDegrees,
           color,
           glowColor: active
-            ? PINNED_DELAYED_MEMORY_RING_COLOR
+            ? DELAYED_MEMORY_RING_ACTIVE_COLOR
             : color,
           opacity: active ? 0.82 : 0.36,
           pinned,
@@ -1844,7 +1845,7 @@
       nextPinned || nextContextLoaded;
     const nextColor =
       nextActive
-        ? PINNED_DELAYED_MEMORY_RING_COLOR
+        ? DELAYED_MEMORY_RING_ACTIVE_COLOR
         : mixColors(DELAYED_MEMORY_RING_COLOR, overallColor, 0.12);
 
     dashGroup.classList.toggle(
@@ -1854,7 +1855,7 @@
     setMemoryDashGlowVariables(
       dashGroup,
       nextActive
-        ? PINNED_DELAYED_MEMORY_RING_COLOR
+        ? DELAYED_MEMORY_RING_ACTIVE_COLOR
         : nextColor,
       MEMORY_RING_LAYOUT.delayed.strokeWidth + 0.75
     );
@@ -2905,11 +2906,13 @@
   function getSecondaryLinkedDelayedMemoryReportIds() {
     const records = getDelayedMemoryAvatarRecords();
     const linkedReportIds = new Set();
+    const sourceReportIds = new Set();
 
     records
       .filter(record => Boolean(record && record.loaded))
       .forEach((sourceRecord) => {
         const hiddenFactIds = new Set(sourceRecord.factIds);
+        let matchedTarget = false;
 
         sourceRecord.anchorFactIds.forEach((factId) => {
           hiddenFactIds.delete(factId);
@@ -2934,11 +2937,19 @@
             )
           ) {
             linkedReportIds.add(targetRecord.id);
+            matchedTarget = true;
           }
         });
+
+        if (matchedTarget) {
+          sourceReportIds.add(sourceRecord.id);
+        }
       });
 
-    return linkedReportIds;
+    return {
+      sourceReportIds,
+      linkedReportIds,
+    };
   }
 
   function applyDelayedMemoryFactLinkGlow() {
@@ -2952,7 +2963,7 @@
       collectDelayedMemoryLinkedL4FactIds(svg);
     const hoveredL4FactIds =
       collectHoveredL4FactIds(svg);
-    const secondaryLinkedReportIds =
+    const secondaryLinkState =
       getSecondaryLinkedDelayedMemoryReportIds();
 
     Array.from(
@@ -2980,12 +2991,21 @@
           hoveredL4FactIds
         )
       );
+      const delayedMemoryId =
+        String(node.dataset.delayedMemoryId || "")
+          .trim()
+          .toLowerCase();
+
       node.classList.toggle(
         "is-delayed-memory-secondary-linked",
-        secondaryLinkedReportIds.has(
-          String(node.dataset.delayedMemoryId || "")
-            .trim()
-            .toLowerCase()
+        secondaryLinkState.linkedReportIds.has(
+          delayedMemoryId
+        )
+      );
+      node.classList.toggle(
+        "is-delayed-memory-secondary-source",
+        secondaryLinkState.sourceReportIds.has(
+          delayedMemoryId
         )
       );
     });
@@ -3045,22 +3065,44 @@
       return;
     }
 
+    const rowHoverIds = new Set([
+      memoryRowAvatarHoverState
+        ? memoryRowAvatarHoverState.avatarMemoryHoverId
+        : "",
+    ].filter(Boolean));
+    const modalActiveIds = new Set([
+      delayedMemoryReportActiveState
+        ? delayedMemoryReportActiveState.avatarMemoryHoverId
+        : "",
+    ].filter(Boolean));
     const activeHoverIds =
       getActiveAvatarMemoryHoverIds();
 
     svg.querySelectorAll(
       ".jin-avatar-orbit, .jin-avatar-counter-orbit, .jin-avatar-memory-dash, .jin-avatar-file-dot"
     ).forEach((node) => {
+      const hoverId =
+        String(node.dataset.avatarMemoryHoverId || "");
       const matched = Boolean(
-        node.dataset.avatarMemoryHoverId
-        && activeHoverIds.has(
-          node.dataset.avatarMemoryHoverId
-        )
+        hoverId
+        && activeHoverIds.has(hoverId)
+      );
+      const rowHovered = Boolean(
+        hoverId
+        && rowHoverIds.has(hoverId)
+      );
+      const modalActive = Boolean(
+        hoverId
+        && modalActiveIds.has(hoverId)
       );
 
       node.classList.toggle(
         "is-memory-hover-hit",
-        matched
+        matched && rowHovered
+      );
+      node.classList.toggle(
+        "is-memory-modal-active",
+        matched && modalActive
       );
     });
 

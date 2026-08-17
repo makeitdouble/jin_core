@@ -1830,6 +1830,109 @@ function resolveDeletedFile(
   return null;
 }
 
+function isDeletedFileImage(file) {
+  const kind =
+    String(file && file.kind || "")
+      .trim()
+      .toLowerCase();
+
+  if (kind === "image") {
+    return true;
+  }
+
+  const mimeType =
+    String(
+      file
+      && (
+        file.type
+        || file.content_type
+      )
+      || ""
+    )
+      .trim()
+      .toLowerCase();
+
+  if (mimeType.startsWith("image/")) {
+    return true;
+  }
+
+  const source =
+    String(file && (file.url || file.context_path) || "")
+      .trim()
+      .toLowerCase();
+
+  return /\.(png|jpe?g|webp|gif|bmp|svg)(?:$|[?#])/.test(
+    source
+  );
+}
+
+function formatDeletedFileInlineLabel(file, fileId) {
+  const stableId =
+    String(file && file.id || fileId || "")
+      .trim();
+  const name =
+    String(file && file.name || "")
+      .trim();
+
+  return [
+    stableId,
+    name,
+  ].filter(Boolean).join(" · ");
+}
+
+function bindDeletedFileInlinePreview(
+  element,
+  file,
+) {
+  if (
+      !element
+      || !file
+      || !isDeletedFileImage(file)
+      || typeof window.bindJinAttachmentHoverPreview !== "function"
+  ) {
+    return;
+  }
+
+  window.bindJinAttachmentHoverPreview(
+    element,
+    file,
+    {
+      hoverPreviewMaxPx: 100,
+    }
+  );
+
+  const applyHoverState = (active) => {
+    element.style.backgroundColor = active
+      ? "rgba(59, 130, 246, 0.08)"
+      : "transparent";
+    element.style.borderColor = active
+      ? "rgba(59, 130, 246, 0.18)"
+      : "transparent";
+  };
+
+  element.style.cursor = "default";
+  element.style.transition = "background-color 150ms ease, border-color 150ms ease";
+  element.style.border = "1px solid transparent";
+  element.style.borderRadius = "4px";
+  element.style.padding = "2px 4px";
+  element.style.marginLeft = "-4px";
+  element.style.marginRight = "-4px";
+
+  element.addEventListener(
+    "mouseenter",
+    function () {
+      applyHoverState(true);
+    }
+  );
+
+  element.addEventListener(
+    "mouseleave",
+    function () {
+      applyHoverState(false);
+    }
+  );
+}
+
 function handleDeletedFileLog(
   tag,
   details,
@@ -1863,22 +1966,23 @@ function handleDeletedFileLog(
     createL4LoggerCard(
       "[MEMORY:FILES:DELETED]"
     );
-  const title =
-    document.createElement("span");
   const summary =
     document.createElement("span");
 
-  title.className =
-    "block mt-2 text-zinc-200 font-semibold";
-  title.textContent =
-    String(file.name || fileId || "File");
-
   summary.className =
-    "block mt-1 text-zinc-400";
+    "block mt-2 text-zinc-200 font-semibold";
   summary.textContent =
-    fileId;
+    formatDeletedFileInlineLabel(
+      file,
+      fileId
+    )
+    || "File";
 
-  logDiv.appendChild(title);
+  bindDeletedFileInlinePreview(
+    summary,
+    file
+  );
+
   logDiv.appendChild(summary);
 
   const actions =

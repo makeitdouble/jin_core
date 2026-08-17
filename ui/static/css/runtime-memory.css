@@ -1119,6 +1119,15 @@
     border-bottom: 0;
 }
 
+.jin-context-user-attached-file-row {
+    cursor: default;
+    transition: background-color 0.12s ease;
+}
+
+.jin-context-user-attached-file-row:hover {
+    background: rgba(56, 189, 248, 0.055);
+}
+
 .jin-context-kv-key {
     min-width: 0;
     overflow-wrap: anywhere;

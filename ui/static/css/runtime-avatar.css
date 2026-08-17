@@ -527,6 +527,54 @@
     r: var(--jin-avatar-memory-hover-dot-radius, 2.45px);
 }
 
+/*
+   Delayed-memory ring now uses exactly two blue highlight tiers.
+   Tier 2 = strong bright-blue (pinned / context-loaded / anchor link / open modal / secondary target).
+   Tier 1 = softer blue (citation / mention / row hover / secondary source override).
+*/
+.jin-avatar-memory-dash-delayed.is-memory-pinned,
+.jin-avatar-memory-dash-delayed.is-context-loaded,
+.jin-avatar-memory-dash-delayed.is-delayed-memory-secondary-linked,
+.jin-avatar-memory-dash-delayed.is-delayed-memory-linked-hit,
+.jin-avatar-memory-dash-delayed.is-memory-modal-active {
+    filter:
+        brightness(1.72)
+        saturate(1.65)
+        drop-shadow(0 0 5px rgba(190, 252, 255, 0.92))
+        drop-shadow(0 0 12px rgba(52, 211, 222, 0.54))
+        drop-shadow(0 0 24px rgba(34, 211, 238, 0.24))
+        drop-shadow(0 0 38px rgba(34, 211, 238, 0.18));
+}
+
+.jin-avatar-memory-dash-delayed:not(.is-memory-dot).is-memory-pinned path,
+.jin-avatar-memory-dash-delayed:not(.is-memory-dot).is-context-loaded path,
+.jin-avatar-memory-dash-delayed:not(.is-memory-dot).is-delayed-memory-secondary-linked path,
+.jin-avatar-memory-dash-delayed:not(.is-memory-dot).is-delayed-memory-linked-hit path,
+.jin-avatar-memory-dash-delayed:not(.is-memory-dot).is-memory-modal-active path {
+    stroke-opacity: 1 !important;
+    stroke-width: calc(var(--jin-avatar-memory-hover-width, 2px) + 0.45px);
+}
+
+.jin-avatar-memory-dash-delayed:not(.is-memory-pinned):not(.is-context-loaded):not(.is-delayed-memory-secondary-linked):not(.is-delayed-memory-linked-hit):not(.is-memory-modal-active).is-runtime-cited,
+.jin-avatar-memory-dash-delayed:not(.is-memory-pinned):not(.is-context-loaded):not(.is-delayed-memory-secondary-linked):not(.is-delayed-memory-linked-hit):not(.is-memory-modal-active).is-memory-reference-hit,
+.jin-avatar-memory-dash-delayed:not(.is-memory-pinned):not(.is-context-loaded):not(.is-delayed-memory-secondary-linked):not(.is-delayed-memory-linked-hit):not(.is-memory-modal-active).is-memory-hover-hit,
+.jin-avatar-memory-dash-delayed.is-delayed-memory-secondary-source:not(.is-delayed-memory-linked-hit):not(.is-memory-modal-active) {
+    filter:
+        brightness(1.46)
+        saturate(1.32)
+        drop-shadow(0 0 4px rgba(210, 255, 255, 0.46))
+        drop-shadow(0 0 10px rgba(90, 235, 245, 0.27))
+        drop-shadow(0 0 20px rgba(52, 211, 222, 0.12));
+}
+
+.jin-avatar-memory-dash-delayed:not(.is-memory-dot):not(.is-memory-pinned):not(.is-context-loaded):not(.is-delayed-memory-secondary-linked):not(.is-delayed-memory-linked-hit):not(.is-memory-modal-active).is-runtime-cited path,
+.jin-avatar-memory-dash-delayed:not(.is-memory-dot):not(.is-memory-pinned):not(.is-context-loaded):not(.is-delayed-memory-secondary-linked):not(.is-delayed-memory-linked-hit):not(.is-memory-modal-active).is-memory-reference-hit path,
+.jin-avatar-memory-dash-delayed:not(.is-memory-dot):not(.is-memory-pinned):not(.is-context-loaded):not(.is-delayed-memory-secondary-linked):not(.is-delayed-memory-linked-hit):not(.is-memory-modal-active).is-memory-hover-hit path,
+.jin-avatar-memory-dash-delayed:not(.is-memory-dot).is-delayed-memory-secondary-source:not(.is-delayed-memory-linked-hit):not(.is-memory-modal-active) path {
+    stroke-opacity: 0.82 !important;
+    stroke-width: var(--jin-avatar-memory-hover-width, 2px);
+}
+
 
 .jin-avatar-file-ring {
     opacity: 0.96;

@@ -14,6 +14,28 @@ const CONTEXT_DELAYED_MEMORY_STORE_CHANGED_EVENT =
   "jin:delayed-memory-store-changed";
 const CONTEXT_FILES_STORE_CHANGED_EVENT =
   "jin:files-store-changed";
+const CONTEXT_ATTACHMENT_HOVER_BOUND_DATASET_KEY =
+  "jinContextAttachmentHoverBound";
+
+function clearContextAttachedFileHoverPreview() {
+  if (traceModalContent) {
+    traceModalContent
+      .querySelectorAll(
+        '[data-jin-context-attachment-hover-bound="1"]'
+      )
+      .forEach((row) => {
+        row.dispatchEvent(
+          new Event("mouseleave")
+        );
+      });
+  }
+
+  if (
+      typeof window.hideJinAttachmentHoverPreview === "function"
+  ) {
+    window.hideJinAttachmentHoverPreview();
+  }
+}
 
 function ensureTraceModal() {
   if (traceModal) {
@@ -149,6 +171,7 @@ function ensureTraceModal() {
       "",
       false
     );
+    clearContextAttachedFileHoverPreview();
 
     traceModal.classList.add(
       "hidden"
@@ -1935,6 +1958,144 @@ function renderContextAttachedFilesBody(parent, content) {
   syncContextAttachedFileRows();
 }
 
+function parseContextUserPromptAttachedFileRow(row) {
+  if (!row) {
+    return null;
+  }
+
+  const keyElement =
+    row.querySelector(
+      ".jin-context-kv-key"
+    );
+  const valueElement =
+    row.querySelector(
+      ".jin-context-kv-value"
+    );
+  const key =
+    String(
+      keyElement && keyElement.textContent || ""
+    ).trim();
+  const value =
+    String(
+      valueElement && valueElement.textContent || ""
+    ).trim();
+  const pathMatch =
+    key.match(
+      /(?:^|\s)(\/assets\/files\/[^\s:]+)\s*$/i
+    );
+  const idMatch =
+    value.match(
+      /\[\s*id\s*:\s*([a-z0-9]{6})\s*\]/i
+    );
+
+  if (
+      !pathMatch
+      || !idMatch
+      || !/^image(?:\s*,|$)/i.test(value)
+  ) {
+    return null;
+  }
+
+  const id =
+    String(idMatch[1] || "")
+      .trim()
+      .toLowerCase();
+  const path =
+    String(pathMatch[1] || "").trim();
+  const mimeMatch =
+    value.match(
+      /^image\s*,\s*([^,\s]+)/i
+    );
+  const storedRecord =
+    window.JinFiles
+    && typeof window.JinFiles.getFile === "function"
+      ? window.JinFiles.getFile(id)
+      : null;
+
+  return {
+    id,
+    kind: "image",
+    type:
+      mimeMatch
+        ? String(mimeMatch[1] || "")
+        : "image",
+    url: path,
+    ...(storedRecord || {}),
+  };
+}
+
+function bindContextUserPromptAttachedFilePreviews(parent) {
+  if (!parent) {
+    return;
+  }
+
+  parent
+    .querySelectorAll(
+      ".jin-context-kv-row"
+    )
+    .forEach((row) => {
+      const attachment =
+        parseContextUserPromptAttachedFileRow(
+          row
+        );
+
+      if (!attachment) {
+        return;
+      }
+
+      row.classList.add(
+        "jin-context-user-attached-file-row"
+      );
+
+      const bind = () => {
+        if (
+            !row.isConnected
+            || row.dataset[
+              CONTEXT_ATTACHMENT_HOVER_BOUND_DATASET_KEY
+            ] === "1"
+        ) {
+          return true;
+        }
+
+        if (
+            typeof window.bindJinAttachmentHoverPreview !== "function"
+        ) {
+          return false;
+        }
+
+        window.bindJinAttachmentHoverPreview(
+          row,
+          attachment,
+          {
+            hoverPreviewMaxPx: 100,
+          }
+        );
+        row.dataset[
+          CONTEXT_ATTACHMENT_HOVER_BOUND_DATASET_KEY
+        ] = "1";
+        return true;
+      };
+
+      if (!bind()) {
+        window.addEventListener(
+          "jin:attachment-ui-ready",
+          bind,
+          {once: true}
+        );
+      }
+    });
+}
+
+function renderContextUserPromptBody(parent, content) {
+  renderContextBody(
+    parent,
+    content
+  );
+  bindContextUserPromptAttachedFilePreviews(
+    parent
+  );
+}
+
 function renderContextBody(parent, content) {
   const text =
     String(content || "").trim();
@@ -2430,6 +2591,12 @@ function renderContextSnapshotTrace(snapshot) {
           snapshot.userPrompt || "<empty>",
         attributes: [],
         xml: false,
+        renderBody: (body) => {
+          renderContextUserPromptBody(
+            body,
+            snapshot.userPrompt || "<empty>"
+          );
+        },
       },
       syncCollapseAllToggle
     );
@@ -2446,6 +2613,7 @@ function renderTraceDetails(
   details,
   title = "Trace",
 ) {
+  clearContextAttachedFileHoverPreview();
   traceModalContent.replaceChildren();
   traceModalContextCopyText = "";
 
