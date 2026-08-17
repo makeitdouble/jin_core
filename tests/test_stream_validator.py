@@ -32,27 +32,41 @@ def collect(validator, chunks):
 
 
 def test_stream_validator_same_answer_prefix_is_held_and_rejected():
+    previous_output = (
+        "This is a deliberately long visible answer that should be "
+        "recognized when the next generation actually repeats it. "
+    )
     validator = StreamValidator(
-        previous_output="abcdefghijklmno previous answer"
+        previous_output=previous_output
     )
 
-    assert validator.filter_chunk("abcde") == ("", True)
-    assert validator.filter_chunk("fghij") == ("", True)
-    assert validator.filter_chunk("klmno rest") == ("", False)
+    prefix = validator.same_output_reference_prefix
+    assert len(prefix) >= 64
+
+    midpoint = len(prefix) // 2
+    assert validator.filter_chunk(prefix[:midpoint]) == ("", True)
+    assert validator.filter_chunk(prefix[midpoint:]) == ("", False)
     assert validator.last_failure_reason == SAME_ANSWER_OUTPUT_REASON
 
 
 def test_stream_validator_same_answer_prefix_releases_on_first_mismatch():
+    previous_output = (
+        "Принято. Запускаю процесс финализации. Сейчас всё упакую, "
+        "проведу аудит и сохраню текущее состояние сессии целиком."
+    )
     validator = StreamValidator(
-        previous_output="abcdefghijklmno previous answer"
+        previous_output=previous_output
     )
 
-    assert validator.filter_chunk("abcde") == ("", True)
-    assert validator.filter_chunk("fghij") == ("", True)
-    assert validator.filter_chunk("klmnX rest") == (
-        "abcdefghijklmnX rest",
-        True,
+    # A follow-up can naturally reuse a short acknowledgement such as
+    # "Принято. Запускаю...". That is not enough evidence of a loop.
+    output = (
+        "Принято. Запускаю итоговую проверку сохранения и сразу "
+        "сообщу только оставшийся результат."
     )
+
+    assert collect(validator, [output]) == output
+    assert validator.last_failure_reason is None
 
 
 def test_stream_validator_removes_trailing_blockquote_tag():

@@ -245,6 +245,7 @@ def build_l4_merge_batch_plan(
     requested_max_tokens: int | None,
     runtime_output_reserve: int = 256,
     protected_fact_ids=(),
+    max_batch_count: int | None = None,
 ) -> dict:
     """Select the largest FIFO pending slice that fits the live LM Studio budget.
 
@@ -268,16 +269,23 @@ def build_l4_merge_batch_plan(
     except (TypeError, ValueError):
         provider_reserve = 0
 
-    # Leave a small model-side cushion for reasoning / JSON variation in
-    # addition to the generic provider reserve. Scale it with the live window
-    # so batching remains proportional to the actual LM Studio context.
+    # L4 merge models may spend a meaningful part of the shared generation
+    # budget on hidden reasoning before they emit the final JSON. Reserve a
+    # proportional reasoning cushion instead of filling the context almost to
+    # the edge with prompt + estimated JSON. The adaptive retry cap below can
+    # still shrink the FIFO batch further if the live model needs more room.
     response_headroom = max(
         128,
         min(
-            1024,
-            context_window // 16,
+            4096,
+            context_window // 4,
         ),
     )
+
+    try:
+        batch_limit = max(0, int(max_batch_count or 0))
+    except (TypeError, ValueError):
+        batch_limit = 0
 
     queue = [
         fact
@@ -291,6 +299,9 @@ def build_l4_merge_batch_plan(
     estimated_total_tokens = 0
 
     for fact in queue:
+        if batch_limit and len(selected) >= batch_limit:
+            break
+
         candidate_batch = [*selected, fact]
         candidate_prompt = build_l4_merge_user_prompt(
             existing_facts=existing_facts,
@@ -383,6 +394,7 @@ def build_l4_merge_batch_plan(
         "estimated_total_tokens": estimated_total_tokens,
         "configured_output_room_tokens": configured_output_room,
         "requested_max_output_tokens": max_requested_output,
+        "adaptive_batch_limit": batch_limit,
         "fits": bool(selected),
     }
 

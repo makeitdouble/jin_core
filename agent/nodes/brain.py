@@ -24,6 +24,7 @@ from rules.brain_context_builder import (
     build_brain_context,
 )
 from rules.runtime import (
+    ANSWERING_RECOVERY_MESSAGE,
     CONTEXT_LIMIT_RECOVERY_MESSAGE,
     IDLE_FOLLOWUP_MESSAGE,
     REASONING_RECOVERY_MESSAGE,
@@ -329,7 +330,16 @@ def prepare_asset_results_for_turn(
     asset_results.clear()
 
 
-def build_reasoning_recovery_context() -> str:
+def build_reasoning_recovery_context(
+        reason: str = "",
+) -> str:
+
+    if str(reason or "").strip() == "same answer output":
+        return (
+            "<ANSWERING_RECOVERY>\n"
+            f"{ANSWERING_RECOVERY_MESSAGE}\n"
+            "</ANSWERING_RECOVERY>"
+        )
 
     return (
         "<REASONING_RECOVERY>\n"
@@ -1096,10 +1106,6 @@ class BrainNode(BaseNode):
             context is not None
             and reasoning_recovery_pending
         ):
-            sections.append(
-                build_reasoning_recovery_context()
-            )
-
             interruption_reason = str(
                 getattr(
                     context,
@@ -1108,11 +1114,23 @@ class BrainNode(BaseNode):
                 )
                 or ""
             ).strip()
+
+            sections.append(
+                build_reasoning_recovery_context(
+                    interruption_reason
+                )
+            )
+
             if interruption_reason:
+                recovery_reason_tag = (
+                    "ANSWERING_RECOVERY_REASON"
+                    if interruption_reason == "same answer output"
+                    else "REASONING_RECOVERY_REASON"
+                )
                 sections.append(
-                    "<REASONING_RECOVERY_REASON>\n"
+                    f"<{recovery_reason_tag}>\n"
                     f'{interruption_reason}\n'
-                    "</REASONING_RECOVERY_REASON>"
+                    f"</{recovery_reason_tag}>"
                 )
 
             context.runtime_reasoning_recovery_pending = False

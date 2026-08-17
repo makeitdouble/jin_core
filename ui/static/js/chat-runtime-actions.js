@@ -662,6 +662,14 @@ function insertRuntimeActionRow(
   options = {}
 ) {
 
+  if (row) {
+    // Every newly materialized runtime-action bubble uses the same 250ms
+    // accelerating drop-in motion, regardless of action type.
+    row.classList.add(
+      "jin-runtime-action-enter"
+    );
+  }
+
   if (
       !row
       || !isDeepSearchChildRuntimeAction(

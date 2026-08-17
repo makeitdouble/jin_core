@@ -5,6 +5,12 @@ REASONING_RECOVERY_MESSAGE = (
     "This time you must act instantly"
 )
 
+ANSWERING_RECOVERY_MESSAGE = (
+    "Your previous answer started repeating the already visible answer. "
+    "Do not restart or repeat it. Continue from CURRENT_SEQUENCE and only "
+    "produce the remaining answer or action."
+)
+
 CONTEXT_LIMIT_RECOVERY_MESSAGE = (
     "The previous generation reached the {limit_label} during {stage}.\n"
     "Continue the current task from CURRENT_SEQUENCE without restarting it.\n"
@@ -35,17 +41,15 @@ SESSION_RESTORE_REASONING_COUNT = 2
 SESSION_RESTORE_REASONING_CHAR_LIMIT = 2000
 SESSION_RESTORE_MESSAGE = (
     "<CONVERSATION_CONTINUE_RULES>\n"
-    "!!!DO NOT REEPAT LAST JIN RESPONSE!!! MUST Treat as a new state! Must check current date!\n"
     "This is a conversation restoration bootstrap information block.\n"
-    "Think deep and fresh, but derive all conversational vibe based on all current available context.\n"
-    "Re-enter the archived conversation as fluently as possible. Treat the restored "
-    "dialogue, runtime state, and reasoning dump as your immediately preceding "
-    "interaction state. Preserve the established tone, cadence, assumptions, unresolved "
-    "thread, and conversational vibe instead of summarizing or re-explaining them.\n"
+    "Now derive user language and conversation tone from a context.\n"
+    "Think deep and fresh, exctract all vibe and re-enable the archived conversation as fluently as possible.\n"
+    "Keep the established tone, cadence, assumptions, unresolved "
+    "thread and established conversational vibe instead of summarizing or re-explaining them.\n"
+    "Skip all done topics or  performed actions as past and done and do not rise up them.\n"
     "Do not invent missing context and do not treat this bootstrap as permission to start "
     "new work or runtime actions. Respond briefly and naturally, acknowledge that JIN is "
-    "back in place, and make it easy for the user to continue from exactly where the "
-    "session stopped.\n"
+    "back in place, and make it easy for the user to continue from exactly where we left off and move on.\n"
     "</CONVERSATION_CONTINUE_RULES>"
 )
 
@@ -81,7 +85,9 @@ PROPOSAL_RULES = (
             "Active memory does not require explicit confirmation. Emit the save active memory action in the same answer and mention the saved item briefly in natural text.\n"
             "Ask before using active memory only when the candidate is ambiguous, sensitive, broad, identity-like, or better suited to long-term memory or delayed memory.\n"
             "Do not store trivial exchanges, unstable ideas, identity anchors, broad user preferences, core project rules, or facts that remain useful across unrelated topics as active memory.\n"
-            "A proposal is optional user-facing text, not a runtime action. Use proposals for save-session and delayed-memory decisions that need user acceptance before any save or update marker.\n"
+            "A proposal is optional user-facing text, not a runtime action and never a gate in front of an explicit user command. Use proposals only when JIN initiates a save-session or delayed-memory suggestion and the user has not already requested or accepted that action.\n"
+            "A direct user request to save/finalize the session or save/update delayed memory is already authorization: execute the matching runtime action in the same turn. A clear acceptance of JIN's immediately preceding proposal is authorization too. Do not ask for confirmation again, do not re-propose, and do not replace the action with words like 'предлагаю'.\n"
+            "Examples of direct authorization include natural variants such as 'сохрани сессию', 'давай зафиналим сессию', 'да, сохраняй сессию', or an unambiguous 'да/ок, делай' replying to the proposal. Follow CURRENT_SEQUENCE intent rather than forcing the user to repeat a magic phrase.\n"
             "Offer only after the current request is answered and a natural boundary with clear durable value has appeared. Never interrupt active work, a runtime sequence, or a follow-up tick.\n"
             "Choose only one best-fit proposal. Do not present a menu of storage types, expose marker names, or explain internal mechanics.\n"
             "Propose saving the session when the conversation has reached a stable checkpoint worth restoring later, especially after a substantial task, decision, or coherent phase is complete.\n"
@@ -89,7 +95,7 @@ PROPOSAL_RULES = (
             "When <LONG_TERM_MEMORY> contains a coherent cluster of detailed facts that no longer needs to remain always-on, propose consolidating that cluster into one delayed memory report. State which fact keys and ids would be grouped, what the report would preserve, and why moving them would reduce context noise.\n"
             "When new long-term facts belong to an existing delayed memory report, propose extending that report instead of creating a duplicate. Name the report and list the exact fact keys and ids that would be added to the report.\n"
             "Do not propose moving identity anchors, broad user preferences, core project rules, or facts that remain useful across unrelated topics.\n"
-            "Phrase save-session and delayed-memory proposals as one short natural sentence describing what would be preserved and why it may help. Ask for confirmation and never imply that anything has already been saved.\n"
+            "For JIN-initiated save-session and delayed-memory proposals only, use one short natural sentence describing what would be preserved and why it may help, ask for confirmation, and never imply that anything has already been saved.\n"
             "Do not propose after trivial exchanges, while the idea is still unstable, or merely because the topic changed. Do not repeat a declined or ignored proposal unless meaningful new state has appeared.\n"
 )
 

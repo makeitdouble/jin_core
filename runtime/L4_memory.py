@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import traceback
 
 from clients.response_extractor import ResponseExtractor
@@ -58,6 +59,8 @@ from runtime.memory_common import (
 
 L4_LOG_LEVEL = "L4"
 L4_DEFAULT_IDLE_SECONDS = 60
+L4_MERGE_RETRY_BASE_SECONDS = 30
+L4_MERGE_RETRY_MAX_SECONDS = 300
 
 
 def _positive_int(value) -> int:
@@ -66,6 +69,98 @@ def _positive_int(value) -> int:
     except (TypeError, ValueError):
         return 0
     return normalized if normalized > 0 else 0
+
+
+def reset_l4_merge_recovery_state(
+    context,
+    *,
+    keep_batch_limit: bool = False,
+) -> None:
+    if not keep_batch_limit:
+        context.runtime_l4_merge_batch_limit = 0
+    context.runtime_l4_merge_truncation_streak = 0
+    context.runtime_l4_merge_retry_not_before = 0.0
+
+
+def get_l4_merge_retry_backoff(context) -> dict | None:
+    retry_not_before = float(
+        getattr(
+            context,
+            "runtime_l4_merge_retry_not_before",
+            0.0,
+        )
+        or 0.0
+    )
+    if retry_not_before <= 0:
+        return None
+
+    remaining = retry_not_before - time.monotonic()
+    if remaining <= 0:
+        context.runtime_l4_merge_retry_not_before = 0.0
+        return None
+
+    return {
+        "phase": "merge",
+        "status": "skipped",
+        "reason": "retry_backoff",
+        "retry_in_seconds": max(1, int(remaining + 0.999)),
+        "adaptive_batch_limit": _positive_int(
+            getattr(
+                context,
+                "runtime_l4_merge_batch_limit",
+                0,
+            )
+        ),
+    }
+
+
+def record_l4_merge_truncation(
+    context,
+    *,
+    batch_count: int,
+) -> dict:
+    current_limit = _positive_int(
+        getattr(
+            context,
+            "runtime_l4_merge_batch_limit",
+            0,
+        )
+    )
+    normalized_batch_count = max(1, int(batch_count or 1))
+    next_batch_limit = max(
+        1,
+        normalized_batch_count // 2,
+    )
+    if current_limit:
+        next_batch_limit = min(
+            current_limit,
+            next_batch_limit,
+        )
+
+    streak = _positive_int(
+        getattr(
+            context,
+            "runtime_l4_merge_truncation_streak",
+            0,
+        )
+    ) + 1
+    retry_after_seconds = min(
+        L4_MERGE_RETRY_MAX_SECONDS,
+        L4_MERGE_RETRY_BASE_SECONDS
+        * (2 ** min(streak - 1, 4)),
+    )
+
+    context.runtime_l4_merge_batch_limit = next_batch_limit
+    context.runtime_l4_merge_truncation_streak = streak
+    context.runtime_l4_merge_retry_not_before = (
+        time.monotonic() + retry_after_seconds
+    )
+
+    return {
+        "adaptive_batch_limit": next_batch_limit,
+        "truncation_streak": streak,
+        "retry_after_seconds": retry_after_seconds,
+    }
 
 
 async def resolve_l4_request_limits(
@@ -1312,7 +1407,12 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
     base_store = clone_l4_store(ensure_runtime_l4_state(context))
     pending_queue = list(base_store.get("pending_facts") or [])
     if not pending_queue:
+        reset_l4_merge_recovery_state(context)
         return {"phase": "merge", "status": "skipped", "reason": "no_pending_long_term_facts"}
+
+    retry_backoff = get_l4_merge_retry_backoff(context)
+    if retry_backoff is not None:
+        return retry_backoff
 
     system_prompt = build_l4_merge_system_prompt()
     runtime_context_window = 0
@@ -1356,6 +1456,13 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
         requested_max_tokens=None,
         runtime_output_reserve=runtime_output_reserve,
         protected_fact_ids=protected_fact_ids,
+        max_batch_count=_positive_int(
+            getattr(
+                context,
+                "runtime_l4_merge_batch_limit",
+                0,
+            )
+        ) or None,
     )
     pending_facts = batch_plan["pending_facts"]
     if not pending_facts:
@@ -1405,17 +1512,29 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
     )
 
     if is_runtime_memory_response_truncated(response):
+        truncation_details = build_l4_truncation_details(
+            response,
+            phase="merge",
+            pending_count=len(pending_facts),
+            pending_ids=pending_ids,
+        )
+        truncation_details.update(
+            record_l4_merge_truncation(
+                context,
+                batch_count=len(pending_facts),
+            )
+        )
+        truncation_details["retry_behavior"] = (
+            "JIN will retry later with the learned smaller FIFO batch; idle "
+            "ticks during the backoff are ignored without starting another "
+            "service request."
+        )
         return await log_l4_skip_event(
             context,
             phase="merge",
             message_phase="merge",
             reason="response_truncated",
-            details=build_l4_truncation_details(
-                response,
-                phase="merge",
-                pending_count=len(pending_facts),
-                pending_ids=pending_ids,
-            ),
+            details=truncation_details,
         )
 
     payload = extract_l4_json_payload(
@@ -1484,6 +1603,10 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
         )
 
     context.runtime_long_term_memory_store = next_store
+    reset_l4_merge_recovery_state(
+        context,
+        keep_batch_limit=bool(next_store.get("pending_facts")),
+    )
     persist_runtime_l4_file_store(
         context,
         next_store,
@@ -1747,6 +1870,7 @@ async def maybe_update_runtime_l4_memory(
                 service_client=service_client,
             )
 
+        reset_l4_merge_recovery_state(context)
         return {"status": "skipped", "reason": "nothing_pending"}
 
     except asyncio.CancelledError:

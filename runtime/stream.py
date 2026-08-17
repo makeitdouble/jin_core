@@ -188,7 +188,7 @@ class RuntimeStream:
         self.rejected_action_guard_names = set()
         self.action_guard_confirmation_ids = {}
         self.jin_color_action_id = ""
-        self.jin_size_action_id = ""
+        self.jin_size_action_ids = {}
         self.deep_web_search_action_ids = {}
         self.update_l4_facts_action_ids = {}
         self.last_jin_color_action_color = ""
@@ -907,10 +907,12 @@ class RuntimeStream:
             or ""
         ).strip()
 
-        if reason in {
-            INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON,
-            SAME_ANSWER_OUTPUT_REASON,
-        }:
+        if reason == SAME_ANSWER_OUTPUT_REASON:
+            history_text = (
+                'stuck in answering loop reason '
+                f'"{reason}"'
+            )
+        elif reason == INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON:
             history_text = (
                 'stuck in a reasoning loop reason '
                 f'"{reason}"'
@@ -1636,7 +1638,21 @@ class RuntimeStream:
             return self.jin_color_action_id
 
         if action.name == RUNTIME_ACTION_JIN_SIZE:
-            if not self.jin_size_action_id:
+            action_key = id(action)
+            action_entry = self.jin_size_action_ids.get(
+                action_key
+            )
+            action_id = (
+                str(action_entry[1] or "").strip()
+                if (
+                    isinstance(action_entry, tuple)
+                    and len(action_entry) == 2
+                    and action_entry[0] is action
+                )
+                else ""
+            )
+
+            if not action_id:
                 sequence = int(
                     getattr(
                         self.context,
@@ -1646,12 +1662,15 @@ class RuntimeStream:
                     or 0
                 ) + 1
                 self.context.runtime_jin_size_action_sequence = sequence
-                self.jin_size_action_id = build_runtime_action_id(
+                action_id = build_runtime_action_id(
                     RUNTIME_ACTION_JIN_SIZE,
                     sequence,
                 )
+                self.jin_size_action_ids[
+                    action_key
+                ] = (action, action_id)
 
-            return self.jin_size_action_id
+            return action_id
 
         if action.name == RUNTIME_ACTION_DEEP_WEB_SEARCH:
             payload_key = str(

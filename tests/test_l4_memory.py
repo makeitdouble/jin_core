@@ -1156,8 +1156,50 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(skip_logs), 1)
         self.assertEqual(skip_logs[0]["kind"], "l4_skip")
         self.assertEqual(skip_logs[0]["finish_reason"], "length")
+        self.assertEqual(skip_logs[0]["adaptive_batch_limit"], 1)
+        self.assertEqual(skip_logs[0]["retry_after_seconds"], 30)
         self.assertNotIn("reasoning_content", skip_logs[0])
         self.assertNotIn("Internal analysis", json.dumps(skip_logs[0]))
+
+        repeated = await maybe_update_runtime_l4_memory(
+            context=context,
+            user_idle_seconds=61,
+        )
+        self.assertEqual(repeated["phase"], "merge")
+        self.assertEqual(repeated["status"], "skipped")
+        self.assertEqual(repeated["reason"], "retry_backoff")
+        self.assertGreaterEqual(repeated["retry_in_seconds"], 1)
+        self.assertEqual(len(service_client.calls), 1)
+
+    def test_merge_batch_plan_honors_adaptive_batch_cap_without_losing_queue_count(self):
+        store, _ = add_l4_pending_candidates(
+            normalize_l4_store({}),
+            [
+                {
+                    "key": f"project.pending_{index}",
+                    "value": f"Pending durable fact {index}.",
+                    "category": "project_fact",
+                }
+                for index in range(8)
+            ],
+            now="2026-08-06T12:00:00Z",
+        )
+
+        plan = build_l4_merge_batch_plan(
+            existing_facts=store["facts"],
+            pending_facts=store["pending_facts"],
+            system_prompt=build_l4_merge_system_prompt(),
+            runtime_context_window=16384,
+            requested_max_tokens=None,
+            runtime_output_reserve=256,
+            max_batch_count=3,
+        )
+
+        self.assertTrue(plan["fits"])
+        self.assertEqual(plan["batch_count"], 3)
+        self.assertEqual(plan["total_pending_count"], 8)
+        self.assertEqual(plan["remaining_pending_count"], 5)
+        self.assertEqual(plan["adaptive_batch_limit"], 3)
 
     async def test_runtime_l4_memory_update_running_tracks_active_task(self):
         context = RuntimeContext(

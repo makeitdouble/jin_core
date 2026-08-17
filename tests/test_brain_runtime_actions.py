@@ -562,7 +562,22 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "Use proposals for save-session and delayed-memory decisions",
+            "never a gate in front of an explicit user command",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "A direct user request to save/finalize the session",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "Do not ask for confirmation again",
+        )
+        assert_contains_text(
+            self,
+            prompt,
+            "Follow CURRENT_SEQUENCE intent rather than forcing the user to repeat a magic phrase.",
         )
         assert_not_contains_text(
             self,

@@ -6,7 +6,10 @@
     "private_marker": "<SAVE_SESSION>",
     "triggers": [
       "сохрани сессию",
-      "save session"
+      "save session",
+      "сохраняй сессию",
+      "сохраним сессию",
+      "save the session"
     ],
     "blockers": [
       "покажи тег",
@@ -18,8 +21,7 @@
       "emit_followup": true
     },
     "rules": [
-      "SAVE_SESSION:",
-      "Emit <SAVE_SESSION> and wait for follow-up tick",
+      "Emit and wait for follow-up tick",
       "Use when the user clearly and explicitly ends session or asks to save the session."
     ],
     "close_tag": false

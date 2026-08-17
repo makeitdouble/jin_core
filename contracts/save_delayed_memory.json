@@ -12,7 +12,7 @@
     ],
     "blockers": [],
     "effects": {
-      "emit_followup": true
+      "emit_followup": false
     },
     "rules": [
       "Use this marker only after the user explicitly asks to create/save a delayed memory report or explicitly accepts a proposal to consolidate L4 facts into delayed memory.",

@@ -203,7 +203,15 @@ async def fake_sentence_loop_generator():
 
 
 async def fake_same_answer_generator():
-    for content in ("12345", "67890", "12345 duplicate tail"):
+    repeated = (
+        "This is a deliberately long visible answer that should be "
+        "recognized when the next generation actually repeats it. "
+    )
+    for content in (
+        repeated[:40],
+        repeated[40:80],
+        repeated[80:],
+    ):
         yield {
             "type": "content",
             "content": content,
@@ -1035,7 +1043,10 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
 
     async def test_same_answer_output_is_hidden_and_arms_followup(self):
-        previous_output = "123456789012345 previous visible answer"
+        previous_output = (
+            "This is a deliberately long visible answer that should be "
+            "recognized when the next generation actually repeats it. "
+        )
         active_stream = FakeActiveStream()
         context = SimpleNamespace(
             websocket=FakeWebSocket(),
@@ -1086,7 +1097,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         ))
         self.assertEqual(
             context.runtime_session_action_history[-1]["text"],
-            'stuck in a reasoning loop reason "same answer output"',
+            'stuck in answering loop reason "same answer output"',
         )
 
         followup_prompt = BrainNode.build_followup_system_prompt(
@@ -1095,7 +1106,15 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             context=context,
         )
         self.assertIn(
-            "<REASONING_RECOVERY_REASON>\nsame answer output\n",
+            "<ANSWERING_RECOVERY>\n",
+            followup_prompt,
+        )
+        self.assertIn(
+            "<ANSWERING_RECOVERY_REASON>\nsame answer output\n",
+            followup_prompt,
+        )
+        self.assertNotIn(
+            "<REASONING_RECOVERY>\n",
             followup_prompt,
         )
 

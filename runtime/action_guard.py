@@ -152,10 +152,23 @@ def get_action_guard_display_id(
         return action_id
 
     if action.name == RUNTIME_ACTION_JIN_SIZE:
-        action_id = str(
-            display_state.get("jin_size_action_id", "")
-            or ""
-        ).strip()
+        size_action_ids = display_state.setdefault(
+            "jin_size_action_ids",
+            {},
+        )
+        action_key = id(action)
+        action_entry = size_action_ids.get(
+            action_key
+        )
+        action_id = (
+            str(action_entry[1] or "").strip()
+            if (
+                isinstance(action_entry, tuple)
+                and len(action_entry) == 2
+                and action_entry[0] is action
+            )
+            else ""
+        )
 
         if not action_id:
             sequence = int(
@@ -171,7 +184,9 @@ def get_action_guard_display_id(
                 RUNTIME_ACTION_JIN_SIZE,
                 sequence,
             )
-            display_state["jin_size_action_id"] = action_id
+            size_action_ids[
+                action_key
+            ] = (action, action_id)
 
         return action_id
 

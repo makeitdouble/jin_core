@@ -214,6 +214,14 @@ class RuntimeContext:
 
     runtime_l4_memory_update_task: object | None = None
 
+    # Transient merge recovery state. A reasoning-heavy service model can
+    # consume the shared generation budget before emitting final L4 JSON; the
+    # runtime learns a smaller FIFO batch and backs off instead of hammering
+    # the identical pending queue on every idle tick.
+    runtime_l4_merge_batch_limit: int = 0
+    runtime_l4_merge_truncation_streak: int = 0
+    runtime_l4_merge_retry_not_before: float = 0.0
+
     runtime_usage_events: list[dict] = field(
         default_factory=list
     )

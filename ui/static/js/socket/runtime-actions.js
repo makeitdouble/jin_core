@@ -1062,7 +1062,18 @@ function handleRuntimeAction(
   const suppressMarkerCount = [
     "load_skill",
     "load_skills",
+    "jin_size",
   ].includes(action);
+
+  // JIN_SIZE is an ordered visual gesture. Counter-only events are legacy
+  // telemetry for the whole response and must never collapse separate size
+  // markers into one visible bubble (for example 290px -> text -> 280px).
+  if (
+    action === "jin_size"
+    && data.counter_only === true
+  ) {
+    return;
+  }
 
   const markerCount = suppressMarkerCount
     ? 0
@@ -1349,18 +1360,14 @@ function handleRuntimeAction(
           displayName,
           sceneEffect,
           closeTag,
-          reuseCompleted: true,
-          reviveCompleted:
-            !counterFinal,
-          aggregateMarkers: true,
-          counterOnly:
-            displayCounterOnly,
-          markerCount:
-            displayMarkerCount,
-          sizes:
-            Array.isArray(data.sizes)
-              ? data.sizes
-              : counterPayloads,
+          reuseCompleted: false,
+          reviveCompleted: false,
+          // Keep every emitted size marker as its own ordered bubble.
+          // The backend gives each marker a distinct display id.
+          aggregateMarkers: false,
+          counterOnly: false,
+          markerCount: 0,
+          sizes: size ? [size] : [],
           contextSnapshot:
             data.context || null,
           guardConfirmationId,

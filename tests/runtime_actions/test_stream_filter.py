@@ -1763,6 +1763,21 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 "normal message"
             )
         )
+        self.assertTrue(
+            should_execute_save_session(
+                "давай зафиналим сессию, от души посидели"
+            )
+        )
+        self.assertTrue(
+            should_execute_save_session(
+                "да, сохраняй сессию"
+            )
+        )
+        self.assertTrue(
+            should_execute_save_session(
+                "финализируй сессию"
+            )
+        )
 
 
     def test_apply_runtime_action_calls_repairs_backslash_separated_content(self):

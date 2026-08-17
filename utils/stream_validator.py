@@ -122,7 +122,9 @@ SENTENCE_HISTORY_SIZE = (
 )
 TRUNCATE = 160
 MAX_CONSECUTIVE_INVALID_L4_FACT_IDS = 5
-SAME_ANSWER_OUTPUT_PREFIX_LENGTH = 15
+SAME_ANSWER_OUTPUT_MIN_PREFIX_LENGTH = 64
+SAME_ANSWER_OUTPUT_MAX_PREFIX_LENGTH = 160
+SAME_ANSWER_OUTPUT_PREFIX_FRACTION = 0.5
 SAME_ANSWER_OUTPUT_REASON = "same answer output"
 
 INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON = (
@@ -251,9 +253,19 @@ class StreamValidator:
         self.consecutive_invalid_l4_fact_ids = []
 
         previous_output = str(previous_output or "")
+        same_output_compare_length = min(
+            SAME_ANSWER_OUTPUT_MAX_PREFIX_LENGTH,
+            max(
+                SAME_ANSWER_OUTPUT_MIN_PREFIX_LENGTH,
+                int(
+                    len(previous_output)
+                    * SAME_ANSWER_OUTPUT_PREFIX_FRACTION
+                ),
+            ),
+        )
         self.same_output_reference_prefix = (
-            previous_output[:SAME_ANSWER_OUTPUT_PREFIX_LENGTH]
-            if len(previous_output) >= SAME_ANSWER_OUTPUT_PREFIX_LENGTH
+            previous_output[:same_output_compare_length]
+            if len(previous_output) >= SAME_ANSWER_OUTPUT_MIN_PREFIX_LENGTH
             else ""
         )
         self.same_output_prefix_buffer = ""
@@ -1411,7 +1423,7 @@ class StreamValidator:
             self.same_output_prefix_buffer += clean_chunk
             compare_length = min(
                 len(self.same_output_prefix_buffer),
-                SAME_ANSWER_OUTPUT_PREFIX_LENGTH,
+                len(self.same_output_reference_prefix),
             )
 
             if (
@@ -1421,7 +1433,7 @@ class StreamValidator:
                 clean_chunk = self.same_output_prefix_buffer
                 self.same_output_prefix_buffer = ""
                 self.same_output_reference_prefix = ""
-            elif compare_length < SAME_ANSWER_OUTPUT_PREFIX_LENGTH:
+            elif compare_length < len(self.same_output_reference_prefix):
                 return (
                     "",
                     True,
