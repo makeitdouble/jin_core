@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -156,18 +157,80 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
                 ],
             )
 
+    def test_identical_save_keeps_file_timestamps(self):
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            path = persist_delayed_memory_report(
+                "48ggds",
+                self.build_report(),
+                root=root,
+            )
+            stat = path.stat()
+            old_mtime_ns = 946684800_000_000_000
+            os.utime(
+                path,
+                ns=(stat.st_atime_ns, old_mtime_ns),
+            )
+            inode_before = path.stat().st_ino
+
+            saved_path = persist_delayed_memory_report(
+                "48ggds",
+                self.build_report(),
+                root=root,
+            )
+
+            saved_stat = saved_path.stat()
+            self.assertEqual(saved_stat.st_mtime_ns, old_mtime_ns)
+            self.assertEqual(saved_stat.st_ino, inode_before)
+
+    def test_load_metadata_update_keeps_modified_time(self):
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            path = persist_delayed_memory_report(
+                "48ggds",
+                self.build_report(),
+                root=root,
+            )
+            stat = path.stat()
+            old_mtime_ns = 946684800_000_000_000
+            os.utime(
+                path,
+                ns=(stat.st_atime_ns, old_mtime_ns),
+            )
+            updated_report = self.build_report()
+            updated_report.update({
+                "loaded_times": 42,
+                "load_streak": 7,
+                "last_loaded_date": "2026-08-16T23:30:00",
+                "last_loaded_session_id": "session-b",
+                "all_loaded_session_ids": ["session-a", "session-b"],
+            })
+
+            saved_path = persist_delayed_memory_report(
+                "48ggds",
+                updated_report,
+                root=root,
+            )
+
+            payload = json.loads(saved_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["loaded_times"], 42)
+            self.assertEqual(saved_path.stat().st_mtime_ns, old_mtime_ns)
+
     def test_save_replaces_old_filename_for_same_id(self):
 
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
 
-            persist_delayed_memory_report(
+            old_path = persist_delayed_memory_report(
                 "48ggds",
                 self.build_report(
                     title="Old title",
                 ),
                 root=root,
             )
+            inode_before = old_path.stat().st_ino
             path = persist_delayed_memory_report(
                 "48ggds",
                 self.build_report(
@@ -179,6 +242,10 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
             self.assertEqual(
                 path.name,
                 "48ggds_New_title.json",
+            )
+            self.assertEqual(
+                path.stat().st_ino,
+                inode_before,
             )
             self.assertEqual(
                 [

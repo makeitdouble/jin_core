@@ -15,7 +15,7 @@ class PanelScrollTopClientContractTests(unittest.TestCase):
         js_source = SCROLL_TOP_JS.read_text(encoding="utf-8")
 
         self.assertIn(
-            'panel-scroll-top.js?v=3',
+            'panel-scroll-top.js?v=6',
             index_source,
         )
         self.assertIn(
@@ -92,6 +92,18 @@ class PanelScrollTopClientContractTests(unittest.TestCase):
             '}, SCROLL_REVEAL_DURATION_MS);',
             js_source,
         )
+        self.assertIn(
+            'button.addEventListener("mouseenter", () => {',
+            js_source,
+        )
+        self.assertIn(
+            'holdRevealWhileHovered();',
+            js_source,
+        )
+        self.assertIn(
+            'releaseHoverReveal();',
+            js_source,
+        )
 
     def test_click_hides_control_and_scrolls_to_absolute_top(self):
         js_source = SCROLL_TOP_JS.read_text(encoding="utf-8")
@@ -117,7 +129,7 @@ class PanelScrollTopClientContractTests(unittest.TestCase):
         css_source = BASE_CSS.read_text(encoding="utf-8")
 
         self.assertIn(
-            '.panel-scroll-top-affordance::before',
+            '.panel-scroll-top-shadow::before',
             css_source,
         )
         self.assertIn(
@@ -125,11 +137,31 @@ class PanelScrollTopClientContractTests(unittest.TestCase):
             css_source,
         )
         self.assertIn(
+            'border: 0;',
+            css_source,
+        )
+        self.assertIn(
+            'background: transparent;',
+            css_source,
+        )
+        self.assertIn(
+            'overflow: visible;',
+            css_source,
+        )
+        self.assertIn(
+            'z-index: 2;',
+            css_source,
+        )
+        self.assertIn(
+            'z-index: 1;',
+            css_source,
+        )
+        self.assertIn(
             'mask-image: radial-gradient(',
             css_source,
         )
         self.assertIn(
-            '.panel-scroll-top-affordance.is-hovered',
+            '.panel-scroll-top-shadow.is-hovered',
             css_source,
         )
 

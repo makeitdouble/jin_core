@@ -44,6 +44,41 @@ def test_persistent_file_name_and_full_content_dedupe(monkeypatch, tmp_path):
     assert len([path for path in files_dir.iterdir() if not path.name.startswith(".")]) == 1
 
 
+def test_deleted_file_can_restore_same_id_content_and_pin(monkeypatch, tmp_path):
+    files_dir = _redirect_store(monkeypatch, tmp_path)
+    record, created, error = store.store_uploaded_file(
+        name="image.png",
+        content=b"restore-me",
+        mime_type="image/png",
+        width=803,
+        height=968,
+        pin=True,
+    )
+    assert created is True
+    assert error is None
+    original_id = record["id"]
+    original_payload = (files_dir / record["stored_name"]).read_bytes()
+
+    assert store.delete_file_record(original_id) is True
+    assert store.get_file_record(original_id) is None
+
+    restored, restore_error = store.restore_file_record(
+        original_id,
+        record=record,
+        content=original_payload,
+    )
+
+    assert restore_error is None
+    assert restored is not None
+    assert restored["id"] == original_id
+    assert restored["name"] == "image.png"
+    assert restored["pinned"] is True
+    assert restored["width"] == 803
+    assert restored["height"] == 968
+    assert (files_dir / restored["stored_name"]).read_bytes() == b"restore-me"
+    assert original_id in store.get_pinned_file_ids()
+
+
 def test_max_five_pinned_files_is_deterministic(monkeypatch, tmp_path):
     _redirect_store(monkeypatch, tmp_path)
     records = []

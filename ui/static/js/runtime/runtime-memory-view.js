@@ -3140,7 +3140,8 @@
 
   function configureRuntimeMemoryDeleteHold(
       row,
-      onDelete
+      onDelete,
+      options = {}
   ) {
     row.classList.add(
         "runtime-memory-removable-row"
@@ -3203,16 +3204,35 @@
         pointerDown = false;
         pointerId = null;
 
-        // The same control can be reused after deletion (for example the
-        // delayed-memory report modal delete button). Do not leave the
-        // hold-to-delete opacity at zero after the timer completes.
-        setRuntimeMemoryRowPressVisual(
-            row,
-            false
-        );
+        if (options.keepHiddenOnComplete !== true) {
+          // Reusable controls (for example a modal delete button) should not
+          // remain transparent after the hold completes.
+          setRuntimeMemoryRowPressVisual(
+              row,
+              false
+          );
+        }
 
         if (typeof onDelete === "function") {
-          onDelete();
+          const result = onDelete();
+
+          if (options.keepHiddenOnComplete === true) {
+            Promise.resolve(result).then((deleted) => {
+              if (deleted === false && row.isConnected) {
+                setRuntimeMemoryRowPressVisual(
+                    row,
+                    false
+                );
+              }
+            }).catch(() => {
+              if (row.isConnected) {
+                setRuntimeMemoryRowPressVisual(
+                    row,
+                    false
+                );
+              }
+            });
+          }
         }
       }, MEMORY_DELETE_HOLD_MS);
     });
@@ -3240,6 +3260,56 @@
     row.addEventListener(
         "pointerleave",
         cancelPendingDelete
+    );
+  }
+
+  function configureOpenableMemoryRowHoldDelete(
+      row,
+      onOpen,
+      onDelete
+  ) {
+    if (!row) {
+      return;
+    }
+
+    row.addEventListener("click", (event) => {
+      if (row.dataset.runtimeMemoryHoldDeleted === "true") {
+        row.dataset.runtimeMemoryHoldDeleted = "false";
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+
+      if (typeof onOpen === "function") {
+        onOpen();
+      }
+    });
+
+    configureRuntimeMemoryDeleteHold(
+        row,
+        () => {
+          row.dataset.runtimeMemoryHoldDeleted = "true";
+
+          if (typeof onDelete !== "function") {
+            row.dataset.runtimeMemoryHoldDeleted = "false";
+            return false;
+          }
+
+          const result = onDelete();
+
+          return Promise.resolve(result).then((deleted) => {
+            if (deleted === false) {
+              row.dataset.runtimeMemoryHoldDeleted = "false";
+            }
+            return deleted;
+          }).catch(() => {
+            row.dataset.runtimeMemoryHoldDeleted = "false";
+            return false;
+          });
+        },
+        {
+          keepHiddenOnComplete: true,
+        }
     );
   }
 
@@ -3434,7 +3504,20 @@
           window.openJinAttachmentModal(record);
         }
       };
-      row.addEventListener("click", openModal);
+      configureOpenableMemoryRowHoldDelete(
+        row,
+        openModal,
+        () => {
+          if (
+            !window.JinFiles
+            || typeof window.JinFiles.deleteFile !== "function"
+          ) {
+            return false;
+          }
+
+          return window.JinFiles.deleteFile(record.id);
+        }
+      );
       row.addEventListener("keydown", (event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
@@ -3648,11 +3731,26 @@
             valueSpan
         );
 
-        row.addEventListener("click", () => {
-          openDelayedMemoryReportModal(
-              report
-          );
-        });
+        configureOpenableMemoryRowHoldDelete(
+          row,
+          () => {
+            openDelayedMemoryReportModal(
+                report
+            );
+          },
+          () => {
+            if (
+                !reportId
+                || typeof deleteDelayedMemoryReport !== "function"
+            ) {
+              return false;
+            }
+
+            return deleteDelayedMemoryReport(
+                reportId
+            );
+          }
+        );
 
         row.addEventListener("mouseenter", () => {
           dispatchDelayedMemoryAvatarHover(
@@ -7243,6 +7341,7 @@
 
   window.JinRuntime.memoryView = {
     init,
+    configureDeleteHold: configureRuntimeMemoryDeleteHold,
     openDelayedMemoryReportModal,
     setDelayedMemoryReportHover,
     render: renderRuntimeMemorySnapshot,

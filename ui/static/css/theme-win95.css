@@ -972,6 +972,24 @@ body.theme-win95 .jin-attached-files-row:hover {
     background: rgba(0, 0, 0, 0.06);
 }
 
+/* Light theme: pinned files use the same classic blue accent as active links. */
+body.theme-win95 #attached-files .delayed-memory-modal-pin,
+body.theme-win95 #attached-files .delayed-memory-modal-pin:hover,
+body.theme-win95 #attached-files .delayed-memory-modal-pin:focus-visible,
+body.theme-win95 #attached-files .delayed-memory-modal-pin svg {
+    color: #0000ee;
+    filter: none;
+}
+
+/* Loaded delayed-memory pins remain neutral/black in the light theme. */
+body.theme-win95 #attached-delayed-memory .delayed-memory-modal-pin,
+body.theme-win95 #attached-delayed-memory .delayed-memory-modal-pin:hover,
+body.theme-win95 #attached-delayed-memory .delayed-memory-modal-pin:focus-visible,
+body.theme-win95 #attached-delayed-memory .delayed-memory-modal-pin svg {
+    color: var(--win95-text);
+    filter: none;
+}
+
 body.theme-win95 .jin-attached-files-row.jin-attached-files-row-avatar-hover .jin-attached-files-name,
 body.theme-win95 .jin-attached-files-row.jin-attached-files-row-avatar-hover .delayed-memory-modal-pin,
 body.theme-win95 .jin-attached-files-row.jin-attached-files-row-avatar-hover .delayed-memory-modal-pin svg {
@@ -1073,4 +1091,14 @@ body.theme-win95 #memory-panel #runtime-memory-text
     color: #244f86 !important;
     font-weight: 500;
     text-shadow: none;
+}
+
+body.theme-win95 .panel-scroll-top-button {
+    color: rgba(96, 96, 96, 0.92);
+}
+
+body.theme-win95 .panel-scroll-top-button:hover,
+body.theme-win95 .panel-scroll-top-button:focus-visible {
+    color: rgba(88, 88, 88, 0.98);
+    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.20));
 }

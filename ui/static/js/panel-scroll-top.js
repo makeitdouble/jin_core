@@ -38,18 +38,36 @@
       return;
     }
 
+    const shadow = document.createElement("div");
+    shadow.className = "panel-scroll-top-shadow";
+    shadow.setAttribute("aria-hidden", "true");
+
     const affordance = document.createElement("div");
     affordance.className = "panel-scroll-top-affordance";
     affordance.setAttribute("aria-hidden", "true");
 
     const button = createArrowButton();
     affordance.appendChild(button);
+
+    const delayed = panel.id === "console-panel"
+      ? document.getElementById("attached-delayed-memory")
+      : null;
+    const shadowAnchor = delayed || panel.querySelector(config.scrollerSelector) || panel.firstElementChild;
+    panel.insertBefore(shadow, shadowAnchor);
     panel.appendChild(affordance);
 
     let suppressWhileReturning = false;
     let revealFromScroll = false;
     let revealTimerId = 0;
     let frameId = 0;
+
+    function clearRevealTimer() {
+      if (!revealTimerId) {
+        return;
+      }
+      window.clearTimeout(revealTimerId);
+      revealTimerId = 0;
+    }
 
     function syncGeometry() {
       const panelRect = panel.getBoundingClientRect();
@@ -62,9 +80,14 @@
         panelRect.bottom - scrollerRect.bottom - seamOverlap
       );
 
+      const bottomOffsetValue = `${bottomOffset.toFixed(2)}px`;
+      shadow.style.setProperty(
+        "--panel-scroll-top-bottom-offset",
+        bottomOffsetValue
+      );
       affordance.style.setProperty(
         "--panel-scroll-top-bottom-offset",
-        `${bottomOffset.toFixed(2)}px`
+        bottomOffsetValue
       );
     }
 
@@ -82,7 +105,9 @@
         !suppressWhileReturning &&
         revealFromScroll;
 
+      shadow.classList.toggle("is-visible", shouldShow);
       affordance.classList.toggle("is-visible", shouldShow);
+      shadow.setAttribute("aria-hidden", shouldShow ? "false" : "true");
       affordance.setAttribute("aria-hidden", shouldShow ? "false" : "true");
       button.tabIndex = shouldShow ? 0 : -1;
     }
@@ -101,16 +126,32 @@
 
     function revealTemporarily() {
       revealFromScroll = true;
-
-      if (revealTimerId) {
-        window.clearTimeout(revealTimerId);
-      }
+      clearRevealTimer();
 
       revealTimerId = window.setTimeout(() => {
         revealTimerId = 0;
         revealFromScroll = false;
         syncVisibility();
       }, SCROLL_REVEAL_DURATION_MS);
+    }
+
+    function holdRevealWhileHovered() {
+      revealFromScroll = true;
+      clearRevealTimer();
+      syncVisibility();
+    }
+
+    function releaseHoverReveal() {
+      shadow.classList.remove("is-hovered");
+      affordance.classList.remove("is-hovered");
+
+      if (suppressWhileReturning || scroller.scrollTop <= SCROLL_THRESHOLD_PX) {
+        syncVisibility();
+        return;
+      }
+
+      revealTemporarily();
+      syncVisibility();
     }
 
     scroller.addEventListener("scroll", () => {
@@ -121,16 +162,20 @@
     }, { passive: true });
 
     button.addEventListener("mouseenter", () => {
+      shadow.classList.add("is-hovered");
       affordance.classList.add("is-hovered");
+      holdRevealWhileHovered();
     });
     button.addEventListener("mouseleave", () => {
-      affordance.classList.remove("is-hovered");
+      releaseHoverReveal();
     });
     button.addEventListener("focus", () => {
+      shadow.classList.add("is-hovered");
       affordance.classList.add("is-hovered");
+      holdRevealWhileHovered();
     });
     button.addEventListener("blur", () => {
-      affordance.classList.remove("is-hovered");
+      releaseHoverReveal();
     });
 
     button.addEventListener("pointerdown", (event) => {
@@ -143,11 +188,10 @@
 
       suppressWhileReturning = true;
       revealFromScroll = false;
-      if (revealTimerId) {
-        window.clearTimeout(revealTimerId);
-        revealTimerId = 0;
-      }
+      clearRevealTimer();
+      shadow.classList.remove("is-visible", "is-hovered");
       affordance.classList.remove("is-visible", "is-hovered");
+      shadow.setAttribute("aria-hidden", "true");
       affordance.setAttribute("aria-hidden", "true");
       button.tabIndex = -1;
 
@@ -167,13 +211,13 @@
       resizeObserver.observe(scroller);
 
       if (panel.id === "console-panel") {
-        const delayed = document.getElementById("attached-delayed-memory");
-        const files = document.getElementById("attached-files");
-        if (delayed) {
-          resizeObserver.observe(delayed);
+        const delayedPlaque = document.getElementById("attached-delayed-memory");
+        const filesPlaque = document.getElementById("attached-files");
+        if (delayedPlaque) {
+          resizeObserver.observe(delayedPlaque);
         }
-        if (files) {
-          resizeObserver.observe(files);
+        if (filesPlaque) {
+          resizeObserver.observe(filesPlaque);
         }
       }
     }

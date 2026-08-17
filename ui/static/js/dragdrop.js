@@ -14,6 +14,7 @@ let fileStore = [];
 let pinnedIds = [];
 let fileStoreLoaded = false;
 let uploadQueue = Promise.resolve();
+const deletedFileRestoreCache = new Map();
 
 function escapeHtml(text) {
   return String(text || "")
@@ -210,10 +211,73 @@ async function setPinned(id, pinned) {
 }
 
 async function deleteFile(id) {
+  const record = getFileRecord(id);
+  if (!record) return false;
+
+  const restoreSource = String(record.url || record.context_path || "").trim();
+  if (!restoreSource) return false;
+
   try {
+    const backupResponse = await fetch(restoreSource, {cache: "no-store"});
+    if (!backupResponse.ok) return false;
+    const blob = await backupResponse.blob();
+
     const response = await fetch(`/api/files/${encodeURIComponent(id)}`, {method: "DELETE"});
     if (!response.ok) return false;
+
+    const normalizedId = String(record.id || id || "").trim().toLowerCase();
+    deletedFileRestoreCache.set(normalizedId, {
+      record: {...record},
+      blob,
+    });
+
     normalizeSnapshot(await response.json());
+    dispatchStoreChanged();
+    syncAttachmentContext();
+
+    if (typeof window.appendLog === "function") {
+      window.appendLog(
+        "[MEMORY:FILES:DELETED]",
+        "File deleted",
+        JSON.stringify({
+          kind: "file",
+          file: record,
+        }, null, 2),
+        {
+          memory_event: "file_deleted",
+          deleted_file: {...record},
+        }
+      );
+    }
+
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
+async function restoreDeletedFile(id) {
+  const normalizedId = String(id || "").trim().toLowerCase();
+  const state = deletedFileRestoreCache.get(normalizedId);
+  if (!state || !state.record || !state.blob) return false;
+
+  const body = new FormData();
+  body.append(
+    "file",
+    state.blob,
+    String(state.record.name || "attachment")
+  );
+  body.append("record", JSON.stringify(state.record));
+
+  try {
+    const response = await fetch(
+      `/api/files/${encodeURIComponent(normalizedId)}/restore`,
+      {method: "POST", body}
+    );
+    if (!response.ok) return false;
+
+    normalizeSnapshot(await response.json());
+    deletedFileRestoreCache.delete(normalizedId);
     dispatchStoreChanged();
     syncAttachmentContext();
     return true;
@@ -432,6 +496,7 @@ window.JinFiles = {
   },
   setPinned,
   deleteFile,
+  restoreDeletedFile,
   resolveAttachment: resolvePersistentAttachment,
   applySnapshot(payload) {
     normalizeSnapshot(payload || {});

@@ -25,6 +25,13 @@ MAX_DELAYED_MEMORY_TAGS = 30
 MAX_DELAYED_MEMORY_TAG_CHARS = 80
 MAX_DELAYED_MEMORY_SESSION_ID_CHARS = 200
 MAX_DELAYED_MEMORY_TIME_CHARS = 100
+DELAYED_MEMORY_ACCESS_METADATA_FIELDS = {
+    "loaded_times",
+    "load_streak",
+    "last_loaded_date",
+    "last_loaded_session_id",
+    "all_loaded_session_ids",
+}
 
 
 def _clean_text(
@@ -401,32 +408,113 @@ def persist_delayed_memory_report(
         indent=2,
     ) + "\n"
 
-    temporary_name = ""
-
-    try:
-        with NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            newline="\n",
-            prefix=f".{payload['id']}_",
-            suffix=".tmp",
-            dir=root_path,
-            delete=False,
-        ) as temporary_file:
-            temporary_file.write(serialized)
-            temporary_file.flush()
-            os.fsync(temporary_file.fileno())
-            temporary_name = temporary_file.name
-
-        os.replace(
-            temporary_name,
-            destination,
+    same_id_candidates = sorted(
+        root_path.glob(f"{payload['id']}_*.json"),
+        key=lambda path: path.name.casefold(),
+    )
+    legacy_candidate = root_path / f"{payload['id']}.json"
+    existing_path = (
+        destination
+        if destination.exists()
+        else next(
+            (
+                candidate
+                for candidate in [
+                    *same_id_candidates,
+                    legacy_candidate,
+                ]
+                if candidate.exists()
+            ),
+            None,
         )
-    finally:
-        if temporary_name:
-            temporary_path = Path(temporary_name)
-            if temporary_path.exists():
-                temporary_path.unlink()
+    )
+    existing_serialized = ""
+    existing_payload = None
+    existing_stat = None
+
+    if existing_path is not None:
+        try:
+            existing_serialized = existing_path.read_text(
+                encoding="utf-8-sig",
+            )
+            existing_payload = json.loads(existing_serialized)
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            existing_payload = None
+        try:
+            existing_stat = existing_path.stat()
+        except OSError:
+            existing_stat = None
+
+    unchanged = (
+        existing_path == destination
+        and existing_serialized == serialized
+    )
+    metadata_only_update = (
+        isinstance(existing_payload, dict)
+        and {
+            key: value
+            for key, value in existing_payload.items()
+            if key not in DELAYED_MEMORY_ACCESS_METADATA_FIELDS
+        } == {
+            key: value
+            for key, value in payload.items()
+            if key not in DELAYED_MEMORY_ACCESS_METADATA_FIELDS
+        }
+    )
+
+    if not unchanged:
+        if existing_path is not None and existing_path != destination:
+            os.replace(existing_path, destination)
+
+        if destination.exists():
+            # Keep the same file object so Windows creation time survives
+            # real report edits instead of looking newly created each time.
+            with destination.open(
+                "w",
+                encoding="utf-8",
+                newline="\n",
+            ) as destination_file:
+                destination_file.write(serialized)
+                destination_file.flush()
+                os.fsync(destination_file.fileno())
+        else:
+            temporary_name = ""
+
+            try:
+                with NamedTemporaryFile(
+                    mode="w",
+                    encoding="utf-8",
+                    newline="\n",
+                    prefix=f".{payload['id']}_",
+                    suffix=".tmp",
+                    dir=root_path,
+                    delete=False,
+                ) as temporary_file:
+                    temporary_file.write(serialized)
+                    temporary_file.flush()
+                    os.fsync(temporary_file.fileno())
+                    temporary_name = temporary_file.name
+
+                os.replace(temporary_name, destination)
+            finally:
+                if temporary_name:
+                    temporary_path = Path(temporary_name)
+                    if temporary_path.exists():
+                        temporary_path.unlink()
+
+        if metadata_only_update and existing_stat is not None:
+            # Load counters/dates stay durable without polluting Explorer
+            # "Date modified" sorting for actual report-content edits.
+            try:
+                os.utime(
+                    destination,
+                    ns=(
+                        existing_stat.st_atime_ns,
+                        existing_stat.st_mtime_ns,
+                    ),
+                )
+            except OSError:
+                pass
 
     for candidate in root_path.glob(
         f"{payload['id']}_*.json"

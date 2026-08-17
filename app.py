@@ -26,6 +26,7 @@ from fastapi.templating import (
 
 import asyncio
 import httpx
+import json
 from pathlib import Path
 
 from config_loader import (
@@ -61,6 +62,7 @@ from utils.attached_files_store import (
     ensure_files_dir,
     get_file_record,
     public_file_snapshot,
+    restore_file_record,
     set_file_pinned,
     store_uploaded_file,
 )
@@ -198,6 +200,35 @@ async def api_delete_file(file_id: str):
     if not delete_file_record(file_id):
         raise HTTPException(status_code=404, detail="File not found")
     return public_file_snapshot()
+
+
+@app.post("/api/files/{file_id}/restore")
+async def api_restore_file(
+    file_id: str,
+    file: UploadFile = File(...),
+    record: str = Form("{}"),
+):
+    try:
+        metadata = json.loads(record or "{}")
+    except json.JSONDecodeError as error:
+        raise HTTPException(status_code=400, detail="Invalid file restore metadata") from error
+
+    if not isinstance(metadata, dict):
+        raise HTTPException(status_code=400, detail="Invalid file restore metadata")
+
+    restored, error = restore_file_record(
+        file_id,
+        record=metadata,
+        content=await file.read(),
+    )
+    if restored is None:
+        status = 409 if error == "id_exists" else 400
+        raise HTTPException(status_code=status, detail=error or "File restore failed")
+
+    return {
+        "file": restored,
+        **public_file_snapshot(),
+    }
 
 
 @app.get("/api/files/{file_id}/preview")

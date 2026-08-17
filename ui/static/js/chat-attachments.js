@@ -365,8 +365,8 @@ function ensureJinAttachmentModal() {
   attachmentModalDeleteButton.type = "button";
   attachmentModalDeleteButton.className =
     "delayed-memory-modal-icon-button delayed-memory-modal-delete";
-  attachmentModalDeleteButton.setAttribute("aria-label", "Delete file");
-  attachmentModalDeleteButton.title = "Delete file";
+  attachmentModalDeleteButton.setAttribute("aria-label", "Hold to delete file");
+  attachmentModalDeleteButton.title = "Hold to delete file";
   attachmentModalDeleteButton.innerHTML =
     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 6h2v9h-2V9Zm4 0h2v9h-2V9ZM7 9h2l.7 10h4.6L15 9h2l-.8 11.1A2 2 0 0 1 14.2 22H9.8a2 2 0 0 1-2-1.9L7 9Z"/></svg>';
 
@@ -409,12 +409,32 @@ function ensureJinAttachmentModal() {
     }
   });
 
-  attachmentModalDeleteButton.addEventListener("click", async () => {
+  const deleteActiveAttachment = async () => {
     const record = activeAttachmentModalRecord;
-    if (!record || !record.id || !window.JinFiles) return;
+    if (!record || !record.id || !window.JinFiles) return false;
     const deleted = await window.JinFiles.deleteFile(record.id);
     if (deleted) closeJinAttachmentModal();
+    return deleted;
+  };
+
+  attachmentModalDeleteButton.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
   });
+
+  if (
+    window.JinRuntime
+    && window.JinRuntime.memoryView
+    && typeof window.JinRuntime.memoryView.configureDeleteHold === "function"
+  ) {
+    window.JinRuntime.memoryView.configureDeleteHold(
+      attachmentModalDeleteButton,
+      deleteActiveAttachment,
+      {
+        keepHiddenOnComplete: true,
+      }
+    );
+  }
 
   headerActions.append(
     attachmentModalPinButton,
@@ -615,6 +635,7 @@ async function openJinAttachmentModal(attachment) {
   );
   attachmentModalPinButton.classList.toggle("hidden", !isPersistentFile);
   attachmentModalDeleteButton.classList.toggle("hidden", !isPersistentFile);
+  attachmentModalDeleteButton.style.opacity = "";
   if (isPersistentFile) {
     attachmentModalPinButton.classList.toggle(
       "delayed-memory-modal-pin-active",

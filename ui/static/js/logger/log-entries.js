@@ -984,6 +984,9 @@ const delayedDeletedReportCards =
 const delayedUnlinkedFactCards =
   new Map();
 
+const deletedFileCards =
+  new Map();
+
 function parseL4JsonPayload(details) {
   const text =
     String(details || "").trim();
@@ -1801,6 +1804,170 @@ function handleL4MemoryRestoreResult(
   );
 }
 
+function resolveDeletedFile(
+  details,
+  meta,
+) {
+  if (
+      meta
+      && meta.deleted_file
+      && typeof meta.deleted_file === "object"
+  ) {
+    return meta.deleted_file;
+  }
+
+  const payload =
+    parseL4JsonPayload(details);
+
+  if (
+      payload
+      && payload.file
+      && typeof payload.file === "object"
+  ) {
+    return payload.file;
+  }
+
+  return null;
+}
+
+function handleDeletedFileLog(
+  tag,
+  details,
+  meta,
+) {
+  const isDeleted =
+    String(meta && meta.memory_event || "").toLowerCase()
+      === "file_deleted"
+    || String(tag || "").toUpperCase()
+      === "[MEMORY:FILES:DELETED]";
+
+  if (!isDeleted) {
+    return null;
+  }
+
+  const file =
+    resolveDeletedFile(
+      details,
+      meta
+    );
+  const fileId =
+    String(file && file.id || "")
+      .trim()
+      .toLowerCase();
+
+  if (!file || !fileId) {
+    return null;
+  }
+
+  const logDiv =
+    createL4LoggerCard(
+      "[MEMORY:FILES:DELETED]"
+    );
+  const title =
+    document.createElement("span");
+  const summary =
+    document.createElement("span");
+
+  title.className =
+    "block mt-2 text-zinc-200 font-semibold";
+  title.textContent =
+    String(file.name || fileId || "File");
+
+  summary.className =
+    "block mt-1 text-zinc-400";
+  summary.textContent =
+    fileId;
+
+  logDiv.appendChild(title);
+  logDiv.appendChild(summary);
+
+  const actions =
+    document.createElement("div");
+  actions.className =
+    "mt-2 flex flex-wrap items-center gap-2";
+
+  const payloadButton =
+    createL4LoggerButton(
+      "payload"
+    );
+  const restoreButton =
+    createL4LoggerButton(
+      "restore"
+    );
+
+  payloadButton.addEventListener(
+    "click",
+    function () {
+      showTrace(
+        JSON.stringify({
+          kind: "file",
+          file,
+        }),
+        "File deleted"
+      );
+    }
+  );
+
+  restoreButton.addEventListener(
+    "click",
+    async function () {
+      const api = window.JinFiles;
+
+      if (!api || typeof api.restoreDeletedFile !== "function") {
+        return;
+      }
+
+      restoreButton.disabled = true;
+      restoreButton.textContent = "restoring";
+      restoreButton.classList.add(
+        "opacity-50"
+      );
+
+      const restored =
+        await api.restoreDeletedFile(
+          fileId
+        );
+
+      if (!restored) {
+        restoreButton.disabled = false;
+        restoreButton.textContent = "restore failed";
+        restoreButton.classList.remove(
+          "opacity-50"
+        );
+
+        window.setTimeout(
+          function () {
+            restoreButton.textContent = "restore";
+          },
+          1400
+        );
+        return;
+      }
+
+      deletedFileCards.delete(
+        fileId
+      );
+      dismissLogAfterClear(
+        logDiv
+      );
+    }
+  );
+
+  deletedFileCards.set(
+    fileId,
+    {
+      logDiv,
+      restoreButton,
+    }
+  );
+
+  actions.appendChild(payloadButton);
+  actions.appendChild(restoreButton);
+  logDiv.appendChild(actions);
+
+  return logDiv;
+}
+
 function resolveDeletedDelayedMemoryReport(
   details,
   meta,
@@ -2258,6 +2425,17 @@ function appendLog(
 
   if (l4DeletedFactLog) {
     return l4DeletedFactLog;
+  }
+
+  const deletedFileLog =
+    handleDeletedFileLog(
+      tag,
+      normalized.details,
+      meta
+    );
+
+  if (deletedFileLog) {
+    return deletedFileLog;
   }
 
   const delayedMemoryFactUnlinkedLog =

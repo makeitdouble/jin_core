@@ -380,6 +380,78 @@ def delete_file_record(file_id: str) -> bool:
     return True
 
 
+def restore_file_record(
+    file_id: str,
+    *,
+    record: dict,
+    content: bytes,
+) -> tuple[dict | None, str | None]:
+    """Restore a browser-held deleted file using its original stable id."""
+    ensure_files_dir()
+    normalized_id = str(file_id or "").strip().lower()
+    if not FILE_ID_RE.fullmatch(normalized_id):
+        return None, "invalid_id"
+
+    metadata = dict(record) if isinstance(record, dict) else {}
+    records = _scan_or_reconcile()
+    if any(item.get("id") == normalized_id for item in records):
+        return None, "id_exists"
+
+    original_name = _safe_name(
+        metadata.get("name")
+        or str(metadata.get("stored_name") or "").split("_", 1)[-1]
+        or "attachment"
+    )
+    stored_name = f"{normalized_id}_{original_name}"
+    path = FILES_DIR / stored_name
+    payload = bytes(content or b"")
+    mime_type = str(
+        metadata.get("type")
+        or mimetypes.guess_type(original_name)[0]
+        or "application/octet-stream"
+    )
+    created_at = _timestamp(
+        metadata.get("created_at"),
+        time.time(),
+    ) or time.time()
+    pinned = bool(metadata.get("pinned", False))
+    pinned_at = (
+        _timestamp(metadata.get("pinned_at"), created_at)
+        if pinned
+        else None
+    )
+
+    if pinned:
+        pinned_count = sum(1 for item in records if item.get("pinned"))
+        if pinned_count >= MAX_ATTACHED_FILES:
+            oldest = _oldest_pinned_record(records)
+            if oldest is not None:
+                oldest["pinned"] = False
+                oldest["pinned_at"] = None
+
+    path.write_bytes(payload)
+    restored = {
+        "id": normalized_id,
+        "name": original_name,
+        "stored_name": stored_name,
+        "context_path": f"/assets/files/{stored_name}",
+        "url": f"/assets/files/{stored_name}",
+        "type": mime_type,
+        "kind": _kind_for(original_name, mime_type),
+        "size_bytes": len(payload),
+        "created_at": created_at,
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "pinned": pinned,
+        "pinned_at": pinned_at,
+        "width": metadata.get("width"),
+        "height": metadata.get("height"),
+    }
+    records.append(restored)
+    records.sort(key=_record_sort_key)
+    _save_index(records)
+    return dict(restored), None
+
+
 def _size_label(size: int) -> str:
     value = max(0, int(size or 0))
     if value < 1024:
