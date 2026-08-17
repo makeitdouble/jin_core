@@ -1859,7 +1859,7 @@ def _get_l4_fact_anchor_report_ids(
     return report_ids
 
 
-def build_runtime_l4_memory_context(*, context) -> str:
+def build_runtime_l4_memory_context(*, context, fact_ids=None) -> str:
     if not l4_memory_enabled():
         return ""
 
@@ -1880,12 +1880,25 @@ def build_runtime_l4_memory_context(*, context) -> str:
         anchor_report_ids_by_fact_id,
         loaded_report_ids_by_fact_id,
     )
+    requested_fact_ids = None
+    if fact_ids is not None:
+        requested_fact_ids = {
+            str(fact_id or "").strip().upper()
+            for fact_id in fact_ids
+            if str(fact_id or "").strip()
+        }
+
     active_facts = [
         fact
         for fact in store.get("facts") or []
         if not l4_fact_matches_archived_ids(
             fact,
             archived_fact_ids,
+        )
+        and (
+            requested_fact_ids is None
+            or str(fact.get("id", "") or "").strip().upper()
+            in requested_fact_ids
         )
     ]
     delayed_memory_ids_by_fact_id = {}

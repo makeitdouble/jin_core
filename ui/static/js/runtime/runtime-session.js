@@ -718,6 +718,22 @@
       return hasUnsavedSessionActivity;
     }
 
+    function isDefaultRuntimeMemoryText(text) {
+      let normalized = String(text || "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLowerCase();
+
+      if (normalized.startsWith("note:")) {
+        normalized = normalized.slice(5).trim();
+      }
+
+      return normalized === String(defaultRuntimeMemoryText || "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLowerCase();
+    }
+
     function isReconnectInitialRuntimeMemoryUpdate(data) {
       if (
           !data
@@ -730,7 +746,15 @@
         return false;
       }
 
-      if (history.snapshots.length === 0) {
+      const archivedRestoreActive = Boolean(
+        window.jinArchivedSessionBootstrap
+        && window.jinArchivedSessionBootstrap.archived_session_restore === true
+      );
+
+      if (
+          history.snapshots.length === 0
+          && !archivedRestoreActive
+      ) {
         return false;
       }
 
@@ -741,13 +765,28 @@
           || ""
         ).trim();
 
-      return runtimeMemory === defaultRuntimeMemoryText;
+      return isDefaultRuntimeMemoryText(
+        runtimeMemory
+      );
+    }
+
+    function stripArchivedRuntimeLifecycleMetadata(text) {
+      return String(text || "")
+        .replace(
+          /\s*\[\s*(?:created|updated)\s*:\s*[^\]]*?\s+ago\s*\]\s*/gi,
+          " "
+        )
+        .replace(/[ \t]+\n/g, "\n")
+        .replace(/\n[ \t]+/g, "\n")
+        .trim();
     }
 
     function normalizeRuntimeMemoryText(text) {
-      return String(text || "")
-        .replace(/\\n/g, "\n")
-        .replace(/\r\n/g, "\n")
+      return stripArchivedRuntimeLifecycleMetadata(
+        String(text || "")
+          .replace(/\\n/g, "\n")
+          .replace(/\r\n/g, "\n")
+      )
         .replace(
           /(session_status\s*:\s*Active;\s*last updated at\s*)[^\n]+/gi,
           "$1<bootstrap_time>"
@@ -814,14 +853,12 @@
         return false;
       }
 
-      // If the latest snapshot was restored from a previous session its
-      // runtime_memory_updates counter belongs to that old session. The server
-      // resets its counter to 0 on every new connection, so the first real L1
-      // update (updates=1) is always <= the old session counter (e.g. 3).
-      // Without this guard every post-bootstrap L1 update is incorrectly treated
-      // as a duplicate and dropped, leaving the panel stuck on the restore placeholder.
+      // An exact text match against the restored baseline is never a new page.
+      // The first real post-restore L1 update is allowed naturally because its
+      // memory text changes. Treating an identical server echo as "real" was the
+      // source of the duplicated page 0/page 1 restore snapshot race.
       if (latestSnapshot && latestSnapshot.restored_from_session_save) {
-        return false;
+        return true;
       }
 
       const latestUpdates = Number(
@@ -891,15 +928,39 @@
           !pendingBootstrapRuntimeMemorySnapshot
           || !data
           || data.type !== "runtime_memory_update"
-          || Number(data.updates || 0) !== 0
           || !data.snapshot
       ) {
         return false;
       }
 
-      const savedRuntimeSnapshot = {
-        ...pendingBootstrapRuntimeMemorySnapshot,
+      const bootstrapMemory = normalizeRuntimeMemoryText(
+        pendingBootstrapRuntimeMemorySnapshot.raw_memory
+      );
+      const incomingMemory =
+        getRuntimeMemoryTextFromUpdate(data);
+
+      if (
+          !bootstrapMemory
+          || !incomingMemory
+          || bootstrapMemory !== incomingMemory
+      ) {
+        return false;
+      }
+
+      // This is the authoritative server echo of PREVIOUS_RUNTIME_STATE. Replace
+      // the provisional browser page in-place so lifecycle timestamps/strengths
+      // are rebuilt as fresh values, but never append a second restore page.
+      const restoredRuntimeSnapshot = {
+        ...data.snapshot,
         index: 0,
+        display_source: "saved_runtime_at_session_save",
+        restored_from_session_save: true,
+        runtime_memory_updates: Number(
+          data.updates
+          || data.snapshot.runtime_memory_updates
+          || pendingBootstrapRuntimeMemorySnapshot.runtime_memory_updates
+          || 0
+        ),
       };
 
       pendingBootstrapRuntimeMemorySnapshot = null;
@@ -910,17 +971,19 @@
         window.stopMemoryGlow();
       }
 
-      // During persisted-session restore, page 0 must stay the saved runtime from
-      // browser memory. Server updates=0 messages are bootstrap chatter/echoes.
       history.snapshots = [
-        savedRuntimeSnapshot,
+        restoredRuntimeSnapshot,
       ];
       history.index = 0;
       history.displayIndexOffset = 1;
 
+      rememberStableRuntimeSnapshot(
+        restoredRuntimeSnapshot
+      );
+
       if (runtimeMemoryCount) {
         runtimeMemoryCount.textContent =
-          String(savedRuntimeSnapshot.runtime_memory_updates || 0);
+          String(restoredRuntimeSnapshot.runtime_memory_updates || 0);
       }
 
       renderRuntimeMemorySnapshot();
@@ -940,7 +1003,12 @@
     }
 
     function buildRuntimeMemoryDisplaySnapshot(data) {
-      const runtimeMemory =
+      const isArchivedRestore = Boolean(
+        data
+        && data.archived_session_restore === true
+      );
+
+      let runtimeMemory =
         stripActiveMemoryRuntimeMemoryText(
           (
             data
@@ -956,6 +1024,13 @@
           || ""
         ).trim();
 
+      if (isArchivedRestore) {
+        runtimeMemory =
+          stripArchivedRuntimeLifecycleMetadata(
+            runtimeMemory
+          );
+      }
+
       if (!runtimeMemory) {
         return null;
       }
@@ -969,6 +1044,25 @@
           ? data.runtime_snapshot
           : {};
 
+      const restoredAt = new Date().toISOString();
+      const parsedFreshLines =
+        splitMemoryTextLines(runtimeMemory)
+          .map(parseRuntimeMemoryLine)
+          .map((line) => ({
+            ...line,
+            status: isArchivedRestore ? "new" : line.status,
+            key_status: isArchivedRestore ? "new" : line.key_status,
+            value_status: isArchivedRestore ? "new" : line.value_status,
+            key_change_ratio: isArchivedRestore ? 1 : line.key_change_ratio,
+            value_change_ratio: isArchivedRestore ? 1 : line.value_change_ratio,
+            memory_lifecycle_status:
+              isArchivedRestore ? "created" : line.memory_lifecycle_status,
+            created_at:
+              isArchivedRestore ? restoredAt : line.created_at,
+            updated_at:
+              isArchivedRestore ? "" : line.updated_at,
+          }));
+
       return {
         ...sourceSnapshot,
         session_id:
@@ -978,11 +1072,11 @@
         display_source: "saved_runtime_at_session_save",
         raw_memory: runtimeMemory,
         lines:
-          Array.isArray(sourceSnapshot.lines)
+          !isArchivedRestore
+            && Array.isArray(sourceSnapshot.lines)
             && sourceSnapshot.raw_memory === runtimeMemory
             ? sourceSnapshot.lines
-            : splitMemoryTextLines(runtimeMemory)
-              .map(parseRuntimeMemoryLine),
+            : parsedFreshLines,
         restored_from_session_save: true,
         runtime_memory_updates:
           Number(
@@ -1068,14 +1162,28 @@
         }
       }
 
-      const snapshot =
+      let snapshot =
         (
           bootstrap
           && bootstrap.runtime_display_snapshot
         )
         || buildRuntimeMemoryDisplaySnapshot(
           bootstrap || {}
-        )
+        );
+
+      // Archived restore must never manufacture "Session started" / "no history"
+      // pages. PREVIOUS_RUNTIME_STATE is the only valid initial L1 baseline. If
+      // an old archive genuinely has no such block, leave the panel empty and
+      // let the next real L1 update create its first page.
+      if (
+          !snapshot
+          && bootstrap
+          && bootstrap.archived_session_restore === true
+      ) {
+        return;
+      }
+
+      snapshot = snapshot
         || buildDefaultRuntimeMemorySnapshot();
 
       applyRuntimeMemoryDisplaySnapshot(
@@ -1084,6 +1192,15 @@
     }
 
     function getPersistedSessionBootstrap() {
+      if (
+        window.jinArchivedSessionBootstrap
+        && typeof window.jinArchivedSessionBootstrap === "object"
+      ) {
+        return {
+          ...window.jinArchivedSessionBootstrap,
+        };
+      }
+
       const savedRuntimeFallback =
         getSavedRuntimeMemoryFallback();
 

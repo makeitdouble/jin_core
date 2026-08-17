@@ -1159,6 +1159,12 @@ function createMessageAttachmentChips(
       formatAttachmentChipLabel(
         attachment
       );
+    const attachmentId =
+      String(
+        attachment && attachment.id
+          ? attachment.id
+          : ""
+      ).trim().toLowerCase();
 
     chip.type =
       "button";
@@ -1173,10 +1179,72 @@ function createMessageAttachmentChips(
       label
     );
 
-    bindJinAttachmentBubble(
-      chip,
-      attachment
-    );
+    let attachmentBound = false;
+    const syncAttachmentAvailability = () => {
+      // Plain/transient attachment objects keep the old behavior. A logged
+      // persistent id, however, is authoritative: if that id no longer exists
+      // in JIN Files, the historical chip stays visible as history but is dim
+      // and inert instead of opening a broken empty modal.
+      if (!attachmentId) {
+        if (!attachmentBound) {
+          bindJinAttachmentBubble(
+            chip,
+            attachment
+          );
+          attachmentBound = true;
+        }
+        chip.disabled = false;
+        chip.style.opacity = "";
+        chip.style.cursor = "";
+        chip.removeAttribute("aria-disabled");
+        return;
+      }
+
+      const filesApi = window.JinFiles;
+      const storeReady = Boolean(
+        filesApi
+        && typeof filesApi.isLoaded === "function"
+        && filesApi.isLoaded()
+      );
+      const record = filesApi
+        && typeof filesApi.getFile === "function"
+          ? filesApi.getFile(attachmentId)
+          : null;
+      const available = Boolean(record);
+
+      if (available && !attachmentBound) {
+        bindJinAttachmentBubble(
+          chip,
+          {
+            ...attachment,
+            ...record,
+          }
+        );
+        attachmentBound = true;
+      }
+
+      // While the initial file snapshot is still in flight, keep the chip
+      // conservatively disabled; jin:files-store-changed immediately resolves
+      // it to available/missing once the authoritative store arrives.
+      chip.disabled = !available;
+      chip.style.opacity = available ? "" : (storeReady ? "0.35" : "0.5");
+      chip.style.cursor = available ? "" : "default";
+      chip.setAttribute(
+        "aria-disabled",
+        available ? "false" : "true"
+      );
+      chip.title = available
+        ? label
+        : (storeReady ? `${label} · file not found` : `${label} · loading file`);
+    };
+
+    syncAttachmentAvailability();
+    if (attachmentId) {
+      window.addEventListener(
+        "jin:files-store-changed",
+        syncAttachmentAvailability
+      );
+    }
 
     container.appendChild(
       chip

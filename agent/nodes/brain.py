@@ -29,8 +29,10 @@ from rules.runtime import (
     REASONING_RECOVERY_MESSAGE,
 )
 from contracts.rules_assembler import (
+    RUNTIME_ACTION_ATTACH_FILE,
     RUNTIME_ACTION_DEEP_WEB_SEARCH,
     RUNTIME_ACTION_IDLE,
+    RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
 )
@@ -53,6 +55,7 @@ from utils.current_context_window import (
     prepare_current_context_window_prompt,
 )
 from utils.chat_log import (
+    save_chat_bootstrap_context_snapshot,
     save_chat_context_snapshot,
 )
 from utils.runtime_action_abort import (
@@ -115,6 +118,90 @@ def action_event_defers_follow_up(event) -> bool:
     return (
         name == RUNTIME_ACTION_IDLE.casefold()
         or bool(event.get("deferred_follow_up"))
+    )
+
+
+async def replay_session_restore_resource_actions(
+        context,
+        *,
+        assistant_message: str = "",
+        context_snapshot=None,
+) -> int:
+
+    if not getattr(
+        context,
+        "runtime_session_restore_priming",
+        False,
+    ):
+        return 0
+
+    delayed_ids = []
+    delayed_seen = set()
+    for raw_id in getattr(
+        context,
+        "runtime_session_restore_pending_loaded_memory_ids",
+        [],
+    ) or []:
+        report_id = str(raw_id or "").strip().casefold()
+        if not report_id or report_id in delayed_seen:
+            continue
+        delayed_seen.add(report_id)
+        delayed_ids.append(report_id)
+
+    file_ids = []
+    file_seen = set()
+    for raw_id in getattr(
+        context,
+        "runtime_session_restore_pending_attached_file_ids",
+        [],
+    ) or []:
+        file_id = str(raw_id or "").strip().casefold()
+        if not file_id or file_id in file_seen:
+            continue
+        file_seen.add(file_id)
+        file_ids.append(file_id)
+
+    # Consume the restoration envelope before any possible contract-driven
+    # follow-up. The initial answer was generated with metadata only; from
+    # this point forward the normal runtime action pipeline owns the loaded
+    # resources and any follow-up sees their real context.
+    context.runtime_session_restore_pending_loaded_memory_ids = []
+    context.runtime_session_restore_pending_attached_file_ids = []
+    context.runtime_session_restore_priming = False
+    context.runtime_session_restore_reasoning_dump = ""
+    context.runtime_session_restore_l4_fact_ids = []
+    context.runtime_session_restore_delayed_memory_metadata = []
+    context.runtime_session_restore_attached_file_metadata = []
+
+    actions = tuple(
+        [
+            RuntimeActionCall(
+                name=RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
+                payload=report_id,
+            )
+            for report_id in delayed_ids
+        ]
+        + [
+            RuntimeActionCall(
+                name=RUNTIME_ACTION_ATTACH_FILE,
+                payload=file_id,
+            )
+            for file_id in file_ids
+        ]
+    )
+
+    if not actions:
+        return 0
+
+    return await apply_runtime_action_calls(
+        context,
+        actions,
+        context_snapshot=(
+            context_snapshot
+            if isinstance(context_snapshot, dict)
+            else None
+        ),
+        assistant_message=assistant_message,
     )
 
 
@@ -1503,7 +1590,18 @@ class BrainNode(BaseNode):
             }
 
         try:
-            save_chat_context_snapshot(
+            context_snapshot_saver = (
+                save_chat_bootstrap_context_snapshot
+                if bool(
+                    getattr(
+                        context,
+                        "runtime_session_restore_priming",
+                        False,
+                    )
+                )
+                else save_chat_context_snapshot
+            )
+            context_snapshot_saver(
                 context,
                 context_snapshot=context_snapshot,
             )
@@ -1882,8 +1980,67 @@ class BrainNode(BaseNode):
             state.brain_response = text or ""
             return
 
-        asset_result_offset = 0
-        delayed_memory_result_offset = 0
+        restore_replay_asset_result_offset = 0
+        restore_replay_delayed_memory_result_offset = 0
+
+        if state.metadata.get(
+            "session_restore_resume",
+            False,
+        ):
+            replayed_restore_actions = await replay_session_restore_resource_actions(
+                context,
+                assistant_message=text or "",
+                context_snapshot=getattr(
+                    state,
+                    "visible_response_context",
+                    None,
+                ),
+            )
+
+            if replayed_restore_actions:
+                # ATTACH_FILE / LOAD_DELAYED_MEMORY replay after the very first
+                # restored JIN message is state reconstruction, not a new model
+                # decision. Run the real action dispatcher (bubbles, avatar,
+                # tool results, pinning, etc.) but consume its action/results as
+                # already handled so the follow-up scheduler cannot fire even
+                # when the normal runtime contract says emit_followup=true.
+                # The next user/model turn takes fresh offsets and goes back to
+                # ordinary contract-driven behavior automatically.
+                runtime_action_event_offset = len(
+                    getattr(
+                        context,
+                        "runtime_action_events",
+                        [],
+                    )
+                    or []
+                )
+                runtime_tool_result_followup_offset = len(
+                    getattr(
+                        context,
+                        "runtime_tool_results",
+                        [],
+                    )
+                    or []
+                )
+                restore_replay_asset_result_offset = len(
+                    getattr(
+                        context,
+                        "runtime_asset_results",
+                        [],
+                    )
+                    or []
+                )
+                restore_replay_delayed_memory_result_offset = len(
+                    getattr(
+                        context,
+                        "runtime_delayed_memory_results",
+                        [],
+                    )
+                    or []
+                )
+
+        asset_result_offset = restore_replay_asset_result_offset
+        delayed_memory_result_offset = restore_replay_delayed_memory_result_offset
         followup_count = 0
         max_followups = max(
             1,

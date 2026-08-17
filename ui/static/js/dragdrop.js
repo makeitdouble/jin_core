@@ -287,8 +287,31 @@ async function restoreDeletedFile(id) {
 }
 
 async function resolvePersistentAttachment(record) {
-  const base = {...record, size_label: record.size_label || formatBytes(record.size_bytes)};
+  const requestedId = String(record && record.id || "").trim().toLowerCase();
+
+  // Archived chat rows intentionally contain only stable attachment metadata.
+  // Resolve that metadata against the live persistent file store at click time,
+  // so restored image bubbles regain their current /assets/files URL and text
+  // bubbles can use the normal preview endpoint. The store refresh is async at
+  // page startup, therefore one early modal click must be allowed to wait for it.
+  if (requestedId && !getFileRecord(requestedId) && !fileStoreLoaded) {
+    await refreshFiles();
+  }
+
+  const storedRecord = requestedId
+    ? getFileRecord(requestedId)
+    : null;
+  const merged = storedRecord
+    ? {...record, ...storedRecord}
+    : {...record};
+  const base = {
+    ...merged,
+    size_label: merged.size_label || formatBytes(merged.size_bytes),
+  };
+
   if (base.kind !== "text") return base;
+  if (!storedRecord || !base.id) return base;
+
   try {
     const response = await fetch(`/api/files/${encodeURIComponent(base.id)}/preview`, {cache: "no-store"});
     if (!response.ok) return base;
@@ -488,6 +511,7 @@ window.hasJinAttachments = () => pinnedIds.length > 0;
 window.JinFiles = {
   refresh: refreshFiles,
   syncContext: syncAttachmentContext,
+  isLoaded: () => fileStoreLoaded,
   getFiles: () => fileStore.map((item) => ({...item})),
   getPinnedIds: () => [...pinnedIds],
   getFile: (id) => {

@@ -993,18 +993,28 @@ class RuntimeClient:
                 str,
             )
             and user_prompt == ""
-            and bool(
-                getattr(
-                    context,
-                    "runtime_followup_tick_active",
-                    False,
+            and (
+                bool(
+                    getattr(
+                        context,
+                        "runtime_followup_tick_active",
+                        False,
+                    )
+                )
+                or bool(
+                    getattr(
+                        context,
+                        "runtime_session_restore_priming",
+                        False,
+                    )
                 )
             )
         ):
             # Do not replace this with "" or "(empty)": LM Studio prompt
             # templates reject a truly empty user message ("No user query
-            # found"), while visible context must still stay empty so the
-            # model does not interpret a follow-up label as user input.
+            # found"). Follow-up and session-restore ticks are intentionally
+            # system/context-only, so give the provider a single whitespace
+            # character without exposing a fake user request to the model.
             return " "
 
         return user_prompt

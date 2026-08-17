@@ -2610,6 +2610,17 @@ function updateRuntimeActionRow(
   }
 
   if (
+      action === "attach_file"
+      && typeof window.bindRuntimeActionAttachmentPreview === "function"
+  ) {
+    window.bindRuntimeActionAttachmentPreview(
+      label,
+      options.attachmentResult || null,
+      options.id || ""
+    );
+  }
+
+  if (
     [
       "save_delayed_memory_content",
       "load_delayed_memory",
@@ -3271,6 +3282,17 @@ function appendRuntimeAction(
   }
 
   if (
+      action === "attach_file"
+      && typeof window.bindRuntimeActionAttachmentPreview === "function"
+  ) {
+    window.bindRuntimeActionAttachmentPreview(
+      label,
+      options.attachmentResult || null,
+      options.id || ""
+    );
+  }
+
+  if (
     [
       "save_delayed_memory_content",
       "load_delayed_memory",
@@ -3393,6 +3415,8 @@ function queueRuntimeActionAfterNextResponse(
       options.closeTag === true,
     assetResult:
       options.assetResult || null,
+    attachmentResult:
+      options.attachmentResult || null,
     detail:
       options.detail || "",
     completed: false,
@@ -3449,6 +3473,8 @@ function flushRuntimeActionsAfterResponse(
           entry.closeTag === true,
         assetResult:
           entry.assetResult || null,
+        attachmentResult:
+          entry.attachmentResult || null,
         detail:
           entry.detail || "",
         completed:

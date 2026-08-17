@@ -364,6 +364,24 @@ def get_chat_context_path(
     )
 
 
+def get_chat_bootstrap_context_path(
+    context,
+    *,
+    now: datetime | None = None,
+    root: Path | str | None = None,
+) -> Path:
+
+    chat_log_path = get_chat_log_path(
+        context,
+        now=now,
+        root=root,
+    )
+
+    return chat_log_path.with_name(
+        chat_log_path.stem + ".bootstrap.txt"
+    )
+
+
 def _context_snapshot_text(
     context_snapshot: dict | None = None,
     *,
@@ -423,6 +441,24 @@ def _context_snapshot_text(
     ).strip()
 
 
+def _write_context_snapshot(
+    path: Path,
+    text: str,
+) -> Path:
+
+    path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    path.write_text(
+        text + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    return path
+
+
 def save_chat_context_snapshot(
     context,
     *,
@@ -445,21 +481,52 @@ def save_chat_context_snapshot(
     if not text:
         return None
 
-    path = get_chat_context_path(
-        context,
-        now=now,
-        root=root,
-    )
-    path.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-    path.write_text(
-        text + "\n",
-        encoding="utf-8",
-        newline="\n",
+    path = _write_context_snapshot(
+        get_chat_context_path(
+            context,
+            now=now,
+            root=root,
+        ),
+        text,
     )
     context.runtime_chat_context_path = str(
+        path
+    )
+
+    return path
+
+
+def save_chat_bootstrap_context_snapshot(
+    context,
+    *,
+    context_snapshot: dict | None = None,
+    system_prompt: str = "",
+    user_prompt: str = "",
+    now: datetime | None = None,
+    root: Path | str | None = None,
+) -> Path | None:
+
+    if not chat_logging_enabled():
+        return None
+
+    text = _context_snapshot_text(
+        context_snapshot,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+    )
+
+    if not text:
+        return None
+
+    path = _write_context_snapshot(
+        get_chat_bootstrap_context_path(
+            context,
+            now=now,
+            root=root,
+        ),
+        text,
+    )
+    context.runtime_chat_bootstrap_context_path = str(
         path
     )
 
@@ -498,6 +565,46 @@ def save_current_runtime_context_snapshot(
     )
 
     return save_chat_context_snapshot(
+        context,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        now=now,
+        root=root,
+    )
+
+
+def save_current_runtime_bootstrap_context_snapshot(
+    context,
+    *,
+    user_prompt: str = "",
+    now: datetime | None = None,
+    root: Path | str | None = None,
+) -> Path | None:
+
+    if not chat_logging_enabled():
+        return None
+
+    from rules.brain_context_builder import (
+        build_brain_context,
+    )
+    from utils.brain_client_utils import (
+        get_brain_runtime_config,
+    )
+
+    brain_runtime = get_brain_runtime_config()
+    system_prompt = build_brain_context(
+        context,
+        brain_runtime.get(
+            "runtime_actions",
+            {},
+        ),
+        user_input=str(
+            user_prompt
+            or ""
+        ),
+    )
+
+    return save_chat_bootstrap_context_snapshot(
         context,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
@@ -1170,11 +1277,23 @@ def append_chat_log_entry(
         exist_ok=True,
     )
 
+    needs_separator = False
+    try:
+        if path.is_file() and path.stat().st_size > 0:
+            with path.open("rb") as existing_log:
+                existing_log.seek(-1, 2)
+                needs_separator = existing_log.read(1) not in {b"\n", b"\r"}
+    except OSError:
+        needs_separator = False
+
     with path.open(
         "a",
         encoding="utf-8",
         newline="\n",
     ) as log_file:
+        if needs_separator:
+            log_file.write("\n")
+
         log_file.write(
             json.dumps(
                 entry,

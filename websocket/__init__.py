@@ -75,7 +75,7 @@ from utils.attached_files_store import (
     sync_pinned_file_ids,
 )
 from utils.chat_log import (
-    save_current_runtime_context_snapshot,
+    save_current_runtime_bootstrap_context_snapshot,
 )
 
 
@@ -263,7 +263,7 @@ async def websocket_endpoint(
                     )
 
                     try:
-                        save_current_runtime_context_snapshot(
+                        save_current_runtime_bootstrap_context_snapshot(
                             context
                         )
                     except Exception as error:
@@ -489,7 +489,7 @@ async def websocket_endpoint(
                     )
 
                     try:
-                        save_current_runtime_context_snapshot(
+                        save_current_runtime_bootstrap_context_snapshot(
                             context
                         )
                     except Exception as error:
@@ -498,8 +498,14 @@ async def websocket_endpoint(
                             + str(error)
                         )
 
+                    # PREVIOUS_RUNTIME_STATE is already visible as page 1 in
+                    # the browser before websocket bootstrap. This message is
+                    # the authoritative echo of that same baseline, never a
+                    # second page. Explicit replacement also survives harmless
+                    # server-side normalization that can defeat text dedupe.
                     await emit_current_runtime_memory(
-                        context
+                        context,
+                        replace_latest=True,
                     )
 
                     await emit_runtime_l1_diff_update(
@@ -514,6 +520,30 @@ async def websocket_endpoint(
                         context
                     )
 
+                continue
+
+            if message_type == "archived_session_resume":
+                if not getattr(
+                    context,
+                    "runtime_session_restore_priming",
+                    False,
+                ):
+                    await logger.log_system(
+                        "[SESSION RESTORE] ignored stale resume tick"
+                    )
+                    continue
+
+                if await reject_when_all_models_offline(
+                    context
+                ):
+                    continue
+
+                await pending_requests.put(
+                    message_data
+                )
+                await logger.log_runtime(
+                    "[SESSION RESTORE] queued hidden continuation tick"
+                )
                 continue
 
             if message_type == "runtime_action_guard_confirmation":

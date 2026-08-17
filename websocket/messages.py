@@ -853,6 +853,17 @@ def append_runtime_recent_turn(
         turn
     )
 
+    # An archived session checkout uses the full restored dialogue only to
+    # prime the first continuation response. Once that response is committed,
+    # normal rolling recent-turn memory takes over.
+    if getattr(
+        context,
+        "runtime_restored_session_dialog",
+        "",
+    ):
+        context.runtime_restored_session_dialog = ""
+        context.runtime_restored_session_source_id = ""
+
     context.runtime_recent_turns = context.runtime_recent_turns[
         -RECENT_MESSAGES_MAX_PAIRS:
     ]
@@ -997,6 +1008,14 @@ async def process_message(
         if not isinstance(idle_followup, dict):
             idle_followup = {}
         is_idle_followup = bool(idle_followup)
+        is_session_restore_resume = bool(
+            message_data.get("type") == "archived_session_resume"
+            and getattr(
+                context,
+                "runtime_session_restore_priming",
+                False,
+            )
+        )
         action_guard_retry = normalize_runtime_action_guard_retry(
             message_data.get(
                 "runtime_action_guard_retry",
@@ -1012,7 +1031,11 @@ async def process_message(
             action_guard_retry
         )
 
-        if is_idle_followup or is_action_guard_retry:
+        if is_session_restore_resume:
+            # Keep restored file IDs pinned for subsequent turns, but do not
+            # feed any file payload/image bytes into the hidden restore tick.
+            active_attachment_ids = []
+        elif is_idle_followup or is_action_guard_retry:
             active_attachment_ids = list(
                 getattr(
                     context,
@@ -1035,16 +1058,20 @@ async def process_message(
         )
 
         user_text = (
-            str(
-                idle_followup.get(
-                    "origin_user_request",
-                    "",
+            ""
+            if is_session_restore_resume
+            else (
+                str(
+                    idle_followup.get(
+                        "origin_user_request",
+                        "",
+                    )
+                    or ""
                 )
-                or ""
-            )
-            if is_idle_followup
-            else build_user_text_with_attachments(
-                message_data,
+                if is_idle_followup
+                else build_user_text_with_attachments(
+                    message_data,
+                )
             )
         )
 
@@ -1059,12 +1086,16 @@ async def process_message(
             + 1
         )
         context.runtime_current_turn_id = (
-            f"idle_{context.runtime_turn_counter:06d}"
-            if is_idle_followup
+            f"restore_{context.runtime_turn_counter:06d}"
+            if is_session_restore_resume
             else (
-                f"retry_{context.runtime_turn_counter:06d}"
-                if is_action_guard_retry
-                else f"turn_{context.runtime_turn_counter:06d}"
+                f"idle_{context.runtime_turn_counter:06d}"
+                if is_idle_followup
+                else (
+                    f"retry_{context.runtime_turn_counter:06d}"
+                    if is_action_guard_retry
+                    else f"turn_{context.runtime_turn_counter:06d}"
+                )
             )
         )
 
@@ -1141,6 +1172,7 @@ async def process_message(
         if (
             not is_idle_followup
             and not is_action_guard_retry
+            and not is_session_restore_resume
         ):
             direct_save_session = (
                 should_execute_save_session_directly(
@@ -1184,7 +1216,7 @@ async def process_message(
                 ),
             )
 
-        if not is_action_guard_retry:
+        if not is_action_guard_retry and not is_session_restore_resume:
             try:
                 append_chat_log_entry(
                     context,
@@ -1204,6 +1236,8 @@ async def process_message(
             state.metadata["direct_save_session"] = True
         if is_idle_followup:
             state.metadata["idle_followup"] = idle_followup
+        if is_session_restore_resume:
+            state.metadata["session_restore_resume"] = True
 
         if hasattr(
             context,
@@ -1331,7 +1365,25 @@ async def process_message(
                 assistant_created_at=assistant_created_at,
             )
 
-        if is_idle_followup or is_action_guard_retry:
+        if is_session_restore_resume:
+            # The Brain node consumes restore priming immediately after the
+            # first response and replays archived resources through the real
+            # runtime-action dispatcher. Keep only a defensive cleanup here;
+            # never mutate resource state or emit a second store snapshot from
+            # the websocket tail, because that used to race the action/avatar
+            # UI and make the load visible only after L1 completed.
+            context.runtime_session_restore_pending_loaded_memory_ids = []
+            context.runtime_session_restore_pending_attached_file_ids = []
+            context.runtime_session_restore_priming = False
+            context.runtime_session_restore_reasoning_dump = ""
+            context.runtime_session_restore_l4_fact_ids = []
+            context.runtime_session_restore_delayed_memory_metadata = []
+            context.runtime_session_restore_attached_file_metadata = []
+
+        if (
+            is_idle_followup
+            or is_action_guard_retry
+        ):
             memory_update_task = None
         elif getattr(
             context,

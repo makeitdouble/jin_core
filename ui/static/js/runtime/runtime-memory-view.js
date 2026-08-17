@@ -5470,7 +5470,40 @@
           sessionId;
       item.setAttribute(
           "aria-label",
-          sessionId
+          `restore session ${sessionId}`
+      );
+      item.setAttribute(
+          "role",
+          "link"
+      );
+      item.tabIndex = 0;
+
+      const openSession = () => {
+        const url =
+            `/?restore_session=${encodeURIComponent(sessionId)}`;
+
+        window.open(
+            url,
+            "_blank",
+            "noopener"
+        );
+      };
+
+      item.addEventListener(
+          "click",
+          openSession
+      );
+
+      item.addEventListener(
+          "keydown",
+          (event) => {
+            if (event.key !== "Enter" && event.key !== " ") {
+              return;
+            }
+
+            event.preventDefault();
+            openSession();
+          }
       );
 
       list.appendChild(
@@ -6695,7 +6728,7 @@
         delayedMemoryModalReport._storage_key
     );
 
-    appendDelayedMemoryModalField(
+    appendDelayedMemorySessionIdsField(
         fields,
         "Session",
         delayedMemoryModalReport.created_session_id

@@ -624,6 +624,63 @@ def build_loaded_delayed_memory_context(
     )
 
 
+def build_session_restore_resource_metadata_context(
+    context=None,
+) -> str:
+
+    if context is None:
+        return ""
+
+    delayed_items = getattr(
+        context,
+        "runtime_session_restore_delayed_memory_metadata",
+        [],
+    )
+    file_items = getattr(
+        context,
+        "runtime_session_restore_attached_file_metadata",
+        [],
+    )
+
+    lines = [
+        "<RESTORED_SESSION_RESOURCES>",
+        "The following resources were loaded in the archived session. "
+        "Their contents are intentionally omitted on this restoration turn; "
+        "only identity metadata is provided.",
+    ]
+
+    if isinstance(delayed_items, list) and delayed_items:
+        lines.append("Delayed memory reports previously loaded:")
+        for item in delayed_items:
+            if not isinstance(item, dict):
+                continue
+            report_id = str(item.get("id", "") or "").strip()
+            title = str(item.get("title", "") or report_id).strip()
+            if report_id:
+                lines.append(
+                    f'- {escape(title)} [ id: {escape(report_id)} ]'
+                )
+
+    if isinstance(file_items, list) and file_items:
+        lines.append("Files previously attached:")
+        for item in file_items:
+            if not isinstance(item, dict):
+                continue
+            file_id = str(item.get("id", "") or "").strip()
+            title = str(item.get("title", "") or file_id).strip()
+            if file_id:
+                lines.append(
+                    f'- {escape(title)} [ id: {escape(file_id)} ]'
+                )
+
+    lines.append("</RESTORED_SESSION_RESOURCES>")
+
+    if len(lines) <= 3:
+        return ""
+
+    return "\n".join(lines)
+
+
 def build_long_term_memory_context(
     context=None,
     user_input: str = "",
@@ -634,8 +691,24 @@ def build_long_term_memory_context(
 
     from runtime.L4_memory import build_runtime_l4_memory_context
 
+    restore_fact_ids = None
+    if getattr(
+        context,
+        "runtime_session_restore_priming",
+        False,
+    ):
+        restore_fact_ids = list(
+            getattr(
+                context,
+                "runtime_session_restore_l4_fact_ids",
+                [],
+            )
+            or []
+        )
+
     return build_runtime_l4_memory_context(
         context=context,
+        fact_ids=restore_fact_ids,
     )
 
 
@@ -873,6 +946,22 @@ def build_brain_context(
 
     prompt_parts = []
     runtime_context_parts = []
+    restore_priming = bool(
+        getattr(
+            context,
+            "runtime_session_restore_priming",
+            False,
+        )
+    )
+
+    if restore_priming:
+        from .runtime import SESSION_RESTORE_MESSAGE
+
+        # This must remain the first prompt block. It is a hidden restore tick,
+        # not a user request.
+        prompt_parts.append(
+            SESSION_RESTORE_MESSAGE
+        )
 
     enabled_actions = get_enabled_runtime_actions(
         runtime_actions
@@ -905,26 +994,37 @@ def build_brain_context(
 
     # Persistent pinned files are a compact inventory between session actions
     # and delayed memory. Omit the block completely when no files are attached.
-    attached_files_context = build_attached_files_inventory_context(
-        context
-    )
-    if attached_files_context:
-        prompt_parts.append(
-            attached_files_context
+    if restore_priming:
+        restored_resource_metadata_context = (
+            build_session_restore_resource_metadata_context(
+                context
+            )
         )
-
-    # Delayed memory inventory stays directly below attached files so available
-    # reports are visible before the rest of the runtime state.
-    delayed_memory_inventory_context = (
-        build_delayed_memory_inventory_context(
+        if restored_resource_metadata_context:
+            prompt_parts.append(
+                restored_resource_metadata_context
+            )
+    else:
+        attached_files_context = build_attached_files_inventory_context(
             context
         )
-    )
+        if attached_files_context:
+            prompt_parts.append(
+                attached_files_context
+            )
 
-    if delayed_memory_inventory_context:
-        prompt_parts.append(
-            delayed_memory_inventory_context
+        # Delayed memory inventory stays directly below attached files so available
+        # reports are visible before the rest of the runtime state.
+        delayed_memory_inventory_context = (
+            build_delayed_memory_inventory_context(
+                context
+            )
         )
+
+        if delayed_memory_inventory_context:
+            prompt_parts.append(
+                delayed_memory_inventory_context
+            )
 
     # Skill inventory is always visible near the top of the prompt.
     # The inventory is context state, not a runtime action.
@@ -982,6 +1082,8 @@ def build_brain_context(
         build_loaded_delayed_memory_context(
             context
         )
+        if not restore_priming
+        else ""
     )
 
     if loaded_delayed_memory_context:
@@ -989,11 +1091,17 @@ def build_brain_context(
             loaded_delayed_memory_context
         )
 
-    # L3 memory block: restores previous session state from prior turns.
-    _append_L3_session_memory(
-        runtime_context_parts,
-        context,
-    )
+    # L3 memory is useful on ordinary turns, but the hidden archived-session
+    # restore tick already carries the exact restored dialogue/runtime state.
+    # Feeding PREVIOUS_SESSION_STATE into that very first continuation prompt
+    # can inject an older checkpoint (often from much earlier in the session)
+    # and pull JIN away from the actual restore point. Keep it out of the
+    # one-shot bootstrap prompt; it returns automatically once priming ends.
+    if not restore_priming:
+        _append_L3_session_memory(
+            runtime_context_parts,
+            context,
+        )
 
     # L2 memory block: adds slower pattern memory after session memory.
     _append_L2_runtime_memory(
@@ -1025,50 +1133,85 @@ def build_brain_context(
             )
         )
 
-    # Previous chat messages block: gives the brain the recent visible dialogue.
-    previous_chat_messages_context = (
-        build_previous_chat_messages_context(
-            context
-        )
-        if include_previous_chat_messages
-        else ""
-    )
-
-    if previous_chat_messages_context:
-        prompt_parts.append(
-            previous_chat_messages_context
-        )
-
-    # Previous reasoning block: loop recovery keeps failed reasoning attempts
-    # in the same prompt slot as ordinary previous reasoning.
-    previous_reasoning_loop_context = (
-        build_previous_reasoning_loop_context(
-            context
-        )
-    )
-
-    if previous_reasoning_loop_context:
-        prompt_parts.append(
-            previous_reasoning_loop_context
-        )
-    elif (
-        include_previous_reasoning
-        and not getattr(
+    # Archived-session checkout gets one exact-dialogue priming turn before
+    # falling back to the normal rolling recent-chat window. This preserves
+    # the original conversational trajectory without permanently bloating
+    # every subsequent prompt.
+    restored_session_dialog = str(
+        getattr(
             context,
-            "runtime_followup_tick_active",
-            False,
+            "runtime_restored_session_dialog",
+            "",
         )
-    ):
+        or ""
+    ).strip()
+
+    if restored_session_dialog:
         prompt_parts.append(
-            build_previous_reasoning_context(
-                context,
-                include_turn_reasoning=include_turn_reasoning,
-                crop=crop_previous_reasoning,
+            restored_session_dialog
+        )
+    else:
+        # Previous chat messages block: gives the brain the recent visible dialogue.
+        previous_chat_messages_context = (
+            build_previous_chat_messages_context(
+                context
+            )
+            if include_previous_chat_messages
+            else ""
+        )
+
+        if previous_chat_messages_context:
+            prompt_parts.append(
+                previous_chat_messages_context
+            )
+
+    # Previous reasoning block: a restore tick receives a one-shot raw dump of
+    # the latest archived reasonings (newest first). Ordinary turns keep the
+    # existing previous-reasoning behavior.
+    restore_reasoning_dump = str(
+        getattr(
+            context,
+            "runtime_session_restore_reasoning_dump",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if restore_priming and restore_reasoning_dump:
+        prompt_parts.append(
+            restore_reasoning_dump
+        )
+    else:
+        previous_reasoning_loop_context = (
+            build_previous_reasoning_loop_context(
+                context
             )
         )
 
-    # Runtime action instructions block: describes the private action protocol.
-    if include_runtime_action_instructions:
+        if previous_reasoning_loop_context:
+            prompt_parts.append(
+                previous_reasoning_loop_context
+            )
+        elif (
+            include_previous_reasoning
+            and not getattr(
+                context,
+                "runtime_followup_tick_active",
+                False,
+            )
+        ):
+            prompt_parts.append(
+                build_previous_reasoning_context(
+                    context,
+                    include_turn_reasoning=include_turn_reasoning,
+                    crop=crop_previous_reasoning,
+                )
+            )
+
+    # Restore priming is intentionally actionless: this hidden turn exists only
+    # to re-establish conversational continuity. Normal action rules return on
+    # the next user turn.
+    if include_runtime_action_instructions and not restore_priming:
         prompt_parts.append(
             build_runtime_action_instructions(
                 enabled_actions,

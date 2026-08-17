@@ -34,6 +34,7 @@ let websocketReconnectAttempts = 0;
 let websocketReconnectAwaitingFocus = false;
 let websocketDisconnectedLogged = false;
 let persistedSessionBootstrapSent = false;
+let archivedSessionResumeSent = false;
 let generationRunning = false;
 let socketClientInitialized = false;
 
@@ -429,6 +430,43 @@ function abortGeneration() {
  * @property {string=} details
  */
 
+function requestArchivedSessionResume(
+  bootstrap
+) {
+  if (
+      archivedSessionResumeSent
+      || !bootstrap
+  ) {
+    return false;
+  }
+
+  const sourceSessionId =
+    String(
+      bootstrap.source_session_id
+      || ""
+    ).trim();
+
+  if (!sourceSessionId) {
+    return false;
+  }
+
+  const sent = sendSocketMessage({
+    type: "archived_session_resume",
+    source_session_id: sourceSessionId,
+  });
+
+  if (sent) {
+    archivedSessionResumeSent = true;
+    appendLog(
+      "[SESSION]",
+      `Restoring conversation flow from ${sourceSessionId}.`
+    );
+  }
+
+  return sent;
+}
+
+
 function handleSocketMessage(event) {
 
   /** @type {SocketMessage} */
@@ -543,6 +581,14 @@ async function handleSocketOpen() {
     return;
   }
 
+  if (window.jinArchivedSessionRestoreReady) {
+    try {
+      await window.jinArchivedSessionRestoreReady;
+    } catch (error) {
+      // Archived restore is optional. A failed restore falls back to normal boot.
+    }
+  }
+
   if (window.jinSavedRuntimeFallbackReady) {
     try {
       await window.jinSavedRuntimeFallbackReady;
@@ -588,6 +634,23 @@ async function handleSocketOpen() {
       "Browser session memory sent."
     );
 
+    if (
+        bootstrap.archived_session_restore === true
+        && window.JinRuntime
+        && window.JinRuntime.runtime
+        && typeof window.JinRuntime.runtime.replaceLoadedDelayedMemoryReportIds
+          === "function"
+    ) {
+      // A fresh websocket can publish its default delayed-memory load state
+      // before the archived bootstrap is sent. Clear that transient state so
+      // the following store sync cannot accidentally feed a report body into
+      // the hidden restore turn. The backend keeps the archived ids staged.
+      window.JinRuntime.runtime.replaceLoadedDelayedMemoryReportIds(
+        [],
+        { render: false }
+      );
+    }
+
     syncDelayedMemoryReportsToRuntime();
     if (typeof window.syncFactsMemoryToRuntime === "function") {
       window.syncFactsMemoryToRuntime();
@@ -595,6 +658,13 @@ async function handleSocketOpen() {
     if (typeof window.syncLongTermMemoryToRuntime === "function") {
       window.syncLongTermMemoryToRuntime();
     }
+
+    // WebSocket messages are ordered: bootstrap -> memory/L4 sync -> hidden
+    // restore tick. The first model turn therefore sees restored stores but the
+    // context builder can intentionally suppress their heavy contents.
+    requestArchivedSessionResume(
+      bootstrap
+    );
 
     return;
   }
@@ -751,7 +821,7 @@ document.addEventListener(
   }
 );
 
-function initializeSocketClient() {
+async function initializeSocketClient() {
 
   if (socketClientInitialized) {
     return;
@@ -769,6 +839,20 @@ function initializeSocketClient() {
 
   if (typeof logFactsMemoryRecords === "function") {
     logFactsMemoryRecords();
+  }
+
+  // Archived restore owns the initial Runtime Memory page. Wait until the
+  // RESTORE API has painted PREVIOUS_RUNTIME_STATE before opening the socket,
+  // otherwise the server's brand-new-session L1 can race it and briefly/
+  // permanently become page 0 or page 1. The restore promise always resolves
+  // to payload/null, so a failed archive fetch still falls through to normal
+  // websocket bootstrap instead of blocking the client.
+  if (window.jinArchivedSessionRestoreReady) {
+    try {
+      await window.jinArchivedSessionRestoreReady;
+    } catch (error) {
+      // Normal websocket boot remains the fallback.
+    }
   }
 
   connectWebSocket();

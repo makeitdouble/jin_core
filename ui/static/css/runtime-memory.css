@@ -265,6 +265,19 @@
     color: rgba(244, 244, 245, 0.86);
 }
 
+.delayed-memory-modal-session-id {
+    cursor: pointer;
+    text-decoration: none;
+    transition: color 140ms ease;
+}
+
+.delayed-memory-modal-session-id:hover,
+.delayed-memory-modal-session-id:focus-visible {
+    color: rgba(186, 230, 253, 0.96);
+    text-decoration: none;
+    outline: none;
+}
+
 .delayed-memory-modal-editable {
     cursor: text;
     outline: none;

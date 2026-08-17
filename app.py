@@ -39,6 +39,9 @@ from utils.urls import (
 from utils.chat_log import (
     migrate_legacy_chat_logs,
 )
+from utils.session_restore import (
+    build_archived_session_restore_payload,
+)
 
 from websocket import (
     websocket_router,
@@ -141,6 +144,21 @@ app.mount(
 app.include_router(
     websocket_router
 )
+
+
+@app.get("/api/sessions/{session_id}/restore")
+async def api_restore_archived_session(session_id: str):
+    payload = build_archived_session_restore_payload(
+        session_id
+    )
+
+    if payload is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Archived session not found",
+        )
+
+    return payload
 
 
 @app.get("/api/files")

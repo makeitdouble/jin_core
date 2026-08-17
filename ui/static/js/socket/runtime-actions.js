@@ -1554,6 +1554,8 @@ function handleRuntimeAction(
             data.context || null,
           assetResult:
             data.asset_result || null,
+          attachmentResult:
+            data.attachment_result || null,
           delayedMemoryReportId:
             delayedMemoryPreview.reportId,
           delayedMemoryReport:
@@ -1661,6 +1663,8 @@ function handleRuntimeAction(
         data.context || null,
       assetResult:
         data.asset_result || null,
+      attachmentResult:
+        data.attachment_result || null,
       delayedMemoryReportId:
         delayedMemoryPreview.reportId,
       delayedMemoryReport:

@@ -31,6 +31,24 @@ IDLE_FOLLOWUP_MESSAGE = (
     "sequence and non-executed actions derived from CURRENT_SEQUENCE.\n"
 )
 
+SESSION_RESTORE_REASONING_COUNT = 2
+SESSION_RESTORE_REASONING_CHAR_LIMIT = 2000
+SESSION_RESTORE_MESSAGE = (
+    "<CONVERSATION_CONTINUE_RULES>\n"
+    "!!!DO NOT REEPAT LAST JIN RESPONSE!!! MUST Treat as a new state! Must check current date!\n"
+    "This is a conversation restoration bootstrap information block.\n"
+    "Think deep and fresh, but derive all conversational vibe based on all current available context.\n"
+    "Re-enter the archived conversation as fluently as possible. Treat the restored "
+    "dialogue, runtime state, and reasoning dump as your immediately preceding "
+    "interaction state. Preserve the established tone, cadence, assumptions, unresolved "
+    "thread, and conversational vibe instead of summarizing or re-explaining them.\n"
+    "Do not invent missing context and do not treat this bootstrap as permission to start "
+    "new work or runtime actions. Respond briefly and naturally, acknowledge that JIN is "
+    "back in place, and make it easy for the user to continue from exactly where the "
+    "session stopped.\n"
+    "</CONVERSATION_CONTINUE_RULES>"
+)
+
 RUNTIME_ACTION_INJECTION_RULES = (
     "CRITICAL MARKER INJECTION RULES:\n"
     "RUNTIME ACTION MARKERS are internal mechanics only.\n"

@@ -10,8 +10,11 @@ from utils.chat_log import (
     append_chat_log_entry,
     build_chat_log_entry,
     extract_active_memory_ids,
+    get_chat_bootstrap_context_path,
+    get_chat_log_path,
     migrate_legacy_chat_logs,
     resume_chat_log_session,
+    save_chat_bootstrap_context_snapshot,
     save_chat_context_snapshot,
     save_turn_reasoning,
     summarize_attachments,
@@ -214,6 +217,59 @@ class ChatLogTests(unittest.TestCase):
             ],
         )
 
+    def test_append_chat_log_entry_repairs_missing_trailing_newline(self):
+        context = SimpleNamespace(
+            session_id="missing-newline-session",
+            runtime_turn_counter=2,
+            runtime_current_turn_id="turn_000002",
+            runtime_turn_attachments=[],
+            active_memory_records=[],
+            runtime_loaded_delayed_memory_ids=[],
+        )
+        now = datetime(
+            2026,
+            8,
+            17,
+            12,
+            0,
+            tzinfo=timezone.utc,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            path = get_chat_log_path(
+                context,
+                now=now,
+                root=root,
+            )
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps({
+                    "turn": 1,
+                    "turn_id": "turn_000001",
+                    "role": "jin",
+                    "text": "previous",
+                }),
+                encoding="utf-8",
+            )
+
+            append_chat_log_entry(
+                context,
+                role="user",
+                text="next",
+                now=now,
+                root=root,
+            )
+
+            entries = [
+                json.loads(line)
+                for line in path.read_text(encoding="utf-8").splitlines()
+            ]
+
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(entries[0]["text"], "previous")
+        self.assertEqual(entries[1]["text"], "next")
+
     def test_resume_chat_log_session_reuses_existing_log_and_turn_counter(self):
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -403,6 +459,71 @@ class ChatLogTests(unittest.TestCase):
         self.assertIn("latest user payload", saved)
         self.assertNotIn("PRIVATE RULES 2", saved)
         self.assertNotIn("first user payload", saved)
+
+    def test_bootstrap_context_snapshot_is_separate_and_never_overwrites_primary(self):
+
+        context = SimpleNamespace(
+            session_id="session-bootstrap",
+            runtime_turn_counter=7,
+            runtime_current_turn_id="restore_000007",
+        )
+        now = datetime(
+            2026,
+            8,
+            17,
+            16,
+            57,
+            0,
+            tzinfo=timezone.utc,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            primary_path = save_chat_context_snapshot(
+                context,
+                system_prompt="CLEAN PRIMARY CONTEXT WITH FACTS",
+                now=now,
+                root=root,
+            )
+            bootstrap_path = save_chat_bootstrap_context_snapshot(
+                context,
+                system_prompt="SESSION RESTORE BOOTSTRAP ONE",
+                now=now,
+                root=root,
+            )
+            overwritten_bootstrap_path = save_chat_bootstrap_context_snapshot(
+                context,
+                system_prompt="SESSION RESTORE BOOTSTRAP TWO",
+                now=now,
+                root=root,
+            )
+
+            self.assertEqual(bootstrap_path, overwritten_bootstrap_path)
+            self.assertEqual(
+                bootstrap_path,
+                get_chat_bootstrap_context_path(
+                    context,
+                    now=now,
+                    root=root,
+                ),
+            )
+            self.assertEqual(bootstrap_path.name, "165700.bootstrap.txt")
+            self.assertEqual(
+                primary_path.read_text(encoding="utf-8").strip(),
+                "CLEAN PRIMARY CONTEXT WITH FACTS",
+            )
+            self.assertEqual(
+                bootstrap_path.read_text(encoding="utf-8").strip(),
+                "SESSION RESTORE BOOTSTRAP TWO",
+            )
+            self.assertEqual(
+                context.runtime_chat_context_path,
+                str(primary_path),
+            )
+            self.assertEqual(
+                context.runtime_chat_bootstrap_context_path,
+                str(bootstrap_path),
+            )
 
     def test_reasoning_trace_links_back_to_dialog_and_jin_log_entry(self):
 

@@ -48,6 +48,51 @@ class AttachmentUiContractTests(unittest.TestCase):
         self.assertIn("attachment && attachment.id", source)
         self.assertIn("detailParts[0] = systemId;", source)
 
+    def test_attach_file_runtime_action_opens_existing_attachment_modal(self):
+        attachment_source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "chat-attachments.js"
+        ).read_text(encoding="utf-8")
+        runtime_action_source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "chat-runtime-actions.js"
+        ).read_text(encoding="utf-8")
+        socket_source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "socket"
+            / "runtime-actions.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "function bindRuntimeActionAttachmentPreview(",
+            attachment_source,
+        )
+        self.assertIn(
+            "void openJinAttachmentModal(",
+            attachment_source,
+        )
+        self.assertIn(
+            'action === "attach_file"',
+            runtime_action_source,
+        )
+        self.assertIn(
+            "options.attachmentResult || null",
+            runtime_action_source,
+        )
+        self.assertIn(
+            "data.attachment_result || null",
+            socket_source,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

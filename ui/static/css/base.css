@@ -207,6 +207,22 @@ main.panels-collapsed-2 #scene-shade {
 #console-drag-handle,
 #memory-drag-handle {
     flex-shrink: 0;
+    /* The panels intentionally keep overflow visible for external glow/resize
+       affordances. Clip their top surfaces locally to the panel radius so a
+       square header/avatar background cannot poke through rounded corners. */
+    border-top-left-radius: inherit;
+    border-top-right-radius: inherit;
+}
+
+#console-panel.panel-collapsed #console-drag-handle,
+#memory-panel.panel-collapsed #memory-drag-handle {
+    border-radius: inherit;
+}
+
+#console-panel.panel-collapsed #console-drag-handle {
+    /* No body exists below a collapsed console title, so the internal divider
+       must not stick through the rounded lower corners as a stray line. */
+    border-bottom-color: transparent !important;
 }
 
 #console-panel:not(.panel-collapsed),

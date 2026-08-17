@@ -755,6 +755,133 @@ function bindJinAttachmentHoverPreview(
   );
 }
 
+function normalizeRuntimeActionAttachmentForModal(
+  attachmentResult,
+  attachmentId = ""
+) {
+  const result =
+    attachmentResult
+    && typeof attachmentResult === "object"
+    && !Array.isArray(attachmentResult)
+      ? attachmentResult
+      : {};
+  const id =
+    normalizeAttachmentValue(
+      result.id || attachmentId
+    ).trim().toLowerCase();
+
+  if (!id) {
+    return null;
+  }
+
+  const storedRecord =
+    window.JinFiles
+    && typeof window.JinFiles.getFile === "function"
+      ? window.JinFiles.getFile(id)
+      : null;
+
+  return {
+    ...result,
+    ...(storedRecord || {}),
+    id,
+    name:
+      normalizeAttachmentValue(
+        (storedRecord && storedRecord.name)
+        || result.name
+        || "attachment"
+      ),
+  };
+}
+
+function bindRuntimeActionAttachmentPreview(
+  element,
+  attachmentResult,
+  attachmentId = ""
+) {
+  if (!element) {
+    return;
+  }
+
+  const attachment =
+    normalizeRuntimeActionAttachmentForModal(
+      attachmentResult,
+      attachmentId
+    );
+
+  element._jinRuntimeActionAttachment =
+    attachment;
+
+  if (!attachment) {
+    element.removeAttribute("role");
+    element.removeAttribute("tabindex");
+    element.classList.remove(
+      "cursor-pointer"
+    );
+    return;
+  }
+
+  element.setAttribute(
+    "role",
+    "button"
+  );
+  element.tabIndex = 0;
+  element.classList.remove(
+    "cursor-help"
+  );
+  element.classList.add(
+    "cursor-pointer"
+  );
+  element.title =
+    formatAttachmentHoverTitle(
+      attachment
+    )
+    || element.title
+    || "Open attachment preview";
+
+  if (element._jinRuntimeActionAttachmentBound) {
+    return;
+  }
+
+  element._jinRuntimeActionAttachmentBound =
+    true;
+
+  const openAttachment = () => {
+    const currentAttachment =
+      element._jinRuntimeActionAttachment;
+
+    if (!currentAttachment) {
+      return;
+    }
+
+    void openJinAttachmentModal(
+      currentAttachment
+    );
+  };
+
+  element.addEventListener(
+    "click",
+    (event) => {
+      event.preventDefault();
+      openAttachment();
+    }
+  );
+
+  element.addEventListener(
+    "keydown",
+    (event) => {
+      if (
+          event.key !== "Enter"
+          && event.key !== " "
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      openAttachment();
+    }
+  );
+}
+
 function bindJinAttachmentBubble(
   element,
   attachment,
@@ -1308,6 +1435,8 @@ function bindDelayedMemoryReportPreview(
 
 window.bindJinAttachmentBubble =
   bindJinAttachmentBubble;
+window.bindRuntimeActionAttachmentPreview =
+  bindRuntimeActionAttachmentPreview;
 window.hideJinAttachmentHoverPreview =
   hideAttachmentHoverPreview;
 window.bindJinAttachmentHoverPreview =

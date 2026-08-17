@@ -7,7 +7,7 @@
     "triggers": [],
     "blockers": [],
     "effects": {
-      "emit_followup": true
+      "emit_followup": false
     },
     "rules": [
       "Emit one marker per saved delayed memory. You may emit multiple markers to load multiple reports; already loaded ids are ignored.",

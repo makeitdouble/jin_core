@@ -137,6 +137,45 @@
     margin-top: var(--chat-question-gap) !important;
 }
 
+.jin-session-restore-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: calc(100% - 96px);
+    margin: 22px 48px 18px;
+    color: rgba(148, 163, 184, 0.52);
+    font-size: 10px;
+    line-height: 1;
+    letter-spacing: 0.035em;
+    white-space: nowrap;
+    pointer-events: none;
+    user-select: none;
+}
+
+.jin-session-restore-divider::before,
+.jin-session-restore-divider::after {
+    content: "";
+    flex: 1 1 auto;
+    height: 1px;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(148, 163, 184, 0.28)
+    );
+}
+
+.jin-session-restore-divider::after {
+    background: linear-gradient(
+        90deg,
+        rgba(148, 163, 184, 0.28),
+        transparent
+    );
+}
+
+.jin-session-restore-divider-label {
+    opacity: 0.82;
+}
+
 .jin-message-row {
     /* Горизонтальная строка: аватарка слева, бабл справа. */
     display: flex;

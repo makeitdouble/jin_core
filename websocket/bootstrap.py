@@ -4,7 +4,11 @@ from fastapi import WebSocket
 
 from .logger import WebSocketLogger
 
-from runtime.runtime_context import RuntimeContext, RuntimeEmitter
+from runtime.runtime_context import (
+    RECENT_MESSAGES_MAX_PAIRS,
+    RuntimeContext,
+    RuntimeEmitter,
+)
 from runtime.L1_memory import (
     build_runtime_memory_snapshot,
     parse_runtime_memory_lines,
@@ -17,6 +21,7 @@ from runtime.L1_memory_utils import (
     emit_runtime_session_memory_update,
     rebuild_latest_runtime_memory_snapshot,
     remove_runtime_user_idle_lines,
+    strip_runtime_memory_line_metadata,
 )
 from runtime.L3_memory_utils import parse_l3_session_snapshot_metadata
 from runtime.telemetry import send_telemetry
@@ -28,6 +33,9 @@ from utils.actions import (
 )
 from utils.chat_log import (
     resume_chat_log_session,
+)
+from utils.attached_files_store import (
+    hydrate_attachment_ids,
 )
 from utils.delayed_memory_file_store import (
     load_delayed_memory_reports_from_files,
@@ -104,6 +112,282 @@ def active_memory_records_text(context) -> str:
         )
         if str(record or "").strip()
     )
+
+
+def apply_archived_session_continuation_state(
+    context,
+    message_data: dict,
+) -> None:
+
+    source_session_id = clean_bootstrap_memory(
+        message_data.get(
+            "source_session_id",
+            "",
+        ),
+        limit=80,
+    )
+
+    if source_session_id:
+        context.runtime_archived_session_id = source_session_id
+        context.session_id = source_session_id
+        context.runtime_chat_log_session_id = source_session_id
+        context.runtime_session_restore_priming = bool(
+            message_data.get(
+                "archived_session_restore",
+                True,
+            )
+        )
+
+        # Checkout the original log path so the restore greeting and every
+        # following turn continue in the same archived session directory.
+        resume_chat_log_session(
+            context
+        )
+
+    restore_reasoning_dump = clean_bootstrap_memory(
+        message_data.get(
+            "restore_reasoning_dump",
+            "",
+        ),
+        limit=32000,
+    )
+    context.runtime_session_restore_reasoning_dump = (
+        restore_reasoning_dump
+    )
+
+    restore_l4_fact_ids = []
+    for fact_id in message_data.get(
+        "restore_l4_fact_ids",
+        [],
+    ) if isinstance(message_data.get("restore_l4_fact_ids", []), list) else []:
+        normalized = clean_bootstrap_memory(
+            fact_id,
+            limit=80,
+        ).upper()
+        if normalized and normalized not in restore_l4_fact_ids:
+            restore_l4_fact_ids.append(normalized)
+    context.runtime_session_restore_l4_fact_ids = restore_l4_fact_ids
+
+    def _clean_restore_metadata(field_name: str) -> list[dict]:
+        source = message_data.get(field_name, [])
+        if not isinstance(source, list):
+            return []
+        items = []
+        seen = set()
+        for raw_item in source:
+            if not isinstance(raw_item, dict):
+                continue
+            item_id = clean_bootstrap_memory(
+                raw_item.get("id", ""),
+                limit=200,
+            )
+            if not item_id or item_id in seen:
+                continue
+            seen.add(item_id)
+            items.append({
+                "id": item_id,
+                "title": clean_bootstrap_memory(
+                    raw_item.get("title", ""),
+                    limit=500,
+                ) or item_id,
+            })
+        return items
+
+    context.runtime_session_restore_delayed_memory_metadata = (
+        _clean_restore_metadata(
+            "restore_delayed_memory_metadata"
+        )
+    )
+    context.runtime_session_restore_attached_file_metadata = (
+        _clean_restore_metadata(
+            "restore_attached_file_metadata"
+        )
+    )
+
+    recent_turns = message_data.get(
+        "recent_turns",
+        [],
+    )
+
+    if isinstance(recent_turns, list):
+        normalized_turns = []
+
+        for turn in recent_turns:
+            if not isinstance(turn, dict):
+                continue
+
+            user_text = clean_bootstrap_memory(
+                turn.get("user", ""),
+                limit=12000,
+            )
+            jin_text = clean_bootstrap_memory(
+                turn.get("jin", ""),
+                limit=12000,
+            )
+
+            if not user_text and not jin_text:
+                continue
+
+            normalized_turn = {
+                "user": user_text,
+                "jin": jin_text,
+            }
+
+            for source_key, target_key in (
+                ("user_created_at", "user_created_at"),
+                ("jin_created_at", "jin_created_at"),
+            ):
+                try:
+                    timestamp = float(
+                        turn.get(source_key, 0)
+                        or 0
+                    )
+                except (TypeError, ValueError):
+                    timestamp = 0.0
+
+                if timestamp > 0:
+                    normalized_turn[target_key] = timestamp
+
+            normalized_turns.append(normalized_turn)
+
+        context.runtime_recent_turns = normalized_turns[
+            -RECENT_MESSAGES_MAX_PAIRS:
+        ]
+
+    restored_dialog = clean_bootstrap_memory(
+        message_data.get(
+            "dialog_context",
+            "",
+        ),
+        limit=48000,
+    )
+
+    if restored_dialog:
+        context.runtime_restored_session_dialog = restored_dialog
+        context.runtime_restored_session_source_id = clean_bootstrap_memory(
+            message_data.get(
+                "source_session_id",
+                "",
+            ),
+            limit=80,
+        )
+
+    previous_reasoning = clean_bootstrap_memory(
+        message_data.get(
+            "previous_reasoning",
+            "",
+        ),
+        limit=48000,
+    )
+
+    if previous_reasoning:
+        context.runtime_previous_reasoning_content = (
+            previous_reasoning
+        )
+        context.runtime_previous_reasoning_loop_contents = []
+
+    session_actions = message_data.get(
+        "session_actions",
+        [],
+    )
+
+    if isinstance(session_actions, list):
+        normalized_actions = []
+
+        for item in session_actions[-200:]:
+            if not isinstance(item, dict):
+                continue
+
+            text = clean_bootstrap_memory(
+                item.get("text", ""),
+                limit=2000,
+            )
+
+            if not text:
+                continue
+
+            normalized_item = {
+                "text": text,
+            }
+
+            try:
+                created_at = float(
+                    item.get("created_at", 0)
+                    or 0
+                )
+            except (TypeError, ValueError):
+                created_at = 0.0
+
+            if created_at > 0:
+                normalized_item["created_at"] = created_at
+
+            parts = item.get("parts", [])
+            if isinstance(parts, list):
+                normalized_parts = []
+                for part in parts:
+                    if not isinstance(part, dict):
+                        continue
+                    part_text = clean_bootstrap_memory(
+                        part.get("text", ""),
+                        limit=600,
+                    )
+                    if not part_text:
+                        continue
+                    normalized_part = {
+                        "text": part_text,
+                    }
+                    detail = clean_bootstrap_memory(
+                        part.get("detail", ""),
+                        limit=1200,
+                    )
+                    message = clean_bootstrap_memory(
+                        part.get("message", ""),
+                        limit=2400,
+                    )
+                    if detail:
+                        normalized_part["detail"] = detail
+                    if message:
+                        normalized_part["message"] = message
+                    normalized_parts.append(normalized_part)
+
+                if normalized_parts:
+                    normalized_item["parts"] = normalized_parts
+
+            normalized_actions.append(normalized_item)
+
+        context.runtime_session_action_history = normalized_actions
+
+    if bool(
+        message_data.get("archived_session_restore")
+        and source_session_id
+    ):
+        stage_session_restore_attached_file_ids(
+            context,
+            message_data,
+        )
+    else:
+        context.runtime_session_restore_pending_attached_file_ids = []
+        attached_file_ids = [
+            str(file_id or "").strip()
+            for file_id in message_data.get(
+                "attached_file_ids",
+                [],
+            )
+            if str(file_id or "").strip()
+        ]
+
+        if attached_file_ids:
+            attachments = hydrate_attachment_ids(
+                attached_file_ids
+            )
+            context.runtime_attached_file_ids = [
+                str(item.get("id", "") or "").strip()
+                for item in attachments
+                if isinstance(item, dict)
+                and str(item.get("id", "") or "").strip()
+            ]
+            context.runtime_turn_attachments = list(attachments)
+            context.runtime_current_sequence_attachments = list(attachments)
 
 
 def clean_delayed_memory_reports(value) -> dict:
@@ -232,6 +516,76 @@ def apply_loaded_delayed_memory_ids(
     )
 
     return loaded_ids
+
+
+def stage_session_restore_attached_file_ids(
+    context,
+    message_data: dict,
+) -> list[str]:
+
+    raw_ids = message_data.get(
+        "attached_file_ids",
+        [],
+    )
+    pending_ids = []
+    seen = set()
+
+    for raw_id in raw_ids if isinstance(raw_ids, list) else []:
+        file_id = clean_bootstrap_memory(
+            raw_id,
+            limit=80,
+        ).casefold()
+        if not file_id or file_id in seen:
+            continue
+        seen.add(file_id)
+        pending_ids.append(file_id)
+
+    context.runtime_session_restore_pending_attached_file_ids = (
+        pending_ids
+    )
+
+    # The hidden restore turn receives only RESTORED_SESSION_RESOURCES
+    # metadata. Do not keep a browser/file-store sync active in the runtime
+    # context, otherwise the restore answer can accidentally inherit the
+    # archived file payload before the synthetic ATTACH_FILE replay below.
+    context.runtime_attached_file_ids = []
+    context.runtime_turn_attachments = []
+    context.runtime_current_sequence_attachments = []
+    context.runtime_current_sequence_attachments_turn_id = ""
+
+    return pending_ids
+
+
+def stage_session_restore_loaded_delayed_memory_ids(
+    context,
+    message_data: dict,
+) -> list[str]:
+
+    raw_loaded_ids = message_data.get(
+        "loaded_delayed_memory_ids",
+        message_data.get("loaded_memory_ids", []),
+    )
+    requested_ids = clean_loaded_delayed_memory_report_ids(
+        raw_loaded_ids
+    )
+    # Keep the archived ids even if a report record has not reached this
+    # connection yet. A delayed-memory store sync can arrive before the hidden
+    # restore tick; activation after that tick will resolve only ids that exist.
+    pending_ids = list(requested_ids)
+
+    context.runtime_session_restore_pending_loaded_memory_ids = pending_ids
+    context.runtime_loaded_delayed_memory = {}
+    context.runtime_loaded_delayed_memory_ids = []
+
+    from runtime.L4_memory import (
+        refresh_runtime_l4_archived_fact_ids,
+    )
+
+    refresh_runtime_l4_archived_fact_ids(
+        context
+    )
+
+    return pending_ids
 
 
 def get_context_loaded_delayed_memory_ids(
@@ -598,6 +952,40 @@ def clean_bootstrap_runtime_memory(
     ).strip()
 
 
+def reset_archived_runtime_memory_lifecycle(
+    memory: str,
+) -> str:
+
+    fresh_lines = []
+
+    for raw_line in str(memory or "").splitlines():
+        line = raw_line.strip()
+
+        if not line:
+            continue
+
+        if ":" not in line:
+            fresh_lines.append(
+                strip_runtime_memory_line_metadata(line)
+            )
+            continue
+
+        key, value = line.split(
+            ":",
+            1,
+        )
+        cleaned_value = strip_runtime_memory_line_metadata(
+            value
+        )
+        fresh_lines.append(
+            f"{key.strip()}: {cleaned_value}".rstrip()
+        )
+
+    return "\n".join(
+        line for line in fresh_lines if line.strip()
+    ).strip()
+
+
 
 
 def normalize_resume_client_id(
@@ -721,7 +1109,18 @@ def get_or_create_connection_context(
             websocket,
             logger,
         )
-        existing_context.session_id = client_id
+        archived_session_id = str(
+            getattr(
+                existing_context,
+                "runtime_archived_session_id",
+                "",
+            )
+            or ""
+        ).strip()
+        existing_context.session_id = (
+            archived_session_id
+            or client_id
+        )
         hydrate_delayed_memory_reports_from_files(
             existing_context
         )
@@ -1025,6 +1424,8 @@ def should_ignore_bootstrap_runtime_memory(
 
 async def emit_current_runtime_memory(
     context,
+    *,
+    replace_latest: bool = False,
 ):
 
     snapshots = getattr(
@@ -1070,6 +1471,9 @@ async def emit_current_runtime_memory(
         "snapshot_index": snapshot.get(
             "index",
             0,
+        ),
+        "replace_latest": bool(
+            replace_latest
         ),
     })
 
@@ -1333,7 +1737,29 @@ def apply_runtime_resume(
         context,
         message_data,
     )
-    apply_loaded_delayed_memory_ids(
+
+    is_archived_restore = bool(
+        message_data.get("archived_session_restore")
+        and str(message_data.get("source_session_id", "") or "").strip()
+    )
+
+    if is_archived_restore:
+        # Do not mark archived delayed reports as loaded before the hidden
+        # restoration turn. Otherwise their full bodies can leak into the
+        # bootstrap prompt through store sync/race paths. Keep only the ids
+        # staged; metadata is injected separately by the restore context builder.
+        stage_session_restore_loaded_delayed_memory_ids(
+            context,
+            message_data,
+        )
+    else:
+        context.runtime_session_restore_pending_loaded_memory_ids = []
+        apply_loaded_delayed_memory_ids(
+            context,
+            message_data,
+        )
+
+    apply_archived_session_continuation_state(
         context,
         message_data,
     )
@@ -1520,10 +1946,95 @@ def apply_runtime_resume(
     return True
 
 
+def enrich_session_bootstrap_from_archive(
+    message_data: dict,
+) -> dict:
+
+    if not isinstance(message_data, dict):
+        return {}
+
+    # A delayed-memory session link already carries the rich archived payload.
+    # A normal browser/L3 restore only carries its source session id, so enrich
+    # that bootstrap from the server-side raw logs before hydrating JIN.
+    if message_data.get("archived_session_restore") is True:
+        return message_data
+
+    source_session_id = clean_bootstrap_memory(
+        message_data.get(
+            "source_session_id",
+            "",
+        ),
+        limit=80,
+    )
+    if not source_session_id:
+        return message_data
+
+    try:
+        from utils.session_restore import (
+            build_archived_session_restore_payload,
+        )
+
+        archived = build_archived_session_restore_payload(
+            source_session_id
+        )
+    except Exception:
+        archived = None
+
+    if not isinstance(archived, dict):
+        return message_data
+
+    enriched = dict(message_data)
+
+    # These fields exist only (or are materially richer) in the raw archived
+    # session and are safe to use for both click-restore and browser/L3 load.
+    for field in (
+        "dialog_context",
+        "recent_turns",
+        "previous_reasoning",
+        "restore_reasoning_dump",
+        "restore_l4_fact_ids",
+        "restore_delayed_memory_metadata",
+        "restore_attached_file_metadata",
+        "session_actions",
+        "runtime_turn_counter",
+        "turn_number",
+        "user_message_count",
+        "assistant_message_count",
+        "attached_file_ids",
+    ):
+        value = archived.get(field)
+        if value not in (None, "", [], {}):
+            enriched[field] = value
+
+    # Browser/L3 persistence is the exact checkpoint when available. Fall back
+    # to PREVIOUS_* from the archived context only when the browser half is
+    # absent.
+    for field in (
+        "runtime_memory",
+        "runtime_memory_updates",
+        "session_memory",
+        "session_memory_updates",
+        "loaded_memory_ids",
+        "active_memory_records",
+    ):
+        if enriched.get(field) in (None, "", [], {}):
+            value = archived.get(field)
+            if value not in (None, "", [], {}):
+                enriched[field] = value
+
+    enriched["source_session_id"] = source_session_id
+    enriched["archived_session_restore"] = True
+    return enriched
+
+
 def apply_session_bootstrap(
     context,
     message_data: dict,
 ) -> bool:
+
+    message_data = enrich_session_bootstrap_from_archive(
+        message_data
+    )
 
     apply_active_memory_records(
         context,
@@ -1533,7 +2044,29 @@ def apply_session_bootstrap(
         context,
         message_data,
     )
-    apply_loaded_delayed_memory_ids(
+
+    is_archived_restore = bool(
+        message_data.get("archived_session_restore")
+        and str(message_data.get("source_session_id", "") or "").strip()
+    )
+
+    if is_archived_restore:
+        # Do not mark archived delayed reports as loaded before the hidden
+        # restoration turn. Otherwise their full bodies can leak into the
+        # bootstrap prompt through store sync/race paths. Keep only the ids
+        # staged; metadata is injected separately by the restore context builder.
+        stage_session_restore_loaded_delayed_memory_ids(
+            context,
+            message_data,
+        )
+    else:
+        context.runtime_session_restore_pending_loaded_memory_ids = []
+        apply_loaded_delayed_memory_ids(
+            context,
+            message_data,
+        )
+
+    apply_archived_session_continuation_state(
         context,
         message_data,
     )
@@ -1574,6 +2107,16 @@ def apply_session_bootstrap(
             )
         )
         runtime_memory_is_snapshot_fallback = True
+
+    if is_archived_restore and runtime_memory:
+        # PREVIOUS_RUNTIME_STATE is a semantic snapshot, not a historical L1
+        # page. Drop its old "created/updated Xm ago" presentation metadata so
+        # build_runtime_memory_snapshot() seeds every restored field as fresh at
+        # this restore point. The values remain identical; only lifecycle age is
+        # restarted.
+        runtime_memory = reset_archived_runtime_memory_lifecycle(
+            runtime_memory
+        )
 
     has_bootstrap_content = bool(
         session_memory

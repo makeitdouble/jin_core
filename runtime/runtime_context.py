@@ -300,6 +300,43 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_restored_session_dialog: str = ""
+
+    runtime_restored_session_source_id: str = ""
+
+    runtime_archived_session_id: str = ""
+
+    runtime_session_restore_priming: bool = False
+
+    runtime_session_restore_reasoning_dump: str = ""
+
+    runtime_session_restore_l4_fact_ids: list[str] = field(
+        default_factory=list
+    )
+
+    runtime_session_restore_delayed_memory_metadata: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_session_restore_attached_file_metadata: list[dict] = field(
+        default_factory=list
+    )
+
+    # Delayed reports that were loaded in an archived session are staged during
+    # the hidden restore turn. Their bodies stay out of the first restore prompt
+    # and become normally loaded only after JIN has produced the restore greeting.
+    runtime_session_restore_pending_loaded_memory_ids: list[str] = field(
+        default_factory=list
+    )
+
+    # Persistent files from an archived session follow the same one-shot
+    # restore contract as delayed memory: metadata is visible to the hidden
+    # restore turn, while the real ATTACH_FILE actions are replayed only after
+    # JIN has completed that first response.
+    runtime_session_restore_pending_attached_file_ids: list[str] = field(
+        default_factory=list
+    )
+
     runtime_memory_update_task: object | None = None
 
     fact_check_idle_task: object | None = None
